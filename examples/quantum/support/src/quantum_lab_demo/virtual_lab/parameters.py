@@ -11,7 +11,7 @@ DRAG_BETA_PARAMETER_COLUMN = "drag_beta"
 _QUBIT_VALUE_TYPE = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
 _NS_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="ns"))
 _ARB_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="arb"))
-_QUBIT_PARAMETER_TABLE_TYPE = sc.TableType(
+QUBIT_PARAMETER_TABLE_TYPE = sc.TableType(
     columns=(
         sc.TableColumn("qubit", _QUBIT_VALUE_TYPE),
         sc.TableColumn("drag_beta", _NS_VALUE_TYPE),
@@ -23,7 +23,7 @@ _QUBIT_PARAMETER_TABLE_TYPE = sc.TableType(
 )
 _QUBIT_PARAMETERS = sc.parameter(
     QUBIT_PARAMETER_TABLE,
-    _QUBIT_PARAMETER_TABLE_TYPE,
+    QUBIT_PARAMETER_TABLE_TYPE,
 )
 
 _Q0 = EntityRef(id="q0", kind="logical_qubit")
@@ -59,6 +59,7 @@ def q0_drag_beta_lookup() -> sc.ValueRef:
 __all__ = [
     "DRAG_BETA_PARAMETER_COLUMN",
     "QUBIT_PARAMETER_TABLE",
+    "QUBIT_PARAMETER_TABLE_TYPE",
     "q0_drag_beta_lookup",
     "q0_parameter_key",
     "qubit_parameters",

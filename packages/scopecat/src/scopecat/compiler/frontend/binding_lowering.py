@@ -6,15 +6,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import cast
 
-from scopecat.authoring._binding_intents import (
-    BindingIntent,
-    InvocationIntent,
-    ResourcePort,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_lower_value_ref,
-)
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
@@ -40,7 +31,7 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     set_state_property,
 )
-from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
 from scopecat.graph.relations.model import (
     LiteralScalarExpr,
     ScalarExpr,
@@ -50,6 +41,16 @@ from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Entity, Scalar
+from scopecat.program.bindings import (
+    BindingIntent,
+    EnsureStateIntent,
+    InvocationIntent,
+    ResourcePort,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_lower_value_ref,
+)
 from scopecat.records.config import Topology
 
 
@@ -83,6 +84,26 @@ def lower_state_binding(
                 expected_type=value_type,
             )
         ),
+    )
+
+
+def lower_ensure_state(
+    intent: EnsureStateIntent,
+    *,
+    inputs: Mapping[str, object],
+    type_bindings: RelationTypeBindings,
+) -> EnsureStateSpec:
+    """Lower one coherent authoring target into typed desired state."""
+
+    return EnsureStateSpec(
+        tuple(
+            lower_state_binding(
+                assignment,
+                inputs=inputs,
+                type_bindings=type_bindings,
+            )
+            for assignment in intent.assignments
+        )
     )
 
 

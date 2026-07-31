@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.authoring.value_types import (
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.program.value_types import (
     Bool,
     Entity,
     Float,
@@ -17,9 +20,6 @@ from scopecat.authoring.value_types import (
     coerce_literal,
     validate_literal,
 )
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.quantity import Quantity as QuantityValue
 
 
 def test_scalar_types_coerce_literals_and_apply_constraints() -> None:

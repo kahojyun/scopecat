@@ -12,6 +12,8 @@ from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.measurements.results import MeasurementDType, MeasurementScalar
+from scopecat.program.domain import domain_program
+from scopecat.program.products import ModuleProductDecl
 from scopecat.sdk.domain import (
     DomainBatchRequest,
     DomainPreparationBuilder,
@@ -34,6 +36,7 @@ from scopecat.sdk.domain.runtime import (
     DomainSubmitReceipt,
 )
 from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.domain import domain_call
 
 type _ResultBinding = DomainResultBinding[str]
 
@@ -66,7 +69,7 @@ def _preparation_context(
 ) -> DomainBatchRequest:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     count = sc.coordinate(f"{namespace}_count", count_type)
-    program = sc.domain_program(
+    program = domain_program(
         "program",
         dialect_id="test.preparation",
         dialect_version="1",
@@ -76,35 +79,36 @@ def _preparation_context(
             "raw": ("raw", "v1"),
         },
     )
-    module = sc.module_body(id=f"test.sdk.preparation.{namespace}").product(
-        "raw",
-        unit=unit,
-        dtype=dtype,
-    )
-    execution = sc.domain_execution(
+
+    authored_call = domain_call(
         program,
         inputs={"count": count},
-        results={"raw": module.products["raw"]},
+        products={
+            "raw": ModuleProductDecl(
+                "raw",
+                unit=unit,
+                dtype=dtype,
+            )
+        },
     )
-    module_call = module.domain(execution).build()()
-    body = sc.experiment(module_call).scan(sc.axis(count, (1, 3)))
-    if shared_product_uses:
-        body = body.record_product(
-            module_call.products.raw,
-            record_id="raw-first",
-        ).record_product(
-            module_call.products.raw,
-            record_id="raw-second",
-        )
-    else:
-        body = body.record_product(
-            module_call.products.raw,
-            record_id="raw",
-        )
-    selected = sc.template(
+
+    @sc.template(
         id=f"test.sdk.preparation.{namespace}",
         kind="domain_preparation",
-    )(lambda: body)
+    )
+    def selected(experiment: sc.ExperimentContext) -> None:
+        placed = experiment.run(authored_call)
+        experiment.scan(sc.axis(count, (1, 3)))
+        experiment.record(
+            placed.results.raw,
+            record_id="raw-first" if shared_product_uses else "raw",
+        )
+        if shared_product_uses:
+            experiment.record(
+                placed.results.raw,
+                record_id="raw-second",
+            )
+
     resolved = link_invocation(
         selected.bind(),
         config_profile=load_config(),
@@ -113,13 +117,13 @@ def _preparation_context(
     linked_points = materialize_linked_points(linked)
     execution_id = core_domain_executions(linked.program)[0].id
     closure = domain_result_closure(linked.program, execution_id)
-    call = make_domain_call_view(
+    call_view = make_domain_call_view(
         linked,
         execution_id,
         closure,
     )
     return make_domain_batch_request(
-        call,
+        call_view,
         linked_points,
         (0, 1),
         batch_ordinal=0,

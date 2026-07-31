@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
 import scopecat as sc
 from scopecat import Quantity
@@ -231,60 +233,21 @@ def test_program_rejects_conflicting_gate_definitions() -> None:
         )
 
 
-def test_domain_execution_requires_exact_handle_bindings() -> None:
-    declaration, x_count, raw_iq = _x_count_declaration()
-    program = authoring._domain_program(declaration)
-    products = (
-        sc.module_body(id="test.quantum.bindings")
-        .product("integrated_iq_shots")
-        .build()
-    )
-
-    with pytest.raises(ValueError, match="bind every declared port"):
-        authoring._domain_execution(
-            program,
-            results={raw_iq: products.products["integrated_iq_shots"]},
-        )
-    with pytest.raises(ValueError, match="bind every declared result"):
-        authoring._domain_execution(
-            program,
-            inputs={x_count: 1},
-        )
-
-
-def test_domain_execution_rejects_forged_ports_and_normalizes_number_literal() -> None:
-    q0 = authoring.qubit("q0")
-    amplitude = authoring.scalar_input("amplitude", GateParameterKind.NUMBER)
+def test_program_call_normalizes_number_literal() -> None:
     drive = authoring.single_qubit_gate(
         "drive",
         parameters={"amplitude": GateParameterKind.NUMBER},
     )
-    readout = authoring.measure(q0, result="iq")
-    declaration = authoring._close_program(
-        "number-input",
-        authoring.sequence(drive(q0, amplitude=amplitude), readout),
-    )
-    program = authoring._domain_program(declaration)
-    products = sc.module_body(id="test.quantum.number-input").product("iq").build()
 
-    execution = authoring._domain_execution(
-        program,
-        inputs={amplitude: 1},
-        results={readout.result: products.products["iq"]},
-    )
-    assert execution.input_bindings == (("amplitude", 1.0),)
-
-    forged = sc.domain_program(
-        declaration.id,
-        dialect_id=authoring.QUANTUM_PROGRAM_DIALECT_ID,
-        dialect_version=authoring.QUANTUM_PROGRAM_DIALECT_VERSION,
-        body=declaration,
-        inputs={"amplitude": sc.ScalarType(sc.IntType())},
-        results={"iq": readout.result},
-    )
-    with pytest.raises(ValueError, match="ports do not match"):
-        authoring._domain_execution(
-            forged,
-            inputs={amplitude: 1},
-            results={readout.result: products.products["iq"]},
+    @authoring.program(id="number-input")
+    def declaration(
+        qubit: authoring.Qubit,
+        amplitude: Annotated[float, GateParameterKind.NUMBER],
+    ) -> authoring.QuantumFragment:
+        return authoring.sequence(
+            drive(qubit, amplitude=amplitude),
+            authoring.measure(qubit, result="iq"),
         )
+
+    call = declaration.call("call", "q0", 1)
+    assert dict(call.domain_call.execution.input_bindings)["amplitude"] == 1.0

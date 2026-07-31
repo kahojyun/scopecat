@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import override
+from typing import Annotated, override
 
 import scopecat as sc
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
@@ -67,6 +67,11 @@ _PLAY_PROGRAM = InterfaceRef("test.play_program/v1")
 _PLAY_PROGRAM_PLAY = _PLAY_PROGRAM.operation("play")
 _PLAY_PROGRAM_ARGUMENT = _PLAY_PROGRAM_PLAY.argument("program")
 
+type _SourceProgramInput = Annotated[
+    sc.Input[object],
+    sc.ScalarType(sc.PayloadType("source_program")),
+]
+
 
 def _logical_point_id(name: str, ordinal: int = 0) -> LogicalPointId:
     return LogicalPointId(PointDomainId(name, "root"), ordinal)
@@ -105,6 +110,36 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
     assert result.admitted_points == points
 
 
+def test_normal_completion_applies_final_state_after_point_coverage() -> None:
+    driver = SignalInstrumentDriver(instrument_id="source-0")
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("final_state-point"), {}),
+        (_gain_operation("source-0", 1.0),),
+        resource_order=("source-0",),
+        resource_requirements=_requirements("source-0"),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="final_state-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost((driver,)),
+        journal=FakeExecutionJournal(),
+    ).run(
+        complete_coverage_operations(program),
+        points=program.points,
+        final_state=(_gain_operation("source-0", 0.0),),
+    )
+
+    assert not result.problems and not result.indeterminate
+    assert len(driver.applied) == 2
+    [final] = result.final_state
+    assert next(
+        item.value
+        for item in final.properties
+        if item.interface_id == "test.set_gain/v1" and item.property_id == "gain"
+    ) == StateValue(0.0)
+
+
 class _SingleDriverProvider:
     def __init__(self, driver: SignalInstrumentDriver) -> None:
         self.driver = driver
@@ -138,56 +173,55 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
 
     source_program_type = sc.ScalarType(sc.PayloadType("source_program"))
     pulse_program_type = sc.ScalarType(sc.PayloadType("pulse_program"))
-    program = sc.input("program", source_program_type)
 
     def consume(*, program: object) -> dict[str, object]:
         calls.append("consume")
         return {"consumed": program}
 
-    consume_program = sc.compute(
-        "consume-program",
-        fn=consume,
-        inputs={"program": program},
-        output_type=pulse_program_type,
-    )
-    child = (
-        sc.module_body(id="tests.compute_schedule.child")
-        .inputs(program)
-        .resource("source", requires=(_PLAY_PROGRAM,))
-        .computes(consume_program)
-        .invoke(
-            "play-program",
-            resource="source",
-            operation=_PLAY_PROGRAM_PLAY,
-            arguments={_PLAY_PROGRAM_ARGUMENT: consume_program.output},
+    @sc.module(id="tests.compute_schedule.child")
+    def child(
+        context: sc.ModuleContext,
+        program: _SourceProgramInput,
+    ) -> None:
+        consumed = context.compute(
+            "consume-program",
+            fn=consume,
+            inputs={"program": sc.input_ref(program)},
+            output_type=pulse_program_type,
         )
-        .build()
-    )
+        source = context.resource("source", requires=(_PLAY_PROGRAM,))
+        context.invoke(
+            "play-program",
+            resource=source,
+            operation=_PLAY_PROGRAM_PLAY,
+            arguments={_PLAY_PROGRAM_ARGUMENT: consumed},
+        )
 
     def produce() -> dict[str, object]:
         calls.append("produce")
         return {"source": "parent"}
 
-    produce_program = sc.compute(
-        "produce-program",
-        fn=produce,
-        output_type=source_program_type,
-    )
-    parent = (
-        sc.module_body(id="tests.compute_schedule.parent")
-        .computes(produce_program)
-        .use(
+    @sc.module(id="tests.compute_schedule.parent")
+    def parent(context: sc.ModuleContext) -> None:
+        produced = context.compute(
+            "produce-program",
+            fn=produce,
+            output_type=source_program_type,
+        )
+        context.call(
             child.instantiate(
                 "compute-schedule-child",
-                program=produce_program.output,
+                program=produced,
             )
         )
-        .build()
-    )
-    template = sc.template(
+
+    @sc.template(
         id="tests.compute_schedule",
         kind="characterization",
-    )(lambda: sc.experiment(parent()))
+    )
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(parent())
+
     driver = SignalInstrumentDriver()
     payload_codecs = json_payload_codecs("pulse_program")
     config = config_with_physical_resources({"source-0": ("test.play_program/v1",)})
@@ -519,6 +553,30 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     assert len(first.applied) == 1
     assert second.applied == []
     assert result.final_state == result.prepared_state
+
+
+def test_failed_coverage_does_not_apply_normal_completion_final_state() -> None:
+    driver = _BlockingStateDriver(instrument_id="source-0")
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("failed-final_state-point"), {}),
+        (_gain_operation("source-0", 1.0),),
+        resource_order=("source-0",),
+        resource_requirements=_requirements("source-0"),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="failed-final_state-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost((driver,)),
+        journal=FakeExecutionJournal(),
+    ).run(
+        complete_coverage_operations(program),
+        points=program.points,
+        final_state=(_gain_operation("source-0", 0.0),),
+    )
+
+    assert result.problems
+    assert len(driver.applied) == 1
 
 
 class _UnexpectedResultDriver(SignalInstrumentDriver):

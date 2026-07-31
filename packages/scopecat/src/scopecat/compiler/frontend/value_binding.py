@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from typing import cast, override
 
-from scopecat.authoring._value_refs import ValueRef, internal_lower_value_ref
 from scopecat.graph.relations import input_binding as relation_input_binding
 from scopecat.graph.relations.model import (
     CellValue,
@@ -19,6 +18,7 @@ from scopecat.graph.table_values import (
     TableSource,
     literal_table_source,
 )
+from scopecat.program.value_refs import ValueRef, internal_lower_value_ref
 
 
 class _ResolvedInputs(Mapping[str, object]):

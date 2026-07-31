@@ -15,6 +15,7 @@ from scopecat_quantum.measurement_postprocessors import (
 from scopecat_quantum.standard_gates import X90, XM90
 
 from quantum_lab_demo.virtual_lab.parameters import (
+    QUBIT_PARAMETER_TABLE_TYPE,
     q0_drag_beta_lookup,
     qubit_parameters,
 )
@@ -67,37 +68,50 @@ _DISCRIMINATOR = BinaryIqDiscriminator(
 
 
 @sc.module(id="quantum_lab_demo.production.drag_x90.capture")
-def production_drag_capture():
+def production_drag_capture(
+    module: sc.ModuleContext,
+    drag_beta: Annotated[
+        sc.Input[Quantity],
+        sc.ScalarType(sc.QuantityType(unit="ns")),
+    ],
+    qubits: Annotated[
+        sc.Input[list[dict[str, object]]],
+        QUBIT_PARAMETER_TABLE_TYPE,
+    ],
+) -> None:
     call = (
         production_drag_program(
             qubit="q0",
-            drag_beta=q0_drag_beta_lookup(),
+            drag_beta=drag_beta,
         )
-        .with_compiler_inputs(qubits=qubit_parameters())
+        .with_compiler_inputs(qubits=sc.input_ref(qubits))
         .with_shots(PRODUCTION_DRAG_GATE_SHOTS)
     )
-    body = (
-        sc.module_body()
-        .use(call)
-        .product("probability_0", "probability_1", unit="ratio")
-    )
+    module.call(call)
+    probability_0 = module.product("probability_0", unit="ratio")
+    probability_1 = module.product("probability_1", unit="ratio")
     postprocessor = binary_iq_probability_postprocessor(
         "binary-iq-probability",
         iq_shots=call.results.iq_shots,
-        probability_0=body.products.probability_0,
-        probability_1=body.products.probability_1,
+        probability_0=probability_0,
+        probability_1=probability_1,
         discriminator=_DISCRIMINATOR,
     )
-    return body.measurement_postprocessors(postprocessor)
+    module.measurement_postprocessor(postprocessor)
 
 
 @sc.template(
     id=PRODUCTION_DRAG_GATE_TEMPLATE_ID,
     kind=PRODUCTION_DRAG_GATE_EXPERIMENT_ID,
 )
-def production_drag_template() -> sc.ExperimentBody:
-    capture = production_drag_capture()
-    return sc.experiment(capture).record_product(
+def production_drag_template(experiment: sc.ExperimentContext) -> None:
+    capture = experiment.run(
+        production_drag_capture(
+            drag_beta=q0_drag_beta_lookup(),
+            qubits=qubit_parameters(),
+        )
+    )
+    experiment.record(
         capture.products.probability_0,
         capture.products.probability_1,
     )

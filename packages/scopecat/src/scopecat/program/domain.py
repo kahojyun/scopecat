@@ -1,4 +1,4 @@
-"""Domain-program authoring and module-bound execution.
+"""Domain-program definitions, calls, and ordered execution.
 
 Domain bodies and result contracts are opaque transient values.  Core owns
 only their stable identities, typed value ports, and logical product bindings;
@@ -11,10 +11,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.authoring._intents import ComputeNodeInputValue
-from scopecat.authoring._products import ProductRef
-from scopecat.authoring._value_refs import ValueRef, capture_runtime_input
-from scopecat.authoring.value_types import Scalar, ValueType
 from scopecat.domain.program import (
     DomainInputPort,
     DomainProgramDef,
@@ -22,11 +18,21 @@ from scopecat.domain.program import (
 )
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductId
+from scopecat.program.identities import DomainCallKey
+from scopecat.program.operations import ComputeNodeInputValue
+from scopecat.program.products import (
+    ModuleProductDecl,
+    ProductOutputs,
+    ProductRef,
+    prefix_product_decl,
+)
+from scopecat.program.value_refs import ValueRef, capture_runtime_input
+from scopecat.program.value_types import Scalar, ValueType
 
 
 @dataclass(frozen=True, slots=True)
 class DomainExecution:
-    """One identified domain-program effect placed in a module procedure."""
+    """One identified domain-program effect placed in an ordered program."""
 
     id: str
     program: DomainProgramDef
@@ -35,9 +41,20 @@ class DomainExecution:
     result_bindings: tuple[tuple[str, ProductRef], ...] = ()
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class DomainCall:
+    """One native domain-program occurrence with owned result products."""
+
+    id: str
+    key: DomainCallKey
+    execution: DomainExecution
+    product_declarations: tuple[ModuleProductDecl, ...]
+    results: ProductOutputs
+
+
 @dataclass(frozen=True, slots=True)
 class LoweredDomainExecution:
-    """Internal product-resolved form of the module-owned execution."""
+    """Internal product-resolved form of an owned domain execution."""
 
     id: str
     program: DomainProgramDef
@@ -73,11 +90,6 @@ def domain_program(
 ) -> DomainProgramDef:
     """Declare an opaque program with ordered typed input and result ports."""
 
-    selected_inputs = cast("Mapping[str, ValueType]", inputs or {})
-    if any(
-        not isinstance(value_type, Scalar) for value_type in selected_inputs.values()
-    ):
-        raise TypeError("domain program inputs must be scalar; use compiler_inputs")
     return DomainProgramDef(
         id=id,
         dialect_id=dialect_id,
@@ -85,7 +97,7 @@ def domain_program(
         body=body,
         input_ports=tuple(
             DomainInputPort(port_id, value_type)
-            for port_id, value_type in selected_inputs.items()
+            for port_id, value_type in (inputs or {}).items()
         ),
         compiler_input_ports=tuple(
             DomainInputPort(port_id, value_type)
@@ -147,6 +159,58 @@ def domain_execution(
             )
             for port in program.result_ports
         ),
+    )
+
+
+def create_domain_call_internal(
+    program: DomainProgramDef,
+    *,
+    id: str,
+    inputs: Mapping[str, ComputeNodeInputValue] | None = None,
+    compiler_inputs: Mapping[str, ComputeNodeInputValue] | None = None,
+    result_products: Mapping[str, ModuleProductDecl] | None = None,
+    key: DomainCallKey | None = None,
+) -> DomainCall:
+    """Create one occurrence while keeping result ownership internally coherent."""
+
+    if not id:
+        raise ValueError("domain call id must be non-empty")
+    selected_products = result_products or {}
+    _require_exact_keys(
+        "domain call result products",
+        selected_products,
+        tuple(port.id for port in program.result_ports),
+    )
+    call_key = key or DomainCallKey.fresh()
+    declarations: list[ModuleProductDecl] = []
+    results: dict[str, ProductRef] = {}
+    for port in program.result_ports:
+        product = selected_products[port.id]
+        if product.id != port.id or product.scope or product.origin:
+            raise ValueError(
+                "domain call result products must be unscoped declarations "
+                "named after their result ports"
+            )
+        declaration = prefix_product_decl(product, id, origin=(call_key,))
+        declarations.append(declaration)
+        results[port.id] = ProductRef(
+            product_id=declaration.product_id,
+            origin=declaration.origin,
+        )
+    outputs = ProductOutputs(results)
+    execution = domain_execution(
+        program,
+        id=f"{id}/{program.id}",
+        inputs=inputs,
+        compiler_inputs=compiler_inputs,
+        results=outputs,
+    )
+    return DomainCall(
+        id=id,
+        key=call_key,
+        execution=execution,
+        product_declarations=tuple(declarations),
+        results=outputs,
     )
 
 

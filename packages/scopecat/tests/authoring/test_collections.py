@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
 
 import scopecat.authoring as authoring
 from scopecat.authoring.scans import axis
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.frontend.assembly_linking import bind_verified_assembly
 from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.program_lowering import lower_verified_assembly
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.typed.program import (
     ComputeEdge,
@@ -17,9 +19,12 @@ from scopecat.graph.values import (
     OperationId,
 )
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.values import compute as program_compute
+from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
-from tests.testkit.authoring import link_invocation, load_config, template_fixture
+from tests.testkit.authoring import link_invocation, load_config
 from tests.testkit.local_materialization import materialize_local_execution
 
 
@@ -29,7 +34,7 @@ def _bind_program(
 ) -> CoreProgram:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
-    return bind_verified_assembly(compiled.assembly, environment)
+    return lower_verified_assembly(compiled.assembly, environment)
 
 
 def _echo_program(*, program: object) -> dict[str, object]:
@@ -54,30 +59,26 @@ def _gate_table_type() -> authoring.TableType:
 
 
 def test_nested_module_requires_explicit_input_forwarding() -> None:
-    value = authoring.input(
-        "value",
-        authoring.ScalarType(authoring.FloatType()),
-    )
-    child = authoring.module_body(id="test.nested_port.child").inputs(value).build()
+    @authoring.module(id="test.nested_port.child")
+    def child(context: authoring.ModuleContext, value: float) -> None:
+        del context, value
 
     with pytest.raises(ValueError, match="must connect all inputs"):
         child.instantiate("child")
 
-    outer_value = authoring.input("outer_value", value.value_type)
-    root = (
-        authoring.module_body(id="test.nested_port.root")
-        .inputs(outer_value)
-        .use(child.instantiate("child", value=outer_value))
-        .build()
-    )
-    template = template_fixture(
-        root,
-        id="test.nested_port",
-        kind="nested_port",
-    )
+    @authoring.module(id="test.nested_port.root")
+    def root(context: authoring.ModuleContext, outer_value: float) -> None:
+        context.call(child.instantiate("child", value=outer_value))
+
+    @authoring.template(id="test.nested_port", kind="nested_port")
+    def template(
+        experiment: authoring.ExperimentContext,
+        outer_value: float,
+    ) -> None:
+        experiment.run(root(outer_value))
 
     link_invocation(
-        template.bind(outer_value=1),
+        template(outer_value=1),
         config_profile=load_config(),
     )
 
@@ -87,16 +88,13 @@ def test_scan_points_are_coerced_by_their_target_type() -> None:
         "value",
         authoring.ScalarType(authoring.FloatType()),
     )
-    module = authoring.module_body(id="test.scan_coercion").build()
-    template = template_fixture(
-        module,
-        id="test.scan_coercion",
-        kind="scan_coercion",
-        scans=(axis(point, (1,)),),
-    )
+
+    @authoring.template(id="test.scan_coercion", kind="scan_coercion")
+    def template(experiment: authoring.ExperimentContext) -> None:
+        experiment.scan(axis(point, (1,)))
 
     resolved = link_invocation(
-        template.bind(),
+        template(),
         config_profile=load_config(),
     )
     plan = materialize_local_execution(resolved)
@@ -121,14 +119,17 @@ def test_scan_points_reject_target_constraint_violation() -> None:
 
 
 def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> None:
-    frequency = authoring.input(
-        "frequency",
-        authoring.ScalarType(authoring.QuantityType(unit="GHz")),
-    )
-    quantity_child = (
-        authoring.module_body(id="test.quantity_type.child").inputs(frequency).build()
-    )
-    duration = authoring.input(
+    @authoring.module(id="test.quantity_type.child")
+    def quantity_child(
+        context: authoring.ModuleContext,
+        frequency: Annotated[
+            authoring.Input[Quantity],
+            authoring.ScalarType(authoring.QuantityType(unit="GHz")),
+        ],
+    ) -> None:
+        del context, frequency
+
+    duration = program_input(
         "duration",
         authoring.ScalarType(authoring.QuantityType(unit="ns")),
     )
@@ -147,11 +148,15 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
             ),
         )
     )
-    gates = authoring.input("gates", _gate_table_type())
-    table_child = (
-        authoring.module_body(id="test.table_type.child").inputs(gates).build()
-    )
-    rows = authoring.input("rows", float_gate_table)
+
+    @authoring.module(id="test.table_type.child")
+    def table_child(
+        context: authoring.ModuleContext,
+        gates: Annotated[list[dict[str, object]], _gate_table_type()],
+    ) -> None:
+        del context, gates
+
+    rows = program_input("rows", float_gate_table)
     with pytest.raises(
         authoring.ValueValidationError,
         match=r"control: Scalar\[Entity\]",
@@ -161,37 +166,45 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
 
 def test_compute_output_is_a_typed_child_input_edge() -> None:
     pulse = authoring.ScalarType(authoring.PayloadType("pulse"))
-    program = authoring.input("program", pulse)
-    consume = authoring.compute(
-        "consume",
-        fn=_echo_program,
-        inputs={"program": program},
-        output_type=authoring.ScalarType(authoring.PayloadType("consumed")),
-    )
-    child = (
-        authoring.module_body(id="test.compute_edge.child")
-        .inputs(program)
-        .computes(consume)
-        .build()
-    )
-    middle_program = authoring.input("program", pulse)
-    middle = (
-        authoring.module_body(id="test.compute_edge.middle")
-        .inputs(middle_program)
-        .use(child.instantiate("compute-child", program=middle_program))
-        .build()
-    )
-    produce = authoring.compute(
-        "produce",
-        fn=_empty_payload,
-        output_type=pulse,
-    )
-    parent = (
-        authoring.module_body(id="test.compute_edge.parent")
-        .computes(produce)
-        .use(middle.instantiate("compute-middle", program=produce.output))
-        .build()
-    )
+
+    @authoring.module(id="test.compute_edge.child")
+    def child(
+        context: authoring.ModuleContext,
+        program: Annotated[
+            dict[str, object],
+            authoring.PayloadType("pulse"),
+        ],
+    ) -> None:
+        context.compute(
+            "consume",
+            fn=_echo_program,
+            inputs={"program": authoring.input_ref(program)},
+            output_type=authoring.ScalarType(authoring.PayloadType("consumed")),
+        )
+
+    @authoring.module(id="test.compute_edge.middle")
+    def middle(
+        context: authoring.ModuleContext,
+        program: Annotated[
+            dict[str, object],
+            authoring.PayloadType("pulse"),
+        ],
+    ) -> None:
+        context.call(
+            child.instantiate(
+                "compute-child",
+                program=authoring.input_ref(program),
+            )
+        )
+
+    @authoring.module(id="test.compute_edge.parent")
+    def parent(context: authoring.ModuleContext) -> None:
+        produce = context.compute(
+            "produce",
+            fn=_empty_payload,
+            output_type=pulse,
+        )
+        context.call(middle.instantiate("compute-middle", program=produce))
 
     assembly = elaborate_module(
         parent.ir,
@@ -208,14 +221,12 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         if operation.result_id == program_use.value_id
     )
     assert producer.id == OperationId(SymbolId(local_id="produce"))
-    program = _bind_program(
-        template_fixture(
-            parent,
-            id="test.compute_edge",
-            kind="compute_edge",
-        ).bind(),
-        load_config(),
-    )
+
+    @authoring.template(id="test.compute_edge", kind="compute_edge")
+    def template(experiment: authoring.ExperimentContext) -> None:
+        experiment.run(parent())
+
+    program = _bind_program(template(), load_config())
     bound_consumer = next(
         node for node in program.compute_nodes if node.id.local_id == "consume"
     )
@@ -224,21 +235,23 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     )
     program_edge = bound_consumer.inputs["program"]
     assert isinstance(program_edge, ComputeEdge)
-    assert bound_producer.result.id == producer.result_id
+    assert bound_producer.result.id.local_id == producer.result_id.local_id
+    assert bound_producer.result.id.scope == ("parent", *producer.result_id.scope)
     assert bound_producer.result.value_type == pulse
     assert program_edge.value_id == bound_producer.result.id
     assert program_edge.expected_type == bound_producer.result.value_type
 
-    incompatible_program = authoring.input(
-        "program",
-        authoring.ScalarType(authoring.PayloadType("waveform")),
-    )
-    incompatible_child = (
-        authoring.module_body(id="test.compute_edge.incompatible")
-        .inputs(incompatible_program)
-        .build()
-    )
-    incompatible_produce = authoring.compute(
+    @authoring.module(id="test.compute_edge.incompatible")
+    def incompatible_child(
+        context: authoring.ModuleContext,
+        program: Annotated[
+            dict[str, object],
+            authoring.PayloadType("waveform"),
+        ],
+    ) -> None:
+        del context, program
+
+    incompatible_produce = program_compute(
         "produce",
         fn=_empty_payload,
         output_type=pulse,
@@ -251,15 +264,12 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
 
 
 def test_explicit_null_is_rejected_as_a_bound_value() -> None:
-    required_label = authoring.input(
-        "label",
-        authoring.ScalarType(authoring.StringType()),
-    )
-    required = template_fixture(
-        authoring.module_body(id="test.null.required").inputs(required_label).build(),
-        id="test.null.required",
-        kind="null",
-    )
+    @authoring.template(id="test.null.required", kind="null")
+    def required(
+        experiment: authoring.ExperimentContext,
+        label: str,
+    ) -> None:
+        del experiment, label
 
     with pytest.raises(CheckFailed) as error:
         link_invocation(

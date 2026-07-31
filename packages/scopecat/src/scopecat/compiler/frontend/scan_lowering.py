@@ -5,18 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from scopecat.authoring._scan_intents import (
-    AroundScanSource,
-    AxisSpec,
-    ValuesScanSource,
-    parameter_cell_lookup,
-    scan_parameter_contracts,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_lower_scalar_value_ref,
-    internal_value_ref_from_expression,
-)
 from scopecat.compiler.frontend.request_values import (
     project_run_request_scalar,
     project_run_request_value,
@@ -30,6 +18,18 @@ from scopecat.graph.relations.point_domain import (
     point_axis_values,
 )
 from scopecat.kernel.value_types import Scalar
+from scopecat.program.scans import (
+    AroundScanSource,
+    AxisSpec,
+    ValuesScanSource,
+    parameter_cell_lookup,
+    scan_parameter_contracts,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_lower_scalar_value_ref,
+    internal_value_ref_from_expression,
+)
 from scopecat.records.run_request import (
     AroundScanRecord,
     ParameterAroundScanRecord,

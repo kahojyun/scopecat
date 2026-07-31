@@ -21,25 +21,25 @@ from scopecat.authoring import (
     QuantityType,
     ScalarType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.kernel.entity import EntityRef
+from scopecat.program.value_types import (
     Bool as BoolType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Entity as EntityAtomType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Float as FloatAtomType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Payload as PayloadType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Quantity as QuantityAtomType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     String as StringType,
 )
-from scopecat.kernel.entity import EntityRef
 
 from scopecat_quantum._ids import (
     CouplerId,

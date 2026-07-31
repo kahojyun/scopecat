@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import inspect
-from collections.abc import Callable, Mapping, Sequence
-from typing import Annotated, cast
+from typing import Annotated
 
 import scopecat.authoring as authoring
-from scopecat.authoring import ExperimentInvocation, ExperimentTemplate
-from scopecat.authoring._products import RecordSelection
-from scopecat.authoring.scans import Scan, axis
-from scopecat.authoring.templates import create_experiment_definition_internal
-from scopecat.authoring.values import MetadataValue
+from scopecat.authoring import ExperimentTemplate
+from scopecat.authoring.scans import axis
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
     resolve_compiled_invocation,
@@ -51,110 +46,77 @@ def link_invocation(
     )
 
 
-def template_fixture(
-    module: authoring.ExperimentModule[...],
-    *,
-    id: str,
-    kind: str,
-    required_inputs: Sequence[str] = (),
-    defaults: Mapping[str, authoring.RuntimeInput] | None = None,
-    scans: Sequence[Scan] = (),
-    records: Sequence[RecordSelection] = (),
-    metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentTemplate[...]:
-    """Build exact-root fixtures for low-level IR and compiler tests."""
-
-    experiment_definition = create_experiment_definition_internal(
-        id=id,
-        kind=kind,
-        module=module.ir,
-        record_selections=tuple(records),
-        input_defaults=defaults,
-        required_inputs=tuple(required_inputs),
-        default_scans=tuple(scans),
-        metadata=metadata or {},
-    )
-    signature = inspect.Signature(
-        tuple(
-            inspect.Parameter(
-                input_definition.id,
-                inspect.Parameter.KEYWORD_ONLY,
-                default=(
-                    input_definition.default
-                    if input_definition.has_default
-                    else inspect.Parameter.empty
-                ),
-            )
-            for input_definition in experiment_definition.inputs
-        )
-    )
-
-    def fixture_callable() -> object:
-        raise AssertionError("closed test templates are not re-evaluated")
-
-    return ExperimentTemplate(
-        definition=experiment_definition,
-        _callable=cast("Callable[..., object]", fixture_callable),
-        _signature=signature.replace(return_annotation=ExperimentInvocation),
-    )
-
-
-_SIMPLE_SUBJECT = authoring.input(
-    "subject",
-    authoring.ScalarType(authoring.EntityType()),
-)
 DRIVE_FREQUENCY_POINT = authoring.coordinate(
     "drive_frequency",
     authoring.ScalarType(authoring.QuantityType(unit="GHz")),
 )
-SIMPLE_MODULE = (
-    authoring.module_body(id="test.simple_scan", metadata={"assembled_by": "module"})
-    .inputs(_SIMPLE_SUBJECT)
-    .resource(
+
+
+@authoring.module(
+    id="test.simple_scan",
+    metadata={"assembled_by": "module"},
+)
+def SIMPLE_MODULE(
+    module: authoring.ModuleContext,
+    subject: Annotated[
+        authoring.Input[EntityRef | str],
+        authoring.ScalarType(authoring.EntityType()),
+    ],
+    drive_frequency: Annotated[
+        authoring.Input[Quantity],
+        authoring.ScalarType(authoring.QuantityType(unit="GHz")),
+    ],
+) -> None:
+    source = module.resource(
         "source",
         requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
     )
-    .bind_property(
-        "source",
+    module.bind_property(
+        source,
         _SET_FREQUENCY_VALUE,
-        value=DRIVE_FREQUENCY_POINT,
+        value=drive_frequency,
     )
-    .product("signal", unit="ratio")
-    .acquire(
+    signal = module.product("signal", unit="ratio")
+    module.acquire(
         "read-signal",
-        resource="source",
-        results={_SCALAR_SIGNAL_VALUE: "signal"},
+        resource=source,
+        results={_SCALAR_SIGNAL_VALUE: signal},
     )
-    .build()
-)
 
 
-def simple_template() -> ExperimentTemplate[...]:
+def simple_template(
+    *,
+    id: str = "test.simple_scan",
+    kind: str = "simple_scan",
+) -> ExperimentTemplate[...]:
     def definition(
+        experiment: authoring.ExperimentContext,
         subject: Annotated[
             authoring.Input[EntityRef | str],
-            _SIMPLE_SUBJECT.value_type,
+            authoring.ScalarType(authoring.EntityType()),
         ],
-    ) -> authoring.ExperimentBody:
-        module_call = SIMPLE_MODULE(subject=subject)
-        return (
-            authoring.experiment(module_call)
-            .scan(
-                axis(
-                    DRIVE_FREQUENCY_POINT,
-                    center=authoring.parameter(
-                        "drive_frequency",
-                        authoring.ScalarType(authoring.QuantityType()),
-                    ),
-                    span=Quantity(value=200.0, unit="MHz"),
-                    points=5,
-                ),
+    ) -> None:
+        module_call = experiment.run(
+            SIMPLE_MODULE(
+                subject=subject,
+                drive_frequency=DRIVE_FREQUENCY_POINT,
             )
-            .record_product(module_call.products.signal, record_id="signal")
         )
+        experiment.scan(
+            axis(
+                DRIVE_FREQUENCY_POINT,
+                center=authoring.parameter(
+                    "drive_frequency",
+                    authoring.ScalarType(authoring.QuantityType()),
+                ),
+                span=Quantity(value=200.0, unit="MHz"),
+                points=5,
+            ),
+        )
+        experiment.record(module_call.products.signal, record_id="signal")
 
     return authoring.template(
-        id="test.simple_scan",
-        kind="simple_scan",
+        id=id,
+        kind=kind,
         metadata={"assembled_by": "template"},
     )(definition)

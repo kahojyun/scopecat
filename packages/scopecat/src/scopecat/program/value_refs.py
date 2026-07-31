@@ -1,4 +1,4 @@
-"""Typed value edges used while composing authoring modules."""
+"""Typed value edges used while composing symbolic programs."""
 
 from __future__ import annotations
 
@@ -9,11 +9,6 @@ from typing import Never, cast, override
 from uuid import UUID, uuid4
 
 import scopecat.kernel.frozen as _frozen
-from scopecat.authoring._identities import InvocationKey
-from scopecat.authoring._parameter_contracts import (
-    ParameterContract,
-    merge_parameter_contracts,
-)
 from scopecat.graph.relations.analysis import plan_input_refs
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
@@ -54,6 +49,11 @@ from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.kernel.value_validation import (
     ValuePath,
     coerce_literal,
+)
+from scopecat.program.identities import InvocationKey
+from scopecat.program.parameters import (
+    ParameterContract,
+    merge_parameter_contracts,
 )
 
 type _InputBindingLayers = tuple[tuple[tuple[str, ValueRef], ...], ...]
@@ -929,7 +929,7 @@ def _require_relation_bindings(values: tuple[ValueRef, ...]) -> None:
     ):
         msg = (
             "compute outputs cannot be bound inside scalar expressions; "
-            "express this calculation with sc.compute"
+            "express this calculation with ModuleContext.compute"
         )
         raise TypeError(msg)
 

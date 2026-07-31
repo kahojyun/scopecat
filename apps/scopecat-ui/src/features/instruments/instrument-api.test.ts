@@ -88,6 +88,7 @@ describe("instrument configuration publishing", () => {
           },
         ],
         run_start: "apply_default_state",
+        failure_action: "abort_and_release",
       },
       {
         id: "fridge",
@@ -96,6 +97,7 @@ describe("instrument configuration publishing", () => {
         connection: { kind: "virtual" },
         default_state: [],
         run_start: "preserve",
+        failure_action: "abort_and_release",
       },
     ]);
     expect(command.source.config.parameter_snapshot.values).toEqual([
@@ -134,6 +136,7 @@ describe("instrument configuration publishing", () => {
         connection: { kind: "virtual", options: {} },
         default_state: [],
         run_start: "preserve",
+        failure_action: "abort_and_release",
       },
       actor: "Ada",
       note: "",
@@ -150,6 +153,7 @@ describe("instrument configuration publishing", () => {
       connection: { kind: "virtual", options: {} },
       default_state: [],
       run_start: "preserve",
+      failure_action: "abort_and_release",
     });
     expect(active.config.system.instrument_registry.instruments).toHaveLength(2);
   });
@@ -490,6 +494,7 @@ function activeConfig(): ActiveConfig {
               },
             ],
             run_start: "apply_default_state",
+            failure_action: "abort_and_release",
           },
           {
             id: "fridge",
@@ -498,6 +503,7 @@ function activeConfig(): ActiveConfig {
             connection: { kind: "virtual" },
             default_state: [],
             run_start: "preserve",
+            failure_action: "abort_and_release",
           },
         ],
       },

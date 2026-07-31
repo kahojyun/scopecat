@@ -9,13 +9,13 @@ from typing import (
 )
 
 from scopecat import Quantity
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Entity as EntityAtomType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Payload as PayloadType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Quantity as QuantityAtomType,
 )
 

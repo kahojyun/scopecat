@@ -1,4 +1,4 @@
-"""Nominal identities shared by the authoring data model."""
+"""Nominal identities shared by the symbolic program model."""
 
 from __future__ import annotations
 
@@ -14,6 +14,17 @@ class InvocationKey:
 
     @classmethod
     def fresh(cls) -> InvocationKey:
+        return cls(uuid4())
+
+
+@dataclass(frozen=True, slots=True)
+class DomainCallKey:
+    """Identity shared by one domain call and its result products."""
+
+    value: UUID
+
+    @classmethod
+    def fresh(cls) -> DomainCallKey:
         return cls(uuid4())
 
 

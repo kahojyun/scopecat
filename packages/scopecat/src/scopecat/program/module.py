@@ -1,6 +1,6 @@
-"""Explicit hierarchical IR for reusable authoring modules.
+"""Explicit hierarchical IR for reusable modules.
 
-The public builder and invocation objects are authoring handles.  ``ModuleIR``
+The public contexts and invocation objects are authoring handles. ``ModuleIR``
 is the immutable definition they elaborate into: its interface declares the
 values and logical resources visible at the boundary, while its body retains
 child instances and local intents until the dedicated elaboration pass lowers
@@ -19,40 +19,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol, cast
 
-from scopecat.authoring._binding_intents import (
-    ExperimentBindingIntent,
-    InvocationIntent,
-    ResourcePort,
-)
-from scopecat.authoring._identities import (
-    ComputeDeclarationKey,
-    InvocationKey,
-)
-from scopecat.authoring._intents import (
-    ModuleInputPort,
-    ModuleOperationDecl,
-)
-from scopecat.authoring._products import (
-    ModuleProductDecl,
-    ProductRef,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    empty_frozen_mapping,
-    internal_transform_value_ref,
-    internal_value_ref_input_id,
-    internal_value_ref_module_export,
-    internal_value_ref_operation_id,
-    internal_value_ref_operation_origin,
-    internal_value_ref_unbound_input_ids,
-)
-from scopecat.authoring.domain import DomainExecution
-from scopecat.authoring.measurements import MeasurementPostprocessor
-from scopecat.authoring.value_types import ValueType
-from scopecat.authoring.values import (
-    ComputeFunction,
-    MetadataValue,
-)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.interface_identity import InterfaceId
@@ -64,6 +30,43 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
+from scopecat.program.bindings import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+    InvocationIntent,
+    ResourcePort,
+)
+from scopecat.program.domain import DomainExecution
+from scopecat.program.identities import (
+    ComputeDeclarationKey,
+    InvocationKey,
+)
+from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.operations import (
+    ModuleInputPort,
+    ModuleOperationDecl,
+)
+from scopecat.program.products import (
+    ModuleProductDecl,
+    ProductRef,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    empty_frozen_mapping,
+    internal_transform_value_ref,
+    internal_value_ref_input_id,
+    internal_value_ref_module_export,
+    internal_value_ref_operation_id,
+    internal_value_ref_operation_origin,
+    internal_value_ref_parameter_contracts,
+    internal_value_ref_point_dependencies,
+    internal_value_ref_unbound_input_ids,
+)
+from scopecat.program.value_types import ValueType
+from scopecat.program.values import (
+    ComputeFunction,
+    MetadataValue,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,8 +211,15 @@ class ModuleBindingEffect:
 
 
 @dataclass(frozen=True, slots=True)
+class ModuleEnsureEffect:
+    """Ensure one coherent desired state at this effect position."""
+
+    intent: EnsureStateIntent
+
+
+@dataclass(frozen=True, slots=True)
 class ModuleInvokeEffect:
-    """Invoke one atomic hardware operation at this procedure position."""
+    """Invoke one atomic hardware operation at this effect position."""
 
     intent: InvocationIntent
 
@@ -237,7 +247,7 @@ class ModuleAcquireResult:
 
 @dataclass(frozen=True, slots=True)
 class ModuleAcquireEffect:
-    """Realize selected products at this exact procedure position.
+    """Realize selected products at this exact effect position.
 
     Acquisition is an ordered effect because triggering or reading hardware is
     observable execution. Product shape remains a declaration and durable
@@ -269,6 +279,7 @@ class ModuleAcquireEffect:
 type ModuleEffectIR = (
     ModuleInstanceIR
     | ModuleBindingEffect
+    | ModuleEnsureEffect
     | ModuleInvokeEffect
     | ModuleDomainEffect
     | ModuleAcquireEffect
@@ -277,9 +288,9 @@ type ModuleEffectIR = (
 
 @dataclass(frozen=True, slots=True)
 class ModuleBodyIR:
-    """A closed ordered procedure with derived child and product views."""
+    """A closed effect sequence with derived child and product views."""
 
-    procedure: tuple[ModuleEffectIR, ...] = ()
+    effects: tuple[ModuleEffectIR, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     measurement_postprocessors: tuple[MeasurementPostprocessor, ...] = ()
     products: tuple[ModuleProductDecl, ...] = ()
@@ -356,10 +367,10 @@ class ModuleBodyIR:
 
     @property
     def child_instances(self) -> tuple[ModuleInstanceIR, ...]:
-        """Derive children so procedure remains the sole ordering authority."""
+        """Derive children so effects remain the sole ordering authority."""
 
         return tuple(
-            effect for effect in self.procedure if isinstance(effect, ModuleInstanceIR)
+            effect for effect in self.effects if isinstance(effect, ModuleInstanceIR)
         )
 
     @property
@@ -381,16 +392,22 @@ class ModuleBodyIR:
     @property
     def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
         return tuple(
-            effect.intent
-            for effect in self.procedure
-            if isinstance(effect, ModuleBindingEffect)
+            binding
+            for effect in self.effects
+            for binding in (
+                (effect.intent,)
+                if isinstance(effect, ModuleBindingEffect)
+                else effect.intent.assignments
+                if isinstance(effect, ModuleEnsureEffect)
+                else ()
+            )
         )
 
     @property
     def domain_executions(self) -> tuple[DomainExecution, ...]:
         return tuple(
             effect.execution
-            for effect in self.procedure
+            for effect in self.effects
             if isinstance(effect, ModuleDomainEffect)
         )
 
@@ -398,16 +415,14 @@ class ModuleBodyIR:
     def invocations(self) -> tuple[InvocationIntent, ...]:
         return tuple(
             effect.intent
-            for effect in self.procedure
+            for effect in self.effects
             if isinstance(effect, ModuleInvokeEffect)
         )
 
     @property
     def acquisitions(self) -> tuple[ModuleAcquireEffect, ...]:
         return tuple(
-            effect
-            for effect in self.procedure
-            if isinstance(effect, ModuleAcquireEffect)
+            effect for effect in self.effects if isinstance(effect, ModuleAcquireEffect)
         )
 
 
@@ -427,7 +442,6 @@ class ModuleIR:
             "module product",
             tuple(item.qualified_id for item in self.products),
         )
-        _require_operation_implementations(self)
         problems = _module_closure_problems(self)
         if problems:
             raise CheckFailed(problems)
@@ -476,6 +490,24 @@ def _module_closure_problems(module: ModuleIR) -> list[Problem]:
         )
 
     for value in _module_lexical_value_refs(module):
+        if internal_value_ref_point_dependencies(value):
+            add_problem(
+                "module_point_dependency_free",
+                "point_dependencies",
+                message=(
+                    f"module {module.id!r} cannot depend on experiment coordinates; "
+                    "declare a typed module input instead"
+                ),
+            )
+        if internal_value_ref_parameter_contracts(value):
+            add_problem(
+                "module_parameter_dependency_free",
+                "parameter_dependencies",
+                message=(
+                    f"module {module.id!r} cannot depend on experiment parameters; "
+                    "declare a typed module input instead"
+                ),
+            )
         for input_id in internal_value_ref_unbound_input_ids(value):
             if input_id not in imports:
                 add_problem(
@@ -777,19 +809,3 @@ def _require_postprocessor_product(
             f"references product {selected_id.qualified_name!r} from another "
             "module instance"
         )
-
-
-def _require_operation_implementations(module: ModuleIR) -> None:
-    operation_keys = {item.declaration_key for item in module.body.operations}
-    implementation_keys = tuple(
-        item.declaration_key for item in module.python_implementations
-    )
-    _require_unique("module Python implementation", implementation_keys)
-    missing = operation_keys - set(implementation_keys)
-    orphaned = set(implementation_keys) - operation_keys
-    if missing:
-        msg = "module operations are missing Python implementations"
-        raise ValueError(msg)
-    if orphaned:
-        msg = "module Python implementations reference unknown operations"
-        raise ValueError(msg)

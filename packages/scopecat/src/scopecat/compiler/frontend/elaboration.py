@@ -5,62 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import cast
+from typing import Protocol, cast
 
-from scopecat.authoring._binding_intents import (
-    ExperimentBindingIntent,
-    InvocationIntent,
-    ResourcePort,
-    ResourceSelector,
-    prefix_resource_port,
-)
-from scopecat.authoring._identities import InvocationKey
-from scopecat.authoring._intents import (
-    ComputeNodeInputValue,
-    ModuleInputPort,
-    ModuleOperationDecl,
-)
-from scopecat.authoring._module_ir import (
-    ModuleAcquireEffect,
-    ModuleBindingEffect,
-    ModuleDomainEffect,
-    ModuleInstanceIR,
-    ModuleInvokeEffect,
-    ModuleIR,
-)
-from scopecat.authoring._parameter_contracts import (
-    ParameterContract,
-    merge_parameter_contracts,
-)
-from scopecat.authoring._products import (
-    ModuleProductDecl,
-    RecordSelection,
-    localize_product_input_refs,
-    prefix_product_decl,
-)
-from scopecat.authoring._scan_intents import AxisSpec
-from scopecat.authoring._value_refs import (
-    PointValueDependency,
-    ValueRef,
-    internal_bind_value_ref_inputs,
-    internal_require_resolved_value_ref,
-    internal_scope_value_ref,
-    internal_transform_value_ref,
-    internal_value_ref_module_export,
-    internal_value_ref_parameter_contracts,
-    internal_value_ref_point_dependencies,
-)
-from scopecat.authoring.domain import LoweredDomainExecution, lower_domain_execution
-from scopecat.authoring.measurements import MeasurementPostprocessor
-from scopecat.authoring.value_types import (
-    Entity as EntityType,
-)
-from scopecat.authoring.value_types import (
-    Scalar as ScalarType,
-)
-from scopecat.authoring.value_types import (
-    Table as TableType,
-)
 from scopecat.compiler.frontend.semantic_elaboration import (
     ScopedPythonImplementation,
     elaborate_semantic_graph,
@@ -86,21 +32,87 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.bindings import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+    InvocationIntent,
+    ResourcePort,
+    ResourceSelector,
+    prefix_resource_port,
+)
+from scopecat.program.domain import LoweredDomainExecution, lower_domain_execution
+from scopecat.program.experiment import ExperimentProgram
+from scopecat.program.identities import InvocationKey
+from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.module import (
+    ModuleAcquireEffect,
+    ModuleBindingEffect,
+    ModuleBodyIR,
+    ModuleDomainEffect,
+    ModuleEnsureEffect,
+    ModuleInstanceIR,
+    ModuleInterfaceIR,
+    ModuleInvokeEffect,
+    ModuleIR,
+    ModulePythonImplementation,
+)
+from scopecat.program.operations import (
+    ComputeNodeInputValue,
+    ModuleInputPort,
+    ModuleOperationDecl,
+)
+from scopecat.program.parameters import (
+    ParameterContract,
+    merge_parameter_contracts,
+)
+from scopecat.program.products import (
+    ModuleProductDecl,
+    RecordSelection,
+    localize_product_input_refs,
+    prefix_product_decl,
+)
+from scopecat.program.scans import AxisSpec
+from scopecat.program.value_refs import (
+    PointValueDependency,
+    ValueRef,
+    internal_bind_value_ref_inputs,
+    internal_require_resolved_value_ref,
+    internal_scope_value_ref,
+    internal_transform_value_ref,
+    internal_value_ref_module_export,
+    internal_value_ref_parameter_contracts,
+    internal_value_ref_point_dependencies,
+)
+from scopecat.program.value_types import (
+    Entity as EntityType,
+)
+from scopecat.program.value_types import (
+    Scalar as ScalarType,
+)
+from scopecat.program.value_types import (
+    Table as TableType,
+)
 
 type _FragmentEffect = (
-    ExperimentBindingIntent | InvocationIntent | LoweredDomainExecution | AcquireEffect
+    ExperimentBindingIntent
+    | EnsureStateIntent
+    | InvocationIntent
+    | LoweredDomainExecution
+    | AcquireEffect
 )
 type AssemblyEffect = (
-    ExperimentBindingIntent | InvocationIntent | SemanticDomainExecution | AcquireEffect
+    ExperimentBindingIntent
+    | EnsureStateIntent
+    | InvocationIntent
+    | SemanticDomainExecution
+    | AcquireEffect
 )
 
 
-@dataclass(frozen=True)
-class _ExperimentEnvelope:
+@dataclass(frozen=True, kw_only=True)
+class _AssemblyEnvelope:
     """Non-dataflow intents carried alongside transient semantic graphs."""
 
-    experiment_id: str | None = None
-    kind: str | None = None
     inputs: dict[str, object] = field(default_factory=dict)
     input_ports: tuple[ModuleInputPort, ...] = ()
     entity_inputs: tuple[str, ...] = ()
@@ -112,8 +124,8 @@ class _ExperimentEnvelope:
     parameter_contracts: tuple[ParameterContract, ...] = ()
 
 
-@dataclass(frozen=True)
-class _ModuleFragment(_ExperimentEnvelope):
+@dataclass(frozen=True, kw_only=True)
+class _ModuleFragment(_AssemblyEnvelope):
     """Hierarchy-free module declarations before semantic graph closure."""
 
     operations: tuple[ModuleOperationDecl, ...] = ()
@@ -124,9 +136,15 @@ class _ModuleFragment(_ExperimentEnvelope):
     @property
     def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
         return tuple(
-            effect
+            binding
             for effect in self.effects
-            if isinstance(effect, ExperimentBindingIntent)
+            for binding in (
+                (effect,)
+                if isinstance(effect, ExperimentBindingIntent)
+                else effect.assignments
+                if isinstance(effect, EnsureStateIntent)
+                else ()
+            )
         )
 
 
@@ -142,10 +160,27 @@ class _ModuleFragmentValueRoots:
     semantic: tuple[object, ...]
 
 
-@dataclass(frozen=True)
-class SemanticExperimentIR(_ExperimentEnvelope):
+class _HierarchyRoot(Protocol):
+    """Structural program container accepted by hierarchy elaboration."""
+
+    @property
+    def interface(self) -> ModuleInterfaceIR: ...
+
+    @property
+    def body(self) -> ModuleBodyIR: ...
+
+    @property
+    def python_implementations(
+        self,
+    ) -> tuple[ModulePythonImplementation, ...]: ...
+
+
+@dataclass(frozen=True, kw_only=True)
+class ExperimentAssembly(_AssemblyEnvelope):
     """Closed config-free semantic graph plus plan and resource intents."""
 
+    experiment_id: str
+    kind: str
     point_domain: PointAxes[ValueRef] = ()
     semantic_graph: SemanticGraphIR = field(default_factory=SemanticGraphIR)
     implementations: Mapping[OperationId, LocalPythonImplementation] = field(
@@ -154,8 +189,11 @@ class SemanticExperimentIR(_ExperimentEnvelope):
         compare=False,
     )
     effects: tuple[AssemblyEffect, ...] = ()
+    final_state: EnsureStateIntent | None = None
 
     def __post_init__(self) -> None:
+        if not self.experiment_id or not self.kind:
+            raise ValueError("semantic experiment requires an id and kind")
         object.__setattr__(
             self,
             "implementations",
@@ -164,10 +202,20 @@ class SemanticExperimentIR(_ExperimentEnvelope):
 
     @property
     def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
-        return tuple(
-            effect
+        effect_bindings = tuple(
+            binding
             for effect in self.effects
-            if isinstance(effect, ExperimentBindingIntent)
+            for binding in (
+                (effect,)
+                if isinstance(effect, ExperimentBindingIntent)
+                else effect.assignments
+                if isinstance(effect, EnsureStateIntent)
+                else ()
+            )
+        )
+        return (
+            *effect_bindings,
+            *(() if self.final_state is None else self.final_state.assignments),
         )
 
     @property
@@ -203,8 +251,6 @@ class SemanticExperimentIR(_ExperimentEnvelope):
 
 def _merge_module_fragments(
     *,
-    experiment_id: str,
-    kind: str,
     fragments: Sequence[_ModuleFragment],
 ) -> _ModuleFragment:
     if not fragments:
@@ -244,8 +290,6 @@ def _merge_module_fragments(
     if len(execution_ids) != len(set(execution_ids)):
         raise ValueError("module fragments contain repeated domain execution ids")
     return _ModuleFragment(
-        experiment_id=experiment_id,
-        kind=kind,
         inputs=merged_inputs,
         input_ports=tuple(input_ports),
         entity_inputs=tuple(entity_inputs),
@@ -266,11 +310,43 @@ def elaborate_module(
     module: ModuleIR,
     /,
     **inputs: object,
-) -> SemanticExperimentIR:
+) -> ExperimentAssembly:
     """Elaborate one root module through the only hierarchy-flattening pass."""
 
-    fragment = _elaborate_module_ir(
+    return _elaborate_hierarchy(
         module,
+        experiment_id=module.id,
+        kind=module.id,
+        inputs=inputs,
+    )
+
+
+def elaborate_experiment_program(
+    program: ExperimentProgram,
+    *,
+    experiment_id: str,
+    kind: str,
+    inputs: Mapping[str, object],
+) -> ExperimentAssembly:
+    """Elaborate a native experiment root without a synthetic module."""
+
+    return _elaborate_hierarchy(
+        program,
+        experiment_id=experiment_id,
+        kind=kind,
+        inputs=inputs,
+    )
+
+
+def _elaborate_hierarchy(
+    root: _HierarchyRoot,
+    *,
+    experiment_id: str,
+    kind: str,
+    inputs: Mapping[str, object],
+) -> ExperimentAssembly:
+    fragment = _elaborate_program_ir(
+        root,
         inputs=inputs,
     )
     value_roots = _module_fragment_value_roots(fragment)
@@ -285,9 +361,9 @@ def elaborate_module(
         point_dependencies=fragment.point_dependencies,
         parameter_contracts=fragment.parameter_contracts,
     )
-    return SemanticExperimentIR(
-        experiment_id=fragment.experiment_id,
-        kind=fragment.kind,
+    return ExperimentAssembly(
+        experiment_id=experiment_id,
+        kind=kind,
         inputs=fragment.inputs,
         input_ports=fragment.input_ports,
         entity_inputs=fragment.entity_inputs,
@@ -303,8 +379,8 @@ def elaborate_module(
     )
 
 
-def _elaborate_module_ir(
-    module: ModuleIR,
+def _elaborate_program_ir(
+    module: _HierarchyRoot,
     *,
     inputs: Mapping[str, object],
 ) -> _ModuleFragment:
@@ -319,7 +395,7 @@ def _elaborate_module_ir(
         for implementation in module.python_implementations
     }
     own_effects: list[_FragmentEffect] = []
-    for effect in module.body.procedure:
+    for effect in module.body.effects:
         if isinstance(effect, ModuleInstanceIR):
             continue
         own_effects.append(_lower_module_effect(effect, resolver=resolver))
@@ -377,21 +453,17 @@ def _elaborate_module_ir(
         for instance in module.body.child_instances
     )
     combined = _merge_module_fragments(
-        experiment_id=module.id,
-        kind=module.id,
         fragments=(*ordered_sources, own),
     )
     effects: list[_FragmentEffect] = []
     own_effect_iterator = iter(own.effects)
-    for effect in module.body.procedure:
+    for effect in module.body.effects:
         if isinstance(effect, ModuleInstanceIR):
             effects.extend(source_fragments[effect.invocation_key].effects)
         else:
             effects.append(next(own_effect_iterator))
     return replace(
         combined,
-        experiment_id=None,
-        kind=None,
         effects=tuple(effects),
     )
 
@@ -399,6 +471,7 @@ def _elaborate_module_ir(
 def _lower_module_effect(
     effect: (
         ModuleBindingEffect
+        | ModuleEnsureEffect
         | ModuleInvokeEffect
         | ModuleDomainEffect
         | ModuleAcquireEffect
@@ -408,6 +481,14 @@ def _lower_module_effect(
 ) -> _FragmentEffect:
     if isinstance(effect, ModuleBindingEffect):
         return _resolve_binding(effect.intent, resolver=resolver)
+    if isinstance(effect, ModuleEnsureEffect):
+        return replace(
+            effect.intent,
+            assignments=tuple(
+                _resolve_binding(assignment, resolver=resolver)
+                for assignment in effect.intent.assignments
+            ),
+        )
     if isinstance(effect, ModuleInvokeEffect):
         return _resolve_invocation(effect.intent, resolver=resolver)
     if isinstance(effect, ModuleDomainEffect):
@@ -441,7 +522,7 @@ def _elaborate_instance(
         binding.import_id: resolver.resolve(binding.source)
         for binding in instance.input_bindings
     }
-    fragment = _elaborate_module_ir(instance.module, inputs=local_inputs)
+    fragment = _elaborate_program_ir(instance.module, inputs=local_inputs)
     return _scope_instance_graph(
         fragment,
         instance=instance,
@@ -516,7 +597,7 @@ def _merge_point_dependencies(
 class _ModuleValueResolver:
     """Resolve explicit instance-export edges within one Module IR boundary."""
 
-    def __init__(self, module: ModuleIR) -> None:
+    def __init__(self, module: _HierarchyRoot) -> None:
         self._instances = {
             instance.invocation_key: instance
             for instance in module.body.child_instances
@@ -892,6 +973,20 @@ def _scope_fragment_effect(
             scope=scope,
             origin=origin,
             resource_ids=resource_ids,
+        )
+    if isinstance(effect, EnsureStateIntent):
+        return replace(
+            effect,
+            assignments=tuple(
+                _scope_binding(
+                    assignment,
+                    inputs,
+                    scope=scope,
+                    origin=origin,
+                    resource_ids=resource_ids,
+                )
+                for assignment in effect.assignments
+            ),
         )
     if isinstance(effect, InvocationIntent):
         return _scope_invocation(

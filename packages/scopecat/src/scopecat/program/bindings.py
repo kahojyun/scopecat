@@ -1,11 +1,10 @@
-"""Source-only resource and desired-state binding intents."""
+"""Resource declarations and desired-state binding intents."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
-from scopecat.authoring._value_refs import ValueRef
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.interface_identity import InterfaceId, require_interface_id
 from scopecat.kernel.payloads import PayloadValue
@@ -15,6 +14,7 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
 )
 from scopecat.kernel.value_types import Payload, Scalar
+from scopecat.program.value_refs import ValueRef
 
 type EntitySource = ValueRef
 type BindingValue = ValueRef | Quantity | EntityRef | str | int | float | bool | None
@@ -55,6 +55,17 @@ class BindingIntent:
 
 
 ExperimentBindingIntent = BindingIntent
+
+
+@dataclass(frozen=True)
+class EnsureStateIntent:
+    """One coherent desired-state assertion over a logical resource."""
+
+    assignments: tuple[ExperimentBindingIntent, ...]
+
+    def __post_init__(self) -> None:
+        if not self.assignments:
+            raise ValueError("desired state requires at least one assignment")
 
 
 @dataclass(frozen=True)
@@ -103,7 +114,7 @@ def prefix_resource_port(
 
 
 def bind_property(
-    port_id: str,
+    port_id: str | LogicalResourcePortId,
     *,
     interface: InterfaceId,
     property: str,
@@ -113,8 +124,13 @@ def bind_property(
     """Build a property binding with explicit interface and component identity."""
 
     selected_component_path = tuple(component_path)
+    selected_port_id = (
+        port_id
+        if isinstance(port_id, LogicalResourcePortId)
+        else logical_resource_port_id(port_id)
+    )
     if (
-        not port_id
+        not selected_port_id.qualified_name
         or not property
         or any(not component for component in selected_component_path)
     ):
@@ -123,7 +139,7 @@ def bind_property(
     if _is_payload_value(value):
         raise TypeError("persistent properties cannot contain opaque payloads")
     return BindingIntent(
-        port_id=logical_resource_port_id(port_id),
+        port_id=selected_port_id,
         interface_id=require_interface_id(interface),
         component_path=selected_component_path,
         property_id=property,

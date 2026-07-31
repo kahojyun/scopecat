@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._identities import InvocationKey
-from scopecat.authoring._value_refs import (
+from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.relations.context import EvalContext
+from scopecat.kernel.value_types import Float, Scalar, String
+from scopecat.program.identities import InvocationKey
+from scopecat.program.value_refs import (
     internal_bind_value_ref_inputs,
     internal_input_value_ref,
     internal_literal_value_ref,
@@ -16,9 +21,6 @@ from scopecat.authoring._value_refs import (
     internal_transform_value_ref,
     internal_value_ref_module_export,
 )
-from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.relations.context import EvalContext
-from scopecat.kernel.value_types import Float, Scalar, String
 from tests.testkit.relation_plans import evaluate_scalar
 
 
@@ -91,16 +93,18 @@ def test_transform_requires_exact_value_type_preservation() -> None:
 
 
 def test_flattened_ir_rejects_export_edges_hidden_in_root_inputs() -> None:
-    value_type = sc.ScalarType(sc.FloatType())
-    value = sc.input("value", value_type)
-    producer = (
-        sc.module_body(id="test.value-export.root-input-producer")
-        .inputs(value)
-        .export(value=value)
-        .build()
-        .instantiate("producer", value=1.0)
-    )
-    root = sc.module_body(id="test.value-export.root-input").build()
+    @sc.module(id="test.value-export.root-input-producer")
+    def producer_definition(
+        module: sc.ModuleContext,
+        value: Annotated[sc.Input[float], sc.FloatType()],
+    ) -> None:
+        module.export(value=sc.input_ref(value))
+
+    producer = producer_definition.instantiate("producer", value=1.0)
+
+    @sc.module(id="test.value-export.root-input")
+    def root(module: sc.ModuleContext) -> None:
+        del module
 
     with pytest.raises(ValueError, match="unresolved module export 'value'"):
         elaborate_module(root.ir, hidden=producer.outputs.value)

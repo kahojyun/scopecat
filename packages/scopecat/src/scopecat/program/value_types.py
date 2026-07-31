@@ -1,4 +1,4 @@
-"""Authoring facade for the shared value type and validation APIs."""
+"""Shared value type and validation APIs for symbolic programs."""
 
 from scopecat.kernel.value_types import (
     AtomType,

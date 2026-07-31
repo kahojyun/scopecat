@@ -101,6 +101,18 @@ footprint as one structured requirement. Ordinary run and instrument views
 project claims back to logical ids. Scheduler keys remain confined to admission
 storage, resource claims, and actor lookup.
 
+A domain target may also own private connection endpoints that have no
+standalone instrument contract. Such endpoints are configured as named target
+members, remain invisible in the Instruments workspace, and are covered by the
+target ownership claim. The target has its own stable `exclusivity_key`; its
+logical id may change without changing the physical access domain, while
+ordinary activation cannot silently replace that key. Admission compares the
+complete submitted target binding, including member roles and private
+connections, with daemon-owned active configuration before issuing the
+canonical claim. Hardware that remains useful independently is instead
+configured as an instrument member so direct sessions and other runs conflict
+with the target through the same physical resource claim.
+
 Executable Python remains in the client, so admission validates and authorizes
 the declared plan rather than reconstructing it. Treating a hostile client as a
 planner requires a future daemon-signed or daemon-built plan, not broader
@@ -138,6 +150,105 @@ network sweep. It requests one or more namespaced interface ids such as
 instrument. Experiment definitions therefore do not depend on addresses,
 vendors, or GUI concepts.
 
+## Python authoring model
+
+Notebook control and experiment authoring deliberately expose different verbs:
+
+- direct control is imperative: open typed physical references, call
+  `apply(...)`, `refresh()`, or an acquisition method, and inspect receipts;
+- an experiment declares desired state with `ensure(...)`; every target field
+  may be a fixed Python value or a point-resolved `ValueRef` from an input,
+  parameter, compute output, or scan coordinate.
+
+```python
+from typing import Annotated
+
+import scopecat as sc
+from scopecat_instruments import (
+    DCSourceVoltage,
+    NetworkSweepState,
+)
+from scopecat_instruments.members import DC_SOURCE, NETWORK_SWEEP
+
+DC_BIAS = sc.coordinate(
+    "dc_bias",
+    sc.ScalarType(sc.QuantityType(unit="V")),
+)
+
+@sc.module(id="resonator.capture")
+def capture(
+    module: sc.ModuleContext,
+    dc_bias: Annotated[
+        sc.Input[sc.Quantity],
+        sc.QuantityType(unit="V"),
+    ],
+) -> None:
+    flux = module.resource("flux", requires=(DC_SOURCE,))
+    vna = module.resource("vna", requires=(NETWORK_SWEEP,))
+    module.ensure(
+        flux,
+        DCSourceVoltage(
+            range=sc.Quantity(1, "V"),     # fixed for every point
+            level=dc_bias,                 # resolved from the scan point
+            output_enabled=True,
+        ),
+    )
+    module.ensure(
+        vna,
+        NetworkSweepState(
+            start_frequency=sc.Quantity(4.9, "GHz"),
+            stop_frequency=sc.Quantity(5.1, "GHz"),
+            points=751,
+            s_parameter="S21",
+        ),
+    )
+```
+
+A module may reference global constants, interfaces, functions, and other
+module definitions. Symbolic `ValueRef` objects are different: pass them
+through typed module parameters so every external dependency appears in the
+Python signature and `ModuleIR`; `@module` rejects captured global symbolic
+values.
+
+A target is a coherent state intention, not an instruction to write every
+field unconditionally. Omitted fields remain unspecified. After point values
+are resolved, one `ensure(...)` remains one typed state effect and lowers to
+one state application per selected instrument. Adjacent `ensure(...)` calls
+remain ordered effects rather than being merged accidentally; the driver still
+receives the minimal validated patch required to reach each target.
+
+Reusable modules describe the ordered work needed at each point. A
+normal-completion state belongs instead to the root experiment because two
+experiments may intentionally leave the same module's hardware differently:
+
+```python
+@sc.template(id="resonator.capture", kind="resonator")
+def capture_experiment(experiment: sc.ExperimentContext) -> None:
+    run = experiment.run(capture(DC_BIAS))
+    experiment.finalize(
+        run.resources.flux,
+        DCSourceVoltage(
+            level=sc.Quantity(0, "V"),
+            output_enabled=False,
+        ),
+    )
+```
+
+All `finalize(...)` declarations form one desired state applied
+only after every point and measurement block completes successfully. A
+final_state may use fixed values, experiment inputs, or configuration
+parameters, but not scan coordinates or point-local compute results: there is
+no distinguished scan point after the scan. Failure, cancellation, and unknown
+hardware outcomes skip this normal-completion state and remain governed by the
+daemon's configured safety/finalization policy. Consequently modules do not
+register global `finalize` callbacks, and an experiment final_state is not a
+substitute for safety cleanup.
+
+The same typed state objects are shared by direct control and experiment
+authoring. The verb supplies the semantics: `apply(...)` requests a transition
+now and requires concrete values, while `ensure(...)` declares desired state
+and also accepts symbolic point values.
+
 ## Interface boundaries
 
 An interface id names stable behavior, not a driver implementation or current
@@ -172,7 +283,7 @@ preconditions before the trigger because the front panel can change after the
 snapshot; implementation-specific constraints remain driver guards.
 
 A driver implementation may expose several interfaces. Multi-device
-calibration, feedback, and analysis remain experiment procedures rather than
+calibration, feedback, and analysis remain experiment workflows rather than
 device operations.
 
 Persistent hardware settings may not remain undeclared if they can change an
@@ -237,7 +348,9 @@ Example:
     "options": {}
   },
   "default_state": [],
-  "run_start": "preserve"
+  "run_start": "preserve",
+  "safe_state": [],
+  "failure_action": "abort_and_release"
 }
 ```
 
@@ -258,6 +371,20 @@ neither guess nor overwrite them. A discriminated state case explicitly lists
 the properties required when entering it. Defaults that select a new case must
 provide those values, so startup does not activate safety-relevant settings left
 by an earlier use of that mode.
+
+`failure_action` is also required and has deliberately few choices:
+
+- `abort_and_release` stops owner-scoped work, reads terminal state, and
+  releases ownership.
+- `abort_then_safe_state` stops work, freshly observes the device, reconciles
+  the sparse `safe_state`, reads terminal state, and releases ownership.
+
+This recovery belongs to the pinned system configuration rather than an
+experiment. It runs only for failure, cancellation, or the terminal fallback;
+a successful run instead uses its experiment final_state. A conclusive driver
+rejection is returned as a finalization problem. An unknown abort, observation,
+or apply outcome faults the connection, quarantines the run, and sends no
+further commands.
 
 A hardware reset or preset is an explicit `OperationSpec`, not a connection
 hook or session-open flag. It therefore participates in normal argument
@@ -354,41 +481,39 @@ The normal project connection exposes the same daemon-owned path:
 
 ```python
 import scopecat as sc
-from scopecat_instruments.members import (
-    NETWORK_SWEEP_ACQUISITION,
-    NETWORK_SWEEP_FREQUENCY_RESULT,
-    NETWORK_SWEEP_POINTS,
-    NETWORK_SWEEP_S_PARAMETER_RESULT,
-    NETWORK_SWEEP_START_FREQUENCY,
-    NETWORK_SWEEP_STOP_FREQUENCY,
+from scopecat_instruments import (
+    NetworkSweepState,
+    network_sweep,
 )
+
+READOUT_VNA = network_sweep("readout-vna")
 
 with sc.open_project(".").connect(operator="alice") as lab:
     for item in lab.instruments.list().items:
         print(item.instrument_id, item.availability)
 
-    with lab.instruments.open("readout-vna") as vna:
+    with lab.instruments.open(READOUT_VNA) as devices:
+        vna = devices[READOUT_VNA]
         print(vna.describe())
         print(vna.observed_state())
 
-        prepared = vna.apply_configured_defaults()
         receipt = vna.apply(
-            {
-                NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(4.8, "GHz"),
-                NETWORK_SWEEP_STOP_FREQUENCY: sc.Quantity(5.2, "GHz"),
-                NETWORK_SWEEP_POINTS: 401,
-            }
+            NetworkSweepState(
+                start_frequency=sc.Quantity(4.8, "GHz"),
+                stop_frequency=sc.Quantity(5.2, "GHz"),
+                points=401,
+            )
         )
-        trace = vna.collect(
-            NETWORK_SWEEP_ACQUISITION,
-            NETWORK_SWEEP_FREQUENCY_RESULT,
-            NETWORK_SWEEP_S_PARAMETER_RESULT,
-        )
+        trace = vna.sweep()
 ```
 
-Experiment authoring and interactive Python calls use nominal member refs, so
-an acquisition result cannot be accidentally paired with another interface or
-component. Specs, compiler IR, and daemon requests lower them to physical ids.
+Typed physical refs bind a project-owned instrument id to a statically known
+client inside the daemon-owned session. State dataclasses correlate property
+names with Python value types, and typed acquisitions expose named result
+fields. Experiment lowering and the low-level dynamic API continue to use
+nominal member refs, so an acquisition result cannot be accidentally paired
+with another interface or component. Specs, compiler IR, and daemon requests
+lower them to physical ids.
 
 Values with physical units may be passed as Scopecat `Quantity` values. Plain
 numbers remain valid only where the declared property type accepts them. A
@@ -400,30 +525,27 @@ A multi-instrument session is available when an operation must reserve a
 coherent set:
 
 ```python
-from scopecat_instruments.members import (
-    DC_SOURCE_MODE,
-    DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
-    DC_SOURCE_VOLTAGE_RANGE,
-    NETWORK_SWEEP_ACQUISITION,
-    NETWORK_SWEEP_S_PARAMETER_RESULT,
+from scopecat_instruments import (
+    DCSourceVoltage,
+    dc_source,
+    network_sweep,
 )
 
-with lab.instruments.open("flux-source", "readout-vna") as session:
-    session.apply(
-        {
-            DC_SOURCE_MODE: "voltage",
-            DC_SOURCE_VOLTAGE_RANGE: sc.Quantity(1.0, "V"),
-            DC_SOURCE_VOLTAGE_LEVEL: sc.Quantity(0.05, "V"),
-            DC_SOURCE_OUTPUT_ENABLED: True,
-        },
-        instrument_id="flux-source",
+FLUX_SOURCE = dc_source("flux-source")
+READOUT_VNA = network_sweep("readout-vna")
+
+with lab.instruments.open(FLUX_SOURCE, READOUT_VNA) as devices:
+    source = devices[FLUX_SOURCE]
+    vna = devices[READOUT_VNA]
+
+    source.apply(
+        DCSourceVoltage(
+            range=sc.Quantity(1.0, "V"),
+            level=sc.Quantity(0.05, "V"),
+            output_enabled=True,
+        )
     )
-    trace = session.collect(
-        NETWORK_SWEEP_ACQUISITION,
-        NETWORK_SWEEP_S_PARAMETER_RESULT,
-        instrument_id="readout-vna",
-    )
+    trace = vna.sweep()
 ```
 
 The handle is synchronous to match the existing notebook API and releases

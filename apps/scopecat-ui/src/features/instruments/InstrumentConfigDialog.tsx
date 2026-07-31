@@ -544,6 +544,8 @@ function proposedSpec(
     connection,
     default_state: defaultState,
     run_start: runStart,
+    failure_action: existing?.failure_action ?? "abort_and_release",
+    ...(existing?.safe_state === undefined ? {} : { safe_state: existing.safe_state }),
   };
 }
 

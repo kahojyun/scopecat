@@ -29,7 +29,9 @@ from scopecat.compiler.typed.point_domain import (
 )
 from scopecat.compiler.typed.program import CoreProgram, TypedDomainExecution
 from scopecat.compiler.typed.state import (
+    EnsureStateSpec,
     SetStateSpec,
+    StateEffect,
     StateRecord,
     evaluate_state_spec,
 )
@@ -237,24 +239,52 @@ def materialize_local_execution(
                         RunCoverageEffect(ordinal, invocation)
                     )
             continue
-        if effect_index and not isinstance(
+        if isinstance(effect, EnsureStateSpec):
+            for ordinal in ordinals:
+                point = point_by_ordinal[ordinal]
+                point_params = params_by_ordinal[ordinal]
+                resources = resources_by_ordinal[ordinal]
+                desired = _bind_desired_state(
+                    tuple(
+                        record
+                        for state in effect.assignments
+                        for record in _evaluate_state_records(
+                            state,
+                            effect_index,
+                            point,
+                            point_params,
+                            problems=problems,
+                        )
+                    ),
+                    point_uid=point.logical_id.value,
+                    state_group_index=effect_index,
+                    resources=resources,
+                    point_index=ordinal,
+                    problems=problems,
+                )
+                ordered = _order_instrument_operations(
+                    desired,
+                    instrument_order=selected_instrument_order,
+                )
+                effect_operations[effect_index].extend(
+                    RunCoverageEffect(ordinal, operation) for operation in ordered
+                )
+            continue
+        if effect_index and isinstance(
             program.effects[effect_index - 1],
-            TypedDomainExecution | AcquireEffect | InvokeEffect,
+            SetStateSpec,
         ):
             continue
         state_end = effect_index + 1
-        while state_end < len(program.effects) and not isinstance(
+        while state_end < len(program.effects) and isinstance(
             program.effects[state_end],
-            TypedDomainExecution | AcquireEffect | InvokeEffect,
+            SetStateSpec,
         ):
             state_end += 1
         state_group: list[tuple[int, SetStateSpec]] = []
         for index in range(effect_index, state_end):
             state = program.effects[index]
-            if isinstance(
-                state,
-                TypedDomainExecution | AcquireEffect | InvokeEffect,
-            ):
+            if not isinstance(state, SetStateSpec):
                 raise AssertionError("state group contains a non-state effect")
             state_group.append((index, state))
         for ordinal in ordinals:
@@ -291,6 +321,63 @@ def materialize_local_execution(
     return MaterializedLocalEffects(
         compute_operations=tuple(compute_effects),
         effect_operations=tuple(tuple(items) for items in effect_operations),
+    )
+
+
+def materialize_local_final_state(
+    linked: LinkedPlan,
+    *,
+    target: LocalTargetPlan,
+) -> tuple[ApplyStateOperation, ...]:
+    """Materialize the fixed desired state applied after normal completion."""
+
+    final_state = target.program.final_state
+    if final_state is None:
+        return ()
+    problems: list[Problem] = []
+    resources = _select_resources(
+        target.program,
+        target.resource_ports,
+        ctx=EvalContext(params=linked.environment.parameters),
+        context="normal completion",
+        problems=problems,
+        selected_port_ids=frozenset(
+            assignment.resource_target.port_id for assignment in final_state.assignments
+        ),
+    )
+    records: list[StateRecord] = []
+    for assignment in final_state.assignments:
+        try:
+            records.extend(
+                evaluate_state_spec(
+                    assignment,
+                    point_index=0,
+                    ctx=EvalContext(params=linked.environment.parameters),
+                )
+            )
+        except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+            problems.append(
+                _problem(
+                    "experiment_final_state_evaluation_failed",
+                    f"experiment final_state evaluation failed: {error}",
+                    model_location("final_state"),
+                )
+            )
+    desired = _bind_desired_state(
+        records,
+        point_uid=f"{target.program.id}.final_state",
+        state_group_index=len(target.program.effects),
+        resources=resources,
+        point_index=0,
+        problems=problems,
+        state_context="normal completion",
+        state_location=model_location("final_state"),
+    )
+    if problems:
+        raise CheckFailed(problems)
+    return _order_instrument_operations(
+        desired,
+        instrument_order=target.instrument_order,
     )
 
 
@@ -430,12 +517,34 @@ def _select_point_resources(
     params: ParameterRelationData,
     problems: list[Problem],
 ) -> Mapping[LogicalResourcePortId, _ResourceEntitySelection]:
+    return _select_resources(
+        program,
+        resource_ports,
+        ctx=EvalContext(params=params, point_row=point.row),
+        context=f"point {point.logical_ordinal}",
+        problems=problems,
+    )
+
+
+def _select_resources(
+    program: CoreProgram,
+    resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest],
+    *,
+    ctx: EvalContext,
+    context: str,
+    problems: list[Problem],
+    selected_port_ids: AbstractSet[LogicalResourcePortId] | None = None,
+) -> Mapping[LogicalResourcePortId, _ResourceEntitySelection]:
     selected: dict[LogicalResourcePortId, _ResourceEntitySelection] = {}
     for requirement in program.resource_requirements:
+        if (
+            selected_port_ids is not None
+            and requirement.port_id not in selected_port_ids
+        ):
+            continue
         manifest = resource_ports.get(requirement.port_id)
         if manifest is None:
             continue
-        ctx = EvalContext(params=params, point_row=point.row)
         entity_values: list[object] = []
         failed = False
         for use in requirement.entity_uses:
@@ -447,8 +556,7 @@ def _select_point_resources(
                     _problem(
                         "experiment_resource_entity_evaluation_failed",
                         f"resource {requirement.port_id.qualified_name} entity "
-                        "expression failed for "
-                        f"point {point.logical_ordinal}: {error}",
+                        f"expression failed for {context}: {error}",
                         model_location(
                             "resources",
                             requirement.port_id.qualified_name,
@@ -501,13 +609,17 @@ def _active_resource_port_ids(
             selected.add(effect.resource_port_id)
         elif not isinstance(effect, TypedDomainExecution):
             selected.update(_state_resource_port_ids(effect))
+    if program.final_state is not None:
+        selected.update(_state_resource_port_ids(program.final_state))
     return frozenset(selected)
 
 
 def _state_resource_port_ids(
-    state: SetStateSpec,
+    state: StateEffect,
 ) -> tuple[LogicalResourcePortId, ...]:
-    return (state.resource_target.port_id,)
+    if isinstance(state, SetStateSpec):
+        return (state.resource_target.port_id,)
+    return tuple(assignment.resource_target.port_id for assignment in state.assignments)
 
 
 def _bind_desired_state(
@@ -518,7 +630,15 @@ def _bind_desired_state(
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
     point_index: int,
     problems: list[Problem],
+    state_context: str | None = None,
+    state_location: ModelLocation | None = None,
 ) -> tuple[ApplyStateOperation, ...]:
+    selected_context = state_context or f"point {point_index}"
+    selected_location = state_location or model_location(
+        "points",
+        point_index,
+        "desired_state",
+    )
     grouped: dict[
         str,
         dict[
@@ -632,8 +752,8 @@ def _bind_desired_state(
                     f"{resource}.{interface}/"
                     f"{'/'.join(component_path)}.{property_id} receives "
                     "multiple values "
-                    f"at point {point_index}",
-                    model_location("points", point_index, "desired_state"),
+                    f"at {selected_context}",
+                    selected_location,
                 )
             )
     for (
@@ -650,8 +770,8 @@ def _bind_desired_state(
                     "experiment_aliased_desired_state_target",
                     f"{resource}.{interface}/"
                     f"{'/'.join(component_path)}.{property_id} is owned by multiple "
-                    f"resource targets at point {point_index}",
-                    model_location("points", point_index, "desired_state"),
+                    f"resource targets at {selected_context}",
+                    selected_location,
                 )
             )
     return tuple(

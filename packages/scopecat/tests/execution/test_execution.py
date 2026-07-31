@@ -870,7 +870,7 @@ def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
         base_experiment,
         effects=(
             set_state_property(
-                resource_port_id=logical_resource_port_id("source"),
+                resource_port_id=base_experiment.resource_requirements[0].port_id,
                 interface_id="test.set_frequency/v1",
                 property_id="frequency",
                 value=scalar_value_expr(

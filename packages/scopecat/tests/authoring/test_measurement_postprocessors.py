@@ -1,3 +1,5 @@
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
 
 import pytest
@@ -7,6 +9,8 @@ from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
+from scopecat.program.domain import domain_program
+from tests.testkit.domain import domain_call
 
 
 def _identity(value: MeasurementValue) -> dict[str, MeasurementValue]:
@@ -16,8 +20,8 @@ def _identity(value: MeasurementValue) -> dict[str, MeasurementValue]:
 def _postprocessor(
     id: str,
     *,
-    source: str,
-    output: str,
+    source: str | sc.ProductRef,
+    output: str | sc.ProductRef,
 ) -> sc.MeasurementPostprocessor:
     return sc.measurement_postprocessor(
         id,
@@ -71,70 +75,78 @@ def test_module_requires_postprocessor_products_and_unique_ids() -> None:
     postprocessor = _postprocessor("derive", source="raw", output="derived")
 
     with pytest.raises(ValueError, match="undeclared local product 'raw'"):
-        (
-            sc.module_body(id="test.postprocessor.missing")
-            .product("derived")
-            .measurement_postprocessors(postprocessor)
-            .build()
-        )
+
+        @sc.module(id="test.postprocessor.missing")
+        def missing(context: sc.ModuleContext) -> None:
+            context.product("derived")
+            context.measurement_postprocessor(postprocessor)
+
     with pytest.raises(
         ValueError,
         match="duplicate module measurement postprocessor ids",
     ):
-        (
-            sc.module_body(id="test.postprocessor.duplicate")
-            .product("raw", "derived")
-            .measurement_postprocessors(postprocessor, postprocessor)
-            .build()
-        )
+
+        @sc.module(id="test.postprocessor.duplicate")
+        def duplicate(context: sc.ModuleContext) -> None:
+            context.product("raw")
+            context.product("derived")
+            context.measurement_postprocessor(postprocessor)
+            context.measurement_postprocessor(postprocessor)
 
 
 def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
-    child = sc.module_body(id="test.postprocessor.source").product("raw").build()
+    @sc.module(id="test.postprocessor.source")
+    def child(context: sc.ModuleContext) -> None:
+        context.product("raw")
+
     nested = child.instantiate("nested")
-    builder = (
-        sc.module_body(id="test.postprocessor.parent").use(nested).product("derived")
-    )
-    postprocessor = sc.measurement_postprocessor(
-        "derive",
-        input=nested.products.raw,
-        outputs={"result": builder.products.derived},
-        kernel=_identity,
-    )
-    module = builder.measurement_postprocessors(postprocessor).build()
+
+    @sc.module(id="test.postprocessor.parent")
+    def module(context: sc.ModuleContext) -> None:
+        context.call(nested)
+        derived = context.product("derived")
+        context.measurement_postprocessor(
+            sc.measurement_postprocessor(
+                "derive",
+                input=nested.products.raw,
+                outputs={"result": derived},
+                kernel=_identity,
+            )
+        )
 
     [lowered] = elaborate_module(module.ir).semantic_graph.measurement_postprocessors
     assert lowered.input.qualified_name == "nested/raw"
     assert lowered.outputs[0][1].qualified_name == "derived"
 
-    nested_module = (
-        sc.module_body(id="test.postprocessor.child")
-        .product("raw", "derived")
-        .measurement_postprocessors(
+    @sc.module(id="test.postprocessor.child")
+    def nested_module(context: sc.ModuleContext) -> None:
+        context.product("raw")
+        context.product("derived")
+        context.measurement_postprocessor(
             _postprocessor("derive", source="raw", output="derived")
         )
-        .build()
-    )
-    root = (
-        sc.module_body(id="test.postprocessor.root")
-        .use(nested_module.instantiate("nested"))
-        .build()
-    )
+
+    @sc.module(id="test.postprocessor.root")
+    def root(context: sc.ModuleContext) -> None:
+        context.call(nested_module.instantiate("nested"))
+
     [scoped] = elaborate_module(root.ir).semantic_graph.measurement_postprocessors
     assert scoped.id.qualified_name == "nested/derive"
     assert scoped.input.qualified_name == "nested/raw"
 
 
 def test_postprocessor_chaining_is_rejected() -> None:
-    module = (
-        sc.module_body(id="test.postprocessor.chain")
-        .product("raw", "middle", "derived")
-        .measurement_postprocessors(
+    @sc.module(id="test.postprocessor.chain")
+    def module(context: sc.ModuleContext) -> None:
+        context.product("raw")
+        context.product("middle")
+        context.product("derived")
+        context.measurement_postprocessor(
             _postprocessor("first", source="raw", output="middle"),
+        )
+        context.measurement_postprocessor(
             _postprocessor("second", source="middle", output="derived"),
         )
-        .build()
-    )
 
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(elaborate_module(module.ir))
@@ -144,23 +156,22 @@ def test_postprocessor_chaining_is_rejected() -> None:
 
 
 def test_domain_and_postprocessor_cannot_own_the_same_product() -> None:
-    program = sc.domain_program(
+    program = domain_program(
         "program",
         dialect_id="test",
         dialect_version="1",
         body=object(),
         results={"raw": None},
     )
-    builder = (
-        sc.module_body(id="test.postprocessor.owner")
-        .product("source", "raw")
-        .measurement_postprocessors(
-            _postprocessor("derive", source="source", output="raw")
+
+    @sc.module(id="test.postprocessor.owner")
+    def module(context: sc.ModuleContext) -> None:
+        call = domain_call(program)
+        context.product("source")
+        context.measurement_postprocessor(
+            _postprocessor("derive", source="source", output=call.results.raw)
         )
-    )
-    module = builder.domain(
-        sc.domain_execution(program, results={"raw": builder.products.raw})
-    ).build()
+        context.call(call)
 
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(elaborate_module(module.ir))

@@ -7,23 +7,27 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
-from scopecat.authoring._module_ir import ModuleIR
-from scopecat.authoring._products import RecordSelection
 from scopecat.authoring._validation import (
     validate_experiment_definition,
     validate_experiment_inputs,
 )
-from scopecat.authoring._value_refs import (
+from scopecat.authoring.scans import Scan
+from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.value_types import ValueType
+from scopecat.program.bindings import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+)
+from scopecat.program.experiment import ExperimentProgram
+from scopecat.program.products import RecordSelection
+from scopecat.program.value_refs import (
     capture_runtime_inputs,
     empty_frozen_mapping,
 )
-from scopecat.authoring.scans import Scan
-from scopecat.authoring.values import (
+from scopecat.program.values import (
     MetadataValue,
     RuntimeInput,
 )
-from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
-from scopecat.kernel.value_types import ValueType
 
 
 class _InputDefaultMissing:
@@ -53,10 +57,11 @@ class ExperimentDefinition:
 
     id: str
     kind: str
-    module: ModuleIR
+    program: ExperimentProgram
     inputs: tuple[ExperimentInput, ...] = ()
     default_scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
+    final_state: EnsureStateIntent | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
 
@@ -80,11 +85,22 @@ class ExperimentTemplate[**P]:
     def __signature__(self) -> inspect.Signature:
         return self._signature
 
-    def bind(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
-        """Bind any supplied inputs; completeness is checked at compilation."""
+    def bind(self, **inputs: object) -> ExperimentInvocation:
+        """Partially bind named inputs; compilation checks completeness."""
 
-        bound = self._signature.bind_partial(*args, **kwargs)
-        inputs = cast("dict[str, RuntimeInput]", dict(bound.arguments))
+        bound = self._signature.bind_partial(**inputs)
+        return self._invocation(cast("dict[str, RuntimeInput]", dict(bound.arguments)))
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
+        """Bind every required input through normal Python call semantics."""
+
+        bound = self._signature.bind(*args, **kwargs)
+        return self._invocation(cast("dict[str, RuntimeInput]", dict(bound.arguments)))
+
+    def _invocation(
+        self,
+        inputs: Mapping[str, RuntimeInput],
+    ) -> ExperimentInvocation:
         captured_inputs = _capture_experiment_inputs(inputs)
         validate_experiment_inputs(
             definitions=self.definition.inputs,
@@ -95,11 +111,6 @@ class ExperimentTemplate[**P]:
             inputs=captured_inputs,
             scans=(),
         )
-
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
-        """Bind this closed template through normal Python call syntax."""
-
-        return self.bind(*args, **kwargs)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -137,11 +148,12 @@ def create_experiment_definition_internal(
     *,
     id: str,
     kind: str,
-    module: ModuleIR,
+    program: ExperimentProgram,
     record_selections: Sequence[RecordSelection] = (),
     input_defaults: Mapping[str, RuntimeInput] | None = None,
     required_inputs: Sequence[str] = (),
     default_scans: Sequence[Scan] = (),
+    final_state_bindings: Sequence[ExperimentBindingIntent] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentDefinition:
     """Normalize all experiment semantics at one immutable boundary."""
@@ -157,15 +169,15 @@ def create_experiment_definition_internal(
     selected_defaults = _capture_experiment_inputs(input_defaults or {})
     selected_required = tuple(required_inputs)
     input_types = validate_experiment_definition(
-        module=module,
+        program=program,
         defaults=selected_defaults,
         default_scans=selected_scans,
     )
-    module_input_ids = tuple(port.id for port in module.interface.imports)
+    program_input_ids = tuple(port.id for port in program.interface.imports)
     input_ids = tuple(
         dict.fromkeys(
             (
-                *module_input_ids,
+                *program_input_ids,
                 *selected_defaults,
                 *selected_required,
                 *input_types,
@@ -184,10 +196,15 @@ def create_experiment_definition_internal(
     return ExperimentDefinition(
         id=id,
         kind=kind,
-        module=module,
+        program=program,
         inputs=normalized_inputs,
         default_scans=selected_scans,
         record_selections=selected_records,
+        final_state=(
+            EnsureStateIntent(tuple(final_state_bindings))
+            if final_state_bindings
+            else None
+        ),
         metadata=freeze_json_mapping(metadata or {}),
     )
 

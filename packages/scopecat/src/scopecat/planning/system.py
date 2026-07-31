@@ -30,6 +30,7 @@ from scopecat.compiler.typed.program import (
     core_invocations,
     core_state,
 )
+from scopecat.execution.local.program import LocalOperation
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -57,6 +58,7 @@ from scopecat.planning.local_effects import (
 )
 from scopecat.planning.local_materialization import (
     materialize_local_execution,
+    materialize_local_final_state,
     prepare_local_target,
 )
 from scopecat.planning.provider_binding import (
@@ -236,7 +238,18 @@ def _compile_system_program(
         if local_target is not None
         else None
     )
-    local_requirements = _local_resource_requirements(local_effects)
+    local_final_state = (
+        materialize_local_final_state(
+            linked,
+            target=local_target,
+        )
+        if local_target is not None
+        else ()
+    )
+    local_requirements = _local_resource_requirements(
+        local_effects,
+        final_state=local_final_state,
+    )
     _reject_local_domain_overlap(
         local_requirements=local_requirements,
         domain_footprint=domain_footprint,
@@ -274,6 +287,7 @@ def _compile_system_program(
                         tuple(effect.operation for effect in effects)
                         for effects in local_effects.effect_operations
                     ),
+                    local_final_state,
                 )
             ),
             problems=(),
@@ -283,6 +297,7 @@ def _compile_system_program(
         config_content_hash=config_content_hash(config),
         host=host,
         coverage=coverage,
+        final_state=local_final_state,
         points=point_catalog,
         measurements=measurements,
         measurement_postprocessors=linked.program.measurement_postprocessors,
@@ -399,17 +414,28 @@ def _sorted_requirements(
 
 def _local_resource_requirements(
     local_effects: MaterializedLocalEffects | None,
+    *,
+    final_state: Sequence[LocalOperation] = (),
 ) -> tuple[ResourceRequirement, ...]:
-    if local_effects is None:
+    if local_effects is None and not final_state:
         return ()
+    effect_operations = (
+        ()
+        if local_effects is None
+        else (
+            *(effect.operation for effect in local_effects.compute_operations),
+            *(
+                effect.operation
+                for group in local_effects.effect_operations
+                for effect in group
+            ),
+        )
+    )
     return _sorted_requirements(
         tuple(
             requirement
-            for effect in (
-                *local_effects.compute_operations,
-                *(item for group in local_effects.effect_operations for item in group),
-            )
-            for requirement in local_operation_resource_requirements(effect.operation)
+            for operation in (*effect_operations, *final_state)
+            for requirement in local_operation_resource_requirements(operation)
         )
     )
 

@@ -16,40 +16,76 @@ Use the project connection's `lab.instruments` API. An experiment run is not
 required for direct instrument work:
 
 ```python
+from typing import Annotated
+
 import scopecat as sc
-from scopecat_instruments.members import (
-    NETWORK_SWEEP_ACQUISITION,
-    NETWORK_SWEEP_FREQUENCY_RESULT,
-    NETWORK_SWEEP_POINTS,
-    NETWORK_SWEEP_S_PARAMETER_RESULT,
-    NETWORK_SWEEP_START_FREQUENCY,
-    NETWORK_SWEEP_STOP_FREQUENCY,
+from scopecat_instruments import (
+    NetworkSweepState,
+    network_sweep,
 )
+
+READOUT_VNA = network_sweep("readout-vna")
 
 with sc.open_project(".").connect(operator="alice") as lab:
     for item in lab.instruments.list().items:
         print(item.instrument_id, item.availability)
 
-    with lab.instruments.open("readout-vna") as vna:
+    with lab.instruments.open(READOUT_VNA) as devices:
+        vna = devices[READOUT_VNA]
         print(vna.describe())
         print(vna.observed_state())
         vna.apply(
-            {
-                NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(5.9, "GHz"),
-                NETWORK_SWEEP_STOP_FREQUENCY: sc.Quantity(6.1, "GHz"),
-                NETWORK_SWEEP_POINTS: 401,
-            }
+            NetworkSweepState(
+                start_frequency=sc.Quantity(5.9, "GHz"),
+                stop_frequency=sc.Quantity(6.1, "GHz"),
+                points=401,
+            )
         )
-        trace = vna.collect(
-            NETWORK_SWEEP_ACQUISITION,
-            NETWORK_SWEEP_FREQUENCY_RESULT,
-            NETWORK_SWEEP_S_PARAMETER_RESULT,
-        )
+        trace = vna.sweep()
 ```
 
-The member catalog carries interface, component, and member identity together.
-Public experiment authoring, Notebook, and driver call sites use these refs.
-Specs and serialized IR lower them to raw ids.
+Typed physical references retain project-owned instrument identity and bind a
+statically known client inside the daemon-owned session. State dataclasses keep
+property names and Python value types correlated, while acquisition clients
+return named readback fields. The lower-level member catalog continues to carry
+interface, component, and member identity for drivers and experiment lowering.
+
+Experiment modules reuse the same state dataclasses. Their fields accept either
+fixed values or typed Scopecat value references:
+
+```python
+import scopecat as sc
+from scopecat_instruments import DCSourceVoltage
+from scopecat_instruments.members import DC_SOURCE
+
+DC_BIAS = sc.coordinate(
+    "dc_bias",
+    sc.ScalarType(sc.QuantityType(unit="V")),
+)
+
+@sc.module(id="capture")
+def capture(
+    module: sc.ModuleContext,
+    dc_bias: Annotated[
+        sc.Input[sc.Quantity],
+        sc.QuantityType(unit="V"),
+    ],
+) -> None:
+    flux = module.resource("flux", requires=(DC_SOURCE,))
+    module.ensure(
+        flux,
+        DCSourceVoltage(
+            range=sc.Quantity(1, "V"),
+            level=dc_bias,
+            output_enabled=True,
+        ),
+    )
+```
+
+The verb carries the distinction: `apply(...)` performs a concrete transition
+now, while `ensure(...)` makes the supplied fields true at each experiment
+point. Unspecified fields are preserved, while coordinate- and parameter-backed
+fields resolve per point.
 
 The context manager opens a durable daemon-owned session and closes it on exit.
 Runs and interactive sessions compete for the same exclusive resource claim.

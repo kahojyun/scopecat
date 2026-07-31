@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from tests.testkit.authoring import link_invocation, load_config
@@ -16,26 +18,37 @@ def _identity(value: object) -> object:
 
 
 def _point_module(
-    point: sc.ValueRef,
     *,
     module_id: str,
 ) -> sc.ExperimentModule[...]:
-    consume = sc.compute(
-        f"{module_id}.consume",
-        fn=_identity,
-        inputs={"value": point},
-        output_type=_FREQUENCY_TYPE,
-    )
-    return sc.module_body(id=module_id).computes(consume).build()
+    @sc.module(id=module_id)
+    def module(
+        context: sc.ModuleContext,
+        point: Annotated[sc.Input[sc.Quantity], _FREQUENCY_TYPE],
+    ) -> None:
+        context.compute(
+            f"{module_id}.consume",
+            fn=_identity,
+            inputs={"value": point},
+            output_type=_FREQUENCY_TYPE,
+        )
+
+    return module
 
 
-def _resolve(module: sc.ExperimentModule[...], *, scan: sc.Scan | None = None) -> None:
-    call = module()
+def _resolve(
+    module: sc.ExperimentModule[...],
+    point: sc.ValueRef,
+    *,
+    scan: sc.Scan | None = None,
+) -> None:
+    call = module(point)
 
     @sc.template(id="test.point-dependency", kind="point_dependency")
-    def template_definition() -> sc.ExperimentBody:
-        body = sc.experiment(call)
-        return body if scan is None else body.scan(scan)
+    def template_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.run(call)
+        if scan is not None:
+            experiment.scan(scan)
 
     link_invocation(
         template_definition(),
@@ -45,10 +58,10 @@ def _resolve(module: sc.ExperimentModule[...], *, scan: sc.Scan | None = None) -
 
 def test_direct_point_dependency_requires_a_scan() -> None:
     frequency = sc.coordinate("frequency", _FREQUENCY_TYPE)
-    module = _point_module(frequency, module_id="test.direct-point")
+    module = _point_module(module_id="test.direct-point")
 
     with pytest.raises(CheckFailed) as error:
-        _resolve(module)
+        _resolve(module, frequency)
 
     problem = error.value.problems[0]
     assert problem.code == "experiment_point_dependency_missing"
@@ -57,14 +70,14 @@ def test_direct_point_dependency_requires_a_scan() -> None:
 
 def test_direct_point_dependency_rejects_same_id_with_wrong_type() -> None:
     frequency = sc.coordinate("frequency", _FREQUENCY_TYPE)
-    module = _point_module(frequency, module_id="test.mistyped-point")
+    module = _point_module(module_id="test.mistyped-point")
     wrong_frequency = sc.coordinate(
         "frequency",
         sc.ScalarType(sc.StringType()),
     )
 
     with pytest.raises(CheckFailed) as error:
-        _resolve(module, scan=sc.axis(wrong_frequency, ("5 GHz",)))
+        _resolve(module, frequency, scan=sc.axis(wrong_frequency, ("5 GHz",)))
 
     problem = error.value.problems[0]
     assert problem.code == "experiment_point_dependency_type_mismatch"
@@ -75,43 +88,50 @@ def test_direct_point_dependency_rejects_same_id_with_wrong_type() -> None:
 
 def test_direct_point_dependency_accepts_matching_scan() -> None:
     frequency = sc.coordinate("frequency", _FREQUENCY_TYPE)
-    module = _point_module(frequency, module_id="test.matching-point")
+    module = _point_module(module_id="test.matching-point")
 
-    _resolve(module, scan=sc.axis(frequency, (5.0,), unit="GHz"))
+    _resolve(module, frequency, scan=sc.axis(frequency, (5.0,), unit="GHz"))
 
 
 def test_nested_module_preserves_bound_point_dependency() -> None:
-    child_frequency = sc.input("frequency", _FREQUENCY_TYPE)
-    consume = sc.compute(
-        "test.point-child.consume",
-        fn=_identity,
-        inputs={"value": child_frequency},
-        output_type=_FREQUENCY_TYPE,
-    )
-    child = (
-        sc.module_body(id="test.point-child")
-        .inputs(child_frequency)
-        .computes(consume)
-        .build()
-    )
-    parent_frequency = sc.coordinate("frequency", _FREQUENCY_TYPE)
-    parent = (
-        sc.module_body(id="test.point-parent")
-        .use(child.instantiate("point-child", frequency=parent_frequency))
-        .build()
-    )
+    @sc.module(id="test.point-child")
+    def child(
+        context: sc.ModuleContext,
+        frequency: Annotated[sc.Input[sc.Quantity], _FREQUENCY_TYPE],
+    ) -> None:
+        context.compute(
+            "test.point-child.consume",
+            fn=_identity,
+            inputs={"value": frequency},
+            output_type=_FREQUENCY_TYPE,
+        )
 
-    assembly = elaborate_module(parent.ir)
+    parent_frequency = sc.coordinate("frequency", _FREQUENCY_TYPE)
+
+    @sc.module(id="test.point-parent")
+    def parent(
+        context: sc.ModuleContext,
+        frequency: Annotated[sc.Input[sc.Quantity], _FREQUENCY_TYPE],
+    ) -> None:
+        context.call(child.instantiate("point-child", frequency=frequency))
+
+    @sc.template(id="test.point-parent", kind="point_dependency")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(parent(parent_frequency))
+        experiment.scan(sc.axis(parent_frequency, (5.0,), unit="GHz"))
+
+    assembly = compile_invocation(template()).assembly.source
     assert tuple(
         (dependency.id, dependency.value_type)
         for dependency in assembly.point_dependencies
     ) == (("frequency", _FREQUENCY_TYPE),)
 
     with pytest.raises(CheckFailed) as error:
-        _resolve(parent)
+        _resolve(parent, parent_frequency)
     assert error.value.problems[0].code == "experiment_point_dependency_missing"
 
     _resolve(
         parent,
+        parent_frequency,
         scan=sc.axis(parent_frequency, (5.0,), unit="GHz"),
     )

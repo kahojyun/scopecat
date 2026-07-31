@@ -3,44 +3,41 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, assert_type
 
 import pytest
 
 import scopecat as sc
 from scopecat.api.analysis import AnalysisDefinition, AnalysisInvocation
+from scopecat.compiler.frontend.resolution import compile_invocation
+from scopecat.kernel.errors import CheckFailed
 from scopecat.sdk.instruments import InterfaceRef
 
 _COUNT_TYPE = sc.IntType(minimum=0)
 _COUNTER = InterfaceRef("test.counter/v1")
 _COUNTER_COUNT = _COUNTER.property("count")
+_GLOBAL_COUNT = sc.coordinate("global_count", sc.ScalarType(_COUNT_TYPE))
 
 
-@dataclass(frozen=True)
-class _DomainCall:
-    module_invocation: sc.ModuleInvocation
+def _identity_count(*, value: object) -> object:
+    return value
 
 
-def test_module_decorator_closes_a_symbolic_function_once() -> None:
+def test_module_decorator_injects_one_explicit_context() -> None:
     elaborations = 0
 
     @sc.module()
-    def count_source(count: Annotated[sc.Input[int], _COUNT_TYPE]):
+    def count_source(
+        module: sc.ModuleContext,
+        count: Annotated[sc.Input[int], _COUNT_TYPE],
+    ) -> None:
         """Expose the selected count."""
 
         nonlocal elaborations
         elaborations += 1
         count_ref = assert_type(sc.input_ref(count), sc.ValueRef)
-        return (
-            sc.module_body()
-            .resource("test.counter/v1", requires=(_COUNTER,))
-            .bind_property(
-                "test.counter/v1",
-                _COUNTER_COUNT,
-                value=count_ref,
-            )
-        )
+        counter = module.resource("test.counter/v1", requires=(_COUNTER,))
+        module.bind_property(counter, _COUNTER_COUNT, value=count_ref)
 
     assert elaborations == 1
     assert count_source.id.endswith(".count_source")
@@ -59,37 +56,49 @@ def test_module_decorator_closes_a_symbolic_function_once() -> None:
         count_source(unknown=2)  # pyright: ignore[reportCallIssue]
 
 
-def test_builder_module_call_flattens_only_supplied_extra_inputs() -> None:
-    count = sc.input("count", sc.ScalarType(_COUNT_TYPE))
-    module = sc.module_body(id="test.builder-call").inputs(count).build()
+def test_module_definition_requires_an_annotated_context() -> None:
+    def missing_context(count: int) -> None:
+        del count
 
-    signature = inspect.signature(module)
-    assert signature.parameters["count"].kind is inspect.Parameter.KEYWORD_ONLY
-    invocation = module(count=2)
-    assert tuple(invocation.inputs) == ("count",)
+    with pytest.raises(TypeError, match="first definition parameter"):
+        sc.module(  # pyright: ignore[reportCallIssue]
+            missing_context  # pyright: ignore[reportArgumentType]
+        )
 
-    with pytest.raises(ValueError, match="received undeclared inputs: 'extra'"):
-        module(count=2, extra=3)
+
+def test_module_definition_rejects_global_symbolic_values() -> None:
+    def global_inputs() -> dict[str, sc.ValueRef]:
+        return {"value": _GLOBAL_COUNT}
+
+    def captured(module: sc.ModuleContext) -> None:
+        module.compute(
+            "captured",
+            fn=_identity_count,
+            inputs=global_inputs(),
+            output_type=sc.ScalarType(_COUNT_TYPE),
+        )
+
+    with pytest.raises(CheckFailed, match="declare a typed module input"):
+        sc.module(captured)
 
 
 def test_template_infers_identity_description_and_defaults() -> None:
     @sc.module
-    def count_source(count: Annotated[sc.Input[int], _COUNT_TYPE]):
-        return (
-            sc.module_body()
-            .resource("test.counter/v1", requires=(_COUNTER,))
-            .bind_property(
-                "test.counter/v1",
-                _COUNTER_COUNT,
-                value=count,
-            )
-        )
+    def count_source(
+        module: sc.ModuleContext,
+        count: Annotated[sc.Input[int], _COUNT_TYPE],
+    ) -> None:
+        counter = module.resource("test.counter/v1", requires=(_COUNTER,))
+        module.bind_property(counter, _COUNTER_COUNT, value=count)
 
     @sc.template
-    def count_experiment(count: Annotated[sc.Input[int], _COUNT_TYPE] = 2):
+    def count_experiment(
+        experiment: sc.ExperimentContext,
+        count: Annotated[sc.Input[int], _COUNT_TYPE] = 2,
+    ) -> None:
         """Run one count experiment."""
 
-        return sc.experiment(count_source(count=count))
+        experiment.run(count_source(count=count))
 
     assert count_experiment.definition.id.endswith(".count_experiment")
     assert count_experiment.definition.kind == "count_experiment"
@@ -141,34 +150,20 @@ def test_analysis_decorator_preserves_configuration_signature() -> None:
         readout_fit(unknown="q0")  # pyright: ignore[reportCallIssue]
 
 
-def test_template_functions_require_explicit_experiment_bodies() -> None:
-    def raw_module_body() -> sc.ModuleBuilder:
-        return sc.module_body()
-
-    with pytest.raises(TypeError, match=r"return experiment\(\) bodies"):
-        sc.template(  # pyright: ignore[reportCallIssue]
-            raw_module_body  # pyright: ignore[reportArgumentType]
-        )
-
-
-def test_template_and_scratch_share_the_experiment_body_protocol() -> None:
+def test_template_and_scratch_share_the_context_protocol() -> None:
     count = sc.coordinate("count", sc.ScalarType(_COUNT_TYPE))
 
     @sc.module
-    def count_source(value: Annotated[sc.Input[int], _COUNT_TYPE]):
-        return (
-            sc.module_body()
-            .resource("test.counter/v1", requires=(_COUNTER,))
-            .bind_property(
-                "test.counter/v1",
-                _COUNTER_COUNT,
-                value=value,
-            )
-        )
+    def count_source(
+        module: sc.ModuleContext,
+        value: Annotated[sc.Input[int], _COUNT_TYPE],
+    ) -> None:
+        counter = module.resource("test.counter/v1", requires=(_COUNTER,))
+        module.bind_property(counter, _COUNTER_COUNT, value=value)
 
-    def body() -> sc.ExperimentBody:
-        call = count_source(value=count)
-        return sc.experiment(call).scan(sc.axis(count, (1, 2, 3)))
+    def body(experiment: sc.ExperimentContext) -> None:
+        experiment.run(count_source(value=count))
+        experiment.scan(sc.axis(count, (1, 2, 3)))
 
     template = sc.template(id="test.function.template", kind="count")(body)
     scratch = sc.scratch(id="test.function.scratch", kind="count")(body)
@@ -179,32 +174,32 @@ def test_template_and_scratch_share_the_experiment_body_protocol() -> None:
         template_invocation.definition.default_scans
         == scratch_invocation.definition.default_scans
     )
-    assert tuple(
-        instance.module.id
-        for instance in template.definition.module.body.child_instances
-    ) == tuple(
-        instance.module.id
-        for instance in scratch_invocation.definition.module.body.child_instances
-    )
-    assert inspect.signature(scratch).parameters == inspect.signature(body).parameters
+    compile_invocation(template_invocation)
+    compile_invocation(scratch_invocation)
+    assert inspect.signature(scratch).parameters == inspect.Signature().parameters
     assert scratch.__wrapped__ is body
 
 
 def test_scratch_preserves_typed_call_contract() -> None:
     @sc.module
-    def count_source(count: Annotated[sc.Input[int], _COUNT_TYPE]):
-        return sc.module_body()
+    def count_source(
+        module: sc.ModuleContext,
+        count: Annotated[sc.Input[int], _COUNT_TYPE],
+    ) -> None:
+        del module, count
 
     @sc.scratch
-    def count_scratch(count: int = 2) -> sc.ExperimentBody:
-        return sc.experiment(count_source(count=count))
+    def count_scratch(
+        experiment: sc.ExperimentContext,
+        count: int = 2,
+    ) -> None:
+        experiment.run(count_source(count=count))
 
     signature = inspect.signature(count_scratch)
     assert signature.parameters["count"].default == 2
     assert signature.return_annotation is sc.ExperimentInvocation
     invocation = assert_type(count_scratch(3), sc.ExperimentInvocation)
-    [instance] = invocation.definition.module.body.child_instances
-    assert [binding.import_id for binding in instance.input_bindings] == ["count"]
+    compile_invocation(invocation)
 
     if TYPE_CHECKING:
         count_scratch("invalid")  # pyright: ignore[reportArgumentType]
@@ -212,14 +207,17 @@ def test_scratch_preserves_typed_call_contract() -> None:
 
 
 def test_definition_annotations_require_an_unambiguous_value_type() -> None:
-    def invalid(value: object):
-        return sc.module_body()
+    def invalid(module: sc.ModuleContext, value: object) -> None:
+        del module, value
 
     with pytest.raises(TypeError, match="needs a scalar Python type"):
         sc.module(invalid)
 
-    def mismatched(value: Annotated[sc.Input[str], sc.IntType()]):
-        return sc.module_body()
+    def mismatched(
+        module: sc.ModuleContext,
+        value: Annotated[sc.Input[str], sc.IntType()],
+    ) -> None:
+        del module, value
 
     with pytest.raises(TypeError, match="Python annotation is incompatible"):
         sc.module(mismatched)
@@ -227,44 +225,19 @@ def test_definition_annotations_require_an_unambiguous_value_type() -> None:
 
 def test_repeated_default_module_calls_require_explicit_instances() -> None:
     @sc.module
-    def source():
-        return sc.module_body()
+    def source(module: sc.ModuleContext) -> None:
+        del module
+
+    def repeated(experiment: sc.ExperimentContext) -> None:
+        experiment.run(source())
+        experiment.run(source())
 
     with pytest.raises(ValueError, match="duplicate module instance ids"):
-        sc.experiment(source(), source()).module.build(id="test.repeated-defaults")
+        sc.template(id="test.repeated-defaults")(repeated)
 
-    body = sc.experiment(
-        source.instantiate("left"),
-        source.instantiate("right"),
-    )
-    assert tuple(
-        call.instance_id
-        for call in body.module.procedure
-        if isinstance(call, sc.ModuleInvocation)
-    ) == (
-        "left",
-        "right",
-    )
+    @sc.template(id="test.explicit-instances")
+    def explicit(experiment: sc.ExperimentContext) -> None:
+        experiment.run(source.instantiate("left"))
+        experiment.run(source.instantiate("right"))
 
-
-def test_module_calls_compose_through_builders_and_function_sequences() -> None:
-    @sc.module
-    def source():
-        return sc.module_body()
-
-    left = _DomainCall(source.instantiate("left"))
-    right = _DomainCall(source.instantiate("right"))
-
-    @sc.module
-    def combined():
-        return sc.module_body().use(left, right)
-
-    assert tuple(call.instance_id for call in combined.ir.body.child_instances) == (
-        "left",
-        "right",
-    )
-    assert tuple(
-        call.instance_id
-        for call in sc.module_body().use(left, right).procedure
-        if isinstance(call, sc.ModuleInvocation)
-    ) == ("left", "right")
+    compile_invocation(explicit())

@@ -8,6 +8,8 @@ from scopecat.compiler.linking.linked import (
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
+from scopecat.program.domain import domain_program
+from scopecat.program.products import ModuleProductDecl
 from scopecat.sdk.domain import (
     DomainPointRef,
     DomainProductAxisView,
@@ -19,6 +21,7 @@ from scopecat.sdk.domain._bridge import (
     make_domain_call_view,
 )
 from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.domain import domain_call
 
 
 def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
@@ -27,7 +30,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     count = sc.coordinate("count", count_type)
     body = object()
-    program = sc.domain_program(
+    program = domain_program(
         "program/variant",
         dialect_id="test.domain",
         dialect_version="1",
@@ -35,34 +38,34 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
         inputs={"count": count_type},
         results={"counts": ("counts", "v1")},
     )
-    module = sc.module_body(id="test.domain.view").product(
-        "counts",
-        unit="count",
-        dtype="int64",
-        axes=(
-            sc.product_axis(
-                "shot",
-                size=8,
-                kind="shot",
-                shared_as="shot",
-            ),
-        ),
-    )
-    execution = sc.domain_execution(
+
+    authored_call = domain_call(
         program,
         id="execution",
         inputs={"count": count},
-        results={"counts": module.products["counts"]},
+        products={
+            "counts": ModuleProductDecl(
+                "counts",
+                unit="count",
+                dtype="int64",
+                axes=(
+                    sc.product_axis(
+                        "shot",
+                        size=8,
+                        kind="shot",
+                        shared_as="shot",
+                    ),
+                ),
+            )
+        },
     )
-    module_call = module.domain(execution).build()()
-    experiment_body = (
-        sc.experiment(module_call)
-        .scan(sc.axis(count, (1, 3, 5)))
-        .record_product(module_call.products.counts, record_id="counts")
-    )
-    template = sc.template(id="test.domain.view", kind="domain_view")(
-        lambda: experiment_body
-    )
+
+    @sc.template(id="test.domain.view", kind="domain_view")
+    def template(experiment: sc.ExperimentContext) -> None:
+        placed = experiment.run(authored_call)
+        experiment.scan(sc.axis(count, (1, 3, 5)))
+        experiment.record(placed.results.counts, record_id="counts")
+
     resolved = link_invocation(
         template.bind(),
         config_profile=load_config(),
@@ -72,13 +75,13 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
 
     execution_id = core_domain_executions(linked.program)[0].id
     closure = domain_result_closure(linked.program, execution_id)
-    call = make_domain_call_view(
+    call_view = make_domain_call_view(
         linked,
         execution_id,
         closure,
     )
     full = make_domain_batch_request(
-        call,
+        call_view,
         linked_points,
         (0, 1, 2),
         batch_ordinal=0,
@@ -96,7 +99,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     assert result.product.unit == "count"
     assert result.product.dtype == "int64"
     assert result.product.axes[0].id == "shot"
-    assert result.product.axes[0].dimension_id == "shared/view/shot"
+    assert result.product.axes[0].dimension_id == "shared/execution/shot"
     assert result.product.axes[0].dimension_label == "shot"
     product_use = result.require_one_product_use()
     assert isinstance(product_use, DomainProductUseRef)
@@ -105,7 +108,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     assert product_use is full.product_uses[0]
 
     batch = make_domain_batch_request(
-        call,
+        call_view,
         linked_points,
         (1, 2),
         batch_ordinal=1,

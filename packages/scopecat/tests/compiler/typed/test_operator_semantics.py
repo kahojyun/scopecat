@@ -5,10 +5,11 @@ from typing import cast
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.graph.relations.operators import runtime_values_equal
+from scopecat.program.value_refs import internal_lower_scalar_value_ref
+from scopecat.program.values import input as program_input
 from tests.testkit.relation_plans import evaluate_scalar
 
 
@@ -17,8 +18,8 @@ def _input_bindings(**inputs: sc.ValueType) -> RelationTypeBindings:
 
 
 def test_typed_arithmetic_and_runtime_use_the_same_operator_contract() -> None:
-    text = sc.input("text", sc.ScalarType(sc.StringType()))
-    count = sc.input("count", sc.ScalarType(sc.IntType()))
+    text = program_input("text", sc.ScalarType(sc.StringType()))
+    count = program_input("count", sc.ScalarType(sc.IntType()))
 
     with pytest.raises(TypeError, match=r"operator '\+' is not defined"):
         _ = text + "suffix"
@@ -36,7 +37,7 @@ def test_typed_arithmetic_and_runtime_use_the_same_operator_contract() -> None:
 
 
 def test_arithmetic_supports_literal_operands_on_either_side() -> None:
-    count = sc.input("count", sc.ScalarType(sc.IntType(minimum=1)))
+    count = program_input("count", sc.ScalarType(sc.IntType(minimum=1)))
     expressions = (
         count + 2,
         2 + count,
@@ -74,7 +75,7 @@ def test_integer_arithmetic_preserves_affine_bounds() -> None:
 
 
 def test_typed_arithmetic_rejects_non_finite_runtime_results() -> None:
-    value = sc.input("value", sc.ScalarType(sc.FloatType()))
+    value = program_input("value", sc.ScalarType(sc.FloatType()))
     overflow = internal_lower_scalar_value_ref(value * 1e308)
 
     with pytest.raises(ValueError, match="non-finite result"):

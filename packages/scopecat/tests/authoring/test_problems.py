@@ -1,3 +1,5 @@
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,7 +21,6 @@ from tests.testkit.authoring import (
     link_invocation,
     load_config,
     simple_template,
-    template_fixture,
 )
 from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.runtime import check_experiment, sqlite_project_services
@@ -54,16 +55,14 @@ def test_unknown_experiment_inputs_are_reported_together_in_stable_order(
 
 
 def test_template_definition_reports_literal_errors() -> None:
-    count = sc.input("count", sc.ScalarType(sc.IntType()))
-    module = sc.module_body(id="test.invalid-template").inputs(count).build()
-
     with pytest.raises(CheckFailed) as error:
-        template_fixture(
-            module,
-            id="test.invalid-template",
-            kind="invalid-template",
-            defaults={"count": "not-an-int"},
-        )
+
+        @sc.template(id="test.invalid-template", kind="invalid-template")
+        def template(
+            experiment: sc.ExperimentContext,
+            count: int = "not-an-int",  # pyright: ignore[reportArgumentType]
+        ) -> None:
+            del experiment, count
 
     assert [problem.code for problem in error.value.problems] == [
         "module_input_type_mismatch",
@@ -74,44 +73,42 @@ def test_template_definition_reports_literal_errors() -> None:
 
 
 def test_template_bind_rejects_known_input_errors_without_requiring_missing() -> None:
-    count = sc.input("count", sc.ScalarType(sc.IntType()))
-    module = sc.module_body(id="test.early-bind").inputs(count).build()
-    template = template_fixture(
-        module,
-        id="test.early-bind",
-        kind="early-bind",
-        required_inputs=("required_later",),
-    )
+    @sc.template(id="test.early-bind", kind="early-bind")
+    def template(
+        experiment: sc.ExperimentContext,
+        count: int,
+        required_later: float,
+    ) -> None:
+        del experiment, count, required_later
 
     # Missing values remain legal while an invocation is being assembled.
-    template.bind()
-
+    partial = template.bind()
     with pytest.raises(CheckFailed) as error:
-        template.bind().bind(count="not-an-int")
+        partial.bind(count="not-an-int")
 
     assert [problem.code for problem in error.value.problems] == [
         "module_input_type_mismatch",
     ]
 
     with pytest.raises(TypeError, match="unexpected keyword argument 'zeta'"):
-        template.bind(count=1, zeta=1, alpha=2)
+        template.bind(
+            count=1,
+            zeta=1,
+            alpha=2,
+        )
 
 
 def test_compile_validates_default_scan_axes() -> None:
     first = sc.coordinate("first", sc.ScalarType(sc.FloatType()))
     second = sc.coordinate("second", sc.ScalarType(sc.FloatType()))
-    module = sc.module_body(id="test.invalid-default-scans").build()
 
-    template = template_fixture(
-        module,
-        id="test.invalid-default-scans",
-        kind="invalid-default-scans",
-        scans=(
+    @sc.template(id="test.invalid-default-scans", kind="invalid-default-scans")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.scan(
             sc.axis(first, (1.0, 2.0)),
             sc.axis(second, (1.0,)),
             sc.axis(first, (3.0,)),
-        ),
-    )
+        )
 
     with pytest.raises(CheckFailed) as error:
         compile_invocation(template())
@@ -123,13 +120,11 @@ def test_compile_validates_default_scan_axes() -> None:
 
 def test_compile_rejects_repeated_scan_overrides_before_merging() -> None:
     point = sc.coordinate("point", sc.ScalarType(sc.FloatType()))
-    module = sc.module_body(id="test.repeated-scan-overrides").build()
-    template = template_fixture(
-        module,
-        id="test.repeated-scan-overrides",
-        kind="repeated-scan-overrides",
-        scans=(sc.axis(point, (1.0,)),),
-    )
+
+    @sc.template(id="test.repeated-scan-overrides", kind="repeated-scan-overrides")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.scan(sc.axis(point, (1.0,)))
+
     invocation = template().scan(sc.axis(point, (2.0,))).scan(sc.axis(point, (3.0,)))
 
     with pytest.raises(CheckFailed) as error:
@@ -171,116 +166,82 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
     assert result.preview.experiment_id == simple_template().definition.id
 
 
-def _module_consuming_input() -> tuple[sc.ExperimentModule[...], sc.ValueRef]:
-    value_type = sc.ScalarType(sc.FloatType())
-    value = sc.input("value", value_type)
-    consume = sc.compute(
-        "consume-value",
-        fn=_identity_value,
-        inputs={"value": value},
-        output_type=value_type,
-    )
-    module = (
-        sc.module_body(id="test.consumed-input").inputs(value).computes(consume).build()
-    )
-    return module, value
+def _module_consuming_input() -> sc.ExperimentModule[...]:
+    @sc.module(id="test.consumed-input")
+    def module(context: sc.ModuleContext, value: float) -> None:
+        context.compute(
+            "consume-value",
+            fn=_identity_value,
+            inputs={"value": value},
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+
+    return module
 
 
-def test_consumed_module_input_requires_binding_during_authoring_compile() -> None:
-    module, _value = _module_consuming_input()
-    invocation = template_fixture(
-        module,
-        id="test.consumed-input",
-        kind="input",
-    ).bind()
+def test_consumed_module_input_requires_binding_at_the_python_call() -> None:
+    module = _module_consuming_input()
 
-    with pytest.raises(CheckFailed) as error:
-        compile_invocation(invocation)
-
-    problem = error.value.problems[0]
-    assert problem.code == "module_input_binding_missing"
-    assert problem.phase is ProblemPhase.AUTHORING
-    assert problem.location == model_location("inputs")
+    with pytest.raises(TypeError, match="missing a required argument: 'value'"):
+        module()
 
 
-def test_unconsumed_module_input_does_not_require_binding(tmp_path: Path) -> None:
-    value = sc.input("unused", sc.ScalarType(sc.FloatType()))
-    module = sc.module_body(id="test.unused-input").inputs(value).build()
-    invocation = template_fixture(
-        module,
-        id="test.unused-input",
-        kind="input",
-    ).bind()
+def test_declared_module_input_requires_binding_even_when_unused() -> None:
+    @sc.module(id="test.unused-input")
+    def module(context: sc.ModuleContext, unused: float) -> None:
+        del context, unused
 
-    link_invocation(invocation, config_profile=load_config())
+    with pytest.raises(TypeError, match="missing a required argument: 'unused'"):
+        module()  # pyright: ignore[reportCallIssue]
 
 
-def test_unused_child_binding_does_not_consume_outer_input(tmp_path: Path) -> None:
-    child_value = sc.input("child_value", sc.ScalarType(sc.FloatType()))
-    outer_value = sc.input("outer_value", sc.ScalarType(sc.FloatType()))
-    child = sc.module_body(id="test.unused-child").inputs(child_value).build()
-    outer = (
-        sc.module_body(id="test.unused-child-root")
-        .inputs(outer_value)
-        .use(child.instantiate("unused-child", child_value=outer_value))
-        .build()
-    )
-    invocation = template_fixture(
-        outer,
-        id="test.unused-child",
-        kind="input",
-    ).bind()
+def test_unused_child_binding_accepts_an_explicit_outer_value() -> None:
+    @sc.module(id="test.unused-child")
+    def child(context: sc.ModuleContext, child_value: float) -> None:
+        del context, child_value
 
-    link_invocation(invocation, config_profile=load_config())
+    @sc.module(id="test.unused-child-root")
+    def outer(context: sc.ModuleContext, outer_value: float) -> None:
+        context.call(child.instantiate("unused-child", child_value=outer_value))
+
+    @sc.template(id="test.unused-child", kind="input")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(outer(1.0))
+
+    link_invocation(template(), config_profile=load_config())
 
 
-def test_unused_child_expression_binding_does_not_consume_outer_input(
-    tmp_path: Path,
-) -> None:
-    value_type = sc.ScalarType(sc.FloatType())
-    child_value = sc.input("child_value", value_type)
-    outer_value = sc.input("outer_value", value_type)
-    child = (
-        sc.module_body(id="test.unused-child-expression").inputs(child_value).build()
-    )
-    outer = (
-        sc.module_body(id="test.unused-child-expression-root")
-        .inputs(outer_value)
-        .use(
+def test_unused_child_expression_binding_accepts_an_explicit_outer_value() -> None:
+    @sc.module(id="test.unused-child-expression")
+    def child(context: sc.ModuleContext, child_value: float) -> None:
+        del context, child_value
+
+    @sc.module(id="test.unused-child-expression-root")
+    def outer(context: sc.ModuleContext, outer_value: float) -> None:
+        context.call(
             child.instantiate(
                 "unused-child",
                 child_value=outer_value + 1.0,
             )
         )
-        .build()
-    )
-    invocation = template_fixture(
-        outer,
-        id="test.unused-child-expression",
-        kind="input",
-    ).bind()
 
-    link_invocation(invocation, config_profile=load_config())
+    @sc.template(id="test.unused-child-expression", kind="input")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(outer(1.0))
+
+    link_invocation(template(), config_profile=load_config())
 
 
 def test_scan_point_does_not_implicitly_bind_consumed_module_input() -> None:
-    module, _value = _module_consuming_input()
-    invocation = template_fixture(
-        module,
-        id="test.point-input",
-        kind="input",
-        scans=(
-            sc.axis(
-                sc.coordinate("value", sc.ScalarType(sc.FloatType())),
-                (1.0,),
-            ),
-        ),
-    ).bind()
+    module = _module_consuming_input()
+    point = sc.coordinate("value", sc.ScalarType(sc.FloatType()))
 
-    with pytest.raises(CheckFailed) as error:
-        compile_invocation(invocation)
+    with pytest.raises(TypeError, match="missing a required argument: 'value'"):
 
-    assert error.value.problems[0].code == "module_input_binding_missing"
+        @sc.template(id="test.point-input", kind="input")
+        def template(experiment: sc.ExperimentContext) -> None:
+            experiment.run(module())
+            experiment.scan(sc.axis(point, (1.0,)))
 
 
 def _identity_value(value: object) -> object:

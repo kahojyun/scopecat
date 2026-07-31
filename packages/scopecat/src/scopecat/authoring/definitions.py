@@ -1,13 +1,14 @@
-"""Function-based experiment definitions lowered to the existing authoring IR."""
+"""Function-based module and experiment definitions."""
 
 from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from types import UnionType
 from typing import (
     Annotated,
+    Concatenate,
     TypeAliasType,
     cast,
     get_args,
@@ -17,20 +18,19 @@ from typing import (
 )
 
 from scopecat.authoring._module_handles import (
+    DomainCallProvider,
     ExperimentModule,
-    ModuleBuilder,
+    ModuleContext,
+    ModuleDraft,
     ModuleInvocation,
+    ModuleResource,
+    build_ensure_state_intent,
+    build_experiment_program,
     build_module_ir,
     create_experiment_module_internal,
+    domain_use_call,
     module_use_invocation,
 )
-from scopecat.authoring._products import (
-    ProductRef,
-    RecordSelection,
-    record_coordinate,
-    record_product,
-)
-from scopecat.authoring._value_refs import ValueRef, empty_frozen_mapping
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import (
     ExperimentDefinition,
@@ -38,7 +38,25 @@ from scopecat.authoring.templates import (
     ExperimentTemplate,
     create_experiment_definition_internal,
 )
-from scopecat.authoring.value_types import (
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.frozen import freeze_json_mapping
+from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.program.bindings import ExperimentBindingIntent
+from scopecat.program.domain import DomainCall
+from scopecat.program.products import (
+    ProductRef,
+    RecordSelection,
+    record_coordinate,
+    record_product,
+)
+from scopecat.program.state import DesiredState
+from scopecat.program.value_refs import (
+    ValueRef,
+    empty_frozen_mapping,
+    internal_value_ref_point_dependencies,
+    internal_value_ref_requires_execution,
+)
+from scopecat.program.value_types import (
     Bool,
     Entity,
     Float,
@@ -50,11 +68,8 @@ from scopecat.authoring.value_types import (
     Table,
     ValueType,
 )
-from scopecat.authoring.values import MetadataValue, RuntimeInput
-from scopecat.authoring.values import input as authoring_input
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.frozen import freeze_json_mapping
-from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.program.values import MetadataValue, RuntimeInput
+from scopecat.program.values import input as authoring_input
 
 type DefinitionFunction = Callable[..., object]
 type Input[T] = T | ValueRef
@@ -84,44 +99,36 @@ class _DefinitionContract:
         return dict(self.arguments)
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class ExperimentBody:
-    """Shared return value for template and scratch definition functions."""
+@dataclass(slots=True, repr=False)
+class _ExperimentDraft:
+    """Mutable definition-local recorder frozen once at close."""
 
-    module: ModuleBuilder = field(default_factory=ModuleBuilder)
-    scans: tuple[Scan, ...] = ()
-    record_selections: tuple[RecordSelection, ...] = ()
+    module: ModuleDraft = field(default_factory=ModuleDraft)
+    scans: list[Scan] = field(default_factory=list)
+    record_selections: list[RecordSelection] = field(default_factory=list)
+    final_state_bindings: list[ExperimentBindingIntent] = field(default_factory=list)
 
     def scan(
         self,
         *scans: Scan,
-    ) -> ExperimentBody:
-        return replace(
-            self,
-            scans=(*self.scans, *scans),
-        )
+    ) -> None:
+        self.scans.extend(scans)
 
     def record_product(
         self,
         *products: str | ProductRef,
         record_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ExperimentBody:
+    ) -> None:
         if record_id is not None and len(products) != 1:
             raise ValueError("record_id can only be used with one product")
-        return replace(
-            self,
-            record_selections=(
-                *self.record_selections,
-                *(
-                    record_product(
-                        product,
-                        record_id=record_id,
-                        metadata=metadata,
-                    )
-                    for product in products
-                ),
-            ),
+        self.record_selections.extend(
+            record_product(
+                product,
+                record_id=record_id,
+                metadata=metadata,
+            )
+            for product in products
         )
 
     def record_coordinate(
@@ -129,43 +136,159 @@ class ExperimentBody:
         *products: str | ProductRef,
         record_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ExperimentBody:
+    ) -> None:
         if record_id is not None and len(products) != 1:
             raise ValueError("record_id can only be used with one product")
-        return replace(
-            self,
-            record_selections=(
-                *self.record_selections,
-                *(
-                    record_coordinate(
-                        product,
-                        record_id=record_id,
-                        metadata=metadata,
-                    )
-                    for product in products
-                ),
-            ),
+        self.record_selections.extend(
+            record_coordinate(
+                product,
+                record_id=record_id,
+                metadata=metadata,
+            )
+            for product in products
         )
 
-    def records(self, *selections: RecordSelection) -> ExperimentBody:
-        return replace(
-            self,
-            record_selections=(*self.record_selections, *selections),
+    def records(self, *selections: RecordSelection) -> None:
+        self.record_selections.extend(selections)
+
+    def finalize(
+        self,
+        resource: ModuleResource,
+        target: DesiredState,
+    ) -> None:
+        """Declare the desired hardware state after normal run completion."""
+
+        owners = {
+            effect.invocation_key
+            for effect in self.module.effects
+            if isinstance(effect, ModuleInvocation)
+        }
+        if resource.owner not in owners:
+            raise ValueError(
+                "experiment final_state resource must belong to this experiment"
+            )
+        intent = build_ensure_state_intent(resource.port_id, target)
+        for assignment in intent.assignments:
+            value = assignment.value
+            if not isinstance(value, ValueRef):
+                continue
+            if internal_value_ref_requires_execution(value):
+                raise ValueError(
+                    "experiment final_state cannot depend on point-local compute"
+                )
+            if internal_value_ref_point_dependencies(value):
+                raise ValueError(
+                    "experiment final_state cannot depend on scan coordinates"
+                )
+        self.final_state_bindings.extend(intent.assignments)
+
+
+class ExperimentContext:
+    """Explicit recorder injected into one template or scratch definition."""
+
+    __slots__ = ("_draft",)
+
+    def __init__(self) -> None:
+        self._draft = _ExperimentDraft()
+
+    @property
+    def definition_draft_internal(self) -> _ExperimentDraft:
+        """Return the private draft accumulated by this definition."""
+
+        return self._draft
+
+    @overload
+    def run(self, part: ExperimentModule[...]) -> ModuleInvocation: ...
+
+    @overload
+    def run(self, part: ModuleInvocation) -> ModuleInvocation: ...
+
+    @overload
+    def run(self, part: DomainCall) -> DomainCall: ...
+
+    @overload
+    def run[T: DomainCallProvider](self, part: T) -> T: ...
+
+    def run(
+        self,
+        part: object,
+    ) -> object:
+        """Append one module or domain occurrence to the root experiment."""
+
+        if isinstance(part, DomainCall) or isinstance(
+            getattr(part, "domain_call", None),
+            DomainCall,
+        ):
+            call = domain_use_call(part)
+            self._draft.module.append_domain_call(call)
+            return part
+        invocation = _module_invocation(part)
+        self._draft.module.append_call(invocation)
+        return invocation
+
+    def scan(self, *scans: Scan) -> None:
+        """Declare the experiment's default point-domain scans."""
+
+        self._draft.scan(*scans)
+
+    def record(
+        self,
+        *products: str | ProductRef,
+        record_id: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> None:
+        """Select logical products for durable recording."""
+
+        self._draft.record_product(
+            *products,
+            record_id=record_id,
+            metadata=metadata,
         )
+
+    def record_coordinate(
+        self,
+        *products: str | ProductRef,
+        record_id: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> None:
+        """Select coordinate-like products for durable recording."""
+
+        self._draft.record_coordinate(
+            *products,
+            record_id=record_id,
+            metadata=metadata,
+        )
+
+    def records(self, *selections: RecordSelection) -> None:
+        """Append preconstructed durable record selections."""
+
+        self._draft.records(*selections)
+
+    def finalize(
+        self,
+        resource: ModuleResource,
+        target: DesiredState,
+    ) -> None:
+        """Declare the desired state after normal experiment completion."""
+
+        self._draft.finalize(resource, target)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ScratchDefinition[**P]:
     """A project-neutral experiment factory evaluated for each call."""
 
-    fn: Callable[P, ExperimentBody] = field(repr=False, compare=False)
+    fn: Callable[Concatenate[ExperimentContext, P], None] = field(
+        repr=False,
+        compare=False,
+    )
     _signature: inspect.Signature = field(repr=False, compare=False)
     id: str
     kind: str
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
     @property
-    def __wrapped__(self) -> Callable[P, ExperimentBody]:
+    def __wrapped__(self) -> Callable[Concatenate[ExperimentContext, P], None]:
         return self.fn
 
     @property
@@ -177,10 +300,11 @@ class ScratchDefinition[**P]:
         return self._signature
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
-        result = self.fn(*args, **kwargs)
-        body = _experiment_body(result)
+        context = ExperimentContext()
+        result = self.fn(context, *args, **kwargs)
+        _require_definition_none(result, kind="scratch")
         definition = _close_experiment_body(
-            body,
+            context.definition_draft_internal,
             id=self.id,
             kind=self.kind,
             metadata=self.metadata,
@@ -196,7 +320,7 @@ class ScratchDefinition[**P]:
 
 @overload
 def module[**P](
-    definition: Callable[P, ModuleBuilder],
+    definition: Callable[Concatenate[ModuleContext, P], None],
     /,
     *,
     id: str | None = None,
@@ -211,16 +335,25 @@ def module[**P](
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> Callable[[Callable[P, ModuleBuilder]], ExperimentModule[P]]: ...
+) -> Callable[
+    [Callable[Concatenate[ModuleContext, P], None]],
+    ExperimentModule[P],
+]: ...
 
 
 def module[**P](
-    definition: Callable[P, ModuleBuilder] | None = None,
+    definition: Callable[Concatenate[ModuleContext, P], None] | None = None,
     /,
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentModule[P] | Callable[[Callable[P, ModuleBuilder]], ExperimentModule[P]]:
+) -> (
+    ExperimentModule[P]
+    | Callable[
+        [Callable[Concatenate[ModuleContext, P], None]],
+        ExperimentModule[P],
+    ]
+):
     """Define a closed module from a Python function."""
 
     if definition is None:
@@ -228,32 +361,9 @@ def module[**P](
     return _module_from_function(definition, id=id, metadata=metadata)
 
 
-def module_body(
-    *,
-    id: str | None = None,
-    metadata: Mapping[str, MetadataValue] | None = None,
-) -> ModuleBuilder:
-    """Start a low-level module body or an ``@module`` return value."""
-
-    return ModuleBuilder(
-        id=id,
-        metadata=freeze_json_mapping(metadata or {}),
-    )
-
-
-def experiment(*parts: object) -> ExperimentBody:
-    """Compose explicit module calls into a template or scratch body."""
-
-    builder = ModuleBuilder()
-    for part in parts:
-        invocation = _module_invocation(part)
-        builder = builder.use(invocation)
-    return ExperimentBody(module=builder)
-
-
 @overload
 def template[**P](
-    definition: Callable[P, ExperimentBody],
+    definition: Callable[Concatenate[ExperimentContext, P], None],
     /,
     *,
     id: str | None = None,
@@ -270,11 +380,14 @@ def template[**P](
     id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> Callable[[Callable[P, ExperimentBody]], ExperimentTemplate[P]]: ...
+) -> Callable[
+    [Callable[Concatenate[ExperimentContext, P], None]],
+    ExperimentTemplate[P],
+]: ...
 
 
 def template[**P](
-    definition: Callable[P, ExperimentBody] | None = None,
+    definition: Callable[Concatenate[ExperimentContext, P], None] | None = None,
     /,
     *,
     id: str | None = None,
@@ -282,11 +395,16 @@ def template[**P](
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
     ExperimentTemplate[P]
-    | Callable[[Callable[P, ExperimentBody]], ExperimentTemplate[P]]
+    | Callable[
+        [Callable[Concatenate[ExperimentContext, P], None]],
+        ExperimentTemplate[P],
+    ]
 ):
     """Close a symbolic Python function as an experiment template."""
 
-    def decorate(fn: Callable[P, ExperimentBody]) -> ExperimentTemplate[P]:
+    def decorate(
+        fn: Callable[Concatenate[ExperimentContext, P], None],
+    ) -> ExperimentTemplate[P]:
         return _template_from_function(
             fn,
             id=id,
@@ -299,7 +417,7 @@ def template[**P](
 
 @overload
 def scratch[**P](
-    definition: Callable[P, ExperimentBody],
+    definition: Callable[Concatenate[ExperimentContext, P], None],
     /,
     *,
     id: str | None = None,
@@ -316,27 +434,35 @@ def scratch[**P](
     id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> Callable[[Callable[P, ExperimentBody]], ScratchDefinition[P]]: ...
+) -> Callable[
+    [Callable[Concatenate[ExperimentContext, P], None]],
+    ScratchDefinition[P],
+]: ...
 
 
 def scratch[**P](
-    definition: Callable[P, ExperimentBody] | None = None,
+    definition: Callable[Concatenate[ExperimentContext, P], None] | None = None,
     /,
     *,
     id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
-    ScratchDefinition[P] | Callable[[Callable[P, ExperimentBody]], ScratchDefinition[P]]
+    ScratchDefinition[P]
+    | Callable[
+        [Callable[Concatenate[ExperimentContext, P], None]],
+        ScratchDefinition[P],
+    ]
 ):
     """Define a project-neutral scratch experiment factory."""
 
-    def decorate(fn: Callable[P, ExperimentBody]) -> ScratchDefinition[P]:
+    def decorate(
+        fn: Callable[Concatenate[ExperimentContext, P], None],
+    ) -> ScratchDefinition[P]:
+        signature = _context_signature(fn, ExperimentContext)
         return ScratchDefinition(
             fn=fn,
-            _signature=inspect.signature(fn).replace(
-                return_annotation=ExperimentInvocation
-            ),
+            _signature=signature.replace(return_annotation=ExperimentInvocation),
             id=id or _definition_id(fn),
             kind=kind or fn.__name__,
             metadata=freeze_json_mapping(metadata or {}),
@@ -346,60 +472,64 @@ def scratch[**P](
 
 
 def _module_from_function[**P](
-    fn: Callable[P, ModuleBuilder],
+    fn: Callable[Concatenate[ModuleContext, P], None],
     *,
     id: str | None,
     metadata: Mapping[str, MetadataValue] | None,
 ) -> ExperimentModule[P]:
     source = cast("DefinitionFunction", fn)
-    contract = _definition_contract(source, defaults=False)
+    contract = _definition_contract(
+        source,
+        defaults=False,
+        context_type=ModuleContext,
+    )
     values = contract.values
-    result = source(**values)
-    body = _module_body(result)
+    context = ModuleContext()
+    result = source(context, **values)
+    _require_definition_none(result, kind="module")
+    body = context.definition_draft_internal
     if body.input_ports:
         raise ValueError("@module function bodies must declare inputs in the signature")
     selected_metadata = dict(metadata or {})
     doc = inspect.getdoc(fn)
     if doc is not None:
         selected_metadata.setdefault("description", doc)
-    builder = replace(
-        body,
-        id=id or _definition_id(fn),
-        input_ports=tuple(_input_port(name, value) for name, value in values.items()),
-        metadata=freeze_json_mapping({**body.metadata, **selected_metadata}),
-    )
-    module_ir = build_module_ir(builder)
+    body.id = id or _definition_id(fn)
+    body.input_ports.extend(_input_port(name, value) for name, value in values.items())
+    body.metadata.update(selected_metadata)
+    module_ir = build_module_ir(body)
     return create_experiment_module_internal(
         module_ir,
-        definition=fn,
+        definition=cast("Callable[P, object]", fn),
         signature=contract.signature,
     )
 
 
 def _template_from_function[**P](
-    fn: Callable[P, ExperimentBody],
+    fn: Callable[Concatenate[ExperimentContext, P], None],
     *,
     id: str | None,
     kind: str | None,
     metadata: Mapping[str, MetadataValue] | None,
 ) -> ExperimentTemplate[P]:
     source = cast("DefinitionFunction", fn)
-    contract = _definition_contract(source, defaults=True)
+    contract = _definition_contract(
+        source,
+        defaults=True,
+        context_type=ExperimentContext,
+    )
     signature = contract.signature
     values = contract.values
-    body = _experiment_body(source(**values))
+    context = ExperimentContext()
+    result = source(context, **values)
+    _require_definition_none(result, kind="template")
+    body = context.definition_draft_internal
     if body.module.input_ports:
         raise ValueError(
             "@template function bodies must declare inputs in the signature"
         )
-    selected_body = replace(
-        body,
-        module=replace(
-            body.module,
-            input_ports=tuple(
-                _input_port(name, value) for name, value in values.items()
-            ),
-        ),
+    body.module.input_ports.extend(
+        _input_port(name, value) for name, value in values.items()
     )
     defaults = tuple(
         (parameter.name, cast("object", parameter.default))
@@ -414,7 +544,7 @@ def _template_from_function[**P](
         name for name, default in defaults if default is inspect.Parameter.empty
     )
     definition = _close_experiment_body(
-        selected_body,
+        body,
         id=id or _definition_id(source),
         kind=kind or source.__name__,
         metadata=metadata,
@@ -423,7 +553,7 @@ def _template_from_function[**P](
     )
     return ExperimentTemplate(
         definition=definition,
-        _callable=fn,
+        _callable=cast("Callable[P, object]", fn),
         _signature=contract.signature.replace(
             return_annotation=ExperimentInvocation,
         ),
@@ -431,7 +561,7 @@ def _template_from_function[**P](
 
 
 def _close_experiment_body(
-    body: ExperimentBody,
+    body: _ExperimentDraft,
     *,
     id: str,
     kind: str,
@@ -439,15 +569,16 @@ def _close_experiment_body(
     input_defaults: Mapping[str, RuntimeInput],
     required_inputs: Sequence[str],
 ) -> ExperimentDefinition:
-    module_ir = build_module_ir(body.module, id=f"{id}.module")
+    program = build_experiment_program(body.module)
     return create_experiment_definition_internal(
         id=id,
         kind=kind,
-        module=module_ir,
+        program=program,
         record_selections=body.record_selections,
         input_defaults=input_defaults,
         required_inputs=required_inputs,
         default_scans=body.scans,
+        final_state_bindings=body.final_state_bindings,
         metadata=metadata,
     )
 
@@ -456,8 +587,9 @@ def _definition_contract(
     fn: DefinitionFunction,
     *,
     defaults: bool,
+    context_type: type[object],
 ) -> _DefinitionContract:
-    signature = inspect.signature(fn)
+    signature = _context_signature(fn, context_type)
     hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
     values: dict[str, ValueRef] = {}
     for parameter in signature.parameters.values():
@@ -479,6 +611,33 @@ def _definition_contract(
             _annotation_value_type(annotation, parameter=parameter.name),
         )
     return _DefinitionContract(signature, tuple(values.items()))
+
+
+def _context_signature(
+    fn: DefinitionFunction,
+    context_type: type[object],
+) -> inspect.Signature:
+    signature = inspect.signature(fn)
+    parameters = tuple(signature.parameters.values())
+    if not parameters:
+        raise TypeError(
+            f"definition function requires a leading {context_type.__name__} parameter"
+        )
+    context = parameters[0]
+    hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
+    annotation = hints.get(context.name, cast("object", context.annotation))
+    if annotation is not context_type:
+        raise TypeError(
+            f"first definition parameter must be annotated as {context_type.__name__}"
+        )
+    if context.kind is not inspect.Parameter.POSITIONAL_OR_KEYWORD:
+        raise TypeError("definition context must be the first positional parameter")
+    return signature.replace(parameters=parameters[1:])
+
+
+def _require_definition_none(value: object, *, kind: str) -> None:
+    if value is not None:
+        raise TypeError(f"@{kind} definition functions must return None")
 
 
 def _annotation_value_type(annotation: object, *, parameter: str) -> ValueType:
@@ -577,21 +736,9 @@ def _python_annotation_matches(annotation: object, value_type: ValueType) -> boo
 
 
 def _input_port(name: str, value: ValueRef):
-    from scopecat.authoring._intents import ModuleInputPort
+    from scopecat.program.operations import ModuleInputPort
 
     return ModuleInputPort(id=name, value_type=value.value_type)
-
-
-def _module_body(value: object) -> ModuleBuilder:
-    if isinstance(value, ModuleBuilder):
-        return value
-    raise TypeError("@module functions must return module_body()")
-
-
-def _experiment_body(value: object) -> ExperimentBody:
-    if isinstance(value, ExperimentBody):
-        return value
-    raise TypeError("template and scratch functions must return experiment() bodies")
 
 
 def _module_invocation(value: object) -> ModuleInvocation:
@@ -601,7 +748,7 @@ def _module_invocation(value: object) -> ModuleInvocation:
         return module_use_invocation(value)
     except TypeError as error:
         raise TypeError(
-            "experiment() requires explicit module or domain-program calls"
+            "ExperimentContext.run() requires a module or domain call"
         ) from error
 
 
@@ -610,12 +757,11 @@ def _definition_id(fn: DefinitionFunction) -> str:
 
 
 __all__ = [
-    "ExperimentBody",
+    "ExperimentContext",
     "Input",
     "ScratchDefinition",
-    "experiment",
+    "input_ref",
     "module",
-    "module_body",
     "scratch",
     "template",
 ]

@@ -154,10 +154,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 @sc.scratch(id="scopecat_lab.first_run", kind="first_run")
-def first_run() -> sc.ExperimentBody:
+def first_run(experiment: sc.ExperimentContext) -> None:
     """Close the daemon, notebook, history, and GUI loop without hardware."""
 
-    return sc.experiment()
+    del experiment
 
 
 # %%

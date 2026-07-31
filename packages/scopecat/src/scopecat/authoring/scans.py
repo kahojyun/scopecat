@@ -12,35 +12,35 @@ from collections.abc import Sequence
 from dataclasses import replace
 from typing import cast, overload
 
-from scopecat.authoring._scan_intents import (
-    AroundScanSource as _AroundScanSource,
-)
-from scopecat.authoring._scan_intents import (
-    AxisSpec as _AxisSpec,
-)
-from scopecat.authoring._scan_intents import (
-    Scan as Scan,
-)
-from scopecat.authoring._scan_intents import (
-    ScanCenter as ScanCenter,
-)
-from scopecat.authoring._scan_intents import (
-    ScanValue as ScanValue,
-)
-from scopecat.authoring._scan_intents import (
-    ValuesScanSource as _ValuesScanSource,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    capture_runtime_input,
-    internal_value_ref_parameter_lookup,
-    internal_value_ref_point_id,
-)
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units, unit_kind
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import validate_literal
+from scopecat.program.scans import (
+    AroundScanSource as _AroundScanSource,
+)
+from scopecat.program.scans import (
+    AxisSpec as _AxisSpec,
+)
+from scopecat.program.scans import (
+    Scan as Scan,
+)
+from scopecat.program.scans import (
+    ScanCenter as ScanCenter,
+)
+from scopecat.program.scans import (
+    ScanValue as ScanValue,
+)
+from scopecat.program.scans import (
+    ValuesScanSource as _ValuesScanSource,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    capture_runtime_input,
+    internal_value_ref_parameter_lookup,
+    internal_value_ref_point_id,
+)
 
 
 def axis(

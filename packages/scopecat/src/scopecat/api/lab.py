@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Self
 
@@ -13,14 +13,13 @@ from scopecat.api._instruments import LabInstrumentOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.run import RunHandle, run_handle_id
-from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import ExperimentInvocation, ExperimentTemplate
-from scopecat.authoring.values import MetadataValue
 from scopecat.config.candidates import CandidateConfig
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystemBuilder
+from scopecat.program.values import MetadataValue
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource
 from scopecat.runs.selectors import RunSelector
@@ -34,15 +33,6 @@ class PreparedLabExperiment:
     invocation: ExperimentInvocation
     config: ConfigProfileSnapshot
     config_source: RunConfigSource | None = None
-
-    def scan(
-        self,
-        *scans: Scan,
-    ) -> PreparedLabExperiment:
-        return replace(
-            self,
-            invocation=self.invocation.scan(*scans),
-        )
 
     def preview(
         self,

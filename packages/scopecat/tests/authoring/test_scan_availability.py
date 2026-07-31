@@ -6,29 +6,35 @@ import scopecat as sc
 from scopecat.compiler.frontend import resolution
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
+from scopecat.program.values import compute as program_compute
 
 
-def _quantity_scan_parts() -> tuple[sc.ValueRef, sc.Compute]:
+def _quantity_scan_target() -> sc.ValueRef:
     quantity_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
-    target = sc.coordinate("frequency", quantity_type)
-    center = sc.compute(
-        "compute-center",
-        fn=lambda: sc.Quantity(value=5.0, unit="GHz"),
-        output_type=quantity_type,
-    )
-    return target, center
+    return sc.coordinate("frequency", quantity_type)
 
 
 def test_default_scan_center_rejects_external_operation() -> None:
-    target, center = _quantity_scan_parts()
-    module = sc.module_body(id="test.scan-stage.default").computes(center).build()
-    call = module()
+    target = _quantity_scan_target()
 
-    def template_definition() -> sc.ExperimentBody:
-        return sc.experiment(call).scan(
+    @sc.module(id="test.scan-stage.default")
+    def module(context: sc.ModuleContext) -> None:
+        center = context.compute(
+            "compute-center",
+            fn=lambda: sc.Quantity(value=5.0, unit="GHz"),
+            output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+        )
+        del center
+
+    call = module()
+    center = module.operations[0].result
+
+    def template_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.run(call)
+        experiment.scan(
             sc.axis(
                 target,
-                center=center.output,
+                center=center,
                 span=sc.Quantity(value=0.1, unit="GHz"),
                 points=3,
             )
@@ -52,18 +58,28 @@ def test_default_scan_center_rejects_external_operation() -> None:
 
 
 def test_invocation_scan_center_rejects_external_operation() -> None:
-    target, center = _quantity_scan_parts()
-    module = sc.module_body(id="test.scan-stage.invocation").computes(center).build()
+    target = _quantity_scan_target()
+
+    @sc.module(id="test.scan-stage.invocation")
+    def module(context: sc.ModuleContext) -> None:
+        center = context.compute(
+            "compute-center",
+            fn=lambda: sc.Quantity(value=5.0, unit="GHz"),
+            output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+        )
+        del center
+
     call = module()
+    center = module.operations[0].result
 
     @sc.template(id="test.scan-stage.invocation", kind="scan-stage")
-    def template_definition() -> sc.ExperimentBody:
-        return sc.experiment(call)
+    def template_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.run(call)
 
     invocation = template_definition().scan(
         sc.axis(
             target,
-            center=center.output,
+            center=center,
             span=sc.Quantity(value=0.1, unit="GHz"),
             points=3,
         )
@@ -79,7 +95,7 @@ def test_invocation_scan_center_rejects_external_operation() -> None:
 
 def test_parameter_lookup_key_rejects_external_operation() -> None:
     entity_type = sc.ScalarType(sc.EntityType())
-    key = sc.compute(
+    key = program_compute(
         "compute-key",
         fn=lambda: "q0",
         output_type=entity_type,

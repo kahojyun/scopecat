@@ -10,27 +10,28 @@ from typing import Protocol, cast
 
 from scopecat.authoring import (
     ComputeInput,
-    DomainExecution,
-    DomainProgramDef,
-    ExperimentModule,
-    FloatType,
     IntType,
-    ModuleBuilder,
-    ModuleInvocation,
     ProductOutputs,
-    ProductRef,
     ScalarType,
     ValueRef,
     ValueType,
     shot_axis,
 )
-from scopecat.authoring import (
-    domain_execution as _core_domain_execution,
+from scopecat.domain.program import DomainProgramDef
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_type_compatibility import require_assignable
+from scopecat.kernel.value_validation import coerce_literal
+from scopecat.program.domain import (
+    DomainCall,
+    create_domain_call_internal,
 )
-from scopecat.authoring import (
+from scopecat.program.domain import (
     domain_program as _core_domain_program,
 )
-from scopecat.authoring import input as core_input
+from scopecat.program.identities import DomainCallKey
+from scopecat.program.products import (
+    ModuleProductDecl,
+)
 
 from scopecat_quantum._ids import (
     QuantumProgramId,
@@ -45,13 +46,11 @@ from ._inspection import (
     draw,
 )
 from ._ir import (
-    _SHOTS_INPUT_ID,
     QUANTUM_PROGRAM_DIALECT_ID,
     QUANTUM_PROGRAM_DIALECT_VERSION,
     ProgramFunction,
     ProgramInput,
     ProgramPort,
-    ProgramResult,
     ProgramResults,
     PulseElement,
     QuantumFragment,
@@ -68,22 +67,27 @@ class QuantumProgramCall:
     """One program invocation with automatically owned result products."""
 
     program: Program
-    module_invocation: ModuleInvocation
-    results: ProductOutputs
+    domain_call: DomainCall
     arguments: tuple[tuple[str, ComputeInput], ...]
     compiler_arguments: tuple[tuple[str, ValueRef], ...]
     shots: ComputeInput
+
+    @property
+    def results(self) -> ProductOutputs:
+        """Return products owned by this native domain occurrence."""
+
+        return self.domain_call.results
 
     def with_shots(self, shots: ComputeInput, /) -> QuantumProgramCall:
         """Return the same program call with a different acquisition count."""
 
         return _program_call(
             self.program,
-            self.module_invocation.instance_id,
-            module=self.module_invocation.module,
+            self.domain_call.id,
             inputs=dict(self.arguments),
             compiler_inputs=dict(self.compiler_arguments),
             shots=shots,
+            key=self.domain_call.key,
         )
 
     def with_compiler_inputs(self, **inputs: ValueRef) -> QuantumProgramCall:
@@ -92,16 +96,11 @@ class QuantumProgramCall:
         compiler_inputs = dict(inputs)
         return _program_call(
             self.program,
-            self.module_invocation.instance_id,
-            module=_program_call_module(
-                self.program,
-                compiler_input_types={
-                    name: value.value_type for name, value in compiler_inputs.items()
-                },
-            ),
+            self.domain_call.id,
             inputs=dict(self.arguments),
             compiler_inputs=compiler_inputs,
             shots=self.shots,
+            key=self.domain_call.key,
         )
 
 
@@ -142,9 +141,8 @@ class Program:
 class ProgramDefinition(Program):
     """A function-authored program with an inspectable call signature."""
 
-    __slots__ = ("_call_module", "_contract", "_definition")
+    __slots__ = ("_contract", "_definition")
 
-    _call_module: ExperimentModule[...]
     _contract: _ProgramFunctionContract
     _definition: ProgramFunction
 
@@ -164,7 +162,6 @@ class ProgramDefinition(Program):
         )
         self._definition = definition
         self._contract = contract
-        self._call_module = _program_call_module(self)
 
     @property
     def __wrapped__(self) -> ProgramFunction:
@@ -195,7 +192,6 @@ class ProgramDefinition(Program):
         return _program_call(
             self,
             self.id.rsplit(".", maxsplit=1)[-1],
-            module=self._call_module,
             inputs=cast("Mapping[str, ComputeInput]", bound.arguments),
             compiler_inputs={},
             shots=1,
@@ -214,7 +210,6 @@ class ProgramDefinition(Program):
         return _program_call(
             self,
             instance_id,
-            module=self._call_module,
             inputs=cast("Mapping[str, ComputeInput]", bound.arguments),
             compiler_inputs={},
             shots=1,
@@ -249,134 +244,17 @@ def _domain_program(
     )
 
 
-def _domain_execution(
-    program: DomainProgramDef,
-    *,
-    id: str | None = None,
-    inputs: Mapping[ProgramPort, ComputeInput] | None = None,
-    compiler_inputs: Mapping[str, ComputeInput] | None = None,
-    results: Mapping[ProgramResult, ProductRef] | None = None,
-) -> DomainExecution:
-    """Bind one template's quantum program to core values and products."""
-
-    if (
-        program.dialect_id != QUANTUM_PROGRAM_DIALECT_ID
-        or program.dialect_version != QUANTUM_PROGRAM_DIALECT_VERSION
-        or not isinstance(program.body, Program)
-    ):
-        msg = "quantum domain execution requires a quantum program"
-        raise TypeError(msg)
-    declaration = program.body
-    expected_program = _domain_program(
-        declaration,
-        compiler_inputs={
-            port.id: port.value_type for port in program.compiler_input_ports
-        },
-    )
-    if (
-        program.id != expected_program.id
-        or program.input_ports != expected_program.input_ports
-        or program.compiler_input_ports != expected_program.compiler_input_ports
-        or program.result_ports != expected_program.result_ports
-    ):
-        msg = "quantum program domain ports do not match its Program body"
-        raise ValueError(msg)
-    selected_inputs: Mapping[ProgramPort, ComputeInput] = (
-        {} if inputs is None else inputs
-    )
-    selected_results: Mapping[ProgramResult, ProductRef] = (
-        {} if results is None else results
-    )
-    selected_compiler_inputs: Mapping[str, ComputeInput] = (
-        {} if compiler_inputs is None else compiler_inputs
-    )
-    if set(selected_inputs) != set(declaration.ports):
-        msg = "quantum domain execution inputs must bind every declared port"
-        raise ValueError(msg)
-    if set(selected_results) != set(declaration.results):
-        msg = "quantum domain execution results must bind every declared result"
-        raise ValueError(msg)
-    if set(selected_compiler_inputs) != {
-        port.id for port in program.compiler_input_ports
-    }:
-        msg = "quantum compiler inputs must bind every declared port"
-        raise ValueError(msg)
-    normalized_inputs = {
-        handle.id: (
-            float(value)
-            if isinstance(handle, ProgramInput)
-            and isinstance(handle.value_type.atom, FloatType)
-            and isinstance(value, int)
-            and not isinstance(value, bool)
-            else value
-        )
-        for handle, value in selected_inputs.items()
-    }
-    return _core_domain_execution(
-        program,
-        id=id,
-        inputs=normalized_inputs,
-        compiler_inputs=selected_compiler_inputs,
-        results={handle.id: value for handle, value in selected_results.items()},
-    )
-
-
-def _program_call_module(
-    program: Program,
-    *,
-    compiler_input_types: Mapping[str, ValueType] | None = None,
-) -> ExperimentModule[...]:
-    """Build the reusable core module owned by one program definition."""
-
-    selected_compiler_input_types = compiler_input_types or {}
-    domain = _domain_program(
-        program,
-        compiler_inputs=selected_compiler_input_types,
-    )
-    local_inputs = {
-        port.id: core_input(port.id, port.value_type) for port in domain.input_ports
-    }
-    local_compiler_inputs = {
-        port.id: core_input(port.id, port.value_type)
-        for port in domain.compiler_input_ports
-    }
-    shots_input = core_input(
-        _SHOTS_INPUT_ID,
-        ScalarType(IntType(minimum=1)),
-    )
-    builder = ModuleBuilder(id=f"{program.id}.call").inputs(
-        *local_inputs.values(),
-        *local_compiler_inputs.values(),
-        shots_input,
-    )
-    for result in program.results:
-        contract = result.contract
-        builder = builder.product(
-            result.id,
-            unit=contract.unit,
-            dtype=contract.dtype,
-            axes=(shot_axis(shots_input, shared_as="shot"),),
-        )
-    execution = _domain_execution(
-        domain,
-        inputs={port: local_inputs[port.id] for port in program.ports},
-        compiler_inputs=local_compiler_inputs,
-        results={result: builder.products[result.id] for result in program.results},
-    )
-    return builder.domain(execution).build()
-
-
 def _program_call(
     program: Program,
     instance_id: str,
     /,
     *,
-    module: ExperimentModule[...],
     inputs: Mapping[str, ComputeInput],
     compiler_inputs: Mapping[str, ValueRef],
     shots: ComputeInput,
+    key: DomainCallKey | None = None,
 ) -> QuantumProgramCall:
-    """Instantiate one use of a definition's cached core module."""
+    """Create one native domain occurrence from a closed program definition."""
 
     expected = {port.id for port in program.ports}
     supplied = set(inputs)
@@ -390,21 +268,72 @@ def _program_call(
             details.append("unknown " + ", ".join(repr(item) for item in unknown))
         raise ValueError("invalid quantum program call inputs: " + "; ".join(details))
 
-    invocation = module.instantiate(
-        instance_id,
-        {
-            **inputs,
-            **compiler_inputs,
-            _SHOTS_INPUT_ID: shots,
+    domain = _domain_program(
+        program,
+        compiler_inputs={
+            name: value.value_type for name, value in compiler_inputs.items()
         },
+    )
+    normalized_shots = _normalize_shots(shots)
+    call = create_domain_call_internal(
+        domain,
+        id=instance_id,
+        inputs={
+            port.id: _normalize_program_input(port, inputs[port.id])
+            for port in program.ports
+        },
+        compiler_inputs=compiler_inputs,
+        result_products={
+            result.id: ModuleProductDecl(
+                id=result.id,
+                unit=result.contract.unit,
+                dtype=result.contract.dtype,
+                axes=(
+                    shot_axis(
+                        cast("ValueRef | Quantity | float", normalized_shots),
+                        shared_as="shot",
+                    ),
+                ),
+            )
+            for result in program.results
+        },
+        key=key,
     )
     return QuantumProgramCall(
         program=program,
-        module_invocation=invocation,
-        results=ProductOutputs(
-            {result.id: invocation.products[result.id] for result in program.results}
-        ),
+        domain_call=call,
         arguments=tuple(inputs.items()),
         compiler_arguments=tuple(compiler_inputs.items()),
         shots=shots,
+    )
+
+
+def _normalize_program_input(
+    port: ProgramPort,
+    value: ComputeInput,
+) -> ComputeInput:
+    value_type = program_port_type(port)
+    if isinstance(value, ValueRef):
+        require_assignable(
+            value.value_type,
+            value_type,
+            path=("inputs", port.id),
+        )
+        return value
+    normalized = coerce_literal(
+        value_type,
+        value,
+        path=("inputs", port.id),
+    )
+    return cast("ComputeInput", normalized)
+
+
+def _normalize_shots(shots: ComputeInput) -> ComputeInput:
+    value_type = ScalarType(IntType(minimum=1))
+    if isinstance(shots, ValueRef):
+        require_assignable(shots.value_type, value_type, path=("shots",))
+        return shots
+    return cast(
+        "ComputeInput",
+        coerce_literal(value_type, shots, path=("shots",)),
     )

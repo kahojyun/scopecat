@@ -1,16 +1,9 @@
-"""Link one composed authoring assembly into a transient compiler program."""
+"""Lower a verified symbolic assembly into a typed compiler program."""
 
 from __future__ import annotations
 
 from dataclasses import replace
 
-from scopecat.authoring._binding_intents import (
-    ExperimentBindingIntent,
-    InvocationIntent,
-)
-from scopecat.authoring._parameter_contracts import (
-    ParameterValueContract,
-)
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.assembly_lowering import (
     input_row,
@@ -22,10 +15,11 @@ from scopecat.compiler.frontend.assembly_lowering import (
 )
 from scopecat.compiler.frontend.binding_lowering import (
     build_resource_requirements,
+    lower_ensure_state,
     lower_invocation,
     lower_state_binding,
 )
-from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
+from scopecat.compiler.frontend.elaboration import ExperimentAssembly
 from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
 from scopecat.compiler.frontend.measurement_postprocessor_lowering import (
     lower_semantic_measurement_postprocessor_graph,
@@ -36,6 +30,7 @@ from scopecat.compiler.frontend.parameter_contract_validation import (
 from scopecat.compiler.frontend.problems import raise_frontend_problem
 from scopecat.compiler.frontend.product_lowering import lower_products
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
+from scopecat.compiler.linking.linked import LinkedPlan, link_program
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
@@ -44,17 +39,25 @@ from scopecat.compiler.relations.verification import (
 from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.kernel.value_types import Scalar
+from scopecat.program.bindings import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+    InvocationIntent,
+)
+from scopecat.program.parameters import (
+    ParameterValueContract,
+)
 from scopecat.records.parameter import ParameterCatalog
 
 
-def bind_verified_assembly(
+def lower_verified_assembly(
     verified: VerifiedAssembly,
     environment: ConfigEnvironment,
 ) -> CoreProgram:
     """Bind a config-free assembly proof into one config-dependent program."""
 
     try:
-        return _bind_verified_assembly(
+        return _lower_verified_assembly(
             verified,
             environment,
         )
@@ -71,7 +74,19 @@ def bind_verified_assembly(
         )
 
 
-def _bind_verified_assembly(
+def link_verified_assembly(
+    verified: VerifiedAssembly,
+    environment: ConfigEnvironment,
+) -> LinkedPlan:
+    """Lower, specialize, verify, and bind one assembly to its environment."""
+
+    return link_program(
+        lower_verified_assembly(verified, environment),
+        environment,
+    )
+
+
+def _lower_verified_assembly(
     verified: VerifiedAssembly,
     environment: ConfigEnvironment,
 ) -> CoreProgram:
@@ -144,6 +159,12 @@ def _bind_verified_assembly(
             type_bindings=type_bindings,
         )
         if isinstance(effect, ExperimentBindingIntent)
+        else lower_ensure_state(
+            effect,
+            inputs=inputs,
+            type_bindings=type_bindings,
+        )
+        if isinstance(effect, EnsureStateIntent)
         else lower_invocation(
             effect,
             inputs=inputs,
@@ -155,6 +176,15 @@ def _bind_verified_assembly(
         else domain_effects[effect.id]
         for effect in assembly.effects
     )
+    final_state = (
+        None
+        if assembly.final_state is None
+        else lower_ensure_state(
+            assembly.final_state,
+            inputs=inputs,
+            type_bindings=type_bindings,
+        )
+    )
     return CoreProgram(
         id=verified.experiment_id,
         kind=verified.kind,
@@ -162,6 +192,7 @@ def _bind_verified_assembly(
         resource_requirements=tuple(resource_requirements),
         compute_nodes=compute_nodes,
         effects=ordered_effects,
+        final_state=final_state,
         measurement_postprocessors=measurement_postprocessors.postprocessors,
         parameter_overlays=tuple(
             lower_parameter_overlay_intent(
@@ -180,7 +211,7 @@ def _bind_verified_assembly(
 
 
 def _relation_type_bindings(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     parameter_catalog: ParameterCatalog,
 ) -> RelationTypeBindings:
     """Project assembly contracts into the final plan-verification environment."""

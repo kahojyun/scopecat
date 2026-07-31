@@ -175,6 +175,7 @@ async function startAbandonedRun(
             driver_id: "tests.e2e.instrument",
             connection: { kind: "virtual" },
             run_start: "preserve",
+            failure_action: "abort_and_release",
           },
         ],
       },

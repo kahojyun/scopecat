@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import Annotated
 
 import pytest
 
@@ -18,7 +19,7 @@ from scopecat.records.config import (
     RoutingGraph,
 )
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config, template_fixture
+from tests.testkit.authoring import link_invocation, load_config
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,
@@ -95,33 +96,35 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         "qubit",
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
-    module = (
-        authoring.module_body(id="test.resource-binding-scenarios.entity-routing")
-        .resource(
+
+    @authoring.module(id="test.resource-binding-scenarios.entity-routing")
+    def module(
+        context: authoring.ModuleContext,
+        qubit: Annotated[
+            authoring.Input[EntityRef | str],
+            authoring.EntityType(entity_kind="logical_device"),
+        ],
+    ) -> None:
+        drive = context.resource(
             "drive",
             requires=(_DRIVE_FREQUENCY,),
-            for_entities=(qubit,),
+            for_entities=(authoring.input_ref(qubit),),
         )
-        .bind_property(
-            "drive",
+        context.bind_property(
+            drive,
             _DRIVE_FREQUENCY_VALUE,
             value=Quantity(value=5.0, unit="GHz"),
         )
-        .build()
-    )
-    invocation = template_fixture(
-        module,
+
+    @authoring.template(
         id="test.resource-binding-scenarios.entity-routing",
         kind="resource_binding_contract",
-        scans=(
-            axis(
-                qubit,
-                ("q1", "q0", "q1"),
-            ),
-        ),
-    ).bind()
+    )
+    def template(experiment: authoring.ExperimentContext) -> None:
+        experiment.run(module(qubit))
+        experiment.scan(axis(qubit, ("q1", "q0", "q1")))
 
-    resolved = link_invocation(invocation, config_profile=config)
+    resolved = link_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
         resolved.program,
         resolved.environment.parameters,
@@ -183,35 +186,37 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         "qubit",
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
-    module = (
-        authoring.module_body(id="test.resource-binding-scenarios.channel-selection")
-        .resource(
+
+    @authoring.module(id="test.resource-binding-scenarios.channel-selection")
+    def module(
+        context: authoring.ModuleContext,
+        qubit: Annotated[
+            authoring.Input[EntityRef | str],
+            authoring.EntityType(entity_kind="logical_device"),
+        ],
+    ) -> None:
+        digitizer = context.resource(
             "digitizer",
             requires=(_READOUT_ACQUIRE,),
-            for_entities=(qubit,),
+            for_entities=(authoring.input_ref(qubit),),
         )
-        .product("iq", dtype="complex128")
-        .acquire(
+        iq = context.product("iq", dtype="complex128")
+        context.acquire(
             "capture-iq",
-            resource="digitizer",
-            results={_READOUT_SAMPLE_IQ: "iq"},
+            resource=digitizer,
+            results={_READOUT_SAMPLE_IQ: iq},
         )
-        .build()
-    )
-    invocation = template_fixture(
-        module,
+
+    @authoring.template(
         id="test.resource-binding-scenarios.channel-selection",
         kind="resource_binding_contract",
-        scans=(
-            axis(
-                qubit,
-                ("q0", "q1", "q0"),
-            ),
-        ),
-        records=(authoring.record_product("iq"),),
-    ).bind()
+    )
+    def template(experiment: authoring.ExperimentContext) -> None:
+        call = experiment.run(module(qubit))
+        experiment.scan(axis(qubit, ("q0", "q1", "q0")))
+        experiment.record(call.products.iq)
 
-    resolved = link_invocation(invocation, config_profile=config)
+    resolved = link_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
         resolved.program,
         resolved.environment.parameters,
@@ -262,47 +267,55 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
             ),
         ),
     )
-    qubit = authoring.input(
-        "qubit",
-        authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
-    )
-    module = (
-        authoring.module_body(id="test.resource-binding-scenarios.split-readout")
-        .inputs(qubit)
-        .resource(
+
+    @authoring.module(id="test.resource-binding-scenarios.split-readout")
+    def module(
+        context: authoring.ModuleContext,
+        qubit: Annotated[
+            authoring.Input[EntityRef | str],
+            authoring.EntityType(entity_kind="logical_device"),
+        ],
+    ) -> None:
+        readout_source = context.resource(
             "readout_source",
             requires=(_READOUT_EMIT,),
-            for_entities=(qubit,),
+            for_entities=(authoring.input_ref(qubit),),
         )
-        .resource(
+        digitizer = context.resource(
             "digitizer",
             requires=(_READOUT_ACQUIRE,),
-            for_entities=(qubit,),
+            for_entities=(authoring.input_ref(qubit),),
         )
-        .bind_property(
-            "readout_source",
+        context.bind_property(
+            readout_source,
             _READOUT_EMIT_FREQUENCY,
             value=Quantity(value=6.5, unit="GHz"),
         )
-        .product(
+        iq = context.product(
             "iq",
             dtype="complex128",
         )
-        .acquire(
+        context.acquire(
             "capture-iq",
-            resource="digitizer",
-            results={_READOUT_SAMPLE_IQ: "iq"},
+            resource=digitizer,
+            results={_READOUT_SAMPLE_IQ: iq},
         )
-        .build()
-    )
-    invocation = template_fixture(
-        module,
+
+    @authoring.template(
         id="test.resource-binding-scenarios.split-readout",
         kind="resource_binding_contract",
-        records=(authoring.record_product("iq"),),
-    ).bind(qubit="q0")
+    )
+    def template(
+        experiment: authoring.ExperimentContext,
+        qubit: Annotated[
+            authoring.Input[EntityRef | str],
+            authoring.EntityType(entity_kind="logical_device"),
+        ],
+    ) -> None:
+        call = experiment.run(module(qubit))
+        experiment.record(call.products.iq)
 
-    resolved = link_invocation(invocation, config_profile=config)
+    resolved = link_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
         resolved.program,
         resolved.environment.parameters,

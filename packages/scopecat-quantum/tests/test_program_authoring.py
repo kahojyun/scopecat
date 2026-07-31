@@ -67,7 +67,7 @@ def _symbolic_quantity(value: authoring.ProgramInput) -> Quantity:
 
 def _drag_play(
     qubit: authoring.Qubit,
-    beta: authoring.ProgramInput,
+    beta: authoring.QuantumQuantity,
 ) -> authoring.PulseFragment:
     return authoring.play(
         authoring.drive(qubit),
@@ -380,51 +380,55 @@ def test_program_binding_requires_exact_typed_inputs() -> None:
 
 
 def test_domain_program_and_execution_expose_typed_ports() -> None:
-    q0 = authoring.qubit("q0")
     beta_type = sc.ScalarType(sc.QuantityType(unit="ns"))
-    beta = authoring.input("beta", beta_type)
-    repetitions = authoring.input(
-        "repetitions",
-        sc.ScalarType(sc.IntType()),
-    )
-    readout = authoring.measure(q0, result="raw_iq")
-    declaration = authoring._close_program(
-        "typed-drag-program",
-        authoring.sequence(
-            authoring.repeat(_drag_play(q0, beta), repetitions),
-            readout,
-        ),
-    )
+
+    @authoring.program(id="typed-drag-program")
+    def declaration(
+        qubit: authoring.Qubit,
+        repetitions: int,
+        beta: Annotated[
+            Quantity,
+            sc.ScalarType(sc.QuantityType(unit="ns")),
+        ],
+    ) -> authoring.QuantumFragment:
+        return authoring.sequence(
+            authoring.repeat(_drag_play(qubit, beta), repetitions),
+            authoring.measure(qubit, result="raw_iq"),
+        )
+
     repetitions_type = sc.ScalarType(sc.IntType(minimum=0))
     repetitions_point = sc.coordinate("repetitions", repetitions_type)
     beta_point = sc.coordinate("beta", beta_type)
-    products = (
-        sc.module_body(id="test.quantum.typed-drag")
-        .product("integrated_iq_shots")
-        .build()
-    )
 
-    domain_program = authoring._domain_program(declaration)
-    execution = authoring._domain_execution(
-        domain_program,
-        inputs={beta: beta_point, repetitions: repetitions_point},
-        results={readout.result: products.products["integrated_iq_shots"]},
+    call = declaration.call(
+        "drag",
+        "q0",
+        repetitions_point,
+        beta_point,
     )
+    execution = call.domain_call.execution
+    domain_program = execution.program
 
     assert domain_program.dialect_id == authoring.QUANTUM_PROGRAM_DIALECT_ID
     assert domain_program.body is declaration
     assert [(port.id, port.value_type) for port in domain_program.input_ports] == [
+        (
+            "qubit",
+            sc.ScalarType(
+                sc.EntityType(entity_kind="logical_qubit"),
+            ),
+        ),
         ("repetitions", repetitions_type),
         ("beta", beta_type),
     ]
     assert domain_program.result_ports[0].id == "raw_iq"
-    assert domain_program.result_ports[0].contract is readout.result
-    assert execution.input_bindings == (
+    assert domain_program.result_ports[0].contract is declaration.results.raw_iq
+    assert execution.input_bindings[1:] == (
         ("repetitions", repetitions_point),
         ("beta", beta_point),
     )
     assert execution.result_bindings[0][0] == "raw_iq"
-    assert execution.result_bindings[0][1].local_id == "integrated_iq_shots"
+    assert execution.result_bindings[0][1].id == "drag/raw_iq"
 
 
 def test_explicit_acquire_composes_with_readout_play_and_keeps_public_slot() -> None:
@@ -463,31 +467,6 @@ def test_explicit_acquire_composes_with_readout_play_and_keeps_public_slot() -> 
     assert scheduled.duration_seconds == Decimal("1.2e-8")
     assert {type(event.instruction) for event in scheduled.events} == {Play, Acquire}
     assert {event.start_seconds for event in scheduled.events} == {0}
-
-
-def test_domain_execution_requires_the_exact_measurement_result_handle() -> None:
-    q0 = authoring.qubit("q0")
-    capture = authoring.acquire(
-        q0,
-        duration=Quantity(8, "ns"),
-        result="iq_shots",
-    )
-    foreign = authoring.acquire(
-        q0,
-        duration=Quantity(8, "ns"),
-        result="iq_shots",
-    )
-    declaration = authoring._close_program("explicit-acquire", capture)
-    domain_program = authoring._domain_program(declaration)
-    products = (
-        sc.module_body(id="test.quantum.explicit-acquire").product("iq_shots").build()
-    )
-
-    with pytest.raises(ValueError, match="bind every declared result"):
-        authoring._domain_execution(
-            domain_program,
-            results={foreign.result: products.products["iq_shots"]},
-        )
 
 
 def test_explicit_acquire_results_cannot_repeat_or_reuse_an_id() -> None:

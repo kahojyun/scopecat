@@ -89,6 +89,7 @@ class RunEffectInterpreter:
         coverage: Iterable[RunCoveredOperation],
         *,
         points: Sequence[RunPoint],
+        final_state: Sequence[ApplyStateOperation] = (),
     ) -> effect_result.RunEffectResult:
         """Interpret the residual effect sequence exactly in program order."""
 
@@ -106,6 +107,14 @@ class RunEffectInterpreter:
                 and self._terminal_point_indices != set(self.logical_points)
             ):
                 raise AssertionError("run ended without completing every logical point")
+            if (
+                not bool(self._journal.problems)
+                and not self._journal.indeterminate
+                and self._journal.interruption is None
+                and self.domain_failure is None
+                and self.coverage_failure is None
+            ):
+                self._hardware.execute_final_state(final_state)
         except ExecutionJournalError as error:
             self._journal.problems.append(
                 self._journal.problem(

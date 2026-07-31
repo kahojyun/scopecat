@@ -1,4 +1,4 @@
-"""Private typed contracts for parameter dependencies."""
+"""Typed contracts for symbolic parameter dependencies."""
 
 from __future__ import annotations
 

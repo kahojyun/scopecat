@@ -29,6 +29,7 @@ from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.state import (
+    EnsureStateSpec,
     LogicalStateResourceTarget,
     SetStateSpec,
 )
@@ -137,7 +138,9 @@ class TypedDomainExecution:
         object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
 
 
-type CoreEffect = SetStateSpec | InvokeEffect | TypedDomainExecution | AcquireEffect
+type CoreEffect = (
+    SetStateSpec | EnsureStateSpec | InvokeEffect | TypedDomainExecution | AcquireEffect
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +207,7 @@ class CoreProgram:
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
     effects: tuple[CoreEffect, ...] = ()
+    final_state: EnsureStateSpec | None = None
     measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
@@ -223,8 +227,20 @@ def core_acquisitions(program: CoreProgram) -> tuple[AcquireEffect, ...]:
 
 
 def core_state(program: CoreProgram) -> tuple[SetStateSpec, ...]:
-    return tuple(
-        effect for effect in program.effects if isinstance(effect, SetStateSpec)
+    effect_state = tuple(
+        state
+        for effect in program.effects
+        for state in (
+            (effect,)
+            if isinstance(effect, SetStateSpec)
+            else effect.assignments
+            if isinstance(effect, EnsureStateSpec)
+            else ()
+        )
+    )
+    return (
+        *effect_state,
+        *(() if program.final_state is None else program.final_state.assignments),
     )
 
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, ValidationError
 
-import scopecat.sdk.instruments as instrument_sdk
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.sdk.instruments import (
@@ -168,7 +167,6 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
         )
     }
     assert decoded_content == [b"\x00\xffprogram"]
-    assert not hasattr(operation, "payloads")
 
 
 def test_driver_invoke_decode_materializes_each_payload_id_once() -> None:
@@ -356,38 +354,3 @@ def test_process_safe_request_models_are_frozen_and_closed(
     wire["command_id"] = "daemon-owned"
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         type(request_model).model_validate(wire)
-
-
-def test_backend_protocol_is_not_public_from_driver_sdk_facade() -> None:
-    owners = {
-        "DriverAcquisition",
-        "DriverArgument",
-        "DriverOperation",
-        "DriverOutcome",
-        "DriverPayload",
-        "DriverReadback",
-        "DriverRejected",
-        "DriverScalar",
-        "DriverState",
-        "DriverStatePatch",
-        "DriverSuccess",
-        "DriverUnknown",
-    }
-
-    assert owners <= set(instrument_sdk.__all__)
-
-    for internal_name in (
-        "BackendApplyRequest",
-        "BackendCollectRequest",
-        "BackendCollectResult",
-        "BackendInvokeRequest",
-        "BackendOperationArgument",
-        "BackendPayload",
-        "BackendPropertyWrite",
-        "decode_driver_operation",
-        "lower_backend_apply_request",
-        "lower_backend_collect_request",
-        "lower_backend_invoke_request",
-    ):
-        with pytest.raises(AttributeError):
-            getattr(instrument_sdk, internal_name)

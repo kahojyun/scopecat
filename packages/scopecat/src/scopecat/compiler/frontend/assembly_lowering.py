@@ -5,29 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from scopecat.authoring._intents import ModuleInputPort
-from scopecat.authoring._scan_intents import (
-    AxisSpec,
-    parameter_cell_lookup,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_lower_scalar_value_ref,
-    internal_lower_value_ref,
-)
-from scopecat.authoring.value_types import (
-    Scalar,
-    Table,
-    ValueType,
-    ValueValidationError,
-    coerce_literal,
-)
-from scopecat.authoring.value_types import Table as TableType
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
 )
-from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
+from scopecat.compiler.frontend.elaboration import ExperimentAssembly
 from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
     raise_frontend_problem,
@@ -93,6 +75,24 @@ from scopecat.kernel.product_identity import (
     ProductUseId,
 )
 from scopecat.kernel.value_type_compatibility import require_assignable
+from scopecat.program.operations import ModuleInputPort
+from scopecat.program.scans import (
+    AxisSpec,
+    parameter_cell_lookup,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_lower_scalar_value_ref,
+    internal_lower_value_ref,
+)
+from scopecat.program.value_types import (
+    Scalar,
+    Table,
+    ValueType,
+    ValueValidationError,
+    coerce_literal,
+)
+from scopecat.program.value_types import Table as TableType
 from scopecat.records.config import Topology
 from scopecat.records.parameter import ParameterCatalog
 
@@ -355,25 +355,6 @@ def _lower_semantic_input(
     )
 
 
-def validate_assembly_entrypoint(assembly: SemanticExperimentIR) -> None:
-    """Require the identity needed to lower a verified root assembly."""
-
-    if not assembly.experiment_id:
-        raise_frontend_problem(
-            "experiment_assembly_entrypoint_missing_id",
-            "experiment assembly must be linked with an experiment id",
-            "experiment_id",
-            phase=ProblemPhase.AUTHORING,
-        )
-    if not assembly.kind:
-        raise_frontend_problem(
-            "experiment_assembly_entrypoint_missing_kind",
-            "experiment assembly must be linked with an experiment kind",
-            "kind",
-            phase=ProblemPhase.AUTHORING,
-        )
-
-
 def coerce_assembly_inputs(
     ports: Sequence[ModuleInputPort],
     inputs: Mapping[str, object],
@@ -429,7 +410,7 @@ def coerce_assembly_inputs(
 
 
 def validate_consumed_inputs(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     inputs: Mapping[str, object],
 ) -> None:
     """Reject only free module inputs that the assembled program actually uses."""

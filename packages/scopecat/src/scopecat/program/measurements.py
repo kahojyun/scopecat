@@ -1,16 +1,16 @@
-"""Authored point-local measurement postprocessors."""
+"""Point-local measurement postprocessor contracts."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from scopecat.authoring._products import ProductRef
 from scopecat.kernel.product_identity import ProductId, product_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
+from scopecat.program.products import ProductRef
 
 
 @dataclass(frozen=True, slots=True)

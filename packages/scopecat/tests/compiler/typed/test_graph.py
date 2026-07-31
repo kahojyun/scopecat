@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import scopecat as sc
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.semantic.model import (
@@ -30,37 +32,40 @@ def test_compute_value_and_operation_identities_are_nominally_disjoint() -> None
 
 def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> None:
     payload_type = Scalar(Payload("compiler.graph.payload"))
-    child_input = sc.input("program", payload_type)
-    consume = sc.compute(
-        "consume",
-        fn=_identity_program,
-        inputs={"program": child_input},
-        output_type=payload_type,
-    )
-    child = (
-        sc.module_body(id="test.compiler.graph.child")
-        .inputs(child_input)
-        .computes(consume)
-        .build()
-    )
-    produce = sc.compute(
-        "produce",
-        fn=lambda: {"ok": True},
-        output_type=payload_type,
-    )
-    parent = (
-        sc.module_body(id="test.compiler.graph.parent")
-        .computes(produce)
-        .use(
-            child.instantiate("first-consumer", program=produce.output),
-            child.instantiate("second-consumer", program=produce.output),
-        )
-        .build()
-    )
 
-    template = sc.template(id="test.compiler.graph", kind="compiler_graph")(
-        lambda: sc.experiment(parent())
-    )
+    @sc.module(id="test.compiler.graph.child")
+    def child(
+        module: sc.ModuleContext,
+        program: Annotated[
+            sc.Input[dict[str, object]],
+            sc.PayloadType("compiler.graph.payload"),
+        ],
+    ) -> None:
+        module.compute(
+            "consume",
+            fn=_identity_program,
+            inputs={"program": sc.input_ref(program)},
+            output_type=payload_type,
+        )
+
+    @sc.module(id="test.compiler.graph.parent")
+    def parent(module: sc.ModuleContext) -> None:
+        produce = module.compute(
+            "produce",
+            fn=lambda: {"ok": True},
+            output_type=payload_type,
+        )
+        module.call(
+            child.instantiate("first-consumer", program=produce),
+        )
+        module.call(
+            child.instantiate("second-consumer", program=produce),
+        )
+
+    @sc.template(id="test.compiler.graph", kind="compiler_graph")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(parent())
+
     invocation = template.bind()
     compiled = compile_invocation(invocation)
     graph = compiled.assembly.graph.semantic_graph.graph

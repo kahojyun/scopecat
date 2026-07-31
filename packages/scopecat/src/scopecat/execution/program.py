@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from scopecat.compiler.typed.program import TypedMeasurementPostprocessor
-from scopecat.execution.local.program import LocalOperation
+from scopecat.execution.local.program import ApplyStateOperation, LocalOperation
 from scopecat.kernel.resource_identity import (
     DomainTargetRequirement,
     ResourceRequirement,
@@ -78,6 +78,11 @@ class RunProgram:
     measurements: MeasurementProjection = field(repr=False)
     resource_requirements: tuple[ResourceRequirement, ...]
     domain_target_requirement: DomainTargetRequirement | None
+    final_state: tuple[ApplyStateOperation, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+    )
     measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = field(
         default=(),
         repr=False,

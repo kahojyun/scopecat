@@ -1,4 +1,4 @@
-"""Source-level authoring intents shared by assembly and resolution.
+"""Symbolic operations shared by assembly and resolution.
 
 The objects in this module describe author intent only.  Turning them into
 compiler and planning models is deliberately owned by :mod:`assembly` so the
@@ -9,20 +9,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.authoring._identities import (
-    ComputeDeclarationKey,
-    InvocationKey,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_input_value_ref,
-    internal_operation_result_value_ref,
-)
-from scopecat.authoring.value_types import Scalar, ValueType
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.identities import (
+    ComputeDeclarationKey,
+    InvocationKey,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_input_value_ref,
+    internal_operation_result_value_ref,
+)
+from scopecat.program.value_types import Scalar, ValueType
 
 type ComputeNodeInputValue = (
     ValueRef | Quantity | str | int | float | bool | None | EntityRef | PayloadValue

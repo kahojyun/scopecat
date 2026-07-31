@@ -18,6 +18,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.check_results import ExperimentCheckResult
+from scopecat.program.domain import domain_program
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
@@ -27,7 +28,8 @@ from scopecat.sdk.domain.batch import (
     DomainBatchRequest,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
-from tests.testkit.authoring import simple_template, template_fixture
+from tests.testkit.authoring import simple_template
+from tests.testkit.domain import domain_call
 from tests.testkit.in_process_lab import (
     InProcessLab,
     InProcessPreparedExperiment,
@@ -112,22 +114,22 @@ class _RejectingDomainCompiler:
 
 
 def _domain_invocation() -> sc.ExperimentInvocation:
-    program = sc.domain_program(
+    program = domain_program(
         "check-program",
         dialect_id="test",
         dialect_version="1",
         body=object(),
     )
-    module = (
-        sc.module_body(id="test.check-domain")
-        .domain(sc.domain_execution(program))
-        .build()
-    )
-    return template_fixture(
-        module,
-        id="test.check-domain",
-        kind="check-domain",
-    ).bind()
+
+    @sc.module(id="test.check-domain")
+    def module(context: sc.ModuleContext) -> None:
+        context.call(domain_call(program))
+
+    @sc.template(id="test.check-domain", kind="check-domain")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module())
+
+    return template()
 
 
 def test_prepared_check_returns_preview_when_successful(tmp_path: Path) -> None:
@@ -179,6 +181,7 @@ def test_check_and_preview_surface_domain_compilation_errors(
                 update={
                     "domain_target": DomainTargetBinding(
                         id=compiler.target_id,
+                        exclusivity_key=compiler.target_id,
                         kind=compiler.target_kind,
                     )
                 }

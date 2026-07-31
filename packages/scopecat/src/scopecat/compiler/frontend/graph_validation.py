@@ -10,21 +10,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import cast
 
-from scopecat.authoring._binding_intents import ResourcePort
-from scopecat.authoring._products import (
-    ModuleProductDecl,
-    ProductAxis,
-    product_axis_dimension_id,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_lower_value_ref,
-    internal_value_ref_point_dependencies,
-    internal_value_ref_requires_execution,
-)
-from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
+from scopecat.compiler.frontend.elaboration import ExperimentAssembly
 from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
 from scopecat.compiler.semantic.model import (
     LocalPythonImplementation,
@@ -55,6 +42,18 @@ from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
 from scopecat.kernel.value_types import Entity, Payload, Scalar
+from scopecat.program.bindings import ResourcePort
+from scopecat.program.products import (
+    ModuleProductDecl,
+    ProductAxis,
+    product_axis_dimension_id,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_lower_value_ref,
+    internal_value_ref_point_dependencies,
+    internal_value_ref_requires_execution,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,24 +69,24 @@ class VerifiedAssemblyGraph:
 class VerifiedAssembly:
     """One source assembly paired with its config-free verification proof."""
 
-    source: SemanticExperimentIR
+    source: ExperimentAssembly
     graph: VerifiedAssemblyGraph
 
     @property
     def experiment_id(self) -> str:
         """Return the entrypoint identity established by assembly verification."""
 
-        return cast("str", self.source.experiment_id)
+        return self.source.experiment_id
 
     @property
     def kind(self) -> str:
         """Return the experiment kind established by assembly verification."""
 
-        return cast("str", self.source.kind)
+        return self.source.kind
 
 
 def verify_assembly_graph(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
 ) -> VerifiedAssemblyGraph:
     """Verify and order the config-independent portion of an assembly.
 
@@ -111,6 +110,7 @@ def verify_assembly_graph(
     if semantic_graph is not None:
         _verify_binding_compute_values(assembly, semantic_graph, problems)
     _verify_property_resource_ports(assembly, resource_ports, problems)
+    _verify_final_state_dependencies(assembly, resource_ports, problems)
     if semantic_graph is not None:
         _verify_static_value_dependencies(assembly, problems)
     if problems:
@@ -148,7 +148,7 @@ def _resource_ports(
 
 
 def _verify_property_resource_ports(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
@@ -230,7 +230,7 @@ def _verify_resource_port_interface(
 
 
 def _verify_binding_compute_values(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     graph: VerifiedSemanticGraph,
     problems: list[Problem],
 ) -> None:
@@ -290,7 +290,7 @@ def _is_payload_type(value_type: object) -> bool:
 
 
 def _verify_static_value_dependencies(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     problems: list[Problem],
 ) -> None:
     for port in assembly.resource_ports:
@@ -345,6 +345,58 @@ def _verify_static_value_dependencies(
                 )
 
 
+def _verify_final_state_dependencies(
+    assembly: ExperimentAssembly,
+    ports: Mapping[LogicalResourcePortId, ResourcePort],
+    problems: list[Problem],
+) -> None:
+    final_state = assembly.final_state
+    if final_state is None:
+        return
+    selected_ports: set[LogicalResourcePortId] = set()
+    for index, assignment in enumerate(final_state.assignments):
+        selected_ports.add(assignment.port_id)
+        value = assignment.value
+        if not isinstance(value, ValueRef):
+            continue
+        location = model_location("final_state", index, "value")
+        if internal_value_ref_requires_execution(value):
+            problems.append(
+                _problem(
+                    "experiment_final_state_requires_execution",
+                    "experiment final_state cannot depend on point-local compute",
+                    location,
+                )
+            )
+        if internal_value_ref_point_dependencies(value):
+            problems.append(
+                _problem(
+                    "experiment_final_state_depends_on_point",
+                    "experiment final_state cannot depend on scan coordinates",
+                    location,
+                )
+            )
+    for port_id in selected_ports:
+        port = ports.get(port_id)
+        if port is None:
+            continue
+        for index, value in enumerate(port.selector.entity_inputs):
+            if not internal_value_ref_point_dependencies(value):
+                continue
+            problems.append(
+                _problem(
+                    "experiment_final_state_resource_depends_on_point",
+                    "experiment final_state resource cannot depend on scan coordinates",
+                    model_location(
+                        "final_state",
+                        "resources",
+                        port_id.qualified_name,
+                        index,
+                    ),
+                )
+            )
+
+
 def _verify_resource_entity_input(
     value: ValueRef,
     *,
@@ -389,7 +441,7 @@ def _require_plan_value(
 
 
 def _verify_product_schema(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     problems: list[Problem],
 ) -> dict[ProductId, ModuleProductDecl]:
     product_by_id: dict[ProductId, ModuleProductDecl] = {}

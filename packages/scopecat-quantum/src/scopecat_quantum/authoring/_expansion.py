@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 
-from scopecat.authoring.value_types import ValueValidationError, coerce_literal
+from scopecat.program.value_types import ValueValidationError, coerce_literal
 
 from ._analysis import (
     _program_input_type,

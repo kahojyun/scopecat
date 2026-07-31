@@ -50,6 +50,35 @@ class HardwareEffectExecutor:
         actions = tuple(
             _action(effect, frame=frame_for(effect.point_index)) for effect in effects
         )
+        return self._execute_actions(actions, frame_for=frame_for)
+
+    def execute_final_state(
+        self,
+        operations: Sequence[ApplyStateOperation],
+    ) -> bool:
+        """Apply normal-completion state without assigning it to a scan point."""
+
+        actions = tuple(
+            RunHardwareApply(
+                effect_id=operation.operation_id,
+                instrument_id=operation.instrument_id,
+                assignments=tuple(
+                    target.command_assignment(resource_id=operation.instrument_id)
+                    for target in operation.targets
+                ),
+            )
+            for operation in operations
+        )
+        return self._execute_actions(actions, frame_for=None)
+
+    def _execute_actions(
+        self,
+        actions: tuple[RunHardwareAction, ...],
+        *,
+        frame_for: Callable[[int], PointEffectState] | None,
+    ) -> bool:
+        if not actions:
+            return True
         batch = RunHardwareBatch(
             operation_id="hardware."
             + stable_content_hash(
@@ -93,6 +122,16 @@ class HardwareEffectExecutor:
         if receipt.problems:
             return False
         for value in receipt.values:
+            if frame_for is None:
+                self.problems.problems.append(
+                    self.problems.problem(
+                        "instrument_final_state_returned_value",
+                        "normal-completion state application returned "
+                        "an unexpected measurement",
+                        operation_id=batch.operation_id,
+                    )
+                )
+                continue
             frame = frame_for(value.point_index)
             product_use_id = ProductUseId(value.product_use_id)
             if product_use_id in frame.product_use_ids:

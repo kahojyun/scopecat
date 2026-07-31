@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Event, Lock, Thread
 from types import TracebackType
-from typing import Self
+from typing import Protocol, Self
 from uuid import uuid4
 from weakref import finalize
 
@@ -47,6 +48,54 @@ type OperationArgumentValue = (
 )
 
 _HEARTBEAT_JOIN_SECONDS = 0.2
+
+
+class InstrumentClientFactory[ClientT](Protocol):
+    """Bind one typed notebook client to an already selected instrument."""
+
+    def __call__(
+        self,
+        session: InstrumentClientChannel,
+        instrument_id: str,
+        /,
+    ) -> ClientT: ...
+
+
+@dataclass(frozen=True, slots=True)
+class InstrumentRef[ClientT]:
+    """Project-owned physical instrument identity with a typed client contract."""
+
+    instrument_id: str
+    client_factory: InstrumentClientFactory[ClientT] = field(
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        if not self.instrument_id:
+            raise ValueError("typed instrument id must be non-empty")
+
+
+def instrument[ClientT](
+    instrument_id: str,
+    client_factory: InstrumentClientFactory[ClientT],
+) -> InstrumentRef[ClientT]:
+    """Declare one typed physical instrument reference for notebook use."""
+
+    return InstrumentRef(
+        instrument_id=instrument_id,
+        client_factory=client_factory,
+    )
+
+
+class InstrumentIdentity(Protocol):
+    """Non-generic identity view accepted by heterogeneous session selection."""
+
+    @property
+    def instrument_id(self) -> str: ...
+
+
+type InstrumentSelection = InstrumentIdentity
 
 
 class _InstrumentSessionHeartbeat:
@@ -119,12 +168,16 @@ class LabInstrumentOperations:
 
     def open(
         self,
-        instrument_id: str,
-        *additional_instrument_ids: str,
+        instrument: InstrumentSelection,
+        *additional_instruments: InstrumentSelection,
     ) -> InstrumentSessionHandle:
+        instrument_ids = tuple(
+            _selected_instrument_id(item)
+            for item in (instrument, *additional_instruments)
+        )
         return InstrumentSessionHandle(
             client=self._client,
-            instrument_ids=(instrument_id, *additional_instrument_ids),
+            instrument_ids=instrument_ids,
             actor=self._operator,
         )
 
@@ -174,7 +227,13 @@ class InstrumentSessionHandle:
     def instrument_ids(self) -> tuple[str, ...]:
         return self._instrument_ids
 
-    def describe(
+    def __getitem__[ClientT](self, target: InstrumentRef[ClientT]) -> ClientT:
+        """Bind the target's statically typed client inside this ownership epoch."""
+
+        selected = self._selected_instrument_id(target.instrument_id)
+        return target.client_factory(InstrumentClientChannel(self), selected)
+
+    def _describe(
         self,
         instrument_id: str | None = None,
     ) -> InstrumentDescription:
@@ -186,7 +245,7 @@ class InstrumentSessionHandle:
             if description.instrument_id == selected
         )
 
-    def observed_state(
+    def _observed_state(
         self,
         instrument_id: str | None = None,
     ) -> InstrumentStateSnapshot:
@@ -200,7 +259,7 @@ class InstrumentSessionHandle:
             if state.instrument_id == selected
         )
 
-    def read_state(
+    def _read_state(
         self,
         instrument_id: str | None = None,
     ) -> InstrumentStateSnapshot:
@@ -211,7 +270,7 @@ class InstrumentSessionHandle:
             selected,
         )
 
-    def apply_configured_defaults(
+    def _apply_configured_defaults(
         self,
         *,
         instrument_id: str | None = None,
@@ -228,7 +287,7 @@ class InstrumentSessionHandle:
             ),
         )
 
-    def apply(
+    def _apply(
         self,
         values: Mapping[PropertyRef, StateLiteral | StateValue],
         /,
@@ -261,7 +320,7 @@ class InstrumentSessionHandle:
             command,
         )
 
-    def invoke(
+    def _invoke(
         self,
         operation: OperationRef,
         arguments: Mapping[OperationArgumentRef, OperationArgumentValue] | None = None,
@@ -315,7 +374,7 @@ class InstrumentSessionHandle:
             command,
         )
 
-    def collect(
+    def _collect(
         self,
         acquisition: AcquisitionRef,
         *results: AcquisitionResultRef,
@@ -417,12 +476,94 @@ class InstrumentSessionHandle:
         return instrument_id
 
 
+@dataclass(frozen=True, slots=True)
+class InstrumentClientChannel:
+    """Low-level channel used only to implement typed instrument clients."""
+
+    _session: InstrumentSessionHandle = field(repr=False)
+
+    @property
+    def raw_session(self) -> InstrumentSessionHandle:
+        """Return the backing session for SDK integrations and tests."""
+
+        return self._session
+
+    def describe(self, instrument_id: str) -> InstrumentDescription:
+        return self._session._describe(  # pyright: ignore[reportPrivateUsage]
+            instrument_id
+        )
+
+    def observed_state(self, instrument_id: str) -> InstrumentStateSnapshot:
+        return self._session._observed_state(  # pyright: ignore[reportPrivateUsage]
+            instrument_id
+        )
+
+    def read_state(self, instrument_id: str) -> InstrumentStateSnapshot:
+        return self._session._read_state(  # pyright: ignore[reportPrivateUsage]
+            instrument_id
+        )
+
+    def apply_configured_defaults(
+        self,
+        instrument_id: str,
+    ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        return self._session._apply_configured_defaults(  # pyright: ignore[reportPrivateUsage]
+            instrument_id=instrument_id
+        )
+
+    def apply(
+        self,
+        values: Mapping[PropertyRef, StateLiteral | StateValue],
+        *,
+        instrument_id: str,
+    ) -> ApplyReceipt:
+        return self._session._apply(  # pyright: ignore[reportPrivateUsage]
+            values,
+            instrument_id=instrument_id,
+        )
+
+    def invoke(
+        self,
+        operation: OperationRef,
+        arguments: Mapping[OperationArgumentRef, OperationArgumentValue] | None = None,
+        *,
+        instrument_id: str,
+    ) -> InvokeReceipt:
+        return self._session._invoke(  # pyright: ignore[reportPrivateUsage]
+            operation,
+            arguments,
+            instrument_id=instrument_id,
+        )
+
+    def collect(
+        self,
+        acquisition: AcquisitionRef,
+        *results: AcquisitionResultRef,
+        instrument_id: str,
+    ) -> CollectReceipt:
+        return self._session._collect(  # pyright: ignore[reportPrivateUsage]
+            acquisition,
+            *results,
+            instrument_id=instrument_id,
+        )
+
+
 def _new_command_id(kind: str, subject: str) -> str:
     return f"interactive.{kind}.{subject}.{uuid4().hex}"
 
 
+def _selected_instrument_id(selection: InstrumentSelection) -> str:
+    return selection.instrument_id
+
+
 __all__ = [
+    "InstrumentClientChannel",
+    "InstrumentClientFactory",
+    "InstrumentIdentity",
+    "InstrumentRef",
+    "InstrumentSelection",
     "InstrumentSessionHandle",
     "LabInstrumentOperations",
     "OperationArgumentValue",
+    "instrument",
 ]

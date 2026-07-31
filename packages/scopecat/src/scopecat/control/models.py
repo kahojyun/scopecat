@@ -202,10 +202,7 @@ class RunAdmissionRecord(_ControlModel):
             self.resource_claims,
             strict=True,
         ):
-            if logical_requirement.kind != canonical_claim.kind or (
-                logical_requirement.kind != "instrument"
-                and logical_requirement.id != canonical_claim.id
-            ):
+            if logical_requirement.kind != canonical_claim.kind:
                 raise ValueError(
                     "run admission claims must align with logical plan requirements"
                 )

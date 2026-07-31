@@ -13,6 +13,7 @@ from scopecat_quantum.measurement_postprocessors import (
 )
 
 from quantum_lab_demo.virtual_lab.parameters import (
+    QUBIT_PARAMETER_TABLE_TYPE,
     q0_drag_beta_lookup,
     qubit_parameters,
 )
@@ -44,12 +45,17 @@ _DRAG_BETA_DISCRIMINATOR = BinaryIqDiscriminator(
 
 @sc.module(id="quantum_lab_demo.workflows.drag_beta.capture")
 def drag_beta_capture(
+    module: sc.ModuleContext,
     amplification: Annotated[sc.Input[int], sc.IntType(minimum=1)],
     beta: Annotated[
         sc.Input[Quantity],
         sc.ScalarType(sc.QuantityType(unit="ns")),
     ],
-):
+    qubits: Annotated[
+        sc.Input[list[dict[str, object]]],
+        QUBIT_PARAMETER_TABLE_TYPE,
+    ],
+) -> None:
     """Capture and discriminate one DRAG-beta program call."""
 
     call = (
@@ -58,36 +64,37 @@ def drag_beta_capture(
             amplification=amplification,
             beta=beta,
         )
-        .with_compiler_inputs(qubits=qubit_parameters())
+        .with_compiler_inputs(qubits=sc.input_ref(qubits))
         .with_shots(DRAG_BETA_SHOTS)
     )
-    body = (
-        sc.module_body()
-        .use(call)
-        .product("probability_0", "probability_1", unit="ratio")
-    )
+    module.call(call)
+    probability_0 = module.product("probability_0", unit="ratio")
+    probability_1 = module.product("probability_1", unit="ratio")
     postprocessor = binary_iq_probability_postprocessor(
         "binary-iq-probability",
         iq_shots=call.results.iq_shots,
-        probability_0=body.products.probability_0,
-        probability_1=body.products.probability_1,
+        probability_0=probability_0,
+        probability_1=probability_1,
         discriminator=_DRAG_BETA_DISCRIMINATOR,
     )
-    return body.measurement_postprocessors(postprocessor)
+    module.measurement_postprocessor(postprocessor)
 
 
-def _drag_beta_experiment_body(*scans: sc.Scan) -> sc.ExperimentBody:
-    capture = drag_beta_capture(
-        amplification=AMPLIFICATION,
-        beta=q0_drag_beta_lookup(),
-    )
-    return (
-        sc.experiment(capture)
-        .scan(*scans)
-        .record_product(
-            capture.products.probability_0,
-            capture.products.probability_1,
+def _drag_beta_experiment_body(
+    experiment: sc.ExperimentContext,
+    *scans: sc.Scan,
+) -> None:
+    capture = experiment.run(
+        drag_beta_capture(
+            amplification=AMPLIFICATION,
+            beta=q0_drag_beta_lookup(),
+            qubits=qubit_parameters(),
         )
+    )
+    experiment.scan(*scans)
+    experiment.record(
+        capture.products.probability_0,
+        capture.products.probability_1,
     )
 
 
@@ -95,10 +102,11 @@ def _drag_beta_experiment_body(*scans: sc.Scan) -> sc.ExperimentBody:
     id=DRAG_BETA_TEMPLATE_ID,
     kind=DRAG_BETA_EXPERIMENT_ID,
 )
-def drag_beta_template() -> sc.ExperimentBody:
+def drag_beta_template(experiment: sc.ExperimentContext) -> None:
     """Scan pulse DRAG beta against gate amplification in one program."""
 
-    return _drag_beta_experiment_body(
+    _drag_beta_experiment_body(
+        experiment,
         sc.param_axis(
             BETA,
             q0_drag_beta_lookup(),

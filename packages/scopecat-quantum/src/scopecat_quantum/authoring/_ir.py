@@ -14,10 +14,10 @@ from scopecat.authoring import (
 from scopecat.authoring import (
     ScalarType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.measurements.results import MeasurementDType
+from scopecat.program.value_types import (
     Entity as EntityAtomType,
 )
-from scopecat.measurements.results import MeasurementDType
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,

@@ -1,4 +1,4 @@
-"""First-class typed values for the public module-composition DSL."""
+"""First-class typed values for symbolic programs."""
 
 from __future__ import annotations
 
@@ -7,21 +7,6 @@ from dataclasses import dataclass
 from inspect import Parameter, signature
 from typing import cast
 
-from scopecat.authoring._identities import ComputeDeclarationKey
-from scopecat.authoring._parameter_contracts import (
-    ParameterValueContract,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    capture_runtime_input,
-    internal_input_value_ref,
-    internal_operation_result_value_ref,
-    internal_parameter_lookup_value_ref,
-    internal_point_value_ref,
-    internal_table_value_ref,
-    internal_value_ref_from_expression,
-    internal_value_ref_point_dependencies,
-)
 from scopecat.graph.relations.model import (
     ParameterLookupUse,
     param,
@@ -33,6 +18,21 @@ from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.kernel.value_types import Scalar, Table, ValueType
+from scopecat.program.identities import ComputeDeclarationKey
+from scopecat.program.parameters import (
+    ParameterValueContract,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    capture_runtime_input,
+    internal_input_value_ref,
+    internal_operation_result_value_ref,
+    internal_parameter_lookup_value_ref,
+    internal_point_value_ref,
+    internal_table_value_ref,
+    internal_value_ref_from_expression,
+    internal_value_ref_point_dependencies,
+)
 
 type ComputeFunction = Callable[..., object]
 type ScalarInput = Quantity | EntityRef | PayloadValue | str | int | float | bool | None
@@ -113,9 +113,9 @@ def input(
 ) -> ValueRef:
     """Declare one typed module input value.
 
-    Register the returned value with :meth:`ModuleBuilder.inputs`, then pass the
-    same object to compute inputs, child modules, resource selections, records,
-    or bindings.
+    Prefer a typed ``@module`` parameter for user-authored module inputs. This
+    constructor exists for programmatic domain adapters and compiler-focused
+    tests.
     """
 
     return internal_input_value_ref(id, value_type)
