@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from scopecat.sdk.instruments import InterfaceRef
 from scopecat.sdk.instruments.declarations import (
     declared_acquisition_ref,
     declared_discriminator_ref,
@@ -15,6 +14,7 @@ from scopecat_instruments.interface_declarations import (
     DC_SOURCE_DECLARATION,
     NETWORK_SWEEP_DECLARATION,
     RF_OUTPUT_DECLARATION,
+    TEMPERATURE_READOUT_DECLARATION,
     DCMonitorInterface,
     DCMonitorState,
     DCSourceCurrent,
@@ -24,6 +24,8 @@ from scopecat_instruments.interface_declarations import (
     NetworkSweepInterface,
     NetworkSweepState,
     RFOutputState,
+    TemperatureReadoutInterface,
+    TemperatureReadoutObservation,
 )
 
 RF_OUTPUT = RF_OUTPUT_DECLARATION.ref
@@ -76,14 +78,29 @@ DC_MONITOR_VOLTAGE_RESULT = declared_result_ref(
     "voltage",
 )
 
-TEMPERATURE_READOUT = InterfaceRef("scopecat.temperature_readout/v1")
-TEMPERATURE_READOUT_SCAN_CHANNEL = TEMPERATURE_READOUT.property("scan_channel")
-TEMPERATURE_READOUT_AUTOSCAN_ENABLED = TEMPERATURE_READOUT.property("autoscan_enabled")
-TEMPERATURE_READOUT_SAMPLE = TEMPERATURE_READOUT.acquisition("sample")
-TEMPERATURE_READOUT_TEMPERATURE_RESULT = TEMPERATURE_READOUT_SAMPLE.result(
-    "temperature"
+TEMPERATURE_READOUT = TEMPERATURE_READOUT_DECLARATION.ref
+TEMPERATURE_READOUT_SCAN_CHANNEL = declared_property_ref(
+    TemperatureReadoutObservation,
+    "scan_channel",
 )
-TEMPERATURE_READOUT_RESISTANCE_RESULT = TEMPERATURE_READOUT_SAMPLE.result("resistance")
+TEMPERATURE_READOUT_AUTOSCAN_ENABLED = declared_property_ref(
+    TemperatureReadoutObservation,
+    "autoscan_enabled",
+)
+TEMPERATURE_READOUT_SAMPLE = declared_acquisition_ref(
+    TemperatureReadoutInterface,
+    "sample",
+)
+TEMPERATURE_READOUT_TEMPERATURE_RESULT = declared_result_ref(
+    TemperatureReadoutInterface,
+    "sample",
+    "temperature",
+)
+TEMPERATURE_READOUT_RESISTANCE_RESULT = declared_result_ref(
+    TemperatureReadoutInterface,
+    "sample",
+    "resistance",
+)
 
 NETWORK_SWEEP = NETWORK_SWEEP_DECLARATION.ref
 NETWORK_SWEEP_START_FREQUENCY = declared_property_ref(

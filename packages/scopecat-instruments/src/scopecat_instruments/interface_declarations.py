@@ -15,6 +15,7 @@ from scopecat.sdk.instruments.declarations import (
     compile_interface,
     discriminated_state,
     instrument_interface,
+    instrument_observed_state,
     instrument_result,
     instrument_state,
     interface_discriminator,
@@ -258,6 +259,72 @@ DC_MONITOR_DECLARATION: CompiledInterface[DCMonitorInterface] = compile_interfac
 )
 
 
+@instrument_observed_state
+@dataclass(frozen=True, slots=True)
+class TemperatureReadoutObservation:
+    """Scanner state reported by a temperature readout."""
+
+    scan_channel: Annotated[
+        int,
+        member(
+            minimum=1,
+            maximum=16,
+            label="Scan channel",
+            description="Sensor input currently selected by the scanner.",
+        ),
+    ]
+    autoscan_enabled: Annotated[
+        bool,
+        member(
+            label="Autoscan",
+            description="Whether the input scanner is advancing automatically.",
+        ),
+    ]
+
+
+@instrument_result
+@dataclass(frozen=True, slots=True)
+class _TemperatureSampleResults:
+    temperature: Annotated[
+        float,
+        result(
+            unit="K",
+            label="Temperature",
+            description="Current scan-channel temperature.",
+        ),
+    ]
+    resistance: Annotated[
+        float,
+        result(
+            unit="Ohm",
+            label="Resistance",
+            description="Current scan-channel sensor resistance.",
+        ),
+    ]
+
+
+@instrument_interface(
+    "scopecat.temperature_readout/v1",
+    observed_state=TemperatureReadoutObservation,
+    label="Temperature readout",
+    description=(
+        "Read-only scanner state and settled temperature or resistance "
+        "acquisition. Heater control belongs to a separate interface."
+    ),
+)
+class TemperatureReadoutInterface(Protocol):
+    @acquisition(
+        label="Sample sensor",
+        description="Read a settled sample from one coherent scan channel.",
+    )
+    def sample(self) -> _TemperatureSampleResults: ...
+
+
+TEMPERATURE_READOUT_DECLARATION: CompiledInterface[TemperatureReadoutInterface] = (
+    compile_interface(TemperatureReadoutInterface)
+)
+
+
 @instrument_state
 @dataclass(frozen=True, slots=True)
 class RFOutputState:
@@ -421,6 +488,7 @@ __all__ = [
     "DC_SOURCE_DECLARATION",
     "NETWORK_SWEEP_DECLARATION",
     "RF_OUTPUT_DECLARATION",
+    "TEMPERATURE_READOUT_DECLARATION",
     "DCMonitorInterface",
     "DCMonitorState",
     "DCSourceCurrent",
@@ -434,4 +502,6 @@ __all__ = [
     "RFOutputState",
     "ReferenceSource",
     "SParameter",
+    "TemperatureReadoutInterface",
+    "TemperatureReadoutObservation",
 ]

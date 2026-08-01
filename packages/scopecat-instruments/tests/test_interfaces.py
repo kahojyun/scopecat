@@ -158,6 +158,12 @@ def test_declared_dc_monitor_preserves_the_contract_fingerprint() -> None:
     )
 
 
+def test_declared_temperature_readout_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(temperature_readout_interface()) == (
+        "1c41033c07f023426c0207271f7b1ce785d403633f8febf00f2cdcccefcbe582"
+    )
+
+
 def _resolve_component(
     interface: InterfaceSpec,
     component_path: tuple[str, ...],
