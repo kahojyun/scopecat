@@ -191,9 +191,11 @@ class DCMonitorState:
 
 @instrument_result
 @dataclass(frozen=True, slots=True)
-class _DCMonitorCurrentResults:
+class DCMonitorResults[ValueT]:
+    """Mode-dependent monitor fields reusable across acquisition runtimes."""
+
     current: Annotated[
-        float,
+        ValueT | None,
         result(
             id="monitored_current",
             dtype="float64",
@@ -202,13 +204,8 @@ class _DCMonitorCurrentResults:
             description="One measurement while sourcing voltage.",
         ),
     ]
-
-
-@instrument_result
-@dataclass(frozen=True, slots=True)
-class _DCMonitorVoltageResults:
     voltage: Annotated[
-        float,
+        ValueT | None,
         result(
             id="monitored_voltage",
             dtype="float64",
@@ -217,12 +214,6 @@ class _DCMonitorVoltageResults:
             description="One measurement while sourcing current.",
         ),
     ]
-
-
-@dataclass(frozen=True, slots=True)
-class _DCMonitorResultShape:
-    current: float | None
-    voltage: float | None
 
 
 @instrument_interface(
@@ -249,17 +240,25 @@ class DCMonitorInterface(Protocol):
             ),
         ),
         cases=(
-            acquisition_case("voltage", _DCMonitorCurrentResults),
-            acquisition_case("current", _DCMonitorVoltageResults),
+            acquisition_case(
+                "voltage",
+                DCMonitorResults[float],
+                fields=("current",),
+            ),
+            acquisition_case(
+                "current",
+                DCMonitorResults[float],
+                fields=("voltage",),
+            ),
         ),
     )
-    def monitor(self) -> _DCMonitorResultShape: ...
+    def monitor(self) -> DCMonitorResults[float]: ...
 
 
 DC_MONITOR_DECLARATION: CompiledInterface[DCMonitorInterface] = compile_interface(
     DCMonitorInterface
 )
-DC_MONITOR_ACQUISITION_DECLARATION: DeclaredAcquisition[_DCMonitorResultShape] = (
+DC_MONITOR_ACQUISITION_DECLARATION: DeclaredAcquisition[DCMonitorResults[float]] = (
     declared_acquisition(DC_MONITOR_DECLARATION, DCMonitorInterface.monitor)
 )
 
@@ -516,6 +515,7 @@ __all__ = [
     "TEMPERATURE_READOUT_DECLARATION",
     "TEMPERATURE_SAMPLE_DECLARATION",
     "DCMonitorInterface",
+    "DCMonitorResults",
     "DCMonitorState",
     "DCSourceCurrent",
     "DCSourceInterface",

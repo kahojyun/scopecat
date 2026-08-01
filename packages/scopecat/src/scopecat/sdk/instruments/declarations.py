@@ -215,7 +215,7 @@ class PreconditionMetadata:
 @dataclass(frozen=True, slots=True)
 class AcquisitionCaseMetadata:
     value: str
-    result_type: type[object]
+    result_type: object
     fields: tuple[str, ...] | None
     preconditions: tuple[PreconditionMetadata, ...]
 
@@ -471,7 +471,7 @@ def precondition(
 
 def acquisition_case(
     value: str,
-    result_type: type[object],
+    result_type: object,
     *,
     fields: Sequence[str] | None = None,
     preconditions: Sequence[PreconditionMetadata] = (),

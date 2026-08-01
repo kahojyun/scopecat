@@ -33,6 +33,7 @@ from scopecat_instruments.interface_declarations import (
     DC_MONITOR_ACQUISITION_DECLARATION,
     NETWORK_SWEEP_ACQUISITION_DECLARATION,
     TEMPERATURE_SAMPLE_DECLARATION,
+    DCMonitorResults,
     NetworkSweepResults,
     TemperatureSampleResults,
 )
@@ -86,12 +87,10 @@ class TemperatureReadback(TemperatureSampleResults[MeasurementValue | None]):
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorReadback:
+class DCMonitorReadback(DCMonitorResults[MeasurementValue]):
     """Named mode-dependent monitor results plus their effect receipt."""
 
     receipt: CollectReceipt = field(repr=False)
-    current: MeasurementValue | None
-    voltage: MeasurementValue | None
 
 
 @dataclass(frozen=True, slots=True)

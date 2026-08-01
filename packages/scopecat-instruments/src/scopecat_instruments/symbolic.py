@@ -46,6 +46,7 @@ from scopecat_instruments.interface_declarations import (
     DC_MONITOR_ACQUISITION_DECLARATION,
     NETWORK_SWEEP_ACQUISITION_DECLARATION,
     TEMPERATURE_SAMPLE_DECLARATION,
+    DCMonitorResults,
     NetworkSweepResults,
     TemperatureSampleResults,
 )
@@ -111,11 +112,8 @@ class NetworkSweepProducts(NetworkSweepResults[ProductRef, ProductRef]):
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorProducts:
+class DCMonitorProducts(DCMonitorResults[ProductRef]):
     """Mode-dependent logical products produced by one DC monitor sample."""
-
-    current: ProductRef | None
-    voltage: ProductRef | None
 
 
 @dataclass(frozen=True, slots=True)
