@@ -20,9 +20,10 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         flux_spectroscopy_analysis,
     )
 
-    experiment = lab.prepare(flux_spectroscopy_template())
-    preview = experiment.preview()
-    run = experiment.run(
+    invocation = flux_spectroscopy_template()
+    preview = lab.preview(invocation)
+    run = lab.run(
+        invocation,
         name="Virtual resonator flux spectroscopy",
         tags=("spectroscopy", "virtual-instruments"),
     )
