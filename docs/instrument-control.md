@@ -290,6 +290,93 @@ monitor option. State fields that determine output shape, such as network-sweep
 scan coordinates and point-local compute results cannot size an acquisition
 product.
 
+### Typed interface declarations
+
+An interface author writes the Python shape once, rather than separately
+maintaining an `InterfaceSpec` builder, member-ref constants, state-to-property
+mapping, and acquisition-result schema. Decorated state and result dataclasses
+own the field types; a decorated `Protocol` or abstract base class owns the
+typed capability members. `compile_interface(...)` explicitly lowers that
+Python declaration to the existing `InterfaceSpec` wire contract:
+
+```python
+from dataclasses import dataclass
+from typing import Annotated, Protocol
+
+import scopecat as sc
+from scopecat.sdk.instruments.declarations import (
+    CompiledInterface,
+    acquisition,
+    axis,
+    compile_interface,
+    instrument_interface,
+    instrument_result,
+    instrument_state,
+    member,
+    result,
+)
+
+type Desired[T] = T | sc.ValueRef
+
+
+@instrument_state
+@dataclass(frozen=True, slots=True)
+class NetworkSweepState:
+    points: Annotated[
+        Desired[int] | None,
+        member(minimum=2, label="Sweep points"),
+    ] = None
+
+
+@instrument_result
+@dataclass(frozen=True, slots=True)
+class SweepResults:
+    response: Annotated[
+        list[complex],
+        result(unit="ratio", axes=("frequency",)),
+    ]
+
+
+@instrument_interface(
+    "example.network_sweep/v1",
+    state=NetworkSweepState,
+)
+class NetworkSweep(Protocol):
+    @acquisition(
+        axes={"frequency": axis(size="points", unit="Hz")},
+    )
+    def sweep(self) -> SweepResults: ...
+
+
+NETWORK_SWEEP: CompiledInterface[NetworkSweep] = compile_interface(NetworkSweep)
+```
+
+The decorators attach metadata and return the original class or method. They do
+not replace a type with a runtime wrapper or inject methods invisible to a type
+checker. `NetworkSweep` therefore remains usable as a structural `Protocol`;
+an `ABC` works as well when nominal implementation inheritance is useful, and
+decorated members inherited from base interfaces are preserved. The compiled
+wrapper exposes `.spec`, `.ref`, and `.fresh_spec()` without changing the class
+object.
+
+Declared state dataclasses are intentionally plain data. Both time models use
+the same declaration codec: live clients encode with
+`declared_state_assignments(...)` and reject unresolved symbolic values, while
+symbolic clients adapt with `declared_state_target(...)` and retain `ValueRef`
+bindings. Users normally call the typed client's `apply(...)` or `ensure(...)`;
+the state class does not grow a hidden `target_assignments()` method merely to
+satisfy the lower-level authoring protocol.
+
+This declaration layer generates the stable contract and refs, but it does not
+invent session behavior. A typed factory still defines whether an action is
+live or symbolic, how optional interface combinations such as DC monitoring
+are exposed, and how `each(...)` fans one logical operation out to independently
+routable resources. The first declaration slice covers persistent scalar state,
+discriminated state, fixed and state-discriminated acquisitions, axes, results,
+and preconditions. The explicit contract builders remain the escape hatch for
+operations, components, and unusual contracts until those shapes gain an
+equally typed declaration form.
+
 ### Entity selection and parameter mapping
 
 `one(...)` and `each(...)` make entity cardinality explicit at the typed-client

@@ -54,9 +54,10 @@ Experiment modules reuse the same state dataclasses. Their fields accept either
 fixed values or typed Scopecat value references:
 
 ```python
+from typing import Annotated
+
 import scopecat as sc
-from scopecat_instruments import DCSourceVoltage
-from scopecat_instruments.members import DC_SOURCE
+from scopecat_instruments import DCSourceVoltage, dc_source
 
 DC_BIAS = sc.coordinate(
     "dc_bias",
@@ -71,9 +72,8 @@ def capture(
         sc.QuantityType(unit="V"),
     ],
 ) -> None:
-    flux = module.resource("flux", requires=(DC_SOURCE,))
-    module.ensure(
-        flux,
+    flux = dc_source(module, "flux")
+    flux.ensure(
         DCSourceVoltage(
             range=sc.Quantity(1, "V"),
             level=dc_bias,
