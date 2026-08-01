@@ -9,13 +9,21 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from scopecat_instruments.clients import (
+        DCMonitorProducts,
         DCMonitorReadback,
         DCSourceClient,
         NetworkSweepClient,
+        NetworkSweepProducts,
         NetworkSweepReadback,
         RFOutputClient,
+        SymbolicDCSourceClient,
+        SymbolicInstrumentRecorder,
+        SymbolicNetworkSweepClient,
+        SymbolicRFOutputClient,
+        SymbolicTemperatureReadoutClient,
         TemperatureReadback,
         TemperatureReadoutClient,
+        TemperatureSampleProducts,
         dc_source,
         network_sweep,
         rf_output,
@@ -36,13 +44,21 @@ if TYPE_CHECKING:
 
 
 _CLIENT_EXPORTS = {
+    "DCMonitorProducts",
     "DCMonitorReadback",
     "DCSourceClient",
     "NetworkSweepClient",
+    "NetworkSweepProducts",
     "NetworkSweepReadback",
     "RFOutputClient",
+    "SymbolicDCSourceClient",
+    "SymbolicInstrumentRecorder",
+    "SymbolicNetworkSweepClient",
+    "SymbolicRFOutputClient",
+    "SymbolicTemperatureReadoutClient",
     "TemperatureReadback",
     "TemperatureReadoutClient",
+    "TemperatureSampleProducts",
     "dc_source",
     "network_sweep",
     "rf_output",

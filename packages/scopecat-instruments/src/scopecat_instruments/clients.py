@@ -1,14 +1,17 @@
-"""Typed notebook clients for the first-party instrument interfaces."""
+"""Typed live and declarative clients for first-party instrument interfaces."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import overload
 
 from scopecat.api._instruments import (
     InstrumentClientChannel,
     InstrumentRef,
     instrument,
 )
+from scopecat.authoring import ValueRef
 from scopecat.daemon.wire import InstrumentConfiguredDefaultsApplyReceipt
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -38,6 +41,16 @@ from scopecat_instruments.states import (
     DCSourceVoltage,
     NetworkSweepState,
     RFOutputState,
+)
+from scopecat_instruments.symbolic import (
+    DCMonitorProducts,
+    NetworkSweepProducts,
+    SymbolicDCSourceClient,
+    SymbolicInstrumentRecorder,
+    SymbolicNetworkSweepClient,
+    SymbolicRFOutputClient,
+    SymbolicTemperatureReadoutClient,
+    TemperatureSampleProducts,
 )
 
 
@@ -164,20 +177,134 @@ class TemperatureReadoutClient(_InstrumentClient):
         )
 
 
-def dc_source(instrument_id: str) -> InstrumentRef[DCSourceClient]:
-    return instrument(instrument_id, DCSourceClient)
+@overload
+def dc_source(instrument_id: str) -> InstrumentRef[DCSourceClient]: ...
 
 
-def rf_output(instrument_id: str) -> InstrumentRef[RFOutputClient]:
-    return instrument(instrument_id, RFOutputClient)
+@overload
+def dc_source(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_entities: Sequence[ValueRef] = (),
+) -> SymbolicDCSourceClient: ...
 
 
-def network_sweep(instrument_id: str) -> InstrumentRef[NetworkSweepClient]:
-    return instrument(instrument_id, NetworkSweepClient)
+def dc_source(
+    instrument_id: str | SymbolicInstrumentRecorder,
+    resource_id: str | None = None,
+    *,
+    for_entities: Sequence[ValueRef] = (),
+) -> InstrumentRef[DCSourceClient] | SymbolicDCSourceClient:
+    if isinstance(instrument_id, str):
+        if resource_id is not None or for_entities:
+            raise TypeError("live instrument clients only accept an instrument id")
+        return instrument(instrument_id, DCSourceClient)
+    if resource_id is None:
+        raise TypeError("symbolic instrument clients require a logical resource id")
+    return SymbolicDCSourceClient(
+        instrument_id,
+        resource_id,
+        for_entities=for_entities,
+    )
 
 
-def temperature_readout(instrument_id: str) -> InstrumentRef[TemperatureReadoutClient]:
-    return instrument(instrument_id, TemperatureReadoutClient)
+@overload
+def rf_output(instrument_id: str) -> InstrumentRef[RFOutputClient]: ...
+
+
+@overload
+def rf_output(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_entities: Sequence[ValueRef] = (),
+) -> SymbolicRFOutputClient: ...
+
+
+def rf_output(
+    instrument_id: str | SymbolicInstrumentRecorder,
+    resource_id: str | None = None,
+    *,
+    for_entities: Sequence[ValueRef] = (),
+) -> InstrumentRef[RFOutputClient] | SymbolicRFOutputClient:
+    if isinstance(instrument_id, str):
+        if resource_id is not None or for_entities:
+            raise TypeError("live instrument clients only accept an instrument id")
+        return instrument(instrument_id, RFOutputClient)
+    if resource_id is None:
+        raise TypeError("symbolic instrument clients require a logical resource id")
+    return SymbolicRFOutputClient(
+        instrument_id,
+        resource_id,
+        for_entities=for_entities,
+    )
+
+
+@overload
+def network_sweep(instrument_id: str) -> InstrumentRef[NetworkSweepClient]: ...
+
+
+@overload
+def network_sweep(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_entities: Sequence[ValueRef] = (),
+) -> SymbolicNetworkSweepClient: ...
+
+
+def network_sweep(
+    instrument_id: str | SymbolicInstrumentRecorder,
+    resource_id: str | None = None,
+    *,
+    for_entities: Sequence[ValueRef] = (),
+) -> InstrumentRef[NetworkSweepClient] | SymbolicNetworkSweepClient:
+    if isinstance(instrument_id, str):
+        if resource_id is not None or for_entities:
+            raise TypeError("live instrument clients only accept an instrument id")
+        return instrument(instrument_id, NetworkSweepClient)
+    if resource_id is None:
+        raise TypeError("symbolic instrument clients require a logical resource id")
+    return SymbolicNetworkSweepClient(
+        instrument_id,
+        resource_id,
+        for_entities=for_entities,
+    )
+
+
+@overload
+def temperature_readout(
+    instrument_id: str,
+) -> InstrumentRef[TemperatureReadoutClient]: ...
+
+
+@overload
+def temperature_readout(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_entities: Sequence[ValueRef] = (),
+) -> SymbolicTemperatureReadoutClient: ...
+
+
+def temperature_readout(
+    instrument_id: str | SymbolicInstrumentRecorder,
+    resource_id: str | None = None,
+    *,
+    for_entities: Sequence[ValueRef] = (),
+) -> InstrumentRef[TemperatureReadoutClient] | SymbolicTemperatureReadoutClient:
+    if isinstance(instrument_id, str):
+        if resource_id is not None or for_entities:
+            raise TypeError("live instrument clients only accept an instrument id")
+        return instrument(instrument_id, TemperatureReadoutClient)
+    if resource_id is None:
+        raise TypeError("symbolic instrument clients require a logical resource id")
+    return SymbolicTemperatureReadoutClient(
+        instrument_id,
+        resource_id,
+        for_entities=for_entities,
+    )
 
 
 def _concrete_assignments(
@@ -210,13 +337,21 @@ def _readback_value(
 
 
 __all__ = [
+    "DCMonitorProducts",
     "DCMonitorReadback",
     "DCSourceClient",
     "NetworkSweepClient",
+    "NetworkSweepProducts",
     "NetworkSweepReadback",
     "RFOutputClient",
+    "SymbolicDCSourceClient",
+    "SymbolicInstrumentRecorder",
+    "SymbolicNetworkSweepClient",
+    "SymbolicRFOutputClient",
+    "SymbolicTemperatureReadoutClient",
     "TemperatureReadback",
     "TemperatureReadoutClient",
+    "TemperatureSampleProducts",
     "dc_source",
     "network_sweep",
     "rf_output",
