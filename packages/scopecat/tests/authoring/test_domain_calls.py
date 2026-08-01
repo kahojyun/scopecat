@@ -122,7 +122,7 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
             )
         )
 
-    semantic = compose_module(module.ir).domain_executions[0]
+    semantic = compose_module(module.definition).domain_executions[0]
 
     assert tuple(port.id for port in semantic.program.input_ports) == ("value",)
     assert tuple(port.id for port in semantic.program.compiler_input_ports) == (
@@ -278,7 +278,7 @@ def test_module_preserves_ordered_domain_executions() -> None:
         context.call(domain_call(program, id="first"))
         context.call(domain_call(program, id="second"))
 
-    assert tuple(call.id for call in module.ir.body.domain_executions) == (
+    assert tuple(call.id for call in module.definition.body.domain_executions) == (
         "first/program",
         "second/program",
     )
@@ -310,7 +310,7 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
         context.call(right)
         context.call(left)
 
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
 
     assert tuple(execution.id for execution in assembly.domain_executions) == (
         "right/call/program",
@@ -348,7 +348,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_logical_program(compose_module(module.ir))
+        verify_logical_program(compose_module(module.definition))
     assert "logical_domain_execution_input_stage_unavailable" in {
         problem.code for problem in error.value.problems
     }
@@ -379,7 +379,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         outer = wrapper.instantiate("outer", x_count=x_count)
         context.call(outer)
 
-    assembly = compose_module(root_module.ir, x_count=point_x_count)
+    assembly = compose_module(root_module.definition, x_count=point_x_count)
     assert len(assembly.domain_executions) == 1
     assert (
         assembly.domain_executions[0].program.symbol_id.qualified_name
@@ -445,7 +445,7 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
             )
         )
 
-    logical_program = compose_module(module.ir)
+    logical_program = compose_module(module.definition)
     value_ids = {
         definition.id.qualified_name for definition in logical_program.value_defs
     }

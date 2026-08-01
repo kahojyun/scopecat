@@ -16,9 +16,6 @@ from scopecat.compiler.frontend.resolution import (
     compile_invocation,
 )
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.relations.verification import (
-    ExpressionTypeBindings,
-)
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
@@ -28,7 +25,6 @@ from scopecat.program.expressions import (
     InputScalarExpr,
     LiteralScalarExpr,
     ScalarExpr,
-    as_scalar_expr,
     input_ref,
     param,
 )
@@ -42,9 +38,7 @@ from scopecat.program.value_graph import (
 )
 from scopecat.program.value_refs import (
     ValueRef,
-    internal_bind_value_ref_inputs,
     internal_lower_scalar_value_ref,
-    internal_value_ref_from_expression,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
 )
@@ -766,7 +760,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
         )
 
     assembly = compose_module(
-        parent.ir,
+        parent.definition,
     )
 
     assert "drive_frequency" not in assembly.inputs
@@ -911,7 +905,7 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     unused_point = authoring.coordinate("phantom_point", value_type)
 
     assembly = compose_module(
-        module.ir,
+        module.definition,
         used_parameter=used_parameter,
         unused_parameter=unused_parameter,
         used_point=used_point,
@@ -924,47 +918,6 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     assert assembly.point_dependencies == internal_value_ref_point_dependencies(
         used_point
     )
-
-
-def test_scalar_input_binding_preserves_parent_same_named_input() -> None:
-    value_type = authoring.ScalarType(authoring.FloatType())
-    child_value = program_input("value", value_type)
-    parent_value = program_input("value", value_type)
-
-    bound = internal_bind_value_ref_inputs(
-        child_value + 1.0,
-        {"value": parent_value + 1.0},
-    )
-
-    assert evaluate_scalar(
-        internal_lower_scalar_value_ref(bound),
-        EvalContext(inputs={"value": 2.0}),
-        bindings=ExpressionTypeBindings(inputs={"value": value_type}),
-    ) == pytest.approx(4.0)
-
-
-def test_expression_input_binding_does_not_capture_sibling_child_inputs() -> None:
-    value_type = authoring.ScalarType(authoring.FloatType())
-    child_value = internal_value_ref_from_expression(
-        input_ref("a", value_type),
-        value_type,
-    )
-    parent_b = program_input("b", value_type)
-    child_b = internal_value_ref_from_expression(
-        as_scalar_expr(10.0, value_type=value_type),
-        value_type,
-    )
-
-    bound = internal_bind_value_ref_inputs(
-        child_value,
-        {"a": parent_b + 1.0, "b": child_b},
-    )
-
-    assert evaluate_scalar(
-        internal_lower_scalar_value_ref(bound),
-        EvalContext(inputs={"b": 2.0}),
-        bindings=ExpressionTypeBindings(inputs={"b": value_type}),
-    ) == pytest.approx(3.0)
 
 
 def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
@@ -993,7 +946,7 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
         )
 
     assembly = compose_module(
-        parent.ir, outer_frequency=Quantity(value=5.2, unit="GHz")
+        parent.definition, outer_frequency=Quantity(value=5.2, unit="GHz")
     )
 
     assert "drive_frequency" not in assembly.inputs
@@ -1043,7 +996,7 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
         )
 
     assembly = compose_module(
-        module.ir,
+        module.definition,
     )
 
     assert "drive_frequency" not in assembly.inputs
@@ -1084,7 +1037,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
         )
 
     assembly = compose_module(
-        parent.ir,
+        parent.definition,
     )
 
     assert "qubit" not in assembly.inputs

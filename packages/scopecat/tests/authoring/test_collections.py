@@ -202,7 +202,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         context.call(middle.instantiate("compute-middle", program=produce))
 
     assembly = compose_module(
-        parent.ir,
+        parent.definition,
     )
     consumer = next(
         operation

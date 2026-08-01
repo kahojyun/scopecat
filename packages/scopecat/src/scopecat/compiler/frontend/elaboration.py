@@ -1,4 +1,4 @@
-"""Elaborate hierarchical Module IR into one closed, flat experiment IR."""
+"""Elaborate hierarchical module definitions into one flat logical program."""
 
 from __future__ import annotations
 
@@ -37,10 +37,10 @@ from scopecat.program.logical import (
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.module import (
     ModuleAcquireEffect,
-    ModuleBodyIR,
+    ModuleBody,
     ModuleDef,
-    ModuleInstanceIR,
-    ModuleInterfaceIR,
+    ModuleInstance,
+    ModuleInterface,
     ModulePythonImplementation,
 )
 from scopecat.program.operations import (
@@ -100,10 +100,10 @@ class _HierarchyRoot(Protocol):
     """Structural program container accepted by hierarchy elaboration."""
 
     @property
-    def interface(self) -> ModuleInterfaceIR: ...
+    def interface(self) -> ModuleInterface: ...
 
     @property
-    def body(self) -> ModuleBodyIR: ...
+    def body(self) -> ModuleBody: ...
 
     @property
     def python_implementations(
@@ -174,12 +174,12 @@ class _LogicalProgramComposer:
                 boundaries,
             )
             for effect in module.body.effects
-            if not isinstance(effect, ModuleInstanceIR)
+            if not isinstance(effect, ModuleInstance)
         )
         ordered: list[_DefinitionEffect] = []
         own_effect_iterator = iter(own_effects)
         for effect in module.body.effects:
-            if isinstance(effect, ModuleInstanceIR):
+            if isinstance(effect, ModuleInstance):
                 ordered.extend(child_effects[effect.invocation_key])
             else:
                 ordered.append(next(own_effect_iterator))
@@ -467,7 +467,7 @@ def _merge_point_dependencies(
 
 
 class _ModuleValueResolver:
-    """Resolve explicit instance-export edges within one Module IR boundary."""
+    """Resolve explicit instance-export edges within one module boundary."""
 
     def __init__(self, module: _HierarchyRoot) -> None:
         self._instances = {

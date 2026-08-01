@@ -230,7 +230,7 @@ def test_acquire_is_an_ordered_effect() -> None:
             results={_SAMPLE.result("signal"): signal},
         )
 
-    assembly = compose_module(module.ir)
+    assembly = compose_module(module.definition)
 
     acquire = assembly.acquisitions[0]
     assert assembly.effects == (acquire,)
@@ -257,7 +257,7 @@ def test_component_scoped_members_lower_complete_targets() -> None:
             results={channel.acquisition("sample").result("signal"): signal},
         )
 
-    assembly = compose_module(module.ir)
+    assembly = compose_module(module.definition)
     [binding] = assembly.bindings
     [invocation] = assembly.invocations
     [acquisition] = assembly.acquisitions
@@ -403,7 +403,7 @@ def test_explicit_instances_select_same_named_products_independently(
     assert left.products.signal.id == "left/signal"
     assert right.products["signal"].id == "right/signal"
 
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
     assert [product.qualified_id for product in assembly.product_declarations] == [
         "left/signal",
         "right/signal",
@@ -484,7 +484,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     def wrapper(context: sc.ModuleContext) -> None:
         context.call(inner)
 
-    projected = wrapper.ir.products[0]
+    projected = wrapper.definition.products[0]
     expected_projection = ProductId(SymbolId(scope=("inner",), local_id="signal"))
     assert projected.symbol_id == expected_projection
     assert projected.target_id == expected_projection
@@ -497,7 +497,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     assert set(outer.products) == {"inner/signal"}
     nested_product = outer.products["inner/signal"]
     assert nested_product.id == "outer/inner/signal"
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
     assert [product.qualified_id for product in assembly.product_declarations] == [
         "outer/inner/signal"
     ]

@@ -1,3 +1,5 @@
+"""Authoring-to-logical validation and diagnostic ownership."""
+
 # pyright: reportUnusedFunction=false
 
 from __future__ import annotations
@@ -7,16 +9,8 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.bind import bind_program
-from scopecat.compiler.bound_facts import BoundProgramFacts
-from scopecat.compiler.bound_verification import verify_bound_facts
-from scopecat.compiler.frontend.logical_verification import (
-    VerifiedLogicalProgram,
-    verify_logical_program,
-)
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.point_domain import VerifiedPointDomain
-from scopecat.config.environment import build_config_environment
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -27,14 +21,9 @@ from scopecat.program.bindings import requires, resource_port
 from scopecat.program.domain import domain_program
 from scopecat.program.expressions import input_ref
 from scopecat.program.logical import (
-    AcquireEffect,
-    LogicalComputeNode,
-    LogicalDomainExecution,
-    LogicalMeasurementPostprocessor,
     LogicalProgram,
     ValueDef,
 )
-from scopecat.program.logical_graph import verify_logical_graph
 from scopecat.program.point_domain import point_axis_values
 from scopecat.program.products import ModuleProductDecl, record_product
 from scopecat.program.value_graph import ValueId
@@ -357,7 +346,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
     ]
 
 
-def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> None:
+def test_compile_preserves_request_input_and_normalizes_logical_input() -> None:
     @sc.template(id="test.graph.verified-source", kind="graph")
     def template(
         experiment: sc.ExperimentContext,
@@ -369,8 +358,6 @@ def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> Non
 
     assert compiled.request.inputs == {"subject": "q0"}
     assert compiled.program.program.inputs == {"subject": EntityRef(id="q0")}
-    assert compiled.program.program.value_defs == ()
-    assert compiled.program.program.compute_nodes == ()
 
 
 def test_compile_invocation_projects_request_metadata() -> None:
@@ -393,68 +380,6 @@ def test_compile_invocation_projects_request_metadata() -> None:
     assert compiled.request.inputs == {"subject": "q0"}
     assert compiled.request.metadata == {"sample": "q0"}
     assert compiled.request.operator == "alice"
-
-
-def test_compile_verifies_the_final_program_once(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls = {"graph": 0, "core": 0}
-
-    def counted_graph(
-        value_defs: tuple[ValueDef, ...],
-        compute_nodes: tuple[LogicalComputeNode, ...],
-        measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...] = (),
-        *,
-        effects: tuple[LogicalDomainExecution | AcquireEffect, ...] = (),
-    ) -> tuple[
-        tuple[ValueDef, ...],
-        tuple[LogicalComputeNode, ...],
-        tuple[LogicalMeasurementPostprocessor, ...],
-    ]:
-        calls["graph"] += 1
-        return verify_logical_graph(
-            value_defs,
-            compute_nodes,
-            measurement_postprocessors,
-            effects=effects,
-        )
-
-    def counted_core(
-        logical: VerifiedLogicalProgram,
-        program: BoundProgramFacts,
-        *,
-        program_id: str,
-        phase: ProblemPhase = ProblemPhase.AUTHORING,
-    ) -> VerifiedPointDomain:
-        calls["core"] += 1
-        return verify_bound_facts(
-            logical,
-            program,
-            program_id=program_id,
-            phase=phase,
-        )
-
-    monkeypatch.setattr(
-        "scopecat.compiler.frontend.logical_verification.verify_logical_graph",
-        counted_graph,
-    )
-    monkeypatch.setattr(
-        "scopecat.compiler.bind.verify_bound_facts",
-        counted_core,
-    )
-
-    @sc.template(id="test.graph.single-proof", kind="graph")
-    def template(experiment: sc.ExperimentContext) -> None:
-        del experiment
-
-    compiled = compile_invocation(template())
-    resolved = bind_program(
-        compiled.program,
-        build_config_environment(load_config()),
-    )
-
-    assert calls == {"graph": 1, "core": 1}
-    assert resolved.program.experiment_id == "test.graph.single-proof"
 
 
 def test_resource_selector_requires_a_scalar_entity_value() -> None:

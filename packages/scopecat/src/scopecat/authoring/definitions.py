@@ -42,7 +42,7 @@ from scopecat.program.definitions import (
     create_experiment_def,
 )
 from scopecat.program.domain import DomainCall
-from scopecat.program.module import ModuleInstanceIR
+from scopecat.program.module import ModuleInstance
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
     ProductRef,
@@ -234,7 +234,7 @@ class ExperimentContext:
         owners = {
             effect.invocation_key
             for effect in self._program.effects_internal
-            if isinstance(effect, ModuleInstanceIR)
+            if isinstance(effect, ModuleInstance)
         }
         if resource.owner not in owners:
             raise ValueError(
@@ -472,13 +472,13 @@ def _module_from_function[**P](
     doc = inspect.getdoc(fn)
     if doc is not None:
         selected_metadata.setdefault("description", doc)
-    module_ir = context.close_definition_internal(
+    module_def = context.close_definition_internal(
         id=id or _definition_id(fn),
         input_ports=tuple(_input_port(name, value) for name, value in values.items()),
         metadata=selected_metadata,
     )
     return create_experiment_module_internal(
-        module_ir,
+        module_def,
         definition=cast("Callable[P, object]", fn),
         signature=contract.signature,
     )

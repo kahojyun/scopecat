@@ -1,3 +1,5 @@
+"""Hierarchy composition and structural identity invariants."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -90,7 +92,7 @@ def _verified_program(
 ) -> tuple[LogicalProgram, VerifiedLogicalProgram]:
     instance = _composable_module().instantiate(instance_id)
     root = _compose_module("test.composition-invariant.root", instance)
-    program = compose_module(root.ir)
+    program = compose_module(root.definition)
     return program, verify_logical_program(program)
 
 
@@ -172,7 +174,7 @@ def test_module_metadata_remains_declaration_introspection_only() -> None:
     )
     assert left.metadata == {"shared": "left"}
     assert right.metadata == {"shared": "right"}
-    assert compose_module(left.ir) == compose_module(right.ir)
+    assert compose_module(left.definition) == compose_module(right.definition)
 
 
 def test_structural_scopes_keep_separator_lookalikes_injective() -> None:
@@ -190,7 +192,7 @@ def test_structural_scopes_keep_separator_lookalikes_injective() -> None:
         nested,
     )
 
-    program = compose_module(root.ir)
+    program = compose_module(root.definition)
     verified = verify_logical_program(program)
 
     node_ids = {operation.id for operation in verified.program.compute_nodes}

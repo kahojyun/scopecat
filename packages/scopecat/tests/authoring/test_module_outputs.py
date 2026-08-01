@@ -139,7 +139,7 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         context.call(first_consumer)
         context.call(second_consumer)
 
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
     nodes = {operation.id: operation for operation in assembly.compute_nodes}
     results = {operation.result_id: operation for operation in assembly.compute_nodes}
 
@@ -224,7 +224,7 @@ def test_exported_child_value_is_prefixed_when_parent_is_instantiated() -> None:
         context.call(outer)
         context.call(sink)
 
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
     sink_node = next(
         operation
         for operation in assembly.compute_nodes
@@ -350,7 +350,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         context.call(invocation)
         context.call(consumer)
 
-    flattened = compose_module(root.ir)
+    flattened = compose_module(root.definition)
     capture_node = next(
         operation
         for operation in flattened.compute_nodes
@@ -396,7 +396,7 @@ def test_direct_export_preserves_its_declared_assignable_input_type() -> None:
             output_type=ghz_type,
         )
 
-    flattened = compose_module(root.ir)
+    flattened = compose_module(root.definition)
     capture = next(
         node for node in flattened.compute_nodes if node.id.local_id == "capture"
     )
@@ -421,7 +421,7 @@ def test_direct_table_export_preserves_its_declared_assignable_input_type() -> N
         instance = context.call(source.instantiate("source", rows=sc.input_ref(rows)))
         context.export(rows=instance.outputs.rows)
 
-    flattened = compose_module(root.ir)
+    flattened = compose_module(root.definition)
 
     assert [(port.id, port.value_type) for port in flattened.input_ports] == [
         ("rows", _MHZ_FREQUENCY_TABLE)
@@ -491,7 +491,7 @@ def test_module_export_arithmetic_resolves_during_elaboration() -> None:
         context.call(source_instance)
         context.call(consumer)
 
-    flattened = compose_module(root.ir)
+    flattened = compose_module(root.definition)
     capture_node = next(
         semantic_operation
         for semantic_operation in flattened.compute_nodes
@@ -586,9 +586,9 @@ def test_output_roots_preserve_free_inputs_and_value_provenance() -> None:
 
     assembly = compile_invocation(template(value=1.0)).program.program
 
-    assert [(port.id, port.value_type) for port in wrapper.ir.interface.imports] == [
-        ("value", value_type)
-    ]
+    assert [
+        (port.id, port.value_type) for port in wrapper.definition.interface.imports
+    ] == [("value", value_type)]
     assert assembly.parameter_contracts == (
         ParameterValueContract("output_parameter", value_type),
     )

@@ -44,13 +44,13 @@ from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.module import (
     ModuleAcquireEffect,
     ModuleAcquireResult,
-    ModuleBodyIR,
+    ModuleBody,
     ModuleDef,
-    ModuleEffectIR,
+    ModuleEffect,
     ModuleImportBinding,
-    ModuleInstanceIR,
+    ModuleInstance,
     ModuleInstanceLookup,
-    ModuleInterfaceIR,
+    ModuleInterface,
     ModulePythonImplementation,
     ModuleResourceBinding,
     ModuleValueExport,
@@ -162,14 +162,14 @@ class ModuleContext:
         self._owner = object()
         self._output_ports: list[ModuleValueExport] = []
         self._resources: list[ResourcePort] = []
-        self._effects: list[ModuleEffectIR] = []
+        self._effects: list[ModuleEffect] = []
         self._operations: list[ModuleOperationDecl] = []
         self._python_implementations: list[ModulePythonImplementation] = []
         self._measurement_postprocessors: list[MeasurementPostprocessor] = []
         self._product_declarations: list[ModuleProductDecl] = []
 
     @property
-    def effects_internal(self) -> tuple[ModuleEffectIR, ...]:
+    def effects_internal(self) -> tuple[ModuleEffect, ...]:
         """Return closed effects for the owning experiment context."""
 
         return tuple(self._effects)
@@ -177,7 +177,7 @@ class ModuleContext:
     def append_invocation_internal(self, invocation: ModuleInvocation) -> None:
         """Append one child after immediately closing its interface bindings."""
 
-        self._effects.append(_module_instance_ir(invocation))
+        self._effects.append(_module_instance(invocation))
 
     def append_domain_call_internal(self, call: DomainCall) -> None:
         """Append one native domain occurrence and its result declarations."""
@@ -196,7 +196,7 @@ class ModuleContext:
 
         return ModuleDef(
             id=id,
-            interface=ModuleInterfaceIR(
+            interface=ModuleInterface(
                 imports=tuple(input_ports),
                 exports=tuple(self._output_ports),
                 resources=tuple(self._resources),
@@ -211,20 +211,20 @@ class ModuleContext:
         *,
         input_ports: Sequence[ModuleInputPort] = (),
     ) -> tuple[
-        ModuleInterfaceIR,
-        ModuleBodyIR,
+        ModuleInterface,
+        ModuleBody,
         tuple[ModulePythonImplementation, ...],
     ]:
         """Freeze the structural parts owned directly by an experiment."""
 
         return (
-            ModuleInterfaceIR(imports=tuple(input_ports)),
+            ModuleInterface(imports=tuple(input_ports)),
             self._close_body(),
             tuple(self._python_implementations),
         )
 
-    def _close_body(self) -> ModuleBodyIR:
-        return ModuleBodyIR(
+    def _close_body(self) -> ModuleBody:
+        return ModuleBody(
             effects=tuple(self._effects),
             operations=tuple(self._operations),
             measurement_postprocessors=tuple(self._measurement_postprocessors),
@@ -447,7 +447,7 @@ class ModuleContext:
                     origin=(instance.invocation_key, *product.target_origin),
                 )
                 for instance in self._effects
-                if isinstance(instance, ModuleInstanceIR)
+                if isinstance(instance, ModuleInstance)
                 for product in instance.module.products
             ),
             *(
@@ -552,7 +552,7 @@ class ModuleInvocation:
     def products(self) -> ProductOutputs:
         """Product references owned by this explicit module instance."""
 
-        relative_ports = self.module.ir.products
+        relative_ports = self.module.definition.products
         return ProductOutputs(
             {
                 port.qualified_id: ProductRef(
@@ -660,8 +660,8 @@ class ModuleOutputs(Mapping[str, ValueRef]):
 class ExperimentModule[**P]:
     """One closed module definition with a single Python call contract."""
 
-    _ir: ModuleDef = field(repr=False)
-    _definition: Callable[P, object] | None = field(
+    _module_def: ModuleDef = field(repr=False)
+    _authoring_fn: Callable[P, object] | None = field(
         repr=False,
         compare=False,
     )
@@ -672,70 +672,70 @@ class ExperimentModule[**P]:
         raise TypeError(msg)
 
     @property
-    def ir(self) -> ModuleDef:
+    def definition(self) -> ModuleDef:
         """Return the explicit immutable definition behind this handle."""
 
-        return self._ir
+        return self._module_def
 
     @property
     def id(self) -> str:
-        return self._ir.id
+        return self._module_def.id
 
     @property
     def input_ports(self) -> tuple[ModuleInputPort, ...]:
-        return self._ir.interface.imports
+        return self._module_def.interface.imports
 
     @property
     def output_ports(self) -> tuple[ModuleValueExport, ...]:
-        return self._ir.interface.exports
+        return self._module_def.interface.exports
 
     @property
     def resource_ports(self) -> tuple[ResourcePort, ...]:
-        return self._ir.interface.resources
+        return self._module_def.interface.resources
 
     @property
     def bindings(self) -> tuple[BindingIntent, ...]:
-        return self._ir.body.bindings
+        return self._module_def.body.bindings
 
     @property
     def invocations(self) -> tuple[InvocationIntent, ...]:
-        return self._ir.body.invocations
+        return self._module_def.body.invocations
 
     @property
-    def effects(self) -> tuple[ModuleEffectIR, ...]:
-        return self._ir.body.effects
+    def effects(self) -> tuple[ModuleEffect, ...]:
+        return self._module_def.body.effects
 
     @property
     def operations(self) -> tuple[ModuleOperationDecl, ...]:
-        return self._ir.body.operations
+        return self._module_def.body.operations
 
     @property
     def python_implementations(self) -> tuple[ModulePythonImplementation, ...]:
         """Return local implementations stored outside the semantic body."""
 
-        return self._ir.python_implementations
+        return self._module_def.python_implementations
 
     @property
     def product_declarations(self) -> tuple[ModuleProductDecl, ...]:
         """Local product declarations consumed by the flattening pass."""
 
-        return self._ir.body.products
+        return self._module_def.body.products
 
     @property
     def metadata(self) -> Mapping[str, MetadataValue]:
-        return self._ir.metadata
+        return self._module_def.metadata
 
     @property
     def __wrapped__(self) -> Callable[P, object]:
-        if self._definition is None:
+        if self._authoring_fn is None:
             raise AttributeError("__wrapped__")
-        return self._definition
+        return self._authoring_fn
 
     @property
     def __name__(self) -> str:
         return (
-            self._definition.__name__
-            if self._definition is not None
+            self._authoring_fn.__name__
+            if self._authoring_fn is not None
             else self.id.rsplit(".", maxsplit=1)[-1]
         )
 
@@ -807,7 +807,9 @@ class ExperimentModule[**P]:
                 f"closed literal data: {error}"
             )
             raise TypeError(msg) from error
-        input_types = {port.id: port.value_type for port in self._ir.interface.imports}
+        input_types = {
+            port.id: port.value_type for port in self._module_def.interface.imports
+        }
         unknown_inputs = sorted(set(inputs) - set(input_types))
         if unknown_inputs:
             unknown = ", ".join(repr(input_id) for input_id in unknown_inputs)
@@ -836,7 +838,9 @@ class ExperimentModule[**P]:
             )
             for child_id, parent_id in resource_bindings.items()
         )
-        declared_resources = {port.symbol_id for port in self._ir.interface.resources}
+        declared_resources = {
+            port.symbol_id for port in self._module_def.interface.resources
+        }
         unknown_resources = sorted(
             item.qualified_name
             for item in set(normalized_resource_bindings) - declared_resources
@@ -857,7 +861,7 @@ class ExperimentModule[**P]:
     def products(self) -> ProductOutputs:
         """Typed product references at this module's template boundary."""
 
-        ports = self._ir.products
+        ports = self._module_def.products
         return ProductOutputs(
             {
                 port.qualified_id: ProductRef(
@@ -871,7 +875,7 @@ class ExperimentModule[**P]:
 
 @overload
 def create_experiment_module_internal[**P](
-    ir: ModuleDef,
+    module_def: ModuleDef,
     *,
     definition: Callable[P, object],
     signature: inspect.Signature,
@@ -880,7 +884,7 @@ def create_experiment_module_internal[**P](
 
 @overload
 def create_experiment_module_internal(
-    ir: ModuleDef,
+    module_def: ModuleDef,
     *,
     definition: None = None,
     signature: inspect.Signature,
@@ -888,16 +892,16 @@ def create_experiment_module_internal(
 
 
 def create_experiment_module_internal(
-    ir: ModuleDef,
+    module_def: ModuleDef,
     *,
     definition: Callable[..., object] | None = None,
     signature: inspect.Signature,
 ) -> ExperimentModule[...]:
-    """Close one module IR behind the definition boundary."""
+    """Close one module definition behind its authoring handle."""
 
     module = object.__new__(ExperimentModule)
-    object.__setattr__(module, "_ir", ir)
-    object.__setattr__(module, "_definition", definition)
+    object.__setattr__(module, "_module_def", module_def)
+    object.__setattr__(module, "_authoring_fn", definition)
     object.__setattr__(
         module,
         "_signature",
@@ -983,17 +987,17 @@ def _is_payload_binding_input(value: object) -> bool:
     )
 
 
-def _module_instance_ir(invocation: ModuleInvocation) -> ModuleInstanceIR:
+def _module_instance(invocation: ModuleInvocation) -> ModuleInstance:
     bindings = tuple(
         ModuleImportBinding(import_id=import_id, source=source)
         for import_id, source in invocation.inputs.items()
     )
-    return ModuleInstanceIR(
+    return ModuleInstance(
         lookup=ModuleInstanceLookup(
             invocation_key=invocation.invocation_key,
             instance_id=invocation.instance_id,
         ),
-        module=invocation.module.ir,
+        module=invocation.module.definition,
         input_bindings=bindings,
         resource_bindings=tuple(
             ModuleResourceBinding(import_id=child_id, source_id=parent_id)

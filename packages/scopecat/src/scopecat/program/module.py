@@ -1,4 +1,4 @@
-"""Explicit hierarchical IR for reusable modules.
+"""Explicit hierarchical definitions for reusable modules.
 
 The public contexts and invocation objects are authoring handles. ``ModuleDef``
 is the immutable definition they elaborate into: its interface declares the
@@ -160,7 +160,7 @@ class ModuleResourceBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleInterfaceIR:
+class ModuleInterface:
     imports: tuple[ModuleInputPort, ...] = ()
     exports: tuple[ModuleValueExport, ...] = ()
     resources: tuple[ResourcePort, ...] = ()
@@ -175,7 +175,7 @@ class ModuleInterfaceIR:
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleInstanceIR:
+class ModuleInstance:
     lookup: ModuleInstanceLookup
     module: ModuleDef
     input_bindings: tuple[ModuleImportBinding, ...]
@@ -248,8 +248,8 @@ class ModuleAcquireEffect:
         )
 
 
-type ModuleEffectIR = (
-    ModuleInstanceIR
+type ModuleEffect = (
+    ModuleInstance
     | BindingIntent
     | EnsureStateIntent
     | InvocationIntent
@@ -259,10 +259,10 @@ type ModuleEffectIR = (
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleBodyIR:
+class ModuleBody:
     """A closed effect sequence with derived child and product views."""
 
-    effects: tuple[ModuleEffectIR, ...] = ()
+    effects: tuple[ModuleEffect, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     measurement_postprocessors: tuple[MeasurementPostprocessor, ...] = ()
     products: tuple[ModuleProductDecl, ...] = ()
@@ -338,11 +338,11 @@ class ModuleBodyIR:
                 )
 
     @property
-    def child_instances(self) -> tuple[ModuleInstanceIR, ...]:
+    def child_instances(self) -> tuple[ModuleInstance, ...]:
         """Derive children so effects remain the sole ordering authority."""
 
         return tuple(
-            effect for effect in self.effects if isinstance(effect, ModuleInstanceIR)
+            effect for effect in self.effects if isinstance(effect, ModuleInstance)
         )
 
     @property
@@ -397,8 +397,8 @@ class ModuleBodyIR:
 @dataclass(frozen=True, slots=True)
 class ModuleDef:
     id: str
-    interface: ModuleInterfaceIR
-    body: ModuleBodyIR
+    interface: ModuleInterface
+    body: ModuleBody
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 

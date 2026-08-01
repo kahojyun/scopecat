@@ -13,8 +13,8 @@ from scopecat.program.bindings import (
     EnsureStateIntent,
 )
 from scopecat.program.module import (
-    ModuleBodyIR,
-    ModuleInterfaceIR,
+    ModuleBody,
+    ModuleInterface,
     ModulePythonImplementation,
 )
 from scopecat.program.products import RecordSelection
@@ -64,8 +64,8 @@ class ExperimentDef:
 
     id: str
     kind: str
-    interface: ModuleInterfaceIR
-    body: ModuleBodyIR
+    interface: ModuleInterface
+    body: ModuleBody
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
     inputs: tuple[ExperimentInputDef, ...] = ()
     default_scans: tuple[Scan, ...] = ()
@@ -117,8 +117,8 @@ def create_experiment_def(
     *,
     id: str,
     kind: str,
-    interface: ModuleInterfaceIR,
-    body: ModuleBodyIR,
+    interface: ModuleInterface,
+    body: ModuleBody,
     python_implementations: Sequence[ModulePythonImplementation] = (),
     record_selections: Sequence[RecordSelection] = (),
     input_defaults: Mapping[str, RuntimeInput] | None = None,

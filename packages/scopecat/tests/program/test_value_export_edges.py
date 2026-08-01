@@ -107,4 +107,4 @@ def test_flattened_ir_rejects_export_edges_hidden_in_root_inputs() -> None:
         del module
 
     with pytest.raises(ValueError, match="unresolved module export 'value'"):
-        compose_module(root.ir, hidden=producer.outputs.value)
+        compose_module(root.definition, hidden=producer.outputs.value)

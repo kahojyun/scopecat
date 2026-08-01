@@ -3,17 +3,22 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
+from scopecat.compiler.relations.context import EvalContext
+from scopecat.compiler.relations.verification import ExpressionTypeBindings
 from scopecat.program.expressions import (
     BinaryScalarExpr,
     ComputeResultScalarExpr,
     InputScalarExpr,
     LiteralScalarExpr,
+    as_scalar_expr,
+    input_ref,
 )
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.value_refs import (
     internal_bind_value_ref_inputs,
     internal_lower_scalar_value_ref,
     internal_lower_value_ref,
+    internal_value_ref_from_expression,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
     internal_value_ref_requires_execution,
@@ -21,6 +26,7 @@ from scopecat.program.value_refs import (
 )
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
+from tests.testkit.expressions import evaluate_scalar
 
 
 def test_value_structure_identifies_external_execution_and_point_dependencies() -> None:
@@ -61,6 +67,47 @@ def test_nested_binding_tracks_point_and_remaining_scalar_inputs() -> None:
         dependency.id for dependency in internal_value_ref_point_dependencies(nested)
     ] == ["inner"]
     assert internal_value_ref_scalar_input_ids(nested) == frozenset({"outer"})
+
+
+def test_scalar_input_binding_preserves_parent_same_named_input() -> None:
+    value_type = sc.ScalarType(sc.FloatType())
+    child_value = program_input("value", value_type)
+    parent_value = program_input("value", value_type)
+
+    bound = internal_bind_value_ref_inputs(
+        child_value + 1.0,
+        {"value": parent_value + 1.0},
+    )
+
+    assert evaluate_scalar(
+        internal_lower_scalar_value_ref(bound),
+        EvalContext(inputs={"value": 2.0}),
+        bindings=ExpressionTypeBindings(inputs={"value": value_type}),
+    ) == pytest.approx(4.0)
+
+
+def test_expression_input_binding_does_not_capture_sibling_inputs() -> None:
+    value_type = sc.ScalarType(sc.FloatType())
+    child_value = internal_value_ref_from_expression(
+        input_ref("a", value_type),
+        value_type,
+    )
+    parent_b = program_input("b", value_type)
+    child_b = internal_value_ref_from_expression(
+        as_scalar_expr(10.0, value_type=value_type),
+        value_type,
+    )
+
+    bound = internal_bind_value_ref_inputs(
+        child_value,
+        {"a": parent_b + 1.0, "b": child_b},
+    )
+
+    assert evaluate_scalar(
+        internal_lower_scalar_value_ref(bound),
+        EvalContext(inputs={"b": 2.0}),
+        bindings=ExpressionTypeBindings(inputs={"b": value_type}),
+    ) == pytest.approx(3.0)
 
 
 def test_compute_output_arithmetic_requires_explicit_compute() -> None:
