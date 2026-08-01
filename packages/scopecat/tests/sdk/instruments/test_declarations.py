@@ -8,6 +8,10 @@ from typing import Annotated, Literal, Protocol, assert_type
 import pytest
 
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_types import Int as IntType
+from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import String as StringType
 from scopecat.program.state import DesiredState
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments import (
@@ -32,11 +36,16 @@ from scopecat.sdk.instruments import (
     int_property,
     quantity_property,
 )
+from scopecat.sdk.instruments import component as expected_component
 from scopecat.sdk.instruments import (
     discriminated_state as expected_discriminated_state,
 )
 from scopecat.sdk.instruments import (
     interface as expected_interface,
+)
+from scopecat.sdk.instruments import operation as expected_operation
+from scopecat.sdk.instruments import (
+    operation_argument as expected_operation_argument,
 )
 from scopecat.sdk.instruments import state_case as expected_state_case
 from scopecat.sdk.instruments import (
@@ -46,21 +55,28 @@ from scopecat.sdk.instruments.declarations import (
     CompiledInterface,
     acquisition,
     acquisition_case,
+    argument,
     axis,
     compile_interface,
+    component,
     declared_acquisition_ref,
+    declared_argument_ref,
+    declared_component_ref,
     declared_discriminator_ref,
     declared_interface_ref,
+    declared_operation_ref,
     declared_property_ref,
     declared_result_ref,
     declared_state_assignments,
     declared_state_target,
     discriminated_state,
     instrument_interface,
+    instrument_observed_state,
     instrument_result,
     instrument_state,
     interface_discriminator,
     member,
+    operation,
     precondition,
     result,
     state_case,
@@ -328,6 +344,96 @@ class AbstractContract(ABC):
     def sample(self) -> ScalarResults: ...
 
 
+@instrument_observed_state
+@dataclass(frozen=True, slots=True)
+class ScannerObservation:
+    channel: Annotated[
+        int,
+        member(
+            id="active_channel",
+            minimum=1,
+            maximum=16,
+            label="Active channel",
+            description="Input currently selected by the scanner.",
+        ),
+    ]
+    autoscan: Annotated[
+        bool,
+        member(
+            label="Autoscan",
+            description="Whether the scanner advances automatically.",
+        ),
+    ]
+
+
+class TriggerCapability(Protocol):
+    @operation(label="Reset trigger", description="Reset trigger state.")
+    def reset(self) -> None: ...
+
+
+class OutputCapability(Protocol):
+    trigger: Annotated[
+        TriggerCapability,
+        component(
+            id="trigger-input",
+            label="Trigger input",
+            description="External trigger endpoint.",
+        ),
+    ]
+
+    @operation(id="arm_output", label="Arm output", description="Arm one output.")
+    def arm(self) -> None: ...
+
+
+@instrument_interface(
+    "test.typed_control/v1",
+    observed_state=ScannerObservation,
+    label="Typed control",
+    description="Operations, observations, and nested capabilities.",
+)
+class TypedControlContract(Protocol):
+    output: Annotated[
+        OutputCapability,
+        component(
+            id="output-a",
+            label="Output A",
+            description="First output endpoint.",
+        ),
+    ]
+
+    @operation(
+        id="select_input",
+        label="Select input",
+        description="Select one input and range.",
+    )
+    def select(
+        self,
+        channel: Annotated[
+            int,
+            argument(
+                id="input",
+                minimum=1,
+                maximum=16,
+                label="Input",
+                description="Input index.",
+            ),
+        ],
+        range: Annotated[
+            Quantity,
+            argument(
+                unit="V",
+                minimum=0.0,
+                label="Range",
+                description="Selected voltage range.",
+            ),
+        ],
+        mode: Annotated[
+            Literal["normal", "fast"],
+            argument(label="Mode", description="Switching mode."),
+        ],
+    ) -> None: ...
+
+
 def test_decorated_protocol_compiles_to_the_existing_contract_ir() -> None:
     compiled = assert_type(
         compile_interface(SweepContract),
@@ -423,6 +529,129 @@ def test_protocol_inheritance_and_abstract_interfaces_preserve_members(
     assert [item.id for item in acquisition_results(compiled.spec.acquisitions[0])] == [
         "value"
     ]
+
+
+def test_operations_observed_state_and_nested_components_compile_together() -> None:
+    compiled = compile_interface(TypedControlContract)
+
+    def check_client_type(client: TypedControlContract) -> None:
+        assert_type(client.output, OutputCapability)
+        assert_type(client.output.trigger, TriggerCapability)
+        assert_type(
+            client.select(1, Quantity(1, "V"), "normal"),
+            None,
+        )
+
+    typed_check: Callable[[TypedControlContract], None] = check_client_type
+    assert typed_check is check_client_type
+
+    expected = expected_interface(
+        "test.typed_control/v1",
+        label="Typed control",
+        description="Operations, observations, and nested capabilities.",
+        properties=[
+            int_property(
+                "active_channel",
+                minimum=1,
+                maximum=16,
+                label="Active channel",
+                description="Input currently selected by the scanner.",
+                access="read_only",
+            ),
+            bool_property(
+                "autoscan",
+                label="Autoscan",
+                description="Whether the scanner advances automatically.",
+                access="read_only",
+            ),
+        ],
+        operations=[
+            expected_operation(
+                "select_input",
+                label="Select input",
+                description="Select one input and range.",
+                arguments=[
+                    expected_operation_argument(
+                        "input",
+                        value_type=Scalar(IntType(minimum=1, maximum=16)),
+                        label="Input",
+                        description="Input index.",
+                    ),
+                    expected_operation_argument(
+                        "range",
+                        value_type=Scalar(QuantityType(unit="V", minimum=0.0)),
+                        label="Range",
+                        description="Selected voltage range.",
+                    ),
+                    expected_operation_argument(
+                        "mode",
+                        value_type=Scalar(StringType(choices=("normal", "fast"))),
+                        label="Mode",
+                        description="Switching mode.",
+                    ),
+                ],
+            )
+        ],
+        components=[
+            expected_component(
+                "output-a",
+                label="Output A",
+                description="First output endpoint.",
+                operations=[
+                    expected_operation(
+                        "arm_output",
+                        label="Arm output",
+                        description="Arm one output.",
+                    )
+                ],
+                components=[
+                    expected_component(
+                        "trigger-input",
+                        label="Trigger input",
+                        description="External trigger endpoint.",
+                        operations=[
+                            expected_operation(
+                                "reset",
+                                label="Reset trigger",
+                                description="Reset trigger state.",
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+
+    assert compiled.spec == expected
+
+
+def test_operation_and_component_refs_use_python_member_names() -> None:
+    select = declared_operation_ref(TypedControlContract, "select")
+
+    assert select == declared_interface_ref(TypedControlContract).operation(
+        "select_input"
+    )
+    assert declared_argument_ref(TypedControlContract, "select", "channel") == (
+        select.argument("input")
+    )
+    assert declared_component_ref(TypedControlContract, "output") == (
+        declared_interface_ref(TypedControlContract).component("output-a")
+    )
+    assert declared_component_ref(
+        TypedControlContract,
+        "output",
+        "trigger",
+    ).component_path == ("output-a", "trigger-input")
+
+
+def test_observed_state_has_refs_but_cannot_be_encoded_as_desired_state() -> None:
+    observation = ScannerObservation(channel=3, autoscan=True)
+
+    assert declared_property_ref(ScannerObservation, "channel") == (
+        declared_interface_ref(TypedControlContract).property("active_channel")
+    )
+    with pytest.raises(TypeError, match="instrument state is missing its decorator"):
+        declared_state_assignments(observation)
 
 
 def test_declaration_ref_helpers_use_python_member_names() -> None:

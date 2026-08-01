@@ -25,13 +25,17 @@ from typing import (
 from scopecat.kernel.instrument_members import (
     AcquisitionRef,
     AcquisitionResultRef,
+    ComponentRef,
     InterfaceRef,
+    OperationArgumentRef,
+    OperationRef,
     PropertyRef,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Bool as BoolType
 from scopecat.kernel.value_types import Float as FloatType
 from scopecat.kernel.value_types import Int as IntType
+from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
@@ -43,8 +47,11 @@ from scopecat.sdk.instruments.contracts import (
     AcquisitionPreconditionSpec,
     AcquisitionResultSpec,
     AcquisitionSpec,
+    ComponentSpec,
     DiscriminatedState,
     InterfaceSpec,
+    OperationArgumentSpec,
+    OperationSpec,
     PropertySpec,
 )
 from scopecat.sdk.instruments.contracts import (
@@ -62,11 +69,16 @@ from scopecat.sdk.instruments.contracts import (
 from scopecat.sdk.instruments.contracts import (
     acquisition_result as build_acquisition_result,
 )
+from scopecat.sdk.instruments.contracts import component as build_component
 from scopecat.sdk.instruments.contracts import (
     discriminated_state as build_discriminated_state,
 )
 from scopecat.sdk.instruments.contracts import (
     interface as build_interface,
+)
+from scopecat.sdk.instruments.contracts import operation as build_operation
+from scopecat.sdk.instruments.contracts import (
+    operation_argument as build_operation_argument,
 )
 from scopecat.sdk.instruments.contracts import state_case as build_state_case
 from scopecat.sdk.instruments.contracts import (
@@ -77,9 +89,11 @@ type PropertyAccess = Literal["read_only", "write_only", "read_write"]
 type PreconditionValue = bool | int | float | str | Quantity
 
 _STATE_METADATA = "__scopecat_instrument_state__"
+_OBSERVED_STATE_METADATA = "__scopecat_instrument_observed_state__"
 _RESULT_METADATA = "__scopecat_instrument_result__"
 _INTERFACE_METADATA = "__scopecat_instrument_interface__"
 _ACQUISITION_METADATA = "__scopecat_instrument_acquisition__"
+_OPERATION_METADATA = "__scopecat_instrument_operation__"
 _STATE_INTERFACES_METADATA = "__scopecat_instrument_state_interfaces__"
 _STATE_BINDINGS_METADATA = "__scopecat_instrument_state_bindings__"
 
@@ -106,6 +120,29 @@ class ResultMetadata:
     dtype: MeasurementDType | None = None
     unit: str | None = None
     axes: tuple[str, ...] = ()
+    label: str | None = None
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ArgumentMetadata:
+    """Metadata for one typed atomic-operation parameter."""
+
+    id: str | None = None
+    label: str | None = None
+    description: str | None = None
+    unit: str | None = None
+    minimum: float | None = None
+    maximum: float | None = None
+    choices: tuple[str, ...] | None = None
+    payload_schema_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ComponentMetadata:
+    """One named occurrence of a nested typed capability."""
+
+    id: str | None = None
     label: str | None = None
     description: str | None = None
 
@@ -162,6 +199,7 @@ type StateMetadata = type[object] | DiscriminatedStateMetadata
 class InterfaceMetadata:
     id: str
     state: StateMetadata | None
+    observed_state: type[object] | None
     label: str | None
     description: str | None
 
@@ -189,6 +227,13 @@ class AcquisitionMetadata:
     preconditions: tuple[PreconditionMetadata, ...]
     discriminator: DeclaredPropertyTarget | None
     cases: tuple[AcquisitionCaseMetadata, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class OperationMetadata:
+    id: str | None
+    label: str | None
+    description: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,6 +289,42 @@ def member(
         maximum=maximum,
         choices=None if choices is None else tuple(choices),
     )
+
+
+def argument(
+    *,
+    id: str | None = None,
+    label: str | None = None,
+    description: str | None = None,
+    unit: str | None = None,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    choices: Sequence[str] | None = None,
+    payload_schema_id: str | None = None,
+) -> ArgumentMetadata:
+    """Describe an atomic-operation parameter through ``Annotated`` metadata."""
+
+    return ArgumentMetadata(
+        id=id,
+        label=label,
+        description=description,
+        unit=unit,
+        minimum=minimum,
+        maximum=maximum,
+        choices=None if choices is None else tuple(choices),
+        payload_schema_id=payload_schema_id,
+    )
+
+
+def component(
+    *,
+    id: str | None = None,
+    label: str | None = None,
+    description: str | None = None,
+) -> ComponentMetadata:
+    """Attach a typed nested capability to a Protocol/ABC attribute."""
+
+    return ComponentMetadata(id=id, label=label, description=description)
 
 
 def state_case(
@@ -374,6 +455,13 @@ def instrument_state[ClassT: type[object]](cls: ClassT) -> ClassT:
     return cls
 
 
+def instrument_observed_state[ClassT: type[object]](cls: ClassT) -> ClassT:
+    """Mark a readback dataclass whose fields cannot be used as desired state."""
+
+    setattr(cls, _OBSERVED_STATE_METADATA, True)
+    return cls
+
+
 def instrument_result[ClassT: type[object]](cls: ClassT) -> ClassT:
     """Mark an existing dataclass as acquisition results without replacing it."""
 
@@ -385,6 +473,7 @@ def instrument_interface[ClassT: type[object]](
     id: str,
     *,
     state: StateMetadata | None = None,
+    observed_state: type[object] | None = None,
     label: str | None = None,
     description: str | None = None,
 ) -> Callable[[ClassT], ClassT]:
@@ -393,6 +482,7 @@ def instrument_interface[ClassT: type[object]](
     declaration = InterfaceMetadata(
         id=id,
         state=state,
+        observed_state=observed_state,
         label=label,
         description=description,
     )
@@ -403,7 +493,30 @@ def instrument_interface[ClassT: type[object]](
             _bind_discriminated_state(id, state)
         elif state is not None:
             _bind_flat_state(id, state)
+        if observed_state is not None:
+            _bind_observed_state(id, observed_state)
         return cls
+
+    return decorate
+
+
+def operation[**P, ReturnT](
+    *,
+    id: str | None = None,
+    label: str | None = None,
+    description: str | None = None,
+) -> Callable[[Callable[P, ReturnT]], Callable[P, ReturnT]]:
+    """Mark a typed method as an atomic instrument operation."""
+
+    declaration = OperationMetadata(
+        id=id,
+        label=label,
+        description=description,
+    )
+
+    def decorate(method: Callable[P, ReturnT]) -> Callable[P, ReturnT]:
+        setattr(method, _OPERATION_METADATA, declaration)
+        return method
 
     return decorate
 
@@ -478,12 +591,37 @@ def compile_interface[InterfaceT](
     properties: list[PropertySpec] = []
     compiled_state: DiscriminatedState | None = None
     if isinstance(declaration.state, DiscriminatedStateMetadata):
+        if declaration.observed_state is not None:
+            raise ValueError(
+                "observed state cannot currently be combined with discriminated state"
+            )
         compiled_state = _compile_discriminated_state(declaration.state)
     elif declaration.state is not None:
         properties = _compile_state(declaration.state)
+    if declaration.observed_state is not None:
+        properties.extend(_compile_observed_state(declaration.observed_state))
+    scope = InterfaceRef(declaration.id)
+    operations: list[OperationSpec] = []
     acquisitions: list[AcquisitionSpec] = []
     for method_name, method in _declared_members(interface_type).items():
+        operation_declaration = getattr(method, _OPERATION_METADATA, None)
         acquisition_declaration = getattr(method, _ACQUISITION_METADATA, None)
+        if isinstance(operation_declaration, OperationMetadata) and isinstance(
+            acquisition_declaration,
+            AcquisitionMetadata,
+        ):
+            raise TypeError(
+                f"interface method {method_name!r} cannot be both an operation "
+                "and an acquisition"
+            )
+        if isinstance(operation_declaration, OperationMetadata):
+            operations.append(
+                _compile_operation(
+                    method_name,
+                    cast("Callable[..., object]", method),
+                    operation_declaration,
+                )
+            )
         if not isinstance(acquisition_declaration, AcquisitionMetadata):
             continue
         acquisitions.append(
@@ -491,7 +629,7 @@ def compile_interface[InterfaceT](
                 method_name,
                 cast("Callable[..., object]", method),
                 acquisition_declaration,
-                interface_id=declaration.id,
+                scope=scope,
             )
         )
     spec = build_interface(
@@ -500,7 +638,9 @@ def compile_interface[InterfaceT](
         description=declaration.description,
         properties=properties,
         state=compiled_state,
+        operations=operations,
         acquisitions=acquisitions,
+        components=_compile_components(interface_type, scope=scope),
     )
     return CompiledInterface(
         interface_type=interface_type,
@@ -561,6 +701,82 @@ def declared_discriminator_ref(interface_type: type[object]) -> PropertyRef:
     if discriminator_id is None:
         raise ValueError("state discriminator member requires an explicit id")
     return InterfaceRef(declaration.id).property(discriminator_id)
+
+
+def declared_component_ref(
+    interface_type: type[object],
+    attribute_name: str,
+    *nested_attribute_names: str,
+) -> ComponentRef:
+    """Resolve typed component attribute names to a stable component path."""
+
+    scope: InterfaceRef | ComponentRef = declared_interface_ref(interface_type)
+    capability_type = interface_type
+    for selected_name in (attribute_name, *nested_attribute_names):
+        capability_type, declaration = _declared_component(
+            capability_type,
+            selected_name,
+        )
+        scope = scope.component(declaration.id or selected_name)
+    if not isinstance(scope, ComponentRef):
+        raise AssertionError("declared component resolution produced an interface ref")
+    return scope
+
+
+def declared_operation_ref(
+    interface_type: type[object],
+    method_name: str,
+) -> OperationRef:
+    """Resolve a decorated method to its atomic-operation identity."""
+
+    method = _declared_members(interface_type).get(method_name)
+    if method is None:
+        raise ValueError(f"interface has no method {method_name!r}")
+    declaration = _required_metadata(
+        method,
+        _OPERATION_METADATA,
+        OperationMetadata,
+        f"interface method {method_name!r}",
+    )
+    return declared_interface_ref(interface_type).operation(
+        declaration.id or method_name
+    )
+
+
+def declared_argument_ref(
+    interface_type: type[object],
+    method_name: str,
+    parameter_name: str,
+) -> OperationArgumentRef:
+    """Resolve one typed operation parameter to its stable argument identity."""
+
+    method = _declared_members(interface_type).get(method_name)
+    if method is None:
+        raise ValueError(f"interface has no method {method_name!r}")
+    _required_metadata(
+        method,
+        _OPERATION_METADATA,
+        OperationMetadata,
+        f"interface method {method_name!r}",
+    )
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(cast("Callable[..., object]", method), include_extras=True),
+    )
+    annotation = hints.get(parameter_name)
+    if (
+        annotation is None
+        or parameter_name
+        not in signature(cast("Callable[..., object]", method)).parameters
+    ):
+        raise ValueError(
+            f"operation method {method_name!r} has no annotated parameter "
+            f"{parameter_name!r}"
+        )
+    _, metadata = _split_annotation(annotation, ArgumentMetadata)
+    return declared_operation_ref(interface_type, method_name).argument(
+        parameter_name if metadata is None or metadata.id is None else metadata.id
+    )
 
 
 def declared_state_assignments(state: object) -> dict[PropertyRef, StateBinding]:
@@ -695,6 +911,22 @@ def _bind_flat_state(interface_id: str, state_type: type[object]) -> None:
     )
 
 
+def _bind_observed_state(interface_id: str, state_type: type[object]) -> None:
+    _require_instrument_observed_state(state_type)
+    if not is_dataclass(state_type):
+        raise TypeError("instrument observed state must be a dataclass")
+    if getattr(state_type, _STATE_METADATA, False):
+        raise TypeError("observed state cannot also be declared as desired state")
+    for observed_field in fields(state_type):
+        _declared_dataclass_field_id(
+            state_type,
+            observed_field.name,
+            metadata_type=MemberMetadata,
+            label="observed state",
+        )
+    _attach_state_interface(state_type, interface_id=interface_id)
+
+
 def _bind_discriminated_state(
     interface_id: str,
     declaration: DiscriminatedStateMetadata,
@@ -757,6 +989,18 @@ def _attach_state_bindings(
     interface_id: str,
     bindings: StateBindingsMetadata,
 ) -> None:
+    _attach_state_interface(state_type, interface_id=interface_id)
+    existing = getattr(state_type, _STATE_BINDINGS_METADATA, None)
+    if existing is not None and existing != bindings:
+        raise ValueError("one declared state type cannot have multiple bindings")
+    setattr(state_type, _STATE_BINDINGS_METADATA, bindings)
+
+
+def _attach_state_interface(
+    state_type: type[object],
+    *,
+    interface_id: str,
+) -> None:
     interface_ids = cast(
         "tuple[str, ...]",
         getattr(state_type, _STATE_INTERFACES_METADATA, ()),
@@ -764,10 +1008,6 @@ def _attach_state_bindings(
     if interface_ids and interface_ids != (interface_id,):
         raise ValueError("one declared state type cannot belong to multiple interfaces")
     setattr(state_type, _STATE_INTERFACES_METADATA, (interface_id,))
-    existing = getattr(state_type, _STATE_BINDINGS_METADATA, None)
-    if existing is not None and existing != bindings:
-        raise ValueError("one declared state type cannot have multiple bindings")
-    setattr(state_type, _STATE_BINDINGS_METADATA, bindings)
 
 
 def _require_instrument_state(state_type: type[object]) -> None:
@@ -781,21 +1021,40 @@ def _require_instrument_state(state_type: type[object]) -> None:
         raise TypeError("instrument state must be a dataclass")
 
 
+def _require_instrument_observed_state(state_type: type[object]) -> None:
+    _required_metadata(
+        state_type,
+        _OBSERVED_STATE_METADATA,
+        bool,
+        "instrument observed state",
+    )
+    if not is_dataclass(state_type):
+        raise TypeError("instrument observed state must be a dataclass")
+
+
 def _compile_state(state_type: type[object]) -> list[PropertySpec]:
     return _compile_state_fields(state_type, selected_fields=None)
+
+
+def _compile_observed_state(state_type: type[object]) -> list[PropertySpec]:
+    _require_instrument_observed_state(state_type)
+    return _compile_state_fields(
+        state_type,
+        selected_fields=None,
+        observed=True,
+    )
 
 
 def _compile_state_fields(
     state_type: type[object],
     *,
     selected_fields: Sequence[str] | None,
+    observed: bool = False,
 ) -> list[PropertySpec]:
-    _required_metadata(
-        state_type,
-        _STATE_METADATA,
-        bool,
-        "instrument state",
-    )
+    if observed:
+        _require_instrument_observed_state(state_type)
+    else:
+        _require_instrument_state(state_type)
     if not is_dataclass(state_type):
         raise TypeError("instrument state must be a dataclass")
     hints = cast(
@@ -822,6 +1081,7 @@ def _compile_state_fields(
                 field_name,
                 base,
                 metadata or MemberMetadata(),
+                access="read_only" if observed else None,
             )
         )
     return properties
@@ -862,6 +1122,8 @@ def _compile_property(
     field_name: str,
     annotation: object,
     metadata: MemberMetadata,
+    *,
+    access: PropertyAccess | None = None,
 ) -> PropertySpec:
     annotation = _strip_state_wrappers(annotation)
     property_id = metadata.id or field_name
@@ -923,8 +1185,231 @@ def _compile_property(
         id=property_id,
         label=metadata.label,
         description=metadata.description,
-        access=metadata.access,
+        access=metadata.access if access is None else access,
         value_type=Scalar(atom),
+    )
+
+
+def _compile_components(
+    capability_type: type[object],
+    *,
+    scope: InterfaceRef | ComponentRef,
+) -> list[ComponentSpec]:
+    components: list[ComponentSpec] = []
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(capability_type, include_extras=True),
+    )
+    for attribute_name, annotation in hints.items():
+        nested_type, declaration = _split_annotation(annotation, ComponentMetadata)
+        if declaration is None:
+            continue
+        if not isinstance(nested_type, type):
+            raise TypeError(
+                f"component attribute {attribute_name!r} must name a capability type"
+            )
+        component_id = declaration.id or attribute_name
+        component_scope = scope.component(component_id)
+        operations: list[OperationSpec] = []
+        acquisitions: list[AcquisitionSpec] = []
+        for method_name, method in _declared_members(nested_type).items():
+            operation_declaration = getattr(method, _OPERATION_METADATA, None)
+            acquisition_declaration = getattr(method, _ACQUISITION_METADATA, None)
+            if isinstance(operation_declaration, OperationMetadata) and isinstance(
+                acquisition_declaration,
+                AcquisitionMetadata,
+            ):
+                raise TypeError(
+                    f"component method {method_name!r} cannot be both an operation "
+                    "and an acquisition"
+                )
+            if isinstance(operation_declaration, OperationMetadata):
+                operations.append(
+                    _compile_operation(
+                        method_name,
+                        cast("Callable[..., object]", method),
+                        operation_declaration,
+                    )
+                )
+            if isinstance(acquisition_declaration, AcquisitionMetadata):
+                acquisitions.append(
+                    _compile_acquisition(
+                        method_name,
+                        cast("Callable[..., object]", method),
+                        acquisition_declaration,
+                        scope=component_scope,
+                    )
+                )
+        components.append(
+            build_component(
+                component_id,
+                label=declaration.label,
+                description=declaration.description,
+                operations=operations,
+                acquisitions=acquisitions,
+                components=_compile_components(nested_type, scope=component_scope),
+            )
+        )
+    return components
+
+
+def _declared_component(
+    capability_type: type[object],
+    attribute_name: str,
+) -> tuple[type[object], ComponentMetadata]:
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(capability_type, include_extras=True),
+    )
+    annotation = hints.get(attribute_name)
+    if annotation is None:
+        raise ValueError(f"capability has no component attribute {attribute_name!r}")
+    nested_type, declaration = _split_annotation(annotation, ComponentMetadata)
+    if declaration is None:
+        raise ValueError(
+            f"capability attribute {attribute_name!r} is not a declared component"
+        )
+    if not isinstance(nested_type, type):
+        raise TypeError(
+            f"component attribute {attribute_name!r} must name a capability type"
+        )
+    return nested_type, declaration
+
+
+def _compile_operation(
+    method_name: str,
+    method: Callable[..., object],
+    declaration: OperationMetadata,
+) -> OperationSpec:
+    parameters = tuple(signature(method).parameters.values())
+    if (
+        not parameters
+        or parameters[0].name != "self"
+        or parameters[0].kind
+        not in (
+            Parameter.POSITIONAL_ONLY,
+            Parameter.POSITIONAL_OR_KEYWORD,
+        )
+    ):
+        raise TypeError(f"operation method {method_name!r} must begin with self")
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(method, include_extras=True),
+    )
+    if "return" not in hints or hints["return"] not in (None, NoneType):
+        raise TypeError(f"operation method {method_name!r} must return None")
+    arguments: list[OperationArgumentSpec] = []
+    for parameter in parameters[1:]:
+        if parameter.kind not in (
+            Parameter.POSITIONAL_ONLY,
+            Parameter.POSITIONAL_OR_KEYWORD,
+            Parameter.KEYWORD_ONLY,
+        ):
+            raise TypeError(
+                f"operation method {method_name!r} cannot use variadic parameters"
+            )
+        if parameter.default is not Parameter.empty:  # pyright: ignore[reportAny]
+            raise TypeError(
+                f"operation parameter {parameter.name!r} cannot have a default"
+            )
+        annotation = hints.get(parameter.name)
+        if annotation is None:
+            raise TypeError(f"operation parameter {parameter.name!r} must be annotated")
+        base, metadata = _split_annotation(annotation, ArgumentMetadata)
+        arguments.append(
+            _compile_operation_argument(
+                parameter.name,
+                base,
+                metadata or ArgumentMetadata(),
+            )
+        )
+    return build_operation(
+        declaration.id or method_name,
+        label=declaration.label,
+        description=declaration.description,
+        arguments=arguments,
+    )
+
+
+def _compile_operation_argument(
+    parameter_name: str,
+    annotation: object,
+    metadata: ArgumentMetadata,
+) -> OperationArgumentSpec:
+    argument_id = metadata.id or parameter_name
+    origin = get_origin(annotation)
+    if metadata.payload_schema_id is not None:
+        unsupported = any(
+            value is not None
+            for value in (
+                metadata.unit,
+                metadata.minimum,
+                metadata.maximum,
+                metadata.choices,
+            )
+        )
+        if unsupported:
+            raise TypeError(
+                f"payload argument {argument_id!r} cannot use scalar constraints"
+            )
+        atom = PayloadType(schema_id=metadata.payload_schema_id)
+    elif annotation is bool:
+        _require_argument_metadata(metadata, argument_id, allowed=())
+        atom = BoolType()
+    elif annotation is int:
+        _require_argument_metadata(
+            metadata,
+            argument_id,
+            allowed=("minimum", "maximum"),
+        )
+        atom = IntType(
+            minimum=_integer_bound(metadata.minimum, argument_id, "minimum"),
+            maximum=_integer_bound(metadata.maximum, argument_id, "maximum"),
+        )
+    elif annotation is float:
+        _require_argument_metadata(
+            metadata,
+            argument_id,
+            allowed=("minimum", "maximum"),
+        )
+        atom = FloatType(minimum=metadata.minimum, maximum=metadata.maximum)
+    elif annotation is str:
+        _require_argument_metadata(metadata, argument_id, allowed=("choices",))
+        atom = StringType(choices=metadata.choices)
+    elif origin is Literal:
+        _require_argument_metadata(metadata, argument_id, allowed=())
+        choices = cast("tuple[object, ...]", get_args(annotation))
+        if not choices or any(not isinstance(choice, str) for choice in choices):
+            raise TypeError(
+                f"operation argument {argument_id!r} Literal choices must all "
+                "be strings"
+            )
+        atom = StringType(choices=cast("tuple[str, ...]", choices))
+    elif annotation is Quantity:
+        _require_argument_metadata(
+            metadata,
+            argument_id,
+            allowed=("unit", "minimum", "maximum"),
+        )
+        if metadata.unit is None:
+            raise TypeError(
+                f"quantity argument {argument_id!r} requires argument(unit=...)"
+            )
+        atom = QuantityType(
+            unit=metadata.unit,
+            minimum=metadata.minimum,
+            maximum=metadata.maximum,
+        )
+    else:
+        raise TypeError(
+            f"operation argument {argument_id!r} uses unsupported annotation "
+            f"{annotation!r}; set argument(payload_schema_id=...) for payloads"
+        )
+    return build_operation_argument(
+        argument_id,
+        value_type=Scalar(atom),
+        label=metadata.label,
+        description=metadata.description,
     )
 
 
@@ -933,7 +1418,7 @@ def _compile_acquisition(
     method: Callable[..., object],
     declaration: AcquisitionMetadata,
     *,
-    interface_id: str,
+    scope: InterfaceRef | ComponentRef,
 ) -> AcquisitionSpec:
     parameters = tuple(signature(method).parameters.values())
     if (
@@ -959,7 +1444,7 @@ def _compile_acquisition(
                 axis_metadata.size
                 if isinstance(axis_metadata.size, int)
                 else (
-                    InterfaceRef(interface_id).property(axis_metadata.size)
+                    scope.property(axis_metadata.size)
                     if isinstance(axis_metadata.size, str)
                     else declared_property_ref(
                         axis_metadata.size.state_type,
@@ -1212,6 +1697,31 @@ def _require_member_metadata(
         )
 
 
+def _require_argument_metadata(
+    metadata: ArgumentMetadata,
+    argument_id: str,
+    *,
+    allowed: tuple[str, ...],
+) -> None:
+    values = {
+        "unit": metadata.unit,
+        "minimum": metadata.minimum,
+        "maximum": metadata.maximum,
+        "choices": metadata.choices,
+        "payload_schema_id": metadata.payload_schema_id,
+    }
+    unsupported = [
+        name
+        for name, value in values.items()
+        if value is not None and name not in allowed
+    ]
+    if unsupported:
+        raise TypeError(
+            f"operation argument {argument_id!r} does not support metadata: "
+            f"{', '.join(unsupported)}"
+        )
+
+
 def _optional_declared_dataclass_field_id[MetadataT: MemberMetadata | ResultMetadata](
     dataclass_annotation: object,
     field_name: str,
@@ -1266,15 +1776,18 @@ def _required_metadata[MetadataT](
 __all__ = [
     "AcquisitionCaseMetadata",
     "AcquisitionMetadata",
+    "ArgumentMetadata",
     "AxisMetadata",
     "AxisSize",
     "CompiledInterface",
     "CompiledStateTarget",
+    "ComponentMetadata",
     "DeclaredPropertyTarget",
     "DiscriminatedStateMetadata",
     "DiscriminatorReference",
     "InterfaceMetadata",
     "MemberMetadata",
+    "OperationMetadata",
     "PreconditionMetadata",
     "PreconditionValue",
     "PropertyAccess",
@@ -1284,21 +1797,28 @@ __all__ = [
     "StateMetadata",
     "acquisition",
     "acquisition_case",
+    "argument",
     "axis",
     "compile_interface",
+    "component",
     "declared_acquisition_ref",
+    "declared_argument_ref",
+    "declared_component_ref",
     "declared_discriminator_ref",
     "declared_interface_ref",
+    "declared_operation_ref",
     "declared_property_ref",
     "declared_result_ref",
     "declared_state_assignments",
     "declared_state_target",
     "discriminated_state",
     "instrument_interface",
+    "instrument_observed_state",
     "instrument_result",
     "instrument_state",
     "interface_discriminator",
     "member",
+    "operation",
     "precondition",
     "result",
     "state_case",
