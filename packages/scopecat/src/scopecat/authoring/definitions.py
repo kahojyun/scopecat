@@ -17,14 +17,18 @@ from typing import (
     overload,
 )
 
-from scopecat.authoring._module_handles import (
-    DomainCallProvider,
+from scopecat.authoring._experiment_module import (
     ExperimentModule,
+    create_experiment_module_internal,
+)
+from scopecat.authoring._module_context import (
     ModuleContext,
+    build_ensure_state_intent,
+)
+from scopecat.authoring._module_invocation import (
+    DomainCallProvider,
     ModuleInvocation,
     ModuleResource,
-    build_ensure_state_intent,
-    create_experiment_module_internal,
     domain_use_call,
     module_use_invocation,
 )
