@@ -32,6 +32,8 @@ from scopecat.records.instrument import (
 from scopecat.sdk.instruments import (
     CollectReceipt,
     InstrumentDescription,
+    InterfaceRef,
+    interface,
 )
 from scopecat.sdk.instruments.commands import InteractiveCollectIntent
 
@@ -113,8 +115,9 @@ class _CollectingDaemon(DaemonClient):
 
 
 class _ConfiguredDefaultsDaemon(DaemonClient):
-    def __init__(self) -> None:
+    def __init__(self, *, interface_ids: tuple[str, ...] = ()) -> None:
         super().__init__("http://unused.test")
+        self.interface_ids = interface_ids
         self.open_commands: list[InstrumentSessionOpenCommand] = []
         self.apply_calls: list[
             tuple[str, str, InstrumentConfiguredDefaultsApplyCommand]
@@ -139,6 +142,7 @@ class _ConfiguredDefaultsDaemon(DaemonClient):
                     instrument_id=instrument_id,
                     implementation_id="tests.instrument",
                     implementation_version="1",
+                    interfaces=[interface(id) for id in self.interface_ids],
                 )
                 for instrument_id in command.instrument_ids
             ),
@@ -167,6 +171,13 @@ class _ConfiguredDefaultsDaemon(DaemonClient):
             status="unchanged",
             state=InstrumentStateSnapshot(instrument_id=instrument_id),
         )
+
+    @override
+    def close_instrument_session(
+        self,
+        session_id: str,
+    ) -> InstrumentSessionEndReceipt:
+        return InstrumentSessionEndReceipt(session_id=session_id, status="closed")
 
 
 class _HeartbeatDaemon(_CollectingDaemon):
@@ -261,6 +272,40 @@ def test_typed_instrument_ref_binds_a_statically_known_client() -> None:
     assert handle.instrument_ids == ("source-a",)
     assert daemon.open_commands == []
     daemon.close()
+
+
+def test_typed_instrument_ref_validates_required_capabilities_when_bound() -> None:
+    required = InterfaceRef("test.source/v1")
+    source = instrument(
+        "source-a",
+        _TypedSourceClient,
+        requires=(required,),
+    )
+    assert source.requires == (required,)
+
+    supported_daemon = _ConfiguredDefaultsDaemon(
+        interface_ids=(required.interface_id,),
+    )
+    supported = LabInstrumentOperations(
+        supported_daemon,
+        operator="test",
+    ).open(source)
+    assert isinstance(supported[source], _TypedSourceClient)
+    supported.close()
+    supported_daemon.close()
+
+    unsupported_daemon = _ConfiguredDefaultsDaemon()
+    unsupported = LabInstrumentOperations(
+        unsupported_daemon,
+        operator="test",
+    ).open(source)
+    with pytest.raises(
+        ValueError,
+        match=r"source-a.*required interfaces.*test.source/v1",
+    ):
+        unsupported[source]
+    unsupported.close()
+    unsupported_daemon.close()
 
 
 def test_typed_instrument_ref_must_belong_to_the_session() -> None:
