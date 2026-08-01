@@ -294,11 +294,13 @@ compute results cannot size an acquisition product.
 ### Typed interface declarations
 
 An interface author writes the Python shape once, rather than separately
-maintaining an `InterfaceSpec` builder, member-ref constants, state-to-property
-mapping, and acquisition-result schema. Decorated state and result dataclasses
-own the field types; a decorated `Protocol` or abstract base class owns the
-typed capability members. `compile_interface(...)` explicitly lowers that
-Python declaration to the existing `InterfaceSpec` wire contract:
+hand-authoring an `InterfaceSpec` builder, state-to-property mapping, and
+acquisition-result schema. Common top-level member refs are derived from that
+declaration; an importable typed member catalog may still expose those refs to
+drivers. Decorated state and result dataclasses own the field types; a decorated
+`Protocol` or abstract base class owns the typed capability members.
+`compile_interface(...)` explicitly lowers that Python declaration to the
+existing `InterfaceSpec` wire contract:
 
 ```python
 from dataclasses import dataclass

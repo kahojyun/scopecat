@@ -82,6 +82,12 @@ def capture(
     )
 ```
 
+`@module` is an optional extraction boundary for work that is genuinely reused
+or composed. A one-off root template can instantiate the same symbolic clients
+directly, as shown in the
+[instrument-control guide](../../docs/instrument-control.md) and the
+[flux-spectroscopy workflow](../../examples/instruments/src/instrument_demo/workflows/flux_spectroscopy.py).
+
 The verb carries the distinction: `apply(...)` performs a concrete transition
 now, while `ensure(...)` makes the supplied fields true at each experiment
 point. Unspecified fields are preserved, while coordinate- and parameter-backed
