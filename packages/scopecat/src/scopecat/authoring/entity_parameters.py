@@ -310,9 +310,9 @@ class ParameterTable[RowT: ParameterRow]:
     ``TABLE[one(...)]`` returns one typed row and ``TABLE[each(...)]`` returns
     ``PerEntity[Row]``. Every row column is therefore always exactly one
     ``ValueRef``; callers can use ``PerEntity.map`` to project a column while
-    retaining identity keys. Multi-entity lookup is authoring-time parameter
-    expansion only; instrument-operation fanout remains a future planner
-    concern.
+    retaining identity keys. Multi-entity parameter lookup and typed-client
+    ``each(...)`` operations both expand explicitly by entity identity during
+    authoring; neither asks a driver to broadcast one runtime command.
     """
 
     __slots__ = ("_columns", "_id", "_key", "_row_type", "_value_type")

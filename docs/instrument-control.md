@@ -281,14 +281,15 @@ readback plus its receipt. Its declarative counterpart adds an acquisition
 effect and returns named `ProductRef` fields. Defining the experiment executes
 neither `ensure(...)` nor the acquisition against hardware.
 
-DC monitoring is an optional symbolic capability: `dc_source(...)` requires
-only the source interface by default, while `dc_source(..., monitor=True)` also
-requires the monitor interface and enables `DCMonitorState` and `monitor()`.
-This keeps an ordinary source-only experiment routable to hardware without the
-monitor option. State fields that determine output shape, such as network-sweep
-`points`, must resolve during configuration binding, before point execution;
-scan coordinates and point-local compute results cannot size an acquisition
-product.
+DC monitoring is an optional capability in both live and symbolic use.
+`dc_source(...)` returns a source-only typed client and requires only the source
+interface by default. `dc_source(..., monitor=True)` instead returns the
+monitor-capable client type, requires both interfaces, and enables
+`DCMonitorState` and `monitor()`. This keeps ordinary source-only control and
+experiments routable to hardware without the monitor option. State fields that
+determine output shape, such as network-sweep `points`, must resolve during
+configuration binding, before point execution; scan coordinates and point-local
+compute results cannot size an acquisition product.
 
 ### Typed interface declarations
 
@@ -359,6 +360,12 @@ decorated members inherited from base interfaces are preserved. The compiled
 wrapper exposes `.spec`, `.ref`, and `.fresh_spec()` without changing the class
 object.
 
+The same declaration surface also covers read-only observed-state dataclasses,
+typed atomic methods whose `Annotated` parameters carry operation-argument
+metadata, and nested typed capability attributes marked as components. Component
+capabilities may contain operations and acquisitions and may nest further, while
+the Python annotations remain visible to static type checkers.
+
 Declared state dataclasses are intentionally plain data. Both time models use
 the same declaration codec: live clients encode resolved values, while symbolic
 clients retain `ValueRef` bindings. Users normally call the typed client's
@@ -374,11 +381,12 @@ This declaration layer generates the stable contract and refs, but it does not
 invent session behavior. A typed factory still defines whether an action is
 live or symbolic, how optional interface combinations such as DC monitoring
 are exposed, and how `each(...)` fans one logical operation out to independently
-routable resources. The first declaration slice covers persistent scalar state,
-discriminated state, fixed and state-discriminated acquisitions, axes, results,
-and preconditions. The explicit contract builders remain the escape hatch for
-operations, components, and unusual contracts until those shapes gain an
-equally typed declaration form.
+routable resources. The compiler covers persistent flat and discriminated
+scalar state, read-only observed state, typed atomic operations, fixed and
+state-discriminated acquisitions, axes, results, preconditions, and nested
+method capabilities. Explicit contract builders remain the escape hatch for
+component-owned state or properties, combining observed and discriminated state,
+and other unusual contract shapes.
 
 ### Entity selection and parameter mapping
 

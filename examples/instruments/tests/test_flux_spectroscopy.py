@@ -23,6 +23,7 @@ from instrument_demo.workflows.flux_spectroscopy_analysis import (
     flux_spectroscopy_analysis,
 )
 from scopecat.kernel.errors import RunIndeterminate
+from scopecat.program.bindings import EnsureStateIntent
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import (
     ComplexComponents,
@@ -50,6 +51,20 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     )
 
     invocation = flux_spectroscopy_template()
+    definition = invocation.definition
+    final_state = definition.final_state
+    assert isinstance(final_state, EnsureStateIntent)
+    assert [
+        (assignment.property_id, assignment.value)
+        for assignment in final_state.assignments
+    ] == [("output_enabled", False)]
+    assert not any(
+        assignment.property_id == "output_enabled" and assignment.value is False
+        for effect in definition.body.effects
+        if isinstance(effect, EnsureStateIntent)
+        for assignment in effect.assignments
+    )
+
     prepared = lab.prepare(invocation)
     preview = prepared.preview()
     run = prepared.run()

@@ -60,10 +60,10 @@ The experiment uses typed symbolic clients to declare only the logical resources
 `flux-source`, `mixing-chamber`, and `readout-vna`; interface contracts provide
 the acquisition product schemas automatically. It has no driver, vendor, or
 low-level interface-member imports, so the same experiment can be routed to
-compatible real instruments. The intended path explicitly disables the flux
-output after each acquisition. The demo provider also enforces bias-off during
-abort, which covers an acquisition failure before the final experiment effect
-runs.
+compatible real instruments. After every scan point completes successfully, the
+experiment's normal-completion finalization disables the flux output once. The
+demo provider also enforces bias-off during abort, which covers a failure before
+normal-completion finalization can run.
 
 Run the example-level checks with:
 
