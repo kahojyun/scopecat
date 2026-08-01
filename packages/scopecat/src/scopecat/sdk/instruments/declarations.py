@@ -216,6 +216,7 @@ class PreconditionMetadata:
 class AcquisitionCaseMetadata:
     value: str
     result_type: type[object]
+    fields: tuple[str, ...] | None
     preconditions: tuple[PreconditionMetadata, ...]
 
 
@@ -472,13 +473,15 @@ def acquisition_case(
     value: str,
     result_type: type[object],
     *,
+    fields: Sequence[str] | None = None,
     preconditions: Sequence[PreconditionMetadata] = (),
 ) -> AcquisitionCaseMetadata:
-    """Declare one result shape selected by an acquisition discriminator."""
+    """Declare all or selected fields active for one discriminator value."""
 
     return AcquisitionCaseMetadata(
         value=value,
         result_type=result_type,
+        fields=None if fields is None else tuple(fields),
         preconditions=tuple(preconditions),
     )
 
@@ -993,7 +996,9 @@ def declared_result_ref(
         f"interface method {method_name!r}",
     )
     if declaration.cases:
-        result_types = tuple(case.result_type for case in declaration.cases)
+        result_types = tuple(
+            (case.result_type, case.fields) for case in declaration.cases
+        )
     else:
         hints = cast(
             "Mapping[str, object]",
@@ -1007,10 +1012,11 @@ def declared_result_ref(
             raise TypeError(
                 f"acquisition method {method_name!r} requires a return annotation"
             )
-        result_types = (result_type,)
+        result_types = ((result_type, None),)
     result_ids = tuple(
         result_id
-        for result_type in result_types
+        for result_type, selected_fields in result_types
+        if selected_fields is None or field_name in selected_fields
         if (
             result_id := _optional_declared_dataclass_field_id(
                 result_type,
@@ -1669,6 +1675,7 @@ def _compile_acquisition(
                         case.result_type,
                         acquisition_id=acquisition_id,
                         axes=axes,
+                        selected_fields=case.fields,
                     ),
                     preconditions=_compile_preconditions(case.preconditions),
                 )
@@ -1715,6 +1722,7 @@ def _compile_results(
     *,
     acquisition_id: str,
     axes: Mapping[str, AcquisitionAxisSpec],
+    selected_fields: Sequence[str] | None = None,
 ) -> list[AcquisitionResultSpec]:
     result_class = get_origin(result_type) or result_type
     if not isinstance(result_class, type) or not getattr(
@@ -1731,8 +1739,20 @@ def _compile_results(
         "Mapping[str, object]",
         get_type_hints(result_class, include_extras=True),
     )
+    result_fields = {
+        result_field.name: result_field for result_field in fields(result_class)
+    }
+    field_names = (
+        tuple(result_fields) if selected_fields is None else tuple(selected_fields)
+    )
+    unknown = set(field_names) - result_fields.keys()
+    if unknown:
+        raise ValueError(
+            f"result declaration references unknown fields: {sorted(unknown)!r}"
+        )
     compiled: list[AcquisitionResultSpec] = []
-    for result_field in fields(result_class):
+    for field_name in field_names:
+        result_field = result_fields[field_name]
         annotation = hints.get(result_field.name)
         if annotation is None:
             raise TypeError(f"result field {result_field.name!r} must be annotated")

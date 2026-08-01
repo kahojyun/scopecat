@@ -263,36 +263,25 @@ class MonitorState:
 
 @instrument_result
 @dataclass(frozen=True, slots=True)
-class CurrentResults:
+class MonitorResults:
     current: Annotated[
-        float,
+        float | None,
         result(
             id="monitored_current",
             unit="A",
             label="Current",
             description="Measured current.",
         ),
-    ]
-
-
-@instrument_result
-@dataclass(frozen=True, slots=True)
-class VoltageResults:
+    ] = None
     voltage: Annotated[
-        float,
+        float | None,
         result(
             id="monitored_voltage",
             unit="V",
             label="Voltage",
             description="Measured voltage.",
         ),
-    ]
-
-
-@dataclass(frozen=True, slots=True)
-class MonitorResultShape:
-    current: float | None
-    voltage: float | None
+    ] = None
 
 
 @instrument_interface(
@@ -317,11 +306,11 @@ class MonitorContract(Protocol):
             ),
         ),
         cases=(
-            acquisition_case("voltage", CurrentResults),
-            acquisition_case("current", VoltageResults),
+            acquisition_case("voltage", MonitorResults, fields=("current",)),
+            acquisition_case("current", MonitorResults, fields=("voltage",)),
         ),
     )
-    def monitor(self) -> MonitorResultShape: ...
+    def monitor(self) -> MonitorResults: ...
 
 
 @instrument_result
@@ -868,7 +857,7 @@ def test_state_discriminated_acquisition_supports_cross_interface_members() -> N
 
     declared = assert_type(
         declared_acquisition(compiled, MonitorContract.monitor),
-        DeclaredAcquisition[MonitorResultShape],
+        DeclaredAcquisition[MonitorResults],
     )
     assert declared.discriminator == declared_discriminator_ref(SourceContract)
     assert [layout.case_value for layout in declared.layouts] == [
@@ -918,4 +907,28 @@ def test_fixed_acquisition_rejects_runtime_arguments() -> None:
         def sample(self, channel: int) -> SweepResults: ...
 
     with pytest.raises(TypeError, match="must accept only self"):
+        compile_interface(InvalidAcquisition)
+
+
+def test_acquisition_case_rejects_an_unknown_selected_result_field() -> None:
+    @instrument_interface("test.invalid_result_selection/v1")
+    class InvalidAcquisition(Protocol):
+        @state_discriminated_acquisition(
+            interface_discriminator(SourceContract),
+            cases=(
+                acquisition_case(
+                    "voltage",
+                    MonitorResults,
+                    fields=("missing",),
+                ),
+                acquisition_case(
+                    "current",
+                    MonitorResults,
+                    fields=("voltage",),
+                ),
+            ),
+        )
+        def monitor(self) -> MonitorResults: ...
+
+    with pytest.raises(ValueError, match=r"references unknown fields: \['missing'\]"):
         compile_interface(InvalidAcquisition)
