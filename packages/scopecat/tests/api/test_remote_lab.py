@@ -77,6 +77,63 @@ from tests.testkit.workflow_fixtures import (
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
 
+def test_lab_preview_and_run_are_direct_prepare_shortcuts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invocation = load_invocation()
+    preview_result = object()
+    run_result = object()
+    prepared_calls: list[tuple[object, object]] = []
+    forwarded: list[tuple[str, dict[str, object]]] = []
+
+    class Prepared:
+        def preview(self, **kwargs: object) -> object:
+            forwarded.append(("preview", kwargs))
+            return preview_result
+
+        def run(self, **kwargs: object) -> object:
+            forwarded.append(("run", kwargs))
+            return run_result
+
+    def prepare(
+        _lab: LabClient,
+        experiment: object,
+        *,
+        config: object = None,
+    ) -> Prepared:
+        prepared_calls.append((experiment, config))
+        return Prepared()
+
+    monkeypatch.setattr(LabClient, "prepare", prepare)
+    lab = object.__new__(LabClient)
+
+    assert lab.preview(invocation, config="active", name="preview") is preview_result
+    assert lab.run(invocation, config="candidate", name="run") is run_result
+    assert prepared_calls == [(invocation, "active"), (invocation, "candidate")]
+    assert forwarded == [
+        (
+            "preview",
+            {
+                "name": "preview",
+                "tags": (),
+                "description": None,
+                "metadata": None,
+                "operator": None,
+            },
+        ),
+        (
+            "run",
+            {
+                "name": "run",
+                "tags": (),
+                "description": None,
+                "metadata": None,
+                "operator": None,
+            },
+        ),
+    ]
+
+
 def test_execute_submits_complete_plan_and_heartbeats(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

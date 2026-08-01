@@ -172,6 +172,48 @@ class LabClient:
             config_source=config_source,
         )
 
+    def preview(
+        self,
+        experiment: ExperimentInvocation | ExperimentTemplate[...],
+        *,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
+        name: str | None = None,
+        tags: tuple[str, ...] = (),
+        description: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+        operator: str | None = None,
+    ) -> ExperimentPreview:
+        """Preview an experiment without requiring an explicit prepare step."""
+
+        return self.prepare(experiment, config=config).preview(
+            name=name,
+            tags=tags,
+            description=description,
+            metadata=metadata,
+            operator=operator,
+        )
+
+    def run(
+        self,
+        experiment: ExperimentInvocation | ExperimentTemplate[...],
+        *,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
+        name: str | None = None,
+        tags: tuple[str, ...] = (),
+        description: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+        operator: str | None = None,
+    ) -> RunHandle:
+        """Run an experiment directly; use ``prepare`` when reusing a config."""
+
+        return self.prepare(experiment, config=config).run(
+            name=name,
+            tags=tags,
+            description=description,
+            metadata=metadata,
+            operator=operator,
+        )
+
     def preview_invocation(
         self,
         invocation: ExperimentInvocation,
