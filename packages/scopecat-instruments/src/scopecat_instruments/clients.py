@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import overload
+from typing import Literal, overload, override
 
 from scopecat.api._instruments import (
     InstrumentClientChannel,
@@ -24,12 +24,17 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments.declarations import declared_state_assignments
 
 from scopecat_instruments.members import (
+    DC_MONITOR,
     DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
     DC_MONITOR_VOLTAGE_RESULT,
+    DC_SOURCE,
+    NETWORK_SWEEP,
     NETWORK_SWEEP_ACQUISITION,
     NETWORK_SWEEP_FREQUENCY_RESULT,
     NETWORK_SWEEP_S_PARAMETER_RESULT,
+    RF_OUTPUT,
+    TEMPERATURE_READOUT,
     TEMPERATURE_READOUT_RESISTANCE_RESULT,
     TEMPERATURE_READOUT_SAMPLE,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
@@ -108,7 +113,19 @@ class _InstrumentClient:
 class DCSourceClient(_InstrumentClient):
     def apply(
         self,
-        patch: (DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState),
+        patch: DCSourceState | DCSourceVoltage | DCSourceCurrent,
+    ) -> ApplyReceipt:
+        return self._session.apply(
+            _concrete_assignments(patch),
+            instrument_id=self.instrument_id,
+        )
+
+
+class DCSourceMonitorClient(DCSourceClient):
+    @override
+    def apply(
+        self,
+        patch: DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState,
     ) -> ApplyReceipt:
         return self._session.apply(
             _concrete_assignments(patch),
@@ -182,7 +199,19 @@ class TemperatureReadoutClient(_InstrumentClient):
 
 
 @overload
-def dc_source(instrument_id: str) -> InstrumentRef[DCSourceClient]: ...
+def dc_source(
+    instrument_id: str,
+    *,
+    monitor: Literal[False] = False,
+) -> InstrumentRef[DCSourceClient]: ...
+
+
+@overload
+def dc_source(
+    instrument_id: str,
+    *,
+    monitor: Literal[True],
+) -> InstrumentRef[DCSourceMonitorClient]: ...
 
 
 @overload
@@ -211,11 +240,22 @@ def dc_source(
     *,
     for_: EntitySelection | None = None,
     monitor: bool = False,
-) -> InstrumentRef[DCSourceClient] | SymbolicDCSourceClient | SymbolicDCSourceGroup:
+) -> (
+    InstrumentRef[DCSourceClient]
+    | InstrumentRef[DCSourceMonitorClient]
+    | SymbolicDCSourceClient
+    | SymbolicDCSourceGroup
+):
     if isinstance(instrument_id, str):
-        if resource_id is not None or for_ is not None or monitor:
+        if resource_id is not None or for_ is not None:
             raise TypeError("live instrument clients only accept an instrument id")
-        return instrument(instrument_id, DCSourceClient)
+        if monitor:
+            return instrument(
+                instrument_id,
+                DCSourceMonitorClient,
+                requires=(DC_SOURCE, DC_MONITOR),
+            )
+        return instrument(instrument_id, DCSourceClient, requires=(DC_SOURCE,))
     if resource_id is None:
         raise TypeError("symbolic instrument clients require a logical resource id")
     if isinstance(for_, EachEntity):
@@ -264,7 +304,7 @@ def rf_output(
     if isinstance(instrument_id, str):
         if resource_id is not None or for_ is not None:
             raise TypeError("live instrument clients only accept an instrument id")
-        return instrument(instrument_id, RFOutputClient)
+        return instrument(instrument_id, RFOutputClient, requires=(RF_OUTPUT,))
     if resource_id is None:
         raise TypeError("symbolic instrument clients require a logical resource id")
     if isinstance(for_, EachEntity):
@@ -307,7 +347,11 @@ def network_sweep(
     if isinstance(instrument_id, str):
         if resource_id is not None or for_ is not None:
             raise TypeError("live instrument clients only accept an instrument id")
-        return instrument(instrument_id, NetworkSweepClient)
+        return instrument(
+            instrument_id,
+            NetworkSweepClient,
+            requires=(NETWORK_SWEEP,),
+        )
     if resource_id is None:
         raise TypeError("symbolic instrument clients require a logical resource id")
     if isinstance(for_, EachEntity):
@@ -352,7 +396,11 @@ def temperature_readout(
     if isinstance(instrument_id, str):
         if resource_id is not None or for_ is not None:
             raise TypeError("live instrument clients only accept an instrument id")
-        return instrument(instrument_id, TemperatureReadoutClient)
+        return instrument(
+            instrument_id,
+            TemperatureReadoutClient,
+            requires=(TEMPERATURE_READOUT,),
+        )
     if resource_id is None:
         raise TypeError("symbolic instrument clients require a logical resource id")
     if isinstance(for_, EachEntity):
@@ -393,6 +441,7 @@ __all__ = [
     "DCMonitorProducts",
     "DCMonitorReadback",
     "DCSourceClient",
+    "DCSourceMonitorClient",
     "NetworkSweepClient",
     "NetworkSweepProducts",
     "NetworkSweepReadback",

@@ -8,6 +8,7 @@ from scopecat.sdk.instruments.declarations import declared_state_assignments
 
 from scopecat_instruments import (
     DCSourceClient,
+    DCSourceMonitorClient,
     DCSourceState,
     DCSourceVoltage,
     NetworkSweepClient,
@@ -16,10 +17,13 @@ from scopecat_instruments import (
     network_sweep,
 )
 from scopecat_instruments.members import (
+    DC_MONITOR,
+    DC_SOURCE,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
     DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_RANGE,
+    NETWORK_SWEEP,
     NETWORK_SWEEP_POINTS,
     NETWORK_SWEEP_S_PARAMETER,
     NETWORK_SWEEP_START_FREQUENCY,
@@ -34,6 +38,15 @@ def test_first_party_factories_retain_static_client_types() -> None:
     assert_type(vna, InstrumentRef[NetworkSweepClient])
     assert source.instrument_id == "flux-source"
     assert vna.instrument_id == "readout-vna"
+    assert source.requires == (DC_SOURCE,)
+    assert vna.requires == (NETWORK_SWEEP,)
+
+
+def test_live_dc_monitor_selection_requires_the_combined_capability() -> None:
+    source = dc_source("flux-source", monitor=True)
+
+    assert_type(source, InstrumentRef[DCSourceMonitorClient])
+    assert source.requires == (DC_SOURCE, DC_MONITOR)
 
 
 def test_voltage_state_is_one_complete_mode_transition() -> None:
