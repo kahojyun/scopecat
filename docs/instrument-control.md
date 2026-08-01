@@ -152,87 +152,119 @@ vendors, or GUI concepts.
 
 ## Python authoring model
 
-Notebook control and experiment authoring deliberately expose different verbs:
+One typed factory names one instrument capability in both live control and
+experiment authoring. The first argument selects the time model:
 
-- direct control is imperative: open typed physical references, call
-  `apply(...)`, `refresh()`, or an acquisition method, and inspect receipts;
-- an experiment declares desired state with `ensure(...)`; every target field
-  may be a fixed Python value or a point-resolved `ValueRef` from an input,
-  parameter, compute output, or scan coordinate.
+- `network_sweep("readout-vna")` binds a typed physical reference that can be
+  opened in a live instrument session;
+- `network_sweep(experiment, "readout")` declares a typed logical resource on
+  the root experiment.
+
+The state classes, client method names, and acquisition result field names are
+the same. The state verb deliberately differs: `apply(...)` requests a hardware
+transition now and accepts concrete values, while `ensure(...)` adds a desired
+state effect to the experiment and also accepts point-resolved `ValueRef`
+objects.
+
+Live control is imperative:
 
 ```python
-from typing import Annotated
+import scopecat as sc
+from scopecat_instruments import NetworkSweepState, network_sweep
 
+READOUT_VNA = network_sweep("readout-vna")
+
+with sc.open_project(".").connect(operator="alice") as lab:
+    with lab.instruments.open(READOUT_VNA) as devices:
+        vna = devices[READOUT_VNA]
+        vna.apply(NetworkSweepState(points=401))
+        trace = vna.sweep()  # NetworkSweepReadback, produced now
+```
+
+The declarative form uses the same factory, state, and `sweep()` verb directly
+inside a root experiment. A one-off experiment does not need an intermediate
+module, manual interface refs, product declarations, or acquisition-result
+mapping:
+
+```python
 import scopecat as sc
 from scopecat_instruments import (
+    DCSourceState,
     DCSourceVoltage,
     NetworkSweepState,
+    dc_source,
+    network_sweep,
 )
-from scopecat_instruments.members import DC_SOURCE, NETWORK_SWEEP
 
 DC_BIAS = sc.coordinate(
     "dc_bias",
     sc.ScalarType(sc.QuantityType(unit="V")),
 )
 
-@sc.module(id="resonator.capture")
-def capture(
-    module: sc.ModuleContext,
-    dc_bias: Annotated[
-        sc.Input[sc.Quantity],
-        sc.QuantityType(unit="V"),
-    ],
-) -> None:
-    flux = module.resource("flux", requires=(DC_SOURCE,))
-    vna = module.resource("vna", requires=(NETWORK_SWEEP,))
-    module.ensure(
-        flux,
-        DCSourceVoltage(
-            range=sc.Quantity(1, "V"),     # fixed for every point
-            level=dc_bias,                 # resolved from the scan point
-            output_enabled=True,
-        ),
+
+@sc.template(id="resonator.capture", kind="resonator")
+def capture(experiment: sc.ExperimentContext) -> None:
+    experiment.scan(
+        sc.axis(
+            DC_BIAS,
+            center=sc.Quantity(0, "V"),
+            span=sc.Quantity(0.5, "V"),
+            points=11,
+        )
     )
-    module.ensure(
-        vna,
+    flux = dc_source(experiment, "flux")
+    vna = network_sweep(experiment, "readout")
+
+    flux.ensure(
+        DCSourceVoltage(
+            range=sc.Quantity(1, "V"),  # fixed for every point
+            level=DC_BIAS,  # resolved from the scan point
+            output_enabled=True,
+        )
+    )
+    vna.ensure(
         NetworkSweepState(
             start_frequency=sc.Quantity(4.9, "GHz"),
             stop_frequency=sc.Quantity(5.1, "GHz"),
             points=751,
             s_parameter="S21",
-        ),
+        )
+    )
+    trace = vna.sweep()  # NetworkSweepProducts, declared for every point
+
+    experiment.record_coordinate(trace.frequency)
+    experiment.record(trace.s_parameter)
+    experiment.finalize(
+        flux.resource,
+        DCSourceState(output_enabled=False),
     )
 ```
 
-A module may reference global constants, interfaces, functions, and other
-module definitions. Symbolic `ValueRef` objects are different: pass them
-through typed module parameters so every external dependency appears in the
-Python signature and `ModuleDef`; `@module` rejects captured global symbolic
-values.
+The symbolic client derives `trace.frequency` and `trace.s_parameter` from the
+interface acquisition contract, including dtype, unit, axes, and shared-axis
+identity. The ordinary typed path therefore does not repeat that schema with
+`experiment.product(...)` and `experiment.acquire(...)`. An acquisition id can
+still be supplied when the same acquisition occurs more than once and needs a
+distinct product namespace.
+
+Reusable `@module` definitions remain available when work is genuinely shared
+or composed. They are an extraction step, not a prerequisite for using typed
+instrument clients. A reusable module passes symbolic dependencies through its
+typed parameters; a root template or scratch definition may author the simple
+workflow directly as above.
 
 A target is a coherent state intention, not an instruction to write every
 field unconditionally. Omitted fields remain unspecified. After point values
-are resolved, one `ensure(...)` remains one typed state effect and lowers to
-one state application per selected instrument. Adjacent `ensure(...)` calls
-remain ordered effects rather than being merged accidentally; the driver still
-receives the minimal validated patch required to reach each target.
+are resolved, one single-client `ensure(...)` remains one typed state effect.
+Adjacent `ensure(...)` calls remain ordered effects rather than being merged
+accidentally; the driver still receives the minimal validated patch required to
+reach each target. Typed groups perform their per-entity expansion explicitly
+while the experiment is authored.
 
-Reusable modules describe the ordered work needed at each point. A
-normal-completion state belongs instead to the root experiment because two
-experiments may intentionally leave the same module's hardware differently:
-
-```python
-@sc.template(id="resonator.capture", kind="resonator")
-def capture_experiment(experiment: sc.ExperimentContext) -> None:
-    run = experiment.run(capture(DC_BIAS))
-    experiment.finalize(
-        run.resources.flux,
-        DCSourceVoltage(
-            level=sc.Quantity(0, "V"),
-            output_enabled=False,
-        ),
-    )
-```
+A normal-completion state belongs to the root experiment because two
+experiments may intentionally leave the same reusable work's hardware
+differently. In the example, `finalize(...)` disables the flux source once after
+all points complete normally; it is not repeated after every scan point.
 
 All `finalize(...)` declarations form one desired state applied
 only after every point and measurement block completes successfully. A
@@ -244,10 +276,81 @@ daemon's configured safety/finalization policy. Consequently modules do not
 register global `finalize` callbacks, and an experiment final_state is not a
 substitute for safety cleanup.
 
-The same typed state objects are shared by direct control and experiment
-authoring. The verb supplies the semantics: `apply(...)` requests a transition
-now and requires concrete values, while `ensure(...)` declares desired state
-and also accepts symbolic point values.
+A live acquisition such as `sweep()` triggers hardware and returns named
+readback plus its receipt. Its declarative counterpart adds an acquisition
+effect and returns named `ProductRef` fields. Defining the experiment executes
+neither `ensure(...)` nor the acquisition against hardware.
+
+### Entity selection and parameter mapping
+
+`one(...)` and `each(...)` make entity cardinality explicit at the typed-client
+boundary:
+
+- `factory(experiment, id, for_=sc.one(entity))` returns one symbolic client;
+  the entity may be concrete or a symbolic entity `ValueRef`;
+- `factory(experiment, id, for_=sc.each(...))` returns a typed group client that
+  keeps the same `ensure`, `sweep`, `sample`, or `monitor` verbs and can also be
+  indexed by `EntityRef`.
+
+`each(...)` contains concrete entities so the group has stable identity keys at
+authoring time. Use `one(...)` for a point-resolved symbolic entity.
+
+A group `ensure(...)` accepts either one common state or a `PerEntity[state]`
+mapping. A group acquisition returns `PerEntity[Products]`. Both mappings join
+by durable entity identity `(kind, id)`, never by list position; descriptive
+entity metadata does not participate in the join, and duplicate identities are
+rejected. Root recording accepts a `PerEntity[ProductRef]` projection directly
+and preserves the entity-keyed product occurrences.
+
+Parameter tables use the same cardinality shape. The schema is declared once
+and supplies both named authoring accessors and the exact catalog `TableType`:
+
+```python
+class QubitParameters(sc.ParameterRow):
+    flux_bias = sc.parameter_column(
+        sc.ScalarType(sc.QuantityType(unit="V"))
+    )
+
+
+QUBITS = sc.ParameterTable(
+    "qubit_parameters",
+    key=sc.entity_key("qubit", kind="logical_device"),
+    row=QubitParameters,
+)
+
+targets = sc.each("q0", "q1", kind="logical_device")
+rows = QUBITS[targets]  # PerEntity[QubitParameters]
+biases = rows.map(lambda row: row.flux_bias)  # PerEntity[ValueRef]
+
+sources = dc_source(experiment, "flux", for_=targets)
+sources.ensure(
+    biases.map(
+        lambda bias: DCSourceVoltage(
+            range=sc.Quantity(1, "V"),
+            level=bias,
+            output_enabled=True,
+        )
+    )
+)
+
+readouts = network_sweep(experiment, "readout", for_=targets)
+readouts.ensure(NetworkSweepState(points=751))  # one common target
+traces = readouts.sweep()  # PerEntity[NetworkSweepProducts]
+experiment.record(traces.map(lambda trace: trace.s_parameter))
+```
+
+`QUBITS[sc.one("q0")]` instead returns one `QubitParameters` row, so its
+`flux_bias` field is exactly one `ValueRef`. This row/client-container symmetry
+keeps single- and multi-entity code predictable without weakening every field
+to a scalar-or-mapping union.
+
+`for_=sc.each(...)` is explicit authoring-time fan-out: it creates independently
+routable per-entity resources and effects rather than asking a driver to
+broadcast one command. The low-level
+`context.resource(..., for_entities=(left, right))` API retains a different,
+intentional meaning: all listed symbolic entities form one co-located aggregate
+resource requirement that must route together. Typed factories use `for_` and
+do not treat that aggregate API as a compatibility spelling for fan-out.
 
 ## Interface boundaries
 
