@@ -9,10 +9,12 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.declarations import (
     CompiledInterface,
+    DeclaredAcquisition,
     acquisition,
     acquisition_case,
     axis,
     compile_interface,
+    declared_acquisition,
     discriminated_state,
     instrument_interface,
     instrument_observed_state,
@@ -257,6 +259,9 @@ class DCMonitorInterface(Protocol):
 DC_MONITOR_DECLARATION: CompiledInterface[DCMonitorInterface] = compile_interface(
     DCMonitorInterface
 )
+DC_MONITOR_ACQUISITION_DECLARATION: DeclaredAcquisition[_DCMonitorResultShape] = (
+    declared_acquisition(DC_MONITOR_DECLARATION, DCMonitorInterface.monitor)
+)
 
 
 @instrument_observed_state
@@ -326,6 +331,12 @@ class TemperatureReadoutInterface(Protocol):
 
 TEMPERATURE_READOUT_DECLARATION: CompiledInterface[TemperatureReadoutInterface] = (
     compile_interface(TemperatureReadoutInterface)
+)
+TEMPERATURE_SAMPLE_DECLARATION: DeclaredAcquisition[TemperatureSampleResults[float]] = (
+    declared_acquisition(
+        TEMPERATURE_READOUT_DECLARATION,
+        TemperatureReadoutInterface.sample,
+    )
 )
 
 
@@ -487,14 +498,23 @@ class NetworkSweepInterface(Protocol):
 NETWORK_SWEEP_DECLARATION: CompiledInterface[NetworkSweepInterface] = compile_interface(
     NetworkSweepInterface
 )
+NETWORK_SWEEP_ACQUISITION_DECLARATION: DeclaredAcquisition[
+    NetworkSweepResults[list[float], list[complex]]
+] = declared_acquisition(
+    NETWORK_SWEEP_DECLARATION,
+    NetworkSweepInterface.sweep,
+)
 
 
 __all__ = [
+    "DC_MONITOR_ACQUISITION_DECLARATION",
     "DC_MONITOR_DECLARATION",
     "DC_SOURCE_DECLARATION",
+    "NETWORK_SWEEP_ACQUISITION_DECLARATION",
     "NETWORK_SWEEP_DECLARATION",
     "RF_OUTPUT_DECLARATION",
     "TEMPERATURE_READOUT_DECLARATION",
+    "TEMPERATURE_SAMPLE_DECLARATION",
     "DCMonitorInterface",
     "DCMonitorState",
     "DCSourceCurrent",

@@ -37,10 +37,14 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.instruments.commands import InteractiveCollectIntent
 
+from scopecat_instruments import NetworkSweepReadback, network_sweep
+from scopecat_instruments.interfaces import network_sweep_interface
 from scopecat_instruments.members import (
     DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
+    NETWORK_SWEEP_ACQUISITION,
     NETWORK_SWEEP_FREQUENCY_RESULT,
+    NETWORK_SWEEP_S_PARAMETER_RESULT,
 )
 
 _DEFAULT_LEASE_DURATION = timedelta(seconds=30)
@@ -112,6 +116,13 @@ class _CollectingDaemon(DaemonClient):
         assert instrument_id == self.description.instrument_id
         self.collect_intent = intent
         return CollectReceipt(readback=InstrumentReadback())
+
+    @override
+    def close_instrument_session(
+        self,
+        session_id: str,
+    ) -> InstrumentSessionEndReceipt:
+        return InstrumentSessionEndReceipt(session_id=session_id, status="closed")
 
 
 class _ConfiguredDefaultsDaemon(DaemonClient):
@@ -590,6 +601,39 @@ def test_notebook_collect_sends_explicit_result_identity() -> None:
     assert daemon.state_reads == 0
     assert daemon.collect_intent is not None
     assert daemon.collect_intent.result_ids == [DC_MONITOR_CURRENT_RESULT.result_id]
+
+
+def test_declared_live_client_maps_named_results_and_requests_the_layout() -> None:
+    description = InstrumentDescription(
+        instrument_id="readout",
+        implementation_id="tests.network_sweep",
+        implementation_version="1",
+        interfaces=[network_sweep_interface()],
+    )
+    daemon = _CollectingDaemon(
+        description,
+        InstrumentStateSnapshot(instrument_id="readout"),
+    )
+    target = network_sweep("readout")
+    handle = LabInstrumentOperations(daemon, operator="test").open(target)
+
+    try:
+        readback = assert_type(handle[target].sweep(), NetworkSweepReadback)
+    finally:
+        handle.close()
+        daemon.close()
+
+    assert readback.receipt.status == "collected"
+    assert readback.frequency is None
+    assert readback.s_parameter is None
+    assert daemon.collect_intent is not None
+    assert daemon.collect_intent.acquisition_id == (
+        NETWORK_SWEEP_ACQUISITION.acquisition_id
+    )
+    assert daemon.collect_intent.result_ids == [
+        NETWORK_SWEEP_FREQUENCY_RESULT.result_id,
+        NETWORK_SWEEP_S_PARAMETER_RESULT.result_id,
+    ]
 
 
 def test_notebook_collect_rejects_a_result_from_another_acquisition() -> None:

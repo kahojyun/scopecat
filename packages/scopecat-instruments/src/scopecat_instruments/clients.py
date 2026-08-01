@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, overload, override
 
@@ -23,27 +24,24 @@ from scopecat.sdk.instruments import (
     InterfaceRef,
     PropertyRef,
 )
-from scopecat.sdk.instruments.declarations import declared_state_assignments
+from scopecat.sdk.instruments.declarations import (
+    DeclaredAcquisition,
+    declared_state_assignments,
+)
 
 from scopecat_instruments.interface_declarations import (
+    DC_MONITOR_ACQUISITION_DECLARATION,
+    NETWORK_SWEEP_ACQUISITION_DECLARATION,
+    TEMPERATURE_SAMPLE_DECLARATION,
     NetworkSweepResults,
     TemperatureSampleResults,
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
-    DC_MONITOR_ACQUISITION,
-    DC_MONITOR_CURRENT_RESULT,
-    DC_MONITOR_VOLTAGE_RESULT,
     DC_SOURCE,
     NETWORK_SWEEP,
-    NETWORK_SWEEP_ACQUISITION,
-    NETWORK_SWEEP_FREQUENCY_RESULT,
-    NETWORK_SWEEP_S_PARAMETER_RESULT,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
-    TEMPERATURE_READOUT_RESISTANCE_RESULT,
-    TEMPERATURE_READOUT_SAMPLE,
-    TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.states import (
     DCMonitorState,
@@ -115,6 +113,30 @@ class _InstrumentClient:
 
         return self._session.apply_configured_defaults(self.instrument_id)
 
+    def _collect_declared[DeclaredT, OutputT](
+        self,
+        acquisition: DeclaredAcquisition[DeclaredT],
+        output_factory: Callable[..., OutputT],
+    ) -> OutputT:
+        requested_results = (
+            ()
+            if acquisition.discriminator is not None
+            else tuple(field.ref for field in acquisition.active_result_fields())
+        )
+        receipt = self._session.collect(
+            acquisition.ref,
+            *requested_results,
+            instrument_id=self.instrument_id,
+        )
+        readback = receipt.readback
+        values = {
+            field.python_name: (
+                None if readback is None else readback.values.get(field.result_id)
+            )
+            for field in acquisition.result_fields
+        }
+        return output_factory(receipt=receipt, **values)
+
 
 class _DeclaredStateClient[StateT](_InstrumentClient):
     def apply(self, patch: StateT) -> ApplyReceipt:
@@ -142,14 +164,9 @@ class DCSourceMonitorClient(DCSourceClient):
         )
 
     def monitor(self) -> DCMonitorReadback:
-        receipt = self._session.collect(
-            DC_MONITOR_ACQUISITION,
-            instrument_id=self.instrument_id,
-        )
-        return DCMonitorReadback(
-            receipt=receipt,
-            current=_readback_value(receipt, DC_MONITOR_CURRENT_RESULT.result_id),
-            voltage=_readback_value(receipt, DC_MONITOR_VOLTAGE_RESULT.result_id),
+        return self._collect_declared(
+            DC_MONITOR_ACQUISITION_DECLARATION,
+            DCMonitorReadback,
         )
 
 
@@ -159,41 +176,17 @@ class RFOutputClient(_DeclaredStateClient[RFOutputState]):
 
 class NetworkSweepClient(_DeclaredStateClient[NetworkSweepState]):
     def sweep(self) -> NetworkSweepReadback:
-        receipt = self._session.collect(
-            NETWORK_SWEEP_ACQUISITION,
-            NETWORK_SWEEP_FREQUENCY_RESULT,
-            NETWORK_SWEEP_S_PARAMETER_RESULT,
-            instrument_id=self.instrument_id,
-        )
-        return NetworkSweepReadback(
-            receipt=receipt,
-            frequency=_readback_value(
-                receipt,
-                NETWORK_SWEEP_FREQUENCY_RESULT.result_id,
-            ),
-            s_parameter=_readback_value(
-                receipt,
-                NETWORK_SWEEP_S_PARAMETER_RESULT.result_id,
-            ),
+        return self._collect_declared(
+            NETWORK_SWEEP_ACQUISITION_DECLARATION,
+            NetworkSweepReadback,
         )
 
 
 class TemperatureReadoutClient(_InstrumentClient):
     def sample(self) -> TemperatureReadback:
-        receipt = self._session.collect(
-            TEMPERATURE_READOUT_SAMPLE,
-            instrument_id=self.instrument_id,
-        )
-        return TemperatureReadback(
-            receipt=receipt,
-            temperature=_readback_value(
-                receipt,
-                TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id,
-            ),
-            resistance=_readback_value(
-                receipt,
-                TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id,
-            ),
+        return self._collect_declared(
+            TEMPERATURE_SAMPLE_DECLARATION,
+            TemperatureReadback,
         )
 
 
@@ -421,14 +414,6 @@ def _concrete_assignments(state: object) -> dict[PropertyRef, StateLiteral]:
         raise TypeError(
             "direct instrument state must contain concrete values"
         ) from error
-
-
-def _readback_value(
-    receipt: CollectReceipt,
-    result_id: str,
-) -> MeasurementValue | None:
-    readback = receipt.readback
-    return None if readback is None else readback.values.get(result_id)
 
 
 __all__ = [

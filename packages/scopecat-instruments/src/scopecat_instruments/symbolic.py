@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol, cast
 
@@ -32,37 +32,29 @@ from scopecat.program.value_refs import (
 )
 from scopecat.sdk.instruments import (
     AcquisitionAxisSpec,
-    AcquisitionRef,
     AcquisitionResultRef,
-    AcquisitionSpec,
-    ComponentSpec,
     InterfaceRef,
-    InterfaceSpec,
     PropertyRef,
-    StateDiscriminatedAcquisitionSpec,
     StatePropertyRef,
-    acquisition_results,
 )
-from scopecat.sdk.instruments.declarations import declared_state_target
+from scopecat.sdk.instruments.declarations import (
+    DeclaredAcquisition,
+    declared_state_target,
+)
 
 from scopecat_instruments.interface_declarations import (
+    DC_MONITOR_ACQUISITION_DECLARATION,
+    NETWORK_SWEEP_ACQUISITION_DECLARATION,
+    TEMPERATURE_SAMPLE_DECLARATION,
     NetworkSweepResults,
     TemperatureSampleResults,
 )
-from scopecat_instruments.interfaces import (
-    dc_monitor_interface,
-    network_sweep_interface,
-    temperature_readout_interface,
-)
 from scopecat_instruments.members import (
     DC_MONITOR,
-    DC_MONITOR_ACQUISITION,
     DC_SOURCE,
     NETWORK_SWEEP,
-    NETWORK_SWEEP_ACQUISITION,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
-    TEMPERATURE_READOUT_SAMPLE,
 )
 from scopecat_instruments.states import (
     DCMonitorState,
@@ -165,51 +157,52 @@ class _SymbolicInstrumentClient:
         self._recorder.ensure(self._resource, target)
         self._state_assignments.update(assignments)
 
-    def _acquire(
+    def _acquire_declared[DeclaredT, OutputT](
         self,
+        acquisition: DeclaredAcquisition[DeclaredT],
+        output_factory: Callable[..., OutputT],
         *,
-        interface: InterfaceSpec,
-        acquisition: AcquisitionRef,
         id: str | None,
-        result_ids: Sequence[str] | None = None,
-    ) -> dict[str, ProductRef]:
-        acquisition_spec = _find_acquisition(interface, acquisition)
-        occurrence_id = acquisition_spec.id if id is None else id
+    ) -> OutputT:
+        case_value: str | None = None
+        if acquisition.discriminator is not None:
+            selected_case = self._state_assignments.get(acquisition.discriminator)
+            if not isinstance(selected_case, str):
+                raise ValueError(
+                    f"acquisition {acquisition.spec.id!r} has state-dependent "
+                    "results; ensure a concrete discriminator state before "
+                    "declaring it"
+                )
+            case_value = selected_case
+        active_fields = acquisition.active_result_fields(case_value)
+        occurrence_id = acquisition.spec.id if id is None else id
         if not occurrence_id:
             raise ValueError("symbolic acquisition id must be non-empty")
         effect_id = f"{self.id}.{occurrence_id}"
-        selected_results = (
-            acquisition_results(acquisition_spec)
-            if result_ids is None
-            else tuple(
-                result
-                for result in acquisition_results(acquisition_spec)
-                if result.id in result_ids
-            )
-        )
         products = {
-            result.id: self._recorder.product(
-                _join_id(id, result.id),
+            field.python_name: self._recorder.product(
+                _join_id(id, field.result_id),
                 scope=(self.id,),
-                unit=result.unit,
-                dtype=result.dtype,
+                unit=field.spec.unit,
+                dtype=field.spec.dtype,
                 axes=_product_axes(
-                    result.axes,
+                    field.spec.axes,
                     state_assignments=self._state_assignments,
                     namespace=id,
                 ),
             )
-            for result in selected_results
+            for field in active_fields
         }
         self._recorder.acquire(
             effect_id,
             resource=self._resource,
-            results={
-                acquisition.result(result_id): product
-                for result_id, product in products.items()
-            },
+            results={field.ref: products[field.python_name] for field in active_fields},
         )
-        return products
+        values: dict[str, ProductRef | None] = {
+            field.python_name: None for field in acquisition.result_fields
+        }
+        values.update(products)
+        return output_factory(**values)
 
 
 class _DeclaredStateSymbolicClient[StateT](_SymbolicInstrumentClient):
@@ -271,21 +264,10 @@ class SymbolicDCSourceMonitorClient(
     def monitor(self, *, id: str | None = None) -> DCMonitorProducts:
         """Declare the result active for the most recently ensured source mode."""
 
-        interface = dc_monitor_interface()
-        acquisition = _find_acquisition(interface, DC_MONITOR_ACQUISITION)
-        result_ids = _active_result_ids(
-            acquisition,
-            state_assignments=self._state_assignments,
-        )
-        products = self._acquire(
-            interface=interface,
-            acquisition=DC_MONITOR_ACQUISITION,
+        return self._acquire_declared(
+            DC_MONITOR_ACQUISITION_DECLARATION,
+            DCMonitorProducts,
             id=id,
-            result_ids=result_ids,
-        )
-        return DCMonitorProducts(
-            current=products.get("monitored_current"),
-            voltage=products.get("monitored_voltage"),
         )
 
 
@@ -331,14 +313,10 @@ class SymbolicNetworkSweepClient(_DeclaredStateSymbolicClient[NetworkSweepState]
     def sweep(self, *, id: str | None = None) -> NetworkSweepProducts:
         """Declare a sweep and derive its product schemas from the interface."""
 
-        products = self._acquire(
-            interface=network_sweep_interface(),
-            acquisition=NETWORK_SWEEP_ACQUISITION,
+        return self._acquire_declared(
+            NETWORK_SWEEP_ACQUISITION_DECLARATION,
+            NetworkSweepProducts,
             id=id,
-        )
-        return NetworkSweepProducts(
-            frequency=products["frequency"],
-            s_parameter=products["s_parameter"],
         )
 
 
@@ -364,14 +342,10 @@ class SymbolicTemperatureReadoutClient(_SymbolicInstrumentClient):
     def sample(self, *, id: str | None = None) -> TemperatureSampleProducts:
         """Declare a sample and derive its products from the interface."""
 
-        products = self._acquire(
-            interface=temperature_readout_interface(),
-            acquisition=TEMPERATURE_READOUT_SAMPLE,
+        return self._acquire_declared(
+            TEMPERATURE_SAMPLE_DECLARATION,
+            TemperatureSampleProducts,
             id=id,
-        )
-        return TemperatureSampleProducts(
-            temperature=products["temperature"],
-            resistance=products["resistance"],
         )
 
 
@@ -622,25 +596,6 @@ def _join_id(namespace: str | None, id: str | None) -> str:
     return f"{namespace}.{id}" if id else namespace
 
 
-def _find_acquisition(
-    interface: InterfaceSpec,
-    target: AcquisitionRef,
-) -> AcquisitionSpec:
-    if interface.id != target.interface_id:
-        raise ValueError(
-            f"acquisition interface {target.interface_id!r} does not match "
-            f"contract {interface.id!r}"
-        )
-    component: InterfaceSpec | ComponentSpec = interface
-    for component_id in target.component_path:
-        component = next(
-            item for item in component.components if item.id == component_id
-        )
-    return next(
-        item for item in component.acquisitions if item.id == target.acquisition_id
-    )
-
-
 def _product_axes(
     axes: Sequence[AcquisitionAxisSpec],
     *,
@@ -657,34 +612,6 @@ def _product_axes(
         )
         for axis in axes
     )
-
-
-def _active_result_ids(
-    acquisition: AcquisitionSpec,
-    *,
-    state_assignments: Mapping[PropertyRef, StateBinding],
-) -> tuple[str, ...]:
-    if not isinstance(acquisition, StateDiscriminatedAcquisitionSpec):
-        return tuple(result.id for result in acquisition_results(acquisition))
-    discriminator = acquisition.discriminator
-    property = PropertyRef(
-        discriminator.interface_id,
-        tuple(discriminator.component_path),
-        discriminator.property_id,
-    )
-    mode = state_assignments.get(property)
-    if not isinstance(mode, str):
-        raise ValueError(
-            f"acquisition {acquisition.id!r} has state-dependent results; "
-            "ensure a concrete discriminator state before declaring it"
-        )
-    selected_case = next(
-        (case for case in acquisition.cases if case.value == mode),
-        None,
-    )
-    if selected_case is None:
-        raise ValueError(f"acquisition {acquisition.id!r} has no state case {mode!r}")
-    return tuple(result.id for result in selected_case.results)
 
 
 def _product_axis_size(
