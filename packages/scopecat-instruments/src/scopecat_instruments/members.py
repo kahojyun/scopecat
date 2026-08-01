@@ -11,15 +11,20 @@ from scopecat.sdk.instruments.declarations import (
 
 from scopecat_instruments.interface_declarations import (
     NETWORK_SWEEP_DECLARATION,
+    RF_OUTPUT_DECLARATION,
     NetworkSweepInterface,
     NetworkSweepState,
+    RFOutputState,
 )
 
-RF_OUTPUT = InterfaceRef("scopecat.rf_output/v1")
-RF_OUTPUT_FREQUENCY = RF_OUTPUT.property("frequency")
-RF_OUTPUT_POWER = RF_OUTPUT.property("power")
-RF_OUTPUT_ENABLED = RF_OUTPUT.property("output_enabled")
-RF_OUTPUT_REFERENCE_SOURCE = RF_OUTPUT.property("reference_source")
+RF_OUTPUT = RF_OUTPUT_DECLARATION.ref
+RF_OUTPUT_FREQUENCY = declared_property_ref(RFOutputState, "frequency")
+RF_OUTPUT_POWER = declared_property_ref(RFOutputState, "power")
+RF_OUTPUT_ENABLED = declared_property_ref(RFOutputState, "output_enabled")
+RF_OUTPUT_REFERENCE_SOURCE = declared_property_ref(
+    RFOutputState,
+    "reference_source",
+)
 
 DC_SOURCE = InterfaceRef("scopecat.dc_source/v2")
 DC_SOURCE_MODE = DC_SOURCE.property("source_mode")

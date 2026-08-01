@@ -19,42 +19,14 @@ from scopecat.sdk.instruments import (
 )
 
 import scopecat_instruments.members as member_refs
-from scopecat_instruments.interface_declarations import NETWORK_SWEEP_DECLARATION
+from scopecat_instruments.interface_declarations import (
+    NETWORK_SWEEP_DECLARATION,
+    RF_OUTPUT_DECLARATION,
+)
 
 
 def rf_output_interface() -> InterfaceSpec:
-    return interface(
-        member_refs.RF_OUTPUT.interface_id,
-        label="RF output",
-        description="Continuous-wave RF source controls independent of vendor syntax.",
-        properties=[
-            quantity_property(
-                member_refs.RF_OUTPUT_FREQUENCY.property_id,
-                unit="Hz",
-                label="CW frequency",
-                description="Continuous-wave carrier frequency.",
-            ),
-            quantity_property(
-                member_refs.RF_OUTPUT_POWER.property_id,
-                unit="dBm",
-                label="Output power",
-                description="Configured RF output level at the source connector.",
-            ),
-            bool_property(
-                member_refs.RF_OUTPUT_ENABLED.property_id,
-                label="RF output",
-                description="Whether the RF output connector is enabled.",
-            ),
-            enum_property(
-                member_refs.RF_OUTPUT_REFERENCE_SOURCE.property_id,
-                choices=("internal", "external"),
-                label="Reference source",
-                description=(
-                    "Reference oscillator source; external frequency is not set."
-                ),
-            ),
-        ],
-    )
+    return RF_OUTPUT_DECLARATION.fresh_spec()
 
 
 def dc_source_interface() -> InterfaceSpec:

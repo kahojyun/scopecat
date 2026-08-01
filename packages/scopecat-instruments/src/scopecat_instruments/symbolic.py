@@ -282,7 +282,7 @@ class SymbolicRFOutputClient(_SymbolicInstrumentClient):
         )
 
     def ensure(self, state: RFOutputState) -> None:
-        self._ensure(state)
+        self._ensure(declared_state_target(state))
 
 
 class SymbolicNetworkSweepClient(_SymbolicInstrumentClient):

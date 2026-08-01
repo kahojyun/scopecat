@@ -130,7 +130,7 @@ class DCSourceClient(_InstrumentClient):
 class RFOutputClient(_InstrumentClient):
     def apply(self, patch: RFOutputState) -> ApplyReceipt:
         return self._session.apply(
-            _concrete_assignments(patch),
+            _concrete_declared_assignments(patch),
             instrument_id=self.instrument_id,
         )
 
@@ -361,13 +361,7 @@ def temperature_readout(
 
 
 def _concrete_assignments(
-    state: (
-        DCSourceState
-        | DCSourceVoltage
-        | DCSourceCurrent
-        | DCMonitorState
-        | RFOutputState
-    ),
+    state: (DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState),
 ) -> dict[PropertyRef, StateLiteral]:
     try:
         return {
@@ -381,7 +375,7 @@ def _concrete_assignments(
 
 
 def _concrete_declared_assignments(
-    state: NetworkSweepState,
+    state: NetworkSweepState | RFOutputState,
 ) -> dict[PropertyRef, StateLiteral]:
     try:
         return {

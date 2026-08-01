@@ -95,7 +95,7 @@ def test_every_first_party_state_assignment_is_writable() -> None:
     for state in states:
         assignments = (
             declared_state_assignments(state)
-            if isinstance(state, NetworkSweepState)
+            if isinstance(state, (NetworkSweepState, RFOutputState))
             else state.target_assignments()
         )
         for property_ref in assignments:

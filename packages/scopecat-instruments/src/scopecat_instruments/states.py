@@ -12,6 +12,7 @@ from scopecat_instruments.interface_declarations import (
     Desired,
     NetworkSweepState,
     ReferenceSource,
+    RFOutputState,
 )
 from scopecat_instruments.interface_declarations import (
     SParameter as SParameter,
@@ -28,10 +29,6 @@ from scopecat_instruments.members import (
     DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_PROTECTION,
     DC_SOURCE_VOLTAGE_RANGE,
-    RF_OUTPUT_ENABLED,
-    RF_OUTPUT_FREQUENCY,
-    RF_OUTPUT_POWER,
-    RF_OUTPUT_REFERENCE_SOURCE,
 )
 
 
@@ -108,22 +105,6 @@ class DCMonitorState:
             (DC_MONITOR_MEASUREMENT_ENABLED, self.measurement_enabled),
             (DC_MONITOR_INTEGRATION_CYCLES, self.integration_cycles),
             (DC_MONITOR_MEASUREMENT_DELAY, self.measurement_delay),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class RFOutputState:
-    frequency: Desired[Quantity] | None = None
-    power: Desired[Quantity] | None = None
-    output_enabled: Desired[bool] | None = None
-    reference_source: Desired[ReferenceSource] | None = None
-
-    def target_assignments(self) -> dict[PropertyRef, StateBinding]:
-        return _target_assignments(
-            (RF_OUTPUT_FREQUENCY, self.frequency),
-            (RF_OUTPUT_POWER, self.power),
-            (RF_OUTPUT_ENABLED, self.output_enabled),
-            (RF_OUTPUT_REFERENCE_SOURCE, self.reference_source),
         )
 
 

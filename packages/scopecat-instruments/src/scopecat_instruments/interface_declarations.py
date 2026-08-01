@@ -26,6 +26,57 @@ type SParameter = Literal["S11", "S21", "S12", "S22"]
 
 @instrument_state
 @dataclass(frozen=True, slots=True)
+class RFOutputState:
+    """Sparse continuous-wave RF output state."""
+
+    frequency: Annotated[
+        Desired[Quantity] | None,
+        member(
+            unit="Hz",
+            label="CW frequency",
+            description="Continuous-wave carrier frequency.",
+        ),
+    ] = None
+    power: Annotated[
+        Desired[Quantity] | None,
+        member(
+            unit="dBm",
+            label="Output power",
+            description="Configured RF output level at the source connector.",
+        ),
+    ] = None
+    output_enabled: Annotated[
+        Desired[bool] | None,
+        member(
+            label="RF output",
+            description="Whether the RF output connector is enabled.",
+        ),
+    ] = None
+    reference_source: Annotated[
+        Desired[ReferenceSource] | None,
+        member(
+            label="Reference source",
+            description=("Reference oscillator source; external frequency is not set."),
+        ),
+    ] = None
+
+
+@instrument_interface(
+    "scopecat.rf_output/v1",
+    state=RFOutputState,
+    label="RF output",
+    description="Continuous-wave RF source controls independent of vendor syntax.",
+)
+class RFOutputInterface(Protocol): ...
+
+
+RF_OUTPUT_DECLARATION: CompiledInterface[RFOutputInterface] = compile_interface(
+    RFOutputInterface
+)
+
+
+@instrument_state
+@dataclass(frozen=True, slots=True)
 class NetworkSweepState:
     """Sparse network-sweep state shared by live and symbolic clients."""
 
@@ -133,9 +184,12 @@ NETWORK_SWEEP_DECLARATION: CompiledInterface[NetworkSweepInterface] = compile_in
 
 __all__ = [
     "NETWORK_SWEEP_DECLARATION",
+    "RF_OUTPUT_DECLARATION",
     "Desired",
     "NetworkSweepInterface",
     "NetworkSweepState",
+    "RFOutputInterface",
+    "RFOutputState",
     "ReferenceSource",
     "SParameter",
 ]

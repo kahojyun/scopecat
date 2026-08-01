@@ -140,6 +140,12 @@ def test_declared_network_sweep_preserves_the_contract_fingerprint() -> None:
     )
 
 
+def test_declared_rf_output_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(rf_output_interface()) == (
+        "c46f28a0fa23c3e98976a46d52d9e95b1c2f62cfa269022963131e9182acf532"
+    )
+
+
 def _resolve_component(
     interface: InterfaceSpec,
     component_path: tuple[str, ...],
