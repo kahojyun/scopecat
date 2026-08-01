@@ -1,15 +1,15 @@
-"""Demand-close authored measurement postprocessors into typed product edges."""
+"""Demand-close authored measurement postprocessors into bound product edges."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
-from scopecat.compiler.typed.program import (
-    TypedMeasurementPostprocessor,
-    TypedMeasurementPostprocessorOutput,
+from scopecat.compiler.bound_facts import (
+    BoundMeasurementPostprocessor,
+    BoundMeasurementPostprocessorOutput,
 )
+from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductUse,
@@ -22,9 +22,9 @@ from scopecat.program.logical import (
 
 @dataclass(frozen=True, slots=True)
 class LoweredMeasurementPostprocessorGraph:
-    """Live typed postprocessors plus the source uses they introduce."""
+    """Live bound postprocessors plus the source uses they introduce."""
 
-    postprocessors: tuple[TypedMeasurementPostprocessor, ...]
+    postprocessors: tuple[BoundMeasurementPostprocessor, ...]
     input_product_uses: tuple[ProductUse, ...]
 
 
@@ -60,19 +60,19 @@ def lower_measurement_postprocessor_graph(
     for use in all_uses:
         uses_by_product.setdefault(use.product_id, []).append(use.id)
 
-    typed: list[TypedMeasurementPostprocessor] = []
+    bound: list[BoundMeasurementPostprocessor] = []
     for postprocessor, input_use in zip(live, input_uses, strict=True):
-        outputs: list[TypedMeasurementPostprocessorOutput] = []
+        outputs: list[BoundMeasurementPostprocessorOutput] = []
         for role, product_id in postprocessor.outputs:
             outputs.append(
-                TypedMeasurementPostprocessorOutput(
+                BoundMeasurementPostprocessorOutput(
                     id=role,
                     product_id=product_id,
                     product_use_ids=tuple(uses_by_product.get(product_id, ())),
                 )
             )
-        typed.append(
-            TypedMeasurementPostprocessor(
+        bound.append(
+            BoundMeasurementPostprocessor(
                 id=postprocessor.id,
                 input_product_id=postprocessor.input,
                 input_product_use_id=input_use.id,
@@ -81,7 +81,7 @@ def lower_measurement_postprocessor_graph(
             )
         )
     return LoweredMeasurementPostprocessorGraph(
-        postprocessors=tuple(typed),
+        postprocessors=tuple(bound),
         input_product_uses=input_uses,
     )
 

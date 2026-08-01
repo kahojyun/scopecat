@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import cast
 
+from scopecat.compiler.bound_facts import (
+    LogicalResourceRequirement,
+)
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
@@ -18,9 +21,6 @@ from scopecat.compiler.frontend.value_binding import (
 from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
     verify_scalar_expression,
-)
-from scopecat.compiler.typed.program import (
-    LogicalResourceRequirement,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.value_types import Entity, Scalar

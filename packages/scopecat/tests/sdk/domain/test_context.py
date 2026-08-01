@@ -4,12 +4,12 @@ from pathlib import Path
 from typing import Annotated
 
 import scopecat as sc
-from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.measurements.results import MeasurementScalar, MeasurementValue
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
 )
+from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
     materialize_bound_points,
@@ -112,7 +112,7 @@ def _batch_context(
     call = make_domain_call_view(
         bound,
         execution.id,
-        domain_result_closure(bound.bindings, execution),
+        domain_result_product_use_ids(bound.bindings, execution),
     )
     return make_domain_batch_request(
         call,

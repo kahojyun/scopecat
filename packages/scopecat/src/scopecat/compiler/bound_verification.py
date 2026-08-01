@@ -1,19 +1,19 @@
-"""Verify invariants introduced while lowering a logical program."""
+"""Verify invariants introduced while binding a logical program."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from enum import StrEnum
 
+from scopecat.compiler.bound_facts import BoundProgramFacts
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
-from scopecat.compiler.typed.point_domain import (
+from scopecat.compiler.point_domain import (
     PointDomainVerificationError,
     VerifiedPointDomain,
     verify_point_domain,
 )
-from scopecat.compiler.typed.program import BoundProgramFacts
-from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
 from scopecat.compiler.value_resolution import BoundValueResolver
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -28,6 +28,18 @@ from scopecat.program.expressions import (
     ScalarExpr,
 )
 from scopecat.program.point_domain import iter_point_axis_linear
+
+
+class ProgramRelationConsumerKind(StrEnum):
+    """The executable role that owns one scalar expression."""
+
+    POINT_AXIS_CENTER = "point_axis_center"
+    RESOURCE_ENTITY = "resource_entity"
+    COMPUTE_INPUT = "compute_input"
+    DOMAIN_EXECUTION_INPUT = "domain_execution_input"
+    DOMAIN_COMPILER_INPUT = "domain_compiler_input"
+    STATE_VALUE = "state_value"
+    INVOCATION_ARGUMENT = "invocation_argument"
 
 
 def _verify_bound_facts(
@@ -70,7 +82,9 @@ def _verify_bound_facts(
     if problems:
         raise CheckFailed(problems)
     if point_domain is None:
-        raise AssertionError("successful typed sealing lost its point-domain proof")
+        raise AssertionError(
+            "successful bound verification lost its point-domain proof"
+        )
     return point_domain
 
 

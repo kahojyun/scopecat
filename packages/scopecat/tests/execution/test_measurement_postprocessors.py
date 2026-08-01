@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from scopecat.compiler.typed.program import (
-    TypedMeasurementPostprocessor,
-    TypedMeasurementPostprocessorOutput,
+from scopecat.compiler.bound_facts import (
+    BoundMeasurementPostprocessor,
+    BoundMeasurementPostprocessorOutput,
 )
 from scopecat.execution.measurement_postprocessors import (
     execute_measurement_postprocessors,
@@ -38,14 +38,14 @@ from tests.testkit.measurement_assembly import (
 def _postprocessor(
     scenario: MeasurementAssemblyScenario,
     kernel: Callable[[MeasurementValue], dict[str, MeasurementValue]],
-) -> TypedMeasurementPostprocessor:
+) -> BoundMeasurementPostprocessor:
     source, output = scenario.uses
-    return TypedMeasurementPostprocessor(
+    return BoundMeasurementPostprocessor(
         id=MeasurementPostprocessorId(SymbolId(local_id="normalize")),
         input_product_id=source.product_id,
         input_product_use_id=source.id,
         outputs=(
-            TypedMeasurementPostprocessorOutput(
+            BoundMeasurementPostprocessorOutput(
                 id="output",
                 product_id=output.product_id,
                 product_use_ids=(output.id,),

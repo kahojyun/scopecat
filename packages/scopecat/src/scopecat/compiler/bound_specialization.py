@@ -1,22 +1,22 @@
-"""Configuration specialization over the complete typed program surface."""
+"""Configuration specialization over bound program facts."""
 
 from __future__ import annotations
 
 from dataclasses import replace
 
+from scopecat.compiler.bound_facts import (
+    BoundProgramFacts,
+    LogicalResourceRequirement,
+)
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
+from scopecat.compiler.parameter_overlays import (
+    parameter_cell_bindings,
+)
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.specialization import (
     ParameterCellBinding,
     specialize_scalar_expression,
-)
-from scopecat.compiler.typed.parameter_overlays import (
-    parameter_cell_bindings,
-)
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
-    LogicalResourceRequirement,
 )
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import LogicalInvocation

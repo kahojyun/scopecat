@@ -3,11 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
-from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
 )
+from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import (
     materialize_bound_points,
 )
@@ -74,11 +74,11 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
 
     execution = bound.program.program.domain_executions[0]
     execution_id = execution.id
-    closure = domain_result_closure(bound.bindings, execution)
+    product_use_ids = domain_result_product_use_ids(bound.bindings, execution)
     call_view = make_domain_call_view(
         bound,
         execution_id,
-        closure,
+        product_use_ids,
     )
     full = make_domain_batch_request(
         call_view,

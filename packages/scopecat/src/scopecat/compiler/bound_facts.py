@@ -11,8 +11,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
-from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.parameter_overlays import PointParameterOverlay
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
@@ -52,7 +52,7 @@ def _empty_domain_result_use_ids() -> dict[tuple[str, str], tuple[ProductUseId, 
 
 
 @dataclass(frozen=True, slots=True)
-class TypedMeasurementPostprocessorOutput:
+class BoundMeasurementPostprocessorOutput:
     """One calculated product and all of its downstream use slots."""
 
     id: str
@@ -61,13 +61,13 @@ class TypedMeasurementPostprocessorOutput:
 
 
 @dataclass(frozen=True, slots=True)
-class TypedMeasurementPostprocessor:
+class BoundMeasurementPostprocessor:
     """One live point-local postprocessor retained by record demand."""
 
     id: MeasurementPostprocessorId
     input_product_id: ProductId
     input_product_use_id: ProductUseId
-    outputs: tuple[TypedMeasurementPostprocessorOutput, ...]
+    outputs: tuple[BoundMeasurementPostprocessorOutput, ...]
     kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
 
 
@@ -99,7 +99,7 @@ class BoundProgramFacts:
     domain_result_use_ids: Mapping[tuple[str, str], tuple[ProductUseId, ...]] = field(
         default_factory=_empty_domain_result_use_ids
     )
-    measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = ()
+    measurement_postprocessors: tuple[BoundMeasurementPostprocessor, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[RecordUse, ...] = ()

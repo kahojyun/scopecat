@@ -1,18 +1,20 @@
+"""Domain-owned product-use selection."""
+
 from __future__ import annotations
 
-from scopecat.compiler.typed.domain_results import domain_result_closure
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import BoundProgramFacts
+from scopecat.compiler.bound_facts import BoundProgramFacts
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.product_identity import (
     ProductUse,
     ProductUseId,
     product_id,
 )
+from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.program.logical import LogicalDomainExecution
 
 
-def test_domain_result_closure_contains_only_exact_direct_product_uses() -> None:
+def test_domain_result_selection_contains_only_exact_direct_product_uses() -> None:
     shared_product = product_id("shared")
     output_product = product_id("output")
     direct_use = ProductUse(shared_product, ProductUseId("shared/direct"))
@@ -34,6 +36,4 @@ def test_domain_result_closure_contains_only_exact_direct_product_uses() -> None
         product_uses=(direct_use, foreign_use, output_use),
     )
 
-    result_closure = domain_result_closure(program, execution)
-
-    assert result_closure.product_use_ids == (direct_use.id,)
+    assert domain_result_product_use_ids(program, execution) == (direct_use.id,)

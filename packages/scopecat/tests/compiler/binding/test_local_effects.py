@@ -7,14 +7,14 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
+from scopecat.compiler.bound_facts import (
+    LogicalResourceRequirement,
+)
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
     ExpressionVerificationError,
     RowType,
-)
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    LogicalResourceRequirement,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import (
@@ -63,19 +63,19 @@ from scopecat.program.value_graph import (
 )
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
+from tests.testkit.bound_program import (
+    ComputeNodeFixture,
+    bind_program_facts,
+    compute_result,
+    instrument_invocation,
+    program_fixture,
+)
 from tests.testkit.expressions import state_property, verified_scalar_expr
 from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
-from tests.testkit.typed_program import (
-    ComputeNodeFixture,
-    bind_program_facts,
-    compute_result,
-    instrument_invocation,
-    typed_program,
-)
 
 
 class _FirstIntegerToken(IntEnum):
@@ -178,7 +178,7 @@ def test_bound_state_preserves_primitive_field_types(
     value: str | int | bool,
     value_type: Scalar,
 ) -> None:
-    program = typed_program(
+    program = program_fixture(
         point_domain=_point_domain(
             ((),),
             Table(columns=()),
@@ -224,7 +224,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
     producer_output_id = operation_result_id(producer_id)
     consumer_output_id = operation_result_id(consumer_id)
     point_type = Table(columns=(TableColumn("value", Scalar(Float())),))
-    program = typed_program(
+    program = program_fixture(
         point_domain=_point_domain(
             ((1.0,), (1.0,), (2.0,)),
             point_type,
@@ -382,7 +382,7 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
             ),
         ),
     )
-    program = typed_program(
+    program = program_fixture(
         point_domain=_point_domain(
             (
                 (Quantity(value=5000.0, unit="MHz"),),
@@ -528,7 +528,7 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
     point_type = Table(
         columns=(TableColumn("payload", Scalar(Payload("mapping"))),),
     )
-    program = typed_program(
+    program = program_fixture(
         point_domain=_point_domain(
             (
                 (
@@ -574,7 +574,7 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
 
 
 def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
-    program = typed_program(
+    program = program_fixture(
         point_domain=_point_domain(
             (
                 (

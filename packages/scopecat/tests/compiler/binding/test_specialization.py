@@ -1,14 +1,16 @@
+"""Configuration specialization of bound compiler facts."""
+
 from __future__ import annotations
 
+from scopecat.compiler.bound_specialization import (
+    specialize_bound_facts,
+)
+from scopecat.compiler.parameter_overlays import PointParameterOverlay
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
     RowType,
-)
-from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.specialization import (
-    specialize_bound_facts,
 )
 from scopecat.compiler.value_resolution import resolve_bound_value
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
@@ -42,6 +44,11 @@ from scopecat.program.value_graph import (
     OperationId,
     operation_result_id,
 )
+from tests.testkit.bound_program import (
+    ComputeNodeFixture,
+    DomainExecutionFixture,
+    program_fixture,
+)
 from tests.testkit.expressions import (
     state_property,
     verified_scalar_expr,
@@ -49,11 +56,6 @@ from tests.testkit.expressions import (
 from tests.testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,
     parameters,
-)
-from tests.testkit.typed_program import (
-    ComputeNodeFixture,
-    DomainExecutionFixture,
-    typed_program,
 )
 
 
@@ -100,7 +102,7 @@ def test_bound_fact_specialization_prunes_dead_compute_nodes() -> None:
         ),
     )
 
-    program = typed_program(
+    program = program_fixture(
         point_domain=PointDomain(axes=()),
         compute_nodes=(upstream, live, dead),
         state=(state,),
@@ -122,7 +124,7 @@ def test_bound_fact_specialization_prunes_dead_compute_nodes() -> None:
 def test_bound_fact_specialization_preserves_exact_empty_point_composition() -> None:
     integer = Scalar(Int())
 
-    program = typed_program(
+    program = program_fixture(
         point_domain=PointDomain(
             axes=(
                 point_axis_values("x", integer, (1,)),
@@ -184,7 +186,7 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
         inputs={"frequency": overlaid_lookup},
     )
 
-    program = typed_program(
+    program = program_fixture(
         point_domain=PointDomain(
             axes=(
                 point_axis_linear(

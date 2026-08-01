@@ -1,13 +1,13 @@
 import pytest
 
+from scopecat.compiler.bound_facts import (
+    LogicalResourceRequirement,
+    record_product,
+)
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
     RowType,
-)
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    LogicalResourceRequirement,
-    record_product,
 )
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
@@ -25,6 +25,12 @@ from scopecat.program.point_domain import (
     point_axis_values,
 )
 from scopecat.records.config import ConfigProfileSnapshot
+from tests.testkit.bound_program import (
+    ProgramFixture,
+    instrument_acquisition,
+    observable_product,
+    program_fixture,
+)
 from tests.testkit.expressions import (
     state_property,
     verified_scalar_expr,
@@ -34,12 +40,6 @@ from tests.testkit.materialized_effects import (
     materialized_state_properties,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
-from tests.testkit.typed_program import (
-    ProgramFixture,
-    instrument_acquisition,
-    observable_product,
-    typed_program,
-)
 from tests.testkit.workflow_fixtures import load_experiment
 
 
@@ -96,7 +96,7 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
         interface="test.set_frequency/v1",
     )
     product_use, record_use = record_product(product)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -139,7 +139,7 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
 def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
     config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     value = Quantity(value=5.0, unit="GHz")
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain((value, value)),
     )
 
@@ -156,7 +156,7 @@ def test_materialized_effects_rejects_bind_problems_without_duplicates() -> None
         bindings=ExpressionTypeBindings(parameters={"missing_center": center_type}),
         expected_type=center_type,
     )
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=PointDomain(
             axes=(
                 point_axis_linear(

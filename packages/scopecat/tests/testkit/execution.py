@@ -23,6 +23,7 @@ from scopecat.sdk.instruments.provider import (
     InstrumentProviderDescription,
 )
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
+from tests.testkit.bound_program import ProgramFixture, bind_program_facts
 from tests.testkit.instrument_host import (
     compose_test_instruments,
     provision_test_instrument_host,
@@ -32,7 +33,6 @@ from tests.testkit.runtime import (
     sqlite_execution_session,
     sqlite_run_repository,
 )
-from tests.testkit.typed_program import ProgramFixture, bind_program_facts
 
 
 @dataclass(frozen=True, slots=True)

@@ -5,9 +5,6 @@ from __future__ import annotations
 from typing import cast
 
 from scopecat.compiler.bind import BoundPlan
-from scopecat.compiler.typed.domain_results import (
-    DomainResultClosure,
-)
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.measurements.products import ProductDef
@@ -37,7 +34,7 @@ from scopecat.sdk.domain.view import (
 def make_domain_call_view(
     bound: BoundPlan,
     execution_id: str,
-    result_closure: DomainResultClosure,
+    product_use_ids: tuple[ProductUseId, ...],
 ) -> DomainCallView:
     """Project static domain semantics once before bounded compilation."""
 
@@ -51,7 +48,7 @@ def make_domain_call_view(
         product_use_refs,
         product_use_refs_by_id,
     ) = _project_domain_assets(bound)
-    owned_use_ids = set(result_closure.product_use_ids)
+    owned_use_ids = set(product_use_ids)
     return DomainCallView(
         id=execution.id,
         program=_domain_program_view(execution.program),

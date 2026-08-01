@@ -1,12 +1,12 @@
-from scopecat.compiler.relations.verification import (
-    ExpressionTypeBindings,
-    RowType,
-)
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
+from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
     product_axis,
     record_product,
+)
+from scopecat.compiler.point_domain import PointDomain
+from scopecat.compiler.relations.verification import (
+    ExpressionTypeBindings,
+    RowType,
 )
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -34,6 +34,15 @@ from scopecat.program.value_graph import (
     OperationId,
     operation_result_id,
 )
+from tests.testkit.bound_program import (
+    ComputeNodeFixture,
+    compute_result,
+    instrument_acquisition,
+    instrument_invocation,
+    observable_product,
+    overlay_parameter_cell,
+    program_fixture,
+)
 from tests.testkit.expressions import (
     state_property as set_state_property,
 )
@@ -49,15 +58,6 @@ from tests.testkit.parameter_fixtures import (
 )
 from tests.testkit.parameter_fixtures import (
     parameters as _parameters,
-)
-from tests.testkit.typed_program import (
-    ComputeNodeFixture,
-    compute_result,
-    instrument_acquisition,
-    instrument_invocation,
-    observable_product,
-    overlay_parameter_cell,
-    typed_program,
 )
 
 
@@ -93,7 +93,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         interface="test.pulse/v1",
     )
     product_use, record_use = record_product(product)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -182,7 +182,7 @@ def test_separated_state_groups_have_distinct_operation_ids() -> None:
         interface="test.drive/v1",
     )
     product_use, record_use = record_product(product)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -214,7 +214,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
     operation_id = OperationId(SymbolId(local_id="build-waveform"))
     result_id = operation_result_id(operation_id)
     drive = logical_resource_port_id("drive")
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         invocations=[
             instrument_invocation(
@@ -293,7 +293,7 @@ def test_materialized_state_can_reference_a_compute_payload() -> None:
     result_id = operation_result_id(operation_id)
     payload_type = Scalar(Payload("waveform_bundle"))
     drive = logical_resource_port_id("drive")
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -341,7 +341,7 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
     def build_waveform() -> dict[str, object]:
         return {"kind": "waveform"}
 
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -445,7 +445,7 @@ def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
         interface="test.measure_iq/v1",
     )
     product_use, record_use = record_product(product)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(

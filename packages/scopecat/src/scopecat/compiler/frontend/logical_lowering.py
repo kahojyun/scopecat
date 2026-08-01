@@ -20,12 +20,12 @@ from scopecat.compiler.frontend.value_binding import (
     expression_input_refs,
     input_cell,
 )
+from scopecat.compiler.parameter_overlays import PointParameterOverlay
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
     verify_scalar_expression,
 )
-from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
-from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.value_data import CellValue

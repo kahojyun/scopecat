@@ -1,3 +1,5 @@
+"""Nominal value-graph identity and scoped edges."""
+
 from __future__ import annotations
 
 from typing import Annotated

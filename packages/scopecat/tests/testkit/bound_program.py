@@ -1,4 +1,4 @@
-"""Low-level compiler program builders used only by tests."""
+"""Low-level logical programs and bound facts used only by tests."""
 
 from __future__ import annotations
 
@@ -9,18 +9,18 @@ from scopecat.compiler.bind import (
     BoundPlan,
     _make_bound_plan,
 )
+from scopecat.compiler.bound_facts import (
+    BoundMeasurementPostprocessor,
+    BoundProgramFacts,
+    LogicalResourceRequirement,
+)
+from scopecat.compiler.bound_verification import verify_bound_facts
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.logical_verification import (
     VerifiedLogicalProgram,
 )
-from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
-    LogicalResourceRequirement,
-    TypedMeasurementPostprocessor,
-)
-from scopecat.compiler.typed.verification import verify_bound_facts
+from scopecat.compiler.parameter_overlays import PointParameterOverlay
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.value_resolution import ProgramValue
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.interface_identity import InterfaceId
@@ -278,14 +278,14 @@ def instrument_invocation(
     )
 
 
-def typed_program(
+def program_fixture(
     *,
     point_domain: PointDomain,
     resource_requirements: Sequence[LogicalResourceRequirement] = (),
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     compute_nodes: Sequence[ComputeNodeFixture] = (),
     domain_execution: DomainExecutionFixture | None = None,
-    measurement_postprocessors: Sequence[TypedMeasurementPostprocessor] = (),
+    measurement_postprocessors: Sequence[BoundMeasurementPostprocessor] = (),
     state: Sequence[StateAssignmentFixture] = (),
     invocations: Sequence[InvocationFixture] = (),
     product_defs: Sequence[ProductDef] = (),

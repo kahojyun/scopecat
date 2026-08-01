@@ -21,9 +21,9 @@ from tests.testkit.authoring import (
     bind_invocation,
     simple_template,
 )
+from tests.testkit.bound_program import ProgramFixture
 from tests.testkit.paths import CORE_FIXTURE_DIR as WORKFLOW_FIXTURE_DIR
 from tests.testkit.runtime import sqlite_run_repository
-from tests.testkit.typed_program import ProgramFixture
 
 
 def load_config() -> ConfigProfileSnapshot:

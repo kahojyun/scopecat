@@ -9,7 +9,6 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
-from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.value_resolution import resolve_bound_value
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.errors import CheckFailed
@@ -18,6 +17,7 @@ from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
 )
+from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.program.domain import domain_execution, domain_program
 from scopecat.program.expressions import PointColumnScalarExpr
@@ -194,7 +194,7 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
     call = make_domain_call_view(
         bound,
         execution.id,
-        domain_result_closure(bound.bindings, execution),
+        domain_result_product_use_ids(bound.bindings, execution),
     )
     request = make_domain_batch_request(
         call,

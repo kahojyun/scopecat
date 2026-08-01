@@ -1,6 +1,13 @@
 from dataclasses import replace
 from typing import Never, cast
 
+from scopecat.compiler.bound_facts import (
+    LogicalResourceRequirement,
+)
+from scopecat.compiler.parameter_overlays import (
+    parameter_cell_bindings,
+)
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.specialization import (
     specialize_scalar_expression,
@@ -8,13 +15,6 @@ from scopecat.compiler.relations.specialization import (
 from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
     RowType,
-)
-from scopecat.compiler.typed.parameter_overlays import (
-    parameter_cell_bindings,
-)
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    LogicalResourceRequirement,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
@@ -34,6 +34,12 @@ from scopecat.program.point_domain import (
     point_axis_values,
 )
 from scopecat.program.table_values import ParameterTableSource
+from tests.testkit.bound_program import (
+    DomainExecutionFixture,
+    bind_program_facts,
+    overlay_parameter_cell,
+    program_fixture,
+)
 from tests.testkit.expressions import state_property
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.materialized_effects import (
@@ -44,12 +50,6 @@ from tests.testkit.parameter_fixtures import (
     PARAMETER_TYPES,
     READOUT_FREQUENCY_LOOKUP,
     parameters,
-)
-from tests.testkit.typed_program import (
-    DomainExecutionFixture,
-    bind_program_facts,
-    overlay_parameter_cell,
-    typed_program,
 )
 
 _PARAMETER_TYPES = PARAMETER_TYPES
@@ -105,7 +105,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
         ),
     )
     point_bindings = _point_bindings(points)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -183,7 +183,7 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
         ),
         compiler_inputs={"rows": ParameterTableSource("readout_devices")},
     )
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=points,
         parameter_overlays=[_frequency_overlay(axis_id="frequency")],
         domain_execution=execution,
@@ -227,7 +227,7 @@ def test_domain_input_materializes_with_its_port_type() -> None:
         ),
         inputs={"frequency": param("frequency", generic_frequency)},
     )
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=PointDomain(axes=()),
         domain_execution=execution,
     )

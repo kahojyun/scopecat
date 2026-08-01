@@ -8,14 +8,14 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.bind import bind_program
+from scopecat.compiler.bound_facts import BoundProgramFacts
+from scopecat.compiler.bound_verification import verify_bound_facts
 from scopecat.compiler.frontend.logical_verification import (
     VerifiedLogicalProgram,
     verify_logical_program,
 )
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.typed.point_domain import VerifiedPointDomain
-from scopecat.compiler.typed.program import BoundProgramFacts
-from scopecat.compiler.typed.verification import verify_bound_facts
+from scopecat.compiler.point_domain import VerifiedPointDomain
 from scopecat.config.environment import build_config_environment
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed

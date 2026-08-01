@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from scopecat.compiler.bound_facts import product_axis as compiler_product_axis
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entities,
@@ -17,7 +18,6 @@ from scopecat.compiler.frontend.problems import (
 )
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
 from scopecat.compiler.relations.verification import ExpressionTypeBindings
-from scopecat.compiler.typed.program import product_axis as compiler_product_axis
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ModelLocation

@@ -6,8 +6,8 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import cast, override
 
+from scopecat.compiler.bound_facts import BoundProgramFacts
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
-from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.table_values import TableSource
 from scopecat.program.value_graph import ValueId

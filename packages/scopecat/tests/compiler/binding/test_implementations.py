@@ -1,8 +1,10 @@
+"""Implementation binding into executable compute operations."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
 
-from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import ComputeOperation
 from scopecat.kernel.symbols import SymbolId
@@ -19,15 +21,15 @@ from scopecat.program.value_graph import (
     operation_result_id,
 )
 from tests.testkit.authoring import load_config
-from tests.testkit.local_materialization import (
-    materialize_local_execution,
-    operations_of_type,
-)
-from tests.testkit.typed_program import (
+from tests.testkit.bound_program import (
     ComputeNodeFixture,
     ProgramFixture,
     bind_program_facts,
-    typed_program,
+    program_fixture,
+)
+from tests.testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
 )
 
 _FLOAT = Scalar(Float())
@@ -58,7 +60,7 @@ def _program(
     point_count: int = 1,
 ) -> ProgramFixture:
     operation_id = _operation_id()
-    return typed_program(
+    return program_fixture(
         point_domain=PointDomain(
             axes=(
                 point_axis_values(

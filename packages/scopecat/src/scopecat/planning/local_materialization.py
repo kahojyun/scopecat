@@ -11,15 +11,15 @@ from typing import Protocol, cast
 from pydantic import JsonValue
 
 from scopecat.compiler.bind import BoundPlan
+from scopecat.compiler.bound_facts import BoundProgramFacts
 from scopecat.compiler.diagnostics import compiler_problem
+from scopecat.compiler.point_domain import (
+    MaterializedPoint,
+)
 from scopecat.compiler.relations.context import (
     EvalContext,
     ParameterRelationData,
 )
-from scopecat.compiler.typed.point_domain import (
-    MaterializedPoint,
-)
-from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.compiler.value_resolution import (
     BoundValueResolver,
     resolve_bound_value,

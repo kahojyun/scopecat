@@ -13,17 +13,17 @@ from scopecat.compiler.entity_resolution import (
     resolve_entity,
 )
 from scopecat.compiler.environment import ConfigEnvironment
-from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
-from scopecat.compiler.relations.evaluation import (
-    evaluate_scalar,
-    evaluate_table_value,
-)
-from scopecat.compiler.typed.parameter_overlays import resolve_point_parameters
-from scopecat.compiler.typed.point_domain import (
+from scopecat.compiler.parameter_overlays import resolve_point_parameters
+from scopecat.compiler.point_domain import (
     MaterializedPoint,
     MaterializedPointDomain,
     PointDomainEvaluationError,
     materialize_point_domain,
+)
+from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
+from scopecat.compiler.relations.evaluation import (
+    evaluate_scalar,
+    evaluate_table_value,
 )
 from scopecat.compiler.value_resolution import BoundValueResolver, ProgramValue
 from scopecat.kernel.entity import EntityRef

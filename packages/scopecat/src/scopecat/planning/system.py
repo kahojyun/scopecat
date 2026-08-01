@@ -12,9 +12,6 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from scopecat.compiler.bind import BoundDomainTarget, BoundPlan
-from scopecat.compiler.typed.domain_results import (
-    domain_result_closure,
-)
 from scopecat.execution.local.program import LocalOperation
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
@@ -40,6 +37,9 @@ from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
+)
+from scopecat.planning.domain_results import (
+    domain_result_product_use_ids,
 )
 from scopecat.planning.local_effects import (
     MaterializedLocalEffects,
@@ -150,17 +150,17 @@ def _compile_system_program(
                 ),
             )
         )
-    domain_result_closures = {
-        execution.id: domain_result_closure(bound.bindings, execution)
+    domain_use_ids_by_execution = {
+        execution.id: domain_result_product_use_ids(bound.bindings, execution)
         for execution in bound.program.program.domain_executions
     }
     domain_calls = {
         execution_id: make_domain_call_view(
             bound,
             execution_id,
-            result_closure,
+            product_use_ids,
         )
-        for execution_id, result_closure in domain_result_closures.items()
+        for execution_id, product_use_ids in domain_use_ids_by_execution.items()
     }
     _validate_domain_compiler(
         system.domain_compiler,
@@ -170,8 +170,8 @@ def _compile_system_program(
     domain_footprint = _domain_target_footprint(domain_target_requirement)
     domain_owned_product_use_ids = frozenset(
         use_id
-        for result_closure in domain_result_closures.values()
-        for use_id in result_closure.product_use_ids
+        for product_use_ids in domain_use_ids_by_execution.values()
+        for use_id in product_use_ids
     )
     postprocessor_output_use_ids = frozenset(
         use_id

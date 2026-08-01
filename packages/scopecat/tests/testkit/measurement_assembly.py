@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
+from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
 )
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.config.environment import build_config_environment
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductUse, product_use
@@ -30,11 +30,11 @@ from scopecat.planning.point_materialization import (
 )
 from scopecat.program.point_domain import point_axis_values
 from tests.testkit.authoring import load_config
-from tests.testkit.typed_program import (
+from tests.testkit.bound_program import (
     bind_program_facts,
     instrument_acquisitions,
     observable_product,
-    typed_program,
+    program_fixture,
 )
 
 
@@ -102,7 +102,7 @@ def measurement_assembly_scenario(
                 metadata={"projection": "secondary"},
             )
         )
-    program = typed_program(
+    program = program_fixture(
         point_domain=PointDomain(
             axes=(
                 point_axis_values("x", Scalar(Float()), point_values),

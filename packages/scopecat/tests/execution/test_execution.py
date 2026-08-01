@@ -9,14 +9,14 @@ from pydantic import JsonValue
 
 import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
+from scopecat.compiler.bound_facts import (
+    LogicalResourceRequirement,
+    record_product,
+)
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
     RowType,
-)
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    LogicalResourceRequirement,
-    record_product,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.evidence import (
@@ -87,6 +87,16 @@ from scopecat.sdk.instruments.provider import (
     InstrumentProviderDescription,
 )
 from tests.testkit.authoring import bind_invocation
+from tests.testkit.bound_program import (
+    ComputeNodeFixture,
+    ProgramFixture,
+    bind_program_facts,
+    compute_result,
+    instrument_acquisition,
+    instrument_invocation,
+    observable_product,
+    program_fixture,
+)
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.expressions import state_property, verified_scalar_expr
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
@@ -106,16 +116,6 @@ from tests.testkit.runtime import (
 )
 from tests.testkit.signal_instruments import (
     TestSignalInstrument,
-)
-from tests.testkit.typed_program import (
-    ComputeNodeFixture,
-    ProgramFixture,
-    bind_program_facts,
-    compute_result,
-    instrument_acquisition,
-    instrument_invocation,
-    observable_product,
-    typed_program,
 )
 from tests.testkit.workflow_fixtures import load_config, load_experiment
 
@@ -753,7 +753,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         interface="test.scalar_signal/v1",
     )
     product_use, record_use = record_product(product)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=PointDomain(
             axes=(
                 point_axis_values(
@@ -936,7 +936,7 @@ def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
     instrument = TestSignalInstrument()
     base_experiment = load_experiment()
     base_bindings = base_experiment.bindings
-    experiment = typed_program(
+    experiment = program_fixture(
         point_domain=base_bindings.point_domain,
         resource_requirements=base_bindings.resource_requirements,
         parameter_overlays=base_bindings.parameter_overlays,

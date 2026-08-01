@@ -4,12 +4,12 @@ from dataclasses import replace
 
 import pytest
 
-from scopecat.compiler.typed.point_domain import (
-    PointDomain,
-)
-from scopecat.compiler.typed.program import (
+from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
     record_product,
+)
+from scopecat.compiler.point_domain import (
+    PointDomain,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import (
@@ -32,19 +32,19 @@ from scopecat.records.config import (
     RoutingGraph,
 )
 from tests.testkit.authoring import load_config, parameters
-from tests.testkit.expressions import state_property, verified_scalar_expr
-from tests.testkit.local_materialization import (
-    LocalEffectInspection,
-    materialize_local_execution,
-    operations_of_type,
-)
-from tests.testkit.typed_program import (
+from tests.testkit.bound_program import (
     ProgramFixture,
     StateAssignmentFixture,
     bind_program_facts,
     instrument_acquisition,
     observable_product,
-    typed_program,
+    program_fixture,
+)
+from tests.testkit.expressions import state_property, verified_scalar_expr
+from tests.testkit.local_materialization import (
+    LocalEffectInspection,
+    materialize_local_execution,
+    operations_of_type,
 )
 
 
@@ -70,7 +70,7 @@ def _unit_program(
     acquisitions: tuple[AcquireEffect, ...] = (),
 ) -> ProgramFixture:
     uses_and_records = tuple(record_product(product) for product in products)
-    return typed_program(
+    return program_fixture(
         point_domain=PointDomain(axes=()),
         resource_requirements=resource_requirements,
         state=state,

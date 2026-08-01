@@ -6,14 +6,10 @@ from pathlib import Path
 import pytest
 from scopecat import Quantity
 from scopecat.compiler.bind import BoundPlan, _bind_program_facts
+from scopecat.compiler.bound_facts import BoundProgramFacts, record_product
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
-from scopecat.compiler.typed.domain_results import domain_result_closure
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
-    record_product,
-)
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainProgramDef, DomainResultPort
@@ -24,6 +20,7 @@ from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
 )
+from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.program.logical import LogicalDomainExecution, LogicalProgram
 from scopecat.program.point_domain import point_axis_values
@@ -147,12 +144,15 @@ def _preparation(
             experiment_id=program_id,
         )
     )
-    closure = domain_result_closure(bound_points.bound_plan.bindings, execution)
+    product_use_ids = domain_result_product_use_ids(
+        bound_points.bound_plan.bindings,
+        execution,
+    )
     point_ordinals = (0, 1)
     call = make_domain_call_view(
         bound_points.bound_plan,
         "domain",
-        closure,
+        product_use_ids,
     )
     request = make_domain_batch_request(
         call,

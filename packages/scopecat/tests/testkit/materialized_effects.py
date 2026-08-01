@@ -22,11 +22,11 @@ from scopecat.records.config import (
     RoutingEndpointBinding,
 )
 from tests.testkit.authoring import load_config
+from tests.testkit.bound_program import ProgramFixture
 from tests.testkit.local_materialization import (
     LocalEffectInspection,
     materialize_local_execution,
 )
-from tests.testkit.typed_program import ProgramFixture
 
 
 def bind_program_facts(

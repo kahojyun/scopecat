@@ -9,18 +9,18 @@ import pytest
 import scopecat.planning.point_materialization as point_materialization
 import scopecat.planning.system as planning_system
 from scopecat.compiler.bind import BoundPlan
+from scopecat.compiler.bound_facts import (
+    BoundMeasurementPostprocessor,
+    BoundMeasurementPostprocessorOutput,
+    LogicalResourceRequirement,
+    record_product,
+)
+from scopecat.compiler.parameter_overlays import PointParameterOverlay
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
     RowType,
-)
-from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    LogicalResourceRequirement,
-    TypedMeasurementPostprocessor,
-    TypedMeasurementPostprocessorOutput,
-    record_product,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import (
@@ -102,6 +102,15 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
 )
 from tests.testkit.authoring import load_config
+from tests.testkit.bound_program import (
+    DomainExecutionFixture,
+    DomainResultFixture,
+    bind_program_facts,
+    instrument_acquisition,
+    observable_product,
+    overlay_parameter_cell,
+    program_fixture,
+)
 from tests.testkit.expressions import state_property, verified_scalar_expr
 from tests.testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,
@@ -110,15 +119,6 @@ from tests.testkit.parameter_fixtures import (
     parameters as parameter_fixture_data,
 )
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.typed_program import (
-    DomainExecutionFixture,
-    DomainResultFixture,
-    bind_program_facts,
-    instrument_acquisition,
-    observable_product,
-    overlay_parameter_cell,
-    typed_program,
-)
 
 
 class _EffectProbeRuntime:
@@ -429,7 +429,7 @@ def _bound_program(
         if record_instrument_products
         else selections[:selected_domain_product_count]
     )
-    program = typed_program(
+    program = program_fixture(
         point_domain=points,
         resource_requirements=(
             *(
@@ -483,12 +483,12 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
     source_use = product_use(source.id)
     derived_use, derived_record = record_product(derived)
     postprocessor_id = MeasurementPostprocessorId(SymbolId(local_id="normalize"))
-    postprocessor = TypedMeasurementPostprocessor(
+    postprocessor = BoundMeasurementPostprocessor(
         id=postprocessor_id,
         input_product_id=source.id,
         input_product_use_id=source_use.id,
         outputs=(
-            TypedMeasurementPostprocessorOutput(
+            BoundMeasurementPostprocessorOutput(
                 id="result",
                 product_id=derived.id,
                 product_use_ids=(derived_use.id,),
@@ -496,7 +496,7 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
         ),
         kernel=_postprocess_identity,
     )
-    program = typed_program(
+    program = program_fixture(
         point_domain=PointDomain(axes=()),
         resource_requirements=(
             LogicalResourceRequirement(

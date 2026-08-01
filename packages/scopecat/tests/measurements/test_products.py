@@ -4,10 +4,10 @@ from typing import cast
 
 import pytest
 
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
+from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
 )
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
 from scopecat.kernel.json_types import JsonValue
@@ -32,15 +32,15 @@ from scopecat.measurements.results import MeasurementDType
 from scopecat.program.logical import AcquireEffect
 from scopecat.records.config import RoutingGraph
 from tests.testkit.authoring import load_config
-from tests.testkit.local_materialization import (
-    materialize_local_execution,
-    operations_of_type,
-)
-from tests.testkit.typed_program import (
+from tests.testkit.bound_program import (
     ProgramFixture,
     bind_program_facts,
     instrument_acquisition,
-    typed_program,
+    program_fixture,
+)
+from tests.testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
 )
 
 
@@ -127,7 +127,7 @@ def _program(
             set(),
         )
         interfaces.add(acquisition.interface_id)
-    return typed_program(
+    return program_fixture(
         point_domain=PointDomain(axes=()),
         resource_requirements=tuple(
             LogicalResourceRequirement(

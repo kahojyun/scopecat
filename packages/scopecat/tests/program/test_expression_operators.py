@@ -1,3 +1,5 @@
+"""Shared authored and runtime expression operator semantics."""
+
 from __future__ import annotations
 
 from typing import cast

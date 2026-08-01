@@ -1,3 +1,5 @@
+"""Symbolic and materialized point-domain semantics."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -7,13 +9,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from scopecat.compiler.relations.context import ParameterRelationData
-from scopecat.compiler.relations.verification import (
-    ExpressionTypeBindings,
-    RowType,
-    verify_scalar_expression,
-)
-from scopecat.compiler.typed.point_domain import (
+from scopecat.compiler.point_domain import (
     MaterializedPoint,
     MaterializedPointDomain,
     PointDomain,
@@ -22,6 +18,12 @@ from scopecat.compiler.typed.point_domain import (
     VerifiedPointDomain,
     materialize_point_domain,
     verify_point_domain,
+)
+from scopecat.compiler.relations.context import ParameterRelationData
+from scopecat.compiler.relations.verification import (
+    ExpressionTypeBindings,
+    RowType,
+    verify_scalar_expression,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId

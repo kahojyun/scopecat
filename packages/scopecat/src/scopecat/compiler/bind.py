@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from scopecat.compiler.bound_facts import BoundProgramFacts
+from scopecat.compiler.bound_specialization import specialize_bound_facts
+from scopecat.compiler.bound_verification import (
+    ProgramRelationConsumer,
+    bound_relation_consumers,
+    verify_bound_facts,
+)
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.binding_lowering import (
@@ -25,6 +32,7 @@ from scopecat.compiler.frontend.parameter_contract_validation import (
 from scopecat.compiler.frontend.problems import raise_frontend_problem
 from scopecat.compiler.frontend.product_lowering import lower_products
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
+from scopecat.compiler.point_domain import VerifiedPointDomain
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.evaluation import (
     normalize_relation_parameter_import,
@@ -35,14 +43,6 @@ from scopecat.compiler.relations.verification import (
     ExpressionVerificationError,
     RowType,
     scalar_expression_imports,
-)
-from scopecat.compiler.typed.point_domain import VerifiedPointDomain
-from scopecat.compiler.typed.program import BoundProgramFacts
-from scopecat.compiler.typed.specialization import specialize_bound_facts
-from scopecat.compiler.typed.verification import (
-    ProgramRelationConsumer,
-    bound_relation_consumers,
-    verify_bound_facts,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location
