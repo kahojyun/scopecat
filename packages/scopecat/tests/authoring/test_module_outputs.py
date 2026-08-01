@@ -10,11 +10,11 @@ import pytest
 import scopecat as sc
 from scopecat.authoring import ValueValidationError
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.bind import _lower_logical_program
+from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.config.environment import build_config_environment
+from scopecat.compiler.value_resolution import resolve_bound_value
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
@@ -22,20 +22,17 @@ from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.value_graph import OperationId
 from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.expressions import evaluate_scalar
-from tests.testkit.typed_program import ProgramFixture
 
 
 def _bind_program(
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot,
-) -> ProgramFixture:
-    environment = build_config_environment(config)
-    compiled = compile_invocation(invocation)
-    return ProgramFixture(
-        logical=compiled.program,
-        bindings=_lower_logical_program(compiled.program, environment),
+) -> BoundPlan:
+    return bind_invocation(
+        invocation,
+        config_profile=config,
     )
 
 
@@ -173,25 +170,29 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         template_definition(),
         load_config(),
     )
-    bound_nodes = {node.id: node for node in program.logical.program.compute_nodes}
-    first_edge = program.bindings.values[
+    bound_nodes = {node.id: node for node in program.program.program.compute_nodes}
+    first_edge = resolve_bound_value(
+        program.program,
+        program.bindings,
         dict(
             bound_nodes[
                 OperationId(
                     SymbolId(scope=("siblings", "first-consumer"), local_id="consume")
                 )
             ].inputs
-        )["payload"]
-    ]
-    second_edge = program.bindings.values[
+        )["payload"],
+    )
+    second_edge = resolve_bound_value(
+        program.program,
+        program.bindings,
         dict(
             bound_nodes[
                 OperationId(
                     SymbolId(scope=("siblings", "second-consumer"), local_id="consume")
                 )
             ].inputs
-        )["payload"]
-    ]
+        )["payload"],
+    )
     assert isinstance(first_edge, ComputeResultScalarExpr)
     assert isinstance(second_edge, ComputeResultScalarExpr)
     first_producer = bound_nodes[
@@ -275,7 +276,7 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
         template_definition(),
         load_config(),
     )
-    nodes = {node.id: node for node in program.logical.program.compute_nodes}
+    nodes = {node.id: node for node in program.program.program.compute_nodes}
     expected_type = _payload_type()
 
     for wrapper_scope, sink_scope in (
@@ -298,7 +299,11 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
                 )
             )
         ]
-        edge = program.bindings.values[dict(sink_node.inputs)["payload"]]
+        edge = resolve_bound_value(
+            program.program,
+            program.bindings,
+            dict(sink_node.inputs)["payload"],
+        )
         assert isinstance(edge, ComputeResultScalarExpr)
         assert producer_node.result_type == expected_type
         assert producer_node.result_id.scope == (

@@ -5,6 +5,7 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
+from scopecat.compiler.value_resolution import resolve_bound_value
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.program.domain import domain_program
@@ -426,7 +427,11 @@ def test_parameter_scan_specializes_consumers_against_its_point_column() -> None
     )
 
     [execution] = resolved.program.program.domain_executions
-    expression = resolved.bindings.values[dict(execution.inputs)["frequency"]]
+    expression = resolve_bound_value(
+        resolved.program,
+        resolved.bindings,
+        dict(execution.inputs)["frequency"],
+    )
     assert isinstance(expression, PointColumnScalarExpr)
     assert expression.name == "scanned_frequency"
 

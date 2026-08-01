@@ -10,7 +10,7 @@ import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.typed.domain_results import domain_result_closure
-from scopecat.compiler.typed.values import TableValue
+from scopecat.compiler.value_resolution import resolve_bound_value
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -184,9 +184,11 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
     )
 
     [execution] = bound.program.program.domain_executions
-    table_value = bound.bindings.values[dict(execution.compiler_inputs)["rows"]]
-    assert isinstance(table_value, TableValue)
-    assert isinstance(table_value.source, LiteralTableSource)
+    table_value_id = dict(execution.compiler_inputs)["rows"]
+    assert isinstance(
+        bound.program.value_defs[table_value_id].source,
+        LiteralTableSource,
+    )
 
     points = materialize_bound_points(bound)
     call = make_domain_call_view(
@@ -404,7 +406,11 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     assert resolved.program.program.acquisitions == ()
     execution = resolved.program.program.domain_executions[0]
     assert execution.program.body is body
-    expression = typed.values[dict(execution.inputs)["x_count"]]
+    expression = resolve_bound_value(
+        resolved.program,
+        typed,
+        dict(execution.inputs)["x_count"],
+    )
     assert isinstance(expression, PointColumnScalarExpr)
     result_id, product_id = execution.results[0]
     assert product_id.qualified_name == "root/outer/inner/call/counts"

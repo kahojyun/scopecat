@@ -25,7 +25,7 @@ from scopecat.compiler.typed.point_domain import (
     PointDomainEvaluationError,
     materialize_point_domain,
 )
-from scopecat.compiler.typed.values import CompilerValue
+from scopecat.compiler.value_resolution import BoundValueResolver, ProgramValue
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -102,7 +102,10 @@ class MaterializedBoundPoints:
             point, parameters = entries[ordinal]
             input_values = _domain_inputs(
                 execution,
-                self.bound_plan.bindings.values,
+                BoundValueResolver(
+                    self.bound_plan.program,
+                    self.bound_plan.bindings,
+                ),
                 input_kind,
                 point,
                 selected_input_ids,
@@ -181,7 +184,7 @@ def _materialize_bound_point_domain(
 
 def _domain_inputs(
     execution: LogicalDomainExecution,
-    values: Mapping[ValueId, CompilerValue],
+    values: Mapping[ValueId, ProgramValue],
     input_kind: Literal["program", "compiler"],
     point: MaterializedPoint,
     input_ids: tuple[str, ...],
@@ -212,7 +215,7 @@ def _domain_inputs(
 
 def _materialize_domain_execution_input(
     execution: LogicalDomainExecution,
-    values: Mapping[ValueId, CompilerValue],
+    values: Mapping[ValueId, ProgramValue],
     *,
     input_kind: Literal["program", "compiler"],
     input_name: str,
@@ -275,7 +278,7 @@ def _materialize_domain_execution_input(
 
 
 def _evaluate_domain_input(
-    input_spec: CompilerValue,
+    input_spec: ProgramValue,
     *,
     context: EvalContext,
     expected_type: ValueType,
@@ -287,7 +290,7 @@ def _evaluate_domain_input(
             expected_type=cast("Scalar", expected_type),
         )
     return evaluate_table_value(
-        input_spec.source,
+        input_spec,
         cast("Table", expected_type),
         context,
     )

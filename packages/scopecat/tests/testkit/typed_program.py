@@ -20,8 +20,8 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedMeasurementPostprocessor,
 )
-from scopecat.compiler.typed.values import CompilerValue
 from scopecat.compiler.typed.verification import verify_bound_facts
+from scopecat.compiler.value_resolution import ProgramValue
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
@@ -38,7 +38,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_data import CellValue
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
@@ -114,8 +114,8 @@ class DomainExecutionFixture:
     inputs: Mapping[str, ScalarExpr] = field(
         default_factory=lambda: dict[str, ScalarExpr]()
     )
-    compiler_inputs: Mapping[str, CompilerValue] = field(
-        default_factory=lambda: dict[str, CompilerValue]()
+    compiler_inputs: Mapping[str, ProgramValue] = field(
+        default_factory=lambda: dict[str, ProgramValue]()
     )
     results: tuple[DomainResultFixture, ...] = ()
 
@@ -298,17 +298,19 @@ def typed_program(
 
     value_defs: list[ValueDef] = []
     scalar_values: dict[ValueId, ScalarExpr] = {}
-    values: dict[ValueId, CompilerValue] = {}
     next_value = 0
 
-    def register(value: CompilerValue, role: str) -> ValueId:
+    def register(
+        value: ProgramValue,
+        role: str,
+        *,
+        value_type: ValueType | None = None,
+    ) -> ValueId:
         nonlocal next_value
         if isinstance(value, ComputeResultScalarExpr):
-            values[value.value_id] = value
             return value.value_id
         value_id = ValueId(SymbolId(local_id=f"{role}-{next_value}"))
         next_value += 1
-        values[value_id] = value
         if isinstance(value, ScalarExpr):
             scalar = value
             scalar_values[value_id] = scalar
@@ -316,11 +318,13 @@ def typed_program(
                 ValueDef(id=value_id, value_type=scalar.value_type, source=scalar)
             )
         else:
+            if not isinstance(value_type, Table):
+                raise AssertionError("table test input requires its declared type")
             value_defs.append(
                 ValueDef(
                     id=value_id,
-                    value_type=value.value_type,
-                    source=value.source,
+                    value_type=value_type,
+                    source=value,
                 )
             )
         return value_id
@@ -409,7 +413,17 @@ def typed_program(
                 for name, value in domain_execution.inputs.items()
             ),
             compiler_inputs=tuple(
-                (name, register(value, f"domain-compiler-{name}"))
+                (
+                    name,
+                    register(
+                        value,
+                        f"domain-compiler-{name}",
+                        value_type={
+                            port.id: port.value_type
+                            for port in domain_execution.program.compiler_input_ports
+                        }[name],
+                    ),
+                )
                 for name, value in domain_execution.compiler_inputs.items()
             ),
             results=tuple(
@@ -461,7 +475,6 @@ def typed_program(
     )
     bindings = BoundProgramFacts(
         point_domain=point_domain,
-        values=values,
         resource_requirements=tuple(resource_requirements),
         parameter_overlays=tuple(parameter_overlays),
         live_compute_ids=frozenset(node.id for node in compute_nodes),

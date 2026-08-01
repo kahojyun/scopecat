@@ -11,7 +11,6 @@ from scopecat.compiler.frontend.binding_lowering import (
 )
 from scopecat.compiler.frontend.logical_lowering import (
     input_row,
-    lower_logical_value,
     lower_parameter_overlay_intent,
     lower_point_domain,
     validate_entity_inputs,
@@ -179,10 +178,6 @@ def _lower_logical_program(
     }
     return BoundProgramFacts(
         point_domain=point_domain,
-        values={
-            value_id: lower_logical_value(verified, value_id)
-            for value_id in verified.value_types
-        },
         resource_requirements=tuple(resource_requirements),
         live_compute_ids=frozenset(node.id for node in logical.compute_nodes),
         domain_result_use_ids={

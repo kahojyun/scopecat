@@ -7,7 +7,7 @@ from collections.abc import Set as AbstractSet
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.typed.values import CompilerValue
+from scopecat.compiler.value_resolution import ProgramValue
 from scopecat.execution.local.program import (
     BoundInput,
     ComputeOperation,
@@ -27,7 +27,7 @@ from scopecat.program.value_graph import ComputeOutput, OperationId, ValueId
 def bind_compute_operations(
     nodes: Sequence[LogicalComputeNode],
     implementations: Mapping[OperationId, LocalPythonImplementation],
-    values: Mapping[ValueId, CompilerValue],
+    values: Mapping[ValueId, ProgramValue],
     *,
     operation_prefix: str,
     ctx: EvalContext,

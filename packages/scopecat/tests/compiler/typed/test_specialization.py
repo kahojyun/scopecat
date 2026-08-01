@@ -10,6 +10,7 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.specialization import (
     specialize_bound_facts,
 )
+from scopecat.compiler.value_resolution import resolve_bound_value
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.symbols import SymbolId
@@ -213,7 +214,11 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
     assert center_expression.value_type == frequency
 
     [specialized_domain] = program.logical.program.domain_executions
-    input_expression = specialized.values[dict(specialized_domain.inputs)["frequency"]]
+    input_expression = resolve_bound_value(
+        program.logical,
+        specialized,
+        dict(specialized_domain.inputs)["frequency"],
+    )
     assert isinstance(input_expression, PointColumnScalarExpr)
     assert input_expression.name == "frequency"
     assert input_expression.value_type == frequency

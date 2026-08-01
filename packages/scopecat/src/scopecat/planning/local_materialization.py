@@ -20,6 +20,10 @@ from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
 from scopecat.compiler.typed.program import BoundProgramFacts
+from scopecat.compiler.value_resolution import (
+    BoundValueResolver,
+    resolve_bound_value,
+)
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectionResultBinding,
@@ -137,7 +141,7 @@ class _InstrumentOperation(Protocol):
 
 
 def _bound_scalar_value(bound: BoundPlan, value_id: ValueId) -> ScalarExpr:
-    value = bound.bindings.values[value_id]
+    value = resolve_bound_value(bound.program, bound.bindings, value_id)
     if not isinstance(value, ScalarExpr):
         raise AssertionError("verified effect values must be scalar")
     return value
@@ -212,7 +216,7 @@ def materialize_local_execution(
         compute_operations, payload_ids = _bind_compute_operations(
             compute_nodes,
             logical.implementations,
-            program.values,
+            BoundValueResolver(bound.program, program),
             operation_prefix=point.logical_id.value,
             ctx=EvalContext(
                 params=point_params,

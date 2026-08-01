@@ -14,6 +14,7 @@ from scopecat.compiler.typed.point_domain import (
 )
 from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
+from scopecat.compiler.value_resolution import BoundValueResolver
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,
@@ -180,6 +181,8 @@ def _program_relation_consumers(
 ) -> Iterator[ProgramRelationConsumer]:
     """Index canonical expressions with their exact lowering bindings."""
 
+    values = BoundValueResolver(logical, program)
+
     for requirement_index, requirement in enumerate(program.resource_requirements):
         for expression_index, use in enumerate(requirement.entity_uses):
             yield _consumer(
@@ -197,7 +200,7 @@ def _program_relation_consumers(
         if node.id not in program.live_compute_ids:
             continue
         for input_name, value_id in node.inputs:
-            input_value = program.values[value_id]
+            input_value = values[value_id]
             if isinstance(input_value, ComputeResultScalarExpr):
                 continue
             if not isinstance(input_value, ScalarExpr):
@@ -216,7 +219,7 @@ def _program_relation_consumers(
 
     for execution_index, execution in enumerate(logical.program.domain_executions):
         for input_name, value_id in execution.inputs:
-            input_value = program.values[value_id]
+            input_value = values[value_id]
             if isinstance(input_value, ComputeResultScalarExpr):
                 continue
             if not isinstance(input_value, ScalarExpr):
@@ -232,7 +235,7 @@ def _program_relation_consumers(
                 ),
             )
         for input_name, value_id in execution.compiler_inputs:
-            input_value = program.values[value_id]
+            input_value = values[value_id]
             if not isinstance(input_value, ScalarExpr) or isinstance(
                 input_value, ComputeResultScalarExpr
             ):
@@ -249,7 +252,7 @@ def _program_relation_consumers(
             )
 
     for state_index, state in enumerate(logical.program.bindings):
-        value = program.values[state.value_id]
+        value = values[state.value_id]
         if isinstance(value, ScalarExpr) and not isinstance(
             value, ComputeResultScalarExpr
         ):
@@ -261,7 +264,7 @@ def _program_relation_consumers(
 
     for invocation_index, invocation in enumerate(logical.program.invocations):
         for argument in invocation.arguments:
-            value = program.values[argument.value_id]
+            value = values[argument.value_id]
             if not isinstance(value, ScalarExpr) or isinstance(
                 value, ComputeResultScalarExpr
             ):

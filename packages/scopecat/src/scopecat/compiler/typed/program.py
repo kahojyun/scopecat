@@ -13,9 +13,6 @@ from dataclasses import dataclass, field
 
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.values import (
-    CompilerValue,
-)
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
@@ -46,7 +43,7 @@ from scopecat.program.value_graph import (
 )
 
 
-def _empty_bound_values() -> dict[ValueId, CompilerValue]:
+def _empty_value_overrides() -> dict[ValueId, ScalarExpr]:
     return {}
 
 
@@ -93,7 +90,9 @@ class BoundProgramFacts:
     """Facts introduced by binding one canonical logical program."""
 
     point_domain: PointDomain
-    values: Mapping[ValueId, CompilerValue] = field(default_factory=_empty_bound_values)
+    value_overrides: Mapping[ValueId, ScalarExpr] = field(
+        default_factory=_empty_value_overrides
+    )
     resource_requirements: tuple[LogicalResourceRequirement, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     live_compute_ids: frozenset[OperationId] = frozenset()
@@ -106,7 +105,7 @@ class BoundProgramFacts:
     record_uses: tuple[RecordUse, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "values", dict(self.values))
+        object.__setattr__(self, "value_overrides", dict(self.value_overrides))
         object.__setattr__(
             self,
             "domain_result_use_ids",

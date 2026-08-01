@@ -18,15 +18,12 @@ from scopecat.compiler.typed.program import (
     BoundProgramFacts,
     LogicalResourceRequirement,
 )
-from scopecat.program.expressions import (
-    ComputeResultScalarExpr,
-    ScalarExpr,
-)
+from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import LogicalInvocation
 from scopecat.program.point_domain import (
     map_point_axis_centers,
 )
-from scopecat.program.value_graph import OperationId
+from scopecat.program.value_graph import OperationId, ValueId
 
 
 def specialize_bound_facts(
@@ -54,19 +51,13 @@ def specialize_bound_facts(
             )
             for requirement in program.resource_requirements
         ),
-        live_compute_ids=_live_compute_ids(logical, program),
-        values={
-            value_id: (
-                _specialize_value_use(
-                    value,
-                    known=known,
-                    parameter_cells=parameter_cells,
-                )
-                if isinstance(value, ScalarExpr)
-                else value
-            )
-            for value_id, value in program.values.items()
-        },
+        live_compute_ids=_live_compute_ids(logical),
+        value_overrides=_specialize_value_overrides(
+            logical,
+            program,
+            known=known,
+            parameter_cells=parameter_cells,
+        ),
     )
 
 
@@ -101,21 +92,20 @@ def _specialize_point_domain(
 
 def _live_compute_ids(
     logical: VerifiedLogicalProgram,
-    program: BoundProgramFacts,
 ) -> frozenset[OperationId]:
     """Keep the dependency closure of compute results observed by effects."""
 
     demanded = {
         state.value_id
         for state in logical.program.bindings
-        if isinstance(program.values[state.value_id], ComputeResultScalarExpr)
+        if state.value_id in logical.operation_results
     }
     demanded.update(
         argument.value_id
         for effect in logical.program.effects
         if isinstance(effect, LogicalInvocation)
         for argument in effect.arguments
-        if isinstance(program.values[argument.value_id], ComputeResultScalarExpr)
+        if argument.value_id in logical.operation_results
     )
 
     owners = {node.result_id: node for node in logical.program.compute_nodes}
@@ -128,12 +118,9 @@ def _live_compute_ids(
             continue
         live_ids.add(node.id)
         pending.extend(
-            value.value_id
+            value_id
             for _name, value_id in node.inputs
-            if isinstance(
-                value := program.values[value_id],
-                ComputeResultScalarExpr,
-            )
+            if value_id in logical.operation_results
         )
     return frozenset(live_ids)
 
@@ -170,16 +157,28 @@ def _specialize_resource_requirement(
     )
 
 
-def _specialize_value_use(
-    use: ScalarExpr,
+def _specialize_value_overrides(
+    logical: VerifiedLogicalProgram,
+    program: BoundProgramFacts,
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> ScalarExpr:
-    if isinstance(use, ComputeResultScalarExpr):
-        return use
-    return _specialize_scalar_value(
-        use,
-        known=known,
-        parameter_cells=parameter_cells,
-    )
+) -> dict[ValueId, ScalarExpr]:
+    """Retain only scalar expressions changed by configuration binding."""
+
+    overrides = {
+        **logical.scalar_values,
+        **program.value_overrides,
+    }
+    return {
+        value_id: specialized
+        for value_id, value in overrides.items()
+        if (
+            specialized := _specialize_scalar_value(
+                value,
+                known=known,
+                parameter_cells=parameter_cells,
+            )
+        )
+        != logical.scalar_values[value_id]
+    }

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Protocol, cast
+from typing import cast
 
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
@@ -26,10 +26,6 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.values import (
-    CompilerValue,
-    TableValue,
-)
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.value_data import CellValue
@@ -39,7 +35,7 @@ from scopecat.program.expressions import (
     ScalarExpr,
     as_scalar_expr,
 )
-from scopecat.program.logical import LogicalComputeNode, LogicalProgram, ValueDef
+from scopecat.program.logical import LogicalProgram
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.point_domain import (
     PointAxes,
@@ -51,44 +47,16 @@ from scopecat.program.scans import (
     AxisSpec,
     parameter_cell_lookup,
 )
-from scopecat.program.table_values import (
-    InputTableSource,
-    TableSource,
-)
-from scopecat.program.value_graph import ValueId
+from scopecat.program.table_values import InputTableSource
 from scopecat.program.value_refs import (
     ValueRef,
     internal_lower_scalar_value_ref,
     internal_lower_value_ref,
 )
-from scopecat.program.value_types import (
-    Table,
-    ValueType,
-    ValueValidationError,
-    coerce_literal,
-)
 from scopecat.program.value_types import Table as TableType
+from scopecat.program.value_types import ValueType, ValueValidationError, coerce_literal
 from scopecat.records.config import Topology
 from scopecat.records.parameter import ParameterCatalog
-
-
-class _LogicalProgramProof(Protocol):
-    """Facts exposed by the config-free logical verifier."""
-
-    @property
-    def program(self) -> LogicalProgram: ...
-
-    @property
-    def value_defs(self) -> Mapping[ValueId, ValueDef]: ...
-
-    @property
-    def operation_results(self) -> Mapping[ValueId, LogicalComputeNode]: ...
-
-    @property
-    def value_types(self) -> Mapping[ValueId, ValueType]: ...
-
-    @property
-    def scalar_values(self) -> Mapping[ValueId, ScalarExpr]: ...
 
 
 def lower_parameter_overlay_intent(
@@ -183,27 +151,6 @@ def validate_entity_inputs(
             "inputs",
             path=(input_id,),
         )
-
-
-def lower_logical_value(
-    program: _LogicalProgramProof,
-    value_id: ValueId,
-) -> CompilerValue:
-    if value_id in program.operation_results:
-        operation = program.operation_results[value_id]
-        return ComputeResultScalarExpr(
-            value_id=value_id,
-            value_type=operation.result_type,
-        )
-    scalar = program.scalar_values.get(value_id)
-    if scalar is not None:
-        return scalar
-    source = program.value_defs[value_id].source
-    value_type = program.value_types[value_id]
-    return TableValue(
-        source=cast("TableSource", source),
-        value_type=cast("Table", value_type),
-    )
 
 
 def coerce_logical_inputs(
