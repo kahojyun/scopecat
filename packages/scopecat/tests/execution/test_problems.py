@@ -7,7 +7,15 @@ from typing import override
 import pytest
 
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
-from scopecat.program.logical import LogicalStateAssignment
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.symbols import SymbolId
+from scopecat.program.expressions import LiteralScalarExpr
+from scopecat.program.logical import (
+    LogicalEnsureState,
+    LogicalStateAssignment,
+    ValueDef,
+)
+from scopecat.program.value_graph import ValueId
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     DriverAcquisition,
@@ -236,11 +244,40 @@ def test_run_rejects_unexpected_instrument_results(tmp_path: Path) -> None:
 
 def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> None:
     instrument = InterruptingCollectInstrument()
+    experiment = load_experiment()
+    [selected_state] = experiment.logical.program.bindings
+    final_frequency = Quantity(91.0, "GHz")
+    final_value = LiteralScalarExpr(final_frequency)
+    final_value_id = ValueId(SymbolId(scope=("final_state",), local_id="frequency"))
+    experiment = replace(
+        experiment,
+        logical=replace(
+            experiment.logical,
+            program=replace(
+                experiment.logical.program,
+                value_defs=(
+                    *experiment.logical.program.value_defs,
+                    ValueDef(
+                        id=final_value_id,
+                        value_type=final_value.value_type,
+                        source=final_value,
+                    ),
+                ),
+                final_state=LogicalEnsureState(
+                    (replace(selected_state, value_id=final_value_id),)
+                ),
+            ),
+            scalar_values={
+                **experiment.logical.scalar_values,
+                final_value_id: final_value,
+            },
+        ),
+    )
 
     with pytest.raises(KeyboardInterrupt, match="operator cancelled"):
         execute_bound_run(
             config=load_config(),
-            experiment=load_experiment(),
+            experiment=experiment,
             instruments=[instrument],
             project_root=tmp_path,
         )
@@ -249,6 +286,8 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
     assert manifest.status == "interrupted"
     assert manifest.datasets == ()
     assert instrument.aborted
+    [point_state] = instrument.applied_requests
+    assert final_frequency not in point_state.values.values()
     assert manifest.outcome is not None
     assert manifest.outcome.result == "cancelled"
     assert "execution_interrupted" in {
