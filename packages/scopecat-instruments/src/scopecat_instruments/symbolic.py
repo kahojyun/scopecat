@@ -69,9 +69,8 @@ from scopecat_instruments.states import (
     RFOutputState,
 )
 
-type _DCSourceDesiredState = (
-    DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState
-)
+type _DCSourceState = DCSourceState | DCSourceVoltage | DCSourceCurrent
+type _DCSourceMonitorState = _DCSourceState | DCMonitorState
 
 
 class SymbolicInstrumentRecorder(Protocol):
@@ -215,10 +214,25 @@ class _SymbolicInstrumentClient:
         return products
 
 
-class SymbolicDCSourceClient(_SymbolicInstrumentClient):
+class _DeclaredStateSymbolicClient[StateT](_SymbolicInstrumentClient):
+    def ensure(self, state: StateT) -> None:
+        self._ensure(self._desired_state_target(state))
+
+    def finalization_targets(
+        self,
+        state: StateT,
+        /,
+    ) -> tuple[FinalizationTarget, ...]:
+        return ((self.resource, self._desired_state_target(state)),)
+
+    def _desired_state_target(self, state: StateT) -> DesiredState:
+        return declared_state_target(state)
+
+
+class SymbolicDCSourceClient(_DeclaredStateSymbolicClient[_DCSourceState]):
     """Declarative DC-source state client backed by a logical resource."""
 
-    __slots__ = ("_monitor_enabled",)
+    __slots__ = ()
 
     def __init__(
         self,
@@ -226,41 +240,39 @@ class SymbolicDCSourceClient(_SymbolicInstrumentClient):
         resource_id: str,
         *,
         for_: OneEntity | None = None,
-        monitor: bool = False,
     ) -> None:
-        self._monitor_enabled = monitor
         super().__init__(
             recorder,
             resource_id,
-            requires=(DC_SOURCE, DC_MONITOR) if monitor else (DC_SOURCE,),
+            requires=(DC_SOURCE,),
             for_entity=_one_entity_value(for_),
         )
 
-    def ensure(
+
+class SymbolicDCSourceMonitorClient(
+    _DeclaredStateSymbolicClient[_DCSourceMonitorState]
+):
+    """Declarative source and monitor client requiring both capabilities."""
+
+    __slots__ = ()
+
+    def __init__(
         self,
-        state: _DCSourceDesiredState,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: OneEntity | None = None,
     ) -> None:
-        self._ensure(self._desired_state_target(state))
-
-    def finalization_targets(
-        self,
-        state: _DCSourceDesiredState,
-        /,
-    ) -> tuple[FinalizationTarget, ...]:
-        """Lower one declared source state for root finalization."""
-
-        return ((self.resource, self._desired_state_target(state)),)
-
-    def _desired_state_target(self, state: _DCSourceDesiredState) -> DesiredState:
-        if isinstance(state, DCMonitorState) and not self._monitor_enabled:
-            raise ValueError("DC monitor state requires dc_source(..., monitor=True)")
-        return declared_state_target(state)
+        super().__init__(
+            recorder,
+            resource_id,
+            requires=(DC_SOURCE, DC_MONITOR),
+            for_entity=_one_entity_value(for_),
+        )
 
     def monitor(self, *, id: str | None = None) -> DCMonitorProducts:
         """Declare the result active for the most recently ensured source mode."""
 
-        if not self._monitor_enabled:
-            raise ValueError("DC monitoring requires dc_source(..., monitor=True)")
         interface = dc_monitor_interface()
         acquisition = _find_acquisition(interface, DC_MONITOR_ACQUISITION)
         result_ids = _active_result_ids(
@@ -279,7 +291,7 @@ class SymbolicDCSourceClient(_SymbolicInstrumentClient):
         )
 
 
-class SymbolicRFOutputClient(_SymbolicInstrumentClient):
+class SymbolicRFOutputClient(_DeclaredStateSymbolicClient[RFOutputState]):
     """Declarative RF-output state client backed by a logical resource."""
 
     __slots__ = ()
@@ -298,20 +310,8 @@ class SymbolicRFOutputClient(_SymbolicInstrumentClient):
             for_entity=_one_entity_value(for_),
         )
 
-    def ensure(self, state: RFOutputState) -> None:
-        self._ensure(declared_state_target(state))
 
-    def finalization_targets(
-        self,
-        state: RFOutputState,
-        /,
-    ) -> tuple[FinalizationTarget, ...]:
-        """Lower one declared RF state for root finalization."""
-
-        return ((self.resource, declared_state_target(state)),)
-
-
-class SymbolicNetworkSweepClient(_SymbolicInstrumentClient):
+class SymbolicNetworkSweepClient(_DeclaredStateSymbolicClient[NetworkSweepState]):
     """Declarative network-analyzer state and acquisition client."""
 
     __slots__ = ()
@@ -329,18 +329,6 @@ class SymbolicNetworkSweepClient(_SymbolicInstrumentClient):
             requires=(NETWORK_SWEEP,),
             for_entity=_one_entity_value(for_),
         )
-
-    def ensure(self, state: NetworkSweepState) -> None:
-        self._ensure(declared_state_target(state))
-
-    def finalization_targets(
-        self,
-        state: NetworkSweepState,
-        /,
-    ) -> tuple[FinalizationTarget, ...]:
-        """Lower one declared sweep state for root finalization."""
-
-        return ((self.resource, declared_state_target(state)),)
 
     def sweep(self, *, id: str | None = None) -> NetworkSweepProducts:
         """Declare a sweep and derive its product schemas from the interface."""
@@ -432,7 +420,40 @@ class _SymbolicInstrumentGroup[ClientT: _SymbolicInstrumentClient]:
         return self._clients.map(lambda client: client.resource)
 
 
-class SymbolicDCSourceGroup(_SymbolicInstrumentGroup[SymbolicDCSourceClient]):
+class _DeclaredStateSymbolicGroup[
+    StateT,
+    ClientT: _SymbolicInstrumentClient,
+](_SymbolicInstrumentGroup[ClientT]):
+    def ensure(self, state: StateT | PerEntity[StateT]) -> None:
+        for entity, target in _align_per_entity(self._entities, state).items():
+            self._state_client(entity).ensure(target)
+
+    def finalization_targets(
+        self,
+        state: StateT | PerEntity[StateT],
+        /,
+    ) -> tuple[FinalizationTarget, ...]:
+        return tuple(
+            target
+            for entity, state_for_entity in _align_per_entity(
+                self._entities,
+                state,
+            ).items()
+            for target in self._state_client(entity).finalization_targets(
+                state_for_entity
+            )
+        )
+
+    def _state_client(
+        self,
+        entity: EntityRef,
+    ) -> _DeclaredStateSymbolicClient[StateT]:
+        return cast("_DeclaredStateSymbolicClient[StateT]", self._clients[entity])
+
+
+class SymbolicDCSourceGroup(
+    _DeclaredStateSymbolicGroup[_DCSourceState, SymbolicDCSourceClient]
+):
     """Entity-keyed declarative DC-source clients with broadcast state."""
 
     __slots__ = ()
@@ -443,7 +464,6 @@ class SymbolicDCSourceGroup(_SymbolicInstrumentGroup[SymbolicDCSourceClient]):
         resource_id: str,
         *,
         for_: EachEntity,
-        monitor: bool = False,
     ) -> None:
         super().__init__(
             resource_id,
@@ -454,40 +474,50 @@ class SymbolicDCSourceGroup(_SymbolicInstrumentGroup[SymbolicDCSourceClient]):
                     recorder,
                     child_id,
                     for_=one(entity),
-                    monitor=monitor,
                 ),
                 resource_id=resource_id,
             ),
         )
 
-    def ensure[StateT: _DCSourceDesiredState](
+
+class SymbolicDCSourceMonitorGroup(
+    _DeclaredStateSymbolicGroup[
+        _DCSourceMonitorState,
+        SymbolicDCSourceMonitorClient,
+    ]
+):
+    """Entity-keyed source and monitor clients with broadcast state."""
+
+    __slots__ = ()
+
+    def __init__(
         self,
-        state: StateT | PerEntity[StateT],
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: EachEntity,
     ) -> None:
-        for entity, target in _align_per_entity(self._entities, state).items():
-            self._clients[entity].ensure(target)
-
-    def finalization_targets[StateT: _DCSourceDesiredState](
-        self,
-        state: StateT | PerEntity[StateT],
-        /,
-    ) -> tuple[FinalizationTarget, ...]:
-        """Lower broadcast or entity-specific source final state."""
-
-        return tuple(
-            target
-            for entity, state_for_entity in _align_per_entity(
-                self._entities,
-                state,
-            ).items()
-            for target in self._clients[entity].finalization_targets(state_for_entity)
+        super().__init__(
+            resource_id,
+            for_,
+            _fanout_clients(
+                for_,
+                lambda entity, child_id: SymbolicDCSourceMonitorClient(
+                    recorder,
+                    child_id,
+                    for_=one(entity),
+                ),
+                resource_id=resource_id,
+            ),
         )
 
     def monitor(self, *, id: str | None = None) -> PerEntity[DCMonitorProducts]:
         return self._clients.map(lambda client: client.monitor(id=id))
 
 
-class SymbolicRFOutputGroup(_SymbolicInstrumentGroup[SymbolicRFOutputClient]):
+class SymbolicRFOutputGroup(
+    _DeclaredStateSymbolicGroup[RFOutputState, SymbolicRFOutputClient]
+):
     """Entity-keyed declarative RF-output clients with broadcast state."""
 
     __slots__ = ()
@@ -513,28 +543,10 @@ class SymbolicRFOutputGroup(_SymbolicInstrumentGroup[SymbolicRFOutputClient]):
             ),
         )
 
-    def ensure(self, state: RFOutputState | PerEntity[RFOutputState]) -> None:
-        for entity, target in _align_per_entity(self._entities, state).items():
-            self._clients[entity].ensure(target)
 
-    def finalization_targets(
-        self,
-        state: RFOutputState | PerEntity[RFOutputState],
-        /,
-    ) -> tuple[FinalizationTarget, ...]:
-        """Lower broadcast or entity-specific RF final state."""
-
-        return tuple(
-            target
-            for entity, state_for_entity in _align_per_entity(
-                self._entities,
-                state,
-            ).items()
-            for target in self._clients[entity].finalization_targets(state_for_entity)
-        )
-
-
-class SymbolicNetworkSweepGroup(_SymbolicInstrumentGroup[SymbolicNetworkSweepClient]):
+class SymbolicNetworkSweepGroup(
+    _DeclaredStateSymbolicGroup[NetworkSweepState, SymbolicNetworkSweepClient]
+):
     """Entity-keyed declarative network sweeps with broadcast state."""
 
     __slots__ = ()
@@ -558,29 +570,6 @@ class SymbolicNetworkSweepGroup(_SymbolicInstrumentGroup[SymbolicNetworkSweepCli
                 ),
                 resource_id=resource_id,
             ),
-        )
-
-    def ensure(
-        self,
-        state: NetworkSweepState | PerEntity[NetworkSweepState],
-    ) -> None:
-        for entity, target in _align_per_entity(self._entities, state).items():
-            self._clients[entity].ensure(target)
-
-    def finalization_targets(
-        self,
-        state: NetworkSweepState | PerEntity[NetworkSweepState],
-        /,
-    ) -> tuple[FinalizationTarget, ...]:
-        """Lower broadcast or entity-specific sweep final state."""
-
-        return tuple(
-            target
-            for entity, state_for_entity in _align_per_entity(
-                self._entities,
-                state,
-            ).items()
-            for target in self._clients[entity].finalization_targets(state_for_entity)
         )
 
     def sweep(self, *, id: str | None = None) -> PerEntity[NetworkSweepProducts]:
@@ -806,6 +795,8 @@ __all__ = [
     "NetworkSweepProducts",
     "SymbolicDCSourceClient",
     "SymbolicDCSourceGroup",
+    "SymbolicDCSourceMonitorClient",
+    "SymbolicDCSourceMonitorGroup",
     "SymbolicInstrumentRecorder",
     "SymbolicNetworkSweepClient",
     "SymbolicNetworkSweepGroup",

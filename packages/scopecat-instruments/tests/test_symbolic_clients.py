@@ -32,6 +32,8 @@ from scopecat_instruments import (
     RFOutputState,
     SymbolicDCSourceClient,
     SymbolicDCSourceGroup,
+    SymbolicDCSourceMonitorClient,
+    SymbolicDCSourceMonitorGroup,
     SymbolicInstrumentRecorder,
     SymbolicNetworkSweepClient,
     SymbolicNetworkSweepGroup,
@@ -46,6 +48,7 @@ from scopecat_instruments import (
     temperature_readout,
 )
 from scopecat_instruments.members import (
+    DC_MONITOR,
     DC_SOURCE,
     NETWORK_SWEEP,
     RF_OUTPUT,
@@ -352,6 +355,7 @@ def test_state_clients_record_typed_ensure_effects() -> None:
 def test_dc_monitor_selects_the_contract_result_for_the_ensured_source_mode() -> None:
     context = ModuleContext()
     source = dc_source(context, "flux", monitor=True)
+    assert_type(source, SymbolicDCSourceMonitorClient)
     source.ensure(
         DCSourceVoltage(
             range=Quantity(1.0, "V"),
@@ -382,17 +386,38 @@ def test_dc_monitor_requires_a_concrete_ensured_source_mode() -> None:
         source.monitor()
 
 
-def test_dc_monitor_requires_explicit_symbolic_opt_in() -> None:
+def test_dc_monitor_selection_is_a_static_symbolic_capability_boundary() -> None:
     context = ModuleContext()
     source = dc_source(context, "flux")
+    monitor = dc_source(context, "meter", monitor=True)
 
-    with pytest.raises(ValueError, match=r"monitor=True"):
-        source.ensure(DCMonitorState(measurement_enabled=True))
-    with pytest.raises(ValueError, match=r"monitor=True"):
-        source.monitor()
+    assert_type(source, SymbolicDCSourceClient)
+    assert_type(monitor, SymbolicDCSourceMonitorClient)
+    assert not hasattr(source, "monitor")
+    assert hasattr(monitor, "monitor")
 
     interface, _, _ = context.close_experiment_parts_internal()
     assert interface.resources[0].selector.interfaces == (DC_SOURCE.interface_id,)
+    assert interface.resources[1].selector.interfaces == (
+        DC_SOURCE.interface_id,
+        DC_MONITOR.interface_id,
+    )
+
+
+def test_dc_monitor_group_selection_retains_monitor_verbs() -> None:
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+
+    sources = dc_source(
+        ModuleContext(),
+        "flux",
+        for_=each(q0, q1),
+        monitor=True,
+    )
+
+    assert_type(sources, SymbolicDCSourceMonitorGroup)
+    assert_type(sources[q0], SymbolicDCSourceMonitorClient)
+    assert hasattr(sources, "monitor")
 
 
 def test_network_sweep_declares_contract_products_and_ensured_points() -> None:

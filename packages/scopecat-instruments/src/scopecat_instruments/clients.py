@@ -52,6 +52,8 @@ from scopecat_instruments.symbolic import (
     NetworkSweepProducts,
     SymbolicDCSourceClient,
     SymbolicDCSourceGroup,
+    SymbolicDCSourceMonitorClient,
+    SymbolicDCSourceMonitorGroup,
     SymbolicInstrumentRecorder,
     SymbolicNetworkSweepClient,
     SymbolicNetworkSweepGroup,
@@ -110,15 +112,18 @@ class _InstrumentClient:
         return self._session.apply_configured_defaults(self.instrument_id)
 
 
-class DCSourceClient(_InstrumentClient):
-    def apply(
-        self,
-        patch: DCSourceState | DCSourceVoltage | DCSourceCurrent,
-    ) -> ApplyReceipt:
+class _DeclaredStateClient[StateT](_InstrumentClient):
+    def apply(self, patch: StateT) -> ApplyReceipt:
         return self._session.apply(
             _concrete_assignments(patch),
             instrument_id=self.instrument_id,
         )
+
+
+class DCSourceClient(
+    _DeclaredStateClient[DCSourceState | DCSourceVoltage | DCSourceCurrent]
+):
+    pass
 
 
 class DCSourceMonitorClient(DCSourceClient):
@@ -144,21 +149,11 @@ class DCSourceMonitorClient(DCSourceClient):
         )
 
 
-class RFOutputClient(_InstrumentClient):
-    def apply(self, patch: RFOutputState) -> ApplyReceipt:
-        return self._session.apply(
-            _concrete_assignments(patch),
-            instrument_id=self.instrument_id,
-        )
+class RFOutputClient(_DeclaredStateClient[RFOutputState]):
+    pass
 
 
-class NetworkSweepClient(_InstrumentClient):
-    def apply(self, patch: NetworkSweepState) -> ApplyReceipt:
-        return self._session.apply(
-            _concrete_assignments(patch),
-            instrument_id=self.instrument_id,
-        )
-
+class NetworkSweepClient(_DeclaredStateClient[NetworkSweepState]):
     def sweep(self) -> NetworkSweepReadback:
         receipt = self._session.collect(
             NETWORK_SWEEP_ACQUISITION,
@@ -220,7 +215,7 @@ def dc_source(
     resource_id: str,
     *,
     for_: EachEntity,
-    monitor: bool = False,
+    monitor: Literal[False] = False,
 ) -> SymbolicDCSourceGroup: ...
 
 
@@ -229,9 +224,29 @@ def dc_source(
     instrument_id: SymbolicInstrumentRecorder,
     resource_id: str,
     *,
+    for_: EachEntity,
+    monitor: Literal[True],
+) -> SymbolicDCSourceMonitorGroup: ...
+
+
+@overload
+def dc_source(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
     for_: OneEntity | None = None,
-    monitor: bool = False,
+    monitor: Literal[False] = False,
 ) -> SymbolicDCSourceClient: ...
+
+
+@overload
+def dc_source(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_: OneEntity | None = None,
+    monitor: Literal[True],
+) -> SymbolicDCSourceMonitorClient: ...
 
 
 def dc_source(
@@ -245,6 +260,8 @@ def dc_source(
     | InstrumentRef[DCSourceMonitorClient]
     | SymbolicDCSourceClient
     | SymbolicDCSourceGroup
+    | SymbolicDCSourceMonitorClient
+    | SymbolicDCSourceMonitorGroup
 ):
     if isinstance(instrument_id, str):
         if resource_id is not None or for_ is not None:
@@ -259,18 +276,20 @@ def dc_source(
     if resource_id is None:
         raise TypeError("symbolic instrument clients require a logical resource id")
     if isinstance(for_, EachEntity):
-        return SymbolicDCSourceGroup(
+        if monitor:
+            return SymbolicDCSourceMonitorGroup(
+                instrument_id,
+                resource_id,
+                for_=for_,
+            )
+        return SymbolicDCSourceGroup(instrument_id, resource_id, for_=for_)
+    if monitor:
+        return SymbolicDCSourceMonitorClient(
             instrument_id,
             resource_id,
             for_=for_,
-            monitor=monitor,
         )
-    return SymbolicDCSourceClient(
-        instrument_id,
-        resource_id,
-        for_=for_,
-        monitor=monitor,
-    )
+    return SymbolicDCSourceClient(instrument_id, resource_id, for_=for_)
 
 
 @overload
@@ -408,16 +427,7 @@ def temperature_readout(
     return SymbolicTemperatureReadoutClient(instrument_id, resource_id, for_=for_)
 
 
-def _concrete_assignments(
-    state: (
-        DCSourceState
-        | DCSourceVoltage
-        | DCSourceCurrent
-        | DCMonitorState
-        | NetworkSweepState
-        | RFOutputState
-    ),
-) -> dict[PropertyRef, StateLiteral]:
+def _concrete_assignments(state: object) -> dict[PropertyRef, StateLiteral]:
     try:
         return {
             target: StateValue.model_validate(value).root
@@ -448,6 +458,8 @@ __all__ = [
     "RFOutputClient",
     "SymbolicDCSourceClient",
     "SymbolicDCSourceGroup",
+    "SymbolicDCSourceMonitorClient",
+    "SymbolicDCSourceMonitorGroup",
     "SymbolicInstrumentRecorder",
     "SymbolicNetworkSweepClient",
     "SymbolicNetworkSweepGroup",
