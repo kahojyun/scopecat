@@ -40,7 +40,7 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
 from scopecat.measurements.results import MeasurementDType
-from scopecat.program.state import StateBinding
+from scopecat.program.state import DesiredState, StateBinding
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.contracts import (
     AcquisitionAxisSpec,
@@ -333,7 +333,7 @@ class DeclaredAcquisition[ResultT]:
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledStateTarget:
+class _DeclaredStateTarget:
     """Internal desired-state adapter produced from a declared dataclass."""
 
     assignments: Mapping[PropertyRef, StateBinding]
@@ -886,10 +886,10 @@ def declared_state_assignments(state: object) -> dict[PropertyRef, StateBinding]
     return assignments
 
 
-def declared_state_target(state: object) -> CompiledStateTarget:
+def declared_state_target(state: object) -> DesiredState:
     """Adapt a declared dataclass to the existing ``DesiredState`` protocol."""
 
-    return CompiledStateTarget(declared_state_assignments(state))
+    return _DeclaredStateTarget(declared_state_assignments(state))
 
 
 def declared_acquisition[InterfaceT, ResultT](
@@ -1990,7 +1990,6 @@ __all__ = [
     "AxisMetadata",
     "AxisSize",
     "CompiledInterface",
-    "CompiledStateTarget",
     "ComponentMetadata",
     "DeclaredAcquisition",
     "DeclaredPropertyTarget",
