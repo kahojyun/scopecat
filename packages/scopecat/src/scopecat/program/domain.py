@@ -18,6 +18,7 @@ from scopecat.domain.program import (
 )
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.program.identities import DomainCallKey
+from scopecat.program.input_capture import capture_runtime_input
 from scopecat.program.operations import ComputeNodeInputValue
 from scopecat.program.products import (
     ModuleProductDecl,
@@ -25,7 +26,7 @@ from scopecat.program.products import (
     ProductRef,
     prefix_product_decl,
 )
-from scopecat.program.value_refs import ValueRef, capture_runtime_input
+from scopecat.program.value_refs import ValueRef
 from scopecat.program.value_types import Scalar, ValueType
 
 

@@ -1,15 +1,12 @@
-from dataclasses import replace
-
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    RowType,
-)
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
+from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
-    TypedComputeNode,
     product_axis,
     record_product,
+)
+from scopecat.compiler.point_domain import PointDomain
+from scopecat.compiler.relations.verification import (
+    ExpressionTypeBindings,
+    RowType,
 )
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -17,25 +14,37 @@ from scopecat.execution.local.program import (
     ComputeOperation,
     InvokeOperation,
 )
-from scopecat.graph.relations.model import (
-    CellValue,
-    parameter_lookup,
-)
-from scopecat.graph.relations.point_domain import point_axis_values
-from scopecat.graph.values import (
-    ComputeOutput,
-    OperationId,
-    operation_result_id,
-)
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Int, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.program.expressions import (
+    parameter_lookup,
+)
 from scopecat.program.logical import (
     ImplementationId,
     LocalPythonImplementation,
+)
+from scopecat.program.point_domain import point_axis_values
+from scopecat.program.value_graph import (
+    ComputeOutput,
+    OperationId,
+    operation_result_id,
+)
+from tests.testkit.bound_program import (
+    ComputeNodeFixture,
+    compute_result,
+    instrument_acquisition,
+    instrument_invocation,
+    observable_product,
+    overlay_parameter_cell,
+    program_fixture,
+)
+from tests.testkit.expressions import (
+    state_property as set_state_property,
 )
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
@@ -49,17 +58,6 @@ from tests.testkit.parameter_fixtures import (
 )
 from tests.testkit.parameter_fixtures import (
     parameters as _parameters,
-)
-from tests.testkit.relation_plans import (
-    state_property as set_state_property,
-)
-from tests.testkit.typed_program import (
-    compute_result,
-    instrument_acquisition,
-    instrument_invocation,
-    observable_product,
-    overlay_parameter_cell,
-    typed_program,
 )
 
 
@@ -82,7 +80,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
             Quantity(value=6.0, unit="GHz"),
         ),
     )
-    bindings = RelationTypeBindings(
+    bindings = ExpressionTypeBindings(
         point_row=RowType.from_table(points.value_type),
     )
     product = observable_product(
@@ -95,7 +93,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         interface="test.pulse/v1",
     )
     product_use, record_use = record_product(product)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -110,6 +108,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
                 key={"device_id": "r0"},
                 column_id="frequency",
                 axis_id="readout_frequency",
+                value_type=Scalar(QuantityType(unit="GHz")),
             )
         ],
         state=[
@@ -158,7 +157,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
 
 def test_separated_state_groups_have_distinct_operation_ids() -> None:
     points = _point_domain("index", Scalar(Int()), (0,))
-    bindings = RelationTypeBindings(
+    bindings = ExpressionTypeBindings(
         point_row=RowType.from_table(points.value_type),
     )
     drive = logical_resource_port_id("drive")
@@ -183,7 +182,7 @@ def test_separated_state_groups_have_distinct_operation_ids() -> None:
         interface="test.drive/v1",
     )
     product_use, record_use = record_product(product)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -194,8 +193,8 @@ def test_separated_state_groups_have_distinct_operation_ids() -> None:
         product_defs=[product],
         product_uses=[product_use],
         record_uses=[record_use],
+        effects=(enabled, acquisition, disabled),
     )
-    spec = replace(spec, effects=(enabled, acquisition, disabled))
 
     preview = materialized_effects_contract(
         spec,
@@ -215,7 +214,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
     operation_id = OperationId(SymbolId(local_id="build-waveform"))
     result_id = operation_result_id(operation_id)
     drive = logical_resource_port_id("drive")
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         invocations=[
             instrument_invocation(
@@ -223,7 +222,12 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
                 resource_port_id=drive,
                 interface="test.play_waveforms/v1",
                 operation="play",
-                arguments={"program": compute_result("build-waveform")},
+                arguments={
+                    "program": compute_result(
+                        "build-waveform",
+                        value_type=Scalar(Payload("waveform_bundle")),
+                    )
+                },
             )
         ],
         resource_requirements=(
@@ -233,7 +237,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
             ),
         ),
         compute_nodes=[
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=operation_id,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId("python.build-waveform.v1"),
@@ -243,6 +247,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
                     id=result_id,
                     value_type=Scalar(Payload("waveform_bundle")),
                 ),
+                input_types={},
                 inputs={},
             )
         ],
@@ -280,6 +285,55 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
     )
 
 
+def test_materialized_state_can_reference_a_compute_payload() -> None:
+    def build_waveform() -> dict[str, object]:
+        return {"kind": "waveform"}
+
+    operation_id = OperationId(SymbolId(local_id="build-waveform"))
+    result_id = operation_result_id(operation_id)
+    payload_type = Scalar(Payload("waveform_bundle"))
+    drive = logical_resource_port_id("drive")
+    spec = program_fixture(
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=drive,
+                interfaces=("test.play_waveforms/v1",),
+            ),
+        ),
+        state=[
+            set_state_property(
+                drive,
+                interface_id="test.play_waveforms/v1",
+                property_id="program",
+                value=compute_result("build-waveform", value_type=payload_type),
+            )
+        ],
+        compute_nodes=[
+            ComputeNodeFixture(
+                id=operation_id,
+                implementation=LocalPythonImplementation(
+                    id=ImplementationId("python.build-waveform.v1"),
+                    kernel=build_waveform,
+                ),
+                result=ComputeOutput(id=result_id, value_type=payload_type),
+                input_types={},
+            )
+        ],
+    )
+
+    preview = materialized_effects_contract(
+        spec,
+        _parameters(),
+        config=config_with_physical_resources({"drive-a": ("test.play_waveforms/v1",)}),
+    )
+
+    [step] = operations_of_type(preview, ComputeOperation, point_index=0)
+    assert step.payload_slot is not None
+    [(_point_index, _state, target)] = materialized_state_properties(preview)
+    assert target.value.root == PayloadRef(payload_id=step.payload_slot.id)
+
+
 def test_materialized_effects_groups_shared_typed_compute_result() -> None:
     operation_id = OperationId(SymbolId(local_id="build-waveform"))
     result_id = operation_result_id(operation_id)
@@ -287,7 +341,7 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
     def build_waveform() -> dict[str, object]:
         return {"kind": "waveform"}
 
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -301,18 +355,28 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
                 resource_port_id="drive-a",
                 interface="test.play_waveforms/v1",
                 operation="play",
-                arguments={"program": compute_result("build-waveform")},
+                arguments={
+                    "program": compute_result(
+                        "build-waveform",
+                        value_type=Scalar(Payload("waveform_bundle")),
+                    )
+                },
             ),
             instrument_invocation(
                 id="preview-waveform",
                 resource_port_id="drive-a",
                 interface="test.play_waveforms/v1",
                 operation="preview",
-                arguments={"program": compute_result("build-waveform")},
+                arguments={
+                    "program": compute_result(
+                        "build-waveform",
+                        value_type=Scalar(Payload("waveform_bundle")),
+                    )
+                },
             ),
         ],
         compute_nodes=[
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=operation_id,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId("python.build-waveform.v1"),
@@ -322,6 +386,7 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
                     id=result_id,
                     value_type=Scalar(Payload("waveform_bundle")),
                 ),
+                input_types={},
             )
         ],
     )
@@ -380,7 +445,7 @@ def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
         interface="test.measure_iq/v1",
     )
     product_use, record_use = record_product(product)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(

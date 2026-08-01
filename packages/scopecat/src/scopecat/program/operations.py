@@ -36,6 +36,7 @@ class ModuleOperationDecl:
     id: str
     declaration_key: ComputeDeclarationKey
     output_type: Scalar
+    input_types: tuple[tuple[str, Scalar], ...]
     inputs: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     scope: tuple[str, ...] = ()
     instance_path: tuple[InvocationKey, ...] = ()

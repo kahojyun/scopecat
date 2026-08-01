@@ -6,20 +6,13 @@ from pathlib import Path
 import pytest
 from scopecat import Quantity
 from scopecat.compiler.bind import BoundPlan, _bind_program_facts
+from scopecat.compiler.bound_facts import BoundProgramFacts, record_product
 from scopecat.compiler.environment import ConfigEnvironment
-from scopecat.compiler.frontend.logical_verification import verify_logical_program
-from scopecat.compiler.typed.domain_results import domain_result_closure
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
-    TypedDomainExecution,
-    TypedDomainResultBinding,
-    record_product,
-)
+from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainProgramDef, DomainResultPort
-from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.product_identity import product_id
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.measurements.products import ProductDef
@@ -27,8 +20,10 @@ from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
 )
+from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import materialize_bound_points
-from scopecat.program.logical import LogicalProgram
+from scopecat.program.logical import LogicalDomainExecution, LogicalProgram
+from scopecat.program.point_domain import point_axis_values
 from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainResultMapping,
@@ -83,12 +78,19 @@ from scopecat_quantum.targets import (
 
 def bind_program_facts(
     bindings: BoundProgramFacts,
+    execution: LogicalDomainExecution,
     environment: ConfigEnvironment,
     *,
     experiment_id: str,
 ) -> BoundPlan:
-    program = verify_logical_program(
-        LogicalProgram(experiment_id=experiment_id, kind="quantum_test")
+    program = VerifiedLogicalProgram(
+        program=LogicalProgram(
+            experiment_id=experiment_id,
+            kind="quantum_test",
+            effects=(execution,),
+        ),
+        product_declarations={},
+        scalar_values={},
     )
     return _bind_program_facts(program, bindings, environment)
 
@@ -111,28 +113,21 @@ def _preparation(
     )
     product = ProductDef(id=product_id("result"), dtype="complex128")
     product_use, record_use = record_product(product, record_id="record")
+    execution = LogicalDomainExecution(
+        id="domain",
+        program=DomainProgramDef(
+            id="program",
+            dialect_id="test.quantum.mixed-result-mapping",
+            dialect_version="1",
+            body=object(),
+            result_ports=(DomainResultPort("result"),),
+        ),
+        results=(("result", product.id),),
+    )
     program = BoundProgramFacts(
         point_domain=point_domain,
         product_defs=(product,),
-        effects=(
-            TypedDomainExecution(
-                id="domain",
-                program=DomainProgramDef(
-                    id="program",
-                    dialect_id="test.quantum.mixed-result-mapping",
-                    dialect_version="1",
-                    body=object(),
-                    result_ports=(DomainResultPort("result"),),
-                ),
-                results=(
-                    TypedDomainResultBinding(
-                        id="result",
-                        product_id=product.id,
-                        product_use_ids=(product_use.id,),
-                    ),
-                ),
-            ),
-        ),
+        domain_result_use_ids={(execution.id, "result"): (product_use.id,)},
         product_uses=(product_use,),
         record_uses=(record_use,),
     )
@@ -144,16 +139,20 @@ def _preparation(
     bound_points = materialize_bound_points(
         bind_program_facts(
             program,
+            execution,
             environment,
             experiment_id=program_id,
         )
     )
-    closure = domain_result_closure(bound_points.bound_plan.bindings, "domain")
+    product_use_ids = domain_result_product_use_ids(
+        bound_points.bound_plan.bindings,
+        execution,
+    )
     point_ordinals = (0, 1)
     call = make_domain_call_view(
         bound_points.bound_plan,
         "domain",
-        closure,
+        product_use_ids,
     )
     request = make_domain_batch_request(
         call,

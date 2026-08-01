@@ -6,16 +6,6 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
 from scopecat.compiler.frontend.value_binding import input_cell
-from scopecat.graph.relations.model import (
-    ScalarExpr,
-)
-from scopecat.graph.relations.point_domain import PointAxes
-from scopecat.graph.values import (
-    ComputeResultRef,
-    OperationId,
-    ValueId,
-    operation_result_id,
-)
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.program.bindings import (
@@ -25,10 +15,10 @@ from scopecat.program.bindings import (
     ResourcePort,
 )
 from scopecat.program.domain import DomainExecution
+from scopecat.program.expressions import ComputeResultScalarExpr, lit
 from scopecat.program.logical import (
     AcquireEffect,
     ImplementationId,
-    LiteralValueSource,
     LocalPythonImplementation,
     LogicalComputeNode,
     LogicalDomainExecution,
@@ -39,9 +29,7 @@ from scopecat.program.logical import (
     LogicalProgram,
     LogicalStateAssignment,
     MeasurementPostprocessorId,
-    PlanExpressionSource,
     ValueDef,
-    ValueSource,
 )
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.operations import (
@@ -50,8 +38,14 @@ from scopecat.program.operations import (
     ModuleOperationDecl,
 )
 from scopecat.program.parameters import ParameterContract
+from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl, RecordSelection
 from scopecat.program.scans import AxisSpec
+from scopecat.program.value_graph import (
+    OperationId,
+    ValueId,
+    operation_result_id,
+)
 from scopecat.program.value_refs import (
     PointValueDependency,
     ValueRef,
@@ -61,101 +55,33 @@ from scopecat.program.value_refs import (
 from scopecat.program.values import ComputeFunction
 
 
-def close_logical_program(
-    *,
-    experiment_id: str,
-    kind: str,
-    inputs: Mapping[str, object],
-    input_ports: Sequence[ModuleInputPort],
-    entity_inputs: Sequence[str],
-    resource_ports: Sequence[ResourcePort],
-    point_dependencies: Sequence[PointValueDependency],
-    parameter_overlays: Sequence[AxisSpec] = (),
-    product_declarations: Sequence[ModuleProductDecl],
-    record_selections: Sequence[RecordSelection] = (),
-    parameter_contracts: Sequence[ParameterContract],
-    point_domain: PointAxes[ValueRef] = (),
-    operations: Sequence[ModuleOperationDecl],
-    implementations: Mapping[OperationId, ComputeFunction],
-    measurement_postprocessors: Sequence[MeasurementPostprocessor] = (),
-    effects: Sequence[
-        BindingIntent
-        | EnsureStateIntent
-        | InvocationIntent
-        | DomainExecution
-        | AcquireEffect
-    ] = (),
-    final_state: EnsureStateIntent | None = None,
-    value_roots: Sequence[object] = (),
-) -> LogicalProgram:
-    """Close flattened definition data directly into its logical program."""
-
-    builder = _LogicalProgramBuilder(implementations)
-    for postprocessor in measurement_postprocessors:
-        builder.add_measurement_postprocessor(postprocessor)
-    for operation in operations:
-        builder.add_authored_operation(operation)
-    logical_effects = tuple(
-        builder.add_effect(effect, effect_index=effect_index)
-        for effect_index, effect in enumerate(effects)
-    )
-    for root in value_roots:
-        if isinstance(root, ValueRef):
-            builder.add_value_root(root)
-    return builder.finish(
-        experiment_id=experiment_id,
-        kind=kind,
-        inputs=inputs,
-        input_ports=input_ports,
-        entity_inputs=entity_inputs,
-        resource_ports=resource_ports,
-        point_dependencies=point_dependencies,
-        parameter_overlays=parameter_overlays,
-        product_declarations=product_declarations,
-        record_selections=record_selections,
-        parameter_contracts=parameter_contracts,
-        point_domain=point_domain,
-        effects=logical_effects,
-        final_state=(
-            None
-            if final_state is None
-            else builder.add_ensure_state(final_state, scope=("final_state",))
-        ),
-    )
-
-
 def logical_compute_node_id(symbol: SymbolId) -> OperationId:
     return OperationId(symbol)
 
 
 def logical_value_id(value: ValueRef) -> ValueId:
-    """Return the graph identity deterministically assigned to a typed value."""
+    """Return the graph identity already owned by a typed value."""
 
     operation_id = internal_value_ref_operation_id(value)
     if operation_id is not None:
         return operation_result_id(logical_compute_node_id(operation_id))
-    declaration_key = value.declaration_key
-    scope = value.declaration_scope
-    return ValueId(
-        SymbolId(
-            scope=(*scope, "values"),
-            local_id=f"v_{declaration_key.value.hex}",
-        )
-    )
+    return value.id
 
 
-class _LogicalProgramBuilder:
-    def __init__(
-        self,
-        implementations: Mapping[OperationId, ComputeFunction],
-    ) -> None:
-        self._module_implementations = dict(implementations)
+class LogicalProgramBuilder:
+    """Single sink for localized declarations, values, and ordered effects."""
+
+    def __init__(self) -> None:
         self._definitions: dict[ValueId, ValueDef] = {}
         self._compute_nodes: dict[OperationId, LogicalComputeNode] = {}
         self._measurement_postprocessors: list[LogicalMeasurementPostprocessor] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
 
-    def add_authored_operation(self, declaration: ModuleOperationDecl) -> None:
+    def add_authored_operation(
+        self,
+        declaration: ModuleOperationDecl,
+        implementation: ComputeFunction,
+    ) -> None:
         operation_id = logical_compute_node_id(declaration.operation_id)
         output_id = operation_result_id(operation_id)
         inputs = tuple(
@@ -172,20 +98,19 @@ class _LogicalProgramBuilder:
         operation = LogicalComputeNode(
             id=operation_id,
             inputs=inputs,
+            input_types=declaration.input_types,
             result_id=output_id,
             result_type=declaration.output_type,
         )
         self._add_compute_node(operation)
-        kernel = self._module_implementations.get(operation_id)
-        if kernel is not None:
-            self._implementations[operation_id] = LocalPythonImplementation(
-                id=ImplementationId(
-                    "python:"
-                    f"{declaration.declaration_key.value.hex}:"
-                    f"{operation_id.qualified_name}"
-                ),
-                kernel=kernel,
-            )
+        self._implementations[operation_id] = LocalPythonImplementation(
+            id=ImplementationId(
+                "python:"
+                f"{declaration.declaration_key.value.hex}:"
+                f"{operation_id.qualified_name}"
+            ),
+            kernel=implementation,
+        )
 
     def add_domain_execution(
         self,
@@ -416,19 +341,14 @@ class _LogicalProgramBuilder:
             # Its definition is owned by the corresponding authored operation.
             return value_id
         lowered = internal_lower_value_ref(value)
-        if isinstance(lowered, ComputeResultRef):
-            msg = "non-compute logical values must lower to a plan expression"
+        if isinstance(lowered, ComputeResultScalarExpr):
+            msg = "non-compute logical values must lower to a scalar expression"
             raise TypeError(msg)
-        source: ValueSource
-        if isinstance(lowered, ScalarExpr):
-            source = PlanExpressionSource(lowered)
-        else:
-            source = lowered
         self._add_definition(
             ValueDef(
                 id=value_id,
                 value_type=value.value_type,
-                source=source,
+                source=lowered,
             )
         )
         return value_id
@@ -438,12 +358,12 @@ class _LogicalProgramBuilder:
         value_id: ValueId,
         value: object,
     ) -> None:
-        input_cell(value)
+        value_type = literal_scalar_type(value)
         self._add_definition(
             ValueDef(
                 id=value_id,
-                value_type=literal_scalar_type(value),
-                source=LiteralValueSource(value),
+                value_type=value_type,
+                source=lit(input_cell(value), value_type),
             )
         )
 

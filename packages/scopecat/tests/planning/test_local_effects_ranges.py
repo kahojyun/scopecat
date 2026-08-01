@@ -1,49 +1,49 @@
 import pytest
 
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    RowType,
-)
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
+from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
     record_product,
 )
+from scopecat.compiler.point_domain import PointDomain
+from scopecat.compiler.relations.verification import (
+    ExpressionTypeBindings,
+    RowType,
+)
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
-from scopecat.graph.relations.model import (
-    param,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import (
-    point_axis_linear,
-    point_axis_values,
-)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
+from scopecat.program.expressions import (
+    param,
+    point_col,
+)
+from scopecat.program.point_domain import (
+    point_axis_linear,
+    point_axis_values,
+)
 from scopecat.records.config import ConfigProfileSnapshot
+from tests.testkit.bound_program import (
+    ProgramFixture,
+    instrument_acquisition,
+    observable_product,
+    program_fixture,
+)
+from tests.testkit.expressions import (
+    state_property,
+    verified_scalar_expr,
+)
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,
     materialized_state_properties,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
-from tests.testkit.relation_plans import (
-    scalar_value_expr,
-    state_property,
-)
-from tests.testkit.typed_program import (
-    instrument_acquisition,
-    observable_product,
-    typed_program,
-)
 from tests.testkit.workflow_fixtures import load_experiment
 
 
-def _materialized_effects_spec(spec: BoundProgramFacts, config: ConfigProfileSnapshot):
+def _materialized_effects_spec(spec: ProgramFixture, config: ConfigProfileSnapshot):
     return materialized_effects_contract(
         spec, build_config_environment(config).parameters, config=config
     )
@@ -85,7 +85,7 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
             for value in (5.9, 5.925, 5.95, 5.975, 6.0)
         )
     )
-    bindings = RelationTypeBindings(point_row=RowType.from_table(points.value_type))
+    bindings = ExpressionTypeBindings(point_row=RowType.from_table(points.value_type))
     product = observable_product(
         "signal",
         unit="ratio",
@@ -96,7 +96,7 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
         interface="test.set_frequency/v1",
     )
     product_use, record_use = record_product(product)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -109,7 +109,10 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
                 "source",
                 interface_id="test.set_frequency/v1",
                 property_id="frequency",
-                value=point_col("drive_frequency"),
+                value=point_col(
+                    "drive_frequency",
+                    Scalar(QuantityType(unit="GHz")),
+                ),
                 bindings=bindings,
             )
         ],
@@ -136,7 +139,7 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
 def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
     config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     value = Quantity(value=5.0, unit="GHz")
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain((value, value)),
     )
 
@@ -148,12 +151,12 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
 def test_materialized_effects_rejects_bind_problems_without_duplicates() -> None:
     config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     center_type = Scalar(QuantityType(unit="GHz"))
-    center = scalar_value_expr(
-        param("missing_center"),
-        bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
+    center = verified_scalar_expr(
+        param("missing_center", center_type),
+        bindings=ExpressionTypeBindings(parameters={"missing_center": center_type}),
         expected_type=center_type,
     )
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=PointDomain(
             axes=(
                 point_axis_linear(

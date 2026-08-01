@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from scopecat.compiler.typed.program import TypedMeasurementPostprocessor
+from scopecat.compiler.bound_facts import BoundMeasurementPostprocessor
 from scopecat.execution.local.program import ApplyStateOperation, LocalOperation
 from scopecat.kernel.resource_identity import (
     DomainTargetRequirement,
@@ -83,7 +83,7 @@ class RunProgram:
         repr=False,
         compare=False,
     )
-    measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = field(
+    measurement_postprocessors: tuple[BoundMeasurementPostprocessor, ...] = field(
         default=(),
         repr=False,
         compare=False,

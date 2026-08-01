@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 from typing import cast
 
+from scopecat.compiler.bound_facts import (
+    LogicalResourceRequirement,
+)
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
 )
-from scopecat.compiler.frontend.logical_lowering import lower_logical_value
-from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
 )
@@ -19,30 +19,16 @@ from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
 )
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    VerifiedRelationPlan,
-    verify_relation_plan,
+    ExpressionTypeBindings,
+    verify_scalar_expression,
 )
-from scopecat.compiler.typed.invocation import (
-    InvokeArgument,
-    InvokeEffect,
-    InvokeId,
-)
-from scopecat.compiler.typed.program import (
-    LogicalResourceRequirement,
-    set_state_property,
-)
-from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
-from scopecat.graph.relations.model import LiteralScalarExpr, ScalarExpr
-from scopecat.graph.values import ComputeResultRef, ValueId
 from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Entity, Scalar
 from scopecat.program.bindings import ResourcePort
-from scopecat.program.logical import (
-    LogicalEnsureState,
-    LogicalInvocation,
-    LogicalStateAssignment,
+from scopecat.program.expressions import (
+    LiteralScalarExpr,
+    ScalarExpr,
+    lit,
 )
 from scopecat.program.value_refs import (
     ValueRef,
@@ -51,94 +37,12 @@ from scopecat.program.value_refs import (
 from scopecat.records.config import Topology
 
 
-def lower_state_binding(
-    assignment: LogicalStateAssignment,
-    *,
-    program: VerifiedLogicalProgram,
-) -> SetStateSpec:
-    """Bind one closed logical state edge to its typed value."""
-
-    value = _lower_effect_value(
-        assignment.value_id,
-        program=program,
-    )
-    return set_state_property(
-        resource_port_id=assignment.port_id,
-        interface_id=assignment.interface_id,
-        component_path=assignment.component_path,
-        property_id=assignment.property_id,
-        value=value,
-    )
-
-
-def lower_ensure_state(
-    effect: LogicalEnsureState,
-    *,
-    program: VerifiedLogicalProgram,
-) -> EnsureStateSpec:
-    """Bind one coherent logical target into typed desired state."""
-
-    return EnsureStateSpec(
-        tuple(
-            lower_state_binding(
-                assignment,
-                program=program,
-            )
-            for assignment in effect.assignments
-        )
-    )
-
-
-def lower_invocation(
-    invocation: LogicalInvocation,
-    *,
-    program: VerifiedLogicalProgram,
-) -> InvokeEffect:
-    """Bind one verified logical operation invocation."""
-
-    arguments: list[InvokeArgument] = []
-    for argument in invocation.arguments:
-        arguments.append(
-            InvokeArgument(
-                id=argument.id,
-                value_use=_lower_effect_value(
-                    argument.value_id,
-                    program=program,
-                ),
-            )
-        )
-    return InvokeEffect(
-        id=InvokeId(SymbolId(scope=invocation.scope, local_id=invocation.id)),
-        resource_port_id=invocation.port_id,
-        interface_id=invocation.interface_id,
-        component_path=invocation.component_path,
-        operation_id=invocation.operation_id,
-        arguments=tuple(arguments),
-    )
-
-
-def _lower_effect_value(
-    value_id: ValueId,
-    *,
-    program: VerifiedLogicalProgram,
-) -> VerifiedRelationPlan | ComputeResultRef:
-    lowered = lower_logical_value(
-        program,
-        value_id,
-    )
-    if isinstance(lowered, ComputeResultRef):
-        return lowered
-    if not isinstance(lowered, VerifiedRelationPlan):
-        raise AssertionError("verified logical effect values must be scalar")
-    return lowered
-
-
 def build_resource_requirements(
     topology: Topology,
     ports: Sequence[ResourcePort],
     *,
     inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
+    type_bindings: ExpressionTypeBindings,
 ) -> list[LogicalResourceRequirement]:
     resource_requirements: list[LogicalResourceRequirement] = []
     for port in ports:
@@ -165,8 +69,8 @@ def _resource_entity_expr(
     source: ValueRef,
     inputs: Mapping[str, object],
     *,
-    type_bindings: RelationTypeBindings,
-) -> VerifiedRelationPlan:
+    type_bindings: ExpressionTypeBindings,
+) -> ScalarExpr:
     value_type = source.value_type
     lowered = internal_lower_value_ref(source)
     if not (
@@ -177,14 +81,14 @@ def _resource_entity_expr(
         raise AssertionError("verified resource entity source must be a scalar entity")
     bound = bind_scalar_input_refs(lowered, inputs)
     if isinstance(bound, LiteralScalarExpr):
-        bound = replace(
-            bound,
-            value=_resolve_target_entity(
+        bound = lit(
+            _resolve_target_entity(
                 topology,
                 cast("EntityRef | str", bound.value),
             ),
+            bound.value_type,
         )
-    return verify_relation_plan(
+    return verify_scalar_expression(
         bound,
         bindings=type_bindings,
         expected_type=value_type,

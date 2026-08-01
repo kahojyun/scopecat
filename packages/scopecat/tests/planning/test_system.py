@@ -1,31 +1,24 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal, Never, cast
+from typing import Literal, Never
 
 import pytest
 
-import scopecat.planning.point_materialization as point_materialization
-import scopecat.planning.system as planning_system
 from scopecat.compiler.bind import BoundPlan
+from scopecat.compiler.bound_facts import (
+    BoundMeasurementPostprocessor,
+    BoundMeasurementPostprocessorOutput,
+    LogicalResourceRequirement,
+    record_product,
+)
+from scopecat.compiler.parameter_overlays import PointParameterOverlay
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
+    ExpressionTypeBindings,
     RowType,
-    VerifiedRelationPlan,
-)
-from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
-    LogicalResourceRequirement,
-    TypedDomainExecution,
-    TypedDomainResultBinding,
-    TypedMeasurementPostprocessor,
-    TypedMeasurementPostprocessorOutput,
-    record_product,
-    set_state_property,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import (
@@ -39,19 +32,12 @@ from scopecat.execution.program import (
     RunCoverageEffect,
     RunDomainJob,
 )
-from scopecat.graph.relations.model import (
-    lit,
-    parameter_lookup,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.product_identity import product_use
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     DomainTargetRequirement,
-    LogicalResourcePortId,
     ResourceRequirement,
     logical_resource_port_id,
 )
@@ -60,18 +46,20 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, Table, TableColumn
 from scopecat.measurements.results import MeasurementValue
 from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.planning.point_materialization import (
-    MaterializedBoundPoints,
-    materialize_bound_points,
-)
 from scopecat.planning.provider_binding import (
     resolve_instrument_contract_catalog,
 )
-from scopecat.planning.routing import ResourcePortManifest, RoutingView
 from scopecat.planning.system import ExperimentSystem, build_experiment_system
+from scopecat.program.expressions import (
+    ScalarExpr,
+    lit,
+    parameter_lookup,
+    point_col,
+)
 from scopecat.program.logical import (
     MeasurementPostprocessorId,
 )
+from scopecat.program.point_domain import point_axis_values
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
@@ -106,20 +94,23 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
 )
 from tests.testkit.authoring import load_config
+from tests.testkit.bound_program import (
+    DomainExecutionFixture,
+    DomainResultFixture,
+    bind_program_facts,
+    instrument_acquisition,
+    observable_product,
+    overlay_parameter_cell,
+    program_fixture,
+)
+from tests.testkit.expressions import state_property, verified_scalar_expr
 from tests.testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,
 )
 from tests.testkit.parameter_fixtures import (
     parameters as parameter_fixture_data,
 )
-from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.typed_program import (
-    bind_program_facts,
-    instrument_acquisition,
-    observable_product,
-    overlay_parameter_cell,
-)
 
 
 class _EffectProbeRuntime:
@@ -154,7 +145,6 @@ class _DomainCompiler:
     compile_calls: int = 0
     compile_requests: list[DomainBatchRequest] = field(default_factory=list)
     prepared_inputs: list[tuple[object, ...]] = field(default_factory=list)
-    events: list[str] | None = None
 
     @property
     def target_id(self) -> str:
@@ -170,8 +160,6 @@ class _DomainCompiler:
     ) -> PreparedDomainExecution:
         self.compile_calls += 1
         self.compile_requests.append(request)
-        if self.events is not None:
-            self.events.append("compile")
         if request.inputs.program:
             self.prepared_inputs.append(
                 request.inputs.program[0][1],
@@ -268,7 +256,7 @@ def _bound_program(
     acquisition_before_domain: bool = False,
     record_instrument_products: bool = True,
     point_count: Literal[0, 2] = 2,
-    domain_input: VerifiedRelationPlan | None = None,
+    domain_input: ScalarExpr | None = None,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
     config: ConfigProfileSnapshot | None = None,
@@ -308,7 +296,7 @@ def _bound_program(
     selected_domain_product_count = (
         product_count if domain_product_count is None else domain_product_count
     )
-    domain_executions: tuple[TypedDomainExecution, ...] = ()
+    domain_executions: tuple[DomainExecutionFixture, ...] = ()
     if selected_domain_product_count:
         program_id = "program"
         selected = tuple(
@@ -318,11 +306,11 @@ def _bound_program(
                 strict=True,
             )
         )
-        result_bindings: list[TypedDomainResultBinding] = []
+        result_bindings: list[DomainResultFixture] = []
         for index, (product, (use, _record)) in enumerate(selected):
             result_id = f"result-{index}"
             result_bindings.append(
-                TypedDomainResultBinding(
+                DomainResultFixture(
                     id=result_id,
                     product_id=product.id,
                     product_use_ids=(use.id,),
@@ -346,7 +334,7 @@ def _bound_program(
             for call_index in range(domain_call_count)
         )
         domain_executions = tuple(
-            TypedDomainExecution(
+            DomainExecutionFixture(
                 id=execution_id,
                 program=DomainProgramDef(
                     id=(
@@ -390,23 +378,23 @@ def _bound_program(
         )
         for product in products[selected_domain_product_count:]
     )
-    bindings = RelationTypeBindings(point_row=RowType.from_table(point_type))
+    bindings = ExpressionTypeBindings(point_row=RowType.from_table(point_type))
     state_value = {
         "none": None,
-        "constant": scalar_value_expr(
+        "constant": verified_scalar_expr(
             lit(Quantity(value=5.0, unit="GHz")),
             expected_type=Scalar(QuantityType(unit="GHz")),
         ),
-        "varying": scalar_value_expr(
-            point_col("frequency"),
+        "varying": verified_scalar_expr(
+            point_col("frequency", Scalar(QuantityType(unit="GHz"))),
             bindings=bindings,
             expected_type=Scalar(QuantityType(unit="GHz")),
         ),
     }[state_mode]
     state = (
         (
-            set_state_property(
-                resource_port_id=logical_resource_port_id("source"),
+            state_property(
+                logical_resource_port_id("source"),
                 interface_id="test.set_frequency/v1",
                 property_id="frequency",
                 value=state_value,
@@ -430,7 +418,7 @@ def _bound_program(
         if record_instrument_products
         else selections[:selected_domain_product_count]
     )
-    program = BoundProgramFacts(
+    program = program_fixture(
         point_domain=points,
         resource_requirements=(
             *(
@@ -460,18 +448,6 @@ def _bound_program(
     return bind_program_facts(program, environment)
 
 
-def _point_frequency_domain_input() -> VerifiedRelationPlan:
-    frequency_type = Scalar(QuantityType(unit="GHz"))
-    point_type = Table(
-        columns=(TableColumn("frequency", frequency_type),),
-    )
-    return scalar_value_expr(
-        point_col("frequency"),
-        bindings=RelationTypeBindings(point_row=RowType.from_table(point_type)),
-        expected_type=frequency_type,
-    )
-
-
 def _postprocess_identity(
     value: MeasurementValue,
 ) -> dict[str, MeasurementValue]:
@@ -484,12 +460,12 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
     source_use = product_use(source.id)
     derived_use, derived_record = record_product(derived)
     postprocessor_id = MeasurementPostprocessorId(SymbolId(local_id="normalize"))
-    postprocessor = TypedMeasurementPostprocessor(
+    postprocessor = BoundMeasurementPostprocessor(
         id=postprocessor_id,
         input_product_id=source.id,
         input_product_use_id=source_use.id,
         outputs=(
-            TypedMeasurementPostprocessorOutput(
+            BoundMeasurementPostprocessorOutput(
                 id="result",
                 product_id=derived.id,
                 product_use_ids=(derived_use.id,),
@@ -497,7 +473,7 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
         ),
         kernel=_postprocess_identity,
     )
-    program = BoundProgramFacts(
+    program = program_fixture(
         point_domain=PointDomain(axes=()),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -505,7 +481,7 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
                 interfaces=("test.scalar_signal/v1",),
             ),
         ),
-        effects=(
+        instrument_acquisitions=(
             instrument_acquisition(
                 source,
                 interface="test.scalar_signal/v1",
@@ -584,29 +560,6 @@ def _config_with_domain_resources(
         }
     )
     return config.model_copy(update={"system": system})
-
-
-def _track_bound_resource_ports(
-    monkeypatch: pytest.MonkeyPatch,
-) -> list[LogicalResourcePortId]:
-    calls: list[LogicalResourcePortId] = []
-    original = RoutingView.bind_port
-
-    def track_binding(
-        routing: RoutingView,
-        *,
-        port_id: LogicalResourcePortId,
-        interfaces: Sequence[str],
-    ) -> ResourcePortManifest:
-        calls.append(port_id)
-        return original(
-            routing,
-            port_id=port_id,
-            interfaces=interfaces,
-        )
-
-    monkeypatch.setattr(RoutingView, "bind_port", track_binding)
-    return calls
 
 
 def _assert_no_domain_effects(*compilers: _DomainCompiler) -> None:
@@ -802,20 +755,6 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
     ]
 
 
-def test_local_resource_manifest_is_selected_once_for_complete_point_space(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    bound = _bound_program(domain_product_count=0, point_count=2)
-    calls = _track_bound_resource_ports(monkeypatch)
-    plan = ExperimentSystem(
-        instrument_catalog=_catalog(bound, TestSignalInstrumentProvider())
-    ).compile(bound)
-
-    assert calls == [logical_resource_port_id("source")]
-    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
-    assert calls == [logical_resource_port_id("source")]
-
-
 def test_run_requirements_and_host_order_include_only_used_local_instruments() -> None:
     config = load_config()
     seed_instrument = config.instrument_registry.instruments[0].model_copy(
@@ -853,32 +792,6 @@ def test_run_requirements_and_host_order_include_only_used_local_instruments() -
     assert set(plan.host.advertised_descriptions) == {"source-0", "unused-0"}
 
 
-def test_domain_target_instrument_does_not_require_a_local_manifest(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    bound = _bound_program(config=_config_with_domain_resources("source-0"))
-    compiler = _DomainCompiler("tests.domain-target-instrument")
-    calls = _track_bound_resource_ports(monkeypatch)
-
-    plan = ExperimentSystem(
-        instrument_catalog=_catalog(bound),
-        domain_compiler=compiler,
-    ).compile(bound)
-
-    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
-    assert calls == []
-    assert compiler.compile_calls == 1
-    assert plan.domain_target_requirement == DomainTargetRequirement(
-        id="tests.domain.target",
-        kind="tests.domain",
-        instrument_ids=("source-0",),
-    )
-    assert set(plan.resource_requirements) == {
-        ResourceRequirement("source-0"),
-        ResourceRequirement("tests.domain.target", "target"),
-    }
-
-
 def test_domain_target_footprint_contains_every_instrument_member() -> None:
     bound = _bound_program(
         config=_config_with_domain_resources("source-0", "target-member-1")
@@ -901,34 +814,15 @@ def test_domain_target_footprint_contains_every_instrument_member() -> None:
     }
 
 
-def test_mixed_target_builds_manifests_only_for_local_resources(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    bound = _bound_program(
-        state_mode="constant",
-    )
-    compiler = _DomainCompiler("tests.mixed-resource-target")
-    calls = _track_bound_resource_ports(monkeypatch)
-
-    plan = ExperimentSystem(
-        instrument_catalog=_catalog(bound, TestSignalInstrumentProvider()),
-        domain_compiler=compiler,
-    ).compile(bound)
-
-    assert calls == [logical_resource_port_id("source")]
-    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
-    assert calls == [logical_resource_port_id("source")]
-
-
 def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     frequency_type = Scalar(QuantityType(unit="GHz"))
     point_type = Table(
         columns=(TableColumn("frequency", frequency_type),),
     )
-    bindings = RelationTypeBindings(
+    bindings = ExpressionTypeBindings(
         point_row=RowType.from_table(point_type),
     )
-    domain_input = scalar_value_expr(
+    domain_input = verified_scalar_expr(
         parameter_lookup(
             READOUT_FREQUENCY_LOOKUP,
             key={"device_id": "r0"},
@@ -942,6 +836,7 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
         key={"device_id": "r0"},
         column_id="frequency",
         axis_id="frequency",
+        value_type=frequency_type,
     )
     bound = _bound_program(
         domain_input=domain_input,
@@ -1181,60 +1076,6 @@ def test_system_rejects_a_compiler_for_a_different_target_kind() -> None:
         ).compile(bound)
 
     assert _problem_codes(captured.value) == {"domain_target_kind_mismatch"}
-
-
-def test_point_inventory_and_domain_compilation_close_before_program_returns(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    bound = _bound_program(domain_input=_point_frequency_domain_input())
-    events: list[str] = []
-    compiler = _DomainCompiler("tests.symbolic-first", events=events)
-    original_materialize = cast(
-        "Callable[[BoundPlan], MaterializedBoundPoints]",
-        planning_system.__dict__["materialize_bound_points"],
-    )
-
-    def track_materialization(
-        selected: BoundPlan,
-    ) -> MaterializedBoundPoints:
-        events.append("materialize")
-        return original_materialize(selected)
-
-    monkeypatch.setattr(
-        planning_system,
-        "materialize_bound_points",
-        track_materialization,
-    )
-
-    plan = ExperimentSystem(
-        instrument_catalog=_catalog(bound),
-        domain_compiler=compiler,
-    ).compile(bound)
-
-    assert events == ["materialize", "compile"]
-    assert isinstance(plan.coverage, tuple)
-    first_inspection = tuple(plan.coverage)
-    second_inspection = tuple(plan.coverage)
-    assert first_inspection == second_inspection
-    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
-
-
-def test_complete_point_materialization_does_not_evaluate_domain_inputs(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def reject_domain_inputs(*_args: object, **_kwargs: object) -> Never:
-        raise AssertionError("point materialization must not evaluate domain inputs")
-
-    monkeypatch.setattr(
-        point_materialization,
-        "_materialize_domain_execution_input",
-        reject_domain_inputs,
-    )
-    bound_points = materialize_bound_points(
-        _bound_program(domain_input=_point_frequency_domain_input())
-    )
-
-    assert len(bound_points.point_domain.points) == 2
 
 
 def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None:

@@ -5,16 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
-from scopecat.graph.relations.model import (
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
+from scopecat.program.expressions import (
     BinaryScalarExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
     ScalarExpr,
-    ScalarExpression,
 )
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.quantity import Quantity
 from scopecat.records._run_request_values import (
     normalize_json_value,
     normalize_run_request_value,
@@ -71,7 +70,7 @@ def project_run_request_value(
 def project_run_request_scalar(expression: ScalarExpr) -> object:
     """Project transient relation syntax into durable request semantics."""
 
-    scalar = cast("ScalarExpression", expression)
+    scalar = expression
     if isinstance(scalar, LiteralScalarExpr):
         return project_run_request_value(scalar.value, path="expression.literal")
     if isinstance(scalar, ParameterScalarExpr):

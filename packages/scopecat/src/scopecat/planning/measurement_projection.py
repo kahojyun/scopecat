@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from scopecat.compiler.bind import BoundPlan
-from scopecat.compiler.typed.point_domain import MaterializedPointDomain
+from scopecat.compiler.point_domain import MaterializedPointDomain
 from scopecat.measurements.points import RunPoint, RunPointCatalog, RunPointContract
 from scopecat.measurements.records import point_coordinate_ids
 from scopecat.measurements.values import MeasurementValueCatalog

@@ -1,42 +1,46 @@
 from dataclasses import replace
 from typing import Never, cast
 
-from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.relations.specialization import (
-    ResidualScalar,
-    specialize_scalar,
+from scopecat.compiler.bound_facts import (
+    LogicalResourceRequirement,
 )
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    RowType,
-)
-from scopecat.compiler.typed.parameter_overlays import (
+from scopecat.compiler.parameter_overlays import (
     parameter_cell_bindings,
 )
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    LogicalResourceRequirement,
-    TypedDomainExecution,
+from scopecat.compiler.point_domain import PointDomain
+from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
+from scopecat.compiler.relations.specialization import (
+    specialize_scalar_expression,
 )
-from scopecat.compiler.typed.values import TableValue
+from scopecat.compiler.relations.verification import (
+    ExpressionTypeBindings,
+    RowType,
+)
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
-from scopecat.graph.relations.model import (
-    CellValue,
-    Row,
-    parameter_lookup,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import (
-    PointAxis,
-    point_axis_values,
-)
-from scopecat.graph.table_values import ParameterTableSource
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.kernel.value_data import CellValue, Row
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
 from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.program.expressions import (
+    param,
+    parameter_lookup,
+    point_col,
+)
+from scopecat.program.point_domain import (
+    PointAxis,
+    point_axis_values,
+)
+from scopecat.program.table_values import ParameterTableSource
+from tests.testkit.bound_program import (
+    DomainExecutionFixture,
+    bind_program_facts,
+    overlay_parameter_cell,
+    program_fixture,
+)
+from tests.testkit.expressions import state_property
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
@@ -46,12 +50,6 @@ from tests.testkit.parameter_fixtures import (
     PARAMETER_TYPES,
     READOUT_FREQUENCY_LOOKUP,
     parameters,
-)
-from tests.testkit.relation_plans import state_property
-from tests.testkit.typed_program import (
-    bind_program_facts,
-    overlay_parameter_cell,
-    typed_program,
 )
 
 _PARAMETER_TYPES = PARAMETER_TYPES
@@ -73,8 +71,8 @@ def _point_domain(
     return PointDomain(axes=tuple(factors))
 
 
-def _point_bindings(points: PointDomain) -> RelationTypeBindings:
-    return RelationTypeBindings(
+def _point_bindings(points: PointDomain) -> ExpressionTypeBindings:
+    return ExpressionTypeBindings(
         parameters={
             parameter_id: value_type
             for parameter_id, value_type in _PARAMETER_TYPES.items()
@@ -91,6 +89,7 @@ def _frequency_overlay(*, axis_id: str):
         key={"device_id": "r0"},
         column_id="frequency",
         axis_id=axis_id,
+        value_type=_FREQUENCY,
     )
 
 
@@ -106,7 +105,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
         ),
     )
     point_bindings = _point_bindings(points)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -122,7 +121,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
                 property_id="frequency",
                 value=parameter_lookup(
                     READOUT_FREQUENCY_LOOKUP,
-                    key={"device_id": point_col("device_id")},
+                    key={"device_id": point_col("device_id", _DEVICE_ID)},
                 ),
                 bindings=point_bindings,
             )
@@ -140,7 +139,13 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     ]
     plan = materialize_local_execution(bind_program_facts(spec, environment))
     without_overlay = materialize_local_execution(
-        bind_program_facts(replace(spec, parameter_overlays=()), environment)
+        bind_program_facts(
+            replace(
+                spec,
+                bindings=replace(spec.bindings, parameter_overlays=()),
+            ),
+            environment,
+        )
     )
 
     assert [
@@ -167,7 +172,7 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
     )
     table_type = _PARAMETER_TYPES["readout_devices"]
     assert isinstance(table_type, Table)
-    execution = TypedDomainExecution(
+    execution = DomainExecutionFixture(
         id="compile",
         program=DomainProgramDef(
             id="consume-readout-table",
@@ -176,14 +181,9 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
             body=object(),
             compiler_input_ports=(DomainInputPort("rows", table_type),),
         ),
-        compiler_inputs={
-            "rows": TableValue(
-                source=ParameterTableSource("readout_devices"),
-                value_type=table_type,
-            )
-        },
+        compiler_inputs={"rows": ParameterTableSource("readout_devices")},
     )
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=points,
         parameter_overlays=[_frequency_overlay(axis_id="frequency")],
         domain_execution=execution,
@@ -213,12 +213,51 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
     ]
 
 
+def test_domain_input_materializes_with_its_port_type() -> None:
+    generic_frequency = Scalar(QuantityType(dimension="frequency"))
+    ghz_frequency = Scalar(QuantityType(dimension="frequency", unit="GHz"))
+    execution = DomainExecutionFixture(
+        id="consume-frequency",
+        program=DomainProgramDef(
+            id="frequency-consumer",
+            dialect_id="test",
+            dialect_version="1",
+            body=object(),
+            input_ports=(DomainInputPort("frequency", ghz_frequency),),
+        ),
+        inputs={"frequency": param("frequency", generic_frequency)},
+    )
+    spec = program_fixture(
+        point_domain=PointDomain(axes=()),
+        domain_execution=execution,
+    )
+    environment = replace(
+        build_config_environment(config_with_physical_resources({})),
+        parameters=ParameterRelationData(
+            scalars={
+                "frequency": Quantity(value=5_000.0, unit="MHz"),
+            }
+        ),
+    )
+
+    bound_points = materialize_bound_points(bind_program_facts(spec, environment))
+    [(input_id, bound_values)] = bound_points.bind_domain_inputs(
+        execution.id,
+        "program",
+        ("frequency",),
+        (0,),
+    )
+
+    assert input_id == "frequency"
+    assert bound_values == (Quantity(value=5.0, unit="GHz"),)
+
+
 def test_point_parameter_overlay_residualizes_parameter_lookup() -> None:
     overlay = _frequency_overlay(axis_id="frequency")
     parameters_for_run = parameters()
     cells = parameter_cell_bindings((overlay,))
 
-    result = specialize_scalar(
+    result = specialize_scalar_expression(
         parameter_lookup(
             READOUT_FREQUENCY_LOOKUP,
             key={"device_id": "r0"},
@@ -227,5 +266,4 @@ def test_point_parameter_overlay_residualizes_parameter_lookup() -> None:
         parameter_cells=cells,
     )
 
-    assert isinstance(result, ResidualScalar)
-    assert result.expression == point_col("frequency")
+    assert result == point_col("frequency", _FREQUENCY)

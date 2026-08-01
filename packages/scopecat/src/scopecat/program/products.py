@@ -18,10 +18,9 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
+from scopecat.program.input_capture import capture_runtime_input, empty_program_mapping
 from scopecat.program.value_refs import (
     ValueRef,
-    capture_runtime_input,
-    empty_frozen_mapping,
 )
 from scopecat.program.values import MetadataValue
 
@@ -62,7 +61,7 @@ class ModuleProductDecl:
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     axes: tuple[ProductAxis, ...] = ()
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -149,7 +148,7 @@ class RecordSelection:
     )
     record_id: str | None = None
     role: MeasurementVariableRole = "observable"
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
         if self.record_id is not None and not self.record_id:

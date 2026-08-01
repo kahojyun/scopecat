@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Protocol, cast
+from typing import cast
 
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
@@ -17,96 +17,46 @@ from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
 from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
     bind_table_source,
+    expression_input_refs,
     input_cell,
-    scalar_input_refs,
 )
+from scopecat.compiler.parameter_overlays import PointParameterOverlay
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    VerifiedRelationPlan,
-    verify_relation_plan,
+    ExpressionTypeBindings,
+    verify_scalar_expression,
 )
-from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    ComputeInput,
-    TypedComputeNode,
-    TypedDomainExecution,
-    TypedDomainResultBinding,
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.problems import ProblemPhase
+from scopecat.kernel.value_data import CellValue
+from scopecat.kernel.value_type_compatibility import require_assignable
+from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
+    ScalarExpr,
+    as_scalar_expr,
 )
-from scopecat.compiler.typed.values import (
-    CompilerValue,
-    TableValue,
-)
-from scopecat.graph.relations.model import CellValue, ScalarExpr, as_scalar_expr
-from scopecat.graph.relations.point_domain import (
+from scopecat.program.logical import LogicalProgram
+from scopecat.program.operations import ModuleInputPort
+from scopecat.program.point_domain import (
     PointAxes,
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
 )
-from scopecat.graph.table_values import (
-    InputTableSource,
-    TableSource,
-)
-from scopecat.graph.values import (
-    ComputeOutput,
-    ComputeResultRef,
-    ValueId,
-)
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.problems import ProblemPhase
-from scopecat.kernel.product_identity import (
-    ProductId,
-    ProductUse,
-    ProductUseId,
-)
-from scopecat.kernel.value_type_compatibility import require_assignable
-from scopecat.program.logical import (
-    LocalPythonImplementation,
-    LogicalComputeNode,
-    LogicalDomainExecution,
-    LogicalProgram,
-    PlanExpressionSource,
-    ValueDef,
-)
-from scopecat.program.operations import ModuleInputPort
 from scopecat.program.scans import (
     AxisSpec,
     parameter_cell_lookup,
 )
+from scopecat.program.table_values import InputTableSource
 from scopecat.program.value_refs import (
     ValueRef,
     internal_lower_scalar_value_ref,
     internal_lower_value_ref,
 )
-from scopecat.program.value_types import (
-    Table,
-    ValueType,
-    ValueValidationError,
-    coerce_literal,
-)
 from scopecat.program.value_types import Table as TableType
+from scopecat.program.value_types import ValueType, ValueValidationError, coerce_literal
 from scopecat.records.config import Topology
 from scopecat.records.parameter import ParameterCatalog
-
-
-class _LogicalProgramProof(Protocol):
-    """Facts exposed by the config-free logical verifier."""
-
-    @property
-    def program(self) -> LogicalProgram: ...
-
-    @property
-    def value_defs(self) -> Mapping[ValueId, ValueDef]: ...
-
-    @property
-    def operation_results(self) -> Mapping[ValueId, LogicalComputeNode]: ...
-
-    @property
-    def value_types(self) -> Mapping[ValueId, ValueType]: ...
-
-    @property
-    def scalar_values(self) -> Mapping[ValueId, VerifiedRelationPlan]: ...
 
 
 def lower_parameter_overlay_intent(
@@ -115,7 +65,7 @@ def lower_parameter_overlay_intent(
     intent: AxisSpec,
     inputs: Mapping[str, object],
     *,
-    type_bindings: RelationTypeBindings,
+    type_bindings: ExpressionTypeBindings,
 ) -> PointParameterOverlay:
     lookup, key = parameter_cell_lookup(intent)
     definition = parameter_catalog.get(lookup.table_id)
@@ -140,20 +90,19 @@ def lower_parameter_overlay_intent(
             "parameters",
             path=(lookup.table_id, "columns", lookup.column_id),
         )
-    key_values = {
-        name: static_evaluator.scalar(
-            bind_scalar_input_refs(
-                internal_lower_scalar_value_ref(value)
-                if isinstance(value, ValueRef)
-                else as_scalar_expr(value),
-                inputs,
-            ),
+    key_values: dict[str, CellValue] = {}
+    for name, value in key:
+        expression = (
+            internal_lower_scalar_value_ref(value)
+            if isinstance(value, ValueRef)
+            else as_scalar_expr(value, value_type=key_types[name])
+        )
+        key_values[name] = static_evaluator.scalar(
+            bind_scalar_input_refs(expression, inputs),
             bindings=type_bindings,
             expected_type=key_types[name],
             inputs=input_row(inputs),
         )
-        for name, value in key
-    }
     try:
         row_index = static_evaluator.parameters.lookup_row_index(
             lookup.table_id,
@@ -172,6 +121,7 @@ def lower_parameter_overlay_intent(
         key=key_values,
         column_id=lookup.column_id,
         axis_id=intent.id,
+        value_type=intent.value_type,
     )
 
 
@@ -201,120 +151,6 @@ def validate_entity_inputs(
             "inputs",
             path=(input_id,),
         )
-
-
-def lower_compute_graph(
-    program: _LogicalProgramProof,
-) -> tuple[TypedComputeNode, ...]:
-    """Lower implementation-defined operations to the local residual artifact."""
-
-    nodes = tuple(
-        _lower_compute_node(
-            program,
-            operation,
-            implementation=program.program.implementations[operation.id],
-        )
-        for operation in program.program.compute_nodes
-    )
-    return nodes
-
-
-def lower_domain_graph(
-    program: _LogicalProgramProof,
-    executions: Sequence[LogicalDomainExecution],
-    *,
-    product_uses: Sequence[ProductUse],
-) -> tuple[TypedDomainExecution, ...]:
-    """Lower ordered prepare-stage domain effects and their product uses."""
-
-    uses_by_product: dict[ProductId, list[ProductUseId]] = {}
-    for use in product_uses:
-        uses_by_product.setdefault(use.product_id, []).append(use.id)
-    typed_executions: list[TypedDomainExecution] = []
-    for execution in executions:
-        lowered_inputs: dict[str, VerifiedRelationPlan] = {}
-        for name, value_id in execution.inputs:
-            lowered = cast(
-                "VerifiedRelationPlan",
-                lower_logical_value(
-                    program,
-                    value_id,
-                ),
-            )
-            lowered_inputs[name] = lowered
-        lowered_compiler_inputs: dict[str, CompilerValue] = {}
-        for name, value_id in execution.compiler_inputs:
-            lowered = cast(
-                "CompilerValue",
-                lower_logical_value(
-                    program,
-                    value_id,
-                ),
-            )
-            lowered_compiler_inputs[name] = lowered
-        result_bindings: list[TypedDomainResultBinding] = []
-        for result_id, product_id in execution.results:
-            result_bindings.append(
-                TypedDomainResultBinding(
-                    id=result_id,
-                    product_id=product_id,
-                    product_use_ids=tuple(uses_by_product.get(product_id, [])),
-                )
-            )
-        typed_executions.append(
-            TypedDomainExecution(
-                id=execution.id,
-                program=execution.program,
-                inputs=lowered_inputs,
-                compiler_inputs=lowered_compiler_inputs,
-                results=tuple(result_bindings),
-            )
-        )
-    return tuple(typed_executions)
-
-
-def _lower_compute_node(
-    program: _LogicalProgramProof,
-    operation: LogicalComputeNode,
-    *,
-    implementation: LocalPythonImplementation,
-) -> TypedComputeNode:
-    lowered_inputs: dict[str, ComputeInput] = {}
-    for name, value_id in operation.inputs:
-        lowered = lower_logical_value(
-            program,
-            value_id,
-        )
-        if isinstance(lowered, VerifiedRelationPlan):
-            lowered_inputs[name] = lowered
-        else:
-            lowered_inputs[name] = cast("ComputeResultRef", lowered)
-    return TypedComputeNode(
-        id=operation.id,
-        implementation=implementation,
-        inputs=lowered_inputs,
-        result=ComputeOutput(
-            id=operation.result_id,
-            value_type=operation.result_type,
-        ),
-    )
-
-
-def lower_logical_value(
-    program: _LogicalProgramProof,
-    value_id: ValueId,
-) -> CompilerValue | ComputeResultRef:
-    if value_id in program.operation_results:
-        return ComputeResultRef(value_id)
-    scalar = program.scalar_values.get(value_id)
-    if scalar is not None:
-        return scalar
-    source = program.value_defs[value_id].source
-    value_type = program.value_types[value_id]
-    return TableValue(
-        source=cast("TableSource", source),
-        value_type=cast("Table", value_type),
-    )
 
 
 def coerce_logical_inputs(
@@ -423,11 +259,11 @@ def _nested_input_dependencies(
 ) -> set[str]:
     if isinstance(value, ValueRef):
         lowered = internal_lower_value_ref(value)
-        if isinstance(lowered, ComputeResultRef):
+        if isinstance(lowered, ComputeResultScalarExpr):
             return set()
         if isinstance(lowered, ScalarExpr):
             return set(
-                scalar_input_refs(
+                expression_input_refs(
                     bind_scalar_input_refs(
                         lowered,
                         inputs,
@@ -470,8 +306,8 @@ def _nested_input_dependencies(
 
 
 def _value_source_dependencies(source: object) -> tuple[str, ...]:
-    if isinstance(source, PlanExpressionSource):
-        return source.source_inputs
+    if isinstance(source, ScalarExpr):
+        return expression_input_refs(source)
     if isinstance(source, InputTableSource):
         return (source.input_id,)
     return ()
@@ -481,7 +317,7 @@ def lower_point_domain(
     point_domain: PointAxes[ValueRef],
     *,
     inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
+    type_bindings: ExpressionTypeBindings,
 ) -> PointDomain:
     """Bind and verify each closed linear-axis center."""
 
@@ -501,8 +337,8 @@ def _lower_point_axis(
     axis: PointAxis[ValueRef],
     *,
     inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
-) -> PointAxis[VerifiedRelationPlan]:
+    type_bindings: ExpressionTypeBindings,
+) -> PointAxis[ScalarExpr]:
     source = axis.source
     if isinstance(source, PointAxisValues):
         return PointAxis(
@@ -510,7 +346,7 @@ def _lower_point_axis(
             value_type=axis.value_type,
             source=PointAxisValues(values=tuple(source.values)),
         )
-    center = verify_relation_plan(
+    center = verify_scalar_expression(
         bind_scalar_input_refs(
             internal_lower_scalar_value_ref(source.center),
             inputs,

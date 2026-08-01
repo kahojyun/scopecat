@@ -5,12 +5,6 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
-from scopecat.compiler.typed.invocation import InvokeEffect
-from scopecat.compiler.typed.program import (
-    TypedDomainExecution,
-    bound_state,
-)
-from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
@@ -18,6 +12,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.program.domain import domain_program
 from scopecat.program.logical import (
     AcquireEffect,
+    LogicalDomainExecution,
     LogicalEnsureState,
     LogicalInvocation,
     LogicalStateAssignment,
@@ -91,7 +86,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
         context.call(left)
         context.call(right)
 
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
     verify_logical_program(assembly)
 
     assert tuple(port.symbol_id for port in assembly.resource_ports) == (
@@ -122,16 +117,16 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     )
     assert [
         state.interface_id
-        for state in bound_state(resolved.bindings)
-        if isinstance(state, SetStateSpec)
+        for state in resolved.program.program.bindings
+        if isinstance(state, LogicalStateAssignment)
     ] == [
         "test.set_frequency/v1",
         "test.set_frequency/v1",
     ]
     assert [
         state.property_id
-        for state in bound_state(resolved.bindings)
-        if isinstance(state, SetStateSpec)
+        for state in resolved.program.program.bindings
+        if isinstance(state, LogicalStateAssignment)
     ] == [
         "value.path",
         "value.path",
@@ -149,7 +144,7 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
         context.resource("shared", requires=(_SET_FREQUENCY,))
         context.call(child)
 
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
 
     assert tuple(port.qualified_id for port in assembly.resource_ports) == ("shared",)
     assert tuple(binding.port_id.qualified_name for binding in assembly.bindings) == (
@@ -173,7 +168,7 @@ def test_nested_instances_prefix_resource_references_once_per_level() -> None:
     def root(context: sc.ModuleContext) -> None:
         context.call(outer)
 
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
     verify_logical_program(assembly)
 
     expected_port_id = logical_resource_port_id(
@@ -240,7 +235,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
             results={_SET_FREQUENCY_SAMPLE_SIGNAL: root_signal},
         )
 
-    assembly = compose_module(module.ir)
+    assembly = compose_module(module.definition)
 
     assert [
         ("binding", effect.port_id.qualified_name)
@@ -270,15 +265,15 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     bound = bind_invocation(template(), config_profile=load_config())
     assert [
         "binding"
-        if isinstance(effect, SetStateSpec)
+        if isinstance(effect, LogicalStateAssignment)
         else f"acquire:{effect.id.qualified_name}"
         if isinstance(effect, AcquireEffect)
         else f"ensure:{len(effect.assignments)}"
-        if isinstance(effect, EnsureStateSpec)
-        else f"invoke:{effect.id.qualified_name}"
-        if isinstance(effect, InvokeEffect)
+        if isinstance(effect, LogicalEnsureState)
+        else f"invoke:{effect.qualified_name}"
+        if isinstance(effect, LogicalInvocation)
         else f"domain:{effect.id}"
-        for effect in bound.bindings.effects
+        for effect in bound.program.program.effects
     ] == [
         "binding",
         "binding",
@@ -289,12 +284,16 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         "acquire:root/root-read",
     ]
     assert (
-        sum(isinstance(effect, SetStateSpec) for effect in bound.bindings.effects) == 3
+        sum(
+            isinstance(effect, LogicalStateAssignment)
+            for effect in bound.program.program.effects
+        )
+        == 3
     )
     assert (
         sum(
-            isinstance(effect, TypedDomainExecution)
-            for effect in bound.bindings.effects
+            isinstance(effect, LogicalDomainExecution)
+            for effect in bound.program.program.effects
         )
         == 2
     )
@@ -316,7 +315,7 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
         context.call(direct)
         context.call(nested)
 
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
     verify_logical_program(assembly)
 
     direct_id = logical_resource_port_id(
@@ -354,7 +353,7 @@ def test_acquire_resource_interfaces_are_checked_before_binding() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_logical_program(compose_module(module.ir))
+        verify_logical_program(compose_module(module.definition))
 
     assert [problem.code for problem in error.value.problems] == [
         "module_resource_port_interface_missing",
@@ -377,7 +376,7 @@ def test_state_resource_interfaces_are_checked_before_binding() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_logical_program(compose_module(module.ir))
+        verify_logical_program(compose_module(module.definition))
 
     assert [problem.code for problem in error.value.problems] == [
         "module_resource_port_interface_missing",
@@ -413,7 +412,7 @@ def test_state_binding_keeps_interface_and_property_ids_structured() -> None:
         ),
     )
 
-    state = bound_state(resolved.bindings)[0]
-    assert isinstance(state, SetStateSpec)
+    state = resolved.program.program.bindings[0]
+    assert isinstance(state, LogicalStateAssignment)
     assert state.interface_id == "test.set_offset/v1"
     assert state.property_id == "value.path"

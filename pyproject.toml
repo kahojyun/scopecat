@@ -280,7 +280,7 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"packages/scopecat/src/scopecat/graph/relations/point_domain.py" = [
+"packages/scopecat/src/scopecat/program/point_domain.py" = [
   # PEP 695 has no explicit variance syntax; PointAxis[Never] needs covariance.
   "UP046",
 ]

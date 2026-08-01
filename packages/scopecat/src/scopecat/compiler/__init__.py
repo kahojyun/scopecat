@@ -1,8 +1,8 @@
 """Transient, one-way compiler stages and their semantic foundations.
 
-Authoring structure is lowered into backend-neutral semantic and typed graphs,
-then bound to accepted configuration before any target-specific
-materialization. A lower stage may retain explicit provenance, but must not
+Authoring structure is lowered into one verified logical program, then bound
+to accepted configuration facts before target-specific materialization. A
+lower stage may retain explicit provenance, but must not
 recover meaning from display names or depend on public authoring handles.
 
 Compiler stage values are frozen, trusted in-process state. Constructors and

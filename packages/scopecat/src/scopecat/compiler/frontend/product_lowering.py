@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from scopecat.compiler.bound_facts import product_axis as compiler_product_axis
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entities,
@@ -16,13 +17,7 @@ from scopecat.compiler.frontend.problems import (
     raise_frontend_problem,
 )
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
-from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.typed.program import product_axis as compiler_product_axis
-from scopecat.graph.relations.model import (
-    ScalarExpr,
-    as_scalar_expr,
-)
-from scopecat.graph.values import ComputeResultRef
+from scopecat.compiler.relations.verification import ExpressionTypeBindings
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ModelLocation
@@ -31,6 +26,11 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.records import RecordUse
+from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
+    ScalarExpr,
+    as_scalar_expr,
+)
 from scopecat.program.products import (
     AxisSizeInput,
     ModuleProductDecl,
@@ -65,7 +65,7 @@ def lower_products(
     product_declarations_by_id: Mapping[ProductId, ModuleProductDecl],
     inputs: Mapping[str, object],
     *,
-    type_bindings: RelationTypeBindings,
+    type_bindings: ExpressionTypeBindings,
     input_row: InputRow,
 ) -> LoweredProductModel:
     products = tuple(
@@ -120,7 +120,7 @@ def _lower_product_axis(
     inputs: Mapping[str, object],
     *,
     product: ModuleProductDecl,
-    type_bindings: RelationTypeBindings,
+    type_bindings: ExpressionTypeBindings,
     input_row: InputRow,
 ) -> ProductAxisDef:
     size, metadata = _static_axis_size(
@@ -154,7 +154,7 @@ def _lower_product_declaration(
     product: ModuleProductDecl,
     inputs: Mapping[str, object],
     *,
-    type_bindings: RelationTypeBindings,
+    type_bindings: ExpressionTypeBindings,
     input_row: InputRow,
 ) -> ProductDef:
     return ProductDef(
@@ -185,7 +185,7 @@ def _static_positive_int(
     location: ModelLocation,
     inputs: Mapping[str, object],
     input_row: InputRow,
-    type_bindings: RelationTypeBindings,
+    type_bindings: ExpressionTypeBindings,
     expected_type: Scalar | None = None,
 ) -> int:
     if value is None:
@@ -234,7 +234,7 @@ def _static_axis_size(
     default: int,
     location: ModelLocation,
     inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
+    type_bindings: ExpressionTypeBindings,
     entity_axis: bool = False,
     input_row: InputRow,
 ) -> tuple[int, dict[str, JsonValue]]:
@@ -243,7 +243,7 @@ def _static_axis_size(
     if isinstance(value, ValueRef):
         selected_type = value.value_type
         lowered = internal_lower_value_ref(value)
-        if isinstance(lowered, ComputeResultRef):
+        if isinstance(lowered, ComputeResultScalarExpr):
             raise AssertionError(
                 "verified product axis unexpectedly depends on a compute result"
             )

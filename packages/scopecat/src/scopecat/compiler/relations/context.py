@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from scopecat.compiler.relations.scalar_eval import cell_matches
-from scopecat.graph.relations.model import CellValue, Row
+from scopecat.kernel.value_data import CellValue, Row
 
 
 class ParameterRelationData:

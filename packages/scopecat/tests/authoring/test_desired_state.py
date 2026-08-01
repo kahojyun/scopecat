@@ -9,13 +9,13 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.typed.state import EnsureStateSpec
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.planning.local_materialization import (
     materialize_local_final_state,
     prepare_local_target,
 )
 from scopecat.program.bindings import EnsureStateIntent
+from scopecat.program.logical import LogicalEnsureState
 from scopecat.sdk.instruments import InterfaceRef, PropertyRef
 from tests.testkit.authoring import bind_invocation
 from tests.testkit.local_materialization import materialize_local_execution
@@ -99,8 +99,8 @@ def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
         ),
     )
 
-    [effect] = bound.bindings.effects
-    assert isinstance(effect, EnsureStateSpec)
+    [effect] = bound.program.program.effects
+    assert isinstance(effect, LogicalEnsureState)
     assert [assignment.property_id for assignment in effect.assignments] == [
         "level",
         "enabled",
@@ -137,7 +137,10 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
         ),
     )
 
-    assert all(isinstance(effect, EnsureStateSpec) for effect in bound.bindings.effects)
+    assert all(
+        isinstance(effect, LogicalEnsureState)
+        for effect in bound.program.program.effects
+    )
     plan = materialize_local_execution(bound)
     operations = tuple(
         effect.operation
@@ -171,9 +174,9 @@ def test_root_final_state_is_materialized_outside_point_effects() -> None:
         ),
     )
 
-    assert bound.bindings.effects == ()
-    final_state = bound.bindings.final_state
-    assert isinstance(final_state, EnsureStateSpec)
+    assert bound.program.program.effects == ()
+    final_state = bound.program.program.final_state
+    assert isinstance(final_state, LogicalEnsureState)
     assert [assignment.property_id for assignment in final_state.assignments] == [
         "level",
         "enabled",

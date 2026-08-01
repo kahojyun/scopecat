@@ -7,24 +7,21 @@ from dataclasses import dataclass
 from inspect import Parameter, signature
 from typing import cast
 
-from scopecat.graph.relations.model import (
-    ParameterLookupUse,
-    param,
-)
-from scopecat.graph.table_values import ParameterTableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.kernel.value_types import Scalar, Table, ValueType
-from scopecat.program.identities import ComputeDeclarationKey
-from scopecat.program.parameters import (
-    ParameterValueContract,
+from scopecat.program.expressions import (
+    ParameterLookupUse,
+    param,
 )
+from scopecat.program.identities import ComputeDeclarationKey
+from scopecat.program.input_capture import capture_runtime_input
+from scopecat.program.table_values import ParameterTableSource
 from scopecat.program.value_refs import (
     ValueRef,
-    capture_runtime_input,
     internal_input_value_ref,
     internal_operation_result_value_ref,
     internal_parameter_lookup_value_ref,
@@ -106,6 +103,14 @@ class Compute:
             ),
         )
 
+    @property
+    def input_types(self) -> tuple[tuple[str, Scalar], ...]:
+        """Return the declared consumer type of every compute input edge."""
+
+        return tuple(
+            (name, _compute_input_value_type(value)) for name, value in self.inputs
+        )
+
 
 def input(
     id: str,
@@ -134,20 +139,14 @@ def coordinate(id: str, value_type: Scalar) -> ValueRef:
 def parameter(id: str, value_type: Scalar | Table) -> ValueRef:
     """Declare a typed scalar or table parameter dependency."""
 
-    contract = ParameterValueContract(
-        parameter_id=id,
-        value_type=value_type,
-    )
     if isinstance(value_type, Table):
         return internal_table_value_ref(
             ParameterTableSource(id),
             value_type,
-            parameter_contracts=(contract,),
         )
     return internal_value_ref_from_expression(
-        param(id),
+        param(id, value_type),
         value_type,
-        parameter_contracts=(contract,),
     )
 
 
@@ -238,6 +237,12 @@ def _is_compute_input(value: object) -> bool:
             Quantity | EntityRef | PayloadValue | str | int | float | bool,
         )
     )
+
+
+def _compute_input_value_type(value: ComputeInput) -> Scalar:
+    if isinstance(value, ValueRef):
+        return cast("Scalar", value.value_type)
+    return literal_scalar_type(value)
 
 
 def _is_parameter_key_input(value: object) -> bool:

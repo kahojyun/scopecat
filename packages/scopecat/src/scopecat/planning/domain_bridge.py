@@ -5,13 +5,6 @@ from __future__ import annotations
 from typing import cast
 
 from scopecat.compiler.bind import BoundPlan
-from scopecat.compiler.typed.domain_results import (
-    DomainResultClosure,
-)
-from scopecat.compiler.typed.program import (
-    TypedDomainExecution,
-    bound_domain_executions,
-)
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.measurements.products import ProductDef
@@ -19,6 +12,7 @@ from scopecat.planning.measurement_projection import (
     project_measurement_catalog,
 )
 from scopecat.planning.point_materialization import MaterializedBoundPoints
+from scopecat.program.logical import LogicalDomainExecution
 from scopecat.sdk.domain._identities import product_use_id
 from scopecat.sdk.domain.batch import (
     DomainBatchInputs,
@@ -40,13 +34,13 @@ from scopecat.sdk.domain.view import (
 def make_domain_call_view(
     bound: BoundPlan,
     execution_id: str,
-    result_closure: DomainResultClosure,
+    product_use_ids: tuple[ProductUseId, ...],
 ) -> DomainCallView:
     """Project static domain semantics once before bounded compilation."""
 
-    typed_execution = next(
+    execution = next(
         item
-        for item in bound_domain_executions(bound.bindings)
+        for item in bound.program.program.domain_executions
         if item.id == execution_id
     )
     (
@@ -54,12 +48,13 @@ def make_domain_call_view(
         product_use_refs,
         product_use_refs_by_id,
     ) = _project_domain_assets(bound)
-    owned_use_ids = set(result_closure.product_use_ids)
+    owned_use_ids = set(product_use_ids)
     return DomainCallView(
-        id=typed_execution.id,
-        program=_domain_program_view(typed_execution.program),
+        id=execution.id,
+        program=_domain_program_view(execution.program),
         results=_domain_result_views(
-            typed_execution,
+            bound,
+            execution,
             product_contracts,
             product_use_refs_by_id,
         ),
@@ -163,24 +158,28 @@ def _domain_program_view(program: DomainProgramDef) -> DomainProgramView:
 
 
 def _domain_result_views(
-    execution: TypedDomainExecution,
+    bound: BoundPlan,
+    execution: LogicalDomainExecution,
     product_contracts: dict[ProductId, DomainProductContractView],
     product_use_refs: dict[ProductUseId, DomainProductUseRef],
 ) -> tuple[DomainResultBindingView, ...]:
     return tuple(
         DomainResultBindingView(
-            id=result.id,
-            product=product_contracts[result.product_id],
+            id=result_id,
+            product=product_contracts[product_id],
             product_uses=tuple(
-                product_use_refs[use_id] for use_id in result.product_use_ids
+                product_use_refs[use_id]
+                for use_id in bound.bindings.domain_result_use_ids[
+                    (execution.id, result_id)
+                ]
             ),
             contract=next(
                 port.contract
                 for port in execution.program.result_ports
-                if port.id == result.id
+                if port.id == result_id
             ),
         )
-        for result in execution.results
+        for result_id, product_id in execution.results
     )
 
 

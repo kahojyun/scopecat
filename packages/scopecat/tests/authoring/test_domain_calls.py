@@ -9,21 +9,20 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
-from scopecat.compiler.typed.domain_results import domain_result_closure
-from scopecat.compiler.typed.program import bound_acquisitions, bound_domain_executions
-from scopecat.compiler.typed.values import TableValue
+from scopecat.compiler.value_resolution import resolve_bound_value
 from scopecat.domain.program import DomainProgramDef
-from scopecat.graph.table_values import LiteralTableSource
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
 )
+from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.program.domain import domain_execution, domain_program
+from scopecat.program.expressions import PointColumnScalarExpr
 from scopecat.program.products import ModuleProductDecl
+from scopecat.program.table_values import LiteralTableSource
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 
@@ -123,7 +122,7 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
             )
         )
 
-    semantic = compose_module(module.ir).domain_executions[0]
+    semantic = compose_module(module.definition).domain_executions[0]
 
     assert tuple(port.id for port in semantic.program.input_ports) == ("value",)
     assert tuple(port.id for port in semantic.program.compiler_input_ports) == (
@@ -184,16 +183,18 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         config_profile=load_config(),
     )
 
-    [execution] = bound_domain_executions(bound.bindings)
-    table_value = execution.compiler_inputs["rows"]
-    assert isinstance(table_value, TableValue)
-    assert isinstance(table_value.source, LiteralTableSource)
+    [execution] = bound.program.program.domain_executions
+    table_value_id = dict(execution.compiler_inputs)["rows"]
+    assert isinstance(
+        bound.program.value_defs[table_value_id].source,
+        LiteralTableSource,
+    )
 
     points = materialize_bound_points(bound)
     call = make_domain_call_view(
         bound,
         execution.id,
-        domain_result_closure(bound.bindings, execution.id),
+        domain_result_product_use_ids(bound.bindings, execution),
     )
     request = make_domain_batch_request(
         call,
@@ -277,7 +278,7 @@ def test_module_preserves_ordered_domain_executions() -> None:
         context.call(domain_call(program, id="first"))
         context.call(domain_call(program, id="second"))
 
-    assert tuple(call.id for call in module.ir.body.domain_executions) == (
+    assert tuple(call.id for call in module.definition.body.domain_executions) == (
         "first/program",
         "second/program",
     )
@@ -309,7 +310,7 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
         context.call(right)
         context.call(left)
 
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
 
     assert tuple(execution.id for execution in assembly.domain_executions) == (
         "right/call/program",
@@ -347,7 +348,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_logical_program(compose_module(module.ir))
+        verify_logical_program(compose_module(module.definition))
     assert "logical_domain_execution_input_stage_unavailable" in {
         problem.code for problem in error.value.problems
     }
@@ -378,7 +379,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         outer = wrapper.instantiate("outer", x_count=x_count)
         context.call(outer)
 
-    assembly = compose_module(root_module.ir, x_count=point_x_count)
+    assembly = compose_module(root_module.definition, x_count=point_x_count)
     assert len(assembly.domain_executions) == 1
     assert (
         assembly.domain_executions[0].program.symbol_id.qualified_name
@@ -402,14 +403,20 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     )
     typed = resolved.bindings
 
-    assert bound_acquisitions(typed) == ()
-    typed_execution = bound_domain_executions(typed)[0]
-    assert typed_execution.program.body is body
-    assert isinstance(typed_execution.inputs["x_count"], VerifiedRelationPlan)
-    result = typed_execution.results[0]
-    assert result.product_id.qualified_name == "root/outer/inner/call/counts"
-    assert result.product_use_ids == tuple(use.id for use in typed.product_uses)
-    assert len(result.product_use_ids) == 2
+    assert resolved.program.program.acquisitions == ()
+    execution = resolved.program.program.domain_executions[0]
+    assert execution.program.body is body
+    expression = resolve_bound_value(
+        resolved.program,
+        typed,
+        dict(execution.inputs)["x_count"],
+    )
+    assert isinstance(expression, PointColumnScalarExpr)
+    result_id, product_id = execution.results[0]
+    assert product_id.qualified_name == "root/outer/inner/call/counts"
+    product_use_ids = typed.domain_result_use_ids[(execution.id, result_id)]
+    assert product_use_ids == tuple(use.id for use in typed.product_uses)
+    assert len(product_use_ids) == 2
 
 
 def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
@@ -438,7 +445,7 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
             )
         )
 
-    logical_program = compose_module(module.ir)
+    logical_program = compose_module(module.definition)
     value_ids = {
         definition.id.qualified_name for definition in logical_program.value_defs
     }

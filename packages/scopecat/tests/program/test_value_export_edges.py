@@ -10,18 +10,20 @@ from scopecat.compiler.relations.context import EvalContext
 from scopecat.kernel.value_types import Float, Scalar, String
 from scopecat.program.identities import InvocationKey
 from scopecat.program.value_refs import (
-    internal_bind_value_ref_inputs,
     internal_input_value_ref,
     internal_literal_value_ref,
     internal_lower_scalar_value_ref,
     internal_lower_value_ref,
     internal_module_export_value_ref,
     internal_require_resolved_value_ref,
-    internal_scope_value_ref,
-    internal_transform_value_ref,
     internal_value_ref_module_export,
 )
-from tests.testkit.relation_plans import evaluate_scalar
+from scopecat.program.value_transforms import (
+    internal_bind_value_ref_inputs,
+    internal_scope_value_ref,
+    internal_transform_value_ref,
+)
+from tests.testkit.expressions import evaluate_scalar
 
 
 def _float_type() -> Scalar:
@@ -51,7 +53,7 @@ def test_module_export_edge_remains_symbolic_until_elaboration() -> None:
         internal_require_resolved_value_ref(exported, context="compute input")
 
 
-def test_transform_resolves_exports_nested_in_expression_binding_layers() -> None:
+def test_transform_resolves_exports_nested_in_canonical_expression() -> None:
     value_type = _float_type()
     exported = internal_module_export_value_ref(
         InvocationKey.fresh(),
@@ -80,7 +82,7 @@ def test_transform_resolves_exports_nested_in_expression_binding_layers() -> Non
     assert evaluate_scalar(lowered, EvalContext()) == 8.0
 
 
-def test_transform_requires_exact_value_type_preservation() -> None:
+def test_transform_rejects_an_incompatible_value_type() -> None:
     exported = internal_module_export_value_ref(
         InvocationKey.fresh(),
         "value",
@@ -88,7 +90,7 @@ def test_transform_requires_exact_value_type_preservation() -> None:
     )
     incompatible = internal_input_value_ref("text", Scalar(String()))
 
-    with pytest.raises(TypeError, match="preserve the exact value type"):
+    with pytest.raises(TypeError, match="preserve an assignable value type"):
         internal_transform_value_ref(exported, lambda _leaf: incompatible)
 
 
@@ -107,4 +109,4 @@ def test_flattened_ir_rejects_export_edges_hidden_in_root_inputs() -> None:
         del module
 
     with pytest.raises(ValueError, match="unresolved module export 'value'"):
-        compose_module(root.ir, hidden=producer.outputs.value)
+        compose_module(root.definition, hidden=producer.outputs.value)

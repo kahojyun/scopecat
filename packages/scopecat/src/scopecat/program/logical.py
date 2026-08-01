@@ -5,23 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import cast, override
 
-import scopecat.graph.values as graph_values
+import scopecat.program.value_graph as graph_values
 from scopecat.domain.program import DomainProgramDef
-from scopecat.graph.relations.analysis import plan_input_refs
-from scopecat.graph.relations.model import (
-    ScalarExpr,
-)
-from scopecat.graph.relations.point_domain import PointAxes
-from scopecat.graph.table_values import TableSource
-from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
-from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductId
-from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar, ValueType
@@ -31,10 +21,15 @@ from scopecat.measurements.postprocessor_contract import (
 from scopecat.program.bindings import (
     ResourcePort,
 )
+from scopecat.program.expressions import (
+    ScalarExpr,
+)
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.parameters import ParameterContract
+from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl, RecordSelection
 from scopecat.program.scans import AxisSpec
+from scopecat.program.table_values import TableSource
 from scopecat.program.value_refs import PointValueDependency, ValueRef
 
 
@@ -78,47 +73,7 @@ class MeasurementPostprocessorId:
         return MeasurementPostprocessorId(self.symbol.prefixed(*scope))
 
 
-@dataclass(frozen=True, slots=True, eq=False)
-class PlanExpressionSource:
-    """A symbolic expression whose proof belongs to the whole logical program."""
-
-    expression: ScalarExpr = field(repr=False)
-
-    @property
-    def source_inputs(self) -> tuple[str, ...]:
-        """Return input dependencies derived from the retained expression."""
-
-        return plan_input_refs(self.expression)
-
-    @override
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, PlanExpressionSource) and (
-            self.expression == other.expression
-        )
-
-    @override
-    def __hash__(self) -> int:
-        # Scalar literals may contain unhashable record cells.
-        return hash((PlanExpressionSource, type(self.expression)))
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class LiteralValueSource:
-    """A closed scalar captured by value at semantic elaboration time."""
-
-    _value: object = field(hash=False, repr=False)
-
-    def __init__(self, value: object) -> None:
-        object.__setattr__(self, "_value", _snapshot_literal(value))
-
-    @property
-    def value(self) -> object:
-        """Return a defensive copy of the retained literal."""
-
-        return _snapshot_literal(self._value)
-
-
-type ValueSource = PlanExpressionSource | LiteralValueSource | TableSource
+type ValueSource = ScalarExpr | TableSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +89,7 @@ class ValueDef:
 class LogicalComputeNode:
     id: graph_values.OperationId
     inputs: tuple[tuple[str, graph_values.ValueId], ...]
+    input_types: tuple[tuple[str, Scalar], ...]
     result_id: graph_values.ValueId
     result_type: Scalar
 
@@ -229,6 +185,10 @@ class LogicalInvocation:
     operation_id: str
     arguments: tuple[LogicalInvocationArgument, ...]
     scope: tuple[str, ...] = ()
+
+    @property
+    def qualified_name(self) -> str:
+        return SymbolId(scope=self.scope, local_id=self.id).qualified_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,30 +299,3 @@ class LogicalProgram:
         return tuple(
             effect for effect in self.effects if isinstance(effect, AcquireEffect)
         )
-
-
-def _snapshot_literal(value: object) -> object:
-    """Snapshot closed data without cloning opaque runtime payload bodies."""
-
-    if isinstance(value, PayloadValue):
-        return value
-    if isinstance(value, EntityRef | QuantityValue):
-        return value.model_copy(deep=True)
-    if value is None or isinstance(value, str | int | float | bool):
-        return value
-    if isinstance(value, Mapping):
-        mapping = cast("Mapping[object, object]", value)
-        return {
-            key: _snapshot_literal(nested_value)
-            for key, nested_value in mapping.items()
-        }
-    if isinstance(value, list):
-        items = cast("list[object]", value)
-        return [_snapshot_literal(item) for item in items]
-    if isinstance(value, tuple):
-        items = cast("tuple[object, ...]", value)
-        return tuple(_snapshot_literal(item) for item in items)
-    # Unknown objects belong to the opaque payload/implementation boundary.
-    # Their identity is semantic data; attempting a generic deepcopy would make
-    # construction depend on incidental handle internals such as locks/devices.
-    return value

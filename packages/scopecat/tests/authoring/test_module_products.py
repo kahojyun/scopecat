@@ -9,7 +9,6 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.typed.program import bound_acquisitions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.instrument_members import AcquisitionResultRef
 from scopecat.kernel.problems import ProblemPhase
@@ -81,7 +80,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
     )
 
     assert resolved.bindings.product_defs[0].metadata == {"schema_owner": "analysis"}
-    assert bound_acquisitions(resolved.bindings)[0].results[0].metadata == {
+    assert resolved.program.program.acquisitions[0].results[0].metadata == {
         "adapter_mode": "fast"
     }
     assert [record.id for record in resolved.bindings.record_uses] == ["signal"]
@@ -231,7 +230,7 @@ def test_acquire_is_an_ordered_effect() -> None:
             results={_SAMPLE.result("signal"): signal},
         )
 
-    assembly = compose_module(module.ir)
+    assembly = compose_module(module.definition)
 
     acquire = assembly.acquisitions[0]
     assert assembly.effects == (acquire,)
@@ -258,7 +257,7 @@ def test_component_scoped_members_lower_complete_targets() -> None:
             results={channel.acquisition("sample").result("signal"): signal},
         )
 
-    assembly = compose_module(module.ir)
+    assembly = compose_module(module.definition)
     [binding] = assembly.bindings
     [invocation] = assembly.invocations
     [acquisition] = assembly.acquisitions
@@ -310,7 +309,7 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
         config_profile=load_config(),
     )
 
-    [acquisition] = bound_acquisitions(resolved.bindings)
+    [acquisition] = resolved.program.program.acquisitions
     assert acquisition.interface_id == "test.scalar_signal/v1"
     assert [
         (result.product_id.local_id, result.result_id) for result in acquisition.results
@@ -404,7 +403,7 @@ def test_explicit_instances_select_same_named_products_independently(
     assert left.products.signal.id == "left/signal"
     assert right.products["signal"].id == "right/signal"
 
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
     assert [product.qualified_id for product in assembly.product_declarations] == [
         "left/signal",
         "right/signal",
@@ -444,7 +443,7 @@ def test_explicit_instances_select_same_named_products_independently(
     ]
     acquisitions_by_product = {
         result.product_id: (acquisition, result)
-        for acquisition in bound_acquisitions(resolved.bindings)
+        for acquisition in resolved.program.program.acquisitions
         for result in acquisition.results
     }
     selected_acquisitions = [
@@ -485,7 +484,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     def wrapper(context: sc.ModuleContext) -> None:
         context.call(inner)
 
-    projected = wrapper.ir.products[0]
+    projected = wrapper.definition.products[0]
     expected_projection = ProductId(SymbolId(scope=("inner",), local_id="signal"))
     assert projected.symbol_id == expected_projection
     assert projected.target_id == expected_projection
@@ -498,7 +497,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     assert set(outer.products) == {"inner/signal"}
     nested_product = outer.products["inner/signal"]
     assert nested_product.id == "outer/inner/signal"
-    assembly = compose_module(root.ir)
+    assembly = compose_module(root.definition)
     assert [product.qualified_id for product in assembly.product_declarations] == [
         "outer/inner/signal"
     ]
@@ -527,7 +526,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
         SymbolId(scope=("nested-root", "outer", "inner"), local_id="signal")
     )
     assert use.product_id == expected_product_id
-    [acquisition] = bound_acquisitions(resolved.bindings)
+    [acquisition] = resolved.program.program.acquisitions
     [acquired_result] = acquisition.results
     assert acquired_result.product_id == expected_product_id
     assert acquisition.resource_port_id == logical_resource_port_id(

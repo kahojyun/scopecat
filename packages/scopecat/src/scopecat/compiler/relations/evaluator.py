@@ -2,28 +2,27 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.scalar_eval import (
     eval_binary,
     read_path,
 )
-from scopecat.graph.relations.model import (
+from scopecat.kernel.value_data import CellValue
+from scopecat.program.expressions import (
     BinaryScalarExpr,
-    CellValue,
+    ComputeResultScalarExpr,
     InputScalarExpr,
     LiteralScalarExpr,
+    ModuleExportScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
     PointColumnScalarExpr,
     ScalarExpr,
-    ScalarExpression,
 )
 
 
 def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> CellValue:
-    scalar = cast("ScalarExpression", expression)
+    scalar = expression
     match scalar:
         case LiteralScalarExpr():
             return scalar.value
@@ -33,6 +32,12 @@ def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> Cell
             return read_path(ctx.inputs, scalar.name)
         case ParameterScalarExpr():
             return ctx.params.scalar(scalar.name)
+        case ComputeResultScalarExpr():
+            msg = "compute results cannot be evaluated as pure scalar expressions"
+            raise TypeError(msg)
+        case ModuleExportScalarExpr():
+            msg = "unresolved module exports cannot be evaluated"
+            raise ValueError(msg)
         case ParameterLookupScalarExpr():
             resolved_key = {
                 name: evaluate_scalar_expression(value, ctx)
@@ -46,3 +51,5 @@ def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> Cell
                 evaluate_scalar_expression(scalar.left, ctx),
                 evaluate_scalar_expression(scalar.right, ctx),
             )
+        case _:
+            raise AssertionError("unknown scalar expression node")

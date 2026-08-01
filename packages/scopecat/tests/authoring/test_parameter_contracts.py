@@ -5,11 +5,11 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.typed.program import TypedDomainExecution
-from scopecat.graph.relations.model import PointColumnScalarExpr
+from scopecat.compiler.value_resolution import resolve_bound_value
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.program.domain import domain_program
+from scopecat.program.expressions import PointColumnScalarExpr
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
     ParameterDefinition,
@@ -375,7 +375,7 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
 
     resolved = bind_invocation(invocation, config_profile=config)
     materialized = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
         config=config,
     )
@@ -426,11 +426,14 @@ def test_parameter_scan_specializes_consumers_against_its_point_column() -> None
         config_profile=_config_with_parameter_table(),
     )
 
-    [execution] = resolved.bindings.effects
-    assert isinstance(execution, TypedDomainExecution)
-    root = execution.inputs["frequency"].root
-    assert isinstance(root, PointColumnScalarExpr)
-    assert root.name == "scanned_frequency"
+    [execution] = resolved.program.program.domain_executions
+    expression = resolve_bound_value(
+        resolved.program,
+        resolved.bindings,
+        dict(execution.inputs)["frequency"],
+    )
+    assert isinstance(expression, PointColumnScalarExpr)
+    assert expression.name == "scanned_frequency"
 
 
 def test_parameter_scan_type_must_be_writable_to_catalog_column() -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from scopecat.compiler.typed.program import TypedMeasurementPostprocessor
+from scopecat.compiler.bound_facts import BoundMeasurementPostprocessor
 from scopecat.kernel.errors import MeasurementPostprocessorExecutionError
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
@@ -22,7 +22,7 @@ from scopecat.records.measurement import MeasurementUnavailable
 
 
 def execute_measurement_postprocessors(
-    postprocessors: Sequence[TypedMeasurementPostprocessor],
+    postprocessors: Sequence[BoundMeasurementPostprocessor],
     candidates: Sequence[MeasurementValueCandidate],
     *,
     points: Sequence[RunPoint],
@@ -158,7 +158,7 @@ def _execution_problem(
     code: str,
     message: str,
     *,
-    postprocessor: TypedMeasurementPostprocessor,
+    postprocessor: BoundMeasurementPostprocessor,
     point_index: int,
     path: tuple[str | int, ...] = (),
     details: Mapping[str, JsonValue] | None = None,

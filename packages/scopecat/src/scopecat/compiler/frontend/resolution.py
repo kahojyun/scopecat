@@ -23,7 +23,6 @@ from scopecat.compiler.frontend.scan_validation import (
     ScanValidationError,
     verify_scans,
 )
-from scopecat.graph.relations.point_domain import analyze_point_domain
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.value_type_compatibility import (
@@ -32,6 +31,7 @@ from scopecat.kernel.value_type_compatibility import (
 )
 from scopecat.program.definitions import ExperimentInvocation
 from scopecat.program.logical import LogicalProgram
+from scopecat.program.point_domain import analyze_point_domain
 from scopecat.program.scans import (
     AxisSpec,
     Scan,

@@ -14,11 +14,6 @@ from scopecat.execution.local.program import (
     StateTarget,
 )
 from scopecat.execution.program import RunCoverageCheckpoint
-from scopecat.graph.values import (
-    ComputeOutput,
-    OperationId,
-    operation_result_id,
-)
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
     ProblemPhase,
@@ -34,6 +29,11 @@ from scopecat.kernel.value_types import Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCandidate
+from scopecat.program.value_graph import (
+    ComputeOutput,
+    OperationId,
+    operation_result_id,
+)
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     DriverAcquisition,
@@ -281,7 +281,12 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
                 logical_compute_node_id="consumer",
                 implementation_id="python.consumer.v1",
                 kernel=consume,
-                inputs={"value": OutputInput(producer_result_id)},
+                inputs={
+                    "value": OutputInput(
+                        producer_result_id,
+                        Scalar(QuantityType(unit="GHz")),
+                    )
+                },
                 result=ComputeOutput(
                     id=consumer_result_id,
                     value_type=Scalar(Float()),

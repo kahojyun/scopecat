@@ -4,13 +4,12 @@ from pathlib import Path
 from typing import Annotated
 
 import scopecat as sc
-from scopecat.compiler.typed.domain_results import domain_result_closure
-from scopecat.compiler.typed.program import bound_domain_executions
 from scopecat.measurements.results import MeasurementScalar, MeasurementValue
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
 )
+from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
     materialize_bound_points,
@@ -108,12 +107,12 @@ def _batch_context(
     *,
     batch_ordinal: int = 0,
 ) -> DomainBatchRequest:
-    program = bound_points.bound_plan.bindings
-    execution = bound_domain_executions(program)[0]
+    bound = bound_points.bound_plan
+    execution = bound.program.program.domain_executions[0]
     call = make_domain_call_view(
-        bound_points.bound_plan,
+        bound,
         execution.id,
-        domain_result_closure(program, execution.id),
+        domain_result_product_use_ids(bound.bindings, execution),
     )
     return make_domain_batch_request(
         call,
@@ -131,13 +130,16 @@ def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
         namespace="hidden-input",
         record_raw=False,
     )
-    program = bound_points.bound_plan.bindings
-    call = bound_domain_executions(program)[0]
+    bound = bound_points.bound_plan
+    program = bound.bindings
+    call = bound.program.program.domain_executions[0]
     [postprocessor] = program.measurement_postprocessors
     [direct_result] = call.results
     [postprocessor_output] = postprocessor.outputs
 
-    assert direct_result.product_use_ids == (postprocessor.input_product_use_id,)
+    assert program.domain_result_use_ids[(call.id, direct_result[0])] == (
+        postprocessor.input_product_use_id,
+    )
     assert postprocessor_output.product_use_ids
     recorded_use_ids = {record.product_use_id for record in program.record_uses}
     assert postprocessor.input_product_use_id not in recorded_use_ids

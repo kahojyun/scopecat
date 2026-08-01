@@ -5,18 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TypeGuard, cast
 
-from scopecat.graph.relations.model import CellValue, is_cell_value
-from scopecat.graph.relations.operators import (
-    ScalarOperator,
-    require_finite_arithmetic_result,
-    require_runtime_operator,
-    runtime_values_equal,
-)
 from scopecat.kernel.entity import (
     EntityRef,
     same_entity_identity,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_data import CellValue, is_cell_value
+from scopecat.program.expression_operators import (
+    ScalarOperator,
+    require_finite_arithmetic_result,
+    require_runtime_operator,
+    runtime_values_equal,
+)
 
 
 def read_path(row: Mapping[str, object], path: str) -> CellValue:

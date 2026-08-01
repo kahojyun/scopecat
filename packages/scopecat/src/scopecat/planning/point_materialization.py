@@ -13,25 +13,19 @@ from scopecat.compiler.entity_resolution import (
     resolve_entity,
 )
 from scopecat.compiler.environment import ConfigEnvironment
-from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
-from scopecat.compiler.relations.evaluation import (
-    evaluate_scalar,
-    evaluate_table_value,
-)
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
-from scopecat.compiler.typed.parameter_overlays import resolve_point_parameters
-from scopecat.compiler.typed.point_domain import (
+from scopecat.compiler.parameter_overlays import resolve_point_parameters
+from scopecat.compiler.point_domain import (
     MaterializedPoint,
     MaterializedPointDomain,
     PointDomainEvaluationError,
     materialize_point_domain,
 )
-from scopecat.compiler.typed.program import (
-    TypedDomainExecution,
-    bound_domain_executions,
+from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
+from scopecat.compiler.relations.evaluation import (
+    evaluate_scalar,
+    evaluate_table_value,
 )
-from scopecat.compiler.typed.values import CompilerValue
-from scopecat.graph.relations.model import Row
+from scopecat.compiler.value_resolution import BoundValueResolver, ProgramValue
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -40,7 +34,12 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
+from scopecat.kernel.value_data import Row
+from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
+from scopecat.program.expressions import ScalarExpr
+from scopecat.program.logical import LogicalDomainExecution
+from scopecat.program.value_graph import ValueId
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,10 +78,10 @@ class MaterializedBoundPoints:
             raise ValueError("point selection contains an unknown ordinal")
         execution = next(
             item
-            for item in bound_domain_executions(self.bound_plan.bindings)
+            for item in self.bound_plan.program.program.domain_executions
             if item.id == execution_id
         )
-        available_inputs = (
+        available_inputs = dict(
             execution.inputs if input_kind == "program" else execution.compiler_inputs
         )
         known_input_ids = tuple(available_inputs)
@@ -103,6 +102,10 @@ class MaterializedBoundPoints:
             point, parameters = entries[ordinal]
             input_values = _domain_inputs(
                 execution,
+                BoundValueResolver(
+                    self.bound_plan.program,
+                    self.bound_plan.bindings,
+                ),
                 input_kind,
                 point,
                 selected_input_ids,
@@ -180,7 +183,8 @@ def _materialize_bound_point_domain(
 
 
 def _domain_inputs(
-    execution: TypedDomainExecution,
+    execution: LogicalDomainExecution,
+    values: Mapping[ValueId, ProgramValue],
     input_kind: Literal["program", "compiler"],
     point: MaterializedPoint,
     input_ids: tuple[str, ...],
@@ -193,6 +197,7 @@ def _domain_inputs(
     for input_name in input_ids:
         success, value = _materialize_domain_execution_input(
             execution,
+            values,
             input_kind=input_kind,
             input_name=input_name,
             point=point,
@@ -209,7 +214,8 @@ def _domain_inputs(
 
 
 def _materialize_domain_execution_input(
-    execution: TypedDomainExecution,
+    execution: LogicalDomainExecution,
+    values: Mapping[ValueId, ProgramValue],
     *,
     input_kind: Literal["program", "compiler"],
     input_name: str,
@@ -220,18 +226,26 @@ def _materialize_domain_execution_input(
     """Evaluate one selected domain input at one logical point."""
 
     context = EvalContext(params=parameters, point_row=point.row)
-    input_spec = (
-        execution.inputs[input_name]
+    value_ids = dict(
+        execution.inputs if input_kind == "program" else execution.compiler_inputs
+    )
+    input_spec = values[value_ids[input_name]]
+    input_ports = (
+        execution.program.input_ports
         if input_kind == "program"
-        else execution.compiler_inputs[input_name]
+        else execution.program.compiler_input_ports
+    )
+    expected_type = next(
+        port.value_type for port in input_ports if port.id == input_name
     )
     try:
         evaluated = _evaluate_domain_input(
             input_spec,
             context=context,
+            expected_type=expected_type,
         )
         value = coerce_literal(
-            input_spec.value_type,
+            expected_type,
             evaluated,
             path=(
                 "domain_executions",
@@ -264,13 +278,22 @@ def _materialize_domain_execution_input(
 
 
 def _evaluate_domain_input(
-    input_spec: CompilerValue,
+    input_spec: ProgramValue,
     *,
     context: EvalContext,
+    expected_type: ValueType,
 ) -> object:
-    if isinstance(input_spec, VerifiedRelationPlan):
-        return evaluate_scalar(input_spec, context)
-    return evaluate_table_value(input_spec.source, input_spec.value_type, context)
+    if isinstance(input_spec, ScalarExpr):
+        return evaluate_scalar(
+            input_spec,
+            context,
+            expected_type=cast("Scalar", expected_type),
+        )
+    return evaluate_table_value(
+        input_spec,
+        cast("Table", expected_type),
+        context,
+    )
 
 
 def _unwrap_domain_input(value: object) -> object:

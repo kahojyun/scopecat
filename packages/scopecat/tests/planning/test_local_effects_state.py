@@ -1,21 +1,23 @@
 from __future__ import annotations
 
+from scopecat.compiler.bound_facts import LogicalResourceRequirement
+from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
+    ExpressionTypeBindings,
     RowType,
 )
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import LogicalResourceRequirement
-from scopecat.graph.relations.model import (
-    CellValue,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import StateValue
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Int, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.program.expressions import (
+    point_col,
+)
+from scopecat.program.point_domain import point_axis_values
+from tests.testkit.bound_program import program_fixture
+from tests.testkit.expressions import state_property
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,
@@ -24,8 +26,6 @@ from tests.testkit.materialized_effects import (
 from tests.testkit.parameter_fixtures import (
     parameters as _parameters,
 )
-from tests.testkit.relation_plans import state_property
-from tests.testkit.typed_program import typed_program
 
 
 def _state_literal(value: object) -> object:
@@ -44,15 +44,15 @@ def _point_domain(
 
 def _point_bindings(
     points: PointDomain,
-) -> RelationTypeBindings:
-    return RelationTypeBindings(
+) -> ExpressionTypeBindings:
+    return ExpressionTypeBindings(
         point_row=RowType.from_table(points.value_type),
     )
 
 
 def test_materialized_effects_binds_desired_state_for_each_point() -> None:
     unchanged_points = _point_domain("index", Scalar(Int()), (0, 1))
-    unchanged = typed_program(
+    unchanged = program_fixture(
         point_domain=unchanged_points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -78,7 +78,7 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
             Quantity(value=5.1, unit="GHz"),
         ),
     )
-    swept = typed_program(
+    swept = program_fixture(
         point_domain=swept_points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -91,7 +91,10 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
                 "drive",
                 interface_id="test.drive/v1",
                 property_id="carrier_frequency",
-                value=point_col("frequency"),
+                value=point_col(
+                    "frequency",
+                    Scalar(QuantityType(unit="GHz")),
+                ),
                 bindings=_point_bindings(swept_points),
             )
         ],

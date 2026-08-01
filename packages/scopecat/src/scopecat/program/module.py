@@ -1,4 +1,4 @@
-"""Explicit hierarchical IR for reusable modules.
+"""Explicit hierarchical definitions for reusable modules.
 
 The public contexts and invocation objects are authoring handles. ``ModuleDef``
 is the immutable definition they elaborate into: its interface declares the
@@ -41,6 +41,7 @@ from scopecat.program.identities import (
     ComputeDeclarationKey,
     InvocationKey,
 )
+from scopecat.program.input_capture import empty_program_mapping
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.operations import (
     ModuleInputPort,
@@ -52,14 +53,15 @@ from scopecat.program.products import (
 )
 from scopecat.program.value_refs import (
     ValueRef,
-    empty_frozen_mapping,
-    internal_transform_value_ref,
     internal_value_ref_input_id,
     internal_value_ref_module_export,
     internal_value_ref_operation_id,
     internal_value_ref_operation_origin,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
+)
+from scopecat.program.value_transforms import (
+    internal_transform_value_ref,
     internal_value_ref_unbound_input_ids,
 )
 from scopecat.program.value_types import ValueType
@@ -160,7 +162,7 @@ class ModuleResourceBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleInterfaceIR:
+class ModuleInterface:
     imports: tuple[ModuleInputPort, ...] = ()
     exports: tuple[ModuleValueExport, ...] = ()
     resources: tuple[ResourcePort, ...] = ()
@@ -175,7 +177,7 @@ class ModuleInterfaceIR:
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleInstanceIR:
+class ModuleInstance:
     lookup: ModuleInstanceLookup
     module: ModuleDef
     input_bindings: tuple[ModuleImportBinding, ...]
@@ -209,7 +211,7 @@ class ModuleAcquireResult:
 
     product: ProductRef
     result_id: str
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
         if not self.result_id:
@@ -248,8 +250,8 @@ class ModuleAcquireEffect:
         )
 
 
-type ModuleEffectIR = (
-    ModuleInstanceIR
+type ModuleEffect = (
+    ModuleInstance
     | BindingIntent
     | EnsureStateIntent
     | InvocationIntent
@@ -259,10 +261,10 @@ type ModuleEffectIR = (
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleBodyIR:
+class ModuleBody:
     """A closed effect sequence with derived child and product views."""
 
-    effects: tuple[ModuleEffectIR, ...] = ()
+    effects: tuple[ModuleEffect, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     measurement_postprocessors: tuple[MeasurementPostprocessor, ...] = ()
     products: tuple[ModuleProductDecl, ...] = ()
@@ -338,11 +340,11 @@ class ModuleBodyIR:
                 )
 
     @property
-    def child_instances(self) -> tuple[ModuleInstanceIR, ...]:
+    def child_instances(self) -> tuple[ModuleInstance, ...]:
         """Derive children so effects remain the sole ordering authority."""
 
         return tuple(
-            effect for effect in self.effects if isinstance(effect, ModuleInstanceIR)
+            effect for effect in self.effects if isinstance(effect, ModuleInstance)
         )
 
     @property
@@ -397,10 +399,10 @@ class ModuleBodyIR:
 @dataclass(frozen=True, slots=True)
 class ModuleDef:
     id: str
-    interface: ModuleInterfaceIR
-    body: ModuleBodyIR
+    interface: ModuleInterface
+    body: ModuleBody
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
         if not self.id:

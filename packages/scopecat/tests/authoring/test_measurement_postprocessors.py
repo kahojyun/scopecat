@@ -114,7 +114,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
             )
         )
 
-    [lowered] = compose_module(module.ir).measurement_postprocessors
+    [lowered] = compose_module(module.definition).measurement_postprocessors
     assert lowered.input.qualified_name == "nested/raw"
     assert lowered.outputs[0][1].qualified_name == "derived"
 
@@ -130,7 +130,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
     def root(context: sc.ModuleContext) -> None:
         context.call(nested_module.instantiate("nested"))
 
-    [scoped] = compose_module(root.ir).measurement_postprocessors
+    [scoped] = compose_module(root.definition).measurement_postprocessors
     assert scoped.id.qualified_name == "nested/derive"
     assert scoped.input.qualified_name == "nested/raw"
 
@@ -149,7 +149,7 @@ def test_postprocessor_chaining_is_rejected() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_logical_program(compose_module(module.ir))
+        verify_logical_program(compose_module(module.definition))
     assert {problem.code for problem in error.value.problems} == {
         "logical_measurement_postprocessor_chaining_unsupported"
     }
@@ -174,7 +174,7 @@ def test_domain_and_postprocessor_cannot_own_the_same_product() -> None:
         context.call(call)
 
     with pytest.raises(CheckFailed) as error:
-        verify_logical_program(compose_module(module.ir))
+        verify_logical_program(compose_module(module.definition))
     assert "logical_product_producer_duplicate" in {
         problem.code for problem in error.value.problems
     }

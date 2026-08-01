@@ -16,37 +16,29 @@ from scopecat.compiler.frontend.resolution import (
     compile_invocation,
 )
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.relations.verification import (
-    PlanImportNamespace,
-    RelationTypeBindings,
-)
-from scopecat.graph.relations.model import (
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.symbols import SymbolId
+from scopecat.program.expression_analysis import expression_input_refs
+from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
     InputScalarExpr,
     LiteralScalarExpr,
     ScalarExpr,
-    as_scalar_expr,
     input_ref,
     param,
 )
-from scopecat.graph.values import (
-    ComputeResultRef,
+from scopecat.program.logical import (
+    LogicalProgram,
+)
+from scopecat.program.value_graph import (
     OperationId,
     ValueId,
     operation_result_id,
 )
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.symbols import SymbolId
-from scopecat.program.logical import (
-    LiteralValueSource,
-    LogicalProgram,
-    PlanExpressionSource,
-)
 from scopecat.program.value_refs import (
     ValueRef,
-    internal_bind_value_ref_inputs,
     internal_lower_scalar_value_ref,
-    internal_value_ref_from_expression,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
 )
@@ -67,13 +59,13 @@ from tests.testkit.authoring import (
     load_config,
     simple_template,
 )
+from tests.testkit.expressions import evaluate_scalar
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,
     materialized_state_properties,
     measurement_projection_contract,
 )
-from tests.testkit.relation_plans import evaluate_scalar
 
 
 def _identity_value(*, value: object) -> object:
@@ -91,10 +83,8 @@ def _logical_binding_expression(
     value_id = program.bindings[index].value_id
     definition = next(item for item in program.value_defs if item.id == value_id)
     source = definition.source
-    if isinstance(source, PlanExpressionSource):
-        return source.expression
-    assert isinstance(source, LiteralValueSource)
-    return as_scalar_expr(source.value)
+    assert isinstance(source, ScalarExpr)
+    return source
 
 
 def _table_definition(
@@ -174,7 +164,7 @@ def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
         config_profile=load_config(),
     )
 
-    experiment = resolved.bindings
+    experiment = resolved
     assert resolved.program.experiment_id == "test.simple_scan"
     assert resolved.program.kind == "simple_scan"
     preview = materialized_effects_contract(
@@ -188,7 +178,7 @@ def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"
     )
-    assert [record.id for record in experiment.record_uses] == ["signal"]
+    assert [record.id for record in experiment.bindings.record_uses] == ["signal"]
     _, state, target = materialized_state_properties(preview)[0]
     assert state.instrument_id == "source-0"
     assert target.interface_id == "test.set_frequency/v1"
@@ -334,15 +324,11 @@ def test_compute_inputs_close_template_inputs_before_logical_verification() -> N
     qubit_source = definitions[uses["qubit"]].source
     length_source = definitions[uses["length"]].source
     frequency_source = definitions[uses["frequency"]].source
-    assert isinstance(qubit_source, PlanExpressionSource)
-    assert isinstance(length_source, PlanExpressionSource)
-    assert isinstance(frequency_source, PlanExpressionSource)
-    assert qubit_source.source_inputs == ()
-    assert length_source.source_inputs == ()
-    assert frequency_source.source_inputs == ()
+    assert isinstance(qubit_source, ScalarExpr)
+    assert isinstance(length_source, ScalarExpr)
+    assert isinstance(frequency_source, ScalarExpr)
     assert all(
-        compiled.program.scalar_values[value_id].import_ids(PlanImportNamespace.INPUT)
-        == ()
+        expression_input_refs(compiled.program.scalar_values[value_id]) == ()
         for value_id in uses.values()
     )
     assert operation.result_type == authoring.ScalarType(authoring.PayloadType("pulse"))
@@ -513,7 +499,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         config_profile=config,
     )
     preview = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
         config=config,
     )
@@ -633,7 +619,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
 
     resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
         config=config,
     )
@@ -719,17 +705,19 @@ def test_request_projection_explicitly_handles_authoring_semantic_values() -> No
 
 
 def test_request_projection_rejects_transient_typed_and_compiler_values() -> None:
+    entity_type = sc.ScalarType(sc.EntityType())
     typed_value = program_input(
         "subject",
-        sc.ScalarType(sc.EntityType()),
+        entity_type,
     )
     transient_values = (
         typed_value,
-        input_ref("subject"),
-        ComputeResultRef(
+        input_ref("subject", entity_type),
+        ComputeResultScalarExpr(
             value_id=operation_result_id(
                 OperationId(SymbolId(local_id="build-program"))
-            )
+            ),
+            value_type=entity_type,
         ),
     )
 
@@ -772,7 +760,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
         )
 
     assembly = compose_module(
-        parent.ir,
+        parent.definition,
     )
 
     assert "drive_frequency" not in assembly.inputs
@@ -821,7 +809,10 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
     assembly = compile_invocation(template()).program.program
 
     assert "drive_frequency" not in assembly.inputs
-    assert _logical_binding_expression(assembly, 0) == param("drive_frequency")
+    assert _logical_binding_expression(assembly, 0) == param(
+        "drive_frequency",
+        _QUANTITY_VALUE,
+    )
 
 
 def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
@@ -914,7 +905,7 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     unused_point = authoring.coordinate("phantom_point", value_type)
 
     assembly = compose_module(
-        module.ir,
+        module.definition,
         used_parameter=used_parameter,
         unused_parameter=unused_parameter,
         used_point=used_point,
@@ -927,41 +918,6 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     assert assembly.point_dependencies == internal_value_ref_point_dependencies(
         used_point
     )
-
-
-def test_scalar_input_binding_preserves_parent_same_named_input() -> None:
-    value_type = authoring.ScalarType(authoring.FloatType())
-    child_value = program_input("value", value_type)
-    parent_value = program_input("value", value_type)
-
-    bound = internal_bind_value_ref_inputs(
-        child_value + 1.0,
-        {"value": parent_value + 1.0},
-    )
-
-    assert evaluate_scalar(
-        internal_lower_scalar_value_ref(bound),
-        EvalContext(inputs={"value": 2.0}),
-        bindings=RelationTypeBindings(inputs={"value": value_type}),
-    ) == pytest.approx(4.0)
-
-
-def test_expression_input_binding_does_not_capture_sibling_child_inputs() -> None:
-    value_type = authoring.ScalarType(authoring.FloatType())
-    child_value = internal_value_ref_from_expression(input_ref("a"), value_type)
-    parent_b = program_input("b", value_type)
-    child_b = internal_value_ref_from_expression(as_scalar_expr(10.0), value_type)
-
-    bound = internal_bind_value_ref_inputs(
-        child_value,
-        {"a": parent_b + 1.0, "b": child_b},
-    )
-
-    assert evaluate_scalar(
-        internal_lower_scalar_value_ref(bound),
-        EvalContext(inputs={"b": 2.0}),
-        bindings=RelationTypeBindings(inputs={"b": value_type}),
-    ) == pytest.approx(3.0)
 
 
 def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
@@ -990,7 +946,7 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
         )
 
     assembly = compose_module(
-        parent.ir, outer_frequency=Quantity(value=5.2, unit="GHz")
+        parent.definition, outer_frequency=Quantity(value=5.2, unit="GHz")
     )
 
     assert "drive_frequency" not in assembly.inputs
@@ -1040,7 +996,7 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
         )
 
     assembly = compose_module(
-        module.ir,
+        module.definition,
     )
 
     assert "drive_frequency" not in assembly.inputs
@@ -1081,7 +1037,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
         )
 
     assembly = compose_module(
-        parent.ir,
+        parent.definition,
     )
 
     assert "qubit" not in assembly.inputs
@@ -1139,7 +1095,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         config_profile=load_config(),
     )
     preview = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
     )
 
@@ -1293,7 +1249,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     )
 
     preview = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
         config=config,
     )
@@ -1321,7 +1277,7 @@ def test_explicit_config_binds_experiment() -> None:
 
     resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
         config=config,
     )

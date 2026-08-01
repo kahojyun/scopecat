@@ -17,14 +17,18 @@ from typing import (
     overload,
 )
 
-from scopecat.authoring._module_handles import (
-    DomainCallProvider,
+from scopecat.authoring._experiment_module import (
     ExperimentModule,
+    create_experiment_module_internal,
+)
+from scopecat.authoring._module_context import (
     ModuleContext,
+    build_ensure_state_intent,
+)
+from scopecat.authoring._module_invocation import (
+    DomainCallProvider,
     ModuleInvocation,
     ModuleResource,
-    build_ensure_state_intent,
-    create_experiment_module_internal,
     domain_use_call,
     module_use_invocation,
 )
@@ -42,7 +46,8 @@ from scopecat.program.definitions import (
     create_experiment_def,
 )
 from scopecat.program.domain import DomainCall
-from scopecat.program.module import ModuleInstanceIR
+from scopecat.program.input_capture import empty_program_mapping
+from scopecat.program.module import ModuleInstance
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
     ProductRef,
@@ -53,7 +58,6 @@ from scopecat.program.products import (
 from scopecat.program.state import DesiredState
 from scopecat.program.value_refs import (
     ValueRef,
-    empty_frozen_mapping,
     internal_value_ref_point_dependencies,
     internal_value_ref_requires_execution,
 )
@@ -234,7 +238,7 @@ class ExperimentContext:
         owners = {
             effect.invocation_key
             for effect in self._program.effects_internal
-            if isinstance(effect, ModuleInstanceIR)
+            if isinstance(effect, ModuleInstance)
         }
         if resource.owner not in owners:
             raise ValueError(
@@ -267,7 +271,7 @@ class ScratchDefinition[**P]:
     _signature: inspect.Signature = field(repr=False, compare=False)
     id: str
     kind: str
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     @property
     def __wrapped__(self) -> Callable[Concatenate[ExperimentContext, P], None]:
@@ -294,7 +298,7 @@ class ScratchDefinition[**P]:
         )
         return ExperimentInvocation(
             definition=definition,
-            inputs=empty_frozen_mapping(),
+            inputs=empty_program_mapping(),
             scans=(),
         )
 
@@ -472,13 +476,13 @@ def _module_from_function[**P](
     doc = inspect.getdoc(fn)
     if doc is not None:
         selected_metadata.setdefault("description", doc)
-    module_ir = context.close_definition_internal(
+    module_def = context.close_definition_internal(
         id=id or _definition_id(fn),
         input_ports=tuple(_input_port(name, value) for name, value in values.items()),
         metadata=selected_metadata,
     )
     return create_experiment_module_internal(
-        module_ir,
+        module_def,
         definition=cast("Callable[P, object]", fn),
         signature=contract.signature,
     )

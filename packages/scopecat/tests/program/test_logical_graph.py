@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
-from scopecat.graph.relations.model import as_scalar_expr, input_ref
-from scopecat.graph.values import OperationId, ValueId, operation_result_id
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
-from scopecat.program.logical import (
-    LiteralValueSource,
-    LogicalComputeNode,
-    PlanExpressionSource,
+from scopecat.program.expressions import (
+    ParameterLookupScalarExpr,
+    ParameterLookupUse,
+    ScalarExpr,
+    lit,
 )
+from scopecat.program.logical import LogicalComputeNode
 from scopecat.program.logical_graph import verify_logical_graph
+from scopecat.program.value_graph import OperationId, ValueId, operation_result_id
 
 FLOAT = Scalar(Float())
 
@@ -32,6 +38,7 @@ def _opaque_operation(
         LogicalComputeNode(
             id=operation_id,
             inputs=inputs,
+            input_types=tuple((name, FLOAT) for name, _value_id in inputs),
             result_id=result_id,
             result_type=FLOAT,
         ),
@@ -80,12 +87,14 @@ def test_operation_cycles_are_reported_in_identity_order() -> None:
     left = LogicalComputeNode(
         id=left_id,
         inputs=(("right", operation_result_id(right_id)),),
+        input_types=(("right", FLOAT),),
         result_id=operation_result_id(left_id),
         result_type=FLOAT,
     )
     right = LogicalComputeNode(
         id=right_id,
         inputs=(("left", operation_result_id(left_id)),),
+        input_types=(("left", FLOAT),),
         result_id=operation_result_id(right_id),
         result_type=FLOAT,
     )
@@ -99,22 +108,51 @@ def test_operation_cycles_are_reported_in_identity_order() -> None:
     assert caught.value.problems[0].message.endswith("left, right")
 
 
-def test_plan_expression_source_derives_input_dependencies() -> None:
-    source = PlanExpressionSource(input_ref("gain"))
+def test_literal_expression_captures_mutable_values() -> None:
+    literal: dict[str, object] = {"nested": [1]}
+    expression = lit(literal)
 
-    assert source.source_inputs == ("gain",)
+    nested = cast("list[int]", literal["nested"])
+    nested.append(2)
+    selected = expression.value
+    assert isinstance(selected, dict)
+    selected["nested"] = [3]
+
+    assert expression.value == {"nested": [1]}
 
 
-def test_plan_expression_source_hashes_unhashable_literals() -> None:
-    source = PlanExpressionSource(as_scalar_expr({"nested": [1]}))
+def test_literal_expression_copies_value_models_and_retains_payload_identity() -> None:
+    entity = EntityRef(id="q0", kind="qubit")
+    quantity = Quantity(value=5.0, unit="GHz")
+    payload = PayloadValue(schema_id="test.program", payload=object())
 
-    hash(source)
+    captured_entity = lit(entity).value
+    captured_quantity = lit(quantity).value
+    captured_payload = lit(payload).value
+
+    assert captured_entity == entity
+    assert captured_entity is not entity
+    assert captured_quantity == quantity
+    assert captured_quantity is not quantity
+    assert captured_payload is payload
 
 
-def test_literal_source_captures_mutable_values() -> None:
-    literal = {"nested": [1]}
-    source = LiteralValueSource(literal)
+def test_parameter_lookup_expression_captures_an_immutable_key() -> None:
+    use = ParameterLookupUse(
+        table_id="frequencies",
+        key_input_types=(("frequency", FLOAT),),
+        literal_key_columns=frozenset({"frequency"}),
+        column_id="duration",
+        result_type=FLOAT,
+    )
+    original = lit(5.0)
+    key = {"frequency": original}
+    expression = ParameterLookupScalarExpr(use=use, key=key)
 
-    literal["nested"].append(2)
+    key["frequency"] = lit(6.0)
 
-    assert source.value == {"nested": [1]}
+    assert expression.key["frequency"] is original
+    hash(expression)
+    hash(expression + 1.0)
+    with pytest.raises(TypeError, match="frozen mapping is immutable"):
+        cast("dict[str, ScalarExpr]", expression.key)["frequency"] = lit(7.0)

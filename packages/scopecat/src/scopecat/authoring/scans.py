@@ -17,6 +17,7 @@ from scopecat.kernel.units import compatible_units, unit_kind
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import validate_literal
+from scopecat.program.input_capture import capture_runtime_input
 from scopecat.program.scans import (
     AroundScanSource as _AroundScanSource,
 )
@@ -37,7 +38,6 @@ from scopecat.program.scans import (
 )
 from scopecat.program.value_refs import (
     ValueRef,
-    capture_runtime_input,
     internal_value_ref_parameter_lookup,
     internal_value_ref_point_id,
 )

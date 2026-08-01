@@ -1,9 +1,11 @@
 """User-facing experiment authoring API."""
 
-from scopecat.authoring._module_handles import (
+from scopecat.authoring._experiment_module import ExperimentModule
+from scopecat.authoring._module_context import (
     DefinitionResource,
-    ExperimentModule,
     ModuleContext,
+)
+from scopecat.authoring._module_invocation import (
     ModuleInvocation,
     ModuleOutputs,
     ModuleResource,

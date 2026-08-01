@@ -10,11 +10,11 @@ from scopecat.execution.local.program import (
     BoundInput,
     ComputeOperation,
 )
-from scopecat.graph.values import ValueId
 from scopecat.kernel.payloads import unwrap_payload_values
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.value_validation import coerce_literal
+from scopecat.program.value_graph import ValueId
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.sdk.payloads import PayloadCodecRegistry
 
@@ -55,7 +55,18 @@ class ComputeEffectExecutor:
                     name: (
                         value.value
                         if isinstance(value, BoundInput)
-                        else frame.compute_results[value.value_id]
+                        else unwrap_payload_values(
+                            coerce_literal(
+                                value.value_type,
+                                frame.compute_results[value.value_id],
+                                path=(
+                                    "operations",
+                                    operation.operation_id,
+                                    "inputs",
+                                    name,
+                                ),
+                            )
+                        )
                     )
                     for name, value in operation.inputs.items()
                 }

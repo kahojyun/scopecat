@@ -6,9 +6,8 @@ from typing import override
 
 import pytest
 
-from scopecat.compiler.typed.program import bound_acquisitions, bound_state
-from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
+from scopecat.program.logical import LogicalStateAssignment
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     DriverAcquisition,
@@ -114,10 +113,19 @@ def test_planning_rejects_missing_instrument(tmp_path: Path) -> None:
 
 def test_planning_rejects_unsupported_property(tmp_path: Path) -> None:
     experiment = load_experiment()
-    selected_state = bound_state(experiment)[0]
-    assert isinstance(selected_state, SetStateSpec)
+    selected_state = experiment.logical.program.bindings[0]
+    assert isinstance(selected_state, LogicalStateAssignment)
     state = replace(selected_state, property_id="amplitude")
-    experiment = replace(experiment, effects=(state, *bound_acquisitions(experiment)))
+    experiment = replace(
+        experiment,
+        logical=replace(
+            experiment.logical,
+            program=replace(
+                experiment.logical.program,
+                effects=(state, *experiment.logical.program.acquisitions),
+            ),
+        ),
+    )
 
     with pytest.raises(ProviderContractError) as error:
         execute_bound_run(
@@ -134,16 +142,22 @@ def test_planning_rejects_unsupported_property(tmp_path: Path) -> None:
 
 def test_planning_rejects_unsupported_acquisition_result(tmp_path: Path) -> None:
     experiment = load_experiment()
-    acquisition = bound_acquisitions(experiment)[0]
+    acquisition = experiment.logical.program.acquisitions[0]
     unsupported_acquisition = replace(
         acquisition,
         results=(replace(acquisition.results[0], result_id="missing"),),
     )
     experiment = replace(
         experiment,
-        effects=tuple(
-            unsupported_acquisition if effect is acquisition else effect
-            for effect in experiment.effects
+        logical=replace(
+            experiment.logical,
+            program=replace(
+                experiment.logical.program,
+                effects=tuple(
+                    unsupported_acquisition if effect is acquisition else effect
+                    for effect in experiment.logical.program.effects
+                ),
+            ),
         ),
     )
 
@@ -164,7 +178,10 @@ def test_planning_rejects_acquisition_result_dtype_mismatch(tmp_path: Path) -> N
     experiment = load_experiment()
     experiment = replace(
         experiment,
-        product_defs=(replace(experiment.product_defs[0], dtype="int64"),),
+        bindings=replace(
+            experiment.bindings,
+            product_defs=(replace(experiment.bindings.product_defs[0], dtype="int64"),),
+        ),
     )
 
     with pytest.raises(ProviderContractError) as error:

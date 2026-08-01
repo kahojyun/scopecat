@@ -7,19 +7,12 @@ from scopecat.compiler.relations.context import (
     ParameterRelationData,
 )
 from scopecat.compiler.relations.evaluation import evaluate_table_value
-from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
-from scopecat.graph.relations.model import (
-    CellValue,
-    ParameterLookupUse,
-    Row,
-    input_ref,
-    param,
-    parameter_lookup,
-    point_col,
-)
-from scopecat.graph.table_values import ParameterTableSource
+from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
+from scopecat.compiler.relations.verification import ExpressionTypeBindings, RowType
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_data import CellValue, Row
 from scopecat.kernel.value_types import (
     Entity,
     Int,
@@ -30,7 +23,19 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_validation import ValueValidationError
-from tests.testkit.relation_plans import evaluate_scalar
+from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
+    ModuleExportScalarExpr,
+    ParameterLookupUse,
+    input_ref,
+    param,
+    parameter_lookup,
+    point_col,
+)
+from scopecat.program.identities import InvocationKey
+from scopecat.program.table_values import ParameterTableSource
+from scopecat.program.value_graph import ValueId
+from tests.testkit.expressions import evaluate_scalar
 
 _INT = Scalar(Int())
 _FREQUENCY = Scalar(Quantity(unit="GHz"))
@@ -72,12 +77,12 @@ def test_lexical_point_binding_replaces_a_cell_without_mutating_base_data() -> N
 
 
 def test_evaluation_validates_only_used_typed_imports() -> None:
-    bindings = RelationTypeBindings(inputs={"used": _INT, "unused": _INT})
+    bindings = ExpressionTypeBindings(inputs={"used": _INT, "unused": _INT})
     valid = EvalContext(inputs={"used": 1, "unused": "not-an-int"})
 
     assert (
         evaluate_scalar(
-            input_ref("used"),
+            input_ref("used", _INT),
             valid,
             bindings=bindings,
         )
@@ -87,7 +92,7 @@ def test_evaluation_validates_only_used_typed_imports() -> None:
     invalid = EvalContext(inputs={"used": "not-an-int", "unused": 1})
     with pytest.raises(ValueValidationError, match=r"inputs\.used: expected int"):
         evaluate_scalar(
-            input_ref("used"),
+            input_ref("used", _INT),
             invalid,
             bindings=bindings,
         )
@@ -98,9 +103,9 @@ def test_evaluation_validates_used_parameter_contracts() -> None:
 
     with pytest.raises(ValueValidationError, match=r"parameters\.gain: expected int"):
         evaluate_scalar(
-            param("gain"),
+            param("gain", _INT),
             ctx,
-            bindings=RelationTypeBindings(parameters={"gain": _INT}),
+            bindings=ExpressionTypeBindings(parameters={"gain": _INT}),
         )
 
 
@@ -139,7 +144,7 @@ def test_evaluation_normalizes_multiple_lookup_projections_cumulatively() -> Non
     assert evaluate_scalar(
         expression,
         context,
-        bindings=RelationTypeBindings(),
+        bindings=ExpressionTypeBindings(),
     ) == QuantityValue(value=11.0, unit="GHz")
 
 
@@ -164,7 +169,7 @@ def test_evaluation_rejects_invalid_lookup_projection_without_config_binding() -
         evaluate_scalar(
             parameter_lookup(use, key={"id": "q0"}),
             context,
-            bindings=RelationTypeBindings(),
+            bindings=ExpressionTypeBindings(),
         )
 
 
@@ -207,12 +212,50 @@ def test_evaluation_normalizes_used_context_values(
 ) -> None:
     assert (
         evaluate_scalar(
-            input_ref("value"),
+            input_ref("value", value_type),
             EvalContext(inputs={"value": raw}),
-            bindings=RelationTypeBindings(inputs={"value": value_type}),
+            bindings=ExpressionTypeBindings(inputs={"value": value_type}),
         )
         == expected
     )
+
+
+def test_evaluation_retains_a_narrow_binding_without_retyping_the_ast() -> None:
+    generic = Scalar(Entity())
+    qubit = Scalar(Entity(entity_kind="qubit"))
+    expression = input_ref("value", generic)
+
+    result = evaluate_scalar(
+        expression,
+        EvalContext(inputs={"value": "q0"}),
+        bindings=ExpressionTypeBindings(inputs={"value": qubit}),
+        expected_type=qubit,
+    )
+
+    assert expression.value_type == generic
+    assert result == EntityRef(id="q0", kind="qubit")
+
+
+def test_evaluation_applies_the_verified_consumer_type_without_retyping() -> None:
+    generic_frequency = Scalar(Quantity(dimension="frequency"))
+    ghz_frequency = Scalar(Quantity(dimension="frequency", unit="GHz"))
+    expression = point_col("frequency", generic_frequency)
+
+    result = evaluate_scalar(
+        expression,
+        EvalContext(
+            point_row={
+                "frequency": QuantityValue(value=5_000.0, unit="MHz"),
+            }
+        ),
+        bindings=ExpressionTypeBindings(
+            point_row=RowType((TableColumn("frequency", generic_frequency),))
+        ),
+        expected_type=ghz_frequency,
+    )
+
+    assert expression.value_type == generic_frequency
+    assert result == QuantityValue(value=5.0, unit="GHz")
 
 
 def test_evaluation_normalizes_only_referenced_point_columns() -> None:
@@ -222,9 +265,9 @@ def test_evaluation_normalizes_only_referenced_point_columns() -> None:
     }
 
     assert evaluate_scalar(
-        point_col("frequency"),
+        point_col("frequency", _FREQUENCY),
         EvalContext(point_row=row),
-        bindings=RelationTypeBindings(
+        bindings=ExpressionTypeBindings(
             point_row=RowType(
                 (
                     TableColumn("frequency", _FREQUENCY),
@@ -240,7 +283,28 @@ def test_evaluation_validates_used_point_values() -> None:
 
     with pytest.raises(ValueValidationError, match="expected int"):
         evaluate_scalar(
-            point_col("value"),
+            point_col("value", _INT),
             EvalContext(point_row=row),
-            bindings=RelationTypeBindings(point_row=_int_row("value")),
+            bindings=ExpressionTypeBindings(point_row=_int_row("value")),
         )
+
+
+def test_pure_evaluator_rejects_compute_results() -> None:
+    expression = ComputeResultScalarExpr(
+        value_id=ValueId(SymbolId(local_id="computed")),
+        value_type=_INT,
+    )
+
+    with pytest.raises(TypeError, match="cannot be evaluated as pure"):
+        evaluate_scalar_expression(expression, EvalContext())
+
+
+def test_pure_evaluator_rejects_unresolved_module_exports() -> None:
+    expression = ModuleExportScalarExpr(
+        invocation_key=InvocationKey.fresh(),
+        export_id="value",
+        value_type=_INT,
+    )
+
+    with pytest.raises(ValueError, match="unresolved module exports"):
+        evaluate_scalar_expression(expression, EvalContext())

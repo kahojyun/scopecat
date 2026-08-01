@@ -10,20 +10,19 @@ from scopecat.compiler.frontend.request_values import (
     project_run_request_value,
 )
 from scopecat.compiler.frontend.value_binding import bind_scalar_input_refs
-from scopecat.graph.relations.model import ScalarExpr, as_scalar_expr
-from scopecat.graph.relations.point_domain import (
+from scopecat.kernel.value_types import Scalar
+from scopecat.program.expressions import ScalarExpr, as_scalar_expr
+from scopecat.program.point_domain import (
     PointAxes,
     PointAxis,
     point_axis_linear,
     point_axis_values,
 )
-from scopecat.kernel.value_types import Scalar
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
     ValuesScanSource,
     parameter_cell_lookup,
-    scan_parameter_contracts,
 )
 from scopecat.program.value_refs import (
     ValueRef,
@@ -147,7 +146,7 @@ def _lower_scan_center(
     if isinstance(source.center, ValueRef):
         expression = internal_lower_scalar_value_ref(source.center)
     else:
-        expression = as_scalar_expr(source.center)
+        expression = as_scalar_expr(source.center, value_type=axis.value_type)
     if inputs is None:
         return expression
     return bind_scalar_input_refs(expression, inputs)
@@ -168,7 +167,6 @@ def _lower_scan_center_value_ref(
     return internal_value_ref_from_expression(
         _lower_scan_center(axis, inputs=inputs),
         center_type,
-        parameter_contracts=scan_parameter_contracts(axis),
     )
 
 

@@ -2,23 +2,21 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Never, cast
+from typing import Annotated, Never, cast
 
 import pytest
 from pydantic import JsonValue
 
+import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    RowType,
-)
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
+from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
-    TypedComputeNode,
-    bound_acquisitions,
     record_product,
-    set_state_property,
+)
+from scopecat.compiler.point_domain import PointDomain
+from scopecat.compiler.relations.verification import (
+    ExpressionTypeBindings,
+    RowType,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.evidence import (
@@ -27,16 +25,6 @@ from scopecat.execution.evidence import (
 from scopecat.execution.local.program import CollectOperation
 from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.execution.program import RunHostBinding
-from scopecat.graph.relations.model import (
-    lit,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import point_axis_values
-from scopecat.graph.values import (
-    ComputeOutput,
-    OperationId,
-    operation_result_id,
-)
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.problems import (
     Problem,
@@ -54,9 +42,19 @@ from scopecat.planning.provider_binding import (
     resolve_instrument_contract_catalog,
     validate_run_host_binding,
 )
+from scopecat.program.expressions import (
+    lit,
+    point_col,
+)
 from scopecat.program.logical import (
     ImplementationId,
     LocalPythonImplementation,
+)
+from scopecat.program.point_domain import point_axis_values
+from scopecat.program.value_graph import (
+    ComputeOutput,
+    OperationId,
+    operation_result_id,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
@@ -69,7 +67,7 @@ from scopecat.records.measurement import MeasurementScalar
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments import DriverPayload
+from scopecat.sdk.instruments import DriverPayload, InterfaceRef
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
     InstrumentStateAssignment,
@@ -88,7 +86,19 @@ from scopecat.sdk.instruments.provider import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
+from tests.testkit.authoring import bind_invocation
+from tests.testkit.bound_program import (
+    ComputeNodeFixture,
+    ProgramFixture,
+    bind_program_facts,
+    compute_result,
+    instrument_acquisition,
+    instrument_invocation,
+    observable_product,
+    program_fixture,
+)
 from tests.testkit.execution import execute_bound_run
+from tests.testkit.expressions import state_property, verified_scalar_expr
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
 from tests.testkit.local_materialization import (
     LocalEffectInspection,
@@ -100,21 +110,12 @@ from tests.testkit.payload_codecs import json_payload_codecs
 from tests.testkit.records import (
     assert_model_round_trip,
 )
-from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.runtime import (
     sqlite_execution_session,
     sqlite_run_repository,
 )
 from tests.testkit.signal_instruments import (
     TestSignalInstrument,
-)
-from tests.testkit.typed_program import (
-    bind_program_facts,
-    compute_result,
-    instrument_acquisition,
-    instrument_invocation,
-    observable_product,
-    typed_program,
 )
 from tests.testkit.workflow_fixtures import load_config, load_experiment
 
@@ -752,7 +753,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         interface="test.scalar_signal/v1",
     )
     product_use, record_use = record_product(product)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=PointDomain(
             axes=(
                 point_axis_values(
@@ -782,7 +783,12 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
                 resource_port_id=logical_resource_port_id("source"),
                 interface="test.play_program/v1",
                 operation="play",
-                arguments={"program": compute_result("build-program")},
+                arguments={
+                    "program": compute_result(
+                        "build-program",
+                        value_type=Scalar(Payload("pulse_program")),
+                    )
+                },
             )
         ],
         product_defs=[product],
@@ -790,7 +796,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         product_uses=[product_use],
         record_uses=[record_use],
         compute_nodes=[
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=operation_id,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId("python.build-program.v1"),
@@ -800,11 +806,12 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
                     id=result_id,
                     value_type=Scalar(Payload("pulse_program")),
                 ),
+                input_types={"value": Scalar(QuantityType())},
                 inputs={
-                    "value": scalar_value_expr(
-                        point_col("frequency"),
+                    "value": verified_scalar_expr(
+                        point_col("frequency", Scalar(QuantityType())),
                         expected_type=Scalar(QuantityType()),
-                        bindings=RelationTypeBindings(
+                        bindings=ExpressionTypeBindings(
                             point_row=RowType.from_table(point_type)
                         ),
                     )
@@ -858,23 +865,97 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
     ]
 
 
+def test_downstream_compute_receives_result_in_its_declared_type(
+    tmp_path: Path,
+) -> None:
+    received: list[Quantity] = []
+
+    def produce_frequency() -> Quantity:
+        return Quantity(value=5_000.0, unit="MHz")
+
+    def consume_frequency(*, frequency: Quantity) -> dict[str, object]:
+        received.append(frequency)
+        return {"frequency": frequency}
+
+    play_interface = InterfaceRef("test.play_program/v1")
+    play = play_interface.operation("play")
+    program_argument = play.argument("program")
+
+    @sc.module(id="test.compute-result-type.consumer")
+    def consumer(
+        context: sc.ModuleContext,
+        frequency: Annotated[
+            sc.Input[Quantity],
+            sc.QuantityType(unit="GHz"),
+        ],
+    ) -> None:
+        program = context.compute(
+            "consume-frequency",
+            fn=consume_frequency,
+            inputs={"frequency": frequency},
+            output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+        )
+        source = context.resource("source", requires=(play_interface,))
+        context.invoke(
+            "play-program",
+            resource=source,
+            operation=play,
+            arguments={program_argument: program},
+        )
+
+    @sc.module(id="test.compute-result-type.root")
+    def root(context: sc.ModuleContext) -> None:
+        frequency = context.compute(
+            "produce-frequency",
+            fn=produce_frequency,
+            output_type=sc.ScalarType(sc.QuantityType(dimension="frequency")),
+        )
+        context.call(consumer.instantiate("consumer", frequency=frequency))
+
+    @sc.template(id="test.compute-result-type", kind="compute-result-type")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(root())
+
+    config = config_with_physical_resources(
+        {"source-0": (play_interface.interface_id,)}
+    )
+    bound = bind_invocation(template(), config_profile=config)
+    manifest = execute_bound_run(
+        config=config,
+        experiment=ProgramFixture(logical=bound.program, bindings=bound.bindings),
+        instruments=[SignalInstrumentDriver()],
+        project_root=tmp_path,
+        payload_codecs=json_payload_codecs("pulse_program"),
+    )
+
+    assert manifest.status == "completed"
+    assert received == [Quantity(value=5.0, unit="GHz")]
+
+
 def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
     instrument = TestSignalInstrument()
     base_experiment = load_experiment()
-    experiment = replace(
-        base_experiment,
-        effects=(
-            set_state_property(
-                resource_port_id=base_experiment.resource_requirements[0].port_id,
+    base_bindings = base_experiment.bindings
+    experiment = program_fixture(
+        point_domain=base_bindings.point_domain,
+        resource_requirements=base_bindings.resource_requirements,
+        parameter_overlays=base_bindings.parameter_overlays,
+        state=(
+            state_property(
+                base_bindings.resource_requirements[0].port_id,
                 interface_id="test.set_frequency/v1",
                 property_id="frequency",
-                value=scalar_value_expr(
+                value=verified_scalar_expr(
                     lit(Quantity(value=5.9, unit="GHz")),
                     expected_type=Scalar(QuantityType(unit="GHz")),
                 ),
             ),
-            *bound_acquisitions(base_experiment),
         ),
+        measurement_postprocessors=base_bindings.measurement_postprocessors,
+        product_defs=base_bindings.product_defs,
+        instrument_acquisitions=base_experiment.logical.program.acquisitions,
+        product_uses=base_bindings.product_uses,
+        record_uses=base_bindings.record_uses,
     )
     manifest = execute_bound_run(
         config=load_config(),

@@ -1,43 +1,43 @@
 import pytest
 
-from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
+from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
     product_axis,
     record_product,
 )
+from scopecat.compiler.point_domain import PointDomain
+from scopecat.compiler.relations.verification import ExpressionTypeBindings
 from scopecat.execution.local.program import CollectOperation
-from scopecat.graph.relations.model import (
-    CellValue,
-    param,
-)
-from scopecat.graph.relations.point_domain import (
-    point_axis_linear,
-    point_axis_values,
-)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Int, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.products import ProductAxisDef
-from tests.testkit.local_materialization import operations_of_type
-from tests.testkit.materialized_effects import materialized_effects_contract
-from tests.testkit.parameter_fixtures import parameters
-from tests.testkit.relation_plans import (
-    scalar_value_expr,
+from scopecat.program.expressions import (
+    param,
 )
-from tests.testkit.relation_plans import (
-    state_property as set_state_property,
+from scopecat.program.point_domain import (
+    point_axis_linear,
+    point_axis_values,
 )
-from tests.testkit.typed_program import (
+from tests.testkit.bound_program import (
     instrument_acquisition,
     instrument_acquisitions,
     observable_product,
-    typed_program,
+    program_fixture,
 )
+from tests.testkit.expressions import (
+    state_property as set_state_property,
+)
+from tests.testkit.expressions import (
+    verified_scalar_expr,
+)
+from tests.testkit.local_materialization import operations_of_type
+from tests.testkit.materialized_effects import materialized_effects_contract
+from tests.testkit.parameter_fixtures import parameters
 
 _SOURCE_REQUIREMENTS = (
     LogicalResourceRequirement(
@@ -71,7 +71,7 @@ def test_materialized_effects_allows_result_id_reuse_across_acquisitions() -> No
         for product in products
     )
     uses_and_records = tuple(record_product(product) for product in products)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=_SOURCE_REQUIREMENTS,
         product_defs=products,
@@ -93,7 +93,7 @@ def test_materialized_effects_reports_demanded_product_without_a_local_producer(
 ):
     product = observable_product("signal", unit="ratio")
     product_use, record_use = record_product(product)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         product_defs=[product],
         product_uses=[product_use],
@@ -167,7 +167,7 @@ def test_materialized_effects_rejects_conflicting_shared_record_axes(
     )
     acquisitions = instrument_acquisitions(*products, interface="test.scalar_signal/v1")
     uses_and_records = tuple(record_product(product) for product in products)
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=_SOURCE_REQUIREMENTS,
         product_defs=products,
@@ -190,12 +190,12 @@ def test_materialized_effects_rejects_missing_point_parameters_before_evaluation
     None
 ):
     center_type = Scalar(QuantityType(unit="GHz"))
-    center = scalar_value_expr(
-        param("missing_center"),
-        bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
+    center = verified_scalar_expr(
+        param("missing_center", center_type),
+        bindings=ExpressionTypeBindings(parameters={"missing_center": center_type}),
         expected_type=center_type,
     )
-    spec = typed_program(
+    spec = program_fixture(
         point_domain=PointDomain(
             axes=(
                 point_axis_linear(
@@ -218,7 +218,7 @@ def test_materialized_effects_rejects_missing_point_parameters_before_evaluation
 
 
 def test_materialized_effects_reports_state_evaluation_and_conflict_problems() -> None:
-    conflict = typed_program(
+    conflict = program_fixture(
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(

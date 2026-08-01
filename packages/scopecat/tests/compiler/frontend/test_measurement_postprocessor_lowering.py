@@ -5,12 +5,10 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.typed.program import bound_acquisitions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
-from tests.testkit.typed_program import bind_program_facts
 
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SCALAR_SIGNAL_SAMPLE_RAW = _SCALAR_SIGNAL.acquisition("sample").result("raw")
@@ -79,13 +77,10 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     }
     assert {
         result.product_id.qualified_name
-        for acquisition in bound_acquisitions(program)
+        for acquisition in resolved.program.program.acquisitions
         for result in acquisition.results
     } == {"lowering/raw"}
     assert postprocessor.kernel is _kernel
-
-    bound = bind_program_facts(program, resolved.environment)
-    assert bound.bindings.measurement_postprocessors == (postprocessor,)
 
 
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:

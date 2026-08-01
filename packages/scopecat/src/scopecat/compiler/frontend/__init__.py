@@ -1,3 +1,3 @@
-"""Authoring IR elaboration and lowering into typed compiler programs."""
+"""Authoring definition elaboration into verified logical programs."""
 
 __all__: list[str] = []
