@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import overload
 
@@ -11,7 +10,7 @@ from scopecat.api._instruments import (
     InstrumentRef,
     instrument,
 )
-from scopecat.authoring import ValueRef
+from scopecat.authoring import EachEntity, EntitySelection, OneEntity
 from scopecat.daemon.wire import InstrumentConfiguredDefaultsApplyReceipt
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -46,10 +45,14 @@ from scopecat_instruments.symbolic import (
     DCMonitorProducts,
     NetworkSweepProducts,
     SymbolicDCSourceClient,
+    SymbolicDCSourceGroup,
     SymbolicInstrumentRecorder,
     SymbolicNetworkSweepClient,
+    SymbolicNetworkSweepGroup,
     SymbolicRFOutputClient,
+    SymbolicRFOutputGroup,
     SymbolicTemperatureReadoutClient,
+    SymbolicTemperatureReadoutGroup,
     TemperatureSampleProducts,
 )
 
@@ -186,7 +189,18 @@ def dc_source(
     instrument_id: SymbolicInstrumentRecorder,
     resource_id: str,
     *,
-    for_entities: Sequence[ValueRef] = (),
+    for_: EachEntity,
+    monitor: bool = False,
+) -> SymbolicDCSourceGroup: ...
+
+
+@overload
+def dc_source(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_: OneEntity | None = None,
+    monitor: bool = False,
 ) -> SymbolicDCSourceClient: ...
 
 
@@ -194,18 +208,27 @@ def dc_source(
     instrument_id: str | SymbolicInstrumentRecorder,
     resource_id: str | None = None,
     *,
-    for_entities: Sequence[ValueRef] = (),
-) -> InstrumentRef[DCSourceClient] | SymbolicDCSourceClient:
+    for_: EntitySelection | None = None,
+    monitor: bool = False,
+) -> InstrumentRef[DCSourceClient] | SymbolicDCSourceClient | SymbolicDCSourceGroup:
     if isinstance(instrument_id, str):
-        if resource_id is not None or for_entities:
+        if resource_id is not None or for_ is not None or monitor:
             raise TypeError("live instrument clients only accept an instrument id")
         return instrument(instrument_id, DCSourceClient)
     if resource_id is None:
         raise TypeError("symbolic instrument clients require a logical resource id")
+    if isinstance(for_, EachEntity):
+        return SymbolicDCSourceGroup(
+            instrument_id,
+            resource_id,
+            for_=for_,
+            monitor=monitor,
+        )
     return SymbolicDCSourceClient(
         instrument_id,
         resource_id,
-        for_entities=for_entities,
+        for_=for_,
+        monitor=monitor,
     )
 
 
@@ -218,7 +241,16 @@ def rf_output(
     instrument_id: SymbolicInstrumentRecorder,
     resource_id: str,
     *,
-    for_entities: Sequence[ValueRef] = (),
+    for_: EachEntity,
+) -> SymbolicRFOutputGroup: ...
+
+
+@overload
+def rf_output(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_: OneEntity | None = None,
 ) -> SymbolicRFOutputClient: ...
 
 
@@ -226,19 +258,17 @@ def rf_output(
     instrument_id: str | SymbolicInstrumentRecorder,
     resource_id: str | None = None,
     *,
-    for_entities: Sequence[ValueRef] = (),
-) -> InstrumentRef[RFOutputClient] | SymbolicRFOutputClient:
+    for_: EntitySelection | None = None,
+) -> InstrumentRef[RFOutputClient] | SymbolicRFOutputClient | SymbolicRFOutputGroup:
     if isinstance(instrument_id, str):
-        if resource_id is not None or for_entities:
+        if resource_id is not None or for_ is not None:
             raise TypeError("live instrument clients only accept an instrument id")
         return instrument(instrument_id, RFOutputClient)
     if resource_id is None:
         raise TypeError("symbolic instrument clients require a logical resource id")
-    return SymbolicRFOutputClient(
-        instrument_id,
-        resource_id,
-        for_entities=for_entities,
-    )
+    if isinstance(for_, EachEntity):
+        return SymbolicRFOutputGroup(instrument_id, resource_id, for_=for_)
+    return SymbolicRFOutputClient(instrument_id, resource_id, for_=for_)
 
 
 @overload
@@ -250,7 +280,16 @@ def network_sweep(
     instrument_id: SymbolicInstrumentRecorder,
     resource_id: str,
     *,
-    for_entities: Sequence[ValueRef] = (),
+    for_: EachEntity,
+) -> SymbolicNetworkSweepGroup: ...
+
+
+@overload
+def network_sweep(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_: OneEntity | None = None,
 ) -> SymbolicNetworkSweepClient: ...
 
 
@@ -258,19 +297,21 @@ def network_sweep(
     instrument_id: str | SymbolicInstrumentRecorder,
     resource_id: str | None = None,
     *,
-    for_entities: Sequence[ValueRef] = (),
-) -> InstrumentRef[NetworkSweepClient] | SymbolicNetworkSweepClient:
+    for_: EntitySelection | None = None,
+) -> (
+    InstrumentRef[NetworkSweepClient]
+    | SymbolicNetworkSweepClient
+    | SymbolicNetworkSweepGroup
+):
     if isinstance(instrument_id, str):
-        if resource_id is not None or for_entities:
+        if resource_id is not None or for_ is not None:
             raise TypeError("live instrument clients only accept an instrument id")
         return instrument(instrument_id, NetworkSweepClient)
     if resource_id is None:
         raise TypeError("symbolic instrument clients require a logical resource id")
-    return SymbolicNetworkSweepClient(
-        instrument_id,
-        resource_id,
-        for_entities=for_entities,
-    )
+    if isinstance(for_, EachEntity):
+        return SymbolicNetworkSweepGroup(instrument_id, resource_id, for_=for_)
+    return SymbolicNetworkSweepClient(instrument_id, resource_id, for_=for_)
 
 
 @overload
@@ -284,7 +325,16 @@ def temperature_readout(
     instrument_id: SymbolicInstrumentRecorder,
     resource_id: str,
     *,
-    for_entities: Sequence[ValueRef] = (),
+    for_: EachEntity,
+) -> SymbolicTemperatureReadoutGroup: ...
+
+
+@overload
+def temperature_readout(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_: OneEntity | None = None,
 ) -> SymbolicTemperatureReadoutClient: ...
 
 
@@ -292,19 +342,21 @@ def temperature_readout(
     instrument_id: str | SymbolicInstrumentRecorder,
     resource_id: str | None = None,
     *,
-    for_entities: Sequence[ValueRef] = (),
-) -> InstrumentRef[TemperatureReadoutClient] | SymbolicTemperatureReadoutClient:
+    for_: EntitySelection | None = None,
+) -> (
+    InstrumentRef[TemperatureReadoutClient]
+    | SymbolicTemperatureReadoutClient
+    | SymbolicTemperatureReadoutGroup
+):
     if isinstance(instrument_id, str):
-        if resource_id is not None or for_entities:
+        if resource_id is not None or for_ is not None:
             raise TypeError("live instrument clients only accept an instrument id")
         return instrument(instrument_id, TemperatureReadoutClient)
     if resource_id is None:
         raise TypeError("symbolic instrument clients require a logical resource id")
-    return SymbolicTemperatureReadoutClient(
-        instrument_id,
-        resource_id,
-        for_entities=for_entities,
-    )
+    if isinstance(for_, EachEntity):
+        return SymbolicTemperatureReadoutGroup(instrument_id, resource_id, for_=for_)
+    return SymbolicTemperatureReadoutClient(instrument_id, resource_id, for_=for_)
 
 
 def _concrete_assignments(
@@ -345,10 +397,14 @@ __all__ = [
     "NetworkSweepReadback",
     "RFOutputClient",
     "SymbolicDCSourceClient",
+    "SymbolicDCSourceGroup",
     "SymbolicInstrumentRecorder",
     "SymbolicNetworkSweepClient",
+    "SymbolicNetworkSweepGroup",
     "SymbolicRFOutputClient",
+    "SymbolicRFOutputGroup",
     "SymbolicTemperatureReadoutClient",
+    "SymbolicTemperatureReadoutGroup",
     "TemperatureReadback",
     "TemperatureReadoutClient",
     "TemperatureSampleProducts",

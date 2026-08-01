@@ -8,13 +8,18 @@ from scopecat.authoring import (
     ExperimentContext,
     IntType,
     ModuleContext,
+    PerEntity,
     ProductRef,
     ScalarType,
     coordinate,
+    each,
+    one,
     template,
 )
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.bindings import EnsureStateIntent
+from scopecat.program.expressions import LiteralScalarExpr
 from scopecat.program.module import ModuleAcquireEffect
 
 from scopecat_instruments import (
@@ -25,10 +30,14 @@ from scopecat_instruments import (
     NetworkSweepState,
     RFOutputState,
     SymbolicDCSourceClient,
+    SymbolicDCSourceGroup,
     SymbolicInstrumentRecorder,
     SymbolicNetworkSweepClient,
+    SymbolicNetworkSweepGroup,
     SymbolicRFOutputClient,
+    SymbolicRFOutputGroup,
     SymbolicTemperatureReadoutClient,
+    SymbolicTemperatureReadoutGroup,
     TemperatureSampleProducts,
     dc_source,
     network_sweep,
@@ -36,7 +45,6 @@ from scopecat_instruments import (
     temperature_readout,
 )
 from scopecat_instruments.members import (
-    DC_MONITOR,
     DC_SOURCE,
     NETWORK_SWEEP,
     RF_OUTPUT,
@@ -48,7 +56,7 @@ def test_factories_bind_typed_symbolic_clients_and_declare_resources() -> None:
     context = ModuleContext()
     qubit = coordinate("qubit", ScalarType(EntityType(entity_kind="qubit")))
 
-    source = dc_source(context, "flux", for_entities=(qubit,))
+    source = dc_source(context, "flux", for_=one(qubit))
     rf = rf_output(context, "drive")
     vna = network_sweep(context, "readout")
     thermometer = temperature_readout(context, "temperature")
@@ -65,12 +73,147 @@ def test_factories_bind_typed_symbolic_clients_and_declare_resources() -> None:
         "temperature",
     ]
     assert [resource.selector.interfaces for resource in interface.resources] == [
-        (DC_SOURCE.interface_id, DC_MONITOR.interface_id),
+        (DC_SOURCE.interface_id,),
         (RF_OUTPUT.interface_id,),
         (NETWORK_SWEEP.interface_id,),
         (TEMPERATURE_READOUT.interface_id,),
     ]
     assert interface.resources[0].selector.entity_inputs == (qubit,)
+
+
+def test_one_concrete_entity_lowers_to_one_literal_entity_input() -> None:
+    context = ModuleContext()
+    q0 = EntityRef(id="q0", kind="logical_device")
+
+    source = dc_source(context, "flux", for_=one(q0))
+
+    assert_type(source, SymbolicDCSourceClient)
+    interface, _, _ = context.close_experiment_parts_internal()
+    [entity_input] = interface.resources[0].selector.entity_inputs
+    assert isinstance(entity_input.source, LiteralScalarExpr)
+    assert entity_input.source.value == q0
+
+
+def test_each_expands_into_single_entity_resources_and_unique_acquisitions() -> None:
+    context = ModuleContext()
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+
+    analyzers = network_sweep(context, "readout", for_=each(q0, q1))
+    assert_type(analyzers, SymbolicNetworkSweepGroup)
+    assert analyzers.entities == (q0, q1)
+    assert analyzers[q0] is analyzers.clients[q0]
+    analyzers.ensure(NetworkSweepState(points=11))
+    traces = analyzers.sweep()
+
+    assert_type(traces, PerEntity[NetworkSweepProducts])
+    definition = context.close_definition_internal(id="test.symbolic.each")
+    resources = definition.interface.resources
+    assert len(resources) == 2
+    assert tuple(analyzers.resources) == (q0, q1)
+    assert all(
+        resource.id.startswith("readout.logical-device-q") for resource in resources
+    )
+    assert len({resource.id for resource in resources}) == 2
+    for resource, entity in zip(resources, (q0, q1), strict=True):
+        [entity_input] = resource.selector.entity_inputs
+        assert isinstance(entity_input.source, LiteralScalarExpr)
+        assert entity_input.source.value == entity
+
+    acquisitions = tuple(
+        effect
+        for effect in definition.body.effects
+        if isinstance(effect, ModuleAcquireEffect)
+    )
+    assert len(acquisitions) == 2
+    assert len({effect.id for effect in acquisitions}) == 2
+    assert len(definition.body.products) == 4
+    assert len({product.qualified_id for product in definition.body.products}) == 4
+    for entity in (q0, q1):
+        trace = traces[entity]
+        assert trace.frequency.id.startswith(analyzers[entity].id)
+        assert trace.s_parameter.id.startswith(analyzers[entity].id)
+
+
+def test_each_factories_keep_the_typed_interface_specific_group_verbs() -> None:
+    context = ModuleContext()
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+    selection = each(q0, q1)
+
+    outputs = rf_output(context, "drive", for_=selection)
+    thermometers = temperature_readout(context, "temperature", for_=selection)
+    assert_type(outputs, SymbolicRFOutputGroup)
+    assert_type(thermometers, SymbolicTemperatureReadoutGroup)
+    outputs.ensure(RFOutputState(output_enabled=False))
+    samples = thermometers.sample()
+
+    assert_type(samples, PerEntity[TemperatureSampleProducts])
+    assert tuple(samples) == (q0, q1)
+
+
+def test_dc_group_accepts_broadcast_and_typed_per_entity_state() -> None:
+    context = ModuleContext()
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+    biases = dc_source(context, "flux", for_=each(q0, q1))
+    assert_type(biases, SymbolicDCSourceGroup)
+    common = DCSourceVoltage(
+        range=Quantity(1, "V"),
+        level=Quantity(0.01, "V"),
+    )
+    biases.ensure(common)
+    states = assert_type(
+        PerEntity(
+            (
+                (
+                    q1,
+                    DCSourceVoltage(
+                        range=Quantity(1, "V"),
+                        level=Quantity(0.02, "V"),
+                    ),
+                ),
+                (
+                    q0,
+                    DCSourceVoltage(
+                        range=Quantity(1, "V"),
+                        level=Quantity(0.03, "V"),
+                    ),
+                ),
+            )
+        ),
+        PerEntity[DCSourceVoltage],
+    )
+
+    biases.ensure(states)
+
+    definition = context.close_definition_internal(id="test.symbolic.dc-each")
+    ensures = tuple(
+        effect
+        for effect in definition.body.effects
+        if isinstance(effect, EnsureStateIntent)
+    )
+    assert len(ensures) == 4
+
+
+def test_group_per_entity_state_requires_an_exact_full_identity_join() -> None:
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+    wrong_q1 = EntityRef(id="q1", kind="logical_coupler")
+    biases = dc_source(ModuleContext(), "flux", for_=each(q0, q1))
+    state = DCSourceVoltage(
+        range=Quantity(1, "V"),
+        level=Quantity(0.01, "V"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"exactly match.*missing logical_device:q1; "
+            r"extra logical_coupler:q1"
+        ),
+    ):
+        biases.ensure(PerEntity(((q0, state), (wrong_q1, state))))
 
 
 def test_experiment_context_satisfies_the_symbolic_recorder_protocol() -> None:
@@ -99,7 +242,27 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
     assert [
         selection.product_id.qualified_name
         for selection in definition.record_selections
-    ] == ["frequency", "s_parameter"]
+    ] == ["readout/frequency", "readout/s_parameter"]
+    assert [selection.record_id for selection in definition.record_selections] == [
+        "frequency",
+        "s_parameter",
+    ]
+
+
+def test_two_scalar_clients_use_distinct_structured_product_scopes() -> None:
+    context = ModuleContext()
+    left = network_sweep(context, "left")
+    right = network_sweep(context, "right")
+    left.ensure(NetworkSweepState(points=3))
+    right.ensure(NetworkSweepState(points=3))
+
+    left_trace = left.sweep()
+    right_trace = right.sweep()
+
+    definition = context.close_definition_internal(id="test.symbolic.scopes")
+    assert len({product.qualified_id for product in definition.body.products}) == 4
+    assert left_trace.s_parameter.id == "left/s_parameter"
+    assert right_trace.s_parameter.id == "right/s_parameter"
 
 
 def test_state_clients_record_typed_ensure_effects() -> None:
@@ -136,7 +299,7 @@ def test_state_clients_record_typed_ensure_effects() -> None:
 
 def test_dc_monitor_selects_the_contract_result_for_the_ensured_source_mode() -> None:
     context = ModuleContext()
-    source = dc_source(context, "flux")
+    source = dc_source(context, "flux", monitor=True)
     source.ensure(
         DCSourceVoltage(
             range=Quantity(1.0, "V"),
@@ -161,10 +324,23 @@ def test_dc_monitor_selects_the_contract_result_for_the_ensured_source_mode() ->
 
 
 def test_dc_monitor_requires_a_concrete_ensured_source_mode() -> None:
-    source = dc_source(ModuleContext(), "flux")
+    source = dc_source(ModuleContext(), "flux", monitor=True)
 
     with pytest.raises(ValueError, match=r"state-dependent results.*concrete"):
         source.monitor()
+
+
+def test_dc_monitor_requires_explicit_symbolic_opt_in() -> None:
+    context = ModuleContext()
+    source = dc_source(context, "flux")
+
+    with pytest.raises(ValueError, match=r"monitor=True"):
+        source.ensure(DCMonitorState(measurement_enabled=True))
+    with pytest.raises(ValueError, match=r"monitor=True"):
+        source.monitor()
+
+    interface, _, _ = context.close_experiment_parts_internal()
+    assert interface.resources[0].selector.interfaces == (DC_SOURCE.interface_id,)
 
 
 def test_network_sweep_declares_contract_products_and_ensured_points() -> None:
@@ -219,20 +395,30 @@ def test_network_sweep_declares_contract_products_and_ensured_points() -> None:
     ]
 
 
-def test_network_sweep_preserves_symbolic_points_as_product_axis_size() -> None:
+def test_network_sweep_rejects_point_varying_output_shape() -> None:
     context = ModuleContext()
     points = coordinate("points", ScalarType(IntType()))
     vna = network_sweep(context, "readout")
     vna.ensure(NetworkSweepState(points=points))
 
+    with pytest.raises(
+        ValueError,
+        match=r"output-shaping state.*configuration binding.*point execution",
+    ):
+        vna.sweep(id="second")
+
+
+def test_explicit_acquisition_id_namespaces_the_scoped_local_products() -> None:
+    context = ModuleContext()
+    vna = network_sweep(context, "readout")
+    vna.ensure(NetworkSweepState(points=5))
+
     trace = vna.sweep(id="second")
 
-    _, body, _ = context.close_experiment_parts_internal()
-    assert trace.frequency.id == "second.frequency"
-    assert trace.s_parameter.id == "second.s_parameter"
-    products = {product.id: product for product in body.products}
-    assert products[trace.frequency.id].axes[0].size is points
-    assert products[trace.s_parameter.id].axes[0].size is points
+    definition = context.close_definition_internal(id="test.symbolic.second")
+    products = {product.qualified_id: product for product in definition.body.products}
+    assert trace.frequency.id == "readout/second.frequency"
+    assert trace.s_parameter.id == "readout/second.s_parameter"
     assert products[trace.frequency.id].axes[0].shared_as == "second.frequency"
 
 

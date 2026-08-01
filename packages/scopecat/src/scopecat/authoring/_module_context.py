@@ -325,6 +325,7 @@ class ModuleContext:
         self,
         id: str,
         *,
+        scope: Sequence[str] = (),
         unit: str | None = "ratio",
         dtype: MeasurementDType = "float64",
         axes: Sequence[ProductAxis] = (),
@@ -334,6 +335,7 @@ class ModuleContext:
 
         declaration = ModuleProductDecl(
             id,
+            scope=tuple(scope),
             origin=(object(),),
             unit=unit,
             dtype=dtype,

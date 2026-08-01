@@ -4,6 +4,8 @@ from collections.abc import Mapping, Sequence
 from typing import Annotated
 
 import pytest
+from scopecat_instruments import NetworkSweepState, network_sweep
+from scopecat_instruments.members import NETWORK_SWEEP
 
 import scopecat.authoring as authoring
 from scopecat.authoring.scans import axis
@@ -73,6 +75,65 @@ def _resource_binding_config(
         }
     )
     return seed.model_copy(update={"system": system})
+
+
+def test_typed_each_resources_route_to_different_instruments() -> None:
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+    config = _resource_binding_config(
+        instruments={"source-0": "vna", "source-1": "vna"},
+        bindings=(
+            RoutingEndpointBinding(
+                instrument_id="source-0",
+                interface_id=NETWORK_SWEEP.interface_id,
+                entity_id=q0.id,
+            ),
+            RoutingEndpointBinding(
+                instrument_id="source-1",
+                interface_id=NETWORK_SWEEP.interface_id,
+                entity_id=q1.id,
+            ),
+        ),
+        extra_entities=(q1,),
+    )
+
+    @authoring.template(id="test.symbolic.each-routing", kind="symbolic_each")
+    def experiment(
+        context: authoring.ExperimentContext,
+        points: Annotated[
+            authoring.Input[int],
+            authoring.IntType(minimum=1),
+        ],
+    ) -> None:
+        analyzers = network_sweep(
+            context,
+            "readout",
+            for_=authoring.each(q0, q1),
+        )
+        analyzers.ensure(NetworkSweepState(points=points))
+        traces = analyzers.sweep()
+        context.record(traces.map(lambda trace: trace.s_parameter))
+
+    record_ids = tuple(
+        selection.record_id for selection in experiment.definition.record_selections
+    )
+    assert len(set(record_ids)) == 2
+    assert all(
+        record_id is not None and record_id.endswith("/s_parameter")
+        for record_id in record_ids
+    )
+
+    bound = bind_invocation(experiment(points=3), config_profile=config)
+    preview = materialized_effects_contract(
+        bound,
+        bound.environment.parameters,
+        config=config,
+    )
+    operations = operations_of_type(preview, CollectOperation, point_index=0)
+    assert {
+        operation.instrument_id: tuple(operation.command.requests[0].entity_ids)
+        for operation in operations
+    } == {"source-0": ("q0",), "source-1": ("q1",)}
 
 
 def test_entity_resource_selection_is_deterministic_across_instruments() -> None:

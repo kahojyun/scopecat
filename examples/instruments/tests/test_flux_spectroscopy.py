@@ -60,19 +60,19 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert preview.schema is not None
     assert preview.schema.primary_coordinates == ["dc_bias", "frequency"]
     dimensions = {dimension.id: dimension for dimension in preview.schema.dimensions}
-    assert dimensions["shared/frequency"].label == "frequency"
+    assert dimensions["shared/readout-vna/frequency"].label == "frequency"
     variables = {variable.id: variable for variable in preview.schema.variables}
     assert variables["dc_bias"].role == "coordinate"
     assert variables["dc_bias"].dims == ["point"]
     assert variables["frequency"].role == "coordinate"
     assert variables["frequency"].dims == [
         "point",
-        "shared/frequency",
+        "shared/readout-vna/frequency",
     ]
     assert variables["s_parameter"].role == "observable"
     assert variables["s_parameter"].dims == [
         "point",
-        "shared/frequency",
+        "shared/readout-vna/frequency",
     ]
     assert variables["temperature"].role == "observable"
     assert variables["temperature"].dims == ["point"]
@@ -80,12 +80,12 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert preview_records["frequency"].role == "coordinate"
     assert preview_records["frequency"].dims == (
         "point",
-        "shared/frequency",
+        "shared/readout-vna/frequency",
     )
     assert preview_records["s_parameter"].role == "observable"
     assert preview_records["s_parameter"].dims == (
         "point",
-        "shared/frequency",
+        "shared/readout-vna/frequency",
     )
     assert preview_records["temperature"].role == "observable"
     assert preview_records["temperature"].dims == ("point",)

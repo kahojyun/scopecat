@@ -281,6 +281,15 @@ readback plus its receipt. Its declarative counterpart adds an acquisition
 effect and returns named `ProductRef` fields. Defining the experiment executes
 neither `ensure(...)` nor the acquisition against hardware.
 
+DC monitoring is an optional symbolic capability: `dc_source(...)` requires
+only the source interface by default, while `dc_source(..., monitor=True)` also
+requires the monitor interface and enables `DCMonitorState` and `monitor()`.
+This keeps an ordinary source-only experiment routable to hardware without the
+monitor option. State fields that determine output shape, such as network-sweep
+`points`, must resolve during configuration binding, before point execution;
+scan coordinates and point-local compute results cannot size an acquisition
+product.
+
 ### Entity selection and parameter mapping
 
 `one(...)` and `each(...)` make entity cardinality explicit at the typed-client
@@ -299,8 +308,11 @@ A group `ensure(...)` accepts either one common state or a `PerEntity[state]`
 mapping. A group acquisition returns `PerEntity[Products]`. Both mappings join
 by durable entity identity `(kind, id)`, never by list position; descriptive
 entity metadata does not participate in the join, and duplicate identities are
-rejected. Root recording accepts a `PerEntity[ProductRef]` projection directly
-and preserves the entity-keyed product occurrences.
+rejected. Because topology and routing still address entities by string id,
+the concrete entities in one `each(...)` selection must also have globally
+unique ids; different kinds do not disambiguate the same id there. Root
+recording accepts a `PerEntity[ProductRef]` projection directly, preserves
+declaration order, and gives each scoped product a stable qualified record id.
 
 Parameter tables use the same cardinality shape. The schema is declared once
 and supplies both named authoring accessors and the exact catalog `TableType`:

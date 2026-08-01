@@ -33,6 +33,7 @@ from scopecat.authoring._module_invocation import (
     domain_use_call,
     module_use_invocation,
 )
+from scopecat.authoring.entity_parameters import PerEntity
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import (
     ExperimentTemplate,
@@ -96,6 +97,7 @@ from scopecat.program.values import input as authoring_input
 
 type DefinitionFunction = Callable[..., object]
 type Input[T] = T | ValueRef
+type RecordProductInput = str | ProductRef | PerEntity[ProductRef]
 
 
 def input_ref[T](value: Input[T]) -> ValueRef:
@@ -108,6 +110,18 @@ def input_ref[T](value: Input[T]) -> ValueRef:
     """
 
     return cast("ValueRef", value)
+
+
+def _expand_record_products(
+    products: Sequence[RecordProductInput],
+) -> tuple[tuple[str | ProductRef, str | None], ...]:
+    selected: list[tuple[str | ProductRef, str | None]] = []
+    for product in products:
+        if isinstance(product, PerEntity):
+            selected.extend((value, value.id) for value in product.values())
+        else:
+            selected.append((product, None))
+    return tuple(selected)
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,6 +268,7 @@ class ExperimentContext:
         self,
         id: str,
         *,
+        scope: Sequence[str] = (),
         unit: str | None = "ratio",
         dtype: MeasurementDType = "float64",
         axes: Sequence[ProductAxis] = (),
@@ -263,6 +278,7 @@ class ExperimentContext:
 
         return self._program.product(
             id,
+            scope=scope,
             unit=unit,
             dtype=dtype,
             axes=axes,
@@ -318,40 +334,42 @@ class ExperimentContext:
 
     def record(
         self,
-        *products: str | ProductRef,
+        *products: RecordProductInput,
         record_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
         """Select logical products for durable recording."""
 
-        if record_id is not None and len(products) != 1:
+        selected_products = _expand_record_products(products)
+        if record_id is not None and len(selected_products) != 1:
             raise ValueError("record_id can only be used with one product")
         self._record_selections.extend(
             record_product(
                 product,
-                record_id=record_id,
+                record_id=(record_id if record_id is not None else default_record_id),
                 metadata=metadata,
             )
-            for product in products
+            for product, default_record_id in selected_products
         )
 
     def record_coordinate(
         self,
-        *products: str | ProductRef,
+        *products: RecordProductInput,
         record_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
         """Select coordinate-like products for durable recording."""
 
-        if record_id is not None and len(products) != 1:
+        selected_products = _expand_record_products(products)
+        if record_id is not None and len(selected_products) != 1:
             raise ValueError("record_id can only be used with one product")
         self._record_selections.extend(
             record_coordinate(
                 product,
-                record_id=record_id,
+                record_id=(record_id if record_id is not None else default_record_id),
                 metadata=metadata,
             )
-            for product in products
+            for product, default_record_id in selected_products
         )
 
     def records(self, *selections: RecordSelection) -> None:

@@ -287,7 +287,9 @@ def _record_selection(
     return RecordSelection(
         product_use=product_use(selected_product_id),
         product_origin=selected_product_origin,
-        record_id=record_id or selected_product_id.local_id,
+        record_id=(
+            record_id if record_id is not None else selected_product_id.local_id
+        ),
         role=role,
         metadata=freeze_json_mapping(metadata or {}),
     )

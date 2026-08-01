@@ -46,10 +46,11 @@ class OneEntity:
 class EachEntity:
     """An ordered, non-empty selection of distinct concrete entities.
 
-    Distinctness uses durable entity identity ``(kind, id)`` and deliberately
-    ignores descriptive metadata.  Symbolic entities are not accepted because
-    a ``PerEntity`` result must be keyed by known entity identity, never by
-    positional zip semantics.
+    Exact matching uses durable entity identity ``(kind, id)`` and deliberately
+    ignores descriptive metadata. Selected ids must also be globally distinct
+    because topology and routing currently address entities by string id.
+    Symbolic entities are not accepted because a ``PerEntity`` result must be
+    keyed by known entity identity, never by positional zip semantics.
     """
 
     __slots__ = ("_entities",)
@@ -76,6 +77,17 @@ class EachEntity:
                 _format_entity_identity(value) for value in duplicates
             )
             msg = f"each() entities must have distinct identities: {formatted}"
+            raise ValueError(msg)
+        entity_ids = tuple(entity.id for entity in selected)
+        duplicate_ids = sorted(
+            {entity_id for entity_id in entity_ids if entity_ids.count(entity_id) > 1}
+        )
+        if duplicate_ids:
+            formatted = ", ".join(duplicate_ids)
+            msg = (
+                "each() entity ids must be globally unique for topology and routing: "
+                f"{formatted}"
+            )
             raise ValueError(msg)
         self._entities = selected
 
