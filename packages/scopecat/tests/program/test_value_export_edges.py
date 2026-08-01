@@ -10,16 +10,18 @@ from scopecat.compiler.relations.context import EvalContext
 from scopecat.kernel.value_types import Float, Scalar, String
 from scopecat.program.identities import InvocationKey
 from scopecat.program.value_refs import (
-    internal_bind_value_ref_inputs,
     internal_input_value_ref,
     internal_literal_value_ref,
     internal_lower_scalar_value_ref,
     internal_lower_value_ref,
     internal_module_export_value_ref,
     internal_require_resolved_value_ref,
+    internal_value_ref_module_export,
+)
+from scopecat.program.value_transforms import (
+    internal_bind_value_ref_inputs,
     internal_scope_value_ref,
     internal_transform_value_ref,
-    internal_value_ref_module_export,
 )
 from tests.testkit.expressions import evaluate_scalar
 

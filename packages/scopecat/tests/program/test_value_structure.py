@@ -15,7 +15,6 @@ from scopecat.program.expressions import (
 )
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.value_refs import (
-    internal_bind_value_ref_inputs,
     internal_lower_scalar_value_ref,
     internal_lower_value_ref,
     internal_value_ref_from_expression,
@@ -24,6 +23,7 @@ from scopecat.program.value_refs import (
     internal_value_ref_requires_execution,
     internal_value_ref_scalar_input_ids,
 )
+from scopecat.program.value_transforms import internal_bind_value_ref_inputs
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from tests.testkit.expressions import evaluate_scalar

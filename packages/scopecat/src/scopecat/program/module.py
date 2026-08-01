@@ -41,6 +41,7 @@ from scopecat.program.identities import (
     ComputeDeclarationKey,
     InvocationKey,
 )
+from scopecat.program.input_capture import empty_program_mapping
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.operations import (
     ModuleInputPort,
@@ -52,14 +53,15 @@ from scopecat.program.products import (
 )
 from scopecat.program.value_refs import (
     ValueRef,
-    empty_frozen_mapping,
-    internal_transform_value_ref,
     internal_value_ref_input_id,
     internal_value_ref_module_export,
     internal_value_ref_operation_id,
     internal_value_ref_operation_origin,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
+)
+from scopecat.program.value_transforms import (
+    internal_transform_value_ref,
     internal_value_ref_unbound_input_ids,
 )
 from scopecat.program.value_types import ValueType
@@ -209,7 +211,7 @@ class ModuleAcquireResult:
 
     product: ProductRef
     result_id: str
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
         if not self.result_id:
@@ -400,7 +402,7 @@ class ModuleDef:
     interface: ModuleInterface
     body: ModuleBody
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
         if not self.id:

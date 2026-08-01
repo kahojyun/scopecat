@@ -18,10 +18,10 @@ from scopecat.program.expressions import (
     param,
 )
 from scopecat.program.identities import ComputeDeclarationKey
+from scopecat.program.input_capture import capture_runtime_input
 from scopecat.program.table_values import ParameterTableSource
 from scopecat.program.value_refs import (
     ValueRef,
-    capture_runtime_input,
     internal_input_value_ref,
     internal_operation_result_value_ref,
     internal_parameter_lookup_value_ref,

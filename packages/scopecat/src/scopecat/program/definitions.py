@@ -12,6 +12,7 @@ from scopecat.program.bindings import (
     BindingIntent,
     EnsureStateIntent,
 )
+from scopecat.program.input_capture import capture_runtime_inputs, empty_program_mapping
 from scopecat.program.module import (
     ModuleBody,
     ModuleInterface,
@@ -19,10 +20,6 @@ from scopecat.program.module import (
 )
 from scopecat.program.products import RecordSelection
 from scopecat.program.scans import Scan
-from scopecat.program.value_refs import (
-    capture_runtime_inputs,
-    empty_frozen_mapping,
-)
 from scopecat.program.values import (
     MetadataValue,
     RuntimeInput,
@@ -71,7 +68,7 @@ class ExperimentDef:
     default_scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
     final_state: EnsureStateIntent | None = None
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
         product_ids = tuple(
@@ -85,7 +82,7 @@ class ExperimentDef:
 @dataclass(frozen=True, slots=True, repr=False)
 class ExperimentInvocation:
     definition: ExperimentDef
-    inputs: Mapping[str, RuntimeInput] = field(default_factory=empty_frozen_mapping)
+    inputs: Mapping[str, RuntimeInput] = field(default_factory=empty_program_mapping)
     scans: tuple[Scan, ...] = ()
 
     def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:

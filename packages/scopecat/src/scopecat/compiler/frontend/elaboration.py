@@ -63,13 +63,15 @@ from scopecat.program.scans import AxisSpec, scan_parameter_contracts
 from scopecat.program.value_refs import (
     PointValueDependency,
     ValueRef,
-    internal_bind_value_ref_inputs,
     internal_require_resolved_value_ref,
-    internal_scope_value_ref,
-    internal_transform_value_ref,
     internal_value_ref_module_export,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
+)
+from scopecat.program.value_transforms import (
+    internal_bind_value_ref_inputs,
+    internal_scope_value_ref,
+    internal_transform_value_ref,
 )
 from scopecat.program.value_types import (
     Entity as EntityType,

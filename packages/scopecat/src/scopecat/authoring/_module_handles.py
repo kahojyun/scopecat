@@ -40,6 +40,11 @@ from scopecat.program.bindings import (
 )
 from scopecat.program.domain import DomainCall
 from scopecat.program.identities import InvocationKey
+from scopecat.program.input_capture import (
+    capture_module_inputs,
+    capture_runtime_input,
+    empty_program_mapping,
+)
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.module import (
     ModuleAcquireEffect,
@@ -68,9 +73,6 @@ from scopecat.program.products import (
 from scopecat.program.state import DesiredState, StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
-    capture_module_inputs,
-    capture_runtime_input,
-    empty_frozen_mapping,
     internal_literal_value_ref,
     internal_module_export_value_ref,
     internal_value_ref_operation_id,
@@ -510,7 +512,7 @@ class ModuleContext:
 class ModuleInvocation:
     module: ExperimentModule[...]
     instance_id: str
-    inputs: Mapping[str, ValueRef] = field(default_factory=empty_frozen_mapping)
+    inputs: Mapping[str, ValueRef] = field(default_factory=empty_program_mapping)
     resource_bindings: Mapping[LogicalResourcePortId, LogicalResourcePortId] = field(
         default_factory=_empty_resource_bindings
     )
@@ -799,7 +801,8 @@ class ExperimentModule[**P]:
             raise ValueError(msg)
         try:
             captured_inputs = capture_module_inputs(
-                cast("Mapping[str, object]", inputs)
+                cast("Mapping[str, object]", inputs),
+                value_ref_type=ValueRef,
             )
         except (TypeError, ValueError) as error:
             msg = (

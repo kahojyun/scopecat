@@ -42,6 +42,7 @@ from scopecat.program.definitions import (
     create_experiment_def,
 )
 from scopecat.program.domain import DomainCall
+from scopecat.program.input_capture import empty_program_mapping
 from scopecat.program.module import ModuleInstance
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
@@ -53,7 +54,6 @@ from scopecat.program.products import (
 from scopecat.program.state import DesiredState
 from scopecat.program.value_refs import (
     ValueRef,
-    empty_frozen_mapping,
     internal_value_ref_point_dependencies,
     internal_value_ref_requires_execution,
 )
@@ -267,7 +267,7 @@ class ScratchDefinition[**P]:
     _signature: inspect.Signature = field(repr=False, compare=False)
     id: str
     kind: str
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     @property
     def __wrapped__(self) -> Callable[Concatenate[ExperimentContext, P], None]:
@@ -294,7 +294,7 @@ class ScratchDefinition[**P]:
         )
         return ExperimentInvocation(
             definition=definition,
-            inputs=empty_frozen_mapping(),
+            inputs=empty_program_mapping(),
             scans=(),
         )
 
