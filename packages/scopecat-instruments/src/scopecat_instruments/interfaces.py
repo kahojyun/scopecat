@@ -5,7 +5,6 @@ from __future__ import annotations
 from scopecat.sdk.instruments import (
     InterfaceSpec,
     acquisition,
-    acquisition_axis,
     acquisition_case,
     acquisition_precondition,
     acquisition_result,
@@ -20,6 +19,7 @@ from scopecat.sdk.instruments import (
 )
 
 import scopecat_instruments.members as member_refs
+from scopecat_instruments.interface_declarations import NETWORK_SWEEP_DECLARATION
 
 
 def rf_output_interface() -> InterfaceSpec:
@@ -272,84 +272,7 @@ def temperature_readout_interface() -> InterfaceSpec:
 
 
 def network_sweep_interface() -> InterfaceSpec:
-    frequency_axis = acquisition_axis(
-        "frequency",
-        size=member_refs.NETWORK_SWEEP_POINTS,
-        kind="frequency",
-        unit="Hz",
-        label="Frequency",
-        description="Linear VNA stimulus frequency.",
-    )
-    return interface(
-        member_refs.NETWORK_SWEEP.interface_id,
-        label="Network sweep",
-        description="Linear, single-trigger complex S-parameter sweep.",
-        properties=[
-            quantity_property(
-                member_refs.NETWORK_SWEEP_START_FREQUENCY.property_id,
-                unit="Hz",
-                label="Start frequency",
-                description="First stimulus frequency in the linear sweep.",
-            ),
-            quantity_property(
-                member_refs.NETWORK_SWEEP_STOP_FREQUENCY.property_id,
-                unit="Hz",
-                label="Stop frequency",
-                description="Last stimulus frequency in the linear sweep.",
-            ),
-            int_property(
-                member_refs.NETWORK_SWEEP_POINTS.property_id,
-                minimum=2,
-                label="Sweep points",
-                description="Number of equally spaced frequency points.",
-            ),
-            quantity_property(
-                member_refs.NETWORK_SWEEP_IF_BANDWIDTH.property_id,
-                unit="Hz",
-                label="IF bandwidth",
-                description="Receiver intermediate-frequency bandwidth.",
-            ),
-            quantity_property(
-                member_refs.NETWORK_SWEEP_SOURCE_POWER.property_id,
-                unit="dBm",
-                label="Source power",
-                description="Stimulus power for the selected analyzer channel.",
-            ),
-            enum_property(
-                member_refs.NETWORK_SWEEP_S_PARAMETER.property_id,
-                choices=("S11", "S21", "S12", "S22"),
-                label="S-parameter",
-                description="Two-port S-parameter measured by the selected trace.",
-            ),
-        ],
-        acquisitions=[
-            acquisition(
-                member_refs.NETWORK_SWEEP_ACQUISITION.acquisition_id,
-                label="Acquire sweep",
-                description="Trigger and read the configured network sweep.",
-                results=[
-                    acquisition_result(
-                        member_refs.NETWORK_SWEEP_FREQUENCY_RESULT.result_id,
-                        dtype="float64",
-                        unit="Hz",
-                        label="Frequency",
-                        description="Stimulus frequency values for the acquired trace.",
-                        axes=[frequency_axis],
-                    ),
-                    acquisition_result(
-                        member_refs.NETWORK_SWEEP_S_PARAMETER_RESULT.result_id,
-                        dtype="complex128",
-                        unit="ratio",
-                        label="Complex S-parameter",
-                        description=(
-                            "Complex response values for the configured S-parameter."
-                        ),
-                        axes=[frequency_axis],
-                    ),
-                ],
-            ),
-        ],
-    )
+    return NETWORK_SWEEP_DECLARATION.fresh_spec()
 
 
 __all__ = [

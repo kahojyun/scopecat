@@ -4,6 +4,7 @@ from typing import assert_type
 
 from scopecat.api._instruments import InstrumentRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.sdk.instruments.declarations import declared_state_assignments
 
 from scopecat_instruments import (
     DCSourceClient,
@@ -54,11 +55,13 @@ def test_sparse_state_omits_unspecified_properties() -> None:
     assert DCSourceState(output_enabled=False).target_assignments() == {
         DC_SOURCE_OUTPUT_ENABLED: False
     }
-    assert NetworkSweepState(
-        start_frequency=Quantity(4.8, "GHz"),
-        points=401,
-        s_parameter="S21",
-    ).target_assignments() == {
+    assert declared_state_assignments(
+        NetworkSweepState(
+            start_frequency=Quantity(4.8, "GHz"),
+            points=401,
+            s_parameter="S21",
+        )
+    ) == {
         NETWORK_SWEEP_START_FREQUENCY: Quantity(4.8, "GHz"),
         NETWORK_SWEEP_POINTS: 401,
         NETWORK_SWEEP_S_PARAMETER: "S21",

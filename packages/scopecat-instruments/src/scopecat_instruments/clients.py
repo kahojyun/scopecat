@@ -21,6 +21,7 @@ from scopecat.sdk.instruments import (
     InstrumentDescription,
     PropertyRef,
 )
+from scopecat.sdk.instruments.declarations import declared_state_assignments
 
 from scopecat_instruments.members import (
     DC_MONITOR_ACQUISITION,
@@ -137,7 +138,7 @@ class RFOutputClient(_InstrumentClient):
 class NetworkSweepClient(_InstrumentClient):
     def apply(self, patch: NetworkSweepState) -> ApplyReceipt:
         return self._session.apply(
-            _concrete_assignments(patch),
+            _concrete_declared_assignments(patch),
             instrument_id=self.instrument_id,
         )
 
@@ -366,13 +367,26 @@ def _concrete_assignments(
         | DCSourceCurrent
         | DCMonitorState
         | RFOutputState
-        | NetworkSweepState
     ),
 ) -> dict[PropertyRef, StateLiteral]:
     try:
         return {
             target: StateValue.model_validate(value).root
             for target, value in state.target_assignments().items()
+        }
+    except ValueError as error:
+        raise TypeError(
+            "direct instrument state must contain concrete values"
+        ) from error
+
+
+def _concrete_declared_assignments(
+    state: NetworkSweepState,
+) -> dict[PropertyRef, StateLiteral]:
+    try:
+        return {
+            target: StateValue.model_validate(value).root
+            for target, value in declared_state_assignments(state).items()
         }
     except ValueError as error:
         raise TypeError(

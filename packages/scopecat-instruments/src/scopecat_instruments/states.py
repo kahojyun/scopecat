@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
-from scopecat.authoring import StateBinding, ValueRef
+from scopecat.authoring import StateBinding
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import PropertyRef
 
+from scopecat_instruments.interface_declarations import (
+    Desired,
+    NetworkSweepState,
+    ReferenceSource,
+)
+from scopecat_instruments.interface_declarations import (
+    SParameter as SParameter,
+)
 from scopecat_instruments.members import (
     DC_MONITOR_INTEGRATION_CYCLES,
     DC_MONITOR_MEASUREMENT_DELAY,
@@ -21,21 +28,11 @@ from scopecat_instruments.members import (
     DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_PROTECTION,
     DC_SOURCE_VOLTAGE_RANGE,
-    NETWORK_SWEEP_IF_BANDWIDTH,
-    NETWORK_SWEEP_POINTS,
-    NETWORK_SWEEP_S_PARAMETER,
-    NETWORK_SWEEP_SOURCE_POWER,
-    NETWORK_SWEEP_START_FREQUENCY,
-    NETWORK_SWEEP_STOP_FREQUENCY,
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
     RF_OUTPUT_REFERENCE_SOURCE,
 )
-
-type Desired[T] = T | ValueRef
-type ReferenceSource = Literal["internal", "external"]
-type SParameter = Literal["S11", "S21", "S12", "S22"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,26 +127,6 @@ class RFOutputState:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class NetworkSweepState:
-    start_frequency: Desired[Quantity] | None = None
-    stop_frequency: Desired[Quantity] | None = None
-    points: Desired[int] | None = None
-    if_bandwidth: Desired[Quantity] | None = None
-    source_power: Desired[Quantity] | None = None
-    s_parameter: Desired[SParameter] | None = None
-
-    def target_assignments(self) -> dict[PropertyRef, StateBinding]:
-        return _target_assignments(
-            (NETWORK_SWEEP_START_FREQUENCY, self.start_frequency),
-            (NETWORK_SWEEP_STOP_FREQUENCY, self.stop_frequency),
-            (NETWORK_SWEEP_POINTS, self.points),
-            (NETWORK_SWEEP_IF_BANDWIDTH, self.if_bandwidth),
-            (NETWORK_SWEEP_SOURCE_POWER, self.source_power),
-            (NETWORK_SWEEP_S_PARAMETER, self.s_parameter),
-        )
-
-
 def _target_assignments(
     *items: tuple[PropertyRef, StateBinding | None],
 ) -> dict[PropertyRef, StateBinding]:
@@ -164,4 +141,6 @@ __all__ = [
     "Desired",
     "NetworkSweepState",
     "RFOutputState",
+    "ReferenceSource",
+    "SParameter",
 ]

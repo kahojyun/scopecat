@@ -3,6 +3,17 @@
 from __future__ import annotations
 
 from scopecat.sdk.instruments import InterfaceRef
+from scopecat.sdk.instruments.declarations import (
+    declared_acquisition_ref,
+    declared_property_ref,
+    declared_result_ref,
+)
+
+from scopecat_instruments.interface_declarations import (
+    NETWORK_SWEEP_DECLARATION,
+    NetworkSweepInterface,
+    NetworkSweepState,
+)
 
 RF_OUTPUT = InterfaceRef("scopecat.rf_output/v1")
 RF_OUTPUT_FREQUENCY = RF_OUTPUT.property("frequency")
@@ -37,16 +48,42 @@ TEMPERATURE_READOUT_TEMPERATURE_RESULT = TEMPERATURE_READOUT_SAMPLE.result(
 )
 TEMPERATURE_READOUT_RESISTANCE_RESULT = TEMPERATURE_READOUT_SAMPLE.result("resistance")
 
-NETWORK_SWEEP = InterfaceRef("scopecat.network_sweep/v1")
-NETWORK_SWEEP_START_FREQUENCY = NETWORK_SWEEP.property("start_frequency")
-NETWORK_SWEEP_STOP_FREQUENCY = NETWORK_SWEEP.property("stop_frequency")
-NETWORK_SWEEP_POINTS = NETWORK_SWEEP.property("points")
-NETWORK_SWEEP_IF_BANDWIDTH = NETWORK_SWEEP.property("if_bandwidth")
-NETWORK_SWEEP_SOURCE_POWER = NETWORK_SWEEP.property("source_power")
-NETWORK_SWEEP_S_PARAMETER = NETWORK_SWEEP.property("s_parameter")
-NETWORK_SWEEP_ACQUISITION = NETWORK_SWEEP.acquisition("sweep")
-NETWORK_SWEEP_FREQUENCY_RESULT = NETWORK_SWEEP_ACQUISITION.result("frequency")
-NETWORK_SWEEP_S_PARAMETER_RESULT = NETWORK_SWEEP_ACQUISITION.result("s_parameter")
+NETWORK_SWEEP = NETWORK_SWEEP_DECLARATION.ref
+NETWORK_SWEEP_START_FREQUENCY = declared_property_ref(
+    NetworkSweepState,
+    "start_frequency",
+)
+NETWORK_SWEEP_STOP_FREQUENCY = declared_property_ref(
+    NetworkSweepState,
+    "stop_frequency",
+)
+NETWORK_SWEEP_POINTS = declared_property_ref(NetworkSweepState, "points")
+NETWORK_SWEEP_IF_BANDWIDTH = declared_property_ref(
+    NetworkSweepState,
+    "if_bandwidth",
+)
+NETWORK_SWEEP_SOURCE_POWER = declared_property_ref(
+    NetworkSweepState,
+    "source_power",
+)
+NETWORK_SWEEP_S_PARAMETER = declared_property_ref(
+    NetworkSweepState,
+    "s_parameter",
+)
+NETWORK_SWEEP_ACQUISITION = declared_acquisition_ref(
+    NetworkSweepInterface,
+    "sweep",
+)
+NETWORK_SWEEP_FREQUENCY_RESULT = declared_result_ref(
+    NetworkSweepInterface,
+    "sweep",
+    "frequency",
+)
+NETWORK_SWEEP_S_PARAMETER_RESULT = declared_result_ref(
+    NetworkSweepInterface,
+    "sweep",
+    "s_parameter",
+)
 
 __all__ = [
     "DC_MONITOR",

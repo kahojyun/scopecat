@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
+from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.value_types import Bool, Int, Quantity, Scalar
 from scopecat.sdk.instruments import (
     AcquisitionRef,
@@ -131,6 +132,12 @@ def test_network_sweep_axis_size_tracks_the_points_state() -> None:
     for result in acquisition_results(sweep):
         [frequency] = result.axes
         assert frequency.size == expected
+
+
+def test_declared_network_sweep_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(network_sweep_interface()) == (
+        "ac4b820390cec2c1fd6478499cf097f715aac5a6f4b3bfaafe1d919cede99abe"
+    )
 
 
 def _resolve_component(

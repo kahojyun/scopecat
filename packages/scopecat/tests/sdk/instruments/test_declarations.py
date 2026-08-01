@@ -7,6 +7,7 @@ from typing import Annotated, Literal, Protocol, assert_type
 import pytest
 
 from scopecat.kernel.quantity import Quantity
+from scopecat.program.state import DesiredState
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments import (
     acquisition as expected_acquisition,
@@ -35,6 +36,8 @@ from scopecat.sdk.instruments.declarations import (
     declared_interface_ref,
     declared_property_ref,
     declared_result_ref,
+    declared_state_assignments,
+    declared_state_target,
     instrument_interface,
     instrument_result,
     instrument_state,
@@ -213,6 +216,18 @@ def test_declaration_ref_helpers_use_python_member_names() -> None:
     assert declared_result_ref(SweepContract, "sweep", "response") == (
         acquisition_ref.result("s_parameter")
     )
+
+
+def test_declared_state_codec_omits_none_without_injecting_methods() -> None:
+    state = SweepState(points=11, trace="S21")
+
+    assert not hasattr(state, "target_assignments")
+    assert declared_state_assignments(state) == {
+        declared_property_ref(SweepState, "points"): 11,
+        declared_property_ref(SweepState, "trace"): "S21",
+    }
+    target: DesiredState = declared_state_target(state)
+    assert target.target_assignments() == declared_state_assignments(state)
 
 
 def test_compilation_and_fresh_spec_do_not_share_mutable_models() -> None:

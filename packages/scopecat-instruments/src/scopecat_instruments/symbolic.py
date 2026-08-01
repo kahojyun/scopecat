@@ -42,6 +42,7 @@ from scopecat.sdk.instruments import (
     StatePropertyRef,
     acquisition_results,
 )
+from scopecat.sdk.instruments.declarations import declared_state_target
 
 from scopecat_instruments.interfaces import (
     dc_monitor_interface,
@@ -304,7 +305,7 @@ class SymbolicNetworkSweepClient(_SymbolicInstrumentClient):
         )
 
     def ensure(self, state: NetworkSweepState) -> None:
-        self._ensure(state)
+        self._ensure(declared_state_target(state))
 
     def sweep(self, *, id: str | None = None) -> NetworkSweepProducts:
         """Declare a sweep and derive its product schemas from the interface."""

@@ -36,6 +36,7 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
 from scopecat.measurements.results import MeasurementDType
+from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.contracts import (
     AcquisitionAxisSpec,
@@ -133,6 +134,16 @@ class CompiledInterface[InterfaceT]:
         """Return a deep copy safe for consumers that normalize Pydantic models."""
 
         return self.spec.model_copy(deep=True)
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledStateTarget:
+    """Internal desired-state adapter produced from a declared dataclass."""
+
+    assignments: Mapping[PropertyRef, StateBinding]
+
+    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
+        return self.assignments
 
 
 def member(
@@ -341,6 +352,35 @@ def declared_property_ref(
             label="state",
         )
     )
+
+
+def declared_state_assignments(state: object) -> dict[PropertyRef, StateBinding]:
+    """Encode one decorated state dataclass without injecting instance methods."""
+
+    state_type = type(state)
+    _required_metadata(
+        state_type,
+        _STATE_METADATA,
+        bool,
+        "instrument state",
+    )
+    if not is_dataclass(state):
+        raise TypeError("instrument state must be a dataclass instance")
+    assignments: dict[PropertyRef, StateBinding] = {}
+    for state_field in fields(state):
+        value = cast("object", getattr(state, state_field.name))
+        if value is not None:
+            assignments[declared_property_ref(state_type, state_field.name)] = cast(
+                "StateBinding",
+                value,
+            )
+    return assignments
+
+
+def declared_state_target(state: object) -> CompiledStateTarget:
+    """Adapt a declared dataclass to the existing ``DesiredState`` protocol."""
+
+    return CompiledStateTarget(declared_state_assignments(state))
 
 
 def declared_acquisition_ref(
@@ -656,6 +696,8 @@ def _strip_state_wrappers(annotation: object) -> object:
     if len(remaining) != 1:
         raise TypeError(f"unsupported state union annotation {annotation!r}")
     selected = remaining[0]
+    if isinstance(selected, TypeAliasType):
+        return _strip_state_wrappers(getattr(selected, "__value__", None))
     alias = get_origin(selected)
     if not isinstance(alias, TypeAliasType):
         return selected
@@ -673,7 +715,7 @@ def _strip_state_wrappers(annotation: object) -> object:
         and alias_parameters[0] in value_arguments
         and ValueRef in value_arguments
     ):
-        return alias_arguments[0]
+        return _strip_state_wrappers(alias_arguments[0])
     raise TypeError(f"unsupported state type alias {selected!r}")
 
 
@@ -754,6 +796,7 @@ __all__ = [
     "AxisMetadata",
     "AxisSize",
     "CompiledInterface",
+    "CompiledStateTarget",
     "InterfaceMetadata",
     "MemberMetadata",
     "PropertyAccess",
@@ -765,6 +808,8 @@ __all__ = [
     "declared_interface_ref",
     "declared_property_ref",
     "declared_result_ref",
+    "declared_state_assignments",
+    "declared_state_target",
     "instrument_interface",
     "instrument_result",
     "instrument_state",
