@@ -55,69 +55,6 @@ from scopecat.program.value_refs import (
 from scopecat.program.values import ComputeFunction
 
 
-def close_logical_program(
-    *,
-    experiment_id: str,
-    kind: str,
-    inputs: Mapping[str, object],
-    input_ports: Sequence[ModuleInputPort],
-    entity_inputs: Sequence[str],
-    resource_ports: Sequence[ResourcePort],
-    point_dependencies: Sequence[PointValueDependency],
-    parameter_overlays: Sequence[AxisSpec] = (),
-    product_declarations: Sequence[ModuleProductDecl],
-    record_selections: Sequence[RecordSelection] = (),
-    parameter_contracts: Sequence[ParameterContract],
-    point_domain: PointAxes[ValueRef] = (),
-    operations: Sequence[ModuleOperationDecl],
-    implementations: Mapping[OperationId, ComputeFunction],
-    measurement_postprocessors: Sequence[MeasurementPostprocessor] = (),
-    effects: Sequence[
-        BindingIntent
-        | EnsureStateIntent
-        | InvocationIntent
-        | DomainExecution
-        | AcquireEffect
-    ] = (),
-    final_state: EnsureStateIntent | None = None,
-    value_roots: Sequence[object] = (),
-) -> LogicalProgram:
-    """Close flattened definition data directly into its logical program."""
-
-    builder = _LogicalProgramBuilder(implementations)
-    for postprocessor in measurement_postprocessors:
-        builder.add_measurement_postprocessor(postprocessor)
-    for operation in operations:
-        builder.add_authored_operation(operation)
-    logical_effects = tuple(
-        builder.add_effect(effect, effect_index=effect_index)
-        for effect_index, effect in enumerate(effects)
-    )
-    for root in value_roots:
-        if isinstance(root, ValueRef):
-            builder.add_value_root(root)
-    return builder.finish(
-        experiment_id=experiment_id,
-        kind=kind,
-        inputs=inputs,
-        input_ports=input_ports,
-        entity_inputs=entity_inputs,
-        resource_ports=resource_ports,
-        point_dependencies=point_dependencies,
-        parameter_overlays=parameter_overlays,
-        product_declarations=product_declarations,
-        record_selections=record_selections,
-        parameter_contracts=parameter_contracts,
-        point_domain=point_domain,
-        effects=logical_effects,
-        final_state=(
-            None
-            if final_state is None
-            else builder.add_ensure_state(final_state, scope=("final_state",))
-        ),
-    )
-
-
 def logical_compute_node_id(symbol: SymbolId) -> OperationId:
     return OperationId(symbol)
 
@@ -131,18 +68,20 @@ def logical_value_id(value: ValueRef) -> ValueId:
     return value.id
 
 
-class _LogicalProgramBuilder:
-    def __init__(
-        self,
-        implementations: Mapping[OperationId, ComputeFunction],
-    ) -> None:
-        self._module_implementations = dict(implementations)
+class LogicalProgramBuilder:
+    """Single sink for localized declarations, values, and ordered effects."""
+
+    def __init__(self) -> None:
         self._definitions: dict[ValueId, ValueDef] = {}
         self._compute_nodes: dict[OperationId, LogicalComputeNode] = {}
         self._measurement_postprocessors: list[LogicalMeasurementPostprocessor] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
 
-    def add_authored_operation(self, declaration: ModuleOperationDecl) -> None:
+    def add_authored_operation(
+        self,
+        declaration: ModuleOperationDecl,
+        implementation: ComputeFunction,
+    ) -> None:
         operation_id = logical_compute_node_id(declaration.operation_id)
         output_id = operation_result_id(operation_id)
         inputs = tuple(
@@ -164,16 +103,14 @@ class _LogicalProgramBuilder:
             result_type=declaration.output_type,
         )
         self._add_compute_node(operation)
-        kernel = self._module_implementations.get(operation_id)
-        if kernel is not None:
-            self._implementations[operation_id] = LocalPythonImplementation(
-                id=ImplementationId(
-                    "python:"
-                    f"{declaration.declaration_key.value.hex}:"
-                    f"{operation_id.qualified_name}"
-                ),
-                kernel=kernel,
-            )
+        self._implementations[operation_id] = LocalPythonImplementation(
+            id=ImplementationId(
+                "python:"
+                f"{declaration.declaration_key.value.hex}:"
+                f"{operation_id.qualified_name}"
+            ),
+            kernel=implementation,
+        )
 
     def add_domain_execution(
         self,

@@ -7,8 +7,7 @@ from dataclasses import dataclass, replace
 from typing import Protocol, cast
 
 from scopecat.compiler.frontend.logical_closure import (
-    close_logical_program,
-    logical_compute_node_id,
+    LogicalProgramBuilder,
 )
 from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
 from scopecat.kernel.errors import CheckFailed
@@ -61,7 +60,6 @@ from scopecat.program.products import (
     prefix_product_decl,
 )
 from scopecat.program.scans import AxisSpec, scan_parameter_contracts
-from scopecat.program.value_graph import OperationId
 from scopecat.program.value_refs import (
     PointValueDependency,
     ValueRef,
@@ -82,7 +80,6 @@ from scopecat.program.value_types import (
 from scopecat.program.value_types import (
     Table as TableType,
 )
-from scopecat.program.values import ComputeFunction
 
 type _DefinitionEffect = (
     BindingIntent
@@ -136,12 +133,10 @@ class _LogicalProgramComposer:
     """Recursively flatten definitions directly into logical-program fields."""
 
     def __init__(self) -> None:
+        self.logical = LogicalProgramBuilder()
         self.resource_ports: list[ResourcePort] = []
-        self.operations: list[ModuleOperationDecl] = []
-        self.python_implementations: dict[OperationId, ComputeFunction] = {}
-        self.measurement_postprocessors: list[MeasurementPostprocessor] = []
         self.product_declarations: list[ModuleProductDecl] = []
-        self.dependency_roots: list[ValueRef] = []
+        self.dependency_roots: list[object] = []
 
     def add_hierarchy(self, root: _HierarchyRoot) -> tuple[_DefinitionEffect, ...]:
         return self._add_module(root, boundaries=())
@@ -213,14 +208,15 @@ class _LogicalProgramComposer:
                 _resolve_operation(operation, resolver=resolver),
                 boundaries,
             )
-            self.operations.append(localized)
-            self.python_implementations[
-                logical_compute_node_id(localized.operation_id)
-            ] = implementations[operation.declaration_key]
-        self.measurement_postprocessors.extend(
-            _localize_measurement_postprocessor(postprocessor, boundaries)
-            for postprocessor in module.body.measurement_postprocessors
-        )
+            self.logical.add_authored_operation(
+                localized,
+                implementations[operation.declaration_key],
+            )
+            self.dependency_roots.extend(value for _name, value in localized.inputs)
+        for postprocessor in module.body.measurement_postprocessors:
+            self.logical.add_measurement_postprocessor(
+                _localize_measurement_postprocessor(postprocessor, boundaries)
+            )
         self.product_declarations.extend(
             _localize_product_declaration(
                 _resolve_product(product, resolver=resolver),
@@ -304,7 +300,6 @@ def _elaborate_hierarchy(
         raise ValueError("logical program contains repeated domain execution ids")
     value_roots = _logical_value_roots(
         resource_ports=composer.resource_ports,
-        operations=composer.operations,
         product_declarations=composer.product_declarations,
         effects=effects,
     )
@@ -330,7 +325,14 @@ def _elaborate_hierarchy(
         )
         for value in _nested_value_refs(source)
     )
-    return close_logical_program(
+    logical_effects = tuple(
+        composer.logical.add_effect(effect, effect_index=effect_index)
+        for effect_index, effect in enumerate(effects)
+    )
+    for root_value in (*value_roots, *final_state_values):
+        if isinstance(root_value, ValueRef):
+            composer.logical.add_value_root(root_value)
+    return composer.logical.finish(
         experiment_id=experiment_id,
         kind=kind,
         inputs=dict(inputs if logical_inputs is None else logical_inputs),
@@ -346,12 +348,15 @@ def _elaborate_hierarchy(
             additional_parameter_contracts,
         ),
         point_domain=point_domain,
-        operations=composer.operations,
-        implementations=composer.python_implementations,
-        measurement_postprocessors=composer.measurement_postprocessors,
-        effects=effects,
-        final_state=final_state,
-        value_roots=(*value_roots, *final_state_values),
+        effects=logical_effects,
+        final_state=(
+            None
+            if final_state is None
+            else composer.logical.add_ensure_state(
+                final_state,
+                scope=("final_state",),
+            )
+        ),
     )
 
 
@@ -684,7 +689,6 @@ def _require_closed_logical_values(
 def _logical_value_roots(
     *,
     resource_ports: Sequence[ResourcePort],
-    operations: Sequence[ModuleOperationDecl],
     product_declarations: Sequence[ModuleProductDecl],
     effects: Sequence[_DefinitionEffect],
 ) -> tuple[object, ...]:
@@ -720,7 +724,6 @@ def _logical_value_roots(
         if isinstance(effect, InvocationIntent)
         for argument in effect.arguments
     )
-    add_roots(value for operation in operations for _name, value in operation.inputs)
     add_roots(
         value
         for execution in effects
