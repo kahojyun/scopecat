@@ -42,7 +42,7 @@ def test_voltage_state_accepts_fixed_and_scanned_desired_values() -> None:
     )
 
     assert_type(target, DCSourceVoltage)
-    assert target.target_assignments() == {
+    assert declared_state_assignments(target) == {
         DC_SOURCE_MODE: "voltage",
         DC_SOURCE_VOLTAGE_RANGE: sc.Quantity(1.0, "V"),
         DC_SOURCE_VOLTAGE_LEVEL: level,
@@ -51,7 +51,7 @@ def test_voltage_state_accepts_fixed_and_scanned_desired_values() -> None:
 
 
 def test_sparse_states_omit_unspecified_properties() -> None:
-    assert DCSourceState(output_enabled=False).target_assignments() == {
+    assert declared_state_assignments(DCSourceState(output_enabled=False)) == {
         DC_SOURCE_OUTPUT_ENABLED: False
     }
     assert declared_state_assignments(
@@ -93,11 +93,7 @@ def test_every_first_party_state_assignment_is_writable() -> None:
     }
 
     for state in states:
-        assignments = (
-            declared_state_assignments(state)
-            if isinstance(state, (NetworkSweepState, RFOutputState))
-            else state.target_assignments()
-        )
+        assignments = declared_state_assignments(state)
         for property_ref in assignments:
             interface = interfaces[property_ref.interface_id]
             property_spec = next(

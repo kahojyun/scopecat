@@ -237,7 +237,7 @@ class SymbolicDCSourceClient(_SymbolicInstrumentClient):
     ) -> None:
         if isinstance(state, DCMonitorState) and not self._monitor_enabled:
             raise ValueError("DC monitor state requires dc_source(..., monitor=True)")
-        self._ensure(state)
+        self._ensure(declared_state_target(state))
 
     def monitor(self, *, id: str | None = None) -> DCMonitorProducts:
         """Declare the result active for the most recently ensured source mode."""

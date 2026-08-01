@@ -130,7 +130,7 @@ class DCSourceClient(_InstrumentClient):
 class RFOutputClient(_InstrumentClient):
     def apply(self, patch: RFOutputState) -> ApplyReceipt:
         return self._session.apply(
-            _concrete_declared_assignments(patch),
+            _concrete_assignments(patch),
             instrument_id=self.instrument_id,
         )
 
@@ -138,7 +138,7 @@ class RFOutputClient(_InstrumentClient):
 class NetworkSweepClient(_InstrumentClient):
     def apply(self, patch: NetworkSweepState) -> ApplyReceipt:
         return self._session.apply(
-            _concrete_declared_assignments(patch),
+            _concrete_assignments(patch),
             instrument_id=self.instrument_id,
         )
 
@@ -361,21 +361,14 @@ def temperature_readout(
 
 
 def _concrete_assignments(
-    state: (DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState),
-) -> dict[PropertyRef, StateLiteral]:
-    try:
-        return {
-            target: StateValue.model_validate(value).root
-            for target, value in state.target_assignments().items()
-        }
-    except ValueError as error:
-        raise TypeError(
-            "direct instrument state must contain concrete values"
-        ) from error
-
-
-def _concrete_declared_assignments(
-    state: NetworkSweepState | RFOutputState,
+    state: (
+        DCSourceState
+        | DCSourceVoltage
+        | DCSourceCurrent
+        | DCMonitorState
+        | NetworkSweepState
+        | RFOutputState
+    ),
 ) -> dict[PropertyRef, StateLiteral]:
     try:
         return {

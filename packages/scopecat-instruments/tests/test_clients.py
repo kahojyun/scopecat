@@ -43,7 +43,7 @@ def test_voltage_state_is_one_complete_mode_transition() -> None:
         output_enabled=True,
     )
 
-    assert state.target_assignments() == {
+    assert declared_state_assignments(state) == {
         DC_SOURCE_MODE: "voltage",
         DC_SOURCE_VOLTAGE_RANGE: Quantity(1.0, "V"),
         DC_SOURCE_VOLTAGE_LEVEL: Quantity(0.05, "V"),
@@ -52,7 +52,7 @@ def test_voltage_state_is_one_complete_mode_transition() -> None:
 
 
 def test_sparse_state_omits_unspecified_properties() -> None:
-    assert DCSourceState(output_enabled=False).target_assignments() == {
+    assert declared_state_assignments(DCSourceState(output_enabled=False)) == {
         DC_SOURCE_OUTPUT_ENABLED: False
     }
     assert declared_state_assignments(

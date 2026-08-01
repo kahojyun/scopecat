@@ -146,6 +146,18 @@ def test_declared_rf_output_preserves_the_contract_fingerprint() -> None:
     )
 
 
+def test_declared_dc_source_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(dc_source_interface()) == (
+        "881be6b8213205269f3ae29f354fc8bbf92c15611a40ba1e8ea723b97d71fdbd"
+    )
+
+
+def test_declared_dc_monitor_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(dc_monitor_interface()) == (
+        "e23cc99d04be03b0c0dafdf459f9ec3abe7f5e08d70a7920b47424c935cc14b3"
+    )
+
+
 def _resolve_component(
     interface: InterfaceSpec,
     component_path: tuple[str, ...],

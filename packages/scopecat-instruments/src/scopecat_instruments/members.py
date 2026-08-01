@@ -5,13 +5,22 @@ from __future__ import annotations
 from scopecat.sdk.instruments import InterfaceRef
 from scopecat.sdk.instruments.declarations import (
     declared_acquisition_ref,
+    declared_discriminator_ref,
     declared_property_ref,
     declared_result_ref,
 )
 
 from scopecat_instruments.interface_declarations import (
+    DC_MONITOR_DECLARATION,
+    DC_SOURCE_DECLARATION,
     NETWORK_SWEEP_DECLARATION,
     RF_OUTPUT_DECLARATION,
+    DCMonitorInterface,
+    DCMonitorState,
+    DCSourceCurrent,
+    DCSourceInterface,
+    DCSourceState,
+    DCSourceVoltage,
     NetworkSweepInterface,
     NetworkSweepState,
     RFOutputState,
@@ -26,23 +35,46 @@ RF_OUTPUT_REFERENCE_SOURCE = declared_property_ref(
     "reference_source",
 )
 
-DC_SOURCE = InterfaceRef("scopecat.dc_source/v2")
-DC_SOURCE_MODE = DC_SOURCE.property("source_mode")
-DC_SOURCE_VOLTAGE_RANGE = DC_SOURCE.property("voltage_range")
-DC_SOURCE_CURRENT_RANGE = DC_SOURCE.property("current_range")
-DC_SOURCE_VOLTAGE_LEVEL = DC_SOURCE.property("voltage_level")
-DC_SOURCE_CURRENT_LEVEL = DC_SOURCE.property("current_level")
-DC_SOURCE_VOLTAGE_PROTECTION = DC_SOURCE.property("voltage_protection")
-DC_SOURCE_CURRENT_PROTECTION = DC_SOURCE.property("current_protection")
-DC_SOURCE_OUTPUT_ENABLED = DC_SOURCE.property("output_enabled")
+DC_SOURCE = DC_SOURCE_DECLARATION.ref
+DC_SOURCE_MODE = declared_discriminator_ref(DCSourceInterface)
+DC_SOURCE_VOLTAGE_RANGE = declared_property_ref(DCSourceVoltage, "range")
+DC_SOURCE_CURRENT_RANGE = declared_property_ref(DCSourceCurrent, "range")
+DC_SOURCE_VOLTAGE_LEVEL = declared_property_ref(DCSourceVoltage, "level")
+DC_SOURCE_CURRENT_LEVEL = declared_property_ref(DCSourceCurrent, "level")
+DC_SOURCE_VOLTAGE_PROTECTION = declared_property_ref(
+    DCSourceState,
+    "voltage_protection",
+)
+DC_SOURCE_CURRENT_PROTECTION = declared_property_ref(
+    DCSourceState,
+    "current_protection",
+)
+DC_SOURCE_OUTPUT_ENABLED = declared_property_ref(DCSourceState, "output_enabled")
 
-DC_MONITOR = InterfaceRef("scopecat.dc_monitor/v3")
-DC_MONITOR_MEASUREMENT_ENABLED = DC_MONITOR.property("measurement_enabled")
-DC_MONITOR_INTEGRATION_CYCLES = DC_MONITOR.property("integration_cycles")
-DC_MONITOR_MEASUREMENT_DELAY = DC_MONITOR.property("measurement_delay")
-DC_MONITOR_ACQUISITION = DC_MONITOR.acquisition("monitor")
-DC_MONITOR_CURRENT_RESULT = DC_MONITOR_ACQUISITION.result("monitored_current")
-DC_MONITOR_VOLTAGE_RESULT = DC_MONITOR_ACQUISITION.result("monitored_voltage")
+DC_MONITOR = DC_MONITOR_DECLARATION.ref
+DC_MONITOR_MEASUREMENT_ENABLED = declared_property_ref(
+    DCMonitorState,
+    "measurement_enabled",
+)
+DC_MONITOR_INTEGRATION_CYCLES = declared_property_ref(
+    DCMonitorState,
+    "integration_cycles",
+)
+DC_MONITOR_MEASUREMENT_DELAY = declared_property_ref(
+    DCMonitorState,
+    "measurement_delay",
+)
+DC_MONITOR_ACQUISITION = declared_acquisition_ref(DCMonitorInterface, "monitor")
+DC_MONITOR_CURRENT_RESULT = declared_result_ref(
+    DCMonitorInterface,
+    "monitor",
+    "current",
+)
+DC_MONITOR_VOLTAGE_RESULT = declared_result_ref(
+    DCMonitorInterface,
+    "monitor",
+    "voltage",
+)
 
 TEMPERATURE_READOUT = InterfaceRef("scopecat.temperature_readout/v1")
 TEMPERATURE_READOUT_SCAN_CHANNEL = TEMPERATURE_READOUT.property("scan_channel")
