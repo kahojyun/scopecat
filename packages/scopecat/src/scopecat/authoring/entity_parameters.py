@@ -101,6 +101,46 @@ class EachEntity:
     def __len__(self) -> int:
         return len(self._entities)
 
+    def align[ValueT](
+        self,
+        value: ValueT | PerEntity[ValueT],
+    ) -> PerEntity[ValueT]:
+        """Broadcast one value or align an exact identity-keyed mapping."""
+
+        if not isinstance(value, PerEntity):
+            return PerEntity((entity, value) for entity in self)
+
+        selected = cast("PerEntity[ValueT]", value)
+        expected = {entity_identity(entity) for entity in self}
+        actual = {entity_identity(entity) for entity in selected}
+        if expected != actual:
+            missing = sorted(
+                expected - actual,
+                key=lambda identity: (identity[0] or "", identity[1]),
+            )
+            extra = sorted(
+                actual - expected,
+                key=lambda identity: (identity[0] or "", identity[1]),
+            )
+            details: list[str] = []
+            if missing:
+                details.append(
+                    "missing "
+                    + ", ".join(
+                        _format_entity_identity(identity) for identity in missing
+                    )
+                )
+            if extra:
+                details.append(
+                    "extra "
+                    + ", ".join(_format_entity_identity(identity) for identity in extra)
+                )
+            raise ValueError(
+                "PerEntity value must exactly match selected entities: "
+                + "; ".join(details)
+            )
+        return PerEntity((entity, selected[entity]) for entity in self)
+
 
 type EntitySelection = OneEntity | EachEntity
 

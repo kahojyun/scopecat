@@ -154,6 +154,37 @@ def test_per_entity_rejects_duplicate_identity_instead_of_position() -> None:
         sc.PerEntity(((first, 1), (second, 2)))
 
 
+def test_each_aligns_broadcast_and_per_entity_values_by_identity() -> None:
+    q0 = sc.EntityRef(id="q0", kind="logical_device")
+    q1 = sc.EntityRef(id="q1", kind="logical_device")
+    selection = sc.each(q0, q1)
+
+    broadcast = assert_type(selection.align(3), sc.PerEntity[int])
+    selected = sc.PerEntity[int](((q1, 7), (q0, 5)))
+    aligned = assert_type(
+        selection.align(selected),
+        sc.PerEntity[int],
+    )
+
+    assert tuple(broadcast.items()) == ((q0, 3), (q1, 3))
+    assert tuple(aligned.items()) == ((q0, 5), (q1, 7))
+
+
+def test_each_align_requires_an_exact_entity_identity_join() -> None:
+    q0 = sc.EntityRef(id="q0", kind="logical_device")
+    q1 = sc.EntityRef(id="q1", kind="logical_device")
+    wrong_q1 = sc.EntityRef(id="q1", kind="logical_coupler")
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"exactly match.*missing logical_device:q1; "
+            r"extra logical_coupler:q1"
+        ),
+    ):
+        sc.each(q0, q1).align(sc.PerEntity(((q0, 1), (wrong_q1, 2))))
+
+
 def test_table_rejects_wrong_entity_kind_before_building_lookup() -> None:
     coupler = sc.EntityRef(id="c0", kind="logical_coupler")
 

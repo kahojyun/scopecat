@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol, cast
 
@@ -375,18 +375,40 @@ class SymbolicTemperatureReadoutClient(_SymbolicInstrumentClient):
         )
 
 
+class _SymbolicClientFactory[ClientT: _SymbolicInstrumentClient](Protocol):
+    def __call__(
+        self,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: OneEntity | None = None,
+    ) -> ClientT: ...
+
+
 class _SymbolicInstrumentGroup[ClientT: _SymbolicInstrumentClient]:
     __slots__ = ("_clients", "_entities", "_id")
 
     def __init__(
         self,
+        recorder: SymbolicInstrumentRecorder,
         resource_id: str,
-        entities: EachEntity,
-        clients: PerEntity[ClientT],
+        *,
+        for_: EachEntity,
+        client_factory: _SymbolicClientFactory[ClientT],
     ) -> None:
         self._id = resource_id
-        self._entities = entities
-        self._clients = clients
+        self._entities = for_
+        self._clients = PerEntity(
+            (
+                entity,
+                client_factory(
+                    recorder,
+                    f"{resource_id}.{_entity_token(entity)}",
+                    for_=one(entity),
+                ),
+            )
+            for entity in for_
+        )
 
     @property
     def id(self) -> str:
@@ -423,7 +445,7 @@ class _DeclaredStateSymbolicGroup[
     ClientT: _SymbolicInstrumentClient,
 ](_SymbolicInstrumentGroup[ClientT]):
     def ensure(self, state: StateT | PerEntity[StateT]) -> None:
-        for entity, target in _align_per_entity(self._entities, state).items():
+        for entity, target in self._entities.align(state).items():
             self._state_client(entity).ensure(target)
 
     def finalization_targets(
@@ -433,10 +455,7 @@ class _DeclaredStateSymbolicGroup[
     ) -> tuple[FinalizationTarget, ...]:
         return tuple(
             target
-            for entity, state_for_entity in _align_per_entity(
-                self._entities,
-                state,
-            ).items()
+            for entity, state_for_entity in self._entities.align(state).items()
             for target in self._state_client(entity).finalization_targets(
                 state_for_entity
             )
@@ -464,17 +483,10 @@ class SymbolicDCSourceGroup(
         for_: EachEntity,
     ) -> None:
         super().__init__(
+            recorder,
             resource_id,
-            for_,
-            _fanout_clients(
-                for_,
-                lambda entity, child_id: SymbolicDCSourceClient(
-                    recorder,
-                    child_id,
-                    for_=one(entity),
-                ),
-                resource_id=resource_id,
-            ),
+            for_=for_,
+            client_factory=SymbolicDCSourceClient,
         )
 
 
@@ -496,17 +508,10 @@ class SymbolicDCSourceMonitorGroup(
         for_: EachEntity,
     ) -> None:
         super().__init__(
+            recorder,
             resource_id,
-            for_,
-            _fanout_clients(
-                for_,
-                lambda entity, child_id: SymbolicDCSourceMonitorClient(
-                    recorder,
-                    child_id,
-                    for_=one(entity),
-                ),
-                resource_id=resource_id,
-            ),
+            for_=for_,
+            client_factory=SymbolicDCSourceMonitorClient,
         )
 
     def monitor(self, *, id: str | None = None) -> PerEntity[DCMonitorProducts]:
@@ -528,17 +533,10 @@ class SymbolicRFOutputGroup(
         for_: EachEntity,
     ) -> None:
         super().__init__(
+            recorder,
             resource_id,
-            for_,
-            _fanout_clients(
-                for_,
-                lambda entity, child_id: SymbolicRFOutputClient(
-                    recorder,
-                    child_id,
-                    for_=one(entity),
-                ),
-                resource_id=resource_id,
-            ),
+            for_=for_,
+            client_factory=SymbolicRFOutputClient,
         )
 
 
@@ -557,17 +555,10 @@ class SymbolicNetworkSweepGroup(
         for_: EachEntity,
     ) -> None:
         super().__init__(
+            recorder,
             resource_id,
-            for_,
-            _fanout_clients(
-                for_,
-                lambda entity, child_id: SymbolicNetworkSweepClient(
-                    recorder,
-                    child_id,
-                    for_=one(entity),
-                ),
-                resource_id=resource_id,
-            ),
+            for_=for_,
+            client_factory=SymbolicNetworkSweepClient,
         )
 
     def sweep(self, *, id: str | None = None) -> PerEntity[NetworkSweepProducts]:
@@ -589,17 +580,10 @@ class SymbolicTemperatureReadoutGroup(
         for_: EachEntity,
     ) -> None:
         super().__init__(
+            recorder,
             resource_id,
-            for_,
-            _fanout_clients(
-                for_,
-                lambda entity, child_id: SymbolicTemperatureReadoutClient(
-                    recorder,
-                    child_id,
-                    for_=one(entity),
-                ),
-                resource_id=resource_id,
-            ),
+            for_=for_,
+            client_factory=SymbolicTemperatureReadoutClient,
         )
 
     def sample(
@@ -608,50 +592,6 @@ class SymbolicTemperatureReadoutGroup(
         id: str | None = None,
     ) -> PerEntity[TemperatureSampleProducts]:
         return self._clients.map(lambda client: client.sample(id=id))
-
-
-def _fanout_clients[ClientT: _SymbolicInstrumentClient](
-    entities: EachEntity,
-    factory: Callable[[EntityRef, str], ClientT],
-    *,
-    resource_id: str,
-) -> PerEntity[ClientT]:
-    return PerEntity(
-        (
-            entity,
-            factory(entity, f"{resource_id}.{_entity_token(entity)}"),
-        )
-        for entity in entities
-    )
-
-
-def _align_per_entity[ValueT](
-    entities: EachEntity,
-    value: ValueT | PerEntity[ValueT],
-) -> PerEntity[ValueT]:
-    if not isinstance(value, PerEntity):
-        return PerEntity((entity, value) for entity in entities)
-
-    selected = cast("PerEntity[ValueT]", value)
-    expected = {entity_identity(entity) for entity in entities}
-    actual = {entity_identity(entity) for entity in selected}
-    if expected != actual:
-        missing = sorted(expected - actual, key=_identity_sort_key)
-        extra = sorted(actual - expected, key=_identity_sort_key)
-        details: list[str] = []
-        if missing:
-            details.append(
-                "missing "
-                + ", ".join(_format_identity(identity) for identity in missing)
-            )
-        if extra:
-            details.append(
-                "extra " + ", ".join(_format_identity(identity) for identity in extra)
-            )
-        raise ValueError(
-            "PerEntity state must exactly match group entities: " + "; ".join(details)
-        )
-    return PerEntity((entity, selected[entity]) for entity in entities)
 
 
 def _one_entity_value(selection: OneEntity | None) -> ValueRef | None:
@@ -674,15 +614,6 @@ def _entity_token(entity: EntityRef) -> str:
     slug = slug[:40].rstrip("-") or "entity"
     digest = stable_content_hash({"kind": identity[0], "id": identity[1]})[:12]
     return f"{slug}-{digest}"
-
-
-def _identity_sort_key(identity: tuple[str | None, str]) -> tuple[str, str]:
-    return identity[0] or "", identity[1]
-
-
-def _format_identity(identity: tuple[str | None, str]) -> str:
-    kind, id = identity
-    return f"{kind}:{id}" if kind is not None else id
 
 
 def _join_id(namespace: str | None, id: str | None) -> str:
