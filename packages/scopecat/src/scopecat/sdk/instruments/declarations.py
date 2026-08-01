@@ -40,9 +40,10 @@ from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.contracts import (
     AcquisitionAxisSpec,
+    AcquisitionPreconditionSpec,
     AcquisitionResultSpec,
     AcquisitionSpec,
-    FixedAcquisitionSpec,
+    DiscriminatedState,
     InterfaceSpec,
     PropertySpec,
 )
@@ -53,20 +54,34 @@ from scopecat.sdk.instruments.contracts import (
     acquisition_axis as build_acquisition_axis,
 )
 from scopecat.sdk.instruments.contracts import (
+    acquisition_case as build_acquisition_case,
+)
+from scopecat.sdk.instruments.contracts import (
+    acquisition_precondition as build_acquisition_precondition,
+)
+from scopecat.sdk.instruments.contracts import (
     acquisition_result as build_acquisition_result,
+)
+from scopecat.sdk.instruments.contracts import (
+    discriminated_state as build_discriminated_state,
 )
 from scopecat.sdk.instruments.contracts import (
     interface as build_interface,
 )
+from scopecat.sdk.instruments.contracts import state_case as build_state_case
+from scopecat.sdk.instruments.contracts import (
+    state_discriminated_acquisition as build_state_discriminated_acquisition,
+)
 
 type PropertyAccess = Literal["read_only", "write_only", "read_write"]
-type AxisSize = int | str
+type PreconditionValue = bool | int | float | str | Quantity
 
 _STATE_METADATA = "__scopecat_instrument_state__"
 _RESULT_METADATA = "__scopecat_instrument_result__"
 _INTERFACE_METADATA = "__scopecat_instrument_interface__"
 _ACQUISITION_METADATA = "__scopecat_instrument_acquisition__"
 _STATE_INTERFACES_METADATA = "__scopecat_instrument_state_interfaces__"
+_STATE_BINDINGS_METADATA = "__scopecat_instrument_state_bindings__"
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +111,25 @@ class ResultMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class StateFieldReference:
+    """A deferred property reference addressed by a typed state field."""
+
+    state_type: type[object]
+    field_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class DiscriminatorReference:
+    """A deferred reference to one declared interface's state discriminator."""
+
+    interface_type: type[object]
+
+
+type DeclaredPropertyTarget = PropertyRef | StateFieldReference | DiscriminatorReference
+type AxisSize = int | str | StateFieldReference
+
+
+@dataclass(frozen=True, slots=True)
 class AxisMetadata:
     """One acquisition axis, with either a fixed or state-owned size."""
 
@@ -107,11 +141,43 @@ class AxisMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class StateCaseMetadata:
+    value: str
+    state_type: type[object]
+    fields: tuple[str, ...]
+    required_on_entry: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DiscriminatedStateMetadata:
+    discriminator: MemberMetadata
+    common_state: type[object]
+    cases: tuple[StateCaseMetadata, ...]
+
+
+type StateMetadata = type[object] | DiscriminatedStateMetadata
+
+
+@dataclass(frozen=True, slots=True)
 class InterfaceMetadata:
     id: str
-    state: type[object] | None
+    state: StateMetadata | None
     label: str | None
     description: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PreconditionMetadata:
+    property: DeclaredPropertyTarget
+    value: PreconditionValue
+    unavailable_reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class AcquisitionCaseMetadata:
+    value: str
+    result_type: type[object]
+    preconditions: tuple[PreconditionMetadata, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +186,15 @@ class AcquisitionMetadata:
     axes: tuple[tuple[str, AxisMetadata], ...]
     label: str | None
     description: str | None
+    preconditions: tuple[PreconditionMetadata, ...]
+    discriminator: DeclaredPropertyTarget | None
+    cases: tuple[AcquisitionCaseMetadata, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class StateBindingsMetadata:
+    fields: tuple[tuple[str, PropertyRef], ...]
+    constants: tuple[tuple[PropertyRef, StateBinding], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +243,87 @@ def member(
         minimum=minimum,
         maximum=maximum,
         choices=None if choices is None else tuple(choices),
+    )
+
+
+def state_case(
+    value: str,
+    state_type: type[object],
+    *,
+    fields: Sequence[str],
+    required_on_entry: Sequence[str] = (),
+) -> StateCaseMetadata:
+    """Declare the state fields available for one discriminator value."""
+
+    return StateCaseMetadata(
+        value=value,
+        state_type=state_type,
+        fields=tuple(fields),
+        required_on_entry=tuple(required_on_entry),
+    )
+
+
+def discriminated_state(
+    discriminator: MemberMetadata,
+    *,
+    common: type[object],
+    cases: Sequence[StateCaseMetadata],
+) -> DiscriminatedStateMetadata:
+    """Describe a persistent state partition without changing its dataclasses."""
+
+    if discriminator.id is None:
+        raise ValueError("state discriminator member requires an explicit id")
+    return DiscriminatedStateMetadata(
+        discriminator=discriminator,
+        common_state=common,
+        cases=tuple(cases),
+    )
+
+
+def state_field(
+    state_type: type[object],
+    field_name: str,
+) -> StateFieldReference:
+    """Defer a cross-property reference until all declarations are defined."""
+
+    return StateFieldReference(state_type=state_type, field_name=field_name)
+
+
+def interface_discriminator(
+    interface_type: type[object],
+) -> DiscriminatorReference:
+    """Refer to another declared interface's state discriminator."""
+
+    return DiscriminatorReference(interface_type=interface_type)
+
+
+def precondition(
+    property: DeclaredPropertyTarget,
+    *,
+    value: PreconditionValue,
+    unavailable_reason: str,
+) -> PreconditionMetadata:
+    """Declare one public state value required before an acquisition."""
+
+    return PreconditionMetadata(
+        property=property,
+        value=value,
+        unavailable_reason=unavailable_reason,
+    )
+
+
+def acquisition_case(
+    value: str,
+    result_type: type[object],
+    *,
+    preconditions: Sequence[PreconditionMetadata] = (),
+) -> AcquisitionCaseMetadata:
+    """Declare one result shape selected by an acquisition discriminator."""
+
+    return AcquisitionCaseMetadata(
+        value=value,
+        result_type=result_type,
+        preconditions=tuple(preconditions),
     )
 
 
@@ -228,7 +384,7 @@ def instrument_result[ClassT: type[object]](cls: ClassT) -> ClassT:
 def instrument_interface[ClassT: type[object]](
     id: str,
     *,
-    state: type[object] | None = None,
+    state: StateMetadata | None = None,
     label: str | None = None,
     description: str | None = None,
 ) -> Callable[[ClassT], ClassT]:
@@ -243,13 +399,10 @@ def instrument_interface[ClassT: type[object]](
 
     def decorate(cls: ClassT) -> ClassT:
         setattr(cls, _INTERFACE_METADATA, declaration)
-        if state is not None:
-            interface_ids = cast(
-                "tuple[str, ...]",
-                getattr(state, _STATE_INTERFACES_METADATA, ()),
-            )
-            if id not in interface_ids:
-                setattr(state, _STATE_INTERFACES_METADATA, (*interface_ids, id))
+        if isinstance(state, DiscriminatedStateMetadata):
+            _bind_discriminated_state(id, state)
+        elif state is not None:
+            _bind_flat_state(id, state)
         return cls
 
     return decorate
@@ -261,6 +414,7 @@ def acquisition[**P, ReturnT](
     axes: Mapping[str, AxisMetadata] | None = None,
     label: str | None = None,
     description: str | None = None,
+    preconditions: Sequence[PreconditionMetadata] = (),
 ) -> Callable[[Callable[P, ReturnT]], Callable[P, ReturnT]]:
     """Mark an existing method as a fixed acquisition without wrapping it."""
 
@@ -269,6 +423,38 @@ def acquisition[**P, ReturnT](
         axes=() if axes is None else tuple(axes.items()),
         label=label,
         description=description,
+        preconditions=tuple(preconditions),
+        discriminator=None,
+        cases=(),
+    )
+
+    def decorate(method: Callable[P, ReturnT]) -> Callable[P, ReturnT]:
+        setattr(method, _ACQUISITION_METADATA, declaration)
+        return method
+
+    return decorate
+
+
+def state_discriminated_acquisition[**P, ReturnT](
+    discriminator: DeclaredPropertyTarget,
+    *,
+    cases: Sequence[AcquisitionCaseMetadata],
+    id: str | None = None,
+    axes: Mapping[str, AxisMetadata] | None = None,
+    label: str | None = None,
+    description: str | None = None,
+    preconditions: Sequence[PreconditionMetadata] = (),
+) -> Callable[[Callable[P, ReturnT]], Callable[P, ReturnT]]:
+    """Mark a method whose result schema follows a persistent state value."""
+
+    declaration = AcquisitionMetadata(
+        id=id,
+        axes=() if axes is None else tuple(axes.items()),
+        label=label,
+        description=description,
+        preconditions=tuple(preconditions),
+        discriminator=discriminator,
+        cases=tuple(cases),
     )
 
     def decorate(method: Callable[P, ReturnT]) -> Callable[P, ReturnT]:
@@ -289,7 +475,12 @@ def compile_interface[InterfaceT](
         InterfaceMetadata,
         "instrument interface",
     )
-    properties = [] if declaration.state is None else _compile_state(declaration.state)
+    properties: list[PropertySpec] = []
+    compiled_state: DiscriminatedState | None = None
+    if isinstance(declaration.state, DiscriminatedStateMetadata):
+        compiled_state = _compile_discriminated_state(declaration.state)
+    elif declaration.state is not None:
+        properties = _compile_state(declaration.state)
     acquisitions: list[AcquisitionSpec] = []
     for method_name, method in _declared_members(interface_type).items():
         acquisition_declaration = getattr(method, _ACQUISITION_METADATA, None)
@@ -308,6 +499,7 @@ def compile_interface[InterfaceT](
         label=declaration.label,
         description=declaration.description,
         properties=properties,
+        state=compiled_state,
         acquisitions=acquisitions,
     )
     return CompiledInterface(
@@ -354,6 +546,23 @@ def declared_property_ref(
     )
 
 
+def declared_discriminator_ref(interface_type: type[object]) -> PropertyRef:
+    """Return the persistent discriminator of a declared interface."""
+
+    declaration = _required_metadata(
+        interface_type,
+        _INTERFACE_METADATA,
+        InterfaceMetadata,
+        "instrument interface",
+    )
+    if not isinstance(declaration.state, DiscriminatedStateMetadata):
+        raise ValueError("interface does not declare discriminated state")
+    discriminator_id = declaration.state.discriminator.id
+    if discriminator_id is None:
+        raise ValueError("state discriminator member requires an explicit id")
+    return InterfaceRef(declaration.id).property(discriminator_id)
+
+
 def declared_state_assignments(state: object) -> dict[PropertyRef, StateBinding]:
     """Encode one decorated state dataclass without injecting instance methods."""
 
@@ -366,11 +575,17 @@ def declared_state_assignments(state: object) -> dict[PropertyRef, StateBinding]
     )
     if not is_dataclass(state):
         raise TypeError("instrument state must be a dataclass instance")
-    assignments: dict[PropertyRef, StateBinding] = {}
-    for state_field in fields(state):
-        value = cast("object", getattr(state, state_field.name))
+    bindings = _required_metadata(
+        state_type,
+        _STATE_BINDINGS_METADATA,
+        StateBindingsMetadata,
+        "instrument state binding",
+    )
+    assignments = dict(bindings.constants)
+    for field_name, property_ref in bindings.fields:
+        value = cast("object", getattr(state, field_name))
         if value is not None:
-            assignments[declared_property_ref(state_type, state_field.name)] = cast(
+            assignments[property_ref] = cast(
                 "StateBinding",
                 value,
             )
@@ -413,28 +628,168 @@ def declared_result_ref(
     method = _declared_members(interface_type).get(method_name)
     if method is None:
         raise ValueError(f"interface has no method {method_name!r}")
-    hints = cast(
-        "Mapping[str, object]",
-        get_type_hints(cast("Callable[..., object]", method), include_extras=True),
+    declaration = _required_metadata(
+        method,
+        _ACQUISITION_METADATA,
+        AcquisitionMetadata,
+        f"interface method {method_name!r}",
     )
-    result_type = hints.get("return")
-    if result_type is None:
-        raise TypeError(
-            f"acquisition method {method_name!r} requires a return annotation"
+    if declaration.cases:
+        result_types = tuple(case.result_type for case in declaration.cases)
+    else:
+        hints = cast(
+            "Mapping[str, object]",
+            get_type_hints(
+                cast("Callable[..., object]", method),
+                include_extras=True,
+            ),
         )
-    result_class = get_origin(result_type) or result_type
-    if not isinstance(result_class, type):
-        raise TypeError(f"acquisition method {method_name!r} has invalid result type")
-    result_id = _declared_dataclass_field_id(
-        result_class,
-        field_name,
-        metadata_type=ResultMetadata,
-        label="result",
+        result_type = hints.get("return")
+        if result_type is None:
+            raise TypeError(
+                f"acquisition method {method_name!r} requires a return annotation"
+            )
+        result_types = (result_type,)
+    result_ids = tuple(
+        result_id
+        for result_type in result_types
+        if (
+            result_id := _optional_declared_dataclass_field_id(
+                result_type,
+                field_name,
+                metadata_type=ResultMetadata,
+            )
+        )
+        is not None
     )
+    if len(result_ids) != 1:
+        raise ValueError(
+            f"acquisition result field {field_name!r} must resolve exactly once"
+        )
+    [result_id] = result_ids
     return declared_acquisition_ref(interface_type, method_name).result(result_id)
 
 
+def _bind_flat_state(interface_id: str, state_type: type[object]) -> None:
+    _require_instrument_state(state_type)
+    if not is_dataclass(state_type):
+        raise TypeError("instrument state must be a dataclass")
+    bindings = tuple(
+        (
+            state_field.name,
+            InterfaceRef(interface_id).property(
+                _declared_dataclass_field_id(
+                    state_type,
+                    state_field.name,
+                    metadata_type=MemberMetadata,
+                    label="state",
+                )
+            ),
+        )
+        for state_field in fields(state_type)
+    )
+    _attach_state_bindings(
+        state_type,
+        interface_id=interface_id,
+        bindings=StateBindingsMetadata(bindings),
+    )
+
+
+def _bind_discriminated_state(
+    interface_id: str,
+    declaration: DiscriminatedStateMetadata,
+) -> None:
+    discriminator_id = declaration.discriminator.id
+    if discriminator_id is None:
+        raise ValueError("state discriminator member requires an explicit id")
+    discriminator_ref = InterfaceRef(interface_id).property(discriminator_id)
+    _bind_flat_state(interface_id, declaration.common_state)
+    common_bindings = _required_metadata(
+        declaration.common_state,
+        _STATE_BINDINGS_METADATA,
+        StateBindingsMetadata,
+        "instrument state binding",
+    )
+    common_by_field = dict(common_bindings.fields)
+
+    for case in declaration.cases:
+        _require_instrument_state(case.state_type)
+        if not is_dataclass(case.state_type):
+            raise TypeError("instrument state must be a dataclass")
+        selected = set(case.fields)
+        case_bindings: list[tuple[str, PropertyRef]] = []
+        for state_field in fields(case.state_type):
+            if state_field.name in selected:
+                property_id = _declared_dataclass_field_id(
+                    case.state_type,
+                    state_field.name,
+                    metadata_type=MemberMetadata,
+                    label="state",
+                )
+                property_ref = InterfaceRef(interface_id).property(property_id)
+            else:
+                try:
+                    property_ref = common_by_field[state_field.name]
+                except KeyError:
+                    raise ValueError(
+                        f"state case {case.value!r} field {state_field.name!r} "
+                        "is neither case-specific nor common"
+                    ) from None
+            case_bindings.append((state_field.name, property_ref))
+        if selected - {name for name, _ in case_bindings}:
+            raise ValueError(
+                f"state case {case.value!r} references unknown fields: "
+                f"{sorted(selected - {name for name, _ in case_bindings})!r}"
+            )
+        _attach_state_bindings(
+            case.state_type,
+            interface_id=interface_id,
+            bindings=StateBindingsMetadata(
+                fields=tuple(case_bindings),
+                constants=((discriminator_ref, case.value),),
+            ),
+        )
+
+
+def _attach_state_bindings(
+    state_type: type[object],
+    *,
+    interface_id: str,
+    bindings: StateBindingsMetadata,
+) -> None:
+    interface_ids = cast(
+        "tuple[str, ...]",
+        getattr(state_type, _STATE_INTERFACES_METADATA, ()),
+    )
+    if interface_ids and interface_ids != (interface_id,):
+        raise ValueError("one declared state type cannot belong to multiple interfaces")
+    setattr(state_type, _STATE_INTERFACES_METADATA, (interface_id,))
+    existing = getattr(state_type, _STATE_BINDINGS_METADATA, None)
+    if existing is not None and existing != bindings:
+        raise ValueError("one declared state type cannot have multiple bindings")
+    setattr(state_type, _STATE_BINDINGS_METADATA, bindings)
+
+
+def _require_instrument_state(state_type: type[object]) -> None:
+    _required_metadata(
+        state_type,
+        _STATE_METADATA,
+        bool,
+        "instrument state",
+    )
+    if not is_dataclass(state_type):
+        raise TypeError("instrument state must be a dataclass")
+
+
 def _compile_state(state_type: type[object]) -> list[PropertySpec]:
+    return _compile_state_fields(state_type, selected_fields=None)
+
+
+def _compile_state_fields(
+    state_type: type[object],
+    *,
+    selected_fields: Sequence[str] | None,
+) -> list[PropertySpec]:
     _required_metadata(
         state_type,
         _STATE_METADATA,
@@ -447,20 +802,60 @@ def _compile_state(state_type: type[object]) -> list[PropertySpec]:
         "Mapping[str, object]",
         get_type_hints(state_type, include_extras=True),
     )
+    state_fields = {state_field.name: state_field for state_field in fields(state_type)}
+    field_names = (
+        tuple(state_fields) if selected_fields is None else tuple(selected_fields)
+    )
+    unknown = set(field_names) - state_fields.keys()
+    if unknown:
+        raise ValueError(
+            f"state declaration references unknown fields: {sorted(unknown)!r}"
+        )
     properties: list[PropertySpec] = []
-    for state_field in fields(state_type):
-        annotation = hints.get(state_field.name)
+    for field_name in field_names:
+        annotation = hints.get(field_name)
         if annotation is None:
-            raise TypeError(f"state field {state_field.name!r} must be annotated")
+            raise TypeError(f"state field {field_name!r} must be annotated")
         base, metadata = _split_annotation(annotation, MemberMetadata)
         properties.append(
             _compile_property(
-                state_field.name,
+                field_name,
                 base,
                 metadata or MemberMetadata(),
             )
         )
     return properties
+
+
+def _compile_discriminated_state(
+    declaration: DiscriminatedStateMetadata,
+) -> DiscriminatedState:
+    discriminator = declaration.discriminator
+    if discriminator.id is None:
+        raise ValueError("state discriminator member requires an explicit id")
+    return build_discriminated_state(
+        _compile_property(discriminator.id, str, discriminator),
+        common_properties=_compile_state(declaration.common_state),
+        cases=tuple(
+            build_state_case(
+                case.value,
+                properties=_compile_state_fields(
+                    case.state_type,
+                    selected_fields=case.fields,
+                ),
+                required_on_entry_property_ids=tuple(
+                    _declared_dataclass_field_id(
+                        case.state_type,
+                        field_name,
+                        metadata_type=MemberMetadata,
+                        label="state",
+                    )
+                    for field_name in case.required_on_entry
+                ),
+            )
+            for case in declaration.cases
+        ),
+    )
 
 
 def _compile_property(
@@ -539,7 +934,7 @@ def _compile_acquisition(
     declaration: AcquisitionMetadata,
     *,
     interface_id: str,
-) -> FixedAcquisitionSpec:
+) -> AcquisitionSpec:
     parameters = tuple(signature(method).parameters.values())
     if (
         len(parameters) != 1
@@ -547,9 +942,7 @@ def _compile_acquisition(
         or parameters[0].kind
         not in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD)
     ):
-        raise TypeError(
-            f"fixed acquisition method {method_name!r} must accept only self"
-        )
+        raise TypeError(f"acquisition method {method_name!r} must accept only self")
     hints = cast(
         "Mapping[str, object]",
         get_type_hints(method, include_extras=True),
@@ -565,7 +958,14 @@ def _compile_acquisition(
             size=(
                 axis_metadata.size
                 if isinstance(axis_metadata.size, int)
-                else InterfaceRef(interface_id).property(axis_metadata.size)
+                else (
+                    InterfaceRef(interface_id).property(axis_metadata.size)
+                    if isinstance(axis_metadata.size, str)
+                    else declared_property_ref(
+                        axis_metadata.size.state_type,
+                        axis_metadata.size.field_name,
+                    )
+                )
             ),
             kind=axis_metadata.kind,
             unit=axis_metadata.unit,
@@ -574,17 +974,65 @@ def _compile_acquisition(
         )
         for axis_id, axis_metadata in declaration.axes
     }
+    preconditions = _compile_preconditions(declaration.preconditions)
+    acquisition_id = declaration.id or method_name
+    if declaration.discriminator is not None:
+        if not declaration.cases:
+            raise ValueError(
+                f"state-discriminated acquisition {acquisition_id!r} requires cases"
+            )
+        return build_state_discriminated_acquisition(
+            acquisition_id,
+            label=declaration.label,
+            description=declaration.description,
+            discriminator=_resolve_property_target(declaration.discriminator),
+            preconditions=preconditions,
+            cases=tuple(
+                build_acquisition_case(
+                    case.value,
+                    results=_compile_results(
+                        case.result_type,
+                        acquisition_id=acquisition_id,
+                        axes=axes,
+                    ),
+                    preconditions=_compile_preconditions(case.preconditions),
+                )
+                for case in declaration.cases
+            ),
+        )
     results = _compile_results(
         result_type,
-        acquisition_id=declaration.id or method_name,
+        acquisition_id=acquisition_id,
         axes=axes,
     )
     return build_acquisition(
-        declaration.id or method_name,
+        acquisition_id,
         label=declaration.label,
         description=declaration.description,
         results=results,
+        preconditions=preconditions,
     )
+
+
+def _compile_preconditions(
+    declarations: Sequence[PreconditionMetadata],
+) -> list[AcquisitionPreconditionSpec]:
+    return [
+        build_acquisition_precondition(
+            _resolve_property_target(declaration.property),
+            value=declaration.value,
+            unavailable_reason=declaration.unavailable_reason,
+        )
+        for declaration in declarations
+    ]
+
+
+def _resolve_property_target(target: DeclaredPropertyTarget) -> PropertyRef:
+    if isinstance(target, PropertyRef):
+        return target
+    if isinstance(target, StateFieldReference):
+        return declared_property_ref(target.state_type, target.field_name)
+    return declared_discriminator_ref(target.interface_type)
 
 
 def _compile_results(
@@ -759,6 +1207,25 @@ def _require_member_metadata(
         )
 
 
+def _optional_declared_dataclass_field_id[MetadataT: MemberMetadata | ResultMetadata](
+    dataclass_annotation: object,
+    field_name: str,
+    *,
+    metadata_type: type[MetadataT],
+) -> str | None:
+    dataclass_type = get_origin(dataclass_annotation) or dataclass_annotation
+    if not isinstance(dataclass_type, type) or not is_dataclass(dataclass_type):
+        raise TypeError("declared result must be a dataclass")
+    if field_name not in {item.name for item in fields(dataclass_type)}:
+        return None
+    return _declared_dataclass_field_id(
+        dataclass_type,
+        field_name,
+        metadata_type=metadata_type,
+        label="result",
+    )
+
+
 def _declared_dataclass_field_id[MetadataT: MemberMetadata | ResultMetadata](
     dataclass_type: type[object],
     field_name: str,
@@ -792,27 +1259,44 @@ def _required_metadata[MetadataT](
 
 
 __all__ = [
+    "AcquisitionCaseMetadata",
     "AcquisitionMetadata",
     "AxisMetadata",
     "AxisSize",
     "CompiledInterface",
     "CompiledStateTarget",
+    "DeclaredPropertyTarget",
+    "DiscriminatedStateMetadata",
+    "DiscriminatorReference",
     "InterfaceMetadata",
     "MemberMetadata",
+    "PreconditionMetadata",
+    "PreconditionValue",
     "PropertyAccess",
     "ResultMetadata",
+    "StateCaseMetadata",
+    "StateFieldReference",
+    "StateMetadata",
     "acquisition",
+    "acquisition_case",
     "axis",
     "compile_interface",
     "declared_acquisition_ref",
+    "declared_discriminator_ref",
     "declared_interface_ref",
     "declared_property_ref",
     "declared_result_ref",
     "declared_state_assignments",
     "declared_state_target",
+    "discriminated_state",
     "instrument_interface",
     "instrument_result",
     "instrument_state",
+    "interface_discriminator",
     "member",
+    "precondition",
     "result",
+    "state_case",
+    "state_discriminated_acquisition",
+    "state_field",
 ]
