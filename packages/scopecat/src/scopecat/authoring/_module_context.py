@@ -181,7 +181,10 @@ class ModuleContext:
         """Freeze the structural parts owned directly by an experiment."""
 
         return (
-            ModuleInterface(imports=tuple(input_ports)),
+            ModuleInterface(
+                imports=tuple(input_ports),
+                resources=tuple(self._resources),
+            ),
             self._close_body(),
             tuple(self._python_implementations),
         )
@@ -418,6 +421,14 @@ class ModuleContext:
     def _require_owned_resource(self, resource: DefinitionResource) -> None:
         if resource.owner is not self._owner:
             raise ValueError("definition resource must belong to this module context")
+
+    def require_owned_resource_internal(
+        self,
+        resource: DefinitionResource,
+    ) -> None:
+        """Validate a resource at a containing authoring boundary."""
+
+        self._require_owned_resource(resource)
 
     def compute(
         self,

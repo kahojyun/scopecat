@@ -22,6 +22,7 @@ from scopecat.authoring._experiment_module import (
     create_experiment_module_internal,
 )
 from scopecat.authoring._module_context import (
+    DefinitionResource,
     ModuleContext,
     build_ensure_state_intent,
 )
@@ -38,7 +39,15 @@ from scopecat.authoring.templates import (
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
+from scopecat.kernel.instrument_members import (
+    AcquisitionResultRef,
+    InterfaceRef,
+    OperationArgumentRef,
+    OperationRef,
+    PropertyRef,
+)
 from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.measurements.results import MeasurementDType
 from scopecat.program.bindings import BindingIntent
 from scopecat.program.definitions import (
     ExperimentDef,
@@ -47,15 +56,19 @@ from scopecat.program.definitions import (
 )
 from scopecat.program.domain import DomainCall
 from scopecat.program.input_capture import empty_program_mapping
+from scopecat.program.measurements import (
+    MeasurementPostprocessor,
+)
 from scopecat.program.module import ModuleInstance
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
+    ProductAxis,
     ProductRef,
     RecordSelection,
     record_coordinate,
     record_product,
 )
-from scopecat.program.state import DesiredState
+from scopecat.program.state import DesiredState, StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
     internal_value_ref_point_dependencies,
@@ -73,7 +86,12 @@ from scopecat.program.value_types import (
     Table,
     ValueType,
 )
-from scopecat.program.values import MetadataValue, RuntimeInput
+from scopecat.program.values import (
+    ComputeFunction,
+    ComputeInput,
+    MetadataValue,
+    RuntimeInput,
+)
 from scopecat.program.values import input as authoring_input
 
 type DefinitionFunction = Callable[..., object]
@@ -180,6 +198,119 @@ class ExperimentContext:
         self._program.append_invocation_internal(invocation)
         return invocation
 
+    def resource(
+        self,
+        id: str,
+        *,
+        requires: Sequence[InterfaceRef] = (),
+        for_entities: Sequence[ValueRef] = (),
+    ) -> DefinitionResource:
+        """Declare a logical resource directly on this experiment."""
+
+        return self._program.resource(
+            id,
+            requires=requires,
+            for_entities=for_entities,
+        )
+
+    def bind_property(
+        self,
+        resource: DefinitionResource,
+        property: PropertyRef,
+        *,
+        value: StateBinding,
+    ) -> None:
+        """Bind one persistent property directly in this experiment."""
+
+        self._program.bind_property(resource, property, value=value)
+
+    def ensure(
+        self,
+        resource: DefinitionResource,
+        target: DesiredState,
+    ) -> None:
+        """Declare one coherent target state directly in this experiment."""
+
+        self._program.ensure(resource, target)
+
+    def invoke(
+        self,
+        id: str,
+        *,
+        resource: DefinitionResource,
+        operation: OperationRef,
+        arguments: Mapping[OperationArgumentRef, StateBinding] | None = None,
+    ) -> None:
+        """Append one ordered atomic hardware operation to this experiment."""
+
+        self._program.invoke(
+            id,
+            resource=resource,
+            operation=operation,
+            arguments=arguments,
+        )
+
+    def product(
+        self,
+        id: str,
+        *,
+        unit: str | None = "ratio",
+        dtype: MeasurementDType = "float64",
+        axes: Sequence[ProductAxis] = (),
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> ProductRef:
+        """Declare and return one experiment-owned logical product."""
+
+        return self._program.product(
+            id,
+            unit=unit,
+            dtype=dtype,
+            axes=axes,
+            metadata=metadata,
+        )
+
+    def acquire(
+        self,
+        id: str,
+        *,
+        resource: DefinitionResource,
+        results: Mapping[AcquisitionResultRef, ProductRef],
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> None:
+        """Map one root acquisition's typed results to declared products."""
+
+        self._program.acquire(
+            id,
+            resource=resource,
+            results=results,
+            metadata=metadata,
+        )
+
+    def compute(
+        self,
+        id: str,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput] | None = None,
+        output_type: Scalar,
+    ) -> ValueRef:
+        """Declare one experiment-owned compute node and return its result."""
+
+        return self._program.compute(
+            id,
+            fn=fn,
+            inputs=inputs,
+            output_type=output_type,
+        )
+
+    def measurement_postprocessor(
+        self,
+        postprocessor: MeasurementPostprocessor,
+    ) -> None:
+        """Register one root point-local measurement calculation."""
+
+        self._program.measurement_postprocessor(postprocessor)
+
     def scan(self, *scans: Scan) -> None:
         """Declare the experiment's default point-domain scans."""
 
@@ -230,20 +361,23 @@ class ExperimentContext:
 
     def finalize(
         self,
-        resource: ModuleResource,
+        resource: ModuleResource | DefinitionResource,
         target: DesiredState,
     ) -> None:
         """Declare the desired state after normal experiment completion."""
 
-        owners = {
-            effect.invocation_key
-            for effect in self._program.effects_internal
-            if isinstance(effect, ModuleInstance)
-        }
-        if resource.owner not in owners:
-            raise ValueError(
-                "experiment final_state resource must belong to this experiment"
-            )
+        if isinstance(resource, DefinitionResource):
+            self._program.require_owned_resource_internal(resource)
+        else:
+            owners = {
+                effect.invocation_key
+                for effect in self._program.effects_internal
+                if isinstance(effect, ModuleInstance)
+            }
+            if resource.owner not in owners:
+                raise ValueError(
+                    "experiment final_state resource must belong to this experiment"
+                )
         intent = build_ensure_state_intent(resource.port_id, target)
         for assignment in intent.assignments:
             value = assignment.value
