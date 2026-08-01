@@ -23,6 +23,10 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.instruments.declarations import declared_state_assignments
 
+from scopecat_instruments.interface_declarations import (
+    NetworkSweepResults,
+    TemperatureSampleResults,
+)
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_MONITOR_ACQUISITION,
@@ -66,21 +70,19 @@ from scopecat_instruments.symbolic import (
 
 
 @dataclass(frozen=True, slots=True)
-class NetworkSweepReadback:
+class NetworkSweepReadback(
+    NetworkSweepResults[MeasurementValue | None, MeasurementValue | None]
+):
     """Named network-sweep results plus their explicit effect receipt."""
 
     receipt: CollectReceipt = field(repr=False)
-    frequency: MeasurementValue | None
-    s_parameter: MeasurementValue | None
 
 
 @dataclass(frozen=True, slots=True)
-class TemperatureReadback:
+class TemperatureReadback(TemperatureSampleResults[MeasurementValue | None]):
     """Named temperature-readout results plus their explicit effect receipt."""
 
     receipt: CollectReceipt = field(repr=False)
-    temperature: MeasurementValue | None
-    resistance: MeasurementValue | None
 
 
 @dataclass(frozen=True, slots=True)

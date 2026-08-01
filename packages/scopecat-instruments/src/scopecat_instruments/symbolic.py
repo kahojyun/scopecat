@@ -45,6 +45,10 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.instruments.declarations import declared_state_target
 
+from scopecat_instruments.interface_declarations import (
+    NetworkSweepResults,
+    TemperatureSampleResults,
+)
 from scopecat_instruments.interfaces import (
     dc_monitor_interface,
     network_sweep_interface,
@@ -110,11 +114,8 @@ class SymbolicInstrumentRecorder(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class NetworkSweepProducts:
+class NetworkSweepProducts(NetworkSweepResults[ProductRef, ProductRef]):
     """Typed logical products produced by one declarative network sweep."""
-
-    frequency: ProductRef
-    s_parameter: ProductRef
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,11 +127,8 @@ class DCMonitorProducts:
 
 
 @dataclass(frozen=True, slots=True)
-class TemperatureSampleProducts:
+class TemperatureSampleProducts(TemperatureSampleResults[ProductRef]):
     """Typed logical products produced by one temperature sample."""
-
-    temperature: ProductRef
-    resistance: ProductRef
 
 
 class _SymbolicInstrumentClient:

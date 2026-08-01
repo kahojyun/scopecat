@@ -284,18 +284,22 @@ class TemperatureReadoutObservation:
 
 @instrument_result
 @dataclass(frozen=True, slots=True)
-class _TemperatureSampleResults:
+class TemperatureSampleResults[ValueT]:
+    """Temperature sample fields reusable across acquisition runtimes."""
+
     temperature: Annotated[
-        float,
+        ValueT,
         result(
+            dtype="float64",
             unit="K",
             label="Temperature",
             description="Current scan-channel temperature.",
         ),
     ]
     resistance: Annotated[
-        float,
+        ValueT,
         result(
+            dtype="float64",
             unit="Ohm",
             label="Resistance",
             description="Current scan-channel sensor resistance.",
@@ -317,7 +321,7 @@ class TemperatureReadoutInterface(Protocol):
         label="Sample sensor",
         description="Read a settled sample from one coherent scan channel.",
     )
-    def sample(self) -> _TemperatureSampleResults: ...
+    def sample(self) -> TemperatureSampleResults[float]: ...
 
 
 TEMPERATURE_READOUT_DECLARATION: CompiledInterface[TemperatureReadoutInterface] = (
@@ -432,9 +436,11 @@ class NetworkSweepState:
 
 @instrument_result
 @dataclass(frozen=True, slots=True)
-class _NetworkSweepResults:
+class NetworkSweepResults[FrequencyT, SParameterT]:
+    """Network sweep fields reusable across acquisition runtimes."""
+
     frequency: Annotated[
-        list[float],
+        FrequencyT,
         result(
             dtype="float64",
             unit="Hz",
@@ -444,7 +450,7 @@ class _NetworkSweepResults:
         ),
     ]
     s_parameter: Annotated[
-        list[complex],
+        SParameterT,
         result(
             dtype="complex128",
             unit="ratio",
@@ -475,7 +481,7 @@ class NetworkSweepInterface(Protocol):
             )
         },
     )
-    def sweep(self) -> _NetworkSweepResults: ...
+    def sweep(self) -> NetworkSweepResults[list[float], list[complex]]: ...
 
 
 NETWORK_SWEEP_DECLARATION: CompiledInterface[NetworkSweepInterface] = compile_interface(
@@ -497,6 +503,7 @@ __all__ = [
     "DCSourceVoltage",
     "Desired",
     "NetworkSweepInterface",
+    "NetworkSweepResults",
     "NetworkSweepState",
     "RFOutputInterface",
     "RFOutputState",
@@ -504,4 +511,5 @@ __all__ = [
     "SParameter",
     "TemperatureReadoutInterface",
     "TemperatureReadoutObservation",
+    "TemperatureSampleResults",
 ]
