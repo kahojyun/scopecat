@@ -49,6 +49,7 @@ from scopecat.sdk.instruments.contracts import (
     AcquisitionSpec,
     ComponentSpec,
     DiscriminatedState,
+    FixedAcquisitionSpec,
     InterfaceSpec,
     OperationArgumentSpec,
     OperationSpec,
@@ -254,6 +255,80 @@ class CompiledInterface[InterfaceT]:
         """Return a deep copy safe for consumers that normalize Pydantic models."""
 
         return self.spec.model_copy(deep=True)
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredResultField:
+    """One Python result field paired with its compiled wire identity."""
+
+    python_name: str
+    ref: AcquisitionResultRef
+    spec: AcquisitionResultSpec
+
+    @property
+    def result_id(self) -> str:
+        return self.ref.result_id
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredResultLayout:
+    """The result fields active for one fixed or discriminated acquisition case."""
+
+    case_value: str | None
+    fields: tuple[DeclaredResultField, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredAcquisition[ResultT]:
+    """Typed acquisition method paired with its compiled result layouts."""
+
+    method_name: str
+    ref: AcquisitionRef
+    spec: AcquisitionSpec
+    discriminator: PropertyRef | None
+    layouts: tuple[DeclaredResultLayout, ...]
+
+    @property
+    def result_fields(self) -> tuple[DeclaredResultField, ...]:
+        """Return every declared field in fixed or case declaration order."""
+
+        return tuple(field for layout in self.layouts for field in layout.fields)
+
+    def active_layout(
+        self,
+        case_value: str | None = None,
+        /,
+    ) -> DeclaredResultLayout:
+        """Select the fixed layout or one concrete discriminator case."""
+
+        if self.discriminator is None:
+            if case_value is not None:
+                raise ValueError(
+                    f"fixed acquisition {self.spec.id!r} has no result cases"
+                )
+            return self.layouts[0]
+        if case_value is None:
+            raise ValueError(
+                f"acquisition {self.spec.id!r} requires a concrete discriminator case"
+            )
+        selected = next(
+            (layout for layout in self.layouts if layout.case_value == case_value),
+            None,
+        )
+        if selected is None:
+            raise ValueError(
+                f"acquisition {self.spec.id!r} has no result case {case_value!r}"
+            )
+        return selected
+
+    def active_result_fields(
+        self,
+        case_value: str | None = None,
+        /,
+    ) -> tuple[DeclaredResultField, ...]:
+        """Return the Python-to-wire fields active for one acquisition."""
+
+        return self.active_layout(case_value).fields
 
 
 @dataclass(frozen=True, slots=True)
@@ -814,6 +889,73 @@ def declared_state_target(state: object) -> CompiledStateTarget:
     return CompiledStateTarget(declared_state_assignments(state))
 
 
+def declared_acquisition[InterfaceT, ResultT](
+    compiled: CompiledInterface[InterfaceT],
+    method: Callable[..., ResultT],
+    /,
+) -> DeclaredAcquisition[ResultT]:
+    """Bind one decorated Protocol/ABC method to its compiled result layouts."""
+
+    method_name = next(
+        (
+            name
+            for name, declared_method in _declared_members(
+                compiled.interface_type
+            ).items()
+            if declared_method is method
+        ),
+        None,
+    )
+    if method_name is None:
+        raise ValueError("acquisition method does not belong to the compiled interface")
+    declaration = _required_metadata(
+        method,
+        _ACQUISITION_METADATA,
+        AcquisitionMetadata,
+        f"interface method {method_name!r}",
+    )
+    acquisition_id = declaration.id or method_name
+    acquisition_spec = next(
+        item for item in compiled.spec.acquisitions if item.id == acquisition_id
+    )
+    acquisition_ref = compiled.ref.acquisition(acquisition_id)
+    if isinstance(acquisition_spec, FixedAcquisitionSpec):
+        result_type = _declared_method_result_type(method, method_name=method_name)
+        layouts = (
+            _declared_result_layout(
+                result_type,
+                acquisition_ref=acquisition_ref,
+                result_specs=acquisition_spec.results,
+                case_value=None,
+            ),
+        )
+        discriminator = None
+    else:
+        cases = {case.value: case for case in declaration.cases}
+        layouts = tuple(
+            _declared_result_layout(
+                cases[case_spec.value].result_type,
+                acquisition_ref=acquisition_ref,
+                result_specs=case_spec.results,
+                case_value=case_spec.value,
+            )
+            for case_spec in acquisition_spec.cases
+        )
+        state_ref = acquisition_spec.discriminator
+        discriminator = PropertyRef(
+            state_ref.interface_id,
+            tuple(state_ref.component_path),
+            state_ref.property_id,
+        )
+    return DeclaredAcquisition(
+        method_name=method_name,
+        ref=acquisition_ref,
+        spec=acquisition_spec,
+        discriminator=discriminator,
+        layouts=layouts,
+    )
+
+
 def declared_acquisition_ref(
     interface_type: type[object],
     method_name: str,
@@ -884,6 +1026,54 @@ def declared_result_ref(
         )
     [result_id] = result_ids
     return declared_acquisition_ref(interface_type, method_name).result(result_id)
+
+
+def _declared_method_result_type(
+    method: Callable[..., object],
+    *,
+    method_name: str,
+) -> object:
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(method, include_extras=True),
+    )
+    result_type = hints.get("return")
+    if result_type is None:
+        raise TypeError(
+            f"acquisition method {method_name!r} requires a return annotation"
+        )
+    return result_type
+
+
+def _declared_result_layout(
+    result_type: object,
+    *,
+    acquisition_ref: AcquisitionRef,
+    result_specs: Sequence[AcquisitionResultSpec],
+    case_value: str | None,
+) -> DeclaredResultLayout:
+    result_class = get_origin(result_type) or result_type
+    if not isinstance(result_class, type) or not is_dataclass(result_class):
+        raise TypeError("declared acquisition result must be a dataclass")
+    specs_by_id = {item.id: item for item in result_specs}
+    declared_fields = tuple(
+        DeclaredResultField(
+            python_name=result_field.name,
+            ref=acquisition_ref.result(result_id),
+            spec=specs_by_id[result_id],
+        )
+        for result_field in fields(result_class)
+        if (
+            result_id := _declared_dataclass_field_id(
+                result_class,
+                result_field.name,
+                metadata_type=ResultMetadata,
+                label="result",
+            )
+        )
+        in specs_by_id
+    )
+    return DeclaredResultLayout(case_value=case_value, fields=declared_fields)
 
 
 def _bind_flat_state(interface_id: str, state_type: type[object]) -> None:
@@ -1782,7 +1972,10 @@ __all__ = [
     "CompiledInterface",
     "CompiledStateTarget",
     "ComponentMetadata",
+    "DeclaredAcquisition",
     "DeclaredPropertyTarget",
+    "DeclaredResultField",
+    "DeclaredResultLayout",
     "DiscriminatedStateMetadata",
     "DiscriminatorReference",
     "InterfaceMetadata",
@@ -1801,6 +1994,7 @@ __all__ = [
     "axis",
     "compile_interface",
     "component",
+    "declared_acquisition",
     "declared_acquisition_ref",
     "declared_argument_ref",
     "declared_component_ref",

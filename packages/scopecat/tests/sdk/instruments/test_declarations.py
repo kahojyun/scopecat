@@ -53,12 +53,14 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.instruments.declarations import (
     CompiledInterface,
+    DeclaredAcquisition,
     acquisition,
     acquisition_case,
     argument,
     axis,
     compile_interface,
     component,
+    declared_acquisition,
     declared_acquisition_ref,
     declared_argument_ref,
     declared_component_ref,
@@ -531,6 +533,53 @@ def test_protocol_inheritance_and_abstract_interfaces_preserve_members(
     ]
 
 
+def test_declared_acquisition_preserves_fixed_result_type_and_field_mapping() -> None:
+    compiled = compile_interface(SweepContract)
+
+    declared = assert_type(
+        declared_acquisition(compiled, SweepContract.sweep),
+        DeclaredAcquisition[SweepResults],
+    )
+
+    assert declared.method_name == "sweep"
+    assert declared.ref == declared_acquisition_ref(SweepContract, "sweep")
+    assert declared.spec is compiled.spec.acquisitions[0]
+    assert declared.discriminator is None
+    assert [layout.case_value for layout in declared.layouts] == [None]
+    assert [
+        (field.python_name, field.result_id)
+        for field in declared.active_result_fields()
+    ] == [
+        ("frequency", "frequency"),
+        ("response", "s_parameter"),
+    ]
+    assert [field.spec.id for field in declared.result_fields] == [
+        "frequency",
+        "s_parameter",
+    ]
+    with pytest.raises(ValueError, match=r"fixed acquisition.*no result cases"):
+        declared.active_result_fields("unexpected")
+
+
+def test_declared_acquisition_rejects_a_method_from_another_interface() -> None:
+    compiled = compile_interface(SweepContract)
+
+    with pytest.raises(ValueError, match="does not belong to the compiled interface"):
+        declared_acquisition(compiled, MonitorContract.monitor)
+
+
+def test_declared_acquisition_resolves_an_inherited_protocol_method() -> None:
+    compiled = compile_interface(InheritedProtocolContract)
+
+    declared = assert_type(
+        declared_acquisition(compiled, InheritedProtocolContract.sample),
+        DeclaredAcquisition[ScalarResults],
+    )
+
+    assert declared.method_name == "sample"
+    assert [field.python_name for field in declared.active_result_fields()] == ["value"]
+
+
 def test_operations_observed_state_and_nested_components_compile_together() -> None:
     compiled = compile_interface(TypedControlContract)
 
@@ -816,6 +865,28 @@ def test_state_discriminated_acquisition_supports_cross_interface_members() -> N
     assert declared_result_ref(MonitorContract, "monitor", "voltage") == (
         monitor.result("monitored_voltage")
     )
+
+    declared = assert_type(
+        declared_acquisition(compiled, MonitorContract.monitor),
+        DeclaredAcquisition[MonitorResultShape],
+    )
+    assert declared.discriminator == declared_discriminator_ref(SourceContract)
+    assert [layout.case_value for layout in declared.layouts] == [
+        "voltage",
+        "current",
+    ]
+    assert [
+        (field.python_name, field.result_id)
+        for field in declared.active_result_fields("voltage")
+    ] == [("current", "monitored_current")]
+    assert [
+        (field.python_name, field.result_id)
+        for field in declared.active_result_fields("current")
+    ] == [("voltage", "monitored_voltage")]
+    with pytest.raises(ValueError, match="requires a concrete discriminator case"):
+        declared.active_result_fields()
+    with pytest.raises(ValueError, match="has no result case 'resistance'"):
+        declared.active_result_fields("resistance")
 
 
 def test_declared_state_codec_omits_none_without_injecting_methods() -> None:
