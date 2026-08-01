@@ -34,6 +34,7 @@ from scopecat.authoring._module_invocation import (
     module_use_invocation,
 )
 from scopecat.authoring.entity_parameters import PerEntity
+from scopecat.authoring.finalization import Finalizable
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import (
     ExperimentTemplate,
@@ -377,12 +378,46 @@ class ExperimentContext:
 
         self._record_selections.extend(selections)
 
+    @overload
     def finalize(
         self,
         resource: ModuleResource | DefinitionResource,
         target: DesiredState,
+    ) -> None: ...
+
+    @overload
+    def finalize[StateT](
+        self,
+        resource: Finalizable[StateT],
+        target: StateT,
+    ) -> None: ...
+
+    def finalize(
+        self,
+        resource: object,
+        target: object,
     ) -> None:
-        """Declare the desired state after normal experiment completion."""
+        """Declare typed or low-level state after normal experiment completion."""
+
+        if not isinstance(resource, ModuleResource | DefinitionResource):
+            provider = cast("Finalizable[object]", resource)
+            for logical_resource, desired_state in provider.finalization_targets(
+                target
+            ):
+                self._append_finalization_target(logical_resource, desired_state)
+            return
+
+        self._append_finalization_target(
+            resource,
+            cast("DesiredState", target),
+        )
+
+    def _append_finalization_target(
+        self,
+        resource: ModuleResource | DefinitionResource,
+        target: DesiredState,
+    ) -> None:
+        """Validate and append one normalized final-state target."""
 
         if isinstance(resource, DefinitionResource):
             self._program.require_owned_resource_internal(resource)

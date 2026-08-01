@@ -235,7 +235,7 @@ def capture(experiment: sc.ExperimentContext) -> None:
     experiment.record_coordinate(trace.frequency)
     experiment.record(trace.s_parameter)
     experiment.finalize(
-        flux.resource,
+        flux,
         DCSourceState(output_enabled=False),
     )
 ```
@@ -360,12 +360,15 @@ wrapper exposes `.spec`, `.ref`, and `.fresh_spec()` without changing the class
 object.
 
 Declared state dataclasses are intentionally plain data. Both time models use
-the same declaration codec: live clients encode with
-`declared_state_assignments(...)` and reject unresolved symbolic values, while
-symbolic clients adapt with `declared_state_target(...)` and retain `ValueRef`
-bindings. Users normally call the typed client's `apply(...)` or `ensure(...)`;
-the state class does not grow a hidden `target_assignments()` method merely to
-satisfy the lower-level authoring protocol.
+the same declaration codec: live clients encode resolved values, while symbolic
+clients retain `ValueRef` bindings. Users normally call the typed client's
+`apply(...)` or `ensure(...)`; root experiments can also pass that client and a
+declared state directly to `finalize(...)`. A symbolic group accepts either one
+broadcast state or an exact `PerEntity[state]` mapping in the same way as its
+`ensure(...)` method. The state class does not grow a hidden
+`target_assignments()` method merely to satisfy the lower-level authoring
+protocol. Instrument packages provide the small typed finalization adapter;
+`resource + DesiredState` remains available as the low-level escape hatch.
 
 This declaration layer generates the stable contract and refs, but it does not
 invent session behavior. A typed factory still defines whether an action is

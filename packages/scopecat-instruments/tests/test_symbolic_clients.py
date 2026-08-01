@@ -25,6 +25,7 @@ from scopecat.program.module import ModuleAcquireEffect
 from scopecat_instruments import (
     DCMonitorProducts,
     DCMonitorState,
+    DCSourceState,
     DCSourceVoltage,
     NetworkSweepProducts,
     NetworkSweepState,
@@ -247,6 +248,57 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
         "frequency",
         "s_parameter",
     ]
+
+
+def test_root_finalization_accepts_a_typed_symbolic_client_and_declared_state() -> None:
+    @template(id="test.symbolic.typed-finalization", kind="symbolic_root")
+    def experiment(context: ExperimentContext) -> None:
+        source = dc_source(context, "flux")
+        context.finalize(source, DCSourceState(output_enabled=False))
+
+    definition = experiment.definition
+    assert definition.final_state is not None
+    [assignment] = definition.final_state.assignments
+    [resource] = definition.interface.resources
+    assert assignment.port_id == resource.symbol_id
+    assert assignment.property_id == "output_enabled"
+    assert assignment.value is False
+
+
+@pytest.mark.parametrize("per_entity", [False, True])
+def test_root_finalization_accepts_group_broadcast_and_per_entity_state(
+    *,
+    per_entity: bool,
+) -> None:
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+
+    @template(
+        id=f"test.symbolic.typed-group-finalization.{per_entity}",
+        kind="symbolic_root",
+    )
+    def experiment(context: ExperimentContext) -> None:
+        sources = dc_source(context, "flux", for_=each(q0, q1))
+        target: DCSourceState | PerEntity[DCSourceState]
+        if per_entity:
+            target = PerEntity(
+                (
+                    (q1, DCSourceState(output_enabled=True)),
+                    (q0, DCSourceState(output_enabled=False)),
+                )
+            )
+        else:
+            target = DCSourceState(output_enabled=False)
+        context.finalize(sources, target)
+
+    definition = experiment.definition
+    assert definition.final_state is not None
+    assert [
+        assignment.port_id for assignment in definition.final_state.assignments
+    ] == [resource.symbol_id for resource in definition.interface.resources]
+    assert [assignment.value for assignment in definition.final_state.assignments] == (
+        [False, True] if per_entity else [False, False]
+    )
 
 
 def test_two_scalar_clients_use_distinct_structured_product_scopes() -> None:

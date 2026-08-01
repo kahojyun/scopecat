@@ -36,6 +36,10 @@ from scopecat.authoring.entity_parameters import (
     one,
     parameter_column,
 )
+from scopecat.authoring.finalization import (
+    Finalizable,
+    FinalizationTarget,
+)
 from scopecat.authoring.templates import (
     ExperimentInvocation,
     ExperimentTemplate,
@@ -120,6 +124,8 @@ __all__ = [
     "ExperimentInvocation",
     "ExperimentModule",
     "ExperimentTemplate",
+    "Finalizable",
+    "FinalizationTarget",
     "FloatType",
     "Input",
     "IntType",

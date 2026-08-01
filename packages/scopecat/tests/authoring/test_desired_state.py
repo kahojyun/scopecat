@@ -44,6 +44,29 @@ class _EmptyTarget:
         return {}
 
 
+@dataclass(frozen=True)
+class _DeclaredSourceState:
+    level: sc.StateBinding
+    enabled: sc.StateBinding
+
+
+@dataclass(frozen=True)
+class _TypedSource:
+    resource: sc.DefinitionResource
+
+    def finalization_targets(
+        self,
+        state: _DeclaredSourceState,
+        /,
+    ) -> tuple[sc.FinalizationTarget, ...]:
+        return (
+            (
+                self.resource,
+                _SourceTarget(level=state.level, enabled=state.enabled),
+            ),
+        )
+
+
 def test_ensure_binds_one_declarative_target_with_point_resolved_values() -> None:
     @sc.module(id="test.desired-state")
     def desired_state(
@@ -193,6 +216,24 @@ def test_root_final_state_is_materialized_outside_point_effects() -> None:
         "enabled",
     ]
     assert operation.targets[0].value.root == 0.0
+
+
+def test_root_final_state_accepts_a_typed_finalization_adapter() -> None:
+    @sc.template(id="test.typed-final-state", kind="desired-state")
+    def experiment_definition(experiment: sc.ExperimentContext) -> None:
+        source = experiment.resource("source", requires=(_SOURCE,))
+        typed_source: sc.Finalizable[_DeclaredSourceState] = _TypedSource(source)
+        experiment.finalize(
+            typed_source,
+            _DeclaredSourceState(level=0.0, enabled=False),
+        )
+
+    final_state = experiment_definition.definition.final_state
+    assert final_state is not None
+    assert [assignment.property_id for assignment in final_state.assignments] == [
+        "level",
+        "enabled",
+    ]
 
 
 def test_root_final_state_rejects_scan_coordinates() -> None:

@@ -12,6 +12,7 @@ from scopecat.authoring import (
     DesiredState,
     EachEntity,
     EntityType,
+    FinalizationTarget,
     OneEntity,
     PerEntity,
     ProductAxis,
@@ -66,6 +67,10 @@ from scopecat_instruments.states import (
     DCSourceVoltage,
     NetworkSweepState,
     RFOutputState,
+)
+
+type _DCSourceDesiredState = (
+    DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState
 )
 
 
@@ -233,11 +238,23 @@ class SymbolicDCSourceClient(_SymbolicInstrumentClient):
 
     def ensure(
         self,
-        state: DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState,
+        state: _DCSourceDesiredState,
     ) -> None:
+        self._ensure(self._desired_state_target(state))
+
+    def finalization_targets(
+        self,
+        state: _DCSourceDesiredState,
+        /,
+    ) -> tuple[FinalizationTarget, ...]:
+        """Lower one declared source state for root finalization."""
+
+        return ((self.resource, self._desired_state_target(state)),)
+
+    def _desired_state_target(self, state: _DCSourceDesiredState) -> DesiredState:
         if isinstance(state, DCMonitorState) and not self._monitor_enabled:
             raise ValueError("DC monitor state requires dc_source(..., monitor=True)")
-        self._ensure(declared_state_target(state))
+        return declared_state_target(state)
 
     def monitor(self, *, id: str | None = None) -> DCMonitorProducts:
         """Declare the result active for the most recently ensured source mode."""
@@ -284,6 +301,15 @@ class SymbolicRFOutputClient(_SymbolicInstrumentClient):
     def ensure(self, state: RFOutputState) -> None:
         self._ensure(declared_state_target(state))
 
+    def finalization_targets(
+        self,
+        state: RFOutputState,
+        /,
+    ) -> tuple[FinalizationTarget, ...]:
+        """Lower one declared RF state for root finalization."""
+
+        return ((self.resource, declared_state_target(state)),)
+
 
 class SymbolicNetworkSweepClient(_SymbolicInstrumentClient):
     """Declarative network-analyzer state and acquisition client."""
@@ -306,6 +332,15 @@ class SymbolicNetworkSweepClient(_SymbolicInstrumentClient):
 
     def ensure(self, state: NetworkSweepState) -> None:
         self._ensure(declared_state_target(state))
+
+    def finalization_targets(
+        self,
+        state: NetworkSweepState,
+        /,
+    ) -> tuple[FinalizationTarget, ...]:
+        """Lower one declared sweep state for root finalization."""
+
+        return ((self.resource, declared_state_target(state)),)
 
     def sweep(self, *, id: str | None = None) -> NetworkSweepProducts:
         """Declare a sweep and derive its product schemas from the interface."""
@@ -397,11 +432,6 @@ class _SymbolicInstrumentGroup[ClientT: _SymbolicInstrumentClient]:
         return self._clients.map(lambda client: client.resource)
 
 
-type _DCSourceDesiredState = (
-    DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState
-)
-
-
 class SymbolicDCSourceGroup(_SymbolicInstrumentGroup[SymbolicDCSourceClient]):
     """Entity-keyed declarative DC-source clients with broadcast state."""
 
@@ -437,6 +467,22 @@ class SymbolicDCSourceGroup(_SymbolicInstrumentGroup[SymbolicDCSourceClient]):
         for entity, target in _align_per_entity(self._entities, state).items():
             self._clients[entity].ensure(target)
 
+    def finalization_targets[StateT: _DCSourceDesiredState](
+        self,
+        state: StateT | PerEntity[StateT],
+        /,
+    ) -> tuple[FinalizationTarget, ...]:
+        """Lower broadcast or entity-specific source final state."""
+
+        return tuple(
+            target
+            for entity, state_for_entity in _align_per_entity(
+                self._entities,
+                state,
+            ).items()
+            for target in self._clients[entity].finalization_targets(state_for_entity)
+        )
+
     def monitor(self, *, id: str | None = None) -> PerEntity[DCMonitorProducts]:
         return self._clients.map(lambda client: client.monitor(id=id))
 
@@ -471,6 +517,22 @@ class SymbolicRFOutputGroup(_SymbolicInstrumentGroup[SymbolicRFOutputClient]):
         for entity, target in _align_per_entity(self._entities, state).items():
             self._clients[entity].ensure(target)
 
+    def finalization_targets(
+        self,
+        state: RFOutputState | PerEntity[RFOutputState],
+        /,
+    ) -> tuple[FinalizationTarget, ...]:
+        """Lower broadcast or entity-specific RF final state."""
+
+        return tuple(
+            target
+            for entity, state_for_entity in _align_per_entity(
+                self._entities,
+                state,
+            ).items()
+            for target in self._clients[entity].finalization_targets(state_for_entity)
+        )
+
 
 class SymbolicNetworkSweepGroup(_SymbolicInstrumentGroup[SymbolicNetworkSweepClient]):
     """Entity-keyed declarative network sweeps with broadcast state."""
@@ -504,6 +566,22 @@ class SymbolicNetworkSweepGroup(_SymbolicInstrumentGroup[SymbolicNetworkSweepCli
     ) -> None:
         for entity, target in _align_per_entity(self._entities, state).items():
             self._clients[entity].ensure(target)
+
+    def finalization_targets(
+        self,
+        state: NetworkSweepState | PerEntity[NetworkSweepState],
+        /,
+    ) -> tuple[FinalizationTarget, ...]:
+        """Lower broadcast or entity-specific sweep final state."""
+
+        return tuple(
+            target
+            for entity, state_for_entity in _align_per_entity(
+                self._entities,
+                state,
+            ).items()
+            for target in self._clients[entity].finalization_targets(state_for_entity)
+        )
 
     def sweep(self, *, id: str | None = None) -> PerEntity[NetworkSweepProducts]:
         return self._clients.map(lambda client: client.sweep(id=id))
