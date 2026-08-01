@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Annotated, Literal, Protocol, assert_type
@@ -25,6 +26,7 @@ from scopecat.sdk.instruments import (
     acquisition_result as expected_result,
 )
 from scopecat.sdk.instruments import (
+    acquisition_results,
     bool_property,
     enum_property,
     int_property,
@@ -304,6 +306,28 @@ class MonitorContract(Protocol):
     def monitor(self) -> MonitorResultShape: ...
 
 
+@instrument_result
+@dataclass(frozen=True, slots=True)
+class ScalarResults:
+    value: float
+
+
+class SampleCapability(Protocol):
+    @acquisition()
+    def sample(self) -> ScalarResults: ...
+
+
+@instrument_interface("test.inherited_protocol/v1")
+class InheritedProtocolContract(SampleCapability, Protocol): ...
+
+
+@instrument_interface("test.abstract_interface/v1")
+class AbstractContract(ABC):
+    @acquisition()
+    @abstractmethod
+    def sample(self) -> ScalarResults: ...
+
+
 def test_decorated_protocol_compiles_to_the_existing_contract_ir() -> None:
     compiled = assert_type(
         compile_interface(SweepContract),
@@ -384,6 +408,21 @@ def test_decorated_protocol_compiles_to_the_existing_contract_ir() -> None:
 
     assert compiled.spec == expected
     assert compiled.ref == declared_interface_ref(SweepContract)
+
+
+@pytest.mark.parametrize(
+    "contract",
+    [InheritedProtocolContract, AbstractContract],
+)
+def test_protocol_inheritance_and_abstract_interfaces_preserve_members(
+    contract: type[object],
+) -> None:
+    compiled = compile_interface(contract)
+
+    assert [item.id for item in compiled.spec.acquisitions] == ["sample"]
+    assert [item.id for item in acquisition_results(compiled.spec.acquisitions[0])] == [
+        "value"
+    ]
 
 
 def test_declaration_ref_helpers_use_python_member_names() -> None:

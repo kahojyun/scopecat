@@ -20,6 +20,11 @@ from scopecat_instruments.interfaces import (
     rf_output_interface,
 )
 from scopecat_instruments.members import (
+    DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASUREMENT_DELAY,
+    DC_MONITOR_MEASUREMENT_ENABLED,
+    DC_SOURCE_CURRENT_LEVEL,
+    DC_SOURCE_CURRENT_RANGE,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
     DC_SOURCE_VOLTAGE_LEVEL,
@@ -64,6 +69,30 @@ def test_sparse_states_omit_unspecified_properties() -> None:
         NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(4.8, "GHz"),
         NETWORK_SWEEP_POINTS: 401,
         NETWORK_SWEEP_S_PARAMETER: "S21",
+    }
+
+
+def test_current_and_monitor_states_use_the_shared_declaration_codec() -> None:
+    assert declared_state_assignments(
+        DCSourceCurrent(
+            range=sc.Quantity(10.0, "mA"),
+            level=sc.Quantity(2.0, "mA"),
+        )
+    ) == {
+        DC_SOURCE_MODE: "current",
+        DC_SOURCE_CURRENT_RANGE: sc.Quantity(10.0, "mA"),
+        DC_SOURCE_CURRENT_LEVEL: sc.Quantity(2.0, "mA"),
+    }
+    assert declared_state_assignments(
+        DCMonitorState(
+            measurement_enabled=True,
+            integration_cycles=3,
+            measurement_delay=sc.Quantity(10.0, "ms"),
+        )
+    ) == {
+        DC_MONITOR_MEASUREMENT_ENABLED: True,
+        DC_MONITOR_INTEGRATION_CYCLES: 3,
+        DC_MONITOR_MEASUREMENT_DELAY: sc.Quantity(10.0, "ms"),
     }
 
 

@@ -1168,7 +1168,12 @@ def _strip_state_wrappers(annotation: object) -> object:
 
 
 def _declared_members(interface_type: type[object]) -> Mapping[str, object]:
-    return cast("Mapping[str, object]", vars(interface_type))
+    members: dict[str, object] = {}
+    for base in reversed(interface_type.__mro__):
+        if base is object:
+            continue
+        members.update(cast("Mapping[str, object]", vars(base)))
+    return members
 
 
 def _integer_bound(
