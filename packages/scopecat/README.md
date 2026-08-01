@@ -35,7 +35,7 @@ Interactive closures may execute in the notebook process:
 
 ```python
 with project.connect() as lab:
-    run = lab.prepare(scratch_invocation).run()
+    run = lab.run(scratch_invocation)
 ```
 
 Admission, resource ownership, measurements, analysis, and configuration

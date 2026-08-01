@@ -87,7 +87,7 @@ passes through the daemon, so the notebook never becomes a second writer.
 
 The same project client exposes event replay and attention resolution through
 `lab.control`. Execution remains an internal implementation of
-`lab.prepare(...).run()`, so notebook code has one connection entry point and
+`lab.run(...)`, so notebook code has one connection entry point and
 one owner for the HTTP transport.
 
 After execution, analysis records, parameter proposals, acceptance decisions,

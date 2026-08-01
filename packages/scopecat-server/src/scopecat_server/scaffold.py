@@ -163,7 +163,7 @@ def first_run(experiment: sc.ExperimentContext) -> None:
 # %%
 project = sc.open_project(PROJECT_ROOT)
 with project.connect() as lab:
-    run = lab.prepare(first_run()).run(name="First run")
+    run = lab.run(first_run(), name="First run")
     summary = {"run_id": run.id, "status": run.manifest.status}
 
 print(summary)
