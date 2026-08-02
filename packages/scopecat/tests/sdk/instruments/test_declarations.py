@@ -1095,6 +1095,7 @@ def test_declared_interface_layout_covers_inherited_and_state_declarations() -> 
     assert flat_state.required_fields == ()
     assert flat_state.constants == ()
     assert flat_state.role == "flat"
+    assert flat_state.projection_stem == "Sweep"
 
     assert [state.source_type for state in discriminated.states] == [
         SourceCommonState,
@@ -1104,12 +1105,14 @@ def test_declared_interface_layout_covers_inherited_and_state_declarations() -> 
     common, voltage, current = discriminated.states
     assert [field.python_name for field in common.fields] == ["output_enabled"]
     assert common.role == "common"
+    assert common.projection_stem == "SourceContract"
     assert [field.python_name for field in voltage.fields] == [
         "output_enabled",
         "range",
         "level",
     ]
     assert voltage.role == "case"
+    assert voltage.projection_stem == "Voltage"
     assert voltage.required_fields == ("range", "level")
     assert voltage.constants == (
         (declared_discriminator_ref(SourceContract), "voltage"),
@@ -1120,6 +1123,7 @@ def test_declared_interface_layout_covers_inherited_and_state_declarations() -> 
         "level",
     ]
     assert current.role == "case"
+    assert current.projection_stem == "Current"
     assert current.required_fields == ("range", "level")
     assert current.constants == (
         (declared_discriminator_ref(SourceContract), "current"),
@@ -1127,6 +1131,7 @@ def test_declared_interface_layout_covers_inherited_and_state_declarations() -> 
 
     assert [state.source_type for state in monitor.states] == [MonitorState]
     assert monitor.states[0].role == "flat"
+    assert monitor.states[0].projection_stem == "Monitor"
     [monitor_acquisition] = monitor.root.acquisitions
     assert [item.result_type for item in monitor_acquisition.layouts] == [
         MonitorResults,

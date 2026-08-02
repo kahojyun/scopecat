@@ -313,6 +313,7 @@ class DeclaredStateLayout:
     """One flat, common-update, or complete case authoring projection."""
 
     source_type: type[object]
+    projection_stem: str
     role: Literal["flat", "common", "case"]
     fields: tuple[DeclaredStateField, ...]
     required_fields: tuple[str, ...] = ()
@@ -1305,6 +1306,7 @@ def _declared_state_layouts[InterfaceT](
         return (
             DeclaredStateLayout(
                 source_type=declaration,
+                projection_stem=_state_projection_stem(declaration),
                 role="flat",
                 fields=_declared_state_fields(compiled, declaration),
             ),
@@ -1318,12 +1320,14 @@ def _declared_state_layouts[InterfaceT](
     return (
         DeclaredStateLayout(
             source_type=declaration.common_state,
+            projection_stem=_state_projection_stem(compiled.interface_type),
             role="common",
             fields=common_fields,
         ),
         *(
             DeclaredStateLayout(
                 source_type=case.state_type,
+                projection_stem=_state_projection_stem(case.state_type),
                 role="case",
                 fields=_declared_state_fields(compiled, case.state_type),
                 required_fields=case.required_on_entry,
@@ -1332,6 +1336,14 @@ def _declared_state_layouts[InterfaceT](
             for case in declaration.cases
         ),
     )
+
+
+def _state_projection_stem(source_type: type[object]) -> str:
+    source_name = source_type.__name__
+    for suffix in ("State", "Interface"):
+        if (stem := source_name.removesuffix(suffix)) and stem != source_name:
+            return stem
+    return source_name
 
 
 def _declared_state_fields[InterfaceT](

@@ -16,6 +16,7 @@ from scopecat_instruments.driver_states import (
     encode_temperature_readout_observation,
 )
 from scopecat_instruments.interface_declarations import (
+    DCSourceState,
     DCSourceVoltageState,
     RFOutputState,
     TemperatureReadoutObservation,
@@ -98,6 +99,8 @@ def test_discriminated_case_encoder_uses_one_complete_canonical_state() -> None:
         range=Quantity(1.0, "V"),
         level=Quantity(0.25, "V"),
     )
+    canonical: DCSourceState = voltage
+    assert canonical is voltage
 
     assert_type(patch, DCSourceDriverPatch)
     assert patch == {

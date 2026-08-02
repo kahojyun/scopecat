@@ -54,6 +54,7 @@ from scopecat_instruments.driver_states import (
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
     DCSourceCurrentState,
+    DCSourceState,
     DCSourceVoltageState,
     NetworkSweepState,
     ReferenceSource,
@@ -182,12 +183,11 @@ class VirtualRfSource:
 
 
 type _VirtualDcSourceMode = Literal["voltage", "current"]
-type _VirtualDcSourceState = DCSourceVoltageState | DCSourceCurrentState
 
 
 @dataclass(frozen=True)
 class _VirtualDcSnapshot:
-    source: _VirtualDcSourceState
+    source: DCSourceState
     monitor: DCMonitorState
 
     @property
@@ -235,7 +235,7 @@ class VirtualDcSource:
     def _canonical_snapshot(self) -> _VirtualDcSnapshot:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
-            source_state: _VirtualDcSourceState = (
+            source_state: DCSourceState = (
                 DCSourceVoltageState(
                     voltage_protection=Quantity(source.voltage_protection_v, "V"),
                     current_protection=Quantity(source.current_protection_a, "A"),

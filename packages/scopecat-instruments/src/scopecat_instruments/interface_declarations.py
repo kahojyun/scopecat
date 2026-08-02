@@ -30,7 +30,7 @@ type SParameter = Literal["S11", "S21", "S12", "S22"]
 
 
 @instrument_state
-class DCSourceState:
+class _DCSourceCommonState:
     """Concrete common-field base for complete DC-source case states."""
 
     voltage_protection: Quantity = member_field(
@@ -50,7 +50,7 @@ class DCSourceState:
 
 
 @instrument_state
-class DCSourceVoltageState(DCSourceState):
+class DCSourceVoltageState(_DCSourceCommonState):
     """Complete concrete voltage-source mode state."""
 
     range: Quantity = member_field(
@@ -68,7 +68,7 @@ class DCSourceVoltageState(DCSourceState):
 
 
 @instrument_state
-class DCSourceCurrentState(DCSourceState):
+class DCSourceCurrentState(_DCSourceCommonState):
     """Complete concrete current-source mode state."""
 
     range: Quantity = member_field(
@@ -85,6 +85,9 @@ class DCSourceCurrentState(DCSourceState):
     )
 
 
+type DCSourceState = DCSourceVoltageState | DCSourceCurrentState
+
+
 @instrument_interface(
     "scopecat.dc_source/v2",
     state=discriminated_state(
@@ -94,7 +97,7 @@ class DCSourceCurrentState(DCSourceState):
             label="Source mode",
             description="Discriminator selecting voltage or current source state.",
         ),
-        common=DCSourceState,
+        common=_DCSourceCommonState,
         cases=(
             state_case(
                 "voltage",
@@ -170,7 +173,7 @@ class DCMonitorInterface(Protocol):
         description="Read one monitor sample from the active source mode.",
         preconditions=(
             precondition(
-                state_field(DCSourceState, "output_enabled"),
+                state_field(_DCSourceCommonState, "output_enabled"),
                 value=True,
                 unavailable_reason="DC source output is disabled.",
             ),

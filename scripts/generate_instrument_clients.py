@@ -467,8 +467,7 @@ class _DriverPatchField:
 
 
 def _state_projection_names(layout: DeclaredStateLayout) -> _StateProjectionNames:
-    source_name = layout.source_type.__name__
-    stem = source_name.removesuffix("State") or source_name
+    stem = layout.projection_stem
     return _StateProjectionNames(
         patch=f"{stem}Patch",
         target=f"{stem}Target",

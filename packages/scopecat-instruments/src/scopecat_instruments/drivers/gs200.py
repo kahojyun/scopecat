@@ -54,6 +54,7 @@ from scopecat_instruments.driver_states import (
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
     DCSourceCurrentState,
+    DCSourceState,
     DCSourceVoltageState,
 )
 from scopecat_instruments.interfaces import dc_monitor_interface, dc_source_interface
@@ -73,7 +74,7 @@ _CONDITION_NO_TRIGGER_SAMPLING_ERROR = 1 << 4
 
 @dataclass(frozen=True)
 class _GS200Snapshot:
-    source: DCSourceVoltageState | DCSourceCurrentState
+    source: DCSourceState
     monitor: DCMonitorState | None
     metadata: dict[str, JsonValue]
 
@@ -143,7 +144,7 @@ class YokogawaGS200:
         voltage_protection = Quantity(self.voltage_protection(), "V")
         current_protection = Quantity(self.current_protection(), "A")
         output_enabled = self.output_enabled()
-        source: DCSourceVoltageState | DCSourceCurrentState
+        source: DCSourceState
         if mode == "voltage":
             source = DCSourceVoltageState(
                 voltage_protection=voltage_protection,
