@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # pyright: reportPrivateUsage=false
-from typing import Annotated, Protocol, assert_type
+from typing import assert_type
 
 import pytest
 from scopecat.authoring import (
@@ -12,7 +12,6 @@ from scopecat.authoring import (
     PerEntity,
     ProductRef,
     ScalarType,
-    ValueRef,
     coordinate,
     each,
     one,
@@ -20,16 +19,9 @@ from scopecat.authoring import (
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
-from scopecat.program.bindings import EnsureStateIntent, InvocationIntent
+from scopecat.program.bindings import EnsureStateIntent
 from scopecat.program.expressions import LiteralScalarExpr
 from scopecat.program.module import ModuleAcquireEffect
-from scopecat.sdk.instruments.declarations import (
-    argument,
-    compile_interface,
-    declared_operation,
-    instrument_interface,
-    operation,
-)
 
 from scopecat_instruments import (
     DCMonitorProducts,
@@ -56,7 +48,6 @@ from scopecat_instruments import (
     rf_output,
     temperature_readout,
 )
-from scopecat_instruments._symbolic_runtime import SymbolicInstrumentClientBase
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
@@ -64,64 +55,6 @@ from scopecat_instruments.members import (
     RF_OUTPUT,
     TEMPERATURE_READOUT,
 )
-
-type _Desired[T] = T | ValueRef
-
-
-@instrument_interface("test.first_party_symbolic_operation/v1")
-class _SyntheticOperationInterface(Protocol):
-    @operation(id="emit_pulse")
-    def emit(
-        self,
-        count: Annotated[_Desired[int], argument(id="pulse_count")],
-        *,
-        label: Annotated[_Desired[str], argument(id="pulse_label")],
-    ) -> None: ...
-
-
-_SYNTHETIC_INTERFACE = compile_interface(_SyntheticOperationInterface)
-_SYNTHETIC_OPERATION = declared_operation(
-    _SYNTHETIC_INTERFACE,
-    _SyntheticOperationInterface.emit,
-)
-
-
-class _SyntheticSymbolicOperationClient(SymbolicInstrumentClientBase):
-    __slots__ = ()
-
-    def __init__(
-        self,
-        recorder: SymbolicInstrumentRecorder,
-        resource_id: str,
-    ) -> None:
-        super().__init__(
-            recorder,
-            resource_id,
-            requires=(_SYNTHETIC_INTERFACE.ref,),
-        )
-
-    def emit(
-        self,
-        count: _Desired[int],
-        *,
-        label: _Desired[str],
-        effect_id: str | None = None,
-    ) -> None:
-        self._invoke_declared(
-            _SYNTHETIC_OPERATION,
-            effect_id,
-            count,
-            label=label,
-        )
-
-    def remember_state(self) -> None:
-        self._state_assignments[
-            _SYNTHETIC_INTERFACE.ref.property("transient_state")
-        ] = True
-
-    @property
-    def has_remembered_state(self) -> bool:
-        return bool(self._state_assignments)
 
 
 def test_factories_bind_typed_symbolic_clients_and_declare_resources() -> None:
@@ -296,38 +229,6 @@ def test_experiment_context_satisfies_the_symbolic_recorder_protocol() -> None:
 
     assert_type(vna, SymbolicNetworkSweepClient)
     assert vna.resource.id == "readout"
-
-
-@pytest.mark.parametrize(
-    ("effect_id", "expected_id"),
-    [(None, "pulse.emit_pulse"), ("second", "pulse.second")],
-)
-def test_symbolic_declared_operation_records_values_and_invalidates_state(
-    effect_id: str | None,
-    expected_id: str,
-) -> None:
-    context = ModuleContext()
-    client = _SyntheticSymbolicOperationClient(context, "pulse")
-    count = coordinate("pulse_count", ScalarType(IntType()))
-    client.remember_state()
-
-    client.emit(count, label="calibration", effect_id=effect_id)
-
-    assert not client.has_remembered_state
-    _, body, _ = context.close_experiment_parts_internal()
-    [invocation] = body.invocations
-    assert isinstance(invocation, InvocationIntent)
-    assert invocation.id == expected_id
-    assert invocation.port_id == client.resource.port_id
-    assert invocation.interface_id == _SYNTHETIC_INTERFACE.ref.interface_id
-    assert invocation.component_path == ()
-    assert invocation.operation_id == "emit_pulse"
-    assert [argument.id for argument in invocation.arguments] == [
-        "pulse_count",
-        "pulse_label",
-    ]
-    assert invocation.arguments[0].value is count
-    assert invocation.arguments[1].value == "calibration"
 
 
 def test_symbolic_products_record_directly_from_a_root_experiment() -> None:

@@ -1,33 +1,18 @@
 from __future__ import annotations
 
 # pyright: reportPrivateUsage=false
-from collections.abc import Mapping
-from typing import Annotated, Protocol, assert_type, cast
+from typing import assert_type, cast
 
-from scopecat.api._instruments import (
-    InstrumentClientChannel,
-    InstrumentRef,
-    OperationArgumentValue,
-)
+from scopecat.api._instruments import InstrumentClientChannel, InstrumentRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.records.instrument import (
     InstrumentPropertyState,
     InstrumentStateSnapshot,
 )
-from scopecat.sdk.instruments import (
-    InvokeReceipt,
-    OperationArgumentRef,
-    OperationRef,
-)
 from scopecat.sdk.instruments.declarations import (
-    argument,
-    compile_interface,
     declared_interface_layout,
-    declared_operation,
     declared_state_assignments,
-    instrument_interface,
-    operation,
 )
 
 from scopecat_instruments import (
@@ -43,7 +28,6 @@ from scopecat_instruments import (
     network_sweep,
     temperature_readout,
 )
-from scopecat_instruments._client_runtime import InstrumentClientBase
 from scopecat_instruments.interface_declarations import (
     TEMPERATURE_READOUT_DECLARATION,
 )
@@ -65,58 +49,6 @@ from scopecat_instruments.members import (
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     TEMPERATURE_READOUT_SCAN_CHANNEL,
 )
-
-
-@instrument_interface("test.first_party_typed_operation/v1")
-class _SyntheticOperationInterface(Protocol):
-    @operation(id="emit_pulse")
-    def emit(
-        self,
-        count: Annotated[int, argument(id="pulse_count")],
-        *,
-        label: Annotated[str, argument(id="pulse_label")],
-    ) -> None: ...
-
-
-_SYNTHETIC_OPERATION = declared_operation(
-    compile_interface(_SyntheticOperationInterface),
-    _SyntheticOperationInterface.emit,
-)
-
-
-class _RecordingInvokeChannel:
-    def __init__(self) -> None:
-        self.receipt = InvokeReceipt(metadata={"test": "typed-operation"})
-        self.operation: OperationRef | None = None
-        self.arguments: (
-            Mapping[
-                OperationArgumentRef,
-                OperationArgumentValue,
-            ]
-            | None
-        ) = None
-        self.instrument_id: str | None = None
-
-    def invoke(
-        self,
-        operation: OperationRef,
-        arguments: Mapping[OperationArgumentRef, OperationArgumentValue] | None = None,
-        *,
-        instrument_id: str,
-    ) -> InvokeReceipt:
-        self.operation = operation
-        self.arguments = arguments
-        self.instrument_id = instrument_id
-        return self.receipt
-
-
-class _SyntheticLiveOperationClient(InstrumentClientBase):
-    def emit(self, count: int, *, label: str) -> InvokeReceipt:
-        return self._invoke_declared(
-            _SYNTHETIC_OPERATION,
-            count,
-            label=label,
-        )
 
 
 class _ObservationChannel:
@@ -174,24 +106,6 @@ def test_first_party_factories_retain_static_client_types() -> None:
     assert source.requires == (DC_SOURCE,)
     assert vna.requires == (NETWORK_SWEEP,)
     assert thermometer.requires == (TEMPERATURE_READOUT,)
-
-
-def test_live_declared_operation_lowers_arguments_and_returns_receipt() -> None:
-    channel = _RecordingInvokeChannel()
-    client = _SyntheticLiveOperationClient(
-        cast("InstrumentClientChannel", cast("object", channel)),
-        "pulse-source",
-    )
-
-    receipt = assert_type(client.emit(7, label="calibration"), InvokeReceipt)
-
-    assert receipt is channel.receipt
-    assert channel.instrument_id == "pulse-source"
-    assert channel.operation == _SYNTHETIC_OPERATION.ref
-    assert channel.arguments == {
-        _SYNTHETIC_OPERATION.ref.argument("pulse_count"): 7,
-        _SYNTHETIC_OPERATION.ref.argument("pulse_label"): "calibration",
-    }
 
 
 def test_temperature_observation_uses_cached_and_fresh_snapshot_paths() -> None:

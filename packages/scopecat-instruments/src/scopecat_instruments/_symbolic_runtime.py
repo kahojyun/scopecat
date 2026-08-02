@@ -196,6 +196,22 @@ class SymbolicInstrumentClientBase:
         return output_factory(**values)
 
 
+class SymbolicInstrumentComponentClientBase(SymbolicInstrumentClientBase):
+    """A component proxy sharing one symbolic root client's authoring state."""
+
+    __slots__ = ("_owner",)
+
+    def __init__(  # pyright: ignore[reportMissingSuperCall]
+        self,
+        owner: SymbolicInstrumentClientBase,
+        /,
+    ) -> None:
+        self._owner = owner
+        self._recorder = owner._recorder
+        self._resource = owner._resource
+        self._state_assignments = owner._state_assignments
+
+
 class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
     def ensure(self, state: StateT) -> None:
         self._ensure(self._desired_state_target(state))
@@ -275,13 +291,53 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
 
         return self._clients.map(lambda client: client.resource)
 
+    def _align[ValueT](
+        self,
+        value: ValueT | PerEntity[ValueT],
+        /,
+    ) -> PerEntity[ValueT]:
+        return self._entities.align(value)
+
+
+class SymbolicInstrumentComponentGroupBase[ComponentT]:
+    """Entity-aligned scalar component proxies for one generated group."""
+
+    __slots__ = ("_clients", "_entities")
+
+    def __init__(
+        self,
+        entities: EachEntity,
+        clients: PerEntity[ComponentT],
+        /,
+    ) -> None:
+        self._entities = entities
+        self._clients = entities.align(clients)
+
+    @property
+    def entities(self) -> tuple[EntityRef, ...]:
+        return self._entities.entities
+
+    @property
+    def clients(self) -> PerEntity[ComponentT]:
+        return self._clients
+
+    def __getitem__(self, entity: EntityRef) -> ComponentT:
+        return self._clients[entity]
+
+    def _align[ValueT](
+        self,
+        value: ValueT | PerEntity[ValueT],
+        /,
+    ) -> PerEntity[ValueT]:
+        return self._entities.align(value)
+
 
 class DeclaredStateSymbolicGroupBase[
     StateT,
     ClientT: SymbolicInstrumentClientBase,
 ](SymbolicInstrumentGroupBase[ClientT]):
     def ensure(self, state: StateT | PerEntity[StateT]) -> None:
-        for entity, target in self._entities.align(state).items():
+        for entity, target in self._align(state).items():
             self._state_client(entity).ensure(target)
 
     def finalization_targets(
@@ -291,7 +347,7 @@ class DeclaredStateSymbolicGroupBase[
     ) -> tuple[FinalizationTarget, ...]:
         return tuple(
             target
-            for entity, state_for_entity in self._entities.align(state).items()
+            for entity, state_for_entity in self._align(state).items()
             for target in self._state_client(entity).finalization_targets(
                 state_for_entity
             )
@@ -389,6 +445,8 @@ __all__ = [
     "DeclaredStateSymbolicClientBase",
     "DeclaredStateSymbolicGroupBase",
     "SymbolicInstrumentClientBase",
+    "SymbolicInstrumentComponentClientBase",
+    "SymbolicInstrumentComponentGroupBase",
     "SymbolicInstrumentGroupBase",
     "SymbolicInstrumentRecorder",
 ]
