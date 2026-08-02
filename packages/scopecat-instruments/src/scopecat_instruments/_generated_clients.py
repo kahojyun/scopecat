@@ -28,9 +28,13 @@ from scopecat_instruments._symbolic_runtime import (
     SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
+    DC_SOURCE_DECLARATION,
     NETWORK_SWEEP_DECLARATION,
     RF_OUTPUT_DECLARATION,
     TEMPERATURE_READOUT_DECLARATION,
+    DCSourceCurrent,
+    DCSourceState,
+    DCSourceVoltage,
     NetworkSweepResults,
     NetworkSweepState,
     RFOutputState,
@@ -199,6 +203,51 @@ rf_output: InstrumentFamily[
     requires=(RF_OUTPUT_DECLARATION.ref,),
 )
 
+type _DCSourceState = DCSourceState | DCSourceVoltage | DCSourceCurrent
+
+
+class DCSourceClient(DeclaredStateClientBase[_DCSourceState]):
+    pass
+
+
+class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[_DCSourceState]):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: OneEntity | None = None,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            requires=(DC_SOURCE_DECLARATION.ref,),
+            for_=for_,
+        )
+
+
+class SymbolicDCSourceGroup(
+    DeclaredStateSymbolicGroupBase[_DCSourceState, SymbolicDCSourceClient]
+):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: EachEntity,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            for_=for_,
+            client_factory=SymbolicDCSourceClient,
+        )
+
+
 _NETWORK_SWEEP_LAYOUT = declared_interface_layout(NETWORK_SWEEP_DECLARATION)
 _NETWORK_SWEEP_SWEEP_DECLARATION = _NETWORK_SWEEP_LAYOUT.root.acquisitions[0]
 
@@ -293,10 +342,13 @@ network_sweep: InstrumentFamily[
 )
 
 __all__ = [
+    "DCSourceClient",
     "NetworkSweepClient",
     "NetworkSweepProducts",
     "NetworkSweepReadback",
     "RFOutputClient",
+    "SymbolicDCSourceClient",
+    "SymbolicDCSourceGroup",
     "SymbolicNetworkSweepClient",
     "SymbolicNetworkSweepGroup",
     "SymbolicRFOutputClient",

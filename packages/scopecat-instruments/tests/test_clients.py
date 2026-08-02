@@ -20,6 +20,7 @@ from scopecat.sdk.instruments.declarations import (
 )
 
 from scopecat_instruments import (
+    DCMonitorState,
     DCSourceClient,
     DCSourceMonitorClient,
     DCSourceState,
@@ -35,6 +36,9 @@ from scopecat_instruments import (
     rf_output,
     temperature_readout,
 )
+from scopecat_instruments._generated_clients import (
+    DCSourceClient as GeneratedDCSourceClient,
+)
 from scopecat_instruments.interface_declarations import (
     TEMPERATURE_READOUT_DECLARATION,
 )
@@ -43,6 +47,7 @@ from scopecat_instruments.interface_declarations import (
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
+    DC_MONITOR_MEASUREMENT_ENABLED,
     DC_SOURCE,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
@@ -84,7 +89,7 @@ class _ObservationChannel:
 
 class _ApplyChannel:
     def __init__(self) -> None:
-        self.receipt = ApplyReceipt(metadata={"generated": "rf-output"})
+        self.receipt = ApplyReceipt(metadata={"generated": "state-client"})
         self.values: Mapping[PropertyRef, StateLiteral | StateValue] | None = None
         self.instrument_id: str | None = None
 
@@ -138,6 +143,39 @@ def test_first_party_factories_retain_static_client_types() -> None:
     assert rf.requires == (RF_OUTPUT,)
     assert vna.requires == (NETWORK_SWEEP,)
     assert thermometer.requires == (TEMPERATURE_READOUT,)
+
+
+def test_dc_source_live_client_and_monitor_subclass_share_generated_base() -> None:
+    assert DCSourceClient is GeneratedDCSourceClient
+    assert DCSourceMonitorClient.__bases__ == (GeneratedDCSourceClient,)
+
+
+def test_generated_dc_source_live_client_applies_discriminated_state() -> None:
+    channel = _ApplyChannel()
+    client = DCSourceClient(
+        cast("InstrumentClientChannel", cast("object", channel)),
+        "flux-source",
+    )
+
+    receipt = assert_type(
+        client.apply(
+            DCSourceVoltage(
+                range=Quantity(1.0, "V"),
+                level=Quantity(0.05, "V"),
+                output_enabled=True,
+            )
+        ),
+        ApplyReceipt,
+    )
+
+    assert receipt is channel.receipt
+    assert channel.instrument_id == "flux-source"
+    assert channel.values == {
+        DC_SOURCE_MODE: "voltage",
+        DC_SOURCE_VOLTAGE_RANGE: Quantity(1.0, "V"),
+        DC_SOURCE_VOLTAGE_LEVEL: Quantity(0.05, "V"),
+        DC_SOURCE_OUTPUT_ENABLED: True,
+    }
 
 
 def test_generated_rf_live_client_lowers_declared_state() -> None:
@@ -241,6 +279,22 @@ def test_live_dc_monitor_selection_requires_the_combined_capability() -> None:
 
     assert_type(source, InstrumentRef[DCSourceMonitorClient])
     assert source.requires == (DC_SOURCE, DC_MONITOR)
+
+
+def test_live_dc_monitor_subclass_still_applies_monitor_state() -> None:
+    channel = _ApplyChannel()
+    client = DCSourceMonitorClient(
+        cast("InstrumentClientChannel", cast("object", channel)),
+        "flux-source",
+    )
+
+    receipt = assert_type(
+        client.apply(DCMonitorState(measurement_enabled=True)),
+        ApplyReceipt,
+    )
+
+    assert receipt is channel.receipt
+    assert channel.values == {DC_MONITOR_MEASUREMENT_ENABLED: True}
 
 
 def test_voltage_state_is_one_complete_mode_transition() -> None:

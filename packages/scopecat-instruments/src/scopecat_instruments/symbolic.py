@@ -13,6 +13,8 @@ from scopecat.authoring import (
 
 from scopecat_instruments._generated_clients import (
     NetworkSweepProducts,
+    SymbolicDCSourceClient,
+    SymbolicDCSourceGroup,
     SymbolicNetworkSweepClient,
     SymbolicNetworkSweepGroup,
     SymbolicRFOutputClient,
@@ -41,33 +43,14 @@ from scopecat_instruments.states import (
     DCSourceVoltage,
 )
 
-type _DCSourceState = DCSourceState | DCSourceVoltage | DCSourceCurrent
-type _DCSourceMonitorState = _DCSourceState | DCMonitorState
+type _DCSourceMonitorState = (
+    DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState
+)
 
 
 @dataclass(frozen=True, slots=True)
 class DCMonitorProducts(DCMonitorResults[ProductRef]):
     """Mode-dependent logical products produced by one DC monitor sample."""
-
-
-class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[_DCSourceState]):
-    """Declarative DC-source state client backed by a logical resource."""
-
-    __slots__ = ()
-
-    def __init__(
-        self,
-        recorder: SymbolicInstrumentRecorder,
-        resource_id: str,
-        *,
-        for_: OneEntity | None = None,
-    ) -> None:
-        super().__init__(
-            recorder,
-            resource_id,
-            requires=(DC_SOURCE,),
-            for_=for_,
-        )
 
 
 class SymbolicDCSourceMonitorClient(
@@ -98,28 +81,6 @@ class SymbolicDCSourceMonitorClient(
             DC_MONITOR_ACQUISITION_DECLARATION,
             DCMonitorProducts,
             id=id,
-        )
-
-
-class SymbolicDCSourceGroup(
-    DeclaredStateSymbolicGroupBase[_DCSourceState, SymbolicDCSourceClient]
-):
-    """Entity-keyed declarative DC-source clients with broadcast state."""
-
-    __slots__ = ()
-
-    def __init__(
-        self,
-        recorder: SymbolicInstrumentRecorder,
-        resource_id: str,
-        *,
-        for_: EachEntity,
-    ) -> None:
-        super().__init__(
-            recorder,
-            resource_id,
-            for_=for_,
-            client_factory=SymbolicDCSourceClient,
         )
 
 

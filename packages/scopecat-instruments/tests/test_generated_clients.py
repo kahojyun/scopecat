@@ -17,6 +17,7 @@ from generate_instrument_clients import ClientGenerationPolicy, render_client_mo
 policy = ClientGenerationPolicy(
     declaration_module=sys.argv[2],
     declaration_symbol=sys.argv[3],
+    generate_family=sys.argv[5] == "true",
     import_root=None if sys.argv[4] == "-" else Path(sys.argv[4]),
 )
 print(render_client_module((policy,)), end="")
@@ -28,6 +29,7 @@ def _render_policy(
     *,
     module: str = "client_codegen_fixture_declarations",
     import_root: Path | None = FIXTURE_IMPORT_ROOT,
+    generate_family: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed interpreter and repository code
         [
@@ -38,6 +40,7 @@ def _render_policy(
             module,
             symbol,
             "-" if import_root is None else str(import_root),
+            "true" if generate_family else "false",
         ],
         cwd=REPOSITORY_ROOT,
         check=False,
@@ -89,11 +92,12 @@ def test_codegen_rejects_every_colliding_generated_symbol() -> None:
     assert "_SYMBOL_COLLISION_FOO_BAR_FIRE_DECLARATION" in completed.stderr
 
 
-def test_codegen_renders_every_discriminated_state_type_as_one_union() -> None:
+def test_codegen_renders_discriminated_state_without_an_optional_family() -> None:
     completed = _render_policy(
         "DC_SOURCE_DECLARATION",
         module="scopecat_instruments.interface_declarations",
         import_root=None,
+        generate_family=False,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -111,3 +115,5 @@ def test_codegen_renders_every_discriminated_state_type_as_one_union() -> None:
         "DeclaredStateSymbolicGroupBase[_DCSourceState, SymbolicDCSourceClient]"
     ) in completed.stdout
     assert "declared_interface_layout" not in completed.stdout
+    assert "InstrumentFamily" not in completed.stdout
+    assert '"dc_source"' not in completed.stdout

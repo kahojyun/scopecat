@@ -41,6 +41,7 @@ class ClientGenerationPolicy:
 
     declaration_module: str
     declaration_symbol: str
+    generate_family: bool = True
     public_name_overrides: tuple[tuple[str, str], ...] = ()
     import_root: Path | None = None
 
@@ -68,6 +69,11 @@ PRODUCTION_TARGET = GenerationTarget(
         ClientGenerationPolicy(
             declaration_module="scopecat_instruments.interface_declarations",
             declaration_symbol="RF_OUTPUT_DECLARATION",
+        ),
+        ClientGenerationPolicy(
+            declaration_module="scopecat_instruments.interface_declarations",
+            declaration_symbol="DC_SOURCE_DECLARATION",
+            generate_family=False,
         ),
         ClientGenerationPolicy(
             declaration_module="scopecat_instruments.interface_declarations",
@@ -153,6 +159,7 @@ class _InterfaceModel:
     interface_name: str
     stem: str
     factory_name: str
+    generate_family: bool
     observation_type_name: str | None
     state_type_names: tuple[str, ...]
     root: _ScopeModel
@@ -344,6 +351,7 @@ def _interface_model(
         interface_name=interface_name,
         stem=stem,
         factory_name=overrides.get("factory", _snake_case(stem)),
+        generate_family=policy.generate_family,
         observation_type_name=observation_type_name,
         state_type_names=tuple(
             renderer.reference(state_type) for state_type in layout.state_types
@@ -369,7 +377,8 @@ def _validate_generated_symbols(models: tuple[_InterfaceModel, ...]) -> None:
             )
         if len(model.state_type_names) > 1:
             register(model.state_alias_name, f"{declaration} state union")
-        register(model.factory_name, f"{declaration} factory")
+        if model.generate_family:
+            register(model.factory_name, f"{declaration} factory")
         for scope in _walk_scopes(model.root):
             path = ".".join(scope.python_path) or "<root>"
             scope_owner = f"{declaration} scope {path}"
@@ -554,9 +563,10 @@ def _render_header(
 
     imports: dict[str, set[str]] = {
         "scopecat.authoring": {"EachEntity", "OneEntity"},
-        "scopecat_instruments._family_runtime": {"InstrumentFamily"},
         "scopecat_instruments._symbolic_runtime": {"SymbolicInstrumentRecorder"},
     }
+    if any(model.generate_family for model in models):
+        imports["scopecat_instruments._family_runtime"] = {"InstrumentFamily"}
     if any(model.needs_layout for model in models):
         imports["scopecat.sdk.instruments.declarations"] = {"declared_interface_layout"}
     if has_plain_root:
@@ -1090,6 +1100,8 @@ def _render_declared_call(
 
 
 def _render_family(model: _InterfaceModel) -> str:
+    if not model.generate_family:
+        return "\n"
     return (
         "\n\n"
         f"{model.factory_name}: InstrumentFamily[\n"
@@ -1108,7 +1120,8 @@ def _render_family(model: _InterfaceModel) -> str:
 def _render_exports(models: tuple[_InterfaceModel, ...]) -> str:
     exports: set[str] = set()
     for model in models:
-        exports.add(model.factory_name)
+        if model.generate_family:
+            exports.add(model.factory_name)
         if model.observation_type_name is not None:
             exports.add(model.observation_type_name)
         for scope in _walk_scopes(model.root):

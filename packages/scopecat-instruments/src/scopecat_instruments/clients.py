@@ -16,14 +16,14 @@ from scopecat.sdk.instruments import (
     CollectReceipt,
 )
 
-from scopecat_instruments._client_runtime import (
-    DeclaredStateClientBase,
-)
 from scopecat_instruments._generated_clients import (
+    DCSourceClient,
     NetworkSweepClient,
     NetworkSweepProducts,
     NetworkSweepReadback,
     RFOutputClient,
+    SymbolicDCSourceClient,
+    SymbolicDCSourceGroup,
     SymbolicNetworkSweepClient,
     SymbolicNetworkSweepGroup,
     SymbolicRFOutputClient,
@@ -54,8 +54,6 @@ from scopecat_instruments.states import (
 )
 from scopecat_instruments.symbolic import (
     DCMonitorProducts,
-    SymbolicDCSourceClient,
-    SymbolicDCSourceGroup,
     SymbolicDCSourceMonitorClient,
     SymbolicDCSourceMonitorGroup,
     SymbolicInstrumentRecorder,
@@ -67,12 +65,6 @@ class DCMonitorReadback(DCMonitorResults[MeasurementValue]):
     """Named mode-dependent monitor results plus their effect receipt."""
 
     receipt: CollectReceipt = field(repr=False)
-
-
-class DCSourceClient(
-    DeclaredStateClientBase[DCSourceState | DCSourceVoltage | DCSourceCurrent]
-):
-    pass
 
 
 class DCSourceMonitorClient(DCSourceClient):

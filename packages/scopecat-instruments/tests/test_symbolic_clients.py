@@ -48,6 +48,12 @@ from scopecat_instruments import (
     rf_output,
     temperature_readout,
 )
+from scopecat_instruments._generated_clients import (
+    SymbolicDCSourceClient as GeneratedSymbolicDCSourceClient,
+)
+from scopecat_instruments._generated_clients import (
+    SymbolicDCSourceGroup as GeneratedSymbolicDCSourceGroup,
+)
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
@@ -84,6 +90,11 @@ def test_factories_bind_typed_symbolic_clients_and_declare_resources() -> None:
         (TEMPERATURE_READOUT.interface_id,),
     ]
     assert interface.resources[0].selector.entity_inputs == (qubit,)
+
+
+def test_dc_source_symbolic_exports_are_generated() -> None:
+    assert SymbolicDCSourceClient is GeneratedSymbolicDCSourceClient
+    assert SymbolicDCSourceGroup is GeneratedSymbolicDCSourceGroup
 
 
 def test_one_concrete_entity_lowers_to_one_literal_entity_input() -> None:
