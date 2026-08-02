@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from threading import RLock
 
 from scopecat_instruments._support import NetworkTrace
+from scopecat_instruments.interface_declarations import SParameter
 
 
 @dataclass
@@ -49,7 +50,7 @@ class VirtualVnaState:
     points: int = 201
     if_bandwidth_hz: float = 1.0e3
     source_power_dbm: float = -30.0
-    s_parameter: str = "S21"
+    s_parameter: SParameter = "S21"
 
 
 class VirtualLabWorld:
@@ -180,7 +181,7 @@ class VirtualLabWorld:
         resonance_hz: float,
         linewidth_hz: float,
         depth: float,
-        parameter: str,
+        parameter: SParameter,
         noise_scale: float,
     ) -> complex:
         detuning = 2.0 * (frequency_hz - resonance_hz) / linewidth_hz

@@ -21,6 +21,8 @@ from scopecat_instruments.members import (
     DC_SOURCE_OUTPUT_ENABLED,
     DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_RANGE,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER,
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
 )
@@ -175,6 +177,26 @@ def test_virtual_network_noise_is_deterministic_for_seed() -> None:
     second.configure_linear_sweep(settings)
 
     assert first.acquire_trace() == second.acquire_trace()
+
+
+def test_virtual_network_analyzer_applies_typed_sparse_patch() -> None:
+    driver = VirtualNetworkAnalyzer("vna", VirtualLabWorld(seed=23))
+
+    receipt = driver.apply_state(
+        DriverStatePatch(
+            values={
+                NETWORK_SWEEP_S_PARAMETER: "S11",
+                NETWORK_SWEEP_POINTS: 17,
+                RF_OUTPUT_FREQUENCY: Quantity(6.0e9, "Hz"),
+            }
+        )
+    )
+
+    assert isinstance(receipt, DriverSuccess)
+    assert receipt.value is not None
+    assert receipt.value.values[NETWORK_SWEEP_S_PARAMETER] == "S11"
+    assert receipt.value.values[NETWORK_SWEEP_POINTS] == 17
+    assert RF_OUTPUT_FREQUENCY not in receipt.value.values
 
 
 def test_flux_moves_notch_and_temperature_broadens_response() -> None:

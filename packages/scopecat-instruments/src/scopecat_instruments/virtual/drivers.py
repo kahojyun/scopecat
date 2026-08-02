@@ -42,11 +42,14 @@ from scopecat_instruments.driver_ids import (
     VIRTUAL_VNA,
 )
 from scopecat_instruments.driver_states import (
+    decode_network_sweep_patch,
     decode_rf_output_patch,
     encode_driver_state,
+    encode_network_sweep_state,
     encode_rf_output_state,
 )
 from scopecat_instruments.interface_declarations import (
+    NetworkSweepState,
     ReferenceSource,
     RFOutputState,
 )
@@ -72,12 +75,6 @@ from scopecat_instruments.members import (
     DC_SOURCE_VOLTAGE_PROTECTION,
     DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP_FREQUENCY_RESULT,
-    NETWORK_SWEEP_IF_BANDWIDTH,
-    NETWORK_SWEEP_POINTS,
-    NETWORK_SWEEP_S_PARAMETER,
-    NETWORK_SWEEP_SOURCE_POWER,
-    NETWORK_SWEEP_START_FREQUENCY,
-    NETWORK_SWEEP_STOP_FREQUENCY,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     TEMPERATURE_READOUT_SCAN_CHANNEL,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
@@ -594,19 +591,17 @@ class VirtualNetworkAnalyzer:
 
     def read_state(self) -> DriverState:
         settings = self.sweep_settings()
-        return DriverState(
-            values={
-                NETWORK_SWEEP_START_FREQUENCY: Quantity(
-                    settings.start_frequency_hz, "Hz"
-                ),
-                NETWORK_SWEEP_STOP_FREQUENCY: Quantity(
-                    settings.stop_frequency_hz, "Hz"
-                ),
-                NETWORK_SWEEP_POINTS: settings.points,
-                NETWORK_SWEEP_IF_BANDWIDTH: Quantity(settings.if_bandwidth_hz, "Hz"),
-                NETWORK_SWEEP_SOURCE_POWER: Quantity(settings.source_power_dbm, "dBm"),
-                NETWORK_SWEEP_S_PARAMETER: settings.s_parameter,
-            },
+        return encode_driver_state(
+            encode_network_sweep_state(
+                NetworkSweepState(
+                    start_frequency=Quantity(settings.start_frequency_hz, "Hz"),
+                    stop_frequency=Quantity(settings.stop_frequency_hz, "Hz"),
+                    points=settings.points,
+                    if_bandwidth=Quantity(settings.if_bandwidth_hz, "Hz"),
+                    source_power=Quantity(settings.source_power_dbm, "dBm"),
+                    s_parameter=settings.s_parameter,
+                )
+            ),
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
@@ -614,33 +609,33 @@ class VirtualNetworkAnalyzer:
         self,
         request: DriverStatePatch,
     ) -> DriverOutcome[DriverState | None]:
+        patch = decode_network_sweep_patch(request)
         with self.world.lock:
             state = self.world.vna(self.instrument_id)
-            for target, value in request.values.items():
-                if target == NETWORK_SWEEP_START_FREQUENCY:
-                    state.start_frequency_hz = quantity_value(
-                        value,
-                        "Hz",
-                    )
-                elif target == NETWORK_SWEEP_STOP_FREQUENCY:
-                    state.stop_frequency_hz = quantity_value(
-                        value,
-                        "Hz",
-                    )
-                elif target == NETWORK_SWEEP_POINTS:
-                    state.points = int_value(value)
-                elif target == NETWORK_SWEEP_IF_BANDWIDTH:
-                    state.if_bandwidth_hz = quantity_value(
-                        value,
-                        "Hz",
-                    )
-                elif target == NETWORK_SWEEP_SOURCE_POWER:
-                    state.source_power_dbm = quantity_value(
-                        value,
-                        "dBm",
-                    )
-                else:
-                    state.s_parameter = string_value(value)
+            if "start_frequency" in patch:
+                state.start_frequency_hz = quantity_value(
+                    patch["start_frequency"],
+                    "Hz",
+                )
+            if "stop_frequency" in patch:
+                state.stop_frequency_hz = quantity_value(
+                    patch["stop_frequency"],
+                    "Hz",
+                )
+            if "points" in patch:
+                state.points = patch["points"]
+            if "if_bandwidth" in patch:
+                state.if_bandwidth_hz = quantity_value(
+                    patch["if_bandwidth"],
+                    "Hz",
+                )
+            if "source_power" in patch:
+                state.source_power_dbm = quantity_value(
+                    patch["source_power"],
+                    "dBm",
+                )
+            if "s_parameter" in patch:
+                state.s_parameter = patch["s_parameter"]
         return DriverSuccess(self.read_state())
 
     def invoke(

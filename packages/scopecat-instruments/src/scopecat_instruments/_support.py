@@ -14,6 +14,8 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.problems import Problem, ProblemPhase, model_location, problem
 
+from scopecat_instruments.interface_declarations import SParameter
+
 
 @dataclass(frozen=True)
 class NetworkTrace:
@@ -32,7 +34,7 @@ class LinearSweepSettings:
     points: int
     if_bandwidth_hz: float
     source_power_dbm: float
-    s_parameter: str
+    s_parameter: SParameter
 
 
 def quantity_value(value: DriverScalar, unit: str) -> float:

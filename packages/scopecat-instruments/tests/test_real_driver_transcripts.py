@@ -43,7 +43,13 @@ from scopecat_instruments.members import (
     DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP_ACQUISITION,
+    NETWORK_SWEEP_IF_BANDWIDTH,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER,
     NETWORK_SWEEP_S_PARAMETER_RESULT,
+    NETWORK_SWEEP_SOURCE_POWER,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
@@ -1180,6 +1186,53 @@ def test_e5080b_state_sync_rejects_non_linear_front_panel_mode() -> None:
     with pytest.raises(ValueError, match="linear-sweep profile"):
         driver.read_state()
 
+    transport.assert_complete()
+
+
+def test_e5080b_apply_uses_typed_sweep_patch_in_hardware_command_order() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.write("SENS1:SWE:TYPE LIN"),
+            ScriptedExchange.write("SENS1:FREQ:STAR 4900000000"),
+            ScriptedExchange.write("SENS1:FREQ:STOP 5100000000"),
+            ScriptedExchange.write("SENS1:SWE:POIN 11"),
+            ScriptedExchange.write("SENS1:BWID 2000"),
+            ScriptedExchange.write("SOUR1:POW -20"),
+            ScriptedExchange.write('CALC1:MEAS1:PAR "S11"'),
+            ScriptedExchange.query("SENS1:SWE:TYPE?", "LIN"),
+            ScriptedExchange.query("SENS1:FREQ:STAR?", "4.9E9"),
+            ScriptedExchange.query("SENS1:FREQ:STOP?", "5.1E9"),
+            ScriptedExchange.query("SENS1:SWE:POIN?", "11"),
+            ScriptedExchange.query("SENS1:BWID?", "2000"),
+            ScriptedExchange.query("SOUR1:POW?", "-20"),
+            ScriptedExchange.query("CALC1:MEAS1:PAR?", '"S11"'),
+        ]
+    )
+    driver = KeysightE5080B("vna", transport)
+
+    receipt = driver.apply_state(
+        _apply_request(
+            [
+                (NETWORK_SWEEP_S_PARAMETER, "S11"),
+                (NETWORK_SWEEP_SOURCE_POWER, Quantity(-20.0, "dBm")),
+                (NETWORK_SWEEP_IF_BANDWIDTH, Quantity(2.0e3, "Hz")),
+                (NETWORK_SWEEP_POINTS, 11),
+                (NETWORK_SWEEP_STOP_FREQUENCY, Quantity(5.1e9, "Hz")),
+                (NETWORK_SWEEP_START_FREQUENCY, Quantity(4.9e9, "Hz")),
+            ]
+        )
+    )
+
+    assert isinstance(receipt, DriverSuccess)
+    assert receipt.value is not None
+    assert receipt.value.values == {
+        NETWORK_SWEEP_START_FREQUENCY: Quantity(4.9e9, "Hz"),
+        NETWORK_SWEEP_STOP_FREQUENCY: Quantity(5.1e9, "Hz"),
+        NETWORK_SWEEP_POINTS: 11,
+        NETWORK_SWEEP_IF_BANDWIDTH: Quantity(2.0e3, "Hz"),
+        NETWORK_SWEEP_SOURCE_POWER: Quantity(-20.0, "dBm"),
+        NETWORK_SWEEP_S_PARAMETER: "S11",
+    }
     transport.assert_complete()
 
 
