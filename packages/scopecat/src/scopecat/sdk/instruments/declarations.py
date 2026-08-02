@@ -287,11 +287,6 @@ class CompiledInterface[InterfaceT]:
     spec: InterfaceSpec
     ref: InterfaceRef
 
-    def fresh_spec(self) -> InterfaceSpec:
-        """Return a deep copy safe for consumers that normalize Pydantic models."""
-
-        return self.spec.model_copy(deep=True)
-
 
 @dataclass(frozen=True, slots=True)
 class StateProjectionField:

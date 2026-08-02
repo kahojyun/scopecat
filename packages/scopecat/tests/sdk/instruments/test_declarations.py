@@ -1835,14 +1835,13 @@ def test_discriminated_projection_includes_required_fields_and_constants() -> No
     )
 
 
-def test_compilation_and_fresh_spec_do_not_share_mutable_models() -> None:
+def test_separate_compilations_do_not_share_mutable_models() -> None:
     first = compile_interface(SweepContract)
     second = compile_interface(SweepContract)
 
     assert first.spec is not second.spec
     first.spec.properties[0].label = "changed"
     assert second.spec.properties[0].label == "Start frequency"
-    assert first.fresh_spec() is not first.spec
 
 
 def test_fixed_acquisition_rejects_runtime_arguments() -> None:
