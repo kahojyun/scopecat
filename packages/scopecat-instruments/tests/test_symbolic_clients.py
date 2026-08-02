@@ -56,6 +56,7 @@ from scopecat_instruments import (
     rf_output,
     temperature_readout,
 )
+from scopecat_instruments._symbolic_runtime import SymbolicInstrumentClientBase
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
@@ -63,7 +64,6 @@ from scopecat_instruments.members import (
     RF_OUTPUT,
     TEMPERATURE_READOUT,
 )
-from scopecat_instruments.symbolic import _SymbolicInstrumentClient
 
 type _Desired[T] = T | ValueRef
 
@@ -86,7 +86,7 @@ _SYNTHETIC_OPERATION = declared_operation(
 )
 
 
-class _SyntheticSymbolicOperationClient(_SymbolicInstrumentClient):
+class _SyntheticSymbolicOperationClient(SymbolicInstrumentClientBase):
     __slots__ = ()
 
     def __init__(

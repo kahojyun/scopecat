@@ -42,7 +42,7 @@ from scopecat_instruments import (
     network_sweep,
     temperature_readout,
 )
-from scopecat_instruments.clients import _InstrumentClient
+from scopecat_instruments._client_runtime import InstrumentClientBase
 from scopecat_instruments.interface_declarations import (
     TEMPERATURE_OBSERVATION_DECLARATION,
 )
@@ -109,7 +109,7 @@ class _RecordingInvokeChannel:
         return self.receipt
 
 
-class _SyntheticLiveOperationClient(_InstrumentClient):
+class _SyntheticLiveOperationClient(InstrumentClientBase):
     def emit(self, count: int, *, label: str) -> InvokeReceipt:
         return self._invoke_declared(
             _SYNTHETIC_OPERATION,
