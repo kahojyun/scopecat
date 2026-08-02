@@ -393,6 +393,16 @@ domain value. A group also accepts `PerEntity[NetworkSweepTarget]` when complete
 targets or discriminated cases differ by entity. The lower-level
 `resource + DesiredState` path remains available as an escape hatch.
 
+The same Python declaration also generates the typed driver state boundary.
+Each writable interface has a flat, sparse, concrete `TypedDict` patch decoder;
+for discriminated state, the discriminator and case fields retain distinct
+canonical member names in that one interface patch. A driver implementing
+several interfaces can decode the same validated `DriverStatePatch` once for
+each interface and compose the results. Exact encoders perform the reverse
+projection from required canonical state records into a complete public
+snapshot. Read-only observed-state declarations generate only this encoder
+direction: they do not invent a writable patch or target.
+
 This declaration layer generates the stable contract and refs, but it does not
 invent session behavior. A typed factory still defines whether an action is
 live or symbolic, while a small typed generation manifest defines how optional
@@ -423,11 +433,11 @@ applicable observation accessors and acquisition result carriers. Root-level
 flat and discriminated schemas both produce typed `apply(...)`, `ensure(...)`,
 and field-wise group target surfaces.
 The same catalog pass writes the public `members.py`, `interfaces.py`, and
-`states.py` projections: refs recurse through components and operations,
-interface factories return fresh wire specs, and state projections preserve the
-canonical field types while adding only presence, binding-time, or entity
-cardinality semantics. These projections are generated source rather than a
-second authoring surface.
+`states.py` projections and the driver state codecs: refs recurse through
+components and operations, interface factories return fresh wire specs, and
+state projections preserve the canonical field types while adding only
+presence, binding-time, or entity cardinality semantics. These projections are
+generated source rather than a second authoring surface.
 
 Regenerate the committed Python surfaces, or verify that they are current, with:
 
@@ -611,6 +621,13 @@ arguments, and acquisition result identities. They do not receive command, run,
 resource, entity, channel, point, product, codec, byte transport, unit, axis, or
 provenance fields. Collect result shape and units are checked by the daemon
 against the original request after readback.
+
+Generated driver codecs remove manual property-ref dispatch without changing
+that ABI. They decode one batch into flat per-interface concrete patches and
+encode canonical state records back into snapshots. They do not decide how a
+device transitions between those states: command ordering, temporary disable
+and restore steps, connection-profile checks, and device-specific validation
+remain explicit responsibilities of the driver.
 
 Operating-mode-dependent property sets use the interface's discriminated state
 model. The discriminator and common properties are valid in every case, while

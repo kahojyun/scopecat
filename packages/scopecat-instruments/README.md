@@ -117,12 +117,18 @@ generated with exact literal overloads and ordinary-`bool` union fallbacks.
 Applicable observation accessors and acquisition result carriers are generated
 as well, so editors and type checkers see exact
 signatures. Root-level flat and discriminated concrete schemas generate
-separate `Patch`, `Target`, and `GroupTarget` surfaces. The generator manifest refers
-to the decorated interface classes themselves; declaration modules do not need
-parallel compiled constants. Generated state-only clients derive their interface
-refs without compiling a layout at import time. The same pass generates the
-public member-ref catalog, fresh interface factories, and generated state
-projections, so those surfaces do not need parallel hand-maintained mappings.
+separate `Patch`, `Target`, and `GroupTarget` surfaces. The same declaration also
+generates `driver_states.py`: writable interfaces receive flat, sparse,
+concrete `TypedDict` patch decoders and canonical state encoders. A driver with
+multiple interfaces decodes the same batch request for each interface and
+composes the patches; for readback it combines exact common and active-case
+encodings into its snapshot. Observed-only state receives an encoder but no
+artificial writable patch. The generator manifest refers to the decorated
+interface classes themselves; declaration modules do not need parallel
+compiled constants. Generated state-only clients derive their interface refs
+without compiling a layout at import time. The same pass generates the public
+member-ref catalog, fresh interface factories, and generated state projections,
+so those surfaces do not need parallel hand-maintained mappings.
 
 Run the generator from the repository root after changing a supported
 declaration, and use its check mode in validation or CI:
@@ -132,9 +138,9 @@ uv run --locked python scripts/generate_instrument_clients.py
 uv run --locked python scripts/generate_instrument_clients.py --check
 ```
 
-Do not edit `clients.py`, `members.py`, `interfaces.py`, or `states.py`
-directly. The generated source includes nested component operation proxies for
-supported declarations. A live operation
+Do not edit `clients.py`, `members.py`, `interfaces.py`, `states.py`, or
+`driver_states.py` directly. The generated source includes nested component
+operation proxies for supported declarations. A live operation
 accepts concrete arguments and returns `InvokeReceipt`; the scalar symbolic
 form projects each concrete `T` argument to `T | ValueRef` and adds an
 `effect_id`. Its group form accepts a scalar or `PerEntity` value independently
@@ -287,6 +293,13 @@ Driver implementations exchange `DriverState`, `DriverStatePatch`,
 snapshot/readback envelopes, receipt status strings, and collection request
 IDs. This keeps the authoring contract unchanged when drivers move between
 local and isolated worker hosts.
+
+Generated codecs project a validated `DriverStatePatch` into concrete
+per-interface fields and project required canonical schemas back into
+`DriverState`. They replace hand-written ref-to-field mappings, not driver
+policy: SCPI command sequencing, temporary output or measurement changes,
+hardware-profile checks, and implementation-specific validation stay in the
+driver.
 
 Transcript helpers live in the explicit testing module:
 
