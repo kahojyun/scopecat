@@ -21,11 +21,14 @@ from scopecat_instruments.members import (
     DC_SOURCE_OUTPUT_ENABLED,
     DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_RANGE,
+    RF_OUTPUT_ENABLED,
+    RF_OUTPUT_FREQUENCY,
 )
 from scopecat_instruments.virtual import (
     VirtualDcSource,
     VirtualLabWorld,
     VirtualNetworkAnalyzer,
+    VirtualRfSource,
 )
 
 
@@ -51,6 +54,25 @@ def test_virtual_state_survives_driver_disconnect() -> None:
     level = second.read_state().values[DC_SOURCE_VOLTAGE_LEVEL]
     assert isinstance(level, Quantity)
     assert level.value == 0.125
+
+
+def test_virtual_rf_driver_applies_typed_sparse_patch() -> None:
+    driver = VirtualRfSource("readout-lo", VirtualLabWorld(seed=12))
+    driver.set_output(True)
+
+    receipt = driver.apply_state(
+        DriverStatePatch(
+            values={
+                RF_OUTPUT_FREQUENCY: Quantity(6.0e9, "Hz"),
+                RF_OUTPUT_ENABLED: False,
+            }
+        )
+    )
+
+    assert isinstance(receipt, DriverSuccess)
+    assert receipt.value is not None
+    assert receipt.value.values[RF_OUTPUT_FREQUENCY] == Quantity(6.0e9, "Hz")
+    assert receipt.value.values[RF_OUTPUT_ENABLED] is False
 
 
 def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:

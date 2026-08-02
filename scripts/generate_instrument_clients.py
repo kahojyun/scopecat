@@ -10,14 +10,17 @@ import sys
 import types
 import typing
 from dataclasses import dataclass
+from dataclasses import fields as dataclass_fields
 from importlib import import_module
 from pathlib import Path
 from typing import Protocol, TypeAliasType, TypeVar, cast, get_args, get_origin
 
 from scopecat.kernel.value_types import Payload as PayloadType
+from scopecat.sdk.instruments import PropertyRef
 from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
     DeclaredInterfaceLayout,
+    DeclaredObservedState,
     DeclaredOperation,
     DeclaredScopeLayout,
     DeclaredStateLayout,
@@ -45,6 +48,9 @@ INTERFACES_OUTPUT = (
     INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "interfaces.py"
 )
 STATES_OUTPUT = INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "states.py"
+DRIVER_STATES_OUTPUT = (
+    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "driver_states.py"
+)
 FIXTURE_IMPORT_ROOT = INSTRUMENTS_PACKAGE_ROOT / "tests"
 FIXTURE_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_client_fixture.py"
 FIXTURE_MEMBERS_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_member_catalog_fixture.py"
@@ -52,6 +58,9 @@ FIXTURE_INTERFACES_OUTPUT = (
     FIXTURE_IMPORT_ROOT / "generated_interface_catalog_fixture.py"
 )
 FIXTURE_STATES_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_state_catalog_fixture.py"
+FIXTURE_DRIVER_STATES_OUTPUT = (
+    FIXTURE_IMPORT_ROOT / "generated_driver_state_catalog_fixture.py"
+)
 _TYPING_UNION_ORIGIN: object = typing.Union  # pyright: ignore[reportDeprecated]
 _FACADE_PARAMETER_NAMES = frozenset({"instrument_id", "resource_id", "for_"})
 
@@ -147,6 +156,8 @@ class CatalogTarget:
     members_output: Path
     interfaces_output: Path
     states_output: Path
+    driver_states_output: Path
+    members_module: str
     interface_types: tuple[type[object], ...]
     public_types: tuple[object, ...] = ()
 
@@ -180,6 +191,8 @@ PRODUCTION_CATALOG_TARGET = CatalogTarget(
     members_output=MEMBERS_OUTPUT,
     interfaces_output=INTERFACES_OUTPUT,
     states_output=STATES_OUTPUT,
+    driver_states_output=DRIVER_STATES_OUTPUT,
+    members_module="scopecat_instruments.members",
     interface_types=_surface_interface_types(_PRODUCTION_SURFACES),
     public_types=(ReferenceSource, SParameter),
 )
@@ -199,6 +212,8 @@ def _fixture_catalog_target() -> CatalogTarget:
         members_output=FIXTURE_MEMBERS_OUTPUT,
         interfaces_output=FIXTURE_INTERFACES_OUTPUT,
         states_output=FIXTURE_STATES_OUTPUT,
+        driver_states_output=FIXTURE_DRIVER_STATES_OUTPUT,
+        members_module="generated_member_catalog_fixture",
         interface_types=(declarations.CatalogProjectionInterface,),
     )
 
@@ -409,7 +424,11 @@ class _CatalogInterfaceModel:
     factory_name: str
     root: DeclaredScopeLayout
     states: tuple[DeclaredStateLayout, ...]
-    observed_state_type: type[object] | None
+    observed_state: DeclaredObservedState[object] | None
+
+    @property
+    def observed_state_type(self) -> type[object] | None:
+        return None if self.observed_state is None else self.observed_state.state_type
 
 
 @dataclass(frozen=True, slots=True)
@@ -417,6 +436,12 @@ class _StateProjectionNames:
     patch: str
     target: str
     group_target: str
+
+
+@dataclass(frozen=True, slots=True)
+class _DriverPatchField:
+    property_id: str
+    annotation: object
 
 
 def _state_projection_names(layout: DeclaredStateLayout) -> _StateProjectionNames:
@@ -569,6 +594,10 @@ def render_catalog_target(target: CatalogTarget) -> tuple[tuple[Path, str], ...]
             target.states_output,
             _render_states_module(models, public_types=target.public_types),
         ),
+        (
+            target.driver_states_output,
+            _render_driver_states_module(models, members_module=target.members_module),
+        ),
     )
 
 
@@ -599,11 +628,7 @@ def _catalog_models(
                 factory_name=f"{_snake_case(stem)}_interface",
                 root=layout.root,
                 states=layout.states,
-                observed_state_type=(
-                    None
-                    if layout.observed_state is None
-                    else layout.observed_state.state_type
-                ),
+                observed_state=layout.observed_state,
             )
         )
     return tuple(models)
@@ -965,6 +990,358 @@ def _render_states_module(
         + "".join(declarations)
         + ("\n" if declarations else "")
         + _render_all(tuple(exports_by_name))
+    )
+
+
+def _render_driver_states_module(
+    models: tuple[_CatalogInterfaceModel, ...],
+    *,
+    members_module: str,
+) -> str:
+    renderer = _AnnotationRenderer()
+    imports: dict[str, set[str]] = {
+        "collections.abc": {"Mapping"},
+        "pydantic": {"JsonValue"},
+        "scopecat.sdk.instruments": {
+            "DriverScalar",
+            "DriverState",
+            "DriverStatePatch",
+            "PropertyRef",
+        },
+        "typing": {"TypedDict", "cast"},
+    }
+    member_imports: set[str] = set()
+    declarations: list[str] = []
+    exports: list[str] = ["encode_driver_state"]
+    encoder_owners: dict[str, str] = {}
+
+    for model in models:
+        patch_fields = _driver_patch_fields(model)
+        if patch_fields:
+            patch_name = _driver_patch_name(model)
+            decoder_name = _driver_patch_decoder_name(model)
+            exports.extend((patch_name, decoder_name))
+            rendered_fields = tuple(
+                (field.property_id, renderer.render(field.annotation))
+                for field in patch_fields
+            )
+            declarations.append(_render_driver_patch_type(patch_name, rendered_fields))
+            declarations.append(
+                _render_driver_patch_decoder(
+                    model,
+                    patch_name=patch_name,
+                    decoder_name=decoder_name,
+                    fields=rendered_fields,
+                    member_imports=member_imports,
+                )
+            )
+
+        for layout in model.states:
+            encoder_name = _state_encoder_name(layout.source_type)
+            owner = _type_identity(layout.source_type)
+            existing_owner = encoder_owners.get(encoder_name)
+            if existing_owner is not None:
+                if existing_owner != owner:
+                    raise ClientGenerationError(
+                        f"generated driver state encoder collision {encoder_name}: "
+                        f"{existing_owner} vs {owner}"
+                    )
+                continue
+            encoder_owners[encoder_name] = owner
+            exports.append(encoder_name)
+            source_type_name = renderer.reference(layout.source_type)
+            declarations.append(
+                _render_exact_state_encoder(
+                    layout,
+                    constant_prefix=model.constant_prefix,
+                    encoder_name=encoder_name,
+                    source_type_name=source_type_name,
+                    member_imports=member_imports,
+                )
+            )
+
+        if model.observed_state is not None:
+            observation = model.observed_state
+            encoder_name = _observation_encoder_name(observation.state_type)
+            owner = _type_identity(observation.state_type)
+            existing_owner = encoder_owners.get(encoder_name)
+            if existing_owner is not None:
+                if existing_owner != owner:
+                    raise ClientGenerationError(
+                        f"generated driver state encoder collision {encoder_name}: "
+                        f"{existing_owner} vs {owner}"
+                    )
+            else:
+                encoder_owners[encoder_name] = owner
+                exports.append(encoder_name)
+                observation_type_name = renderer.reference(observation.state_type)
+                declarations.append(
+                    _render_observation_encoder(
+                        observation,
+                        constant_prefix=model.constant_prefix,
+                        encoder_name=encoder_name,
+                        observation_type_name=observation_type_name,
+                        member_imports=member_imports,
+                    )
+                )
+
+    imports[members_module] = member_imports
+    for module, names in renderer.imports.items():
+        imports.setdefault(module, set()).update(names)
+    return (
+        _generated_module_header(
+            "Typed driver state codecs generated from instrument interfaces."
+        )
+        + _render_driver_import_block(imports)
+        + "".join(declarations)
+        + _render_encode_driver_state()
+        + "\n"
+        + _render_all(tuple(exports))
+    )
+
+
+def _driver_patch_fields(
+    model: _CatalogInterfaceModel,
+) -> tuple[_DriverPatchField, ...]:
+    annotations_by_id: dict[str, object] = {}
+    constant_values_by_id: dict[str, list[object]] = {}
+    for layout in model.states:
+        for declared_field in layout.fields:
+            property_id = declared_field.property_id
+            existing = annotations_by_id.get(property_id)
+            if existing is not None and existing != declared_field.annotation:
+                raise ClientGenerationError(
+                    f"driver patch property {model.interface_identity}.{property_id} "
+                    "has inconsistent concrete annotations"
+                )
+            annotations_by_id[property_id] = declared_field.annotation
+        for ref, value in layout.constants:
+            selected = constant_values_by_id.setdefault(ref.property_id, [])
+            if value not in selected:
+                selected.append(value)
+
+    for property_id, values in constant_values_by_id.items():
+        if property_id in annotations_by_id:
+            raise ClientGenerationError(
+                f"driver patch property {model.interface_identity}.{property_id} "
+                "is both a concrete field and a state constant"
+            )
+        annotations_by_id[property_id] = typing.Literal[*tuple(values)]
+
+    return tuple(
+        _DriverPatchField(property_id=property_spec.id, annotation=annotation)
+        for property_spec in model.root.spec.properties
+        if (annotation := annotations_by_id.get(property_spec.id)) is not None
+    )
+
+
+def _driver_patch_name(model: _CatalogInterfaceModel) -> str:
+    stem = model.interface_type_name.removesuffix("Interface")
+    return f"{stem}DriverPatch"
+
+
+def _driver_patch_decoder_name(model: _CatalogInterfaceModel) -> str:
+    stem = model.interface_type_name.removesuffix("Interface")
+    return f"decode_{_snake_case(stem)}_patch"
+
+
+def _render_driver_patch_type(
+    name: str,
+    fields: tuple[tuple[str, str], ...],
+) -> str:
+    if all(
+        field_name.isidentifier() and not keyword.iskeyword(field_name)
+        for field_name, _ in fields
+    ):
+        body = "".join(
+            _render_state_projection_field(field_name, annotation, required=True)
+            for field_name, annotation in fields
+        )
+        return f"\n\nclass {name}(TypedDict, total=False):\n{body}"
+    entries = "".join(
+        f"        {_string_literal(field_name)}: {annotation},\n"
+        for field_name, annotation in fields
+    )
+    return (
+        f"\n\n{name} = TypedDict(\n"
+        f"    {_string_literal(name)},\n"
+        "    {\n"
+        f"{entries}"
+        "    },\n"
+        "    total=False,\n"
+        ")\n"
+    )
+
+
+def _render_driver_patch_decoder(
+    model: _CatalogInterfaceModel,
+    *,
+    patch_name: str,
+    decoder_name: str,
+    fields: tuple[tuple[str, str], ...],
+    member_imports: set[str],
+) -> str:
+    body: list[str] = [
+        _render_driver_function_header(
+            decoder_name,
+            parameter="request",
+            parameter_type="DriverStatePatch",
+            return_type=patch_name,
+        ),
+        f"    decoded: {patch_name} = {{}}\n",
+        "    values = request.values\n",
+    ]
+    for property_id, annotation in fields:
+        member_name = _join_constant_name(model.constant_prefix, property_id)
+        member_imports.add(member_name)
+        annotation_literal = (
+            repr(annotation) if '"' in annotation else _string_literal(annotation)
+        )
+        body.extend(
+            (
+                f"    if {member_name} in values:\n",
+                f"        decoded[{_string_literal(property_id)}] = cast(\n",
+                f"            {annotation_literal},\n",
+                f"            values[{member_name}],\n",
+                "        )\n",
+            )
+        )
+    body.append("    return decoded\n")
+    return "\n\n" + "".join(body)
+
+
+def _state_encoder_name(source_type: type[object]) -> str:
+    stem = _snake_case(source_type.__name__)
+    if not stem.endswith("_state"):
+        stem = f"{stem}_state"
+    return f"encode_{stem}"
+
+
+def _observation_encoder_name(source_type: type[object]) -> str:
+    return f"encode_{_snake_case(source_type.__name__)}"
+
+
+def _render_exact_state_encoder(
+    layout: DeclaredStateLayout,
+    *,
+    constant_prefix: str,
+    encoder_name: str,
+    source_type_name: str,
+    member_imports: set[str],
+) -> str:
+    source_fields = {
+        item.name
+        for item in dataclass_fields(
+            layout.source_type  # pyright: ignore[reportArgumentType]
+        )
+    }
+    selected_fields = tuple(
+        declared_field
+        for declared_field in layout.fields
+        if declared_field.python_name in source_fields
+    )
+    entries: list[str] = []
+    for ref, value in layout.constants:
+        member_name = _member_constant_name(constant_prefix, ref)
+        member_imports.add(member_name)
+        literal = _string_literal(value) if isinstance(value, str) else repr(value)
+        entries.append(f"        {member_name}: {literal},\n")
+    for declared_field in selected_fields:
+        member_name = _member_constant_name(constant_prefix, declared_field.ref)
+        member_imports.add(member_name)
+        entries.append(f"        {member_name}: state.{declared_field.python_name},\n")
+    return (
+        "\n\n"
+        + _render_driver_function_header(
+            encoder_name,
+            parameter="state",
+            parameter_type=source_type_name,
+            return_type="dict[PropertyRef, DriverScalar]",
+        )
+        + "    return {\n"
+        + "".join(entries)
+        + "    }\n"
+    )
+
+
+def _render_observation_encoder(
+    observation: DeclaredObservedState[object],
+    *,
+    constant_prefix: str,
+    encoder_name: str,
+    observation_type_name: str,
+    member_imports: set[str],
+) -> str:
+    entries: list[str] = []
+    for observed_field in observation.fields:
+        member_name = _member_constant_name(constant_prefix, observed_field.ref)
+        member_imports.add(member_name)
+        entries.append(f"        {member_name}: state.{observed_field.python_name},\n")
+    return (
+        "\n\n"
+        + _render_driver_function_header(
+            encoder_name,
+            parameter="state",
+            parameter_type=observation_type_name,
+            return_type="dict[PropertyRef, DriverScalar]",
+        )
+        + "    return {\n"
+        + "".join(entries)
+        + "    }\n"
+    )
+
+
+def _member_constant_name(constant_prefix: str, ref: PropertyRef) -> str:
+    return _join_constant_name(constant_prefix, ref.property_id)
+
+
+def _render_driver_function_header(
+    name: str,
+    *,
+    parameter: str,
+    parameter_type: str,
+    return_type: str,
+) -> str:
+    compact = f"def {name}({parameter}: {parameter_type}, /) -> {return_type}:\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    return f"def {name}(\n    {parameter}: {parameter_type}, /\n) -> {return_type}:\n"
+
+
+def _render_driver_import_block(imports: dict[str, set[str]]) -> str:
+    standard_modules = {"collections.abc", "typing"}
+    local_modules = {
+        module
+        for module in imports
+        if module.startswith(
+            ("scopecat_instruments", "client_codegen_fixture", "generated_")
+        )
+    }
+    third_party_modules = imports.keys() - standard_modules - local_modules
+    sections = tuple(
+        "".join(
+            _render_from_import(module, imports[module])
+            for module in sorted(modules & imports.keys())
+        )
+        for modules in (standard_modules, third_party_modules, local_modules)
+    )
+    return "\n".join(section for section in sections if section)
+
+
+def _render_encode_driver_state() -> str:
+    return (
+        "\n\n"
+        "def encode_driver_state(\n"
+        "    *states: Mapping[PropertyRef, DriverScalar],\n"
+        "    metadata: dict[str, JsonValue] | None = None,\n"
+        ") -> DriverState:\n"
+        "    values: dict[PropertyRef, DriverScalar] = {}\n"
+        "    for state in states:\n"
+        "        values.update(state)\n"
+        "    return DriverState(\n"
+        "        values=values,\n"
+        "        metadata={} if metadata is None else metadata,\n"
+        "    )\n"
     )
 
 
@@ -1758,12 +2135,12 @@ def _public_type_location(value: object) -> tuple[str, str]:
     return module, name
 
 
-def _import_name_key(name: str) -> tuple[int, str]:
+def _import_name_key(name: str) -> tuple[int | str, ...]:
     if name.isupper():
-        return (0, name)
+        return (0, *name.casefold().split("_"))
     if name[0].isupper():
-        return (1, name)
-    return (2, name)
+        return (1, *name.casefold().split("_"))
+    return (2, *name.casefold().split("_"))
 
 
 def _render_state_alias(model: _InterfaceModel) -> str:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import (
@@ -40,6 +41,15 @@ from scopecat_instruments.driver_ids import (
     VIRTUAL_TEMPERATURE_MONITOR,
     VIRTUAL_VNA,
 )
+from scopecat_instruments.driver_states import (
+    decode_rf_output_patch,
+    encode_driver_state,
+    encode_rf_output_state,
+)
+from scopecat_instruments.interface_declarations import (
+    ReferenceSource,
+    RFOutputState,
+)
 from scopecat_instruments.interfaces import (
     dc_monitor_interface,
     dc_source_interface,
@@ -68,10 +78,6 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP_SOURCE_POWER,
     NETWORK_SWEEP_START_FREQUENCY,
     NETWORK_SWEEP_STOP_FREQUENCY,
-    RF_OUTPUT_ENABLED,
-    RF_OUTPUT_FREQUENCY,
-    RF_OUTPUT_POWER,
-    RF_OUTPUT_REFERENCE_SOURCE,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     TEMPERATURE_READOUT_SCAN_CHANNEL,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
@@ -101,14 +107,14 @@ class VirtualRfSource:
     def read_state(self) -> DriverState:
         with self.world.lock:
             source = self.world.rf_source(self.instrument_id)
-            values = {
-                RF_OUTPUT_FREQUENCY: Quantity(source.frequency_hz, "Hz"),
-                RF_OUTPUT_POWER: Quantity(source.power_dbm, "dBm"),
-                RF_OUTPUT_ENABLED: source.output_enabled,
-                RF_OUTPUT_REFERENCE_SOURCE: source.reference_source,
-            }
-        return DriverState(
-            values=values,
+            state = RFOutputState(
+                frequency=Quantity(source.frequency_hz, "Hz"),
+                power=Quantity(source.power_dbm, "dBm"),
+                output_enabled=source.output_enabled,
+                reference_source=cast("ReferenceSource", source.reference_source),
+            )
+        return encode_driver_state(
+            encode_rf_output_state(state),
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
@@ -116,15 +122,15 @@ class VirtualRfSource:
         self,
         request: DriverStatePatch,
     ) -> DriverOutcome[DriverState | None]:
-        for target, value in request.values.items():
-            if target == RF_OUTPUT_FREQUENCY:
-                self.set_frequency(quantity_value(value, "Hz"))
-            elif target == RF_OUTPUT_POWER:
-                self.set_power(quantity_value(value, "dBm"))
-            elif target == RF_OUTPUT_ENABLED:
-                self.set_output(bool_value(value))
-            else:
-                self.set_reference_source(string_value(value))
+        patch = decode_rf_output_patch(request)
+        if "frequency" in patch:
+            self.set_frequency(quantity_value(patch["frequency"], "Hz"))
+        if "power" in patch:
+            self.set_power(quantity_value(patch["power"], "dBm"))
+        if "output_enabled" in patch:
+            self.set_output(patch["output_enabled"])
+        if "reference_source" in patch:
+            self.set_reference_source(patch["reference_source"])
         return DriverSuccess(self.read_state())
 
     def invoke(
@@ -164,15 +170,18 @@ class VirtualRfSource:
         with self.world.lock:
             return self.world.rf_source(self.instrument_id).output_enabled
 
-    def set_reference_source(self, source: str) -> None:
+    def set_reference_source(self, source: ReferenceSource) -> None:
         if source not in {"internal", "external"}:
             raise ValueError("reference source must be internal or external")
         with self.world.lock:
             self.world.rf_source(self.instrument_id).reference_source = source
 
-    def reference_source(self) -> str:
+    def reference_source(self) -> ReferenceSource:
         with self.world.lock:
-            return self.world.rf_source(self.instrument_id).reference_source
+            return cast(
+                "ReferenceSource",
+                self.world.rf_source(self.instrument_id).reference_source,
+            )
 
     def disconnect(self) -> None:
         pass
