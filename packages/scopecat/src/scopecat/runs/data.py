@@ -49,12 +49,12 @@ class RunMeasurementDatasetResult(_RunDataResult):
 
     def traces(
         self,
+        observable: str | None = None,
         *,
-        coordinate: str,
-        observable: str,
+        coordinate: str | None = None,
     ) -> tuple[Trace, ...]:
         return measurement_traces(
             self.dataset,
+            observable,
             coordinate=coordinate,
-            observable=observable,
         )

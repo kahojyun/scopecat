@@ -147,6 +147,7 @@ class SweepState:
 @instrument_result
 class SweepResults:
     frequency: list[float] = result_field(
+        role="coordinate",
         unit="Hz",
         axes=("frequency",),
         label="Frequency",
@@ -565,6 +566,7 @@ def test_decorated_protocol_compiles_to_the_existing_contract_ir() -> None:
                 results=[
                     expected_result(
                         "frequency",
+                        role="coordinate",
                         dtype="float64",
                         unit="Hz",
                         axes=[frequency_axis],
@@ -622,6 +624,10 @@ def test_declared_acquisition_preserves_fixed_result_type_and_field_mapping() ->
     assert [field.spec.id for field in declared.result_fields] == [
         "frequency",
         "s_parameter",
+    ]
+    assert [field.spec.role for field in declared.result_fields] == [
+        "coordinate",
+        "observable",
     ]
 
 

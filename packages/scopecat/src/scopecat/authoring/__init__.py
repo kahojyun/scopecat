@@ -40,6 +40,10 @@ from scopecat.authoring.finalization import (
     Finalizable,
     FinalizationTarget,
 )
+from scopecat.authoring.recording import (
+    RecordableProducts,
+    RecordingTarget,
+)
 from scopecat.authoring.templates import (
     ExperimentInvocation,
     ExperimentTemplate,
@@ -149,6 +153,8 @@ __all__ = [
     "ProductRef",
     "QuantityType",
     "RecordSelection",
+    "RecordableProducts",
+    "RecordingTarget",
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",

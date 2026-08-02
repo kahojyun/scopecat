@@ -115,11 +115,11 @@ _DRIVER_FIXED_ACQUISITION_SPEC_JSON = (
     'isitions":[{"id":"acquire","label":null,'
     '"description":null,"preconditions":[],"r'
     'esults":[{"id":"signal","label":null,"de'
-    'scription":null,"dtype":"complex128","un'
-    'it":"ratio","axes":[{"id":"sample","labe'
-    'l":null,"description":null,"kind":"sampl'
-    'e","size":2,"unit":null}]}]}],"component'
-    's":[]}'
+    'scription":null,"role":"observable","dty'
+    'pe":"complex128","unit":"ratio","axes":['
+    '{"id":"sample","label":null,"description'
+    '":null,"kind":"sample","size":2,"unit":n'
+    'ull}]}]}],"components":[]}'
 )
 
 
@@ -154,10 +154,11 @@ _DRIVER_MONITOR_SPEC_JSON = (
     ':[],"acquisitions":[{"id":"monitor","lab'
     'el":null,"description":null,"preconditio'
     'ns":[],"results":[{"id":"left_value","la'
-    'bel":null,"description":null,"dtype":"fl'
-    'oat64","unit":null,"axes":[]},{"id":"rig'
-    'ht_value","label":null,"description":nul'
-    'l,"dtype":"float64","unit":null,"axes":['
+    'bel":null,"description":null,"role":"obs'
+    'ervable","dtype":"float64","unit":null,"'
+    'axes":[]},{"id":"right_value","label":nu'
+    'll,"description":null,"role":"observable'
+    '","dtype":"float64","unit":null,"axes":['
     ']}]}],"components":[]}'
 )
 

@@ -907,6 +907,7 @@ describe("instrument workspace", () => {
                   id: "current",
                   label: "Current sample",
                   dtype: "float64",
+                  role: "observable",
                   unit: "A",
                   axes: [
                     {
@@ -924,6 +925,7 @@ describe("instrument workspace", () => {
                   id: "voltage",
                   label: "Voltage sample",
                   dtype: "float64",
+                  role: "observable",
                   unit: "V",
                   axes: [],
                 },
@@ -1358,6 +1360,7 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
                   id: "trace",
                   label: "Trace",
                   dtype: "float64",
+                  role: "observable",
                   unit: "ratio",
                   axes: [{ id: "sample", kind: "sample", size: 3 }],
                 },

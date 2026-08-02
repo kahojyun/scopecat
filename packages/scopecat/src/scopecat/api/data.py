@@ -115,14 +115,14 @@ class Data:
 
     def traces(
         self,
+        observable: str | None = None,
         *,
-        coordinate: str,
-        observable: str,
+        coordinate: str | None = None,
         selector: str = "raw-measurements",
     ) -> tuple[Trace, ...]:
         return self.measurements(selector).traces(
+            observable,
             coordinate=coordinate,
-            observable=observable,
         )
 
     def metadata(self, selector: str = "raw-measurements") -> dict[str, object]:

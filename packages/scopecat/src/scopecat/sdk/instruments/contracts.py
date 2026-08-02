@@ -43,7 +43,7 @@ from scopecat.kernel.value_validation import (
 from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
 )
-from scopecat.measurements.results import MeasurementDType
+from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
 from scopecat.records.instrument import (
     InstrumentPropertyState as _InstrumentPropertyState,
 )
@@ -125,6 +125,7 @@ class AcquisitionResultSpec(BaseModel):
     id: _NonEmptyId
     label: str | None = None
     description: str | None = None
+    role: MeasurementVariableRole = "observable"
     dtype: MeasurementDType = "float64"
     unit: str | None = None
     axes: list[AcquisitionAxisSpec] = Field(default_factory=list)
@@ -356,6 +357,7 @@ def acquisition_axis(
 def acquisition_result(
     id: str,
     *,
+    role: MeasurementVariableRole = "observable",
     dtype: MeasurementDType = "float64",
     unit: str | None = None,
     label: str | None = None,
@@ -366,6 +368,7 @@ def acquisition_result(
         id=id,
         label=label,
         description=description,
+        role=role,
         dtype=dtype,
         unit=unit,
         axes=list(axes),

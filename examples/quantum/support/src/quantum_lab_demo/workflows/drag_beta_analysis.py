@@ -21,6 +21,7 @@ from quantum_lab_demo.workflows.drag_beta_calibration import (
     NEGATIVE_CANDIDATE_ID,
     POSITIVE_CANDIDATE_ID,
 )
+from quantum_lab_demo.workflows.drag_beta_experiment import PROBABILITY_1_RECORD_ID
 
 _DRAG_BETA_FIT_MODEL_ID = "quantum_lab_demo.drag_beta.shared_n2_quadratic.v1"
 _DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
@@ -159,7 +160,7 @@ def _observation_from_record(record: MeasurementRecord) -> DragBetaObservation:
     try:
         beta = record.coordinates["beta"]
         amplification = record.coordinates["amplification"]
-        probability_one = record.observables["probability_1"]
+        probability_one = record.observables[PROBABILITY_1_RECORD_ID]
     except KeyError as error:
         raise ValueError(
             "run does not contain the DRAG-beta measurement schema"

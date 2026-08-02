@@ -731,6 +731,12 @@ export interface components {
             id: components["schemas"]["_NonEmptyId"];
             /** Label */
             label?: string | null;
+            /**
+             * Role
+             * @default observable
+             * @enum {string}
+             */
+            role: "coordinate" | "observable";
             /** Unit */
             unit?: string | null;
         };

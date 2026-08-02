@@ -16,6 +16,9 @@ FLUX_SPECTROSCOPY_EXPERIMENT_ID = "resonator-flux-spectroscopy"
 FLUX_SOURCE_RESOURCE = "flux-source"
 TEMPERATURE_RESOURCE = "mixing-chamber"
 VNA_RESOURCE = "readout-vna"
+FREQUENCY_RECORD_ID = f"{VNA_RESOURCE}/frequency"
+S_PARAMETER_RECORD_ID = f"{VNA_RESOURCE}/s_parameter"
+TEMPERATURE_RECORD_ID = f"{TEMPERATURE_RESOURCE}/temperature"
 
 TRACE_POINTS = 751
 BIAS_POINTS = 11
@@ -72,11 +75,7 @@ def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
     sample = temperature.sample()
     experiment.finalize(flux_source, DCSourceTarget(output_enabled=False))
 
-    experiment.record_coordinate(trace.frequency)
-    experiment.record(
-        trace.s_parameter,
-        sample.temperature,
-    )
+    experiment.record(trace, sample.temperature)
 
 
 __all__ = [
@@ -86,6 +85,9 @@ __all__ = [
     "DC_BIAS",
     "FLUX_SPECTROSCOPY_EXPERIMENT_ID",
     "FLUX_SPECTROSCOPY_TEMPLATE_ID",
+    "FREQUENCY_RECORD_ID",
+    "S_PARAMETER_RECORD_ID",
+    "TEMPERATURE_RECORD_ID",
     "TRACE_POINTS",
     "flux_spectroscopy_template",
 ]

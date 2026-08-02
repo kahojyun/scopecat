@@ -364,7 +364,7 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
         vna = network_sweep(context, "readout")
         vna.ensure(points=11)
         trace = vna.sweep()
-        context.record(trace.frequency, trace.s_parameter)
+        context.record(trace)
 
     definition = experiment.definition
     assert [product.id for product in definition.body.products] == [
@@ -376,9 +376,45 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
         for selection in definition.record_selections
     ] == ["readout/frequency", "readout/s_parameter"]
     assert [selection.record_id for selection in definition.record_selections] == [
-        "frequency",
-        "s_parameter",
+        "readout/frequency",
+        "readout/s_parameter",
     ]
+    assert [selection.role for selection in definition.record_selections] == [
+        "coordinate",
+        "observable",
+    ]
+
+
+def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
+    context = ExperimentContext()
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+    analyzers = network_sweep(context, "readout", for_=each(q0, q1))
+    analyzers.ensure(points=5)
+
+    traces = analyzers.sweep()
+    assert_type(traces, PerEntity[NetworkSweepProducts])
+    context.record(traces)
+
+    definition = context.close_definition_internal(
+        id="test.symbolic.record-each",
+        kind="test",
+        metadata=None,
+        input_defaults={},
+        required_inputs=(),
+    )
+    assert [selection.role for selection in definition.record_selections] == [
+        "coordinate",
+        "observable",
+        "coordinate",
+        "observable",
+    ]
+    record_ids = [selection.record_id for selection in definition.record_selections]
+    assert len(set(record_ids)) == 4
+    assert record_ids[0] is not None and record_ids[0].endswith("/frequency")
+    assert record_ids[1] is not None and record_ids[1].endswith("/s_parameter")
+    assert record_ids[2] is not None and record_ids[2].endswith("/frequency")
+    assert record_ids[3] is not None and record_ids[3].endswith("/s_parameter")
 
 
 def test_root_finalization_accepts_a_typed_symbolic_client_and_declared_state() -> None:

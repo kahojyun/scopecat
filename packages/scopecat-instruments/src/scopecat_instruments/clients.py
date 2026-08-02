@@ -7,7 +7,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, overload, override
 
-from scopecat.authoring import EachEntity, OneEntity, PerEntity, ProductRef, ValueRef
+from scopecat.authoring import (
+    EachEntity,
+    OneEntity,
+    PerEntity,
+    ProductRef,
+    RecordingTarget,
+    ValueRef,
+)
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import (
@@ -342,6 +349,12 @@ class TemperatureSampleProducts:
 
     temperature: ProductRef
     resistance: ProductRef
+
+    def recording_targets(self) -> tuple[RecordingTarget, ...]:
+        return (
+            RecordingTarget(self.temperature, role="observable"),
+            RecordingTarget(self.resistance, role="observable"),
+        )
 
 
 class TemperatureReadoutClient(InstrumentClientBase):
@@ -827,6 +840,9 @@ class DCMonitorCurrentProducts:
 
     current: ProductRef
 
+    def recording_targets(self) -> tuple[RecordingTarget, ...]:
+        return (RecordingTarget(self.current, role="observable"),)
+
 
 @dataclass(frozen=True, slots=True)
 class DCMonitorVoltageReadback:
@@ -841,6 +857,9 @@ class DCMonitorVoltageProducts:
     """Typed logical products produced by measure_voltage."""
 
     voltage: ProductRef
+
+    def recording_targets(self) -> tuple[RecordingTarget, ...]:
+        return (RecordingTarget(self.voltage, role="observable"),)
 
 
 class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
@@ -1276,6 +1295,12 @@ class NetworkSweepProducts:
 
     frequency: ProductRef
     s_parameter: ProductRef
+
+    def recording_targets(self) -> tuple[RecordingTarget, ...]:
+        return (
+            RecordingTarget(self.frequency, role="coordinate"),
+            RecordingTarget(self.s_parameter, role="observable"),
+        )
 
 
 class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):

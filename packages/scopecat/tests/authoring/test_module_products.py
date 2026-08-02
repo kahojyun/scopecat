@@ -83,7 +83,9 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
     assert resolved.program.program.acquisitions[0].results[0].metadata == {
         "adapter_mode": "fast"
     }
-    assert [record.id for record in resolved.bindings.record_uses] == ["signal"]
+    assert [record.id for record in resolved.bindings.record_uses] == [
+        "metadata/signal"
+    ]
 
 
 def test_product_axes_use_product_local_dimensions_by_default() -> None:

@@ -18,11 +18,7 @@ from scopecat.records.measurement import (
 def test_trace_view_selects_one_shared_point_local_dimension() -> None:
     dataset = _trace_dataset()
 
-    traces = measurement_traces(
-        dataset,
-        coordinate="frequency",
-        observable="s_parameter",
-    )
+    traces = measurement_traces(dataset)
 
     assert [trace.point_index for trace in traces] == [0, 1]
     assert traces[0].dimension_id == "frequency_sample"
@@ -36,6 +32,41 @@ def test_trace_view_selects_one_shared_point_local_dimension() -> None:
         complex(0.2, -0.1),
         complex(0.9, 0.1),
     )
+
+
+def test_trace_view_infers_the_coordinate_for_one_selected_observable() -> None:
+    [trace, *_] = measurement_traces(_trace_dataset(), "s_parameter")
+
+    assert trace.coordinate_id == "frequency"
+    assert trace.observable_id == "s_parameter"
+
+
+def test_trace_view_requires_a_selection_when_multiple_pairs_are_compatible() -> None:
+    dataset = _trace_dataset()
+    dataset.dataset_schema.variables.append(
+        MeasurementVariable(
+            id="phase",
+            role="observable",
+            dtype="float64",
+            unit="rad",
+            dims=["point", "frequency_sample"],
+        )
+    )
+    dataset.dataset_schema.primary_observables.append("phase")
+    for record in dataset.records:
+        record.observables["phase"] = MeasurementArray.create(
+            dtype="float64",
+            unit="rad",
+            shape=(3,),
+            values=(0.0, 0.1, 0.2),
+        )
+
+    with pytest.raises(ValueError, match="ambiguous trace variables"):
+        measurement_traces(dataset)
+
+    [trace, *_] = measurement_traces(dataset, "phase")
+    assert trace.coordinate_id == "frequency"
+    assert trace.observable_id == "phase"
 
 
 def test_trace_view_reports_unavailable_point_values() -> None:

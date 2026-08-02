@@ -42,7 +42,7 @@ from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
-from scopecat.measurements.results import MeasurementDType
+from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
 from scopecat.program.state import DesiredState, StateBinding
 from scopecat.sdk.instruments.contracts import (
     AcquisitionAxisSpec,
@@ -135,6 +135,7 @@ class ResultMetadata:
     """Metadata for one field of a decorated acquisition result dataclass."""
 
     id: str | None = None
+    role: MeasurementVariableRole = "observable"
     dtype: MeasurementDType | None = None
     unit: str | None = None
     axes: tuple[str, ...] = ()
@@ -490,6 +491,7 @@ def precondition(
 def result(
     *,
     id: str | None = None,
+    role: MeasurementVariableRole = "observable",
     dtype: MeasurementDType | None = None,
     unit: str | None = None,
     axes: Sequence[str] = (),
@@ -500,6 +502,7 @@ def result(
 
     return ResultMetadata(
         id=id,
+        role=role,
         dtype=dtype,
         unit=unit,
         axes=tuple(axes),
@@ -515,6 +518,7 @@ def result_field[ValueT](
         _NO_FIELD_DEFAULT
     ),
     id: str | None = None,
+    role: MeasurementVariableRole = "observable",
     dtype: MeasurementDType | None = None,
     unit: str | None = None,
     axes: Sequence[str] = (),
@@ -526,6 +530,7 @@ def result_field[ValueT](
     metadata = {
         _FIELD_DECLARATION_METADATA: result(
             id=id,
+            role=role,
             dtype=dtype,
             unit=unit,
             axes=axes,
@@ -1577,6 +1582,7 @@ def _compile_results(
         compiled.append(
             build_acquisition_result(
                 metadata.id or result_field.name,
+                role=metadata.role,
                 dtype=metadata.dtype or _infer_result_dtype(base),
                 unit=metadata.unit,
                 label=metadata.label,

@@ -35,6 +35,7 @@ from scopecat.authoring._module_invocation import (
 )
 from scopecat.authoring.entity_parameters import PerEntity
 from scopecat.authoring.finalization import Finalizable
+from scopecat.authoring.recording import RecordableProducts
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import (
     ExperimentTemplate,
@@ -49,7 +50,7 @@ from scopecat.kernel.instrument_members import (
     PropertyRef,
 )
 from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.measurements.results import MeasurementDType
+from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
 from scopecat.program.bindings import BindingIntent
 from scopecat.program.definitions import (
     ExperimentDef,
@@ -98,7 +99,16 @@ from scopecat.program.values import input as authoring_input
 
 type DefinitionFunction = Callable[..., object]
 type Input[T] = T | ValueRef
-type RecordProductInput = str | ProductRef | PerEntity[ProductRef]
+type ScalarRecordProductInput = str | ProductRef | PerEntity[ProductRef]
+type RecordProductInput = (
+    str | ProductRef | RecordableProducts | PerEntity[ProductRef | RecordableProducts]
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ExpandedRecordingTarget:
+    product: str | ProductRef
+    role: MeasurementVariableRole
 
 
 def input_ref[T](value: Input[T]) -> ValueRef:
@@ -115,14 +125,36 @@ def input_ref[T](value: Input[T]) -> ValueRef:
 
 def _expand_record_products(
     products: Sequence[RecordProductInput],
-) -> tuple[tuple[str | ProductRef, str | None], ...]:
-    selected: list[tuple[str | ProductRef, str | None]] = []
+) -> tuple[_ExpandedRecordingTarget, ...]:
+    selected: list[_ExpandedRecordingTarget] = []
     for product in products:
         if isinstance(product, PerEntity):
-            selected.extend((value, value.id) for value in product.values())
-        else:
-            selected.append((product, None))
+            for value in product.values():
+                _append_record_product(selected, value)
+            continue
+        _append_record_product(selected, product)
     return tuple(selected)
+
+
+def _append_record_product(
+    selected: list[_ExpandedRecordingTarget],
+    product: str | ProductRef | RecordableProducts,
+) -> None:
+    if isinstance(product, str | ProductRef):
+        selected.append(
+            _ExpandedRecordingTarget(
+                product=product,
+                role="observable",
+            )
+        )
+        return
+    selected.extend(
+        _ExpandedRecordingTarget(
+            product=target.product,
+            role=target.role,
+        )
+        for target in product.recording_targets()
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,32 +377,34 @@ class ExperimentContext:
         if record_id is not None and len(selected_products) != 1:
             raise ValueError("record_id can only be used with one product")
         self._record_selections.extend(
-            record_product(
-                product,
-                record_id=(record_id if record_id is not None else default_record_id),
+            (record_coordinate if target.role == "coordinate" else record_product)(
+                target.product,
+                record_id=record_id,
                 metadata=metadata,
             )
-            for product, default_record_id in selected_products
+            for target in selected_products
         )
 
     def record_coordinate(
         self,
-        *products: RecordProductInput,
+        *products: ScalarRecordProductInput,
         record_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
         """Select coordinate-like products for durable recording."""
 
-        selected_products = _expand_record_products(products)
+        selected_products = _expand_record_products(
+            cast("Sequence[RecordProductInput]", products)
+        )
         if record_id is not None and len(selected_products) != 1:
             raise ValueError("record_id can only be used with one product")
         self._record_selections.extend(
             record_coordinate(
-                product,
-                record_id=(record_id if record_id is not None else default_record_id),
+                target.product,
+                record_id=record_id,
                 metadata=metadata,
             )
-            for product, default_record_id in selected_products
+            for target in selected_products
         )
 
     def records(self, *selections: RecordSelection) -> None:

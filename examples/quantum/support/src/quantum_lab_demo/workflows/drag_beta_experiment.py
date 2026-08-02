@@ -27,6 +27,8 @@ DRAG_BETA_SHOTS = 64
 DRAG_BETA_SPAN = Quantity(1.0, "ns")
 DRAG_BETA_POINTS = 5
 DEFAULT_AMPLIFICATIONS = (1, 2, 3)
+PROBABILITY_0_RECORD_ID = "capture/probability_0"
+PROBABILITY_1_RECORD_ID = "capture/probability_1"
 
 
 _BETA_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="ns"))
@@ -126,6 +128,8 @@ __all__ = [
     "DRAG_BETA_SHOTS",
     "DRAG_BETA_SPAN",
     "DRAG_BETA_TEMPLATE_ID",
+    "PROBABILITY_0_RECORD_ID",
+    "PROBABILITY_1_RECORD_ID",
     "drag_beta_capture",
     "drag_beta_program",
     "drag_beta_template",

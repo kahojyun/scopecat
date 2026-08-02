@@ -232,20 +232,28 @@ def capture(experiment: sc.ExperimentContext) -> None:
     )
     trace = vna.sweep()  # NetworkSweepProducts, declared for every point
 
-    experiment.record_coordinate(trace.frequency)
-    experiment.record(trace.s_parameter)
+    experiment.record(trace)
     experiment.finalize(
         flux,
         DCSourceTarget(output_enabled=False),
     )
 ```
 
-The symbolic client derives `trace.frequency` and `trace.s_parameter` from the
-interface acquisition contract, including dtype, unit, axes, and shared-axis
-identity. The ordinary typed path therefore does not repeat that schema with
-`experiment.product(...)` and `experiment.acquire(...)`. An acquisition id can
-still be supplied when the same acquisition occurs more than once and needs a
-distinct product namespace.
+The symbolic client derives the complete recording layout from the interface
+acquisition contract: `frequency` is a coordinate, `s_parameter` is an
+observable, and both share the declared frequency axis. Recording the typed
+result therefore projects one trace into the dataset without making the user
+repeat its fields or roles. The ordinary typed path also does not repeat that
+schema with `experiment.product(...)` and `experiment.acquire(...)`. An
+acquisition id can still be supplied when the same acquisition occurs more
+than once and needs a distinct product namespace.
+
+The dataset remains columnar: it contains separate qualified `frequency` and
+`s_parameter` variables rather than an opaque nested trace value. Their roles
+and shared dimension preserve the relationship, so `run.data().traces()` can
+recover the unique trace without repeating either variable name. When a
+dataset contains several compatible traces, pass the selected observable id;
+its coordinate is inferred from the shared dimension.
 
 Reusable `@module` definitions remain available when work is genuinely shared
 or composed. They are an extraction step, not a prerequisite for using typed
@@ -513,8 +521,12 @@ entity metadata does not participate in the join, and duplicate identities are
 rejected. Because topology and routing still address entities by string id,
 the concrete entities in one `each(...)` selection must also have globally
 unique ids; different kinds do not disambiguate the same id there. Root
-recording accepts a `PerEntity[ProductRef]` projection directly, preserves
-declaration order, and gives each scoped product a stable qualified record id.
+recording accepts both one typed acquisition result and a
+`PerEntity[Products]` result directly. It preserves entity and result
+declaration order, keeps each field's declared coordinate/observable role, and
+gives every scoped product a stable qualified record id.
+`record_coordinate(...)` remains a low-level escape hatch for custom products
+whose role is not declared by an instrument result.
 
 `EachEntity` expansion happens while authoring: every selected entity owns an
 independently routable scalar resource. It is not a vector operation added to
@@ -555,7 +567,7 @@ sources.ensure(output_enabled=True)
 readouts = network_sweep(experiment, "readout", for_=targets)
 readouts.ensure(points=751)  # one broadcast target
 traces = readouts.sweep()  # PerEntity[NetworkSweepProducts]
-experiment.record(traces.map(lambda trace: trace.s_parameter))
+experiment.record(traces)
 ```
 
 `QUBITS[sc.one("q0")]` instead returns one `QubitParameters` row, so its

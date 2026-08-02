@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Protocol, TypeAliasType, TypeVar, cast, get_args, get_origin
 
 from scopecat.kernel.value_types import Payload as PayloadType
+from scopecat.measurements.results import MeasurementVariableRole
 from scopecat.sdk.instruments import (
     AcquisitionAxisSpec,
     AcquisitionRef,
@@ -375,13 +376,23 @@ class _OperationModel:
 
 
 @dataclass(frozen=True, slots=True)
+class _AcquisitionResultModel:
+    python_name: str
+    role: MeasurementVariableRole
+
+
+@dataclass(frozen=True, slots=True)
 class _AcquisitionModel:
     method_name: str
     descriptor_name: str
     result_type_name: str
-    result_field_names: tuple[str, ...]
+    result_fields: tuple[_AcquisitionResultModel, ...]
     readback_name: str
     products_name: str
+
+    @property
+    def result_field_names(self) -> tuple[str, ...]:
+        return tuple(field.python_name for field in self.result_fields)
 
 
 @dataclass(frozen=True, slots=True)
@@ -2872,8 +2883,12 @@ def _acquisition_model(
             method_name,
         ),
         result_type_name=result_type_name,
-        result_field_names=tuple(
-            dict.fromkeys(field.python_name for field in acquisition.result_fields)
+        result_fields=tuple(
+            _AcquisitionResultModel(
+                python_name=field.python_name,
+                role=field.spec.role,
+            )
+            for field in acquisition.result_fields
         ),
         readback_name=overrides.get(
             f"{override_prefix}.readback",
@@ -2934,7 +2949,7 @@ def _render_header(
         imports["scopecat.authoring"].add("ValueRef")
     if has_acquisitions:
         imports["dataclasses"] = {"dataclass", "field"}
-        imports["scopecat.authoring"].add("ProductRef")
+        imports["scopecat.authoring"].update({"ProductRef", "RecordingTarget"})
         imports["scopecat.records.measurement"] = {"MeasurementValue"}
         imports["scopecat.sdk.instruments"].add("CollectReceipt")
         imports.setdefault("scopecat_instruments._client_runtime", set()).update(
@@ -3333,6 +3348,20 @@ def _render_result_types(
         product_fields = "".join(
             f"    {field_name}: ProductRef\n" for field_name in item.result_field_names
         )
+        if len(item.result_fields) == 1:
+            [result_field] = item.result_fields
+            recording_return = (
+                "        return (RecordingTarget("
+                f"self.{result_field.python_name}, "
+                f"role={_string_literal(result_field.role)}),)\n"
+            )
+        else:
+            recording_targets = "".join(
+                "            RecordingTarget("
+                f"self.{field.python_name}, role={_string_literal(field.role)}),\n"
+                for field in item.result_fields
+            )
+            recording_return = f"        return (\n{recording_targets}        )\n"
         sections.append(
             "\n\n"
             "@dataclass(frozen=True, slots=True)\n"
@@ -3349,6 +3378,9 @@ def _render_result_types(
             f'{item.method_name}."""\n'
             "\n"
             f"{product_fields}"
+            "\n"
+            "    def recording_targets(self) -> tuple[RecordingTarget, ...]:\n"
+            f"{recording_return}"
         )
     return "".join(sections)
 

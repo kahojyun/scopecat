@@ -268,6 +268,7 @@ class NetworkSweepResults:
     """Successful network sweep values."""
 
     frequency: list[float] = result_field(
+        role="coordinate",
         dtype="float64",
         unit="Hz",
         axes=("frequency",),

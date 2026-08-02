@@ -236,7 +236,9 @@ def test_template_selects_module_products_as_records() -> None:
     assert [
         product.id.qualified_name for product in unselected.bindings.product_defs
     ] == ["product_module/signal"]
-    assert [record.id for record in selected.bindings.record_uses] == ["signal"]
+    assert [record.id for record in selected.bindings.record_uses] == [
+        "product_module/signal"
+    ]
     assert selected.bindings.record_uses[0].metadata == {}
     assert (
         selected.bindings.product_uses[0].product_id.qualified_name

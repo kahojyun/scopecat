@@ -35,15 +35,20 @@ class Trace:
 
 def measurement_traces(
     dataset: MeasurementDataset,
+    observable: str | None = None,
     *,
-    coordinate: str,
-    observable: str,
+    coordinate: str | None = None,
 ) -> tuple[Trace, ...]:
-    """Select a compatible coordinate and observable from every dataset point."""
+    """Read one unambiguous point-local trace from every dataset point."""
 
     variables = {variable.id: variable for variable in dataset.dataset_schema.variables}
-    coordinate_variable = _require_variable(variables, coordinate)
-    observable_variable = _require_variable(variables, observable)
+    coordinate_variable, observable_variable = _select_trace_variables(
+        variables,
+        coordinate=coordinate,
+        observable=observable,
+    )
+    coordinate = coordinate_variable.id
+    observable = observable_variable.id
     if coordinate_variable.role != "coordinate":
         raise ValueError(f"trace coordinate {coordinate!r} is not a coordinate")
     if observable_variable.role != "observable":
@@ -102,6 +107,79 @@ def measurement_traces(
             )
         )
     return tuple(traces)
+
+
+def _select_trace_variables(
+    variables: dict[str, MeasurementVariable],
+    *,
+    coordinate: str | None,
+    observable: str | None,
+) -> tuple[MeasurementVariable, MeasurementVariable]:
+    if coordinate is not None and observable is not None:
+        return (
+            _require_variable(variables, coordinate),
+            _require_variable(variables, observable),
+        )
+    selected_coordinate = (
+        None if coordinate is None else _require_variable(variables, coordinate)
+    )
+    selected_observable = (
+        None if observable is None else _require_variable(variables, observable)
+    )
+    coordinates = (
+        (selected_coordinate,)
+        if selected_coordinate is not None
+        else tuple(
+            variable
+            for variable in variables.values()
+            if _is_trace_coordinate(variable)
+        )
+    )
+    observables = (
+        (selected_observable,)
+        if selected_observable is not None
+        else tuple(
+            variable
+            for variable in variables.values()
+            if _is_trace_observable(variable)
+        )
+    )
+    candidates = tuple(
+        (coordinate_variable, observable_variable)
+        for coordinate_variable in coordinates
+        for observable_variable in observables
+        if _is_trace_coordinate(coordinate_variable)
+        and _is_trace_observable(observable_variable)
+        and coordinate_variable.dims == observable_variable.dims
+    )
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        raise ValueError("measurement dataset has no compatible trace variables")
+    rendered = ", ".join(
+        f"{coordinate_variable.id!r} + {observable_variable.id!r}"
+        for coordinate_variable, observable_variable in candidates
+    )
+    raise ValueError(
+        "measurement dataset has ambiguous trace variables; select an observable "
+        f"or coordinate explicitly: {rendered}"
+    )
+
+
+def _is_trace_coordinate(variable: MeasurementVariable) -> bool:
+    return (
+        variable.role == "coordinate"
+        and variable.dtype in {"float64", "int64"}
+        and len(variable.dims) == 2
+    )
+
+
+def _is_trace_observable(variable: MeasurementVariable) -> bool:
+    return (
+        variable.role == "observable"
+        and variable.dtype in {"float64", "int64", "complex128"}
+        and len(variable.dims) == 2
+    )
 
 
 def _require_variable(
