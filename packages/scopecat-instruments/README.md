@@ -103,26 +103,30 @@ transient transport failure.
 ## Typed client source generation
 
 Decorated Python interface declarations are the shared source for the wire
-contract and supported typed clients. The committed production output covers
-complete `TemperatureReadout`, `RFOutput`, and `NetworkSweep` families, plus the
-source-only and source-with-monitor `DCSource` live, symbolic single-entity, and
-group client classes in generated Python source. Its boolean `monitor` facade is
-generated with exact literal overloads and ordinary-`bool` union fallbacks.
-Applicable observation accessors and acquisition result carriers are generated
-as well, so editors and type checkers see exact
-signatures. Root-level flat and discriminated concrete schemas generate
-separate `Patch`, `Target`, and `GroupTarget` surfaces. The same declaration also
-generates `driver_states.py`: writable interfaces receive flat, sparse,
-concrete `TypedDict` patch decoders and canonical state encoders. A driver with
-multiple interfaces decodes the same batch request for each interface and
-composes the patches; for readback it combines exact common and active-case
-encodings into its snapshot. Observed-only state receives an encoder but no
-artificial writable patch. The generator manifest refers to the decorated
-interface classes themselves; declaration modules do not need parallel
-compiled constants. Generated state-only clients derive their interface refs
-without compiling a layout at import time. The same pass generates the public
-member-ref catalog, fresh interface factories, and generated state projections,
-so those surfaces do not need parallel hand-maintained mappings.
+contract and typed Python surfaces. `PACKAGE_MANIFEST` is the authoritative list
+of generated interfaces/bundles, public types, provider identity, and lazy driver
+registrations; both the generator and provider derive their catalogs from it.
+The committed output covers complete `TemperatureReadout`, `RFOutput`, and
+`NetworkSweep` families plus source-only and source-with-monitor `DCSource` live,
+symbolic single-entity, and group clients.
+
+One generation pass writes the six public runtime modules—`clients.py`,
+`members.py`, `interfaces.py`, `states.py`, `driver_states.py`, and
+`driver_handlers.py`—plus the typed, lazy package facade. Client acquisition and
+observation descriptors, member refs, state projection layouts, and wire specs
+are static generated data, so importing these modules does not compile interface
+declarations. Interface factories parse generated JSON into a fresh
+`InterfaceSpec`.
+
+Writable interfaces receive sparse concrete `TypedDict` patches and exact
+canonical snapshot encoders. Generated adapters own the worker's generic
+request/ref ABI; a bundle adapter accepts one validated batch and calls the
+concrete driver once with one typed bundle patch. Observed-only state generates
+snapshot and acquisition hooks but no artificial writable patch. For
+discriminated DC source state, the private common base is declaration reuse
+only: the public state is the complete voltage/current union. `DCSourcePatch` is
+a common-field sparse update, while voltage/current carriers select a case and
+insert `source_mode` without exposing it as a user argument.
 
 Run the generator from the repository root after changing a supported
 declaration, and use its check mode in validation or CI:
@@ -132,13 +136,12 @@ uv run --locked python scripts/generate_instrument_clients.py
 uv run --locked python scripts/generate_instrument_clients.py --check
 ```
 
-Do not edit `clients.py`, `members.py`, `interfaces.py`, `states.py`, or
-`driver_states.py` directly. The generated source includes nested component
-operation proxies for supported declarations. A live operation
-accepts concrete arguments and returns `InvokeReceipt`; the scalar symbolic
-form projects each concrete `T` argument to `T | ValueRef` and adds an
-`effect_id`. Its group form accepts a scalar or `PerEntity` value independently
-for every argument, performs exact
+Do not edit those modules or the package facade directly. The generated source
+includes nested component operation proxies for supported declarations. A live
+operation accepts concrete arguments and returns `InvokeReceipt`; the scalar
+symbolic form projects each concrete `T` argument to `T | ValueRef` and adds an
+`effect_id`. Its group form accepts a scalar or `PerEntity` value
+independently for every argument, performs exact
 identity joins for all mappings before recording any effect, and then records
 one scalar invocation per entity. Mapping order is therefore irrelevant, while
 missing or extra entity identities fail before partial effects are created.
@@ -146,13 +149,64 @@ missing or extra entity identities fail before partial effects are created.
 The optional `DCSource`/`DCMonitor` surface is an ordered, member-free Protocol
 bundle over the two existing wire interfaces. The generator merges their root
 state and acquisition surfaces and emits `dc_source(..., monitor=...)`; the flag
-selects one capability set for the whole group. A `GroupTarget` can map each
-field independently, while `PerEntity[Target]` supports different discriminated
-cases for different entities.
+selects one capability set for the whole group. Group `ensure(...)` accepts one
+broadcast target or a `PerEntity[Target]`; a `GroupTarget` may also map each field
+independently. Voltage/current carriers can therefore select different cases per
+entity without writing a discriminator.
 
-Payload-bearing operations are rejected until their schema-specific live and
-symbolic carriers are defined. Component-owned state and component acquisitions
-also remain outside the current generated surface.
+Payload-bearing operations are currently rejected only by the client source
+generator, until their schema-specific live and symbolic carriers are defined.
+The declaration compiler and generated driver handlers already support decoded
+payload operations. Component-owned state and component acquisitions also remain
+outside the generated client surface.
+
+## Driver authoring
+
+The shortest driver workflow is:
+
+1. Declare state/results and a `Protocol` or ABC with the decorators in
+   `interface_declarations.py`.
+2. Register any new surface and the lazy driver implementation in
+   `PACKAGE_MANIFEST`.
+3. Run `uv run --locked python scripts/generate_instrument_clients.py`.
+4. Subclass the generated adapter and implement its typed hooks.
+
+For example, an RF implementation handles Python field names rather than member
+refs or generic requests:
+
+```python
+from typing import override
+
+from scopecat.sdk.instruments import DriverOutcome, DriverSuccess
+from scopecat_instruments.driver_handlers import (
+    RFOutputDriverAdapter,
+    RFOutputDriverSnapshot,
+)
+from scopecat_instruments.driver_states import RFOutputDriverPatch
+
+
+class MyRfSource(RFOutputDriverAdapter):
+    instrument_id: str
+
+    @override
+    def read_rf_output_state(self) -> RFOutputDriverSnapshot:
+        return RFOutputDriverSnapshot(state=self._read_hardware_state())
+
+    @override
+    def apply_rf_output_state(
+        self,
+        patch: RFOutputDriverPatch,
+        /,
+    ) -> DriverOutcome[None]:
+        if "frequency" in patch:
+            self._set_frequency(patch["frequency"])
+        return DriverSuccess(None)
+```
+
+The adapter supplies `read_state`, `apply_state`, `invoke`, and `collect` at the
+worker boundary; the implementation supplies device policy plus normal
+description and lifecycle methods. All four real and four virtual first-party
+drivers use this pattern.
 
 ## Configuration
 
@@ -281,19 +335,14 @@ sessions.
 
 ## Driver tests
 
-Driver implementations exchange `DriverState`, `DriverStatePatch`,
-`DriverOperation`, `DriverAcquisition`, and `DriverReadback`. They return
-`DriverSuccess`, `DriverRejected`, or `DriverUnknown`; the worker owns
-snapshot/readback envelopes, receipt status strings, and collection request
-IDs. This keeps the authoring contract unchanged when drivers move between
-local and isolated worker hosts.
-
-Generated codecs project a validated `DriverStatePatch` into concrete
-per-interface fields and project required canonical schemas back into
-`DriverState`. They replace hand-written ref-to-field mappings, not driver
-policy: SCPI command sequencing, temporary output or measurement changes,
-hardware-profile checks, and implementation-specific validation stay in the
-driver.
+The worker exchanges generic `DriverState`, `DriverStatePatch`,
+`DriverOperation`, `DriverAcquisition`, and `DriverReadback` values with generated
+adapters. A concrete driver receives typed patches or bundle patches, decoded
+operation arguments, and typed acquisition result-name sets, and returns typed
+snapshots or readbacks inside `DriverSuccess`, `DriverRejected`, or
+`DriverUnknown`. Adapters own generic envelopes and ref mapping; SCPI sequencing,
+temporary output or measurement changes, hardware-profile checks, and
+device-specific validation remain driver policy.
 
 Transcript helpers live in the explicit testing module:
 

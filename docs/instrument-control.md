@@ -360,11 +360,20 @@ Interface and method decorators only attach metadata and preserve the authored
 methods. `NetworkSweep` therefore remains usable as a structural `Protocol`; an
 `ABC` works as well when nominal implementation inheritance is useful, and
 decorated members inherited from base interfaces are preserved. The compiled
-wrapper exposes `.spec`, `.ref`, and `.fresh_spec()` without changing the
-interface class. Consumers that need that lower-level wrapper can call
+wrapper exposes `.spec` and `.ref` without changing the interface class.
+Consumers that need that lower-level boundary can call
 `compile_interface(NetworkSweep)` locally; normal client generation consumes
 the decorated interface type directly, so declarations do not need a parallel
 public compiled constant.
+
+A discriminated declaration may use a private common base to reuse field
+definitions, but that base is not a public device state. `DCSourceState`, for
+example, is the closed union of complete `DCSourceVoltageState` and
+`DCSourceCurrentState` records; both cases contain the common protection/output
+fields and their required range and level. Generated `DCSourcePatch` represents
+only a sparse update of common fields. The voltage/current patch and target
+carriers are the case-selecting forms and carry their discriminator as a
+generated constant, not as a user-visible optional field.
 
 The same declaration surface also covers read-only observed-state dataclasses,
 typed atomic methods whose `Annotated` parameters carry operation-argument
@@ -396,20 +405,22 @@ and `vnas.ensure(points=per_entity_points)`. The scalar overload remains narrow
 and never accepts `PerEntity`; only its group counterpart performs that lift.
 Carrier objects remain the positional form for reuse and composition.
 
-The same Python declaration also generates the typed driver state boundary.
-Each writable interface has a flat, sparse, concrete `TypedDict` patch decoder;
-for discriminated state, the discriminator and case fields retain distinct
-canonical member names in that one interface patch. A driver implementing
-several interfaces can decode the same validated `DriverStatePatch` once for
-each interface and compose the results. Exact encoders perform the reverse
-projection from required canonical state records into a complete public
-snapshot. Read-only observed-state declarations generate only this encoder
-direction: they do not invent a writable patch or target.
+The same Python declaration also generates the typed driver boundary. Each
+writable interface has a flat, sparse, concrete `TypedDict` patch, while a
+generated adapter owns the generic worker ABI and its ref dispatch. A bundle
+adapter takes one validated batch, lowers it at that boundary, and calls the
+driver once with one typed bundle patch containing its constituent interface
+patches. Exact snapshot encoders perform the reverse projection from complete
+canonical state records. Read-only observed-state declarations generate only
+the snapshot and acquisition hooks: they do not invent a writable patch or
+target.
 
 This declaration layer generates the stable contract and refs, but it does not
 invent session behavior. A typed factory still defines whether an action is
-live or symbolic, while a small typed generation manifest defines how optional
-interface combinations are exposed. `@instrument_bundle` marks an ordered,
+live or symbolic. The package's `PACKAGE_MANIFEST` is the authoritative list of
+generated interface/bundle surfaces, public types, provider identity, and lazy
+driver registrations; the generator and provider both derive their catalogs
+from it. `@instrument_bundle` marks an ordered,
 member-free Protocol intersection; it composes existing interfaces without
 creating a third wire interface, and `compile_interface(...)` rejects it. The
 factory also defines how `each(...)` fans one logical operation out to
@@ -424,10 +435,11 @@ The descriptor boundary does not dynamically inject public client methods.
 Those methods remain real Python source so type checkers can preserve
 positional-only and keyword-only parameters, narrow live argument carriers, add
 symbolic effect ids, and lift each parameter independently for entity groups.
-The repository's committed static generator holds a typed manifest of decorated
-interface classes, compiles their layouts while generating, and writes that
-source deterministically. Generated modules derive interface refs and state
-projection layouts directly from those classes. The production
+The repository's committed generator compiles the manifest's decorated
+interfaces while generating and writes their runtime descriptors and specs as
+deterministic static source. Importing generated clients, state projections,
+member refs, or interface factories does not compile declarations. Interface
+factories parse generated JSON into a fresh `InterfaceSpec`. The production
 target generates complete `TemperatureReadout`, `RFOutput`, and `NetworkSweep`
 families, plus source-only and source-with-monitor `DCSource` live, symbolic
 single-entity, and group clients. The generated `dc_source(..., monitor=...)`
@@ -435,12 +447,13 @@ facade selects those two typed surfaces. Generated source also includes
 applicable observation accessors and acquisition result carriers. Root-level
 flat and discriminated schemas both produce typed `apply(...)`, `ensure(...)`,
 and field-wise group target surfaces.
-The same catalog pass writes the public `members.py`, `interfaces.py`, and
-`states.py` projections and the driver state codecs: refs recurse through
-components and operations, interface factories return fresh wire specs, and
-state projections preserve the canonical field types while adding only
-presence, binding-time, or entity cardinality semantics. These projections are
-generated source rather than a second authoring surface.
+The same pass writes the six public runtime modules—`clients.py`, `members.py`,
+`interfaces.py`, `states.py`, `driver_states.py`, and `driver_handlers.py`—plus
+the package facade. Refs recurse through components and operations, interface
+factories return fresh wire specs from generated JSON, and state projections
+preserve canonical field types while adding only presence, binding-time, or
+entity-cardinality semantics. These modules are generated output, not a second
+authoring surface.
 
 Regenerate the committed Python surfaces, or verify that they are current, with:
 
@@ -478,12 +491,13 @@ one capability set for the whole group rather than becoming
 so one group can map complete voltage/current states per entity and produce the
 mode-appropriate monitor result for each.
 
-This source generator intentionally supports concrete declaration shapes rather
-than claiming every compiled interface shape. Payload-bearing operations are
-currently rejected explicitly because their concrete and symbolic carriers need
-a schema-specific policy. Component-owned state and component acquisitions are
-also outside the current generated surface; explicit contract builders and
-hand-written clients remain their escape hatch.
+The client source generator intentionally supports concrete declaration shapes
+rather than claiming every compiled interface shape. It currently rejects
+payload-bearing operations because their live and symbolic carriers need a
+schema-specific policy; the declaration compiler and generated driver handlers
+already support decoded payload operations. Component-owned state and component
+acquisitions also remain outside the generated client surface; explicit
+contract builders and hand-written clients remain their escape hatch.
 
 ### Entity selection and parameter mapping
 
@@ -499,9 +513,10 @@ boundary:
 `each(...)` contains concrete entities so the group has stable identity keys at
 authoring time. Use `one(...)` for a point-resolved symbolic entity.
 
-A group `ensure(...)` accepts either one common state or a `PerEntity[state]`
-mapping. A group acquisition returns `PerEntity[Products]`. Both mappings join
-by durable entity identity `(kind, id)`, never by list position; descriptive
+A group `ensure(...)` accepts either one broadcast target or a
+`PerEntity[target]` mapping. A group acquisition returns `PerEntity[Products]`.
+Both mappings join by durable entity identity `(kind, id)`, never by list
+position; descriptive
 entity metadata does not participate in the join, and duplicate identities are
 rejected. Because topology and routing still address entities by string id,
 the concrete entities in one `each(...)` selection must also have globally
@@ -550,7 +565,7 @@ sources.ensure(
 )
 
 readouts = network_sweep(experiment, "readout", for_=targets)
-readouts.ensure(points=751)  # one common target
+readouts.ensure(points=751)  # one broadcast target
 traces = readouts.sweep()  # PerEntity[NetworkSweepProducts]
 experiment.record(traces.map(lambda trace: trace.s_parameter))
 ```
@@ -617,33 +632,34 @@ state. Calibration and correction choices are explicit configuration with
 provenance and are never silently reset by a generic interface.
 
 The daemon validates the complete public command, keeps its retry and
-provenance fields, then lowers it to a process-safe backend request. The worker
-performs the final lowering after decoding any payloads. Drivers see only
-physical interface targets, property writes, scalar or decoded payload
-arguments, and acquisition result identities. They do not receive command, run,
-resource, entity, channel, point, product, codec, byte transport, unit, axis, or
-provenance fields. Collect result shape and units are checked by the daemon
-against the original request after readback.
+provenance fields, then lowers it to the worker's process-safe generic
+`DriverState`, `DriverStatePatch`, `DriverOperation`, `DriverAcquisition`, and
+`DriverReadback` ABI. Generated adapters own that ABI, map refs, unwrap already
+decoded payloads, and expose concrete driver hooks in Python field names: typed
+patches or bundle patches, decoded operation arguments, and typed acquisition
+result-name sets.
 
-Generated driver codecs remove manual property-ref dispatch without changing
-that ABI. They decode one batch into flat per-interface concrete patches and
-encode canonical state records back into snapshots. They do not decide how a
-device transitions between those states: command ordering, temporary disable
-and restore steps, connection-profile checks, and device-specific validation
-remain explicit responsibilities of the driver.
+Drivers do not receive run, resource, entity, channel, point, product, codec,
+byte transport, axis, or provenance fields. The adapter re-encodes typed
+snapshots and readbacks, while the daemon checks result shape and units against
+the original request.
 
-Operating-mode-dependent property sets use the interface's discriminated state
-model. The discriminator and common properties are valid in every case, while
-each case declares its own additional property set. A mode is mutable state, so
-routing never selects a different interface merely because the device changed
-mode. A patch within the observed case may remain sparse. A patch that changes
-case must set the discriminator and the target case's declared entry
-properties; otherwise safety-relevant hidden state from an earlier use of that
-mode could become active. Common and other case properties may remain sparse.
-The current `scopecat.dc_source/v2` contract uses this model for voltage and
-current source modes. Configured startup defaults resolve to property
-assignments; omitted experiment properties preserve freshly observed device
-state unless the run explicitly applies those defaults.
+Adapters remove handwritten ref dispatch, not device policy. Command ordering,
+temporary disable/restore steps, connection-profile checks, and device-specific
+validation remain explicit driver responsibilities. All four real and four
+virtual first-party drivers inherit their generated adapter and implement only
+these typed hooks plus normal description and lifecycle methods.
+
+Operating-mode-dependent property sets use discriminated state. The private
+common declaration base exists only for field reuse; public snapshots are a
+closed union of complete cases. A patch within the observed case may remain
+sparse. At the low-level wire boundary, changing case requires the discriminator
+and the target case's entry properties so hidden state cannot become active.
+Typed users instead choose the generated voltage or current carrier, which
+inserts that discriminator and requires range and level. Common-field
+`DCSourcePatch` remains a sparse update and does not select a case. Configured
+startup defaults resolve to property assignments; omitted experiment properties
+preserve freshly observed device state unless the run applies those defaults.
 
 ## Connection configuration
 
@@ -841,8 +857,9 @@ lower them to physical ids.
 Values with physical units may be passed as Scopecat `Quantity` values. Plain
 numbers remain valid only where the declared property type accepts them. A
 `scopecat.dc_source/v2` state belongs to either its voltage or current case.
-When switching cases, include `source_mode` plus the target range and level;
-protection and output properties are common to both.
+Choose `DCSourceVoltagePatch`/`Target` or `DCSourceCurrentPatch`/`Target` when
+switching cases; the carrier supplies `source_mode`, while range and level remain
+required. Protection and output properties are common sparse updates.
 
 A multi-instrument session is available when an operation must reserve a
 coherent set:
@@ -889,12 +906,13 @@ content-addressed envelope. The daemon resolves and verifies every payload
 before a hardware batch begins. The worker wire format keeps its JSON
 descriptor separate from hash-checked raw attachments and never serializes
 arbitrary Python objects. Inside the worker, the registered codec decodes each
-payload once before the driver is called; the driver receives only the decoded
-value and its schema identity. A decode failure proves the operation was not
-invoked. Public inline/blob bodies, codec details, and transport bytes never
-enter the driver API; a codec may intentionally decode to `bytes` when bytes
-are the domain value. Control messages are capped at 1 MiB and must round-trip
-through JSON without changing value types.
+payload once before the adapter is called. The generic request retains the
+decoded value and schema identity; the generated adapter passes only the
+declaration's typed value to the concrete driver hook. A decode failure proves
+the operation was not invoked. Public inline/blob bodies, codec details, and
+transport bytes never enter the concrete driver API; a codec may intentionally
+decode to `bytes` when bytes are the domain value. Control messages are capped
+at 1 MiB and must round-trip through JSON without changing value types.
 
 Collection uses the reverse framed path. The worker keeps receipt status,
 problems, metadata, and scalar values in a bounded JSON descriptor, while every
