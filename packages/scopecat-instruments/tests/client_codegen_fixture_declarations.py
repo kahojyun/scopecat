@@ -10,6 +10,9 @@ from scopecat.sdk.instruments.declarations import (
     argument,
     component,
     instrument_interface,
+    instrument_observed_state,
+    instrument_state,
+    member_field,
     operation,
 )
 
@@ -35,6 +38,28 @@ class OutputCapability(Protocol):
     trigger: Annotated[
         TriggerCapability,
         component(id="pulse_trigger"),
+    ]
+
+
+@instrument_state
+class CatalogProjectionState:
+    enabled: Desired[bool] | None = member_field(default=None)
+
+
+@instrument_observed_state
+class CatalogProjectionObservation:
+    status: str = member_field()
+
+
+@instrument_interface(
+    "test.generated_catalog_projection/v1",
+    state=CatalogProjectionState,
+    observed_state=CatalogProjectionObservation,
+)
+class CatalogProjectionInterface(Protocol):
+    output: Annotated[
+        OutputCapability,
+        component(id="signal_output"),
     ]
 
 
@@ -109,6 +134,9 @@ class SymbolCollisionInterface(Protocol):
 
 
 __all__ = [
+    "CatalogProjectionInterface",
+    "CatalogProjectionObservation",
+    "CatalogProjectionState",
     "ComponentOperationInterface",
     "Desired",
     "EffectIdCollisionInterface",

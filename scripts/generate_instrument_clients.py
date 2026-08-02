@@ -1,8 +1,9 @@
-"""Generate typed first-party instrument clients from declared interfaces."""
+"""Generate typed first-party instrument surfaces from declared interfaces."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import types
@@ -21,9 +22,13 @@ from scopecat.sdk.instruments.declarations import (
     declared_interface_layout,
 )
 from scopecat_instruments.interface_declarations import (
+    DCMonitorInterface,
     DCSourceInterface,
+    Desired,
     NetworkSweepInterface,
+    ReferenceSource,
     RFOutputInterface,
+    SParameter,
     TemperatureReadoutInterface,
 )
 
@@ -32,8 +37,20 @@ INSTRUMENTS_PACKAGE_ROOT = REPOSITORY_ROOT / "packages" / "scopecat-instruments"
 OUTPUT = (
     INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "_generated_clients.py"
 )
+MEMBERS_OUTPUT = (
+    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "members.py"
+)
+INTERFACES_OUTPUT = (
+    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "interfaces.py"
+)
+STATES_OUTPUT = INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "states.py"
 FIXTURE_IMPORT_ROOT = INSTRUMENTS_PACKAGE_ROOT / "tests"
 FIXTURE_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_client_fixture.py"
+FIXTURE_MEMBERS_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_member_catalog_fixture.py"
+FIXTURE_INTERFACES_OUTPUT = (
+    FIXTURE_IMPORT_ROOT / "generated_interface_catalog_fixture.py"
+)
+FIXTURE_STATES_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_state_catalog_fixture.py"
 _TYPING_UNION_ORIGIN: object = typing.Union  # pyright: ignore[reportDeprecated]
 
 
@@ -74,12 +91,25 @@ class GenerationTarget:
     surfaces: tuple[ClientSurface, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class CatalogTarget:
+    """Public projections generated from a closed set of declared interfaces."""
+
+    members_output: Path
+    interfaces_output: Path
+    states_output: Path
+    interface_types: tuple[type[object], ...]
+    public_types: tuple[object, ...] = ()
+
+
 class _Options(argparse.Namespace):
     check: bool = False
 
 
 class _FixtureDeclarations(Protocol):
+    CatalogProjectionInterface: type[object]
     ComponentOperationInterface: type[object]
+    Desired: object
 
 
 PRODUCTION_TARGET = GenerationTarget(
@@ -98,24 +128,56 @@ PRODUCTION_TARGET = GenerationTarget(
     ),
 )
 
+PRODUCTION_CATALOG_TARGET = CatalogTarget(
+    members_output=MEMBERS_OUTPUT,
+    interfaces_output=INTERFACES_OUTPUT,
+    states_output=STATES_OUTPUT,
+    interface_types=(
+        RFOutputInterface,
+        DCSourceInterface,
+        DCMonitorInterface,
+        TemperatureReadoutInterface,
+        NetworkSweepInterface,
+    ),
+    public_types=(Desired, ReferenceSource, SParameter),
+)
+
 
 def _fixture_target() -> GenerationTarget:
-    import_root = str(FIXTURE_IMPORT_ROOT)
-    if import_root not in sys.path:
-        sys.path.insert(0, import_root)
-    declarations = cast(
-        "_FixtureDeclarations",
-        cast("object", import_module("client_codegen_fixture_declarations")),
-    )
-
+    declarations = _fixture_declarations()
     return GenerationTarget(
         output=FIXTURE_OUTPUT,
         surfaces=(clients_for(declarations.ComponentOperationInterface),),
     )
 
 
+def _fixture_catalog_target() -> CatalogTarget:
+    declarations = _fixture_declarations()
+    return CatalogTarget(
+        members_output=FIXTURE_MEMBERS_OUTPUT,
+        interfaces_output=FIXTURE_INTERFACES_OUTPUT,
+        states_output=FIXTURE_STATES_OUTPUT,
+        interface_types=(declarations.CatalogProjectionInterface,),
+        public_types=(declarations.Desired,),
+    )
+
+
+def _fixture_declarations() -> _FixtureDeclarations:
+    import_root = str(FIXTURE_IMPORT_ROOT)
+    if import_root not in sys.path:
+        sys.path.insert(0, import_root)
+    return cast(
+        "_FixtureDeclarations",
+        cast("object", import_module("client_codegen_fixture_declarations")),
+    )
+
+
 def _generation_targets() -> tuple[GenerationTarget, ...]:
     return (PRODUCTION_TARGET, _fixture_target())
+
+
+def _catalog_targets() -> tuple[CatalogTarget, ...]:
+    return (PRODUCTION_CATALOG_TARGET, _fixture_catalog_target())
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +285,25 @@ class _InterfaceModel:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _CatalogInterfaceModel:
+    interface_type: type[object]
+    interface_identity: str
+    interface_type_name: str
+    constant_prefix: str
+    factory_name: str
+    root: DeclaredScopeLayout
+    state_types: tuple[type[object], ...]
+    observed_state_type: type[object] | None
+
+
+@dataclass(frozen=True, slots=True)
+class _MemberProjection:
+    name: str
+    expression: str
+    owner: str
+
+
 class _AnnotationRenderer:
     """Render resolved catalog annotations and collect their direct imports."""
 
@@ -306,6 +387,339 @@ def render_generated_clients() -> str:
     """Render the production generated module for tooling compatibility."""
 
     return render_generation_target(PRODUCTION_TARGET)
+
+
+def render_catalog_target(target: CatalogTarget) -> tuple[tuple[Path, str], ...]:
+    """Render every public projection owned by one interface catalog."""
+
+    models = _catalog_models(target.interface_types)
+    return (
+        (target.members_output, _render_members_module(models)),
+        (target.interfaces_output, _render_interfaces_module(models)),
+        (
+            target.states_output,
+            _render_states_module(models, public_types=target.public_types),
+        ),
+    )
+
+
+def _catalog_models(
+    interface_types: tuple[type[object], ...],
+) -> tuple[_CatalogInterfaceModel, ...]:
+    if not interface_types:
+        raise ClientGenerationError("an interface catalog requires a declaration")
+    models: list[_CatalogInterfaceModel] = []
+    seen_identities: set[str] = set()
+    for interface_type in interface_types:
+        compiled = compile_interface(interface_type)
+        layout = declared_interface_layout(compiled)
+        identity = f"{interface_type.__module__}.{interface_type.__qualname__}"
+        if identity in seen_identities:
+            raise ClientGenerationError(
+                f"interface catalog repeats declaration {identity}"
+            )
+        seen_identities.add(identity)
+        interface_name = interface_type.__name__
+        stem = interface_name.removesuffix("Interface")
+        models.append(
+            _CatalogInterfaceModel(
+                interface_type=interface_type,
+                interface_identity=identity,
+                interface_type_name=interface_name,
+                constant_prefix=_snake_case(stem).upper(),
+                factory_name=f"{_snake_case(stem)}_interface",
+                root=layout.root,
+                state_types=layout.state_types,
+                observed_state_type=(
+                    None
+                    if layout.observed_state is None
+                    else layout.observed_state.state_type
+                ),
+            )
+        )
+    return tuple(models)
+
+
+def _render_members_module(models: tuple[_CatalogInterfaceModel, ...]) -> str:
+    projections = tuple(
+        projection
+        for model in models
+        for projection in _interface_member_projections(model)
+    )
+    _validate_member_projections(projections)
+    imports: dict[str, set[str]] = {
+        "scopecat.sdk.instruments.declarations": {"declared_interface_ref"},
+    }
+    for model in models:
+        imports.setdefault(model.interface_type.__module__, set()).add(
+            model.interface_type_name
+        )
+    declarations = "".join(
+        _render_member_projection(projection) for projection in projections
+    )
+    return (
+        _generated_module_header(
+            "Typed identities generated from the declared instrument interfaces."
+        )
+        + _render_import_block(imports)
+        + "\n"
+        + declarations
+        + _render_all(tuple(projection.name for projection in projections))
+    )
+
+
+def _interface_member_projections(
+    model: _CatalogInterfaceModel,
+) -> tuple[_MemberProjection, ...]:
+    root_name = model.constant_prefix
+    projections = [
+        _MemberProjection(
+            name=root_name,
+            expression=f"declared_interface_ref({model.interface_type_name})",
+            owner=f"{model.interface_identity} interface",
+        )
+    ]
+    _append_scope_member_projections(
+        projections,
+        model.root,
+        scope_name=root_name,
+        owner_prefix=model.interface_identity,
+    )
+    return tuple(projections)
+
+
+def _append_scope_member_projections(
+    projections: list[_MemberProjection],
+    scope: DeclaredScopeLayout,
+    *,
+    scope_name: str,
+    owner_prefix: str,
+) -> None:
+    scope_path = ".".join(scope.python_path) or "<root>"
+    for property_spec in scope.spec.properties:
+        name = _join_constant_name(scope_name, property_spec.id)
+        projections.append(
+            _MemberProjection(
+                name=name,
+                expression=(
+                    f"{scope_name}.property({_string_literal(property_spec.id)})"
+                ),
+                owner=f"{owner_prefix} scope {scope_path} property {property_spec.id}",
+            )
+        )
+    for operation in scope.operations:
+        operation_name = _join_constant_name(
+            scope_name,
+            operation.ref.operation_id,
+        )
+        projections.append(
+            _MemberProjection(
+                name=operation_name,
+                expression=(
+                    f"{scope_name}.operation("
+                    f"{_string_literal(operation.ref.operation_id)})"
+                ),
+                owner=(
+                    f"{owner_prefix} scope {scope_path} operation "
+                    f"{operation.method_name}"
+                ),
+            )
+        )
+        for argument in operation.arguments:
+            argument_name = _join_constant_name(
+                operation_name,
+                argument.ref.argument_id,
+            )
+            projections.append(
+                _MemberProjection(
+                    name=argument_name,
+                    expression=(
+                        f"{operation_name}.argument("
+                        f"{_string_literal(argument.ref.argument_id)})"
+                    ),
+                    owner=(
+                        f"{owner_prefix} scope {scope_path} operation "
+                        f"{operation.method_name} argument {argument.python_name}"
+                    ),
+                )
+            )
+    for acquisition in scope.acquisitions:
+        acquisition_name = _join_constant_name(
+            scope_name,
+            acquisition.method_name,
+        )
+        if acquisition_name == scope_name:
+            acquisition_name = f"{scope_name}_ACQUISITION"
+        projections.append(
+            _MemberProjection(
+                name=acquisition_name,
+                expression=(
+                    f"{scope_name}.acquisition("
+                    f"{_string_literal(acquisition.ref.acquisition_id)})"
+                ),
+                owner=(
+                    f"{owner_prefix} scope {scope_path} acquisition "
+                    f"{acquisition.method_name}"
+                ),
+            )
+        )
+        seen_results: set[object] = set()
+        for result_field in acquisition.result_fields:
+            if result_field.ref in seen_results:
+                continue
+            seen_results.add(result_field.ref)
+            result_name = (
+                f"{_join_constant_name(scope_name, result_field.python_name)}_RESULT"
+            )
+            projections.append(
+                _MemberProjection(
+                    name=result_name,
+                    expression=(
+                        f"{acquisition_name}.result("
+                        f"{_string_literal(result_field.result_id)})"
+                    ),
+                    owner=(
+                        f"{owner_prefix} scope {scope_path} acquisition "
+                        f"{acquisition.method_name} result {result_field.python_name}"
+                    ),
+                )
+            )
+    for component in scope.components:
+        component_id = component.spec.id
+        component_name = _join_constant_name(scope_name, component_id)
+        component_path = ".".join(component.python_path)
+        projections.append(
+            _MemberProjection(
+                name=component_name,
+                expression=f"{scope_name}.component({_string_literal(component_id)})",
+                owner=f"{owner_prefix} component {component_path}",
+            )
+        )
+        _append_scope_member_projections(
+            projections,
+            component,
+            scope_name=component_name,
+            owner_prefix=owner_prefix,
+        )
+
+
+def _validate_member_projections(
+    projections: tuple[_MemberProjection, ...],
+) -> None:
+    owners_by_name: dict[str, list[str]] = {}
+    for projection in projections:
+        owners_by_name.setdefault(projection.name, []).append(projection.owner)
+    collisions = {
+        name: owners for name, owners in owners_by_name.items() if len(owners) > 1
+    }
+    if not collisions:
+        return
+    details = "; ".join(
+        f"{name}: {' vs '.join(owners)}" for name, owners in sorted(collisions.items())
+    )
+    raise ClientGenerationError(f"generated catalog symbol collisions: {details}")
+
+
+def _render_member_projection(projection: _MemberProjection) -> str:
+    compact = f"{projection.name} = {projection.expression}\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    receiver, separator, invocation = projection.expression.rpartition(".")
+    if not separator:
+        return f"{projection.name} = (\n    {projection.expression}\n)\n"
+    method, separator, argument = invocation.partition("(")
+    if not separator or not argument.endswith(")"):
+        raise ClientGenerationError(
+            f"cannot wrap generated member expression {projection.expression!r}"
+        )
+    call_prefix = f"{projection.name} = {receiver}.{method}("
+    if len(call_prefix) <= 88:
+        return f"{call_prefix}\n    {argument[:-1]},\n)\n"
+    return (
+        f"{projection.name} = (\n"
+        f"    {receiver}.{method}(\n"
+        f"        {argument[:-1]},\n"
+        "    )\n"
+        ")\n"
+    )
+
+
+def _render_interfaces_module(models: tuple[_CatalogInterfaceModel, ...]) -> str:
+    owners_by_name: dict[str, list[str]] = {}
+    imports: dict[str, set[str]] = {
+        "scopecat.sdk.instruments": {"InterfaceSpec"},
+        "scopecat.sdk.instruments.declarations": {"compile_interface"},
+    }
+    declarations: list[str] = []
+    for model in models:
+        owners_by_name.setdefault(model.factory_name, []).append(
+            model.interface_identity
+        )
+        imports.setdefault(model.interface_type.__module__, set()).add(
+            model.interface_type_name
+        )
+        declarations.append(
+            "\n\n"
+            f"def {model.factory_name}() -> InterfaceSpec:\n"
+            f"    return compile_interface({model.interface_type_name}).fresh_spec()\n"
+        )
+    collisions = {
+        name: owners for name, owners in owners_by_name.items() if len(owners) > 1
+    }
+    if collisions:
+        details = "; ".join(
+            f"{name}: {' vs '.join(owners)}"
+            for name, owners in sorted(collisions.items())
+        )
+        raise ClientGenerationError(
+            f"generated interface factory collisions: {details}"
+        )
+    return (
+        _generated_module_header(
+            "Vendor-neutral interface factories generated from Python declarations."
+        )
+        + _render_import_block(imports)
+        + "".join(declarations)
+        + "\n"
+        + _render_all(tuple(model.factory_name for model in models))
+    )
+
+
+def _render_states_module(
+    models: tuple[_CatalogInterfaceModel, ...],
+    *,
+    public_types: tuple[object, ...],
+) -> str:
+    exports_by_name: dict[str, tuple[str, str]] = {}
+    candidates: list[object] = [
+        state_type for model in models for state_type in model.state_types
+    ]
+    candidates.extend(
+        model.observed_state_type
+        for model in models
+        if model.observed_state_type is not None
+    )
+    candidates.extend(public_types)
+    for candidate in candidates:
+        module, name = _public_type_location(candidate)
+        existing = exports_by_name.get(name)
+        if existing is not None and existing != (module, name):
+            raise ClientGenerationError(
+                f"generated state export collision {name}: "
+                f"{existing[0]}.{existing[1]} vs {module}.{name}"
+            )
+        exports_by_name[name] = (module, name)
+    imports: dict[str, set[str]] = {}
+    for module, name in exports_by_name.values():
+        imports.setdefault(module, set()).add(name)
+    exports = tuple(sorted(exports_by_name))
+    return (
+        _generated_module_header(
+            "Typed states generated from the declared instrument interfaces."
+        )
+        + _render_reexport_block(imports)
+        + _render_all(exports)
+    )
 
 
 def render_generation_target(target: GenerationTarget) -> str:
@@ -641,6 +1055,30 @@ def _render_header(
     for module, names in renderer.imports.items():
         imports.setdefault(module, set()).update(names)
 
+    return (
+        "# This file was auto-generated by scripts/generate_instrument_clients.py.\n"
+        "# Do not make direct changes to the file.\n"
+        '"""Typed live and symbolic clients generated from interface declarations."""\n'
+        "\n"
+        "from __future__ import annotations\n"
+        "\n"
+        f"{_render_import_block(imports)}"
+    )
+
+
+def _render_from_import(module: str, names: set[str]) -> str:
+    ordered = sorted(names, key=_import_name_key)
+    compact = f"from {module} import {', '.join(ordered)}\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    return (
+        f"from {module} import (\n"
+        + "".join(f"    {name},\n" for name in ordered)
+        + ")\n"
+    )
+
+
+def _render_import_block(imports: dict[str, set[str]]) -> str:
     standard_modules = {"dataclasses", "typing"}
     external_modules = {module for module in imports if module.startswith("scopecat.")}
     local_modules = imports.keys() - standard_modules - external_modules
@@ -656,30 +1094,59 @@ def _render_header(
         _render_from_import(module, imports[module]) for module in sorted(local_modules)
     )
     return (
-        "# This file was auto-generated by scripts/generate_instrument_clients.py.\n"
-        "# Do not make direct changes to the file.\n"
-        '"""Typed live and symbolic clients generated from interface declarations."""\n'
-        "\n"
-        "from __future__ import annotations\n"
-        "\n"
         f"{standard_imports}"
-        f"{'\n' if standard_imports else ''}"
+        f"{'\n' if standard_imports and external_imports else ''}"
         f"{external_imports}"
-        f"{'\n' if external_imports and local_imports else ''}"
+        f"{'\n' if (standard_imports or external_imports) and local_imports else ''}"
         f"{local_imports}"
     )
 
 
-def _render_from_import(module: str, names: set[str]) -> str:
-    ordered = sorted(names, key=_import_name_key)
-    compact = f"from {module} import {', '.join(ordered)}\n"
-    if len(compact.rstrip("\n")) <= 88:
-        return compact
+def _render_reexport_block(imports: dict[str, set[str]]) -> str:
+    sections: list[str] = []
+    for module in sorted(imports):
+        names = sorted(imports[module], key=str.casefold)
+        sections.append(
+            "".join(
+                f"from {module} import (\n    {name} as {name},\n)\n" for name in names
+            )
+        )
+    return "\n".join(sections)
+
+
+def _generated_module_header(description: str) -> str:
     return (
-        f"from {module} import (\n"
-        + "".join(f"    {name},\n" for name in ordered)
-        + ")\n"
+        "# This file was auto-generated by scripts/generate_instrument_clients.py.\n"
+        "# Do not make direct changes to the file.\n"
+        f'"""{description}"""\n'
+        "\n"
+        "from __future__ import annotations\n"
+        "\n"
     )
+
+
+def _render_all(exports: tuple[str, ...]) -> str:
+    return (
+        "\n__all__ = [\n"
+        + "".join(f'    "{name}",\n' for name in sorted(exports))
+        + "]\n"
+    )
+
+
+def _public_type_location(value: object) -> tuple[str, str]:
+    if isinstance(value, TypeAliasType):
+        module = cast("str", value.__module__)
+        name = value.__name__
+    elif isinstance(value, type):
+        module = value.__module__
+        name = value.__qualname__
+    else:
+        raise ClientGenerationError(f"cannot re-export public type {value!r}")
+    if "." in name:
+        raise ClientGenerationError(
+            f"cannot re-export nested public type {module}.{name}"
+        )
+    return module, name
 
 
 def _import_name_key(name: str) -> tuple[int, str]:
@@ -1226,6 +1693,20 @@ def _constant_segment(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").upper()
 
 
+def _string_literal(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _join_constant_name(prefix: str, segment: str) -> str:
+    prefix_parts = prefix.split("_")
+    segment_parts = _constant_segment(segment).split("_")
+    overlap = 0
+    for count in range(1, min(len(prefix_parts), len(segment_parts)) + 1):
+        if prefix_parts[-count:] == segment_parts[:count]:
+            overlap = count
+    return "_".join((*prefix_parts, *segment_parts[overlap:]))
+
+
 def _append_member_separator(body: list[str]) -> None:
     if body and body[-1] != "\n":
         body.append("\n")
@@ -1255,18 +1736,22 @@ def main(argv: list[str] | None = None) -> None:
     )
     options = _Options()
     parser.parse_args(argv, namespace=options)
-    rendered = tuple(
-        (target, render_generation_target(target)) for target in _generation_targets()
+    rendered = (
+        *(
+            (target.output, render_generation_target(target))
+            for target in _generation_targets()
+        ),
+        *(
+            rendered_source
+            for target in _catalog_targets()
+            for rendered_source in render_catalog_target(target)
+        ),
     )
     if options.check:
         stale = tuple(
-            target.output
-            for target, source in rendered
-            if (
-                target.output.read_text(encoding="utf-8")
-                if target.output.is_file()
-                else ""
-            )
+            output
+            for output, source in rendered
+            if (output.read_text(encoding="utf-8") if output.is_file() else "")
             != source
         )
         if stale:
@@ -1274,15 +1759,15 @@ def main(argv: list[str] | None = None) -> None:
                 str(path.relative_to(REPOSITORY_ROOT)) for path in stale
             )
             print(
-                "generated instrument clients are stale "
+                "generated instrument sources are stale "
                 f"({rendered_paths}); run "
                 "`uv run python scripts/generate_instrument_clients.py`",
                 file=sys.stderr,
             )
             raise SystemExit(1)
         return
-    for target, source in rendered:
-        target.output.write_text(source, encoding="utf-8")
+    for output, source in rendered:
+        output.write_text(source, encoding="utf-8")
 
 
 if __name__ == "__main__":

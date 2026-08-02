@@ -116,7 +116,9 @@ signatures. Root-level flat and discriminated declared states both generate
 typed live, symbolic, and grouped state surfaces. The generator manifest refers
 to the decorated interface classes themselves; declaration modules do not need
 parallel compiled constants. Generated state-only clients derive their interface
-refs without compiling a layout at import time.
+refs without compiling a layout at import time. The same pass generates the
+public member-ref catalog, fresh interface factories, and authored state-type
+reexports, so those projections do not need parallel hand-maintained mappings.
 
 Run the generator from the repository root after changing a supported
 declaration, and use its check mode in validation or CI:
@@ -126,8 +128,9 @@ uv run --locked python scripts/generate_instrument_clients.py
 uv run --locked python scripts/generate_instrument_clients.py --check
 ```
 
-Do not edit `_generated_clients.py` directly. The generated source includes
-nested component operation proxies for supported declarations. A live operation
+Do not edit `_generated_clients.py`, `members.py`, `interfaces.py`, or `states.py`
+directly. The generated source includes nested component operation proxies for
+supported declarations. A live operation
 accepts concrete arguments and returns `InvokeReceipt`; the scalar symbolic
 form accepts `Desired[T]` arguments and an `effect_id`. Its group form accepts a
 scalar or `PerEntity` value independently for every argument, performs exact

@@ -50,7 +50,7 @@ def _render_surface(
     )
 
 
-def test_committed_generated_client_source_is_current() -> None:
+def test_committed_generated_instrument_sources_are_current() -> None:
     completed = subprocess.run(  # noqa: S603 - fixed repository script
         [sys.executable, str(GENERATOR), "--check"],
         cwd=REPOSITORY_ROOT,

@@ -302,10 +302,10 @@ compute results cannot size an acquisition product.
 
 An interface author writes the Python shape once, rather than separately
 hand-authoring an `InterfaceSpec` builder, state-to-property mapping, and
-acquisition-result schema. Common top-level member refs are derived from that
-declaration; an importable typed member catalog may still expose those refs to
-drivers. Decorated state and result dataclasses own the field types; a decorated
-`Protocol` or abstract base class owns the typed capability members.
+acquisition-result schema. A generated, importable member catalog exposes refs
+derived from that declaration to drivers. Decorated state and result dataclasses
+own the field types; a decorated `Protocol` or abstract base class owns the
+typed capability members.
 `compile_interface(...)` explicitly lowers that Python declaration to the
 existing `InterfaceSpec` wire contract:
 
@@ -420,8 +420,12 @@ families, plus the source-only `DCSource` live, symbolic single-entity, and grou
 client classes. Generated source also includes applicable observation accessors
 and acquisition result carriers. Root-level flat and discriminated declared
 states both produce typed `apply(...)`, `ensure(...)`, and group state surfaces.
-Regenerate the committed `_generated_clients.py`, or verify that it is current,
-with:
+The same catalog pass writes the public `members.py`, `interfaces.py`, and
+`states.py` projections: refs recurse through components and operations,
+interface factories return fresh wire specs, and state exports preserve the
+authored Python type identities. These projections are generated source rather
+than a second authoring surface.
+Regenerate the committed Python surfaces, or verify that they are current, with:
 
 ```console
 uv run --locked python scripts/generate_instrument_clients.py
