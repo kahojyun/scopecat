@@ -36,9 +36,11 @@ from scopecat.sdk.instruments.declarations import (
 from scopecat_instruments.interface_declarations import (
     DC_MONITOR_ACQUISITION_DECLARATION,
     NETWORK_SWEEP_ACQUISITION_DECLARATION,
+    TEMPERATURE_OBSERVATION_DECLARATION,
     TEMPERATURE_SAMPLE_DECLARATION,
     DCMonitorResults,
     NetworkSweepResults,
+    TemperatureReadoutObservation,
     TemperatureSampleResults,
 )
 from scopecat_instruments.members import (
@@ -202,6 +204,16 @@ class NetworkSweepClient(_DeclaredStateClient[NetworkSweepState]):
 
 
 class TemperatureReadoutClient(_InstrumentClient):
+    def observation(self) -> TemperatureReadoutObservation:
+        return TEMPERATURE_OBSERVATION_DECLARATION.decode(
+            self._session.observed_state(self.instrument_id)
+        )
+
+    def refresh_observation(self) -> TemperatureReadoutObservation:
+        return TEMPERATURE_OBSERVATION_DECLARATION.decode(
+            self._session.read_state(self.instrument_id)
+        )
+
     def sample(self) -> TemperatureReadback:
         return self._collect_declared(
             TEMPERATURE_SAMPLE_DECLARATION,
@@ -457,6 +469,7 @@ __all__ = [
     "SymbolicTemperatureReadoutGroup",
     "TemperatureReadback",
     "TemperatureReadoutClient",
+    "TemperatureReadoutObservation",
     "TemperatureSampleProducts",
     "dc_source",
     "network_sweep",
