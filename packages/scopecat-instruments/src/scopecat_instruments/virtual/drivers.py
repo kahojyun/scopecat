@@ -21,33 +21,24 @@ from scopecat.sdk.instruments import (
 from scopecat_instruments._support import (
     LinearSweepSettings,
     NetworkTrace,
-    execution_problem,
     invoke_unknown,
     quantity_value,
     state_property_problem,
 )
 from scopecat_instruments.driver_handlers import (
     DCMonitorMeasureCurrentDriverReadback,
-    DCMonitorMeasureCurrentDriverResultName,
-    DCMonitorMeasureCurrentDriverValues,
     DCMonitorMeasureVoltageDriverReadback,
-    DCMonitorMeasureVoltageDriverResultName,
-    DCMonitorMeasureVoltageDriverValues,
     DCSourceMonitorDriverAdapter,
     DCSourceMonitorDriverPatch,
     DCSourceMonitorDriverSnapshot,
     NetworkSweepDriverAdapter,
     NetworkSweepDriverSnapshot,
     NetworkSweepSweepDriverReadback,
-    NetworkSweepSweepDriverResultName,
-    NetworkSweepSweepDriverValues,
     RFOutputDriverAdapter,
     RFOutputDriverSnapshot,
     TemperatureReadoutDriverAdapter,
     TemperatureReadoutDriverSnapshot,
     TemperatureReadoutSampleDriverReadback,
-    TemperatureReadoutSampleDriverResultName,
-    TemperatureReadoutSampleDriverValues,
 )
 from scopecat_instruments.driver_states import (
     NetworkSweepDriverPatch,
@@ -286,27 +277,13 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
     @override
     def handle_measure_current(
         self,
-        requested: frozenset[DCMonitorMeasureCurrentDriverResultName],
-        /,
     ) -> DriverOutcome[DCMonitorMeasureCurrentDriverReadback]:
-        if requested != frozenset({"current"}):
-            return DriverRejected(
-                problems=(
-                    execution_problem(
-                        "virtual_dc_monitor_current_result_missing",
-                        "virtual current measurement requires its current result",
-                        "driver_acquisition",
-                        "results",
-                    ),
-                )
-            )
         outcome = self._measure_monitor(expected_mode="voltage")
         if not isinstance(outcome, DriverSuccess):
             return outcome
-        values: DCMonitorMeasureCurrentDriverValues = {"current": outcome.value}
         return DriverSuccess(
             DCMonitorMeasureCurrentDriverReadback(
-                values=values,
+                current=outcome.value,
                 metadata={"mode": "virtual", "world_seed": self.world.seed},
             ),
             metadata=outcome.metadata,
@@ -315,27 +292,13 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
     @override
     def handle_measure_voltage(
         self,
-        requested: frozenset[DCMonitorMeasureVoltageDriverResultName],
-        /,
     ) -> DriverOutcome[DCMonitorMeasureVoltageDriverReadback]:
-        if requested != frozenset({"voltage"}):
-            return DriverRejected(
-                problems=(
-                    execution_problem(
-                        "virtual_dc_monitor_voltage_result_missing",
-                        "virtual voltage measurement requires its voltage result",
-                        "driver_acquisition",
-                        "results",
-                    ),
-                )
-            )
         outcome = self._measure_monitor(expected_mode="current")
         if not isinstance(outcome, DriverSuccess):
             return outcome
-        values: DCMonitorMeasureVoltageDriverValues = {"voltage": outcome.value}
         return DriverSuccess(
             DCMonitorMeasureVoltageDriverReadback(
-                values=values,
+                voltage=outcome.value,
                 metadata={"mode": "virtual", "world_seed": self.world.seed},
             ),
             metadata=outcome.metadata,
@@ -498,26 +461,20 @@ class VirtualTemperatureMonitor(TemperatureReadoutDriverAdapter):
     @override
     def handle_sample(
         self,
-        requested: frozenset[TemperatureReadoutSampleDriverResultName],
-        /,
     ) -> DriverOutcome[TemperatureReadoutSampleDriverReadback]:
         sample = self.read_sample()
-        values: TemperatureReadoutSampleDriverValues = {}
-        if "temperature" in requested:
-            values["temperature"] = MeasurementScalar.create(
-                dtype="float64",
-                unit="K",
-                value=sample.temperature_k,
-            )
-        if "resistance" in requested:
-            values["resistance"] = MeasurementScalar.create(
-                dtype="float64",
-                unit="Ohm",
-                value=sample.resistance_ohm,
-            )
         return DriverSuccess(
             TemperatureReadoutSampleDriverReadback(
-                values=values,
+                temperature=MeasurementScalar.create(
+                    dtype="float64",
+                    unit="K",
+                    value=sample.temperature_k,
+                ),
+                resistance=MeasurementScalar.create(
+                    dtype="float64",
+                    unit="Ohm",
+                    value=sample.resistance_ohm,
+                ),
                 metadata={
                     "mode": "virtual",
                     "world_seed": self.world.seed,
@@ -619,34 +576,28 @@ class VirtualNetworkAnalyzer(NetworkSweepDriverAdapter):
     @override
     def handle_sweep(
         self,
-        requested: frozenset[NetworkSweepSweepDriverResultName],
-        /,
     ) -> DriverOutcome[NetworkSweepSweepDriverReadback]:
         trace = self.acquire_trace()
-        values: NetworkSweepSweepDriverValues = {}
-        if "frequency" in requested:
-            values["frequency"] = MeasurementArray.create(
-                dtype="float64",
-                unit="Hz",
-                shape=[len(trace.frequencies_hz)],
-                values=trace.frequencies_hz,
-            )
-        if "s_parameter" in requested:
-            values["s_parameter"] = MeasurementArray.create(
-                dtype="complex128",
-                unit="ratio",
-                shape=[len(trace.values)],
-                values=[
-                    ComplexComponents(
-                        real=value.real,
-                        imag=value.imag,
-                    )
-                    for value in trace.values
-                ],
-            )
         return DriverSuccess(
             NetworkSweepSweepDriverReadback(
-                values=values,
+                frequency=MeasurementArray.create(
+                    dtype="float64",
+                    unit="Hz",
+                    shape=[len(trace.frequencies_hz)],
+                    values=trace.frequencies_hz,
+                ),
+                s_parameter=MeasurementArray.create(
+                    dtype="complex128",
+                    unit="ratio",
+                    shape=[len(trace.values)],
+                    values=[
+                        ComplexComponents(
+                            real=value.real,
+                            imag=value.imag,
+                        )
+                        for value in trace.values
+                    ],
+                ),
                 metadata={"mode": "virtual", "world_seed": self.world.seed},
             ),
         )

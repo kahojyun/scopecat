@@ -85,6 +85,7 @@ if TYPE_CHECKING:
         state_discriminated_acquisition,
         string_property,
     )
+    from scopecat.sdk.instruments.errors import InstrumentCollectFailure
     from scopecat.sdk.instruments.members import (
         AcquisitionRef,
         AcquisitionResultRef,
@@ -203,6 +204,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InstrumentConnectionKind": (
         "scopecat.sdk.instruments.catalog",
         "InstrumentConnectionKind",
+    ),
+    "InstrumentCollectFailure": (
+        "scopecat.sdk.instruments.errors",
+        "InstrumentCollectFailure",
     ),
     "InstrumentDescription": (
         "scopecat.sdk.instruments.contracts",

@@ -7,7 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal, TypedDict, cast
+from typing import Literal, cast
 
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
@@ -72,30 +72,16 @@ def _unsupported_driver_request(
     )
 
 
-type DriverFixedAcquisitionAcquireDriverResultName = Literal["response"]
-
-
-class DriverFixedAcquisitionAcquireDriverValues(TypedDict, total=False):
-    response: MeasurementValue
-
-
 @dataclass(frozen=True, slots=True)
 class DriverFixedAcquisitionAcquireDriverReadback:
-    values: DriverFixedAcquisitionAcquireDriverValues
+    response: MeasurementValue
     metadata: dict[str, JsonValue] = field(default_factory=dict)
-
-
-type DriverMonitorMonitorDriverResultName = Literal["left", "right"]
-
-
-class DriverMonitorMonitorDriverValues(TypedDict, total=False):
-    left: MeasurementValue
-    right: MeasurementValue
 
 
 @dataclass(frozen=True, slots=True)
 class DriverMonitorMonitorDriverReadback:
-    values: DriverMonitorMonitorDriverValues
+    left: MeasurementValue
+    right: MeasurementValue
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
@@ -255,8 +241,6 @@ class DriverFixedAcquisitionDriverAdapter(ABC):
     @abstractmethod
     def handle_acquire(
         self,
-        requested: frozenset[DriverFixedAcquisitionAcquireDriverResultName],
-        /,
     ) -> DriverOutcome[DriverFixedAcquisitionAcquireDriverReadback]: ...
 
     def read_state(self) -> DriverState:
@@ -284,26 +268,21 @@ class DriverFixedAcquisitionDriverAdapter(ABC):
         request: DriverAcquisition,
     ) -> DriverOutcome[DriverReadback]:
         if request.target == DRIVER_FIXED_ACQUISITION_ACQUIRE:
-            requested_acquire: set[DriverFixedAcquisitionAcquireDriverResultName] = (
-                set()
-            )
             for result in request.results:
-                if result == DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT:
-                    requested_acquire.add("response")
-                else:
+                if result not in (DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT,):
                     return _unsupported_driver_request(
                         self.instrument_id,
                         "acquisition_result",
                         result.result_id,
                     )
-            outcome_acquire = self.handle_acquire(frozenset(requested_acquire))
+            outcome_acquire = self.handle_acquire()
             if not isinstance(outcome_acquire, DriverSuccess):
                 return outcome_acquire
             readback_acquire = outcome_acquire.value
             values_acquire: dict[AcquisitionResultRef, MeasurementValue] = {}
-            if "response" in readback_acquire.values:
+            if DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT in request.results:
                 values_acquire[DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT] = (
-                    readback_acquire.values["response"]
+                    readback_acquire.response
                 )
             return DriverSuccess(
                 DriverReadback(
@@ -410,8 +389,6 @@ class MonitorCompositeDriverAdapter(ABC):
     @abstractmethod
     def handle_monitor(
         self,
-        requested: frozenset[DriverMonitorMonitorDriverResultName],
-        /,
     ) -> DriverOutcome[DriverMonitorMonitorDriverReadback]: ...
 
     def read_state(self) -> DriverState:
@@ -463,31 +440,25 @@ class MonitorCompositeDriverAdapter(ABC):
             request.target == DRIVER_MONITOR_ACQUISITION
             and self._driver_monitor_enabled
         ):
-            requested_monitor: set[DriverMonitorMonitorDriverResultName] = set()
             for result in request.results:
-                if result == DRIVER_MONITOR_LEFT_RESULT:
-                    requested_monitor.add("left")
-                elif result == DRIVER_MONITOR_RIGHT_RESULT:
-                    requested_monitor.add("right")
-                else:
+                if result not in (
+                    DRIVER_MONITOR_LEFT_RESULT,
+                    DRIVER_MONITOR_RIGHT_RESULT,
+                ):
                     return _unsupported_driver_request(
                         self.instrument_id,
                         "acquisition_result",
                         result.result_id,
                     )
-            outcome_monitor = self.handle_monitor(frozenset(requested_monitor))
+            outcome_monitor = self.handle_monitor()
             if not isinstance(outcome_monitor, DriverSuccess):
                 return outcome_monitor
             readback_monitor = outcome_monitor.value
             values_monitor: dict[AcquisitionResultRef, MeasurementValue] = {}
-            if "left" in readback_monitor.values:
-                values_monitor[DRIVER_MONITOR_LEFT_RESULT] = readback_monitor.values[
-                    "left"
-                ]
-            if "right" in readback_monitor.values:
-                values_monitor[DRIVER_MONITOR_RIGHT_RESULT] = readback_monitor.values[
-                    "right"
-                ]
+            if DRIVER_MONITOR_LEFT_RESULT in request.results:
+                values_monitor[DRIVER_MONITOR_LEFT_RESULT] = readback_monitor.left
+            if DRIVER_MONITOR_RIGHT_RESULT in request.results:
+                values_monitor[DRIVER_MONITOR_RIGHT_RESULT] = readback_monitor.right
             return DriverSuccess(
                 DriverReadback(
                     values=values_monitor,
@@ -505,12 +476,8 @@ class MonitorCompositeDriverAdapter(ABC):
 __all__ = [
     "ComponentOperationDriverAdapter",
     "DriverFixedAcquisitionAcquireDriverReadback",
-    "DriverFixedAcquisitionAcquireDriverResultName",
-    "DriverFixedAcquisitionAcquireDriverValues",
     "DriverFixedAcquisitionDriverAdapter",
     "DriverMonitorMonitorDriverReadback",
-    "DriverMonitorMonitorDriverResultName",
-    "DriverMonitorMonitorDriverValues",
     "DriverSourceDriverAdapter",
     "DriverSourceDriverSnapshot",
     "LiteralOperationDriverAdapter",

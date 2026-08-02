@@ -7,7 +7,6 @@ from typing import Annotated, Literal, Protocol
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
     acquisition,
-    acquisition_case,
     argument,
     axis,
     component,
@@ -16,13 +15,11 @@ from scopecat.sdk.instruments.declarations import (
     instrument_observed_state,
     instrument_result,
     instrument_state,
-    interface_discriminator,
     member,
     member_field,
     operation,
     result_field,
     state_case,
-    state_discriminated_acquisition,
 )
 
 
@@ -172,9 +169,9 @@ class DriverMonitorState:
 
 
 @instrument_result
-class DriverMonitorResults[ValueT]:
-    left: ValueT | None = result_field(id="left_value", dtype="float64")
-    right: ValueT | None = result_field(id="right_value", dtype="float64")
+class DriverMonitorResults:
+    left: float = result_field(id="left_value", dtype="float64")
+    right: float = result_field(id="right_value", dtype="float64")
 
 
 @instrument_interface(
@@ -182,22 +179,8 @@ class DriverMonitorResults[ValueT]:
     state=DriverMonitorState,
 )
 class DriverMonitorInterface(Protocol):
-    @state_discriminated_acquisition(
-        interface_discriminator(DriverSourceInterface),
-        cases=(
-            acquisition_case(
-                "left",
-                DriverMonitorResults[float],
-                fields=("left",),
-            ),
-            acquisition_case(
-                "right",
-                DriverMonitorResults[float],
-                fields=("right",),
-            ),
-        ),
-    )
-    def monitor(self) -> DriverMonitorResults[float]: ...
+    @acquisition()
+    def monitor(self) -> DriverMonitorResults: ...
 
 
 @instrument_interface("test.generated_literal_operation/v1")

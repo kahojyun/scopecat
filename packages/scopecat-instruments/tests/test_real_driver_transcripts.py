@@ -932,6 +932,7 @@ def test_lakeshore_372_resistance_does_not_require_a_temperature_curve() -> None
             ScriptedExchange.query("SCAN?", "5,0"),
             ScriptedExchange.query("RDGSTL?", "0,0"),
             ScriptedExchange.query("SCAN?", "5,0"),
+            ScriptedExchange.query("INCRV? 5", "0"),
             ScriptedExchange.query("SRDG? 5", "+6.720000E+03"),
             ScriptedExchange.query("RDGST? 5", "0"),
             ScriptedExchange.query("RDGSTL?", "0,0"),
@@ -947,7 +948,7 @@ def test_lakeshore_372_resistance_does_not_require_a_temperature_curve() -> None
         )
     )
 
-    assert "curve_number" not in _readback(receipt).metadata
+    assert _readback(receipt).metadata["curve_number"] == 0
     transport.assert_complete()
 
 
@@ -960,6 +961,7 @@ def test_lakeshore_372_retries_when_autoscan_changes_channel() -> None:
             ScriptedExchange.query("SCAN?", "5,1"),
             ScriptedExchange.query("RDGSTL?", "0,0"),
             ScriptedExchange.query("SCAN?", "5,1"),
+            ScriptedExchange.query("INCRV? 5", "0"),
             ScriptedExchange.query("SRDG? 5", "+6.720000E+03"),
             ScriptedExchange.query("RDGST? 5", "0"),
             ScriptedExchange.query("RDGSTL?", "0,0"),
@@ -1054,6 +1056,7 @@ def test_lakeshore_372_explicit_overload_status_is_preserved() -> None:
             ScriptedExchange.query("SCAN?", "5,0"),
             ScriptedExchange.query("RDGSTL?", "0,0"),
             ScriptedExchange.query("SCAN?", "5,0"),
+            ScriptedExchange.query("INCRV? 5", "0"),
             ScriptedExchange.query("SRDG? 5", "+1.000000E+08"),
             ScriptedExchange.query("RDGST? 5", "8"),
             ScriptedExchange.query("RDGSTL?", "0,0"),

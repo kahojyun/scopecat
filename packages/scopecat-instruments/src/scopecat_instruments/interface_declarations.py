@@ -107,10 +107,10 @@ class DCMonitorState:
 
 
 @instrument_result
-class DCMonitorCurrentResults[ValueT]:
+class DCMonitorCurrentResults:
     """Current measurement produced while the source is in voltage mode."""
 
-    current: ValueT = result_field(
+    current: float = result_field(
         id="monitored_current",
         dtype="float64",
         unit="A",
@@ -120,10 +120,10 @@ class DCMonitorCurrentResults[ValueT]:
 
 
 @instrument_result
-class DCMonitorVoltageResults[ValueT]:
+class DCMonitorVoltageResults:
     """Voltage measurement produced while the source is in current mode."""
 
-    voltage: ValueT = result_field(
+    voltage: float = result_field(
         id="monitored_voltage",
         dtype="float64",
         unit="V",
@@ -143,13 +143,13 @@ class DCMonitorInterface(Protocol):
         label="Measure current",
         description="Measure current while the source is operating in voltage mode.",
     )
-    def measure_current(self) -> DCMonitorCurrentResults[float]: ...
+    def measure_current(self) -> DCMonitorCurrentResults: ...
 
     @acquisition(
         label="Measure voltage",
         description="Measure voltage while the source is operating in current mode.",
     )
-    def measure_voltage(self) -> DCMonitorVoltageResults[float]: ...
+    def measure_voltage(self) -> DCMonitorVoltageResults: ...
 
 
 @instrument_observed_state
@@ -169,16 +169,16 @@ class TemperatureReadoutObservation:
 
 
 @instrument_result
-class TemperatureSampleResults[ValueT]:
-    """Temperature sample fields reusable across acquisition runtimes."""
+class TemperatureSampleResults:
+    """Successful temperature sample values."""
 
-    temperature: ValueT = result_field(
+    temperature: float = result_field(
         dtype="float64",
         unit="K",
         label="Temperature",
         description="Current scan-channel temperature.",
     )
-    resistance: ValueT = result_field(
+    resistance: float = result_field(
         dtype="float64",
         unit="Ohm",
         label="Resistance",
@@ -200,7 +200,7 @@ class TemperatureReadoutInterface(Protocol):
         label="Sample sensor",
         description="Read a settled sample from one coherent scan channel.",
     )
-    def sample(self) -> TemperatureSampleResults[float]: ...
+    def sample(self) -> TemperatureSampleResults: ...
 
 
 @instrument_state
@@ -272,17 +272,17 @@ class NetworkSweepState:
 
 
 @instrument_result
-class NetworkSweepResults[FrequencyT, SParameterT]:
-    """Network sweep fields reusable across acquisition runtimes."""
+class NetworkSweepResults:
+    """Successful network sweep values."""
 
-    frequency: FrequencyT = result_field(
+    frequency: list[float] = result_field(
         dtype="float64",
         unit="Hz",
         axes=("frequency",),
         label="Frequency",
         description="Stimulus frequency values for the acquired trace.",
     )
-    s_parameter: SParameterT = result_field(
+    s_parameter: list[complex] = result_field(
         dtype="complex128",
         unit="ratio",
         axes=("frequency",),
@@ -311,7 +311,7 @@ class NetworkSweepInterface(Protocol):
             )
         },
     )
-    def sweep(self) -> NetworkSweepResults[list[float], list[complex]]: ...
+    def sweep(self) -> NetworkSweepResults: ...
 
 
 __all__ = [

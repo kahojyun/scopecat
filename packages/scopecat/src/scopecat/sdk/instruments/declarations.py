@@ -2326,15 +2326,10 @@ def _compile_results(
     axes: Mapping[str, AcquisitionAxisSpec],
     selected_fields: Sequence[str] | None = None,
 ) -> list[AcquisitionResultSpec]:
-    result_class = get_origin(result_type) or result_type
-    if not isinstance(result_class, type) or not getattr(
-        result_class,
-        _RESULT_METADATA,
-        False,
-    ):
-        raise TypeError(
-            f"acquisition {acquisition_id!r} must return an instrument result dataclass"
-        )
+    result_class = _require_concrete_result_class(
+        result_type,
+        acquisition_id=acquisition_id,
+    )
     if not is_dataclass(result_class):
         raise TypeError("instrument result must be a dataclass")
     hints = cast(
@@ -2359,6 +2354,13 @@ def _compile_results(
         if annotation is None:
             raise TypeError(f"result field {result_field.name!r} must be annotated")
         base, annotated_metadata = _split_annotation(annotation, ResultMetadata)
+        base = _expand_concrete_alias(base)
+        if _is_optional_union(base):
+            raise TypeError(
+                f"acquisition {acquisition_id!r} result field {field_name!r} "
+                "cannot be optional; a successful acquisition must provide every "
+                "declared result"
+            )
         metadata = (
             _declared_field_metadata(result_field, ResultMetadata)
             or annotated_metadata
@@ -2383,8 +2385,43 @@ def _compile_results(
     return compiled
 
 
+def _require_concrete_result_class(
+    result_type: object,
+    *,
+    acquisition_id: str,
+) -> type[object]:
+    result_origin = get_origin(result_type)
+    if isinstance(result_origin, type) and getattr(
+        result_origin, _RESULT_METADATA, False
+    ):
+        raise TypeError(
+            f"acquisition {acquisition_id!r} cannot return a parameterized "
+            "instrument result; instrument result classes must not be generic"
+        )
+    if not isinstance(result_type, type) or not getattr(
+        result_type,
+        _RESULT_METADATA,
+        False,
+    ):
+        raise TypeError(
+            f"acquisition {acquisition_id!r} must return an instrument result dataclass"
+        )
+    type_parameters = cast(
+        "tuple[object, ...]",
+        getattr(result_type, "__type_params__", ()),
+    ) or cast(
+        "tuple[object, ...]",
+        getattr(result_type, "__parameters__", ()),
+    )
+    if type_parameters:
+        raise TypeError(
+            f"instrument result {result_type.__qualname__!r} must not be generic"
+        )
+    return result_type
+
+
 def _infer_result_dtype(annotation: object) -> MeasurementDType:
-    annotation = _strip_optional(_expand_concrete_alias(annotation))
+    annotation = _expand_concrete_alias(annotation)
     origin = get_origin(annotation)
     if origin in (list, Sequence):
         arguments = cast("tuple[object, ...]", get_args(annotation))
@@ -2498,16 +2535,13 @@ def _substitute_type_parameters(
     raise TypeError(f"unsupported generic concrete alias value {annotation!r}")
 
 
-def _strip_optional(annotation: object) -> object:
-    if get_origin(annotation) is not UnionType:
-        return annotation
-    arguments = cast("tuple[object, ...]", get_args(annotation))
-    if NoneType not in arguments:
-        return annotation
-    remaining = tuple(item for item in arguments if item is not NoneType)
-    if len(remaining) != 1:
-        raise TypeError(f"unsupported union annotation {annotation!r}")
-    return remaining[0]
+def _is_optional_union(annotation: object) -> bool:
+    origin = get_origin(annotation)
+    is_union = origin is UnionType or (
+        getattr(origin, "__module__", None) == "typing"
+        and getattr(origin, "__qualname__", None) == "Union"
+    )
+    return is_union and NoneType in get_args(annotation)
 
 
 def _declared_members(interface_type: type[object]) -> Mapping[str, object]:

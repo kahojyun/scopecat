@@ -39,8 +39,6 @@ from scopecat_instruments.driver_handlers import (
     NetworkSweepDriverAdapter,
     NetworkSweepDriverSnapshot,
     NetworkSweepSweepDriverReadback,
-    NetworkSweepSweepDriverResultName,
-    NetworkSweepSweepDriverValues,
 )
 from scopecat_instruments.driver_states import NetworkSweepDriverPatch
 from scopecat_instruments.interface_declarations import (
@@ -136,37 +134,29 @@ class KeysightE5080B(NetworkSweepDriverAdapter):
             return apply_unknown(self.instrument_id, error)
 
     @override
-    def handle_sweep(
-        self,
-        requested: frozenset[NetworkSweepSweepDriverResultName],
-        /,
-    ) -> DriverOutcome[NetworkSweepSweepDriverReadback]:
+    def handle_sweep(self) -> DriverOutcome[NetworkSweepSweepDriverReadback]:
         try:
             trace = self.acquire_trace()
-            values: NetworkSweepSweepDriverValues = {}
-            if "frequency" in requested:
-                values["frequency"] = MeasurementArray.create(
-                    dtype="float64",
-                    unit="Hz",
-                    shape=[len(trace.frequencies_hz)],
-                    values=trace.frequencies_hz,
-                )
-            if "s_parameter" in requested:
-                values["s_parameter"] = MeasurementArray.create(
-                    dtype="complex128",
-                    unit="ratio",
-                    shape=[len(trace.values)],
-                    values=[
-                        ComplexComponents(
-                            real=value.real,
-                            imag=value.imag,
-                        )
-                        for value in trace.values
-                    ],
-                )
             return DriverSuccess(
                 NetworkSweepSweepDriverReadback(
-                    values=values,
+                    frequency=MeasurementArray.create(
+                        dtype="float64",
+                        unit="Hz",
+                        shape=[len(trace.frequencies_hz)],
+                        values=trace.frequencies_hz,
+                    ),
+                    s_parameter=MeasurementArray.create(
+                        dtype="complex128",
+                        unit="ratio",
+                        shape=[len(trace.values)],
+                        values=[
+                            ComplexComponents(
+                                real=value.real,
+                                imag=value.imag,
+                            )
+                            for value in trace.values
+                        ],
+                    ),
                     metadata={
                         "manufacturer": "Keysight",
                         "model": "E5080B",

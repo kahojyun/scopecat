@@ -388,7 +388,7 @@ class _AcquisitionModel:
     method_name: str
     descriptor_name: str
     result_type_name: str
-    result_type_arguments: int
+    result_field_names: tuple[str, ...]
     readback_name: str
     products_name: str
 
@@ -1434,10 +1434,9 @@ def _render_driver_handlers_module(
             "PropertyRef",
         },
         "scopecat.sdk.problems": {"ProblemPhase", "model_location", "problem"},
-        "typing": {"Literal", "TypedDict"},
     }
     if has_operation_arguments:
-        imports["typing"].add("cast")
+        imports.setdefault("typing", set()).add("cast")
     if has_payload_arguments:
         imports["scopecat.sdk.instruments"].add("DriverPayload")
     member_imports: set[str] = set()
@@ -1460,13 +1459,7 @@ def _render_driver_handlers_module(
                     )
                     acquisition_models[acquisition.ref] = model
                     declarations.append(_render_driver_acquisition_types(model))
-                    exports.extend(
-                        (
-                            f"{model.type_stem}DriverReadback",
-                            f"{model.type_stem}DriverResultName",
-                            f"{model.type_stem}DriverValues",
-                        )
-                    )
+                    exports.append(f"{model.type_stem}DriverReadback")
 
     for surface in surfaces:
         rendered, surface_exports = _render_driver_adapter(
@@ -1539,24 +1532,14 @@ def _driver_acquisition_model(
 
 
 def _render_driver_acquisition_types(model: _DriverAcquisitionModel) -> str:
-    result_type = f"{model.type_stem}DriverResultName"
-    values_type = f"{model.type_stem}DriverValues"
     readback_type = f"{model.type_stem}DriverReadback"
-    literal = (
-        "Literal["
-        + ", ".join(_string_literal(field.python_name) for field in model.fields)
-        + "]"
-    )
     values = "".join(
         f"    {field.python_name}: MeasurementValue\n" for field in model.fields
     )
     return (
-        f"\n\ntype {result_type} = {literal}\n"
-        f"\n\nclass {values_type}(TypedDict, total=False):\n"
-        f"{values}"
         "\n\n@dataclass(frozen=True, slots=True)\n"
         f"class {readback_type}:\n"
-        f"    values: {values_type}\n"
+        f"{values}"
         "    metadata: dict[str, JsonValue] = field(default_factory=dict)\n"
     )
 
@@ -1856,8 +1839,6 @@ def _render_driver_acquisition_hook(model: _DriverAcquisitionModel) -> str:
         "    @abstractmethod\n"
         f"    def {model.hook_name}(\n"
         "        self,\n"
-        f"        requested: frozenset[{model.type_stem}DriverResultName],\n"
-        "        /,\n"
         f"    ) -> DriverOutcome[{model.type_stem}DriverReadback]: ...\n"
     )
 
@@ -2094,7 +2075,6 @@ def _render_adapter_collect(
     ]
     for model in models:
         variable_suffix = model.hook_name.removeprefix("handle_")
-        requested_name = f"requested_{variable_suffix}"
         outcome_name = f"outcome_{variable_suffix}"
         readback_name = f"readback_{variable_suffix}"
         values_name = f"values_{variable_suffix}"
@@ -2117,55 +2097,32 @@ def _render_adapter_collect(
             lines.extend(
                 ("        if (\n", f"            {condition}\n", "        ):\n")
             )
-        requested_declaration = (
-            f"            {requested_name}: "
-            f"set[{model.type_stem}DriverResultName] = set()\n"
-        )
-        if len(requested_declaration.rstrip("\n")) <= 88:
-            lines.append(requested_declaration)
+        lines.append("            for result in request.results:\n")
+        if len(model.fields) == 1:
+            lines.append(
+                f"                if result not in ({model.fields[0].member_name},):\n"
+            )
         else:
             lines.extend(
                 (
-                    f"            {requested_name}: "
-                    f"set[{model.type_stem}DriverResultName] = (\n",
-                    "                set()\n",
-                    "            )\n",
-                )
-            )
-        lines.append("            for result in request.results:\n")
-        for index, field in enumerate(model.fields):
-            keyword = "if" if index == 0 else "elif"
-            lines.extend(
-                (
-                    f"                {keyword} result == {field.member_name}:\n",
-                    f"                    {requested_name}.add("
-                    f"{_string_literal(field.python_name)})\n",
+                    "                if result not in (\n",
+                    *(
+                        f"                    {field.member_name},\n"
+                        for field in model.fields
+                    ),
+                    "                ):\n",
                 )
             )
         lines.extend(
             (
-                "                else:\n",
                 "                    return _unsupported_driver_request(\n",
                 "                        self.instrument_id,\n",
                 '                        "acquisition_result",\n',
                 "                        result.result_id,\n",
                 "                    )\n",
+                f"            {outcome_name} = self.{model.hook_name}()\n",
             )
         )
-        outcome_call = (
-            f"            {outcome_name} = self.{model.hook_name}("
-            f"frozenset({requested_name}))\n"
-        )
-        if len(outcome_call.rstrip("\n")) <= 88:
-            lines.append(outcome_call)
-        else:
-            lines.extend(
-                (
-                    f"            {outcome_name} = self.{model.hook_name}(\n",
-                    f"                frozenset({requested_name})\n",
-                    "            )\n",
-                )
-            )
         lines.extend(
             (
                 f"            if not isinstance({outcome_name}, DriverSuccess):\n",
@@ -2176,36 +2133,21 @@ def _render_adapter_collect(
             )
         )
         for field in model.fields:
-            field_literal = _string_literal(field.python_name)
-            lines.append(f"            if {field_literal} in {readback_name}.values:\n")
+            lines.append(f"            if {field.member_name} in request.results:\n")
             assignment = (
                 f"                {values_name}[{field.member_name}] = "
-                f"{readback_name}.values[{field_literal}]\n"
+                f"{readback_name}.{field.python_name}\n"
             )
             if len(assignment.rstrip("\n")) <= 88:
                 lines.append(assignment)
             else:
-                split_index = (
-                    f"                {values_name}[{field.member_name}] = "
-                    f"{readback_name}.values["
+                lines.extend(
+                    (
+                        f"                {values_name}[{field.member_name}] = (\n",
+                        f"                    {readback_name}.{field.python_name}\n",
+                        "                )\n",
+                    )
                 )
-                if len(split_index) <= 88:
-                    lines.extend(
-                        (
-                            f"{split_index}\n",
-                            f"                    {field_literal}\n",
-                            "                ]\n",
-                        )
-                    )
-                else:
-                    lines.extend(
-                        (
-                            f"                {values_name}[{field.member_name}] = (\n",
-                            f"                    {readback_name}.values["
-                            f"{field_literal}]\n",
-                            "                )\n",
-                        )
-                    )
         lines.extend(
             (
                 "            return DriverSuccess(\n",
@@ -2640,7 +2582,7 @@ def render_client_module(
         _render_interface_refs(models),
         _render_descriptors(models),
     ]
-    rendered_result_types: set[tuple[str, str, str, int]] = set()
+    rendered_result_types: set[tuple[str, str, tuple[str, ...]]] = set()
     for model in models:
         sections.extend(
             (
@@ -3118,7 +3060,6 @@ def _scope_model(
             python_path=scope.python_path,
             constant_prefix=constant_prefix,
             overrides=overrides,
-            renderer=renderer,
         )
         for acquisition in scope.acquisitions
     )
@@ -3189,11 +3130,10 @@ def _acquisition_model(
     python_path: tuple[str, ...],
     constant_prefix: str,
     overrides: dict[str, str],
-    renderer: _AnnotationRenderer,
 ) -> _AcquisitionModel:
     result_alias = acquisition.layouts[0].result_type
     result_type = cast("type[object]", get_origin(result_alias) or result_alias)
-    result_type_name = renderer.reference(result_type)
+    result_type_name = result_type.__name__
     result_stem = result_type_name.removesuffix("Results")
     method_name = acquisition.method_name
     override_prefix = ".".join((*python_path, method_name))
@@ -3205,7 +3145,9 @@ def _acquisition_model(
             method_name,
         ),
         result_type_name=result_type_name,
-        result_type_arguments=len(get_args(result_alias)),
+        result_field_names=tuple(
+            dict.fromkeys(field.python_name for field in acquisition.result_fields)
+        ),
         readback_name=overrides.get(
             f"{override_prefix}.readback",
             f"{result_stem}Readback",
@@ -3690,7 +3632,7 @@ def _render_client_ref_argument(expression: str, *, indent: int) -> str:
 def _render_result_types(
     model: _InterfaceModel,
     *,
-    rendered: set[tuple[str, str, str, int]],
+    rendered: set[tuple[str, str, tuple[str, ...]]],
 ) -> str:
     sections: list[str] = []
     for scope in _walk_scopes(model.root):
@@ -3698,50 +3640,37 @@ def _render_result_types(
             identity = (
                 item.readback_name,
                 item.products_name,
-                item.result_type_name,
-                item.result_type_arguments,
+                item.result_field_names,
             )
             if identity in rendered:
                 continue
             rendered.add(identity)
-            live_arguments = _type_arguments(
-                "MeasurementValue | None",
-                count=item.result_type_arguments,
+            readback_fields = "".join(
+                f"    {field_name}: MeasurementValue\n"
+                for field_name in item.result_field_names
             )
-            product_arguments = _type_arguments(
-                "ProductRef",
-                count=item.result_type_arguments,
-            )
-            readback_declaration = _render_inherited_class_declaration(
-                item.readback_name,
-                f"{item.result_type_name}{live_arguments}",
-            )
-            products_declaration = _render_inherited_class_declaration(
-                item.products_name,
-                f"{item.result_type_name}{product_arguments}",
+            product_fields = "".join(
+                f"    {field_name}: ProductRef\n"
+                for field_name in item.result_field_names
             )
             sections.append(
                 "\n\n"
                 "@dataclass(frozen=True, slots=True)\n"
-                f"{readback_declaration}"
+                f"class {item.readback_name}:\n"
                 f'    """Named {item.method_name} results plus their effect '
                 'receipt."""\n'
                 "\n"
+                f"{readback_fields}"
                 "    receipt: CollectReceipt = field(repr=False)\n"
                 "\n\n"
                 "@dataclass(frozen=True, slots=True)\n"
-                f"{products_declaration}"
+                f"class {item.products_name}:\n"
                 f'    """Typed logical products produced by '
                 f'{item.method_name}."""\n'
+                "\n"
+                f"{product_fields}"
             )
     return "".join(sections)
-
-
-def _render_inherited_class_declaration(name: str, base: str) -> str:
-    compact = f"class {name}({base}):\n"
-    if len(compact.rstrip("\n")) <= 88:
-        return compact
-    return f"class {name}(\n    {base}\n):\n"
 
 
 def _render_keyword_projection_method(
@@ -4445,12 +4374,6 @@ def _join_constant_name(prefix: str, segment: str) -> str:
 def _append_member_separator(body: list[str]) -> None:
     if body and body[-1] != "\n":
         body.append("\n")
-
-
-def _type_arguments(annotation: str, *, count: int) -> str:
-    if count == 0:
-        return ""
-    return f"[{', '.join(annotation for _ in range(count))}]"
 
 
 def _pascal_case(name: str) -> str:

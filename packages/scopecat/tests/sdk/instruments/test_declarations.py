@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import typing
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError, fields, is_dataclass
@@ -116,6 +117,39 @@ type ModeAlias = Literal["once", "loop"]
 @instrument_result
 class AliasedScalarResults:
     value: ConcreteAlias[float] = result_field()
+
+
+@instrument_result
+class GenericScalarResults[ValueT]:
+    value: ValueT = result_field()
+
+
+@instrument_result
+class OptionalScalarResults:
+    value: Annotated[float | None, result(unit="V")]
+
+
+@instrument_result
+class TypingOptionalScalarResults:
+    value: typing.Optional[float]  # pyright: ignore[reportDeprecated]  # noqa: UP045
+
+
+@instrument_interface("test.invalid_parameterized_result/v1")
+class ParameterizedGenericResultContract(Protocol):
+    @acquisition()
+    def sample(self) -> GenericScalarResults[float]: ...
+
+
+@instrument_interface("test.invalid_optional_result/v1")
+class OptionalResultContract(Protocol):
+    @acquisition()
+    def sample(self) -> OptionalScalarResults: ...
+
+
+@instrument_interface("test.invalid_typing_optional_result/v1")
+class TypingOptionalResultContract(Protocol):
+    @acquisition()
+    def sample(self) -> TypingOptionalScalarResults: ...
 
 
 @instrument_state
@@ -258,15 +292,13 @@ class MonitorState:
 
 @instrument_result
 class MonitorResults:
-    current: float | None = result_field(
-        default=None,
+    current: float = result_field(
         id="monitored_current",
         unit="A",
         label="Current",
         description="Measured current.",
     )
-    voltage: float | None = result_field(
-        default=None,
+    voltage: float = result_field(
         id="monitored_voltage",
         unit="V",
         label="Voltage",
@@ -1147,6 +1179,44 @@ def test_state_declarations_reject_symbolic_and_optional_wrappers() -> None:
 
     with pytest.raises(TypeError, match="uses unsupported annotation"):
         compile_interface(InvalidWrappedState)
+
+
+def test_acquisition_rejects_parameterized_generic_result_types() -> None:
+    with pytest.raises(
+        TypeError,
+        match="cannot return a parameterized instrument result",
+    ):
+        compile_interface(ParameterizedGenericResultContract)
+
+
+def test_acquisition_rejects_bare_generic_result_classes() -> None:
+    @instrument_interface("test.invalid_generic_result/v1")
+    class InvalidGenericResult(Protocol):
+        @state_discriminated_acquisition(
+            interface_discriminator(SourceContract),
+            cases=(acquisition_case("voltage", GenericScalarResults),),
+        )
+        def sample(self) -> ScalarResults: ...
+
+    with pytest.raises(TypeError, match=r"instrument result .* must not be generic"):
+        compile_interface(InvalidGenericResult)
+
+
+def test_acquisition_rejects_optional_result_fields() -> None:
+    with pytest.raises(
+        TypeError,
+        match=(
+            "result field 'value' cannot be optional; a successful acquisition "
+            "must provide every declared result"
+        ),
+    ):
+        compile_interface(OptionalResultContract)
+
+    with pytest.raises(
+        TypeError,
+        match="result field 'value' cannot be optional",
+    ):
+        compile_interface(TypingOptionalResultContract)
 
 
 def test_discriminated_cases_must_inherit_their_common_state() -> None:

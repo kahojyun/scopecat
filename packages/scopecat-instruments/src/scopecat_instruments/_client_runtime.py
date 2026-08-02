@@ -11,6 +11,7 @@ from scopecat.api._instruments import (
     OperationArgumentValue,
 )
 from scopecat.daemon.wire import InstrumentConfiguredDefaultsApplyReceipt
+from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.kernel.value_types import ValueType
 from scopecat.kernel.value_validation import coerce_literal
@@ -20,6 +21,7 @@ from scopecat.sdk.instruments import (
     AcquisitionRef,
     AcquisitionResultRef,
     ApplyReceipt,
+    InstrumentCollectFailure,
     InstrumentDescription,
     InvokeReceipt,
     OperationArgumentRef,
@@ -30,6 +32,7 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments.declarations import (
     state_projection_assignments,
 )
+from scopecat.sdk.problems import ProblemPhase, model_location, problem
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,11 +199,40 @@ class InstrumentClientBase:
             *requested_results,
             instrument_id=self.instrument_id,
         )
+        if receipt.status != "collected":
+            raise InstrumentCollectFailure(receipt)
         readback = receipt.readback
-        values = {
-            field.python_name: (
-                None if readback is None else readback.values.get(field.result_id)
+        if readback is None:
+            raise AssertionError("validated collected receipt must contain readback")
+        missing = tuple(
+            field
+            for field in acquisition.result_fields
+            if field.result_id not in readback.values
+        )
+        if missing:
+            raise ProviderContractError(
+                tuple(
+                    problem(
+                        "instrument_collect_result_missing",
+                        "collected readback is missing requested result "
+                        f"{field.result_id!r}",
+                        phase=ProblemPhase.EXECUTION,
+                        location=model_location(
+                            "collect_receipt",
+                            "readback",
+                            "values",
+                            field.result_id,
+                        ),
+                        details={
+                            "acquisition_id": acquisition.ref.acquisition_id,
+                            "result_id": field.result_id,
+                        },
+                    )
+                    for field in missing
+                )
             )
+        values = {
+            field.python_name: readback.values[field.result_id]
             for field in acquisition.result_fields
         }
         return output_factory(receipt=receipt, **values)

@@ -42,7 +42,12 @@ statically known client inside the daemon-owned session. Generated keyword
 signatures keep property names, concrete Python value types, and explicit field
 presence correlated; reusable generated patches remain available when a state
 transition should be composed or passed around. Acquisition clients return
-named readback fields. The lower-level member catalog continues to carry
+complete named readback fields on success. A rejected collection raises
+`InstrumentCollectFailure` with the original receipt and whether non-execution
+is known or the outcome is indeterminate; the lower-level channel still returns
+the receipt directly. `MeasurementUnavailable` remains a valid field value when
+the acquisition succeeded but a measurement itself was unavailable. The
+lower-level member catalog continues to carry
 interface, component, and member identity for drivers and experiment lowering.
 
 Read-only declarations also return named state instead of forcing callers to
@@ -314,8 +319,8 @@ sessions.
 The worker exchanges generic `DriverState`, `DriverStatePatch`,
 `DriverOperation`, `DriverAcquisition`, and `DriverReadback` values with generated
 adapters. A concrete driver receives typed patches or composite patches, decoded
-operation arguments, and typed acquisition result-name sets, and returns typed
-snapshots or readbacks inside `DriverSuccess`, `DriverRejected`, or
+operation arguments, and one fixed hook per acquisition, and returns complete
+typed snapshots or readbacks inside `DriverSuccess`, `DriverRejected`, or
 `DriverUnknown`. Adapters own generic envelopes and ref mapping; SCPI sequencing,
 temporary output or measurement changes, hardware-profile checks, and
 device-specific validation remain driver policy.

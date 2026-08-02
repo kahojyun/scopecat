@@ -25,6 +25,7 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
 )
+from scopecat.kernel.errors import ProviderContractError
 from scopecat.records.instrument import (
     InstrumentReadback,
     InstrumentStateSnapshot,
@@ -32,14 +33,15 @@ from scopecat.records.instrument import (
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     CollectReceipt,
+    InstrumentCollectFailure,
     InstrumentDescription,
     InterfaceRef,
     interface,
 )
 from scopecat.sdk.instruments.commands import InteractiveCollectIntent
+from scopecat.sdk.problems import ProblemPhase, problem
 
 from scopecat_instruments import (
-    NetworkSweepReadback,
     TemperatureReadback,
     network_sweep,
     temperature_readout,
@@ -78,6 +80,7 @@ class _CollectingDaemon(DaemonClient):
         lease_duration: timedelta = _DEFAULT_LEASE_DURATION,
         initial_renewed_at: datetime | None = None,
         readback: InstrumentReadback | None = None,
+        collect_receipt: CollectReceipt | None = None,
     ) -> None:
         super().__init__("http://unused.test")
         self.description = description
@@ -85,6 +88,7 @@ class _CollectingDaemon(DaemonClient):
         self.lease_duration = lease_duration
         self.initial_renewed_at = initial_renewed_at
         self.readback = InstrumentReadback() if readback is None else readback
+        self.collect_receipt = collect_receipt
         self.state_reads = 0
         self.collect_intent: InteractiveCollectIntent | None = None
 
@@ -129,7 +133,7 @@ class _CollectingDaemon(DaemonClient):
         assert session_id == "session-1"
         assert instrument_id == self.description.instrument_id
         self.collect_intent = intent
-        return CollectReceipt(readback=self.readback)
+        return self.collect_receipt or CollectReceipt(readback=self.readback)
 
     @override
     def close_instrument_session(
@@ -617,7 +621,7 @@ def test_notebook_collect_sends_explicit_result_identity() -> None:
     assert daemon.collect_intent.result_ids == [DC_MONITOR_CURRENT_RESULT.result_id]
 
 
-def test_declared_live_client_maps_named_results_and_requests_the_layout() -> None:
+def test_declared_live_client_rejects_incomplete_provider_readback() -> None:
     description = InstrumentDescription(
         instrument_id="readout",
         implementation_id="tests.network_sweep",
@@ -632,14 +636,19 @@ def test_declared_live_client_maps_named_results_and_requests_the_layout() -> No
     handle = LabInstrumentOperations(daemon, operator="test").open(target)
 
     try:
-        readback = assert_type(handle[target].sweep(), NetworkSweepReadback)
+        with pytest.raises(
+            ProviderContractError,
+            match="missing requested result 'frequency'",
+        ) as raised:
+            handle[target].sweep()
     finally:
         handle.close()
         daemon.close()
 
-    assert readback.receipt.status == "collected"
-    assert readback.frequency is None
-    assert readback.s_parameter is None
+    assert [item.code for item in raised.value.problems] == [
+        "instrument_collect_result_missing",
+        "instrument_collect_result_missing",
+    ]
     assert daemon.collect_intent is not None
     assert daemon.collect_intent.acquisition_id == (
         NETWORK_SWEEP_ACQUISITION.acquisition_id
@@ -648,6 +657,68 @@ def test_declared_live_client_maps_named_results_and_requests_the_layout() -> No
         NETWORK_SWEEP_FREQUENCY_RESULT.result_id,
         NETWORK_SWEEP_S_PARAMETER_RESULT.result_id,
     ]
+
+
+@pytest.mark.parametrize(
+    ("receipt", "certainty"),
+    (
+        pytest.param(
+            CollectReceipt(
+                status="not_collected",
+                problems=(
+                    problem(
+                        "instrument_unavailable",
+                        "instrument was unavailable",
+                        phase=ProblemPhase.EXECUTION,
+                    ),
+                ),
+            ),
+            "known",
+            id="not-collected",
+        ),
+        pytest.param(
+            CollectReceipt(
+                status="unknown",
+                problems=(
+                    problem(
+                        "instrument_outcome_unknown",
+                        "instrument outcome is unknown",
+                        phase=ProblemPhase.EXECUTION,
+                    ),
+                ),
+            ),
+            "indeterminate",
+            id="unknown",
+        ),
+    ),
+)
+def test_declared_live_client_raises_structured_collection_failure(
+    receipt: CollectReceipt,
+    certainty: str,
+) -> None:
+    description = InstrumentDescription(
+        instrument_id="thermometer",
+        implementation_id="tests.temperature_readout",
+        implementation_version="1",
+        interfaces=[temperature_readout_interface()],
+    )
+    daemon = _CollectingDaemon(
+        description,
+        InstrumentStateSnapshot(instrument_id="thermometer"),
+        collect_receipt=receipt,
+    )
+    target = temperature_readout("thermometer")
+    handle = LabInstrumentOperations(daemon, operator="test").open(target)
+
+    try:
+        with pytest.raises(InstrumentCollectFailure) as raised:
+            handle[target].sample()
+    finally:
+        handle.close()
+        daemon.close()
+
+    assert raised.value.receipt is receipt
+    assert raised.value.certainty == certainty
 
 
 def test_generated_temperature_client_collects_and_maps_named_results() -> None:

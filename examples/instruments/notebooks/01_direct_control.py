@@ -47,15 +47,13 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
             )
             trace = vna.sweep()
             trace_results = {
-                "frequency": (
-                    None
-                    if trace.frequency is None
-                    else trace.frequency.model_dump(mode="json", include={"shape"})
+                "frequency": trace.frequency.model_dump(
+                    mode="json",
+                    include={"shape"},
                 ),
-                "s_parameter": (
-                    None
-                    if trace.s_parameter is None
-                    else trace.s_parameter.model_dump(mode="json", include={"shape"})
+                "s_parameter": trace.s_parameter.model_dump(
+                    mode="json",
+                    include={"shape"},
                 ),
             }
         finally:

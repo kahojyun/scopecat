@@ -24,11 +24,8 @@ from client_codegen_fixture_declarations import (
 from generated_driver_handler_fixture import (
     ComponentOperationDriverAdapter,
     DriverFixedAcquisitionAcquireDriverReadback,
-    DriverFixedAcquisitionAcquireDriverResultName,
     DriverFixedAcquisitionDriverAdapter,
     DriverMonitorMonitorDriverReadback,
-    DriverMonitorMonitorDriverResultName,
-    DriverMonitorMonitorDriverValues,
     DriverSourceDriverAdapter,
     DriverSourceDriverSnapshot,
     LiteralOperationDriverAdapter,
@@ -44,7 +41,6 @@ from generated_member_catalog_fixture import (
     DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT,
     DRIVER_MONITOR_ACQUISITION,
     DRIVER_MONITOR_ENABLED,
-    DRIVER_MONITOR_LEFT_RESULT,
     DRIVER_MONITOR_RIGHT_RESULT,
     DRIVER_SOURCE_ENABLED,
     DRIVER_SOURCE_LEFT_LEVEL,
@@ -117,20 +113,16 @@ class _FixedDriver(DriverFixedAcquisitionDriverAdapter):
     instrument_id = "fixed"
 
     def __init__(self) -> None:
-        self.requested: (
-            frozenset[DriverFixedAcquisitionAcquireDriverResultName] | None
-        ) = None
+        self.acquire_calls = 0
 
     @override
     def handle_acquire(
         self,
-        requested: frozenset[DriverFixedAcquisitionAcquireDriverResultName],
-        /,
     ) -> DriverOutcome[DriverFixedAcquisitionAcquireDriverReadback]:
-        self.requested = requested
+        self.acquire_calls += 1
         return DriverSuccess(
             DriverFixedAcquisitionAcquireDriverReadback(
-                values={"response": _measurement("ratio")},
+                response=_measurement("ratio"),
                 metadata={"readback": "fixed"},
             ),
             metadata={"handler": "fixed"},
@@ -168,7 +160,7 @@ class _CompositeDriver(MonitorCompositeDriverAdapter):
     def __init__(self, *, monitor: bool) -> None:
         super().__init__(monitor=monitor)
         self.apply_calls: list[MonitorCompositeDriverPatch] = []
-        self.monitor_calls: list[frozenset[DriverMonitorMonitorDriverResultName]] = []
+        self.monitor_calls = 0
 
     @override
     def read_monitor_composite_state(self) -> MonitorCompositeDriverSnapshot:
@@ -190,21 +182,12 @@ class _CompositeDriver(MonitorCompositeDriverAdapter):
         return DriverSuccess(None, metadata={"handler": "composite_apply"})
 
     @override
-    def handle_monitor(
-        self,
-        requested: frozenset[DriverMonitorMonitorDriverResultName],
-        /,
-    ) -> DriverOutcome[DriverMonitorMonitorDriverReadback]:
-        self.monitor_calls.append(requested)
-        values: DriverMonitorMonitorDriverValues = {
-            # Known extra fields remain visible to backend validation.
-            "left": _measurement("V")
-        }
-        if "right" in requested:
-            values["right"] = _measurement("A")
+    def handle_monitor(self) -> DriverOutcome[DriverMonitorMonitorDriverReadback]:
+        self.monitor_calls += 1
         return DriverSuccess(
             DriverMonitorMonitorDriverReadback(
-                values=values,
+                left=_measurement("V"),
+                right=_measurement("A"),
                 metadata={"readback": "composite"},
             ),
             metadata={"handler": "composite_collect"},
@@ -312,7 +295,7 @@ def test_fixed_acquisition_maps_name_and_preserves_both_metadata_layers() -> Non
     )
 
     assert isinstance(outcome, DriverSuccess)
-    assert driver.requested == frozenset({"response"})
+    assert driver.acquire_calls == 1
     assert set(outcome.value.values) == {DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT}
     assert outcome.value.metadata == {"readback": "fixed"}
     assert outcome.metadata == {"handler": "fixed"}
@@ -378,7 +361,9 @@ def test_composite_apply_calls_one_typed_hook_and_dynamic_gate_owns_monitor() ->
     assert disabled.apply_calls == []
 
 
-def test_discriminated_acquisition_mapping_and_dynamic_gate() -> None:
+def test_composite_acquisition_projects_requested_results_and_uses_dynamic_gate() -> (
+    None
+):
     enabled = _CompositeDriver(monitor=True)
     outcome = enabled.collect(
         DriverAcquisition(
@@ -388,11 +373,8 @@ def test_discriminated_acquisition_mapping_and_dynamic_gate() -> None:
     )
 
     assert isinstance(outcome, DriverSuccess)
-    assert enabled.monitor_calls == [frozenset({"right"})]
-    assert set(outcome.value.values) == {
-        DRIVER_MONITOR_LEFT_RESULT,
-        DRIVER_MONITOR_RIGHT_RESULT,
-    }
+    assert enabled.monitor_calls == 1
+    assert set(outcome.value.values) == {DRIVER_MONITOR_RIGHT_RESULT}
     assert outcome.value.metadata == {"readback": "composite"}
     assert outcome.metadata == {"handler": "composite_collect"}
 
@@ -405,7 +387,7 @@ def test_discriminated_acquisition_mapping_and_dynamic_gate() -> None:
     )
     assert isinstance(rejected, DriverRejected)
     assert rejected.problems[0].code == "instrument_acquisition_not_implemented"
-    assert disabled.monitor_calls == []
+    assert disabled.monitor_calls == 0
 
 
 def test_generated_composite_adapter_structurally_satisfies_instrument_driver() -> None:

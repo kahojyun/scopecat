@@ -37,12 +37,8 @@ from scopecat_instruments._symbolic_runtime import (
     SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
-    DCMonitorCurrentResults,
-    DCMonitorVoltageResults,
     DCSourceObservation,
-    NetworkSweepResults,
     TemperatureReadoutObservation,
-    TemperatureSampleResults,
 )
 from scopecat_instruments.states import (
     DCMonitorGroupTarget,
@@ -220,15 +216,20 @@ _NETWORK_SWEEP_SWEEP_DECLARATION = ClientAcquisition(
 
 
 @dataclass(frozen=True, slots=True)
-class TemperatureReadback(TemperatureSampleResults[MeasurementValue | None]):
+class TemperatureReadback:
     """Named sample results plus their effect receipt."""
 
+    temperature: MeasurementValue
+    resistance: MeasurementValue
     receipt: CollectReceipt = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
-class TemperatureSampleProducts(TemperatureSampleResults[ProductRef]):
+class TemperatureSampleProducts:
     """Typed logical products produced by sample."""
+
+    temperature: ProductRef
+    resistance: ProductRef
 
 
 class TemperatureReadoutClient(InstrumentClientBase):
@@ -697,27 +698,33 @@ dc_source: InstrumentFamily[
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorCurrentReadback(DCMonitorCurrentResults[MeasurementValue | None]):
+class DCMonitorCurrentReadback:
     """Named measure_current results plus their effect receipt."""
 
+    current: MeasurementValue
     receipt: CollectReceipt = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorCurrentProducts(DCMonitorCurrentResults[ProductRef]):
+class DCMonitorCurrentProducts:
     """Typed logical products produced by measure_current."""
 
+    current: ProductRef
+
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorVoltageReadback(DCMonitorVoltageResults[MeasurementValue | None]):
+class DCMonitorVoltageReadback:
     """Named measure_voltage results plus their effect receipt."""
 
+    voltage: MeasurementValue
     receipt: CollectReceipt = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorVoltageProducts(DCMonitorVoltageResults[ProductRef]):
+class DCMonitorVoltageProducts:
     """Typed logical products produced by measure_voltage."""
+
+    voltage: ProductRef
 
 
 class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
@@ -1121,17 +1128,20 @@ dc_source_monitor: InstrumentFamily[
 
 
 @dataclass(frozen=True, slots=True)
-class NetworkSweepReadback(
-    NetworkSweepResults[MeasurementValue | None, MeasurementValue | None]
-):
+class NetworkSweepReadback:
     """Named sweep results plus their effect receipt."""
 
+    frequency: MeasurementValue
+    s_parameter: MeasurementValue
     receipt: CollectReceipt = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
-class NetworkSweepProducts(NetworkSweepResults[ProductRef, ProductRef]):
+class NetworkSweepProducts:
     """Typed logical products produced by sweep."""
+
+    frequency: ProductRef
+    s_parameter: ProductRef
 
 
 class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):

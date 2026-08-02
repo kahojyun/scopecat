@@ -276,10 +276,14 @@ daemon's configured safety/finalization policy. Consequently modules do not
 register global `finalize` callbacks, and an experiment final_state is not a
 substitute for safety cleanup.
 
-A live acquisition such as `sweep()` triggers hardware and returns named
-readback plus its receipt. Its declarative counterpart adds an acquisition
-effect and returns named `ProductRef` fields. Defining the experiment executes
-neither `ensure(...)` nor the acquisition against hardware.
+A live acquisition such as `sweep()` triggers hardware and returns complete
+named readback plus its receipt. Rejected or indeterminate collection raises
+`InstrumentCollectFailure` while preserving the original receipt; raw channel
+calls still return receipts directly. `MeasurementUnavailable` represents a
+successful acquisition whose individual measurement is unavailable. The
+declarative counterpart adds an acquisition effect and returns complete named
+`ProductRef` fields. Defining the experiment executes neither `ensure(...)` nor
+the acquisition against hardware.
 
 DC monitoring is an optional capability in both live and symbolic use.
 `dc_source(...)` returns a source-only typed client and requires only the source

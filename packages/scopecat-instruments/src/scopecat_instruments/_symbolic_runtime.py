@@ -189,6 +189,8 @@ class SymbolicInstrumentClientBase:
             resource=self._resource,
             results={field.ref: products[field.python_name] for field in active_fields},
         )
+        if acquisition.discriminator is None:
+            return output_factory(**products)
         values: dict[str, ProductRef | None] = {
             field.python_name: None for field in acquisition.result_fields
         }
