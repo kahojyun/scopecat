@@ -16,9 +16,9 @@ from scopecat_instruments.driver_handlers import (
     TemperatureReadoutDriverAdapter,
 )
 from scopecat_instruments.members import (
-    DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
     DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASURE_CURRENT,
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
     DC_SOURCE_CURRENT_LEVEL,
@@ -164,7 +164,7 @@ def test_virtual_dc_monitor_configuration_round_trips_through_state() -> None:
 def test_virtual_dc_monitor_requires_source_output_and_measurement_enabled() -> None:
     driver = VirtualDcSource("flux", VirtualLabWorld(seed=13))
     request = DriverAcquisition(
-        target=DC_MONITOR_ACQUISITION,
+        target=DC_MONITOR_MEASURE_CURRENT,
         results=frozenset({DC_MONITOR_CURRENT_RESULT}),
     )
 

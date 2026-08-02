@@ -35,9 +35,10 @@ from scopecat_instruments.interfaces import (
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
-    DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
     DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASURE_CURRENT,
+    DC_MONITOR_MEASURE_VOLTAGE,
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
     DC_MONITOR_VOLTAGE_RESULT,
@@ -154,7 +155,7 @@ def test_declared_dc_source_preserves_the_contract_fingerprint() -> None:
 
 def test_declared_dc_monitor_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_monitor_interface()) == (
-        "e23cc99d04be03b0c0dafdf459f9ec3abe7f5e08d70a7920b47424c935cc14b3"
+        "cb2e29e5e213825c8d1f023d97ea7b8ebe9d98947e6a95d27324395fd2ad9513"
     )
 
 
@@ -322,11 +323,11 @@ def test_dc_source_state_partitions_properties_by_source_mode() -> None:
     ]
 
 
-def test_dc_monitor_results_follow_the_source_mode() -> None:
+def test_dc_monitor_declares_independent_fixed_results() -> None:
     monitor_interface = dc_monitor_interface()
-    [monitor] = monitor_interface.acquisitions
+    current, voltage = monitor_interface.acquisitions
 
-    assert monitor_interface.id == "scopecat.dc_monitor/v3"
+    assert monitor_interface.id == "scopecat.dc_monitor/v4"
     properties = {item.id: item for item in monitor_interface.properties}
     assert set(properties) == {
         DC_MONITOR_MEASUREMENT_ENABLED.property_id,
@@ -343,39 +344,27 @@ def test_dc_monitor_results_follow_the_source_mode() -> None:
         Quantity(unit="s", minimum=0.0, maximum=999.999)
     )
     assert {item.access for item in properties.values()} == {"read_write"}
-    assert monitor.kind == "state_discriminated"
-    assert monitor.id == DC_MONITOR_ACQUISITION.acquisition_id
-    assert monitor.discriminator.interface_id == DC_SOURCE_MODE.interface_id
-    assert monitor.discriminator.component_path == []
-    assert monitor.discriminator.property_id == DC_SOURCE_MODE.property_id
     assert [
         (
-            precondition.property.interface_id,
-            precondition.property.property_id,
-            precondition.value,
-            precondition.unavailable_reason,
+            acquisition.kind,
+            acquisition.id,
+            [result.id for result in acquisition_results(acquisition)],
         )
-        for precondition in monitor.preconditions
+        for acquisition in (current, voltage)
     ] == [
         (
-            DC_SOURCE_OUTPUT_ENABLED.interface_id,
-            DC_SOURCE_OUTPUT_ENABLED.property_id,
-            True,
-            "DC source output is disabled.",
+            "fixed",
+            DC_MONITOR_MEASURE_CURRENT.acquisition_id,
+            [DC_MONITOR_CURRENT_RESULT.result_id],
         ),
         (
-            DC_MONITOR_MEASUREMENT_ENABLED.interface_id,
-            DC_MONITOR_MEASUREMENT_ENABLED.property_id,
-            True,
-            "DC monitor measurement is disabled.",
+            "fixed",
+            DC_MONITOR_MEASURE_VOLTAGE.acquisition_id,
+            [DC_MONITOR_VOLTAGE_RESULT.result_id],
         ),
     ]
-    assert [
-        (case.value, [result.id for result in case.results]) for case in monitor.cases
-    ] == [
-        ("voltage", [DC_MONITOR_CURRENT_RESULT.result_id]),
-        ("current", [DC_MONITOR_VOLTAGE_RESULT.result_id]),
-    ]
+    assert current.preconditions == []
+    assert voltage.preconditions == []
 
 
 @pytest.mark.parametrize(

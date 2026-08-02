@@ -7,7 +7,6 @@ from typing import Literal, Protocol
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
     acquisition,
-    acquisition_case,
     axis,
     discriminated_state,
     instrument_bundle,
@@ -15,14 +14,10 @@ from scopecat.sdk.instruments.declarations import (
     instrument_observed_state,
     instrument_result,
     instrument_state,
-    interface_discriminator,
     member,
     member_field,
-    precondition,
     result_field,
     state_case,
-    state_discriminated_acquisition,
-    state_field,
 )
 
 type ReferenceSource = Literal["internal", "external"]
@@ -141,17 +136,23 @@ class DCMonitorState:
 
 
 @instrument_result
-class DCMonitorResults[ValueT]:
-    """Mode-dependent monitor fields reusable across acquisition runtimes."""
+class DCMonitorCurrentResults[ValueT]:
+    """Current measurement produced while the source is in voltage mode."""
 
-    current: ValueT | None = result_field(
+    current: ValueT = result_field(
         id="monitored_current",
         dtype="float64",
         unit="A",
         label="Monitored current",
         description="One measurement while sourcing voltage.",
     )
-    voltage: ValueT | None = result_field(
+
+
+@instrument_result
+class DCMonitorVoltageResults[ValueT]:
+    """Voltage measurement produced while the source is in current mode."""
+
+    voltage: ValueT = result_field(
         id="monitored_voltage",
         dtype="float64",
         unit="V",
@@ -161,42 +162,23 @@ class DCMonitorResults[ValueT]:
 
 
 @instrument_interface(
-    "scopecat.dc_monitor/v3",
+    "scopecat.dc_monitor/v4",
     state=DCMonitorState,
     label="DC monitor",
-    description="Single-value voltage or current monitoring for a DC source.",
+    description="Independent current and voltage measurements for a DC source.",
 )
 class DCMonitorInterface(Protocol):
-    @state_discriminated_acquisition(
-        interface_discriminator(DCSourceInterface),
-        label="Monitor output",
-        description="Read one monitor sample from the active source mode.",
-        preconditions=(
-            precondition(
-                state_field(_DCSourceCommonState, "output_enabled"),
-                value=True,
-                unavailable_reason="DC source output is disabled.",
-            ),
-            precondition(
-                state_field(DCMonitorState, "measurement_enabled"),
-                value=True,
-                unavailable_reason="DC monitor measurement is disabled.",
-            ),
-        ),
-        cases=(
-            acquisition_case(
-                "voltage",
-                DCMonitorResults[float],
-                fields=("current",),
-            ),
-            acquisition_case(
-                "current",
-                DCMonitorResults[float],
-                fields=("voltage",),
-            ),
-        ),
+    @acquisition(
+        label="Measure current",
+        description="Measure current while the source is operating in voltage mode.",
     )
-    def monitor(self) -> DCMonitorResults[float]: ...
+    def measure_current(self) -> DCMonitorCurrentResults[float]: ...
+
+    @acquisition(
+        label="Measure voltage",
+        description="Measure voltage while the source is operating in current mode.",
+    )
+    def measure_voltage(self) -> DCMonitorVoltageResults[float]: ...
 
 
 @instrument_bundle
@@ -370,9 +352,10 @@ class NetworkSweepInterface(Protocol):
 
 
 __all__ = [
+    "DCMonitorCurrentResults",
     "DCMonitorInterface",
-    "DCMonitorResults",
     "DCMonitorState",
+    "DCMonitorVoltageResults",
     "DCSourceCurrentState",
     "DCSourceInterface",
     "DCSourceMonitorInterface",

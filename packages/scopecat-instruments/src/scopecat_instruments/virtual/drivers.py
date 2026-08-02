@@ -21,13 +21,17 @@ from scopecat.sdk.instruments import (
 from scopecat_instruments._support import (
     LinearSweepSettings,
     NetworkTrace,
+    execution_problem,
     quantity_value,
     state_property_problem,
 )
 from scopecat_instruments.driver_handlers import (
-    DCMonitorMonitorDriverReadback,
-    DCMonitorMonitorDriverResultName,
-    DCMonitorMonitorDriverValues,
+    DCMonitorMeasureCurrentDriverReadback,
+    DCMonitorMeasureCurrentDriverResultName,
+    DCMonitorMeasureCurrentDriverValues,
+    DCMonitorMeasureVoltageDriverReadback,
+    DCMonitorMeasureVoltageDriverResultName,
+    DCMonitorMeasureVoltageDriverValues,
     DCSourceMonitorDriverAdapter,
     DCSourceMonitorDriverPatch,
     DCSourceMonitorDriverSnapshot,
@@ -291,11 +295,68 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
         return DriverSuccess(None)
 
     @override
-    def handle_monitor(
+    def handle_measure_current(
         self,
-        requested: frozenset[DCMonitorMonitorDriverResultName],
+        requested: frozenset[DCMonitorMeasureCurrentDriverResultName],
         /,
-    ) -> DriverOutcome[DCMonitorMonitorDriverReadback]:
+    ) -> DriverOutcome[DCMonitorMeasureCurrentDriverReadback]:
+        if requested != frozenset({"current"}):
+            return DriverRejected(
+                problems=(
+                    execution_problem(
+                        "virtual_dc_monitor_current_result_missing",
+                        "virtual current measurement requires its current result",
+                        "driver_acquisition",
+                        "results",
+                    ),
+                )
+            )
+        outcome = self._measure_monitor(expected_mode="voltage")
+        if not isinstance(outcome, DriverSuccess):
+            return outcome
+        values: DCMonitorMeasureCurrentDriverValues = {"current": outcome.value}
+        return DriverSuccess(
+            DCMonitorMeasureCurrentDriverReadback(
+                values=values,
+                metadata={"mode": "virtual", "world_seed": self.world.seed},
+            ),
+            metadata=outcome.metadata,
+        )
+
+    @override
+    def handle_measure_voltage(
+        self,
+        requested: frozenset[DCMonitorMeasureVoltageDriverResultName],
+        /,
+    ) -> DriverOutcome[DCMonitorMeasureVoltageDriverReadback]:
+        if requested != frozenset({"voltage"}):
+            return DriverRejected(
+                problems=(
+                    execution_problem(
+                        "virtual_dc_monitor_voltage_result_missing",
+                        "virtual voltage measurement requires its voltage result",
+                        "driver_acquisition",
+                        "results",
+                    ),
+                )
+            )
+        outcome = self._measure_monitor(expected_mode="current")
+        if not isinstance(outcome, DriverSuccess):
+            return outcome
+        values: DCMonitorMeasureVoltageDriverValues = {"voltage": outcome.value}
+        return DriverSuccess(
+            DCMonitorMeasureVoltageDriverReadback(
+                values=values,
+                metadata={"mode": "virtual", "world_seed": self.world.seed},
+            ),
+            metadata=outcome.metadata,
+        )
+
+    def _measure_monitor(
+        self,
+        *,
+        expected_mode: Literal["voltage", "current"],
+    ) -> DriverOutcome[MeasurementScalar]:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
             if not source.output_enabled:
@@ -318,15 +379,15 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
                         ),
                     )
                 )
-            active_result: DCMonitorMonitorDriverResultName = (
-                "current" if source.source_mode == "voltage" else "voltage"
-            )
-            if requested != frozenset({active_result}):
+            if source.source_mode != expected_mode:
                 return DriverRejected(
                     problems=(
                         state_property_problem(
-                            "virtual_dc_monitor_result_inactive",
-                            f"{source.source_mode} mode provides only {active_result}",
+                            "virtual_dc_monitor_source_mode_mismatch",
+                            (
+                                f"measurement requires {expected_mode} source mode, "
+                                f"got {source.source_mode}"
+                            ),
                             DC_SOURCE_MODE,
                         ),
                     )
@@ -337,24 +398,14 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
                     unit="A",
                     value=source.voltage_level_v / 1.0e3,
                 )
-                if source.source_mode == "voltage"
+                if expected_mode == "voltage"
                 else MeasurementScalar.create(
                     dtype="float64",
                     unit="V",
                     value=source.current_level_a * 1.0e3,
                 )
             )
-        values: DCMonitorMonitorDriverValues = {}
-        if active_result == "current":
-            values["current"] = measured
-        else:
-            values["voltage"] = measured
-        return DriverSuccess(
-            DCMonitorMonitorDriverReadback(
-                values=values,
-                metadata={"mode": "virtual", "world_seed": self.world.seed},
-            ),
-        )
+        return DriverSuccess(measured)
 
     def set_source_mode(self, mode: str) -> None:
         if mode not in {"voltage", "current"}:

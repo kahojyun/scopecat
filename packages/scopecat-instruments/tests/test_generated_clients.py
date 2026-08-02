@@ -271,8 +271,10 @@ def test_codegen_composes_a_root_only_interface_bundle() -> None:
     assert "DCSourceVoltageTarget" in completed.stdout
     assert "DCSourceCurrentGroupTarget" in completed.stdout
     assert "DCMonitorPatch" in completed.stdout
-    assert "class DCMonitorReadback(" in completed.stdout
-    assert "class DCMonitorProducts(" in completed.stdout
+    assert "class DCMonitorCurrentReadback(" in completed.stdout
+    assert "class DCMonitorCurrentProducts(" in completed.stdout
+    assert "class DCMonitorVoltageReadback(" in completed.stdout
+    assert "class DCMonitorVoltageProducts(" in completed.stdout
     assert "class DCSourceMonitorClient(" in completed.stdout
     assert "class SymbolicDCSourceMonitorClient(" in completed.stdout
     assert "class SymbolicDCSourceMonitorGroup(" in completed.stdout

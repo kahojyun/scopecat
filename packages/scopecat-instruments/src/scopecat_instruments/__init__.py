@@ -11,8 +11,10 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from scopecat_instruments.clients import (
-        DCMonitorProducts,
-        DCMonitorReadback,
+        DCMonitorCurrentProducts,
+        DCMonitorCurrentReadback,
+        DCMonitorVoltageProducts,
+        DCMonitorVoltageReadback,
         DCSourceClient,
         DCSourceMonitorClient,
         NetworkSweepClient,
@@ -66,11 +68,13 @@ if TYPE_CHECKING:
 
 _PUBLIC_EXPORT_MODULES: dict[str, str] = {
     "ConfiguredInstrumentProvider": "scopecat_instruments.provider",
+    "DCMonitorCurrentProducts": "scopecat_instruments.clients",
+    "DCMonitorCurrentReadback": "scopecat_instruments.clients",
     "DCMonitorGroupTarget": "scopecat_instruments.states",
     "DCMonitorPatch": "scopecat_instruments.states",
-    "DCMonitorProducts": "scopecat_instruments.clients",
-    "DCMonitorReadback": "scopecat_instruments.clients",
     "DCMonitorTarget": "scopecat_instruments.states",
+    "DCMonitorVoltageProducts": "scopecat_instruments.clients",
+    "DCMonitorVoltageReadback": "scopecat_instruments.clients",
     "DCSourceClient": "scopecat_instruments.clients",
     "DCSourceCurrentGroupTarget": "scopecat_instruments.states",
     "DCSourceCurrentPatch": "scopecat_instruments.states",

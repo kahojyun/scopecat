@@ -52,8 +52,9 @@ from scopecat_instruments.interface_declarations import (
     TemperatureReadoutObservation,
 )
 from scopecat_instruments.members import (
-    DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_MEASURE_CURRENT,
+    DC_MONITOR_MEASURE_VOLTAGE,
     DC_MONITOR_VOLTAGE_RESULT,
     NETWORK_SWEEP_ACQUISITION,
     NETWORK_SWEEP_FREQUENCY_RESULT,
@@ -95,17 +96,29 @@ class TemperatureReadoutSampleDriverReadback:
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
-type DCMonitorMonitorDriverResultName = Literal["current", "voltage"]
+type DCMonitorMeasureCurrentDriverResultName = Literal["current"]
 
 
-class DCMonitorMonitorDriverValues(TypedDict, total=False):
+class DCMonitorMeasureCurrentDriverValues(TypedDict, total=False):
     current: MeasurementValue
+
+
+@dataclass(frozen=True, slots=True)
+class DCMonitorMeasureCurrentDriverReadback:
+    values: DCMonitorMeasureCurrentDriverValues
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
+
+
+type DCMonitorMeasureVoltageDriverResultName = Literal["voltage"]
+
+
+class DCMonitorMeasureVoltageDriverValues(TypedDict, total=False):
     voltage: MeasurementValue
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorMonitorDriverReadback:
-    values: DCMonitorMonitorDriverValues
+class DCMonitorMeasureVoltageDriverReadback:
+    values: DCMonitorMeasureVoltageDriverValues
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
@@ -170,37 +183,37 @@ class TemperatureReadoutDriverAdapter(ABC):
         request: DriverAcquisition,
     ) -> DriverOutcome[DriverReadback]:
         if request.target == TEMPERATURE_READOUT_SAMPLE:
-            requested: set[TemperatureReadoutSampleDriverResultName] = set()
+            requested_sample: set[TemperatureReadoutSampleDriverResultName] = set()
             for result in request.results:
                 if result == TEMPERATURE_READOUT_TEMPERATURE_RESULT:
-                    requested.add("temperature")
+                    requested_sample.add("temperature")
                 elif result == TEMPERATURE_READOUT_RESISTANCE_RESULT:
-                    requested.add("resistance")
+                    requested_sample.add("resistance")
                 else:
                     return _unsupported_driver_request(
                         self.instrument_id,
                         "acquisition_result",
                         result.result_id,
                     )
-            outcome = self.handle_sample(frozenset(requested))
-            if not isinstance(outcome, DriverSuccess):
-                return outcome
-            readback = outcome.value
-            values: dict[AcquisitionResultRef, MeasurementValue] = {}
-            if "temperature" in readback.values:
-                values[TEMPERATURE_READOUT_TEMPERATURE_RESULT] = readback.values[
-                    "temperature"
-                ]
-            if "resistance" in readback.values:
-                values[TEMPERATURE_READOUT_RESISTANCE_RESULT] = readback.values[
-                    "resistance"
-                ]
+            outcome_sample = self.handle_sample(frozenset(requested_sample))
+            if not isinstance(outcome_sample, DriverSuccess):
+                return outcome_sample
+            readback_sample = outcome_sample.value
+            values_sample: dict[AcquisitionResultRef, MeasurementValue] = {}
+            if "temperature" in readback_sample.values:
+                values_sample[TEMPERATURE_READOUT_TEMPERATURE_RESULT] = (
+                    readback_sample.values["temperature"]
+                )
+            if "resistance" in readback_sample.values:
+                values_sample[TEMPERATURE_READOUT_RESISTANCE_RESULT] = (
+                    readback_sample.values["resistance"]
+                )
             return DriverSuccess(
                 DriverReadback(
-                    values=values,
-                    metadata=readback.metadata,
+                    values=values_sample,
+                    metadata=readback_sample.metadata,
                 ),
-                metadata=outcome.metadata,
+                metadata=outcome_sample.metadata,
             )
         return _unsupported_driver_request(
             self.instrument_id,
@@ -354,11 +367,18 @@ class DCSourceMonitorDriverAdapter(ABC):
     ) -> DriverOutcome[None]: ...
 
     @abstractmethod
-    def handle_monitor(
+    def handle_measure_current(
         self,
-        requested: frozenset[DCMonitorMonitorDriverResultName],
+        requested: frozenset[DCMonitorMeasureCurrentDriverResultName],
         /,
-    ) -> DriverOutcome[DCMonitorMonitorDriverReadback]: ...
+    ) -> DriverOutcome[DCMonitorMeasureCurrentDriverReadback]: ...
+
+    @abstractmethod
+    def handle_measure_voltage(
+        self,
+        requested: frozenset[DCMonitorMeasureVoltageDriverResultName],
+        /,
+    ) -> DriverOutcome[DCMonitorMeasureVoltageDriverReadback]: ...
 
     def read_state(self) -> DriverState:
         snapshot = self.read_dc_source_monitor_state()
@@ -379,7 +399,7 @@ class DCSourceMonitorDriverAdapter(ABC):
         dc_monitor_patch = decode_dc_monitor_patch(request)
         if dc_monitor_patch and not self._driver_monitor_enabled:
             return _unsupported_driver_request(
-                self.instrument_id, "state", "scopecat.dc_monitor/v3"
+                self.instrument_id, "state", "scopecat.dc_monitor/v4"
             )
         outcome = self.apply_dc_source_monitor_state(
             DCSourceMonitorDriverPatch(
@@ -405,34 +425,73 @@ class DCSourceMonitorDriverAdapter(ABC):
         self,
         request: DriverAcquisition,
     ) -> DriverOutcome[DriverReadback]:
-        if request.target == DC_MONITOR_ACQUISITION and self._driver_monitor_enabled:
-            requested: set[DCMonitorMonitorDriverResultName] = set()
+        if (
+            request.target == DC_MONITOR_MEASURE_CURRENT
+            and self._driver_monitor_enabled
+        ):
+            requested_measure_current: set[DCMonitorMeasureCurrentDriverResultName] = (
+                set()
+            )
             for result in request.results:
                 if result == DC_MONITOR_CURRENT_RESULT:
-                    requested.add("current")
-                elif result == DC_MONITOR_VOLTAGE_RESULT:
-                    requested.add("voltage")
+                    requested_measure_current.add("current")
                 else:
                     return _unsupported_driver_request(
                         self.instrument_id,
                         "acquisition_result",
                         result.result_id,
                     )
-            outcome = self.handle_monitor(frozenset(requested))
-            if not isinstance(outcome, DriverSuccess):
-                return outcome
-            readback = outcome.value
-            values: dict[AcquisitionResultRef, MeasurementValue] = {}
-            if "current" in readback.values:
-                values[DC_MONITOR_CURRENT_RESULT] = readback.values["current"]
-            if "voltage" in readback.values:
-                values[DC_MONITOR_VOLTAGE_RESULT] = readback.values["voltage"]
+            outcome_measure_current = self.handle_measure_current(
+                frozenset(requested_measure_current)
+            )
+            if not isinstance(outcome_measure_current, DriverSuccess):
+                return outcome_measure_current
+            readback_measure_current = outcome_measure_current.value
+            values_measure_current: dict[AcquisitionResultRef, MeasurementValue] = {}
+            if "current" in readback_measure_current.values:
+                values_measure_current[DC_MONITOR_CURRENT_RESULT] = (
+                    readback_measure_current.values["current"]
+                )
             return DriverSuccess(
                 DriverReadback(
-                    values=values,
-                    metadata=readback.metadata,
+                    values=values_measure_current,
+                    metadata=readback_measure_current.metadata,
                 ),
-                metadata=outcome.metadata,
+                metadata=outcome_measure_current.metadata,
+            )
+        if (
+            request.target == DC_MONITOR_MEASURE_VOLTAGE
+            and self._driver_monitor_enabled
+        ):
+            requested_measure_voltage: set[DCMonitorMeasureVoltageDriverResultName] = (
+                set()
+            )
+            for result in request.results:
+                if result == DC_MONITOR_VOLTAGE_RESULT:
+                    requested_measure_voltage.add("voltage")
+                else:
+                    return _unsupported_driver_request(
+                        self.instrument_id,
+                        "acquisition_result",
+                        result.result_id,
+                    )
+            outcome_measure_voltage = self.handle_measure_voltage(
+                frozenset(requested_measure_voltage)
+            )
+            if not isinstance(outcome_measure_voltage, DriverSuccess):
+                return outcome_measure_voltage
+            readback_measure_voltage = outcome_measure_voltage.value
+            values_measure_voltage: dict[AcquisitionResultRef, MeasurementValue] = {}
+            if "voltage" in readback_measure_voltage.values:
+                values_measure_voltage[DC_MONITOR_VOLTAGE_RESULT] = (
+                    readback_measure_voltage.values["voltage"]
+                )
+            return DriverSuccess(
+                DriverReadback(
+                    values=values_measure_voltage,
+                    metadata=readback_measure_voltage.metadata,
+                ),
+                metadata=outcome_measure_voltage.metadata,
             )
         return _unsupported_driver_request(
             self.instrument_id,
@@ -498,35 +557,37 @@ class NetworkSweepDriverAdapter(ABC):
         request: DriverAcquisition,
     ) -> DriverOutcome[DriverReadback]:
         if request.target == NETWORK_SWEEP_ACQUISITION:
-            requested: set[NetworkSweepSweepDriverResultName] = set()
+            requested_sweep: set[NetworkSweepSweepDriverResultName] = set()
             for result in request.results:
                 if result == NETWORK_SWEEP_FREQUENCY_RESULT:
-                    requested.add("frequency")
+                    requested_sweep.add("frequency")
                 elif result == NETWORK_SWEEP_S_PARAMETER_RESULT:
-                    requested.add("s_parameter")
+                    requested_sweep.add("s_parameter")
                 else:
                     return _unsupported_driver_request(
                         self.instrument_id,
                         "acquisition_result",
                         result.result_id,
                     )
-            outcome = self.handle_sweep(frozenset(requested))
-            if not isinstance(outcome, DriverSuccess):
-                return outcome
-            readback = outcome.value
-            values: dict[AcquisitionResultRef, MeasurementValue] = {}
-            if "frequency" in readback.values:
-                values[NETWORK_SWEEP_FREQUENCY_RESULT] = readback.values["frequency"]
-            if "s_parameter" in readback.values:
-                values[NETWORK_SWEEP_S_PARAMETER_RESULT] = readback.values[
+            outcome_sweep = self.handle_sweep(frozenset(requested_sweep))
+            if not isinstance(outcome_sweep, DriverSuccess):
+                return outcome_sweep
+            readback_sweep = outcome_sweep.value
+            values_sweep: dict[AcquisitionResultRef, MeasurementValue] = {}
+            if "frequency" in readback_sweep.values:
+                values_sweep[NETWORK_SWEEP_FREQUENCY_RESULT] = readback_sweep.values[
+                    "frequency"
+                ]
+            if "s_parameter" in readback_sweep.values:
+                values_sweep[NETWORK_SWEEP_S_PARAMETER_RESULT] = readback_sweep.values[
                     "s_parameter"
                 ]
             return DriverSuccess(
                 DriverReadback(
-                    values=values,
-                    metadata=readback.metadata,
+                    values=values_sweep,
+                    metadata=readback_sweep.metadata,
                 ),
-                metadata=outcome.metadata,
+                metadata=outcome_sweep.metadata,
             )
         return _unsupported_driver_request(
             self.instrument_id,
@@ -536,9 +597,12 @@ class NetworkSweepDriverAdapter(ABC):
 
 
 __all__ = [
-    "DCMonitorMonitorDriverReadback",
-    "DCMonitorMonitorDriverResultName",
-    "DCMonitorMonitorDriverValues",
+    "DCMonitorMeasureCurrentDriverReadback",
+    "DCMonitorMeasureCurrentDriverResultName",
+    "DCMonitorMeasureCurrentDriverValues",
+    "DCMonitorMeasureVoltageDriverReadback",
+    "DCMonitorMeasureVoltageDriverResultName",
+    "DCMonitorMeasureVoltageDriverValues",
     "DCSourceDriverAdapter",
     "DCSourceDriverSnapshot",
     "DCSourceMonitorDriverAdapter",

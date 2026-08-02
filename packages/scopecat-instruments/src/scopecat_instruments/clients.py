@@ -40,7 +40,8 @@ from scopecat_instruments._symbolic_runtime import (
     SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
-    DCMonitorResults,
+    DCMonitorCurrentResults,
+    DCMonitorVoltageResults,
     NetworkSweepResults,
     TemperatureReadoutObservation,
     TemperatureSampleResults,
@@ -72,7 +73,7 @@ _RF_OUTPUT_REF = InterfaceRef("scopecat.rf_output/v1")
 
 _DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v2")
 
-_DC_MONITOR_REF = InterfaceRef("scopecat.dc_monitor/v3")
+_DC_MONITOR_REF = InterfaceRef("scopecat.dc_monitor/v4")
 
 _NETWORK_SWEEP_REF = InterfaceRef("scopecat.network_sweep/v1")
 
@@ -122,28 +123,39 @@ _TEMPERATURE_READOUT_SAMPLE_DECLARATION = ClientAcquisition(
     ),
 )
 
-_DC_MONITOR_MONITOR_DECLARATION = ClientAcquisition(
-    ref=_DC_MONITOR_REF.acquisition("monitor"),
-    discriminator=InterfaceRef("scopecat.dc_source/v2").property("source_mode"),
+_DC_MONITOR_MEASURE_CURRENT_DECLARATION = ClientAcquisition(
+    ref=_DC_MONITOR_REF.acquisition("measure_current"),
+    discriminator=None,
     layouts=(
         ClientAcquisitionLayout(
-            case_value="voltage",
+            case_value=None,
             fields=(
                 ClientAcquisitionResult(
                     "current",
-                    _DC_MONITOR_REF.acquisition("monitor").result("monitored_current"),
+                    _DC_MONITOR_REF.acquisition("measure_current").result(
+                        "monitored_current"
+                    ),
                     dtype="float64",
                     unit="A",
                     axes=(),
                 ),
             ),
         ),
+    ),
+)
+
+_DC_MONITOR_MEASURE_VOLTAGE_DECLARATION = ClientAcquisition(
+    ref=_DC_MONITOR_REF.acquisition("measure_voltage"),
+    discriminator=None,
+    layouts=(
         ClientAcquisitionLayout(
-            case_value="current",
+            case_value=None,
             fields=(
                 ClientAcquisitionResult(
                     "voltage",
-                    _DC_MONITOR_REF.acquisition("monitor").result("monitored_voltage"),
+                    _DC_MONITOR_REF.acquisition("measure_voltage").result(
+                        "monitored_voltage"
+                    ),
                     dtype="float64",
                     unit="V",
                     axes=(),
@@ -512,22 +524,40 @@ type _DCSourceMonitorGroupTarget = (
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorReadback(DCMonitorResults[MeasurementValue | None]):
-    """Named monitor results plus their effect receipt."""
+class DCMonitorCurrentReadback(DCMonitorCurrentResults[MeasurementValue | None]):
+    """Named measure_current results plus their effect receipt."""
 
     receipt: CollectReceipt = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorProducts(DCMonitorResults[ProductRef]):
-    """Typed logical products produced by monitor."""
+class DCMonitorCurrentProducts(DCMonitorCurrentResults[ProductRef]):
+    """Typed logical products produced by measure_current."""
+
+
+@dataclass(frozen=True, slots=True)
+class DCMonitorVoltageReadback(DCMonitorVoltageResults[MeasurementValue | None]):
+    """Named measure_voltage results plus their effect receipt."""
+
+    receipt: CollectReceipt = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class DCMonitorVoltageProducts(DCMonitorVoltageResults[ProductRef]):
+    """Typed logical products produced by measure_voltage."""
 
 
 class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
-    def monitor(self) -> DCMonitorReadback:
+    def measure_current(self) -> DCMonitorCurrentReadback:
         return self._collect(
-            _DC_MONITOR_MONITOR_DECLARATION,
-            DCMonitorReadback,
+            _DC_MONITOR_MEASURE_CURRENT_DECLARATION,
+            DCMonitorCurrentReadback,
+        )
+
+    def measure_voltage(self) -> DCMonitorVoltageReadback:
+        return self._collect(
+            _DC_MONITOR_MEASURE_VOLTAGE_DECLARATION,
+            DCMonitorVoltageReadback,
         )
 
 
@@ -550,14 +580,25 @@ class SymbolicDCSourceMonitorClient(
             for_=for_,
         )
 
-    def monitor(
+    def measure_current(
         self,
         *,
         id: str | None = None,
-    ) -> DCMonitorProducts:
+    ) -> DCMonitorCurrentProducts:
         return self._acquire(
-            _DC_MONITOR_MONITOR_DECLARATION,
-            DCMonitorProducts,
+            _DC_MONITOR_MEASURE_CURRENT_DECLARATION,
+            DCMonitorCurrentProducts,
+            id=id,
+        )
+
+    def measure_voltage(
+        self,
+        *,
+        id: str | None = None,
+    ) -> DCMonitorVoltageProducts:
+        return self._acquire(
+            _DC_MONITOR_MEASURE_VOLTAGE_DECLARATION,
+            DCMonitorVoltageProducts,
             id=id,
         )
 
@@ -585,12 +626,19 @@ class SymbolicDCSourceMonitorGroup(
             client_factory=SymbolicDCSourceMonitorClient,
         )
 
-    def monitor(
+    def measure_current(
         self,
         *,
         id: str | None = None,
-    ) -> PerEntity[DCMonitorProducts]:
-        return self._clients.map(lambda client: client.monitor(id=id))
+    ) -> PerEntity[DCMonitorCurrentProducts]:
+        return self._clients.map(lambda client: client.measure_current(id=id))
+
+    def measure_voltage(
+        self,
+        *,
+        id: str | None = None,
+    ) -> PerEntity[DCMonitorVoltageProducts]:
+        return self._clients.map(lambda client: client.measure_voltage(id=id))
 
 
 @dataclass(frozen=True, slots=True)
@@ -919,8 +967,10 @@ def dc_source(
 
 
 __all__ = [
-    "DCMonitorProducts",
-    "DCMonitorReadback",
+    "DCMonitorCurrentProducts",
+    "DCMonitorCurrentReadback",
+    "DCMonitorVoltageProducts",
+    "DCMonitorVoltageReadback",
     "DCSourceClient",
     "DCSourceMonitorClient",
     "NetworkSweepClient",

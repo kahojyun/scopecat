@@ -29,9 +29,10 @@ from scopecat_instruments.drivers import (
     YokogawaGS200,
 )
 from scopecat_instruments.members import (
-    DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
     DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASURE_CURRENT,
+    DC_MONITOR_MEASURE_VOLTAGE,
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
     DC_MONITOR_VOLTAGE_RESULT,
@@ -191,7 +192,7 @@ def test_gs200_source_and_monitor_transcript() -> None:
     state = driver.read_state()
     receipt = driver.collect(
         _collect_request(
-            DC_MONITOR_ACQUISITION,
+            DC_MONITOR_MEASURE_CURRENT,
             DC_MONITOR_CURRENT_RESULT,
         )
     )
@@ -312,7 +313,7 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
     state = driver.read_state()
     monitored = driver.collect(
         _collect_request(
-            DC_MONITOR_ACQUISITION,
+            DC_MONITOR_MEASURE_VOLTAGE,
             DC_MONITOR_VOLTAGE_RESULT,
         )
     )
@@ -565,7 +566,7 @@ def test_gs200_applies_monitor_settings_while_measurement_is_disabled() -> None:
         (
             [ScriptedExchange.query(":SOUR:FUNC?", "VOLT")],
             DC_MONITOR_VOLTAGE_RESULT,
-            "gs200_monitor_result_inactive",
+            "gs200_monitor_source_mode_mismatch",
         ),
         (
             [
@@ -622,7 +623,12 @@ def test_gs200_collect_guards_do_not_trigger_measurement(
     transport = ScriptedTransport(exchanges)
     driver = YokogawaGS200("bias", transport, monitor_option=True)
 
-    receipt = driver.collect(_collect_request(DC_MONITOR_ACQUISITION, result))
+    acquisition = (
+        DC_MONITOR_MEASURE_CURRENT
+        if result == DC_MONITOR_CURRENT_RESULT
+        else DC_MONITOR_MEASURE_VOLTAGE
+    )
+    receipt = driver.collect(_collect_request(acquisition, result))
 
     assert isinstance(receipt, DriverRejected)
     assert receipt.problems[0].code == problem_code
@@ -648,7 +654,7 @@ def test_gs200_collect_uses_communication_trigger_then_restores_it() -> None:
     driver = YokogawaGS200("bias", transport, monitor_option=True)
 
     receipt = driver.collect(
-        _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_CURRENT_RESULT)
+        _collect_request(DC_MONITOR_MEASURE_CURRENT, DC_MONITOR_CURRENT_RESULT)
     )
 
     assert _readback(receipt).values[
@@ -678,7 +684,7 @@ def test_gs200_collect_reports_monitor_overload_as_unavailable() -> None:
     driver = YokogawaGS200("bias", transport, monitor_option=True)
 
     receipt = driver.collect(
-        _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_VOLTAGE_RESULT)
+        _collect_request(DC_MONITOR_MEASURE_VOLTAGE, DC_MONITOR_VOLTAGE_RESULT)
     )
 
     assert _readback(receipt).values[
@@ -709,7 +715,7 @@ def test_gs200_collect_reports_invalid_measurement_status(condition: int) -> Non
     driver = YokogawaGS200("bias", transport, monitor_option=True)
 
     receipt = driver.collect(
-        _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_VOLTAGE_RESULT)
+        _collect_request(DC_MONITOR_MEASURE_VOLTAGE, DC_MONITOR_VOLTAGE_RESULT)
     )
 
     assert _readback(receipt).values[
@@ -749,7 +755,7 @@ def test_gs200_trigger_restore_failure_reports_unknown() -> None:
     driver = YokogawaGS200("bias", transport, monitor_option=True)
 
     receipt = driver.collect(
-        _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_CURRENT_RESULT)
+        _collect_request(DC_MONITOR_MEASURE_CURRENT, DC_MONITOR_CURRENT_RESULT)
     )
 
     assert isinstance(receipt, DriverUnknown)

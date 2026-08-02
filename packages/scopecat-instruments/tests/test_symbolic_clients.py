@@ -24,9 +24,10 @@ from scopecat.program.expressions import LiteralScalarExpr
 from scopecat.program.module import ModuleAcquireEffect
 
 from scopecat_instruments import (
+    DCMonitorCurrentProducts,
     DCMonitorGroupTarget,
-    DCMonitorProducts,
     DCMonitorTarget,
+    DCMonitorVoltageProducts,
     DCSourceCurrentTarget,
     DCSourceGroupTarget,
     DCSourceTarget,
@@ -491,7 +492,7 @@ def test_state_clients_record_typed_ensure_effects() -> None:
     ] == [4, 3]
 
 
-def test_dc_monitor_selects_the_contract_result_for_the_ensured_source_mode() -> None:
+def test_dc_monitor_exposes_independent_fixed_result_acquisitions() -> None:
     context = ModuleContext()
     source = dc_source(context, "flux", monitor=True)
     assert_type(source, SymbolicDCSourceMonitorClient)
@@ -504,25 +505,32 @@ def test_dc_monitor_selects_the_contract_result_for_the_ensured_source_mode() ->
     )
     source.ensure(DCMonitorTarget(measurement_enabled=True))
 
-    sample = source.monitor()
+    current = source.measure_current()
+    voltage = source.measure_voltage()
 
-    assert_type(sample, DCMonitorProducts)
-    assert_type(sample.current, ProductRef | None)
-    assert_type(sample.voltage, ProductRef | None)
-    assert sample.current is not None
-    assert sample.voltage is None
+    assert_type(current, DCMonitorCurrentProducts)
+    assert_type(current.current, ProductRef)
+    assert_type(voltage, DCMonitorVoltageProducts)
+    assert_type(voltage.voltage, ProductRef)
     definition = context.close_definition_internal(id="test.symbolic.dc-monitor")
-    assert [product.id for product in definition.body.products] == ["monitored_current"]
-    acquisition = definition.body.effects[-1]
-    assert isinstance(acquisition, ModuleAcquireEffect)
-    assert [result.result_id for result in acquisition.results] == ["monitored_current"]
+    assert [product.id for product in definition.body.products] == [
+        "monitored_current",
+        "monitored_voltage",
+    ]
+    acquisitions = definition.body.effects[-2:]
+    assert all(isinstance(effect, ModuleAcquireEffect) for effect in acquisitions)
+    assert [
+        [result.result_id for result in effect.results]
+        for effect in acquisitions
+        if isinstance(effect, ModuleAcquireEffect)
+    ] == [["monitored_current"], ["monitored_voltage"]]
 
 
-def test_dc_monitor_requires_a_concrete_ensured_source_mode() -> None:
+def test_dc_monitor_acquisition_does_not_require_symbolic_source_state() -> None:
     source = dc_source(ModuleContext(), "flux", monitor=True)
 
-    with pytest.raises(ValueError, match=r"state-dependent results.*concrete"):
-        source.monitor()
+    assert_type(source.measure_current(), DCMonitorCurrentProducts)
+    assert_type(source.measure_voltage(), DCMonitorVoltageProducts)
 
 
 def test_dc_monitor_selection_is_a_static_symbolic_capability_boundary() -> None:
@@ -532,8 +540,10 @@ def test_dc_monitor_selection_is_a_static_symbolic_capability_boundary() -> None
 
     assert_type(source, SymbolicDCSourceClient)
     assert_type(monitor, SymbolicDCSourceMonitorClient)
-    assert not hasattr(source, "monitor")
-    assert hasattr(monitor, "monitor")
+    assert not hasattr(source, "measure_current")
+    assert not hasattr(source, "measure_voltage")
+    assert hasattr(monitor, "measure_current")
+    assert hasattr(monitor, "measure_voltage")
 
     interface, _, _ = context.close_experiment_parts_internal()
     assert interface.resources[0].selector.interfaces == (DC_SOURCE.interface_id,)
@@ -556,10 +566,11 @@ def test_dc_monitor_group_selection_retains_monitor_verbs() -> None:
 
     assert_type(sources, SymbolicDCSourceMonitorGroup)
     assert_type(sources[q0], SymbolicDCSourceMonitorClient)
-    assert hasattr(sources, "monitor")
+    assert hasattr(sources, "measure_current")
+    assert hasattr(sources, "measure_voltage")
 
 
-def test_dc_monitor_group_uses_each_entity_source_discriminator() -> None:
+def test_dc_monitor_group_maps_each_fixed_acquisition_per_entity() -> None:
     context = ModuleContext()
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
@@ -591,18 +602,22 @@ def test_dc_monitor_group_uses_each_entity_source_discriminator() -> None:
     )
     sources.ensure(DCMonitorGroupTarget(measurement_enabled=True))
 
-    samples = sources.monitor()
+    current_samples = sources.measure_current()
+    voltage_samples = sources.measure_voltage()
 
-    assert_type(samples, PerEntity[DCMonitorProducts])
-    assert samples[q0].current is not None
-    assert samples[q0].voltage is None
-    assert samples[q1].current is None
-    assert samples[q1].voltage is not None
+    assert_type(current_samples, PerEntity[DCMonitorCurrentProducts])
+    assert_type(voltage_samples, PerEntity[DCMonitorVoltageProducts])
+    assert isinstance(current_samples[q0].current, ProductRef)
+    assert isinstance(current_samples[q1].current, ProductRef)
+    assert isinstance(voltage_samples[q0].voltage, ProductRef)
+    assert isinstance(voltage_samples[q1].voltage, ProductRef)
     definition = context.close_definition_internal(
         id="test.symbolic.dc-monitor-each-discriminator"
     )
     assert [product.id for product in definition.body.products] == [
         "monitored_current",
+        "monitored_current",
+        "monitored_voltage",
         "monitored_voltage",
     ]
 

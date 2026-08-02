@@ -284,31 +284,33 @@ class DriverFixedAcquisitionDriverAdapter(ABC):
         request: DriverAcquisition,
     ) -> DriverOutcome[DriverReadback]:
         if request.target == DRIVER_FIXED_ACQUISITION_ACQUIRE:
-            requested: set[DriverFixedAcquisitionAcquireDriverResultName] = set()
+            requested_acquire: set[DriverFixedAcquisitionAcquireDriverResultName] = (
+                set()
+            )
             for result in request.results:
                 if result == DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT:
-                    requested.add("response")
+                    requested_acquire.add("response")
                 else:
                     return _unsupported_driver_request(
                         self.instrument_id,
                         "acquisition_result",
                         result.result_id,
                     )
-            outcome = self.handle_acquire(frozenset(requested))
-            if not isinstance(outcome, DriverSuccess):
-                return outcome
-            readback = outcome.value
-            values: dict[AcquisitionResultRef, MeasurementValue] = {}
-            if "response" in readback.values:
-                values[DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT] = readback.values[
-                    "response"
-                ]
+            outcome_acquire = self.handle_acquire(frozenset(requested_acquire))
+            if not isinstance(outcome_acquire, DriverSuccess):
+                return outcome_acquire
+            readback_acquire = outcome_acquire.value
+            values_acquire: dict[AcquisitionResultRef, MeasurementValue] = {}
+            if "response" in readback_acquire.values:
+                values_acquire[DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT] = (
+                    readback_acquire.values["response"]
+                )
             return DriverSuccess(
                 DriverReadback(
-                    values=values,
-                    metadata=readback.metadata,
+                    values=values_acquire,
+                    metadata=readback_acquire.metadata,
                 ),
-                metadata=outcome.metadata,
+                metadata=outcome_acquire.metadata,
             )
         return _unsupported_driver_request(
             self.instrument_id,
@@ -461,33 +463,37 @@ class DriverMonitorBundleDriverAdapter(ABC):
             request.target == DRIVER_MONITOR_ACQUISITION
             and self._driver_monitor_enabled
         ):
-            requested: set[DriverMonitorMonitorDriverResultName] = set()
+            requested_monitor: set[DriverMonitorMonitorDriverResultName] = set()
             for result in request.results:
                 if result == DRIVER_MONITOR_LEFT_RESULT:
-                    requested.add("left")
+                    requested_monitor.add("left")
                 elif result == DRIVER_MONITOR_RIGHT_RESULT:
-                    requested.add("right")
+                    requested_monitor.add("right")
                 else:
                     return _unsupported_driver_request(
                         self.instrument_id,
                         "acquisition_result",
                         result.result_id,
                     )
-            outcome = self.handle_monitor(frozenset(requested))
-            if not isinstance(outcome, DriverSuccess):
-                return outcome
-            readback = outcome.value
-            values: dict[AcquisitionResultRef, MeasurementValue] = {}
-            if "left" in readback.values:
-                values[DRIVER_MONITOR_LEFT_RESULT] = readback.values["left"]
-            if "right" in readback.values:
-                values[DRIVER_MONITOR_RIGHT_RESULT] = readback.values["right"]
+            outcome_monitor = self.handle_monitor(frozenset(requested_monitor))
+            if not isinstance(outcome_monitor, DriverSuccess):
+                return outcome_monitor
+            readback_monitor = outcome_monitor.value
+            values_monitor: dict[AcquisitionResultRef, MeasurementValue] = {}
+            if "left" in readback_monitor.values:
+                values_monitor[DRIVER_MONITOR_LEFT_RESULT] = readback_monitor.values[
+                    "left"
+                ]
+            if "right" in readback_monitor.values:
+                values_monitor[DRIVER_MONITOR_RIGHT_RESULT] = readback_monitor.values[
+                    "right"
+                ]
             return DriverSuccess(
                 DriverReadback(
-                    values=values,
-                    metadata=readback.metadata,
+                    values=values_monitor,
+                    metadata=readback_monitor.metadata,
                 ),
-                metadata=outcome.metadata,
+                metadata=outcome_monitor.metadata,
             )
         return _unsupported_driver_request(
             self.instrument_id,

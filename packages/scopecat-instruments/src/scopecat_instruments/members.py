@@ -28,13 +28,14 @@ DC_SOURCE_VOLTAGE_RANGE = DC_SOURCE.property("voltage_range")
 DC_SOURCE_VOLTAGE_LEVEL = DC_SOURCE.property("voltage_level")
 DC_SOURCE_CURRENT_RANGE = DC_SOURCE.property("current_range")
 DC_SOURCE_CURRENT_LEVEL = DC_SOURCE.property("current_level")
-DC_MONITOR = InterfaceRef("scopecat.dc_monitor/v3")
+DC_MONITOR = InterfaceRef("scopecat.dc_monitor/v4")
 DC_MONITOR_MEASUREMENT_ENABLED = DC_MONITOR.property("measurement_enabled")
 DC_MONITOR_INTEGRATION_CYCLES = DC_MONITOR.property("integration_cycles")
 DC_MONITOR_MEASUREMENT_DELAY = DC_MONITOR.property("measurement_delay")
-DC_MONITOR_ACQUISITION = DC_MONITOR.acquisition("monitor")
-DC_MONITOR_CURRENT_RESULT = DC_MONITOR_ACQUISITION.result("monitored_current")
-DC_MONITOR_VOLTAGE_RESULT = DC_MONITOR_ACQUISITION.result("monitored_voltage")
+DC_MONITOR_MEASURE_CURRENT = DC_MONITOR.acquisition("measure_current")
+DC_MONITOR_CURRENT_RESULT = DC_MONITOR_MEASURE_CURRENT.result("monitored_current")
+DC_MONITOR_MEASURE_VOLTAGE = DC_MONITOR.acquisition("measure_voltage")
+DC_MONITOR_VOLTAGE_RESULT = DC_MONITOR_MEASURE_VOLTAGE.result("monitored_voltage")
 NETWORK_SWEEP = InterfaceRef("scopecat.network_sweep/v1")
 NETWORK_SWEEP_START_FREQUENCY = NETWORK_SWEEP.property("start_frequency")
 NETWORK_SWEEP_STOP_FREQUENCY = NETWORK_SWEEP.property("stop_frequency")
@@ -48,11 +49,12 @@ NETWORK_SWEEP_S_PARAMETER_RESULT = NETWORK_SWEEP_ACQUISITION.result("s_parameter
 
 __all__ = [
     "DC_MONITOR",
-    "DC_MONITOR_ACQUISITION",
     "DC_MONITOR_CURRENT_RESULT",
     "DC_MONITOR_INTEGRATION_CYCLES",
     "DC_MONITOR_MEASUREMENT_DELAY",
     "DC_MONITOR_MEASUREMENT_ENABLED",
+    "DC_MONITOR_MEASURE_CURRENT",
+    "DC_MONITOR_MEASURE_VOLTAGE",
     "DC_MONITOR_VOLTAGE_RESULT",
     "DC_SOURCE",
     "DC_SOURCE_CURRENT_LEVEL",

@@ -6,7 +6,11 @@ from typing import Literal, override
 
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.measurement import MeasurementScalar, MeasurementUnavailable
+from scopecat.records.measurement import (
+    MeasurementScalar,
+    MeasurementUnavailable,
+    MeasurementValue,
+)
 from scopecat.sdk.instruments import (
     DriverOutcome,
     DriverRejected,
@@ -35,9 +39,12 @@ from scopecat_instruments._support import (
     state_sync_failed,
 )
 from scopecat_instruments.driver_handlers import (
-    DCMonitorMonitorDriverReadback,
-    DCMonitorMonitorDriverResultName,
-    DCMonitorMonitorDriverValues,
+    DCMonitorMeasureCurrentDriverReadback,
+    DCMonitorMeasureCurrentDriverResultName,
+    DCMonitorMeasureCurrentDriverValues,
+    DCMonitorMeasureVoltageDriverReadback,
+    DCMonitorMeasureVoltageDriverResultName,
+    DCMonitorMeasureVoltageDriverValues,
     DCSourceMonitorDriverAdapter,
     DCSourceMonitorDriverPatch,
     DCSourceMonitorDriverSnapshot,
@@ -272,22 +279,88 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
             return apply_unknown(self.instrument_id, error)
 
     @override
-    def handle_monitor(
+    def handle_measure_current(
         self,
-        requested: frozenset[DCMonitorMonitorDriverResultName],
+        requested: frozenset[DCMonitorMeasureCurrentDriverResultName],
         /,
-    ) -> DriverOutcome[DCMonitorMonitorDriverReadback]:
+    ) -> DriverOutcome[DCMonitorMeasureCurrentDriverReadback]:
+        if requested != frozenset({"current"}):
+            return DriverRejected(
+                problems=(
+                    execution_problem(
+                        "gs200_monitor_current_result_missing",
+                        "GS200 current measurement requires its current result",
+                        "driver_acquisition",
+                        "results",
+                    ),
+                )
+            )
+        outcome = self._measure_monitor(expected_mode="voltage", unit="A")
+        if not isinstance(outcome, DriverSuccess):
+            return outcome
+        values: DCMonitorMeasureCurrentDriverValues = {"current": outcome.value}
+        return DriverSuccess(
+            DCMonitorMeasureCurrentDriverReadback(
+                values=values,
+                metadata={
+                    "manufacturer": "Yokogawa",
+                    "model": "GS200",
+                    "source_mode": "voltage",
+                },
+            ),
+            metadata=outcome.metadata,
+        )
+
+    @override
+    def handle_measure_voltage(
+        self,
+        requested: frozenset[DCMonitorMeasureVoltageDriverResultName],
+        /,
+    ) -> DriverOutcome[DCMonitorMeasureVoltageDriverReadback]:
+        if requested != frozenset({"voltage"}):
+            return DriverRejected(
+                problems=(
+                    execution_problem(
+                        "gs200_monitor_voltage_result_missing",
+                        "GS200 voltage measurement requires its voltage result",
+                        "driver_acquisition",
+                        "results",
+                    ),
+                )
+            )
+        outcome = self._measure_monitor(expected_mode="current", unit="V")
+        if not isinstance(outcome, DriverSuccess):
+            return outcome
+        values: DCMonitorMeasureVoltageDriverValues = {"voltage": outcome.value}
+        return DriverSuccess(
+            DCMonitorMeasureVoltageDriverReadback(
+                values=values,
+                metadata={
+                    "manufacturer": "Yokogawa",
+                    "model": "GS200",
+                    "source_mode": "current",
+                },
+            ),
+            metadata=outcome.metadata,
+        )
+
+    def _measure_monitor(
+        self,
+        *,
+        expected_mode: Literal["voltage", "current"],
+        unit: Literal["A", "V"],
+    ) -> DriverOutcome[MeasurementValue]:
         try:
             mode = self.source_mode()
-            active_result: DCMonitorMonitorDriverResultName = (
-                "current" if mode == "voltage" else "voltage"
-            )
-            if requested != frozenset({active_result}):
+            if mode != expected_mode:
                 return DriverRejected(
                     problems=(
                         state_property_problem(
-                            "gs200_monitor_result_inactive",
-                            f"{mode} source mode provides only {active_result}",
+                            "gs200_monitor_source_mode_mismatch",
+                            (
+                                f"measurement requires {expected_mode} source mode, "
+                                f"got {mode}"
+                            ),
                             DC_SOURCE_MODE,
                         ),
                     )
@@ -312,7 +385,7 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
                         ),
                     )
                 )
-            if mode == "voltage" and self.source_range() < 1.0:
+            if expected_mode == "voltage" and self.source_range() < 1.0:
                 return DriverRejected(
                     problems=(
                         state_property_problem(
@@ -335,7 +408,6 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
                     )
                 )
 
-            unit = "A" if mode == "voltage" else "V"
             original_trigger = self.measurement_trigger()
             restore_trigger = original_trigger != "COMM"
             try:
@@ -372,21 +444,7 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
                     unit=unit,
                     value=parse_float(raw_measurement, command=":MEAS?"),
                 )
-            values: DCMonitorMonitorDriverValues = {}
-            if active_result == "current":
-                values["current"] = measured
-            else:
-                values["voltage"] = measured
-            return DriverSuccess(
-                DCMonitorMonitorDriverReadback(
-                    values=values,
-                    metadata={
-                        "manufacturer": "Yokogawa",
-                        "model": "GS200",
-                        "source_mode": mode,
-                    },
-                ),
-            )
+            return DriverSuccess(measured)
         except Exception as error:
             return collect_unknown(self.instrument_id, error)
 

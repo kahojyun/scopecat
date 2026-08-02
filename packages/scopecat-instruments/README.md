@@ -301,12 +301,12 @@ The package supports these driver IDs:
 
 | Driver ID | Interface |
 | --- | --- |
-| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v3` |
+| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v4` |
 | `scopecat.rohde_schwarz.sgs100a` | `scopecat.rf_output/v1` |
 | `scopecat.lakeshore.372` | `scopecat.temperature_readout/v1` |
 | `scopecat.keysight.e5080b` | `scopecat.network_sweep/v1` |
 | `scopecat.virtual.rf_source` | `scopecat.rf_output/v1` |
-| `scopecat.virtual.dc_source` | `scopecat.dc_source/v2`, `scopecat.dc_monitor/v3` |
+| `scopecat.virtual.dc_source` | `scopecat.dc_source/v2`, `scopecat.dc_monitor/v4` |
 | `scopecat.virtual.temperature_monitor` | `scopecat.temperature_readout/v1` |
 | `scopecat.virtual.vna` | `scopecat.network_sweep/v1` |
 

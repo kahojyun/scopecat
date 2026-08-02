@@ -49,8 +49,8 @@ from scopecat_instruments.interfaces import (
     temperature_readout_interface,
 )
 from scopecat_instruments.members import (
-    DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_MEASURE_CURRENT,
     NETWORK_SWEEP_ACQUISITION,
     NETWORK_SWEEP_FREQUENCY_RESULT,
     NETWORK_SWEEP_S_PARAMETER_RESULT,
@@ -570,7 +570,7 @@ def test_notebook_collect_sends_unspecified_results_without_reading_state() -> N
     )
 
     try:
-        receipt = handle._collect(DC_MONITOR_ACQUISITION)
+        receipt = handle._collect(DC_MONITOR_MEASURE_CURRENT)
     finally:
         daemon.close()
 
@@ -581,9 +581,9 @@ def test_notebook_collect_sends_unspecified_results_without_reading_state() -> N
     assert daemon.collect_intent == InteractiveCollectIntent(
         command_id=daemon.collect_intent.command_id,
         instrument_id="bias",
-        interface_id=DC_MONITOR_ACQUISITION.interface_id,
-        component_path=list(DC_MONITOR_ACQUISITION.component_path),
-        acquisition_id=DC_MONITOR_ACQUISITION.acquisition_id,
+        interface_id=DC_MONITOR_MEASURE_CURRENT.interface_id,
+        component_path=list(DC_MONITOR_MEASURE_CURRENT.component_path),
+        acquisition_id=DC_MONITOR_MEASURE_CURRENT.acquisition_id,
         result_ids=[],
     )
 
@@ -606,7 +606,7 @@ def test_notebook_collect_sends_explicit_result_identity() -> None:
 
     try:
         handle._collect(
-            DC_MONITOR_ACQUISITION,
+            DC_MONITOR_MEASURE_CURRENT,
             DC_MONITOR_CURRENT_RESULT,
         )
     finally:
@@ -718,7 +718,7 @@ def test_notebook_collect_rejects_a_result_from_another_acquisition() -> None:
             match="collect results must belong to the selected acquisition",
         ):
             handle._collect(
-                DC_MONITOR_ACQUISITION,
+                DC_MONITOR_MEASURE_CURRENT,
                 NETWORK_SWEEP_FREQUENCY_RESULT,
             )
     finally:

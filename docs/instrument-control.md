@@ -1015,7 +1015,7 @@ The first package deliberately implements narrow, documented subsets:
 
 | Device | Interface | Initial boundary |
 |---|---|---|
-| Yokogawa GS200/GS210 | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v3` | discriminated voltage/current state, protection, output, and optional `/MON` acquisition |
+| Yokogawa GS200/GS210 | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v4` | discriminated voltage/current state, protection, output, and independent current/voltage `/MON` acquisitions |
 | R&S SGS100A | `scopecat.rf_output/v1` | CW frequency, power, RF output, internal/external reference |
 | Lake Shore 372 | `scopecat.temperature_readout/v1` | read-only scanner state and settled, status-checked temperature or resistance samples |
 | Keysight E5080B | `scopecat.network_sweep/v1` | one linear two-port S-parameter sweep and complex trace |

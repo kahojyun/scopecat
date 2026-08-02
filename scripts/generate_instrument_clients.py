@@ -2091,6 +2091,11 @@ def _render_adapter_collect(
         "    ) -> DriverOutcome[DriverReadback]:\n",
     ]
     for model in models:
+        variable_suffix = model.hook_name.removeprefix("handle_")
+        requested_name = f"requested_{variable_suffix}"
+        outcome_name = f"outcome_{variable_suffix}"
+        readback_name = f"readback_{variable_suffix}"
+        values_name = f"values_{variable_suffix}"
         condition = f"request.target == {model.member_name}"
         if model.optional:
             condition += f" and self._driver_{cast('str', surface.flag_name)}_enabled"
@@ -2110,19 +2115,28 @@ def _render_adapter_collect(
             lines.extend(
                 ("        if (\n", f"            {condition}\n", "        ):\n")
             )
-        lines.extend(
-            (
-                "            requested: "
-                f"set[{model.type_stem}DriverResultName] = set()\n",
-                "            for result in request.results:\n",
-            )
+        requested_declaration = (
+            f"            {requested_name}: "
+            f"set[{model.type_stem}DriverResultName] = set()\n"
         )
+        if len(requested_declaration.rstrip("\n")) <= 88:
+            lines.append(requested_declaration)
+        else:
+            lines.extend(
+                (
+                    f"            {requested_name}: "
+                    f"set[{model.type_stem}DriverResultName] = (\n",
+                    "                set()\n",
+                    "            )\n",
+                )
+            )
+        lines.append("            for result in request.results:\n")
         for index, field in enumerate(model.fields):
             keyword = "if" if index == 0 else "elif"
             lines.extend(
                 (
                     f"                {keyword} result == {field.member_name}:\n",
-                    f"                    requested.add("
+                    f"                    {requested_name}.add("
                     f"{_string_literal(field.python_name)})\n",
                 )
             )
@@ -2134,40 +2148,70 @@ def _render_adapter_collect(
                 '                        "acquisition_result",\n',
                 "                        result.result_id,\n",
                 "                    )\n",
-                f"            outcome = self.{model.hook_name}(frozenset(requested))\n",
-                "            if not isinstance(outcome, DriverSuccess):\n",
-                "                return outcome\n",
-                "            readback = outcome.value\n",
-                "            values: dict[AcquisitionResultRef, "
+            )
+        )
+        outcome_call = (
+            f"            {outcome_name} = self.{model.hook_name}("
+            f"frozenset({requested_name}))\n"
+        )
+        if len(outcome_call.rstrip("\n")) <= 88:
+            lines.append(outcome_call)
+        else:
+            lines.extend(
+                (
+                    f"            {outcome_name} = self.{model.hook_name}(\n",
+                    f"                frozenset({requested_name})\n",
+                    "            )\n",
+                )
+            )
+        lines.extend(
+            (
+                f"            if not isinstance({outcome_name}, DriverSuccess):\n",
+                f"                return {outcome_name}\n",
+                f"            {readback_name} = {outcome_name}.value\n",
+                f"            {values_name}: dict[AcquisitionResultRef, "
                 "MeasurementValue] = {}\n",
             )
         )
         for field in model.fields:
             field_literal = _string_literal(field.python_name)
-            lines.append(f"            if {field_literal} in readback.values:\n")
+            lines.append(f"            if {field_literal} in {readback_name}.values:\n")
             assignment = (
-                f"                values[{field.member_name}] = "
-                f"readback.values[{field_literal}]\n"
+                f"                {values_name}[{field.member_name}] = "
+                f"{readback_name}.values[{field_literal}]\n"
             )
             if len(assignment.rstrip("\n")) <= 88:
                 lines.append(assignment)
             else:
-                lines.extend(
-                    (
-                        f"                values[{field.member_name}] = "
-                        "readback.values[\n",
-                        f"                    {field_literal}\n",
-                        "                ]\n",
-                    )
+                split_index = (
+                    f"                {values_name}[{field.member_name}] = "
+                    f"{readback_name}.values["
                 )
+                if len(split_index) <= 88:
+                    lines.extend(
+                        (
+                            f"{split_index}\n",
+                            f"                    {field_literal}\n",
+                            "                ]\n",
+                        )
+                    )
+                else:
+                    lines.extend(
+                        (
+                            f"                {values_name}[{field.member_name}] = (\n",
+                            f"                    {readback_name}.values["
+                            f"{field_literal}]\n",
+                            "                )\n",
+                        )
+                    )
         lines.extend(
             (
                 "            return DriverSuccess(\n",
                 "                DriverReadback(\n",
-                "                    values=values,\n",
-                "                    metadata=readback.metadata,\n",
+                f"                    values={values_name},\n",
+                f"                    metadata={readback_name}.metadata,\n",
                 "                ),\n",
-                "                metadata=outcome.metadata,\n",
+                f"                metadata={outcome_name}.metadata,\n",
                 "            )\n",
             )
         )
