@@ -104,6 +104,38 @@ Runs and interactive sessions compete for the same exclusive resource claim.
 Consequential calls retain their replay identity automatically while retrying a
 transient transport failure.
 
+## Typed client source generation
+
+Decorated Python interface declarations are the shared source for the wire
+contract and supported typed clients. `TemperatureReadout` is the first
+production client family emitted by the committed static generator: its typed
+observation accessors, sample readback/product carriers, live client, symbolic
+single-entity client, symbolic group, and family factory live in generated
+Python source so editors and type checkers see their exact signatures.
+
+Run the generator from the repository root after changing a supported
+declaration, and use its check mode in validation or CI:
+
+```console
+uv run --locked python scripts/generate_instrument_clients.py
+uv run --locked python scripts/generate_instrument_clients.py --check
+```
+
+Do not edit `_generated_clients.py` directly. The generated source includes
+nested component operation proxies for supported declarations. A live operation
+accepts concrete arguments and returns `InvokeReceipt`; the scalar symbolic
+form accepts `Desired[T]` arguments and an `effect_id`. Its group form accepts a
+scalar or `PerEntity` value independently for every argument, performs exact
+identity joins for all mappings before recording any effect, and then records
+one scalar invocation per entity. Mapping order is therefore irrelevant, while
+missing or extra entity identities fail before partial effects are created.
+
+Payload-bearing operations are rejected by code generation until their
+schema-specific live and symbolic carriers are defined. Persistent-state,
+discriminated-state, and optional-capability client families remain hand-written
+and are the next migration and cleanup work. The current generator likewise
+does not claim component-owned state or component acquisition clients.
+
 ## Configuration
 
 The Instruments workspace reads the provider's driver catalog to add or

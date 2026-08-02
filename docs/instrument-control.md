@@ -406,15 +406,41 @@ method capabilities. Explicit contract builders remain the escape hatch for
 component-owned state or properties, combining observed and discriminated state,
 and other unusual contract shapes.
 
-The descriptor boundary also does not dynamically inject public client methods.
-Those methods must remain real Python source so type checkers can preserve
+The descriptor boundary does not dynamically inject public client methods.
+Those methods remain real Python source so type checkers can preserve
 positional-only and keyword-only parameters, narrow live argument carriers, add
 symbolic effect ids, and lift each parameter independently for entity groups.
-The current first-party clients still contain hand-written thin wrappers; the
-next consolidation is static source generation from the decorated interfaces.
-Nested component refs already resolve recursively, but a typed component proxy
-tree is part of that generation step. Payload-bearing operations additionally
-need a schema-specific policy for their concrete live and symbolic carriers.
+The repository's committed static generator consumes the public declared
+interface layout and writes that source deterministically. `TemperatureReadout`
+is the first production slice: its typed observation accessors, sample
+readback/product carriers, live client, symbolic single-entity client, symbolic
+group, and family factory are generated into `_generated_clients.py` rather
+than maintained as parallel hand-written wrappers. Regenerate it from the
+repository root, or verify that the committed output is current, with:
+
+```console
+uv run --locked python scripts/generate_instrument_clients.py
+uv run --locked python scripts/generate_instrument_clients.py --check
+```
+
+For supported nested component operations, generation emits a typed component
+proxy tree while retaining the recursively resolved component and operation
+refs. The live method narrows every declared `Desired[T]` argument to concrete
+`T` and returns `InvokeReceipt`. The scalar symbolic method retains
+`Desired[T]` and adds `effect_id`; its group counterpart accepts either a
+broadcast `Desired[T]` or `PerEntity[Desired[T]]` independently for each
+argument. The group aligns every argument before recording any invocation, then
+emits one ordinary scalar effect per child resource. Alignment is an exact join
+by entity identity, not by input order.
+
+This source generator intentionally supports concrete declaration shapes rather
+than claiming every compiled interface shape. Payload-bearing operations are
+currently rejected explicitly because their concrete and symbolic carriers need
+a schema-specific policy. The remaining persistent-state, discriminated-state,
+and optional-capability first-party clients are still hand-written and are the
+next migration and cleanup work. Component-owned state and component
+acquisitions are also outside the current generated surface; explicit contract
+builders and existing clients remain their escape hatch.
 
 ### Entity selection and parameter mapping
 
@@ -442,8 +468,8 @@ declaration order, and gives each scoped product a stable qualified record id.
 
 `EachEntity` expansion happens while authoring: every selected entity owns an
 independently routable scalar resource. It is not a vector operation added to
-the planner. Generated group operation methods will apply the same identity
-rule independently to every argument: a scalar value broadcasts, a
+the planner. Generated group operation methods apply the same identity rule
+independently to every argument: a scalar value broadcasts, a
 `PerEntity[value]` must be an exact join, and all arguments are aligned before
 any child invocation is recorded. The result is one ordinary invocation per
 child resource, so component paths and symbolic state-cache invalidation retain
