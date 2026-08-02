@@ -16,6 +16,10 @@ from scopecat_instruments.interface_declarations import (
 )
 
 
+def temperature_readout_interface() -> InterfaceSpec:
+    return compile_interface(TemperatureReadoutInterface).fresh_spec()
+
+
 def rf_output_interface() -> InterfaceSpec:
     return compile_interface(RFOutputInterface).fresh_spec()
 
@@ -26,10 +30,6 @@ def dc_source_interface() -> InterfaceSpec:
 
 def dc_monitor_interface() -> InterfaceSpec:
     return compile_interface(DCMonitorInterface).fresh_spec()
-
-
-def temperature_readout_interface() -> InterfaceSpec:
-    return compile_interface(TemperatureReadoutInterface).fresh_spec()
 
 
 def network_sweep_interface() -> InterfaceSpec:

@@ -49,18 +49,6 @@ from scopecat_instruments import (
     rf_output,
     temperature_readout,
 )
-from scopecat_instruments._generated_clients import (
-    SymbolicDCSourceClient as GeneratedSymbolicDCSourceClient,
-)
-from scopecat_instruments._generated_clients import (
-    SymbolicDCSourceGroup as GeneratedSymbolicDCSourceGroup,
-)
-from scopecat_instruments._generated_clients import (
-    SymbolicDCSourceMonitorClient as GeneratedSymbolicDCSourceMonitorClient,
-)
-from scopecat_instruments._generated_clients import (
-    SymbolicDCSourceMonitorGroup as GeneratedSymbolicDCSourceMonitorGroup,
-)
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
@@ -97,13 +85,6 @@ def test_factories_bind_typed_symbolic_clients_and_declare_resources() -> None:
         (TEMPERATURE_READOUT.interface_id,),
     ]
     assert interface.resources[0].selector.entity_inputs == (qubit,)
-
-
-def test_dc_source_symbolic_exports_are_generated() -> None:
-    assert SymbolicDCSourceClient is GeneratedSymbolicDCSourceClient
-    assert SymbolicDCSourceGroup is GeneratedSymbolicDCSourceGroup
-    assert SymbolicDCSourceMonitorClient is GeneratedSymbolicDCSourceMonitorClient
-    assert SymbolicDCSourceMonitorGroup is GeneratedSymbolicDCSourceMonitorGroup
 
 
 def test_dc_source_literal_monitor_overloads_cover_scalar_and_group() -> None:

@@ -206,5 +206,6 @@ __all__ = [
     "SymbolicComponentOperationOutputGroup",
     "SymbolicComponentOperationOutputTriggerClient",
     "SymbolicComponentOperationOutputTriggerGroup",
+    "SymbolicInstrumentRecorder",
     "component_operation",
 ]

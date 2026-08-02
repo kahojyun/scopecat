@@ -17,27 +17,24 @@ if sys.argv[4] != "-":
 from generate_instrument_clients import (
     clients_for,
     clients_for_bundle,
-    facade_for_bundle,
     render_client_module,
 )
 from scopecat.sdk.instruments.declarations import declared_bundle_interfaces
 
 declarations = import_module(sys.argv[2])
 declaration = getattr(declarations, sys.argv[3])
-if sys.argv[7] == "facade":
+if sys.argv[5] == "facade":
     base, *_ = declared_bundle_interfaces(declaration)
-    surfaces = (clients_for_bundle(declaration),)
-    if sys.argv[9] == "include-base":
-        surfaces = (clients_for(base, generate_family=False), *surfaces)
-    facades = (facade_for_bundle(declaration, flag=sys.argv[8]),)
+    surfaces = (clients_for_bundle(declaration, facade_flag=sys.argv[6]),)
+    if sys.argv[7] == "include-base":
+        surfaces = (clients_for(base), *surfaces)
 else:
     surfaces = (
         clients_for_bundle(declaration)
-        if sys.argv[6] == "bundle"
-        else clients_for(declaration, generate_family=sys.argv[5] == "true"),
+        if sys.argv[5] == "bundle"
+        else clients_for(declaration),
     )
-    facades = ()
-print(render_client_module(surfaces, facades=facades), end="")
+print(render_client_module(surfaces), end="")
 """
 
 
@@ -46,7 +43,6 @@ def _render_surface(
     *,
     module: str = "client_codegen_fixture_declarations",
     import_root: Path | None = FIXTURE_IMPORT_ROOT,
-    generate_family: bool = True,
     bundle: bool = False,
     facade: bool = False,
     flag: str = "monitor",
@@ -61,9 +57,7 @@ def _render_surface(
             module,
             interface_name,
             "-" if import_root is None else str(import_root),
-            "true" if generate_family else "false",
-            "bundle" if bundle else "interface",
-            "facade" if facade else "surface",
+            "facade" if facade else "bundle" if bundle else "interface",
             flag,
             "include-base" if include_base else "omit-base",
         ],
@@ -117,12 +111,12 @@ def test_codegen_rejects_every_colliding_generated_symbol() -> None:
     assert "_SYMBOL_COLLISION_FOO_BAR_FIRE_DECLARATION" in completed.stderr
 
 
-def test_codegen_renders_discriminated_state_without_an_optional_family() -> None:
+def test_codegen_derives_base_family_suppression_from_a_facade_bundle() -> None:
     completed = _render_surface(
-        "DCSourceInterface",
+        "DCSourceMonitorInterface",
         module="scopecat_instruments.interface_declarations",
         import_root=None,
-        generate_family=False,
+        facade=True,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -139,14 +133,12 @@ def test_codegen_renders_discriminated_state_without_an_optional_family() -> Non
     assert (
         "DeclaredStateSymbolicGroupBase[_DCSourceState, SymbolicDCSourceClient]"
     ) in completed.stdout
-    assert "declared_interface_layout" not in completed.stdout
-    assert "compile_interface" not in completed.stdout
     assert "DC_SOURCE_DECLARATION" not in completed.stdout
     assert "_DC_SOURCE_REF = declared_interface_ref(DCSourceInterface)" in (
         completed.stdout
     )
     assert "InstrumentFamily" not in completed.stdout
-    assert '"dc_source"' not in completed.stdout
+    assert '"dc_source"' in completed.stdout
 
 
 def test_codegen_composes_a_root_only_interface_bundle() -> None:

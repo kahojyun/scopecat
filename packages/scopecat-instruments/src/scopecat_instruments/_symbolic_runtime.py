@@ -1,4 +1,4 @@
-"""Shared symbolic-client runtime used by handwritten and generated families."""
+"""Shared symbolic-client runtime used by generated instrument families."""
 
 from __future__ import annotations
 

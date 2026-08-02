@@ -30,7 +30,6 @@ if TYPE_CHECKING:
         SymbolicTemperatureReadoutGroup,
         TemperatureReadback,
         TemperatureReadoutClient,
-        TemperatureReadoutObservation,
         TemperatureSampleProducts,
         dc_source,
         network_sweep,
@@ -48,6 +47,7 @@ if TYPE_CHECKING:
         ReferenceSource,
         RFOutputState,
         SParameter,
+        TemperatureReadoutObservation,
     )
 
 
@@ -73,7 +73,6 @@ _CLIENT_EXPORTS = {
     "SymbolicTemperatureReadoutGroup",
     "TemperatureReadback",
     "TemperatureReadoutClient",
-    "TemperatureReadoutObservation",
     "TemperatureSampleProducts",
     "dc_source",
     "network_sweep",
@@ -91,6 +90,7 @@ _STATE_EXPORTS = {
     "RFOutputState",
     "ReferenceSource",
     "SParameter",
+    "TemperatureReadoutObservation",
 }
 
 

@@ -14,6 +14,14 @@ from scopecat_instruments.interface_declarations import (
     TemperatureReadoutInterface,
 )
 
+TEMPERATURE_READOUT = declared_interface_ref(TemperatureReadoutInterface)
+TEMPERATURE_READOUT_SCAN_CHANNEL = TEMPERATURE_READOUT.property("scan_channel")
+TEMPERATURE_READOUT_AUTOSCAN_ENABLED = TEMPERATURE_READOUT.property("autoscan_enabled")
+TEMPERATURE_READOUT_SAMPLE = TEMPERATURE_READOUT.acquisition("sample")
+TEMPERATURE_READOUT_TEMPERATURE_RESULT = TEMPERATURE_READOUT_SAMPLE.result(
+    "temperature",
+)
+TEMPERATURE_READOUT_RESISTANCE_RESULT = TEMPERATURE_READOUT_SAMPLE.result("resistance")
 RF_OUTPUT = declared_interface_ref(RFOutputInterface)
 RF_OUTPUT_FREQUENCY = RF_OUTPUT.property("frequency")
 RF_OUTPUT_POWER = RF_OUTPUT.property("power")
@@ -35,14 +43,6 @@ DC_MONITOR_MEASUREMENT_DELAY = DC_MONITOR.property("measurement_delay")
 DC_MONITOR_ACQUISITION = DC_MONITOR.acquisition("monitor")
 DC_MONITOR_CURRENT_RESULT = DC_MONITOR_ACQUISITION.result("monitored_current")
 DC_MONITOR_VOLTAGE_RESULT = DC_MONITOR_ACQUISITION.result("monitored_voltage")
-TEMPERATURE_READOUT = declared_interface_ref(TemperatureReadoutInterface)
-TEMPERATURE_READOUT_SCAN_CHANNEL = TEMPERATURE_READOUT.property("scan_channel")
-TEMPERATURE_READOUT_AUTOSCAN_ENABLED = TEMPERATURE_READOUT.property("autoscan_enabled")
-TEMPERATURE_READOUT_SAMPLE = TEMPERATURE_READOUT.acquisition("sample")
-TEMPERATURE_READOUT_TEMPERATURE_RESULT = TEMPERATURE_READOUT_SAMPLE.result(
-    "temperature",
-)
-TEMPERATURE_READOUT_RESISTANCE_RESULT = TEMPERATURE_READOUT_SAMPLE.result("resistance")
 NETWORK_SWEEP = declared_interface_ref(NetworkSweepInterface)
 NETWORK_SWEEP_START_FREQUENCY = NETWORK_SWEEP.property("start_frequency")
 NETWORK_SWEEP_STOP_FREQUENCY = NETWORK_SWEEP.property("stop_frequency")

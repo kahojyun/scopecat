@@ -130,7 +130,7 @@ uv run --locked python scripts/generate_instrument_clients.py
 uv run --locked python scripts/generate_instrument_clients.py --check
 ```
 
-Do not edit `_generated_clients.py`, `members.py`, `interfaces.py`, or `states.py`
+Do not edit `clients.py`, `members.py`, `interfaces.py`, or `states.py`
 directly. The generated source includes nested component operation proxies for
 supported declarations. A live operation
 accepts concrete arguments and returns `InvokeReceipt`; the scalar symbolic

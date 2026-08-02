@@ -20,6 +20,7 @@ from scopecat.sdk.instruments.declarations import (
     declared_state_assignments,
 )
 
+import scopecat_instruments.clients as client_module
 from scopecat_instruments import (
     DCMonitorState,
     DCSourceClient,
@@ -37,18 +38,8 @@ from scopecat_instruments import (
     rf_output,
     temperature_readout,
 )
-from scopecat_instruments._generated_clients import (
-    DCSourceClient as GeneratedDCSourceClient,
-)
-from scopecat_instruments._generated_clients import (
-    DCSourceMonitorClient as GeneratedDCSourceMonitorClient,
-)
-from scopecat_instruments._generated_clients import dc_source as generated_dc_source
 from scopecat_instruments.interface_declarations import (
     TemperatureReadoutInterface,
-)
-from scopecat_instruments.interface_declarations import (
-    TemperatureReadoutObservation as DeclaredTemperatureReadoutObservation,
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
@@ -69,6 +60,9 @@ from scopecat_instruments.members import (
     TEMPERATURE_READOUT,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     TEMPERATURE_READOUT_SCAN_CHANNEL,
+)
+from scopecat_instruments.states import (
+    TemperatureReadoutObservation as StateTemperatureReadoutObservation,
 )
 
 
@@ -148,12 +142,6 @@ def test_first_party_factories_retain_static_client_types() -> None:
     assert rf.requires == (RF_OUTPUT,)
     assert vna.requires == (NETWORK_SWEEP,)
     assert thermometer.requires == (TEMPERATURE_READOUT,)
-
-
-def test_dc_source_live_clients_are_generated() -> None:
-    assert DCSourceClient is GeneratedDCSourceClient
-    assert DCSourceMonitorClient is GeneratedDCSourceMonitorClient
-    assert dc_source is generated_dc_source
 
 
 @pytest.mark.parametrize("monitor", [False, True])
@@ -286,13 +274,18 @@ def test_temperature_observation_uses_cached_and_fresh_snapshot_paths() -> None:
 
 
 def test_temperature_observation_descriptor_and_top_level_export_are_shared() -> None:
-    assert TemperatureReadoutObservation is DeclaredTemperatureReadoutObservation
+    assert TemperatureReadoutObservation is StateTemperatureReadoutObservation
     layout = declared_interface_layout(compile_interface(TemperatureReadoutInterface))
     assert layout.observed_state is not None
     assert [field.ref for field in layout.observed_state.fields] == [
         TEMPERATURE_READOUT_SCAN_CHANNEL,
         TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     ]
+
+
+def test_client_module_exports_only_client_owned_types() -> None:
+    assert "SymbolicInstrumentRecorder" in client_module.__all__
+    assert "TemperatureReadoutObservation" not in client_module.__all__
 
 
 def test_live_dc_monitor_selection_requires_the_combined_capability() -> None:
