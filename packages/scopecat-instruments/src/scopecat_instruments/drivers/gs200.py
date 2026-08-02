@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, override
 
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementScalar, MeasurementUnavailable
 from scopecat.sdk.instruments import (
-    DriverAcquisition,
-    DriverOperation,
     DriverOutcome,
-    DriverReadback,
     DriverRejected,
-    DriverState,
-    DriverStatePatch,
     DriverSuccess,
     InstrumentDescription,
 )
@@ -39,18 +33,17 @@ from scopecat_instruments._support import (
     quantity_value,
     state_property_problem,
     state_sync_failed,
-    unsupported_invoke,
+)
+from scopecat_instruments.driver_handlers import (
+    DCMonitorMonitorDriverReadback,
+    DCMonitorMonitorDriverResultName,
+    DCMonitorMonitorDriverValues,
+    DCSourceMonitorDriverAdapter,
+    DCSourceMonitorDriverPatch,
+    DCSourceMonitorDriverSnapshot,
 )
 from scopecat_instruments.driver_ids import YOKOGAWA_GS200
-from scopecat_instruments.driver_states import (
-    DCSourceDriverPatch,
-    decode_dc_monitor_patch,
-    decode_dc_source_patch,
-    encode_dc_monitor_state,
-    encode_dc_source_current_state,
-    encode_dc_source_voltage_state,
-    encode_driver_state,
-)
+from scopecat_instruments.driver_states import DCSourceDriverPatch
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
     DCSourceCurrentState,
@@ -59,9 +52,7 @@ from scopecat_instruments.interface_declarations import (
 )
 from scopecat_instruments.interfaces import dc_monitor_interface, dc_source_interface
 from scopecat_instruments.members import (
-    DC_MONITOR_CURRENT_RESULT,
     DC_MONITOR_MEASUREMENT_ENABLED,
-    DC_MONITOR_VOLTAGE_RESULT,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
     DC_SOURCE_VOLTAGE_RANGE,
@@ -72,20 +63,7 @@ _CONDITION_OVER_RANGE = 1 << 1
 _CONDITION_NO_TRIGGER_SAMPLING_ERROR = 1 << 4
 
 
-@dataclass(frozen=True)
-class _GS200Snapshot:
-    source: DCSourceState
-    monitor: DCMonitorState | None
-    metadata: dict[str, JsonValue]
-
-    @property
-    def source_mode(self) -> Literal["voltage", "current"]:
-        if isinstance(self.source, DCSourceVoltageState):
-            return "voltage"
-        return "current"
-
-
-class YokogawaGS200:
+class YokogawaGS200(DCSourceMonitorDriverAdapter):
     """GS200 source controls plus optional /MON single-value measurement."""
 
     implementation_id = YOKOGAWA_GS200
@@ -100,6 +78,7 @@ class YokogawaGS200:
         remote_sense: bool = False,
         guard_enabled: bool = False,
     ) -> None:
+        super().__init__(monitor=monitor_option)
         self.instrument_id = instrument_id
         self.transport = transport
         self.monitor_option = monitor_option
@@ -123,18 +102,8 @@ class YokogawaGS200:
             ],
         )
 
-    def read_state(self) -> DriverState:
-        snapshot = self._read_snapshot()
-        if isinstance(snapshot.source, DCSourceVoltageState):
-            encoded_source = encode_dc_source_voltage_state(snapshot.source)
-        else:
-            encoded_source = encode_dc_source_current_state(snapshot.source)
-        encoded_states = [encoded_source]
-        if snapshot.monitor is not None:
-            encoded_states.append(encode_dc_monitor_state(snapshot.monitor))
-        return encode_driver_state(*encoded_states, metadata=snapshot.metadata)
-
-    def _read_snapshot(self) -> _GS200Snapshot:
+    @override
+    def read_dc_source_monitor_state(self) -> DCSourceMonitorDriverSnapshot:
         self._validate_connection_profile()
         mode = self.source_mode()
         source_range = self.source_range()
@@ -176,18 +145,20 @@ class YokogawaGS200:
             if self.monitor_option
             else None
         )
-        return _GS200Snapshot(
-            source=source,
-            monitor=monitor,
+        return DCSourceMonitorDriverSnapshot(
+            dc_source=source,
+            dc_monitor=monitor,
             metadata=metadata,
         )
 
-    def apply_state(
+    @override
+    def apply_dc_source_monitor_state(
         self,
-        request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+        patch: DCSourceMonitorDriverPatch,
+        /,
+    ) -> DriverOutcome[None]:
         try:
-            baseline = self._read_snapshot()
+            baseline = self.read_dc_source_monitor_state()
         except TransportError:
             # A not_applied receipt would keep a transport that cannot be reused.
             raise
@@ -195,10 +166,14 @@ class YokogawaGS200:
             return state_sync_failed(self.instrument_id, error)
 
         try:
-            source_patch = decode_dc_source_patch(request)
-            monitor_patch = decode_dc_monitor_patch(request)
-            current_mode = baseline.source_mode
-            current_output = baseline.source.output_enabled
+            source_patch = patch.dc_source
+            monitor_patch = patch.dc_monitor
+            current_mode: Literal["voltage", "current"] = (
+                "voltage"
+                if isinstance(baseline.dc_source, DCSourceVoltageState)
+                else "current"
+            )
+            current_output = baseline.dc_source.output_enabled
             target_mode = source_patch.get("source_mode", current_mode)
             target_output = source_patch.get("output_enabled", current_output)
             if not self._remote_sense_target_is_valid(
@@ -220,8 +195,8 @@ class YokogawaGS200:
             current_measurement = False
             target_measurement = False
             changes_measurement_settings = False
-            if baseline.monitor is not None:
-                current_measurement = baseline.monitor.measurement_enabled
+            if baseline.dc_monitor is not None:
+                current_measurement = baseline.dc_monitor.measurement_enabled
                 target_measurement = monitor_patch.get(
                     "measurement_enabled",
                     current_measurement,
@@ -272,7 +247,7 @@ class YokogawaGS200:
                 self.set_source_level(
                     quantity_value(source_patch["current_level"], "A")
                 )
-            if baseline.monitor is not None:
+            if baseline.dc_monitor is not None:
                 measurement_disabled_for_update = (
                     current_measurement and changes_measurement_settings
                 )
@@ -292,34 +267,27 @@ class YokogawaGS200:
             effective_output = False if disabled_for_update else current_output
             if target_output != effective_output:
                 self.set_output(target_output)
-            return DriverSuccess(self.read_state())
+            return DriverSuccess(None)
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def invoke(
+    @override
+    def handle_monitor(
         self,
-        request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
-        return unsupported_invoke(request, self.instrument_id)
-
-    def collect(
-        self,
-        request: DriverAcquisition,
-    ) -> DriverOutcome[DriverReadback]:
+        requested: frozenset[DCMonitorMonitorDriverResultName],
+        /,
+    ) -> DriverOutcome[DCMonitorMonitorDriverReadback]:
         try:
             mode = self.source_mode()
-            active_result = (
-                DC_MONITOR_CURRENT_RESULT
-                if mode == "voltage"
-                else DC_MONITOR_VOLTAGE_RESULT
+            active_result: DCMonitorMonitorDriverResultName = (
+                "current" if mode == "voltage" else "voltage"
             )
-            if request.results != frozenset({active_result}):
+            if requested != frozenset({active_result}):
                 return DriverRejected(
                     problems=(
                         state_property_problem(
                             "gs200_monitor_result_inactive",
-                            f"{mode} source mode provides only "
-                            f"{active_result.result_id}",
+                            f"{mode} source mode provides only {active_result}",
                             DC_SOURCE_MODE,
                         ),
                     )
@@ -404,9 +372,14 @@ class YokogawaGS200:
                     unit=unit,
                     value=parse_float(raw_measurement, command=":MEAS?"),
                 )
+            values: DCMonitorMonitorDriverValues = {}
+            if active_result == "current":
+                values["current"] = measured
+            else:
+                values["voltage"] = measured
             return DriverSuccess(
-                DriverReadback(
-                    values=dict.fromkeys(request.results, measured),
+                DCMonitorMonitorDriverReadback(
+                    values=values,
                     metadata={
                         "manufacturer": "Yokogawa",
                         "model": "GS200",
@@ -526,7 +499,7 @@ class YokogawaGS200:
     def _remote_sense_target_is_valid(
         self,
         patch: DCSourceDriverPatch,
-        baseline: _GS200Snapshot,
+        baseline: DCSourceMonitorDriverSnapshot,
         *,
         target_mode: Literal["voltage", "current"],
     ) -> bool:
@@ -534,8 +507,8 @@ class YokogawaGS200:
             return True
         if "voltage_range" in patch:
             target_range = quantity_value(patch["voltage_range"], "V")
-        elif isinstance(baseline.source, DCSourceVoltageState):
-            target_range = quantity_value(baseline.source.range, "V")
+        elif isinstance(baseline.dc_source, DCSourceVoltageState):
+            target_range = quantity_value(baseline.dc_source.range, "V")
         else:
             return False
         return self._source_profile_is_valid(target_mode, target_range)

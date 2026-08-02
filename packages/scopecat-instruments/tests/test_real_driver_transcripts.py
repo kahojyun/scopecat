@@ -258,6 +258,12 @@ def test_gs200_apply_disables_live_output_while_switching_state(
     )
 
     assert isinstance(receipt, DriverSuccess)
+    assert receipt.value is None
+    state = driver.read_state()
+    assert state.values[DC_SOURCE_MODE] == "voltage"
+    assert state.values[DC_SOURCE_VOLTAGE_RANGE] == Quantity(1.0, "V")
+    assert state.values[DC_SOURCE_VOLTAGE_LEVEL] == Quantity(0.125, "V")
+    assert state.values[DC_SOURCE_OUTPUT_ENABLED] is target_output
     transport.assert_complete()
 
 
@@ -303,6 +309,7 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
             ],
         )
     )
+    state = driver.read_state()
     monitored = driver.collect(
         _collect_request(
             DC_MONITOR_ACQUISITION,
@@ -311,6 +318,11 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
     )
 
     assert isinstance(applied, DriverSuccess)
+    assert applied.value is None
+    assert state.values[DC_SOURCE_MODE] == "current"
+    assert state.values[DC_SOURCE_CURRENT_RANGE] == Quantity(0.01, "A")
+    assert state.values[DC_SOURCE_CURRENT_LEVEL] == Quantity(0.001, "A")
+    assert state.values[DC_SOURCE_OUTPUT_ENABLED] is True
     assert _readback(monitored).values[
         DC_MONITOR_VOLTAGE_RESULT
     ] == MeasurementScalar.create(
@@ -349,6 +361,9 @@ def test_gs200_adjusts_compliance_without_interrupting_live_output() -> None:
     )
 
     assert isinstance(receipt, DriverSuccess)
+    assert receipt.value is None
+    state = driver.read_state()
+    assert state.values[DC_SOURCE_CURRENT_PROTECTION] == Quantity(0.005, "A")
     transport.assert_complete()
 
 
@@ -533,8 +548,8 @@ def test_gs200_applies_monitor_settings_while_measurement_is_disabled() -> None:
     )
 
     assert isinstance(receipt, DriverSuccess)
-    assert receipt.value is not None
-    properties = receipt.value.values
+    assert receipt.value is None
+    properties = driver.read_state().values
     assert properties[DC_MONITOR_MEASUREMENT_ENABLED] is True
     assert properties[DC_MONITOR_INTEGRATION_CYCLES] == 10
     assert properties[DC_MONITOR_MEASUREMENT_DELAY] == Quantity(
@@ -1224,8 +1239,8 @@ def test_e5080b_apply_uses_typed_sweep_patch_in_hardware_command_order() -> None
     )
 
     assert isinstance(receipt, DriverSuccess)
-    assert receipt.value is not None
-    assert receipt.value.values == {
+    assert receipt.value is None
+    assert driver.read_state().values == {
         NETWORK_SWEEP_START_FREQUENCY: Quantity(4.9e9, "Hz"),
         NETWORK_SWEEP_STOP_FREQUENCY: Quantity(5.1e9, "Hz"),
         NETWORK_SWEEP_POINTS: 11,

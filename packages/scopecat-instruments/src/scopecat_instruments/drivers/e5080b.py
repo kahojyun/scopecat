@@ -2,21 +2,16 @@
 
 from __future__ import annotations
 
+from typing import override
+
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
-    MeasurementValue,
 )
 from scopecat.sdk.instruments import (
-    AcquisitionResultRef,
-    DriverAcquisition,
-    DriverOperation,
     DriverOutcome,
-    DriverReadback,
-    DriverState,
-    DriverStatePatch,
     DriverSuccess,
     InstrumentDescription,
 )
@@ -39,23 +34,24 @@ from scopecat_instruments._support import (
     apply_unknown,
     collect_unknown,
     quantity_value,
-    unsupported_invoke,
+)
+from scopecat_instruments.driver_handlers import (
+    NetworkSweepDriverAdapter,
+    NetworkSweepDriverSnapshot,
+    NetworkSweepSweepDriverReadback,
+    NetworkSweepSweepDriverResultName,
+    NetworkSweepSweepDriverValues,
 )
 from scopecat_instruments.driver_ids import KEYSIGHT_E5080B
-from scopecat_instruments.driver_states import (
-    decode_network_sweep_patch,
-    encode_driver_state,
-    encode_network_sweep_state,
-)
+from scopecat_instruments.driver_states import NetworkSweepDriverPatch
 from scopecat_instruments.interface_declarations import (
     NetworkSweepState,
     SParameter,
 )
 from scopecat_instruments.interfaces import network_sweep_interface
-from scopecat_instruments.members import NETWORK_SWEEP_FREQUENCY_RESULT
 
 
-class KeysightE5080B:
+class KeysightE5080B(NetworkSweepDriverAdapter):
     """Two-port linear sweep configuration and ASCII complex data retrieval."""
 
     implementation_id = KEYSIGHT_E5080B
@@ -91,7 +87,8 @@ class KeysightE5080B:
             interfaces=[network_sweep_interface()],
         )
 
-    def read_state(self) -> DriverState:
+    @override
+    def read_network_sweep_state(self) -> NetworkSweepDriverSnapshot:
         self._require_linear_sweep()
         settings = self.sweep_settings()
         metadata: dict[str, JsonValue] = {
@@ -102,25 +99,24 @@ class KeysightE5080B:
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return encode_driver_state(
-            encode_network_sweep_state(
-                NetworkSweepState(
-                    start_frequency=Quantity(settings.start_frequency_hz, "Hz"),
-                    stop_frequency=Quantity(settings.stop_frequency_hz, "Hz"),
-                    points=settings.points,
-                    if_bandwidth=Quantity(settings.if_bandwidth_hz, "Hz"),
-                    source_power=Quantity(settings.source_power_dbm, "dBm"),
-                    s_parameter=settings.s_parameter,
-                )
+        return NetworkSweepDriverSnapshot(
+            state=NetworkSweepState(
+                start_frequency=Quantity(settings.start_frequency_hz, "Hz"),
+                stop_frequency=Quantity(settings.stop_frequency_hz, "Hz"),
+                points=settings.points,
+                if_bandwidth=Quantity(settings.if_bandwidth_hz, "Hz"),
+                source_power=Quantity(settings.source_power_dbm, "dBm"),
+                s_parameter=settings.s_parameter,
             ),
             metadata=metadata,
         )
 
-    def apply_state(
+    @override
+    def apply_network_sweep_state(
         self,
-        request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
-        patch = decode_network_sweep_patch(request)
+        patch: NetworkSweepDriverPatch,
+        /,
+    ) -> DriverOutcome[None]:
         try:
             self._establish_linear_sweep()
             if "start_frequency" in patch:
@@ -135,46 +131,41 @@ class KeysightE5080B:
                 self.set_source_power(quantity_value(patch["source_power"], "dBm"))
             if "s_parameter" in patch:
                 self.set_s_parameter(patch["s_parameter"])
-            return DriverSuccess(self.read_state())
+            return DriverSuccess(None)
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def invoke(
+    @override
+    def handle_sweep(
         self,
-        request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
-        return unsupported_invoke(request, self.instrument_id)
-
-    def collect(
-        self,
-        request: DriverAcquisition,
-    ) -> DriverOutcome[DriverReadback]:
+        requested: frozenset[NetworkSweepSweepDriverResultName],
+        /,
+    ) -> DriverOutcome[NetworkSweepSweepDriverReadback]:
         try:
             trace = self.acquire_trace()
-            values: dict[AcquisitionResultRef, MeasurementValue] = {}
-            for result in request.results:
-                if result == NETWORK_SWEEP_FREQUENCY_RESULT:
-                    values[result] = MeasurementArray.create(
-                        dtype="float64",
-                        unit="Hz",
-                        shape=[len(trace.frequencies_hz)],
-                        values=trace.frequencies_hz,
-                    )
-                else:
-                    values[result] = MeasurementArray.create(
-                        dtype="complex128",
-                        unit="ratio",
-                        shape=[len(trace.values)],
-                        values=[
-                            ComplexComponents(
-                                real=value.real,
-                                imag=value.imag,
-                            )
-                            for value in trace.values
-                        ],
-                    )
+            values: NetworkSweepSweepDriverValues = {}
+            if "frequency" in requested:
+                values["frequency"] = MeasurementArray.create(
+                    dtype="float64",
+                    unit="Hz",
+                    shape=[len(trace.frequencies_hz)],
+                    values=trace.frequencies_hz,
+                )
+            if "s_parameter" in requested:
+                values["s_parameter"] = MeasurementArray.create(
+                    dtype="complex128",
+                    unit="ratio",
+                    shape=[len(trace.values)],
+                    values=[
+                        ComplexComponents(
+                            real=value.real,
+                            imag=value.imag,
+                        )
+                        for value in trace.values
+                    ],
+                )
             return DriverSuccess(
-                DriverReadback(
+                NetworkSweepSweepDriverReadback(
                     values=values,
                     metadata={
                         "manufacturer": "Keysight",
