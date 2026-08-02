@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal, Protocol, overload, override
+from typing import Literal, Protocol, cast, overload, override
 
 from scopecat.api._instruments import (
     InstrumentClientChannel,
     InstrumentClientFactory,
     InstrumentRef,
+    OperationArgumentValue,
     instrument,
 )
 from scopecat.authoring import EachEntity, EntitySelection, OneEntity
@@ -22,10 +23,13 @@ from scopecat.sdk.instruments import (
     CollectReceipt,
     InstrumentDescription,
     InterfaceRef,
+    InvokeReceipt,
+    OperationArgumentRef,
     PropertyRef,
 )
 from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
+    DeclaredOperation,
     declared_state_assignments,
 )
 
@@ -111,6 +115,22 @@ class _InstrumentClient:
         """Apply the configured sparse default state for this instrument."""
 
         return self._session.apply_configured_defaults(self.instrument_id)
+
+    def _invoke_declared[**P](
+        self,
+        operation: DeclaredOperation[P],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> InvokeReceipt:
+        return self._session.invoke(
+            operation.ref,
+            cast(
+                "Mapping[OperationArgumentRef, OperationArgumentValue]",
+                operation.lower_arguments(*args, **kwargs),
+            ),
+            instrument_id=self.instrument_id,
+        )
 
     def _collect_declared[DeclaredT, OutputT](
         self,

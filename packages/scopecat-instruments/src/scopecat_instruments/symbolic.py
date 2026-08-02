@@ -34,11 +34,14 @@ from scopecat.sdk.instruments import (
     AcquisitionAxisSpec,
     AcquisitionResultRef,
     InterfaceRef,
+    OperationArgumentRef,
+    OperationRef,
     PropertyRef,
     StatePropertyRef,
 )
 from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
+    DeclaredOperation,
     declared_state_target,
 )
 
@@ -86,6 +89,15 @@ class SymbolicInstrumentRecorder(Protocol):
     ) -> DefinitionResource: ...
 
     def ensure(self, resource: DefinitionResource, target: DesiredState) -> None: ...
+
+    def invoke(
+        self,
+        id: str,
+        *,
+        resource: DefinitionResource,
+        operation: OperationRef,
+        arguments: Mapping[OperationArgumentRef, StateBinding] | None = None,
+    ) -> None: ...
 
     def product(
         self,
@@ -154,6 +166,28 @@ class _SymbolicInstrumentClient:
         assignments = target.target_assignments()
         self._recorder.ensure(self._resource, target)
         self._state_assignments.update(assignments)
+
+    def _invoke_declared[**P](
+        self,
+        operation: DeclaredOperation[P],
+        effect_id: str | None,
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> None:
+        occurrence_id = operation.spec.id if effect_id is None else effect_id
+        if not occurrence_id:
+            raise ValueError("symbolic operation effect id must be non-empty")
+        self._recorder.invoke(
+            f"{self.id}.{occurrence_id}",
+            resource=self._resource,
+            operation=operation.ref,
+            arguments=cast(
+                "Mapping[OperationArgumentRef, StateBinding]",
+                operation.lower_arguments(*args, **kwargs),
+            ),
+        )
+        self._state_assignments.clear()
 
     def _acquire_declared[DeclaredT, OutputT](
         self,
