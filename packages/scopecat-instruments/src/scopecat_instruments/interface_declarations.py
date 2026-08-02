@@ -31,7 +31,7 @@ type SParameter = Literal["S11", "S21", "S12", "S22"]
 
 @instrument_state
 class DCSourceState:
-    """Concrete common DC-source state schema."""
+    """Concrete common-field base for complete DC-source case states."""
 
     voltage_protection: Quantity = member_field(
         unit="V",
@@ -50,8 +50,8 @@ class DCSourceState:
 
 
 @instrument_state
-class DCSourceVoltage:
-    """Concrete voltage-source mode schema."""
+class DCSourceVoltageState(DCSourceState):
+    """Complete concrete voltage-source mode state."""
 
     range: Quantity = member_field(
         id="voltage_range",
@@ -68,8 +68,8 @@ class DCSourceVoltage:
 
 
 @instrument_state
-class DCSourceCurrent:
-    """Concrete current-source mode schema."""
+class DCSourceCurrentState(DCSourceState):
+    """Complete concrete current-source mode state."""
 
     range: Quantity = member_field(
         id="current_range",
@@ -98,12 +98,12 @@ class DCSourceCurrent:
         cases=(
             state_case(
                 "voltage",
-                DCSourceVoltage,
+                DCSourceVoltageState,
                 required_on_entry=("range", "level"),
             ),
             state_case(
                 "current",
-                DCSourceCurrent,
+                DCSourceCurrentState,
                 required_on_entry=("range", "level"),
             ),
         ),
@@ -370,11 +370,11 @@ __all__ = [
     "DCMonitorInterface",
     "DCMonitorResults",
     "DCMonitorState",
-    "DCSourceCurrent",
+    "DCSourceCurrentState",
     "DCSourceInterface",
     "DCSourceMonitorInterface",
     "DCSourceState",
-    "DCSourceVoltage",
+    "DCSourceVoltageState",
     "NetworkSweepInterface",
     "NetworkSweepResults",
     "NetworkSweepState",

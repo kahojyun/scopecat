@@ -189,7 +189,7 @@ class SourceCommonState:
 
 
 @instrument_state
-class VoltageState:
+class VoltageState(SourceCommonState):
     range: Quantity = member_field(
         id="voltage_range",
         unit="V",
@@ -205,7 +205,7 @@ class VoltageState:
 
 
 @instrument_state
-class CurrentState:
+class CurrentState(SourceCommonState):
     range: Quantity = member_field(
         id="current_range",
         unit="A",
@@ -534,6 +534,28 @@ def test_declaration_decorators_build_typed_python_dataclasses() -> None:
     positional_constructor = cast("Callable[[int], SweepState]", SweepState)
     with pytest.raises(TypeError):
         positional_constructor(11)
+
+    voltage = assert_type(
+        VoltageState(
+            output_enabled=False,
+            range=Quantity(1.0, "V"),
+            level=Quantity(0.1, "V"),
+        ),
+        VoltageState,
+    )
+    assert isinstance(voltage, SourceCommonState)
+    assert tuple(item.name for item in fields(VoltageState)) == (
+        "output_enabled",
+        "range",
+        "level",
+    )
+    assert not hasattr(voltage, "__dict__")
+    incomplete_voltage = cast("Callable[..., VoltageState]", VoltageState)
+    with pytest.raises(TypeError, match="output_enabled"):
+        incomplete_voltage(
+            range=Quantity(1.0, "V"),
+            level=Quantity(0.1, "V"),
+        )
 
 
 def test_field_specifiers_support_factories_and_override_annotated_metadata() -> None:
@@ -1072,6 +1094,7 @@ def test_declared_interface_layout_covers_inherited_and_state_declarations() -> 
     ]
     assert flat_state.required_fields == ()
     assert flat_state.constants == ()
+    assert flat_state.role == "flat"
 
     assert [state.source_type for state in discriminated.states] == [
         SourceCommonState,
@@ -1080,26 +1103,30 @@ def test_declared_interface_layout_covers_inherited_and_state_declarations() -> 
     ]
     common, voltage, current = discriminated.states
     assert [field.python_name for field in common.fields] == ["output_enabled"]
+    assert common.role == "common"
     assert [field.python_name for field in voltage.fields] == [
+        "output_enabled",
         "range",
         "level",
-        "output_enabled",
     ]
+    assert voltage.role == "case"
     assert voltage.required_fields == ("range", "level")
     assert voltage.constants == (
         (declared_discriminator_ref(SourceContract), "voltage"),
     )
     assert [field.python_name for field in current.fields] == [
+        "output_enabled",
         "range",
         "level",
-        "output_enabled",
     ]
+    assert current.role == "case"
     assert current.required_fields == ("range", "level")
     assert current.constants == (
         (declared_discriminator_ref(SourceContract), "current"),
     )
 
     assert [state.source_type for state in monitor.states] == [MonitorState]
+    assert monitor.states[0].role == "flat"
     [monitor_acquisition] = monitor.root.acquisitions
     assert [item.result_type for item in monitor_acquisition.layouts] == [
         MonitorResults,
@@ -1289,6 +1316,59 @@ def test_state_declarations_reject_symbolic_and_optional_wrappers() -> None:
 
     with pytest.raises(TypeError, match="uses unsupported annotation"):
         compile_interface(InvalidWrappedState)
+
+
+def test_discriminated_cases_must_inherit_their_common_state() -> None:
+    @instrument_state
+    class CommonState:
+        enabled: bool = member_field()
+
+    @instrument_state
+    class IndependentCase:
+        level: int = member_field()
+
+    class InvalidDiscriminatedInheritance(Protocol): ...
+
+    with pytest.raises(TypeError, match="must inherit CommonState"):
+        instrument_interface(
+            "test.invalid_discriminated_inheritance/v1",
+            state=discriminated_state(
+                member(id="mode", choices=("active",)),
+                common=CommonState,
+                cases=(state_case("active", IndependentCase),),
+            ),
+        )(InvalidDiscriminatedInheritance)
+
+
+def test_state_case_entry_requirements_are_case_owned() -> None:
+    @instrument_state
+    class CommonState:
+        enabled: bool = member_field()
+
+    @instrument_state
+    class ActiveState(CommonState):
+        level: int = member_field()
+
+    class InvalidInheritedEntryRequirement(Protocol): ...
+
+    with pytest.raises(
+        ValueError,
+        match=r"entry requirements reference unknown fields: \['enabled'\]",
+    ):
+        instrument_interface(
+            "test.invalid_inherited_entry_requirement/v1",
+            state=discriminated_state(
+                member(id="mode", choices=("active",)),
+                common=CommonState,
+                cases=(
+                    state_case(
+                        "active",
+                        ActiveState,
+                        required_on_entry=("enabled",),
+                    ),
+                ),
+            ),
+        )(InvalidInheritedEntryRequirement)
 
 
 def test_concrete_type_aliases_compile_without_authoring_wrapper_semantics() -> None:
@@ -1786,8 +1866,8 @@ def test_discriminated_projection_includes_required_fields_and_constants() -> No
     }
     assert repr(projection) == (
         f"{type(projection).__qualname__}("
-        f"range={projection.range!r}, level={projection.level!r}, "
-        "output_enabled=True)"
+        "output_enabled=True, "
+        f"range={projection.range!r}, level={projection.level!r})"
     )
 
 

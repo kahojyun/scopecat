@@ -18,9 +18,8 @@ from scopecat.sdk.instruments import (
 
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
-    DCSourceCurrent,
-    DCSourceState,
-    DCSourceVoltage,
+    DCSourceCurrentState,
+    DCSourceVoltageState,
     NetworkSweepState,
     RFOutputState,
     TemperatureReadoutObservation,
@@ -160,29 +159,27 @@ def decode_dc_source_patch(request: DriverStatePatch, /) -> DCSourceDriverPatch:
     return decoded
 
 
-def encode_dc_source_state(state: DCSourceState, /) -> dict[PropertyRef, DriverScalar]:
-    return {
-        DC_SOURCE_VOLTAGE_PROTECTION: state.voltage_protection,
-        DC_SOURCE_CURRENT_PROTECTION: state.current_protection,
-        DC_SOURCE_OUTPUT_ENABLED: state.output_enabled,
-    }
-
-
 def encode_dc_source_voltage_state(
-    state: DCSourceVoltage, /
+    state: DCSourceVoltageState, /
 ) -> dict[PropertyRef, DriverScalar]:
     return {
         DC_SOURCE_MODE: "voltage",
+        DC_SOURCE_VOLTAGE_PROTECTION: state.voltage_protection,
+        DC_SOURCE_CURRENT_PROTECTION: state.current_protection,
+        DC_SOURCE_OUTPUT_ENABLED: state.output_enabled,
         DC_SOURCE_VOLTAGE_RANGE: state.range,
         DC_SOURCE_VOLTAGE_LEVEL: state.level,
     }
 
 
 def encode_dc_source_current_state(
-    state: DCSourceCurrent, /
+    state: DCSourceCurrentState, /
 ) -> dict[PropertyRef, DriverScalar]:
     return {
         DC_SOURCE_MODE: "current",
+        DC_SOURCE_VOLTAGE_PROTECTION: state.voltage_protection,
+        DC_SOURCE_CURRENT_PROTECTION: state.current_protection,
+        DC_SOURCE_OUTPUT_ENABLED: state.output_enabled,
         DC_SOURCE_CURRENT_RANGE: state.range,
         DC_SOURCE_CURRENT_LEVEL: state.level,
     }
@@ -307,7 +304,6 @@ __all__ = [
     "decode_rf_output_patch",
     "encode_dc_monitor_state",
     "encode_dc_source_current_state",
-    "encode_dc_source_state",
     "encode_dc_source_voltage_state",
     "encode_driver_state",
     "encode_network_sweep_state",

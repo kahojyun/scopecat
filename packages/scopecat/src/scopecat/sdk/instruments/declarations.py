@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import Field, dataclass, field, fields, is_dataclass
 from enum import Enum, auto
-from inspect import Parameter, Signature, signature
+from inspect import Parameter, Signature, get_annotations, signature
 from types import GenericAlias, NoneType, UnionType
 from typing import (
     Annotated,
@@ -310,9 +310,10 @@ class DeclaredStateField:
 
 @dataclass(frozen=True, slots=True)
 class DeclaredStateLayout:
-    """One concrete schema projected into an authoring-state shape."""
+    """One flat, common-update, or complete case authoring projection."""
 
     source_type: type[object]
+    role: Literal["flat", "common", "case"]
     fields: tuple[DeclaredStateField, ...]
     required_fields: tuple[str, ...] = ()
     constants: tuple[tuple[PropertyRef, StateBinding], ...] = ()
@@ -617,7 +618,7 @@ def state_case(
     *,
     required_on_entry: Sequence[str] = (),
 ) -> StateCaseMetadata:
-    """Declare one discriminator value and its case-specific state schema."""
+    """Declare one discriminator value and its complete inherited case schema."""
 
     return StateCaseMetadata(
         value=value,
@@ -632,7 +633,7 @@ def discriminated_state(
     common: type[object],
     cases: Sequence[StateCaseMetadata],
 ) -> DiscriminatedStateMetadata:
-    """Describe a persistent state partition without changing its dataclasses."""
+    """Describe a common state base and its complete discriminated case records."""
 
     if discriminator.id is None:
         raise ValueError("state discriminator member requires an explicit id")
@@ -1304,6 +1305,7 @@ def _declared_state_layouts[InterfaceT](
         return (
             DeclaredStateLayout(
                 source_type=declaration,
+                role="flat",
                 fields=_declared_state_fields(compiled, declaration),
             ),
         )
@@ -1316,15 +1318,14 @@ def _declared_state_layouts[InterfaceT](
     return (
         DeclaredStateLayout(
             source_type=declaration.common_state,
+            role="common",
             fields=common_fields,
         ),
         *(
             DeclaredStateLayout(
                 source_type=case.state_type,
-                fields=(
-                    *_declared_state_fields(compiled, case.state_type),
-                    *common_fields,
-                ),
+                role="case",
+                fields=_declared_state_fields(compiled, case.state_type),
                 required_fields=case.required_on_entry,
                 constants=((discriminator_ref, case.value),),
             )
@@ -1758,8 +1759,25 @@ def _bind_discriminated_state(
     }
 
     for case in declaration.cases:
-        case_members = _instrument_state_fields(case.state_type)
+        if case.state_type is declaration.common_state or not issubclass(
+            case.state_type,
+            declaration.common_state,
+        ):
+            raise TypeError(
+                f"state case {case.value!r} must inherit "
+                f"{declaration.common_state.__name__}"
+            )
+        all_case_members = _instrument_state_fields(case.state_type)
+        case_members = _own_instrument_state_fields(case.state_type)
         case_names = {item.name for item in case_members}
+        inherited_outside_common = (
+            {item.name for item in all_case_members} - common_names - case_names
+        )
+        if inherited_outside_common:
+            raise ValueError(
+                f"state case {case.value!r} inherits fields outside its common "
+                f"state: {sorted(inherited_outside_common)!r}"
+            )
         duplicate_names = common_names & case_names
         if duplicate_names:
             raise ValueError(
@@ -1824,6 +1842,18 @@ def _instrument_state_fields(
     return fields(state_type)
 
 
+def _own_instrument_state_fields(
+    state_type: type[object],
+) -> tuple[Field[object], ...]:
+    """Return fields declared directly by one state class, excluding bases."""
+
+    state_fields = _instrument_state_fields(state_type)
+    own_names = get_annotations(state_type).keys()
+    return tuple(
+        state_field for state_field in state_fields if state_field.name in own_names
+    )
+
+
 def _require_instrument_observed_state(state_type: type[object]) -> None:
     _required_metadata(
         state_type,
@@ -1851,6 +1881,7 @@ def _compile_state_fields(
     state_type: type[object],
     *,
     observed: bool = False,
+    own_fields: bool = False,
 ) -> list[PropertySpec]:
     if observed:
         _require_instrument_observed_state(state_type)
@@ -1862,7 +1893,10 @@ def _compile_state_fields(
         "Mapping[str, object]",
         get_type_hints(state_type, include_extras=True),
     )
-    state_fields = {state_field.name: state_field for state_field in fields(state_type)}
+    selected_fields = (
+        _own_instrument_state_fields(state_type) if own_fields else fields(state_type)
+    )
+    state_fields = {state_field.name: state_field for state_field in selected_fields}
     properties: list[PropertySpec] = []
     for field_name in state_fields:
         state_field = state_fields[field_name]
@@ -1896,7 +1930,10 @@ def _compile_discriminated_state(
         cases=tuple(
             build_state_case(
                 case.value,
-                properties=_compile_state(case.state_type),
+                properties=_compile_state_fields(
+                    case.state_type,
+                    own_fields=True,
+                ),
                 required_on_entry_property_ids=tuple(
                     _declared_dataclass_field_id(
                         case.state_type,

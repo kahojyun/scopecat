@@ -45,7 +45,6 @@ from scopecat_instruments.driver_states import (
     decode_rf_output_patch,
     encode_dc_monitor_state,
     encode_dc_source_current_state,
-    encode_dc_source_state,
     encode_dc_source_voltage_state,
     encode_driver_state,
     encode_network_sweep_state,
@@ -54,9 +53,8 @@ from scopecat_instruments.driver_states import (
 )
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
-    DCSourceCurrent,
-    DCSourceState,
-    DCSourceVoltage,
+    DCSourceCurrentState,
+    DCSourceVoltageState,
     NetworkSweepState,
     ReferenceSource,
     RFOutputState,
@@ -184,18 +182,17 @@ class VirtualRfSource:
 
 
 type _VirtualDcSourceMode = Literal["voltage", "current"]
-type _VirtualDcSourceCase = DCSourceVoltage | DCSourceCurrent
+type _VirtualDcSourceState = DCSourceVoltageState | DCSourceCurrentState
 
 
 @dataclass(frozen=True)
 class _VirtualDcSnapshot:
-    common: DCSourceState
-    active_case: _VirtualDcSourceCase
+    source: _VirtualDcSourceState
     monitor: DCMonitorState
 
     @property
     def source_mode(self) -> _VirtualDcSourceMode:
-        if isinstance(self.active_case, DCSourceVoltage):
+        if isinstance(self.source, DCSourceVoltageState):
             return "voltage"
         return "current"
 
@@ -224,15 +221,13 @@ class VirtualDcSource:
 
     def read_state(self) -> DriverState:
         snapshot = self._canonical_snapshot()
-        active_case = snapshot.active_case
-        encoded_case = (
-            encode_dc_source_voltage_state(active_case)
-            if isinstance(active_case, DCSourceVoltage)
-            else encode_dc_source_current_state(active_case)
+        encoded_source = (
+            encode_dc_source_voltage_state(snapshot.source)
+            if isinstance(snapshot.source, DCSourceVoltageState)
+            else encode_dc_source_current_state(snapshot.source)
         )
         return encode_driver_state(
-            encode_dc_source_state(snapshot.common),
-            encoded_case,
+            encoded_source,
             encode_dc_monitor_state(snapshot.monitor),
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
@@ -240,18 +235,19 @@ class VirtualDcSource:
     def _canonical_snapshot(self) -> _VirtualDcSnapshot:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
-            common = DCSourceState(
-                voltage_protection=Quantity(source.voltage_protection_v, "V"),
-                current_protection=Quantity(source.current_protection_a, "A"),
-                output_enabled=source.output_enabled,
-            )
-            active_case: _VirtualDcSourceCase = (
-                DCSourceVoltage(
+            source_state: _VirtualDcSourceState = (
+                DCSourceVoltageState(
+                    voltage_protection=Quantity(source.voltage_protection_v, "V"),
+                    current_protection=Quantity(source.current_protection_a, "A"),
+                    output_enabled=source.output_enabled,
                     range=Quantity(source.voltage_range_v, "V"),
                     level=Quantity(source.voltage_level_v, "V"),
                 )
                 if source.source_mode == "voltage"
-                else DCSourceCurrent(
+                else DCSourceCurrentState(
+                    voltage_protection=Quantity(source.voltage_protection_v, "V"),
+                    current_protection=Quantity(source.current_protection_a, "A"),
+                    output_enabled=source.output_enabled,
                     range=Quantity(source.current_range_a, "A"),
                     level=Quantity(source.current_level_a, "A"),
                 )
@@ -262,8 +258,7 @@ class VirtualDcSource:
                 measurement_delay=Quantity(source.measurement_delay_s, "s"),
             )
         return _VirtualDcSnapshot(
-            common=common,
-            active_case=active_case,
+            source=source_state,
             monitor=monitor,
         )
 
@@ -275,7 +270,7 @@ class VirtualDcSource:
         monitor_patch = decode_dc_monitor_patch(request)
         baseline = self._canonical_snapshot()
         current_mode = baseline.source_mode
-        current_output = baseline.common.output_enabled
+        current_output = baseline.source.output_enabled
         target_mode = source_patch.get("source_mode", current_mode)
         target_output = source_patch.get("output_enabled", current_output)
         changes_source_state = target_mode != current_mode or bool(

@@ -10,15 +10,13 @@ from scopecat_instruments.driver_states import (
     RFOutputDriverPatch,
     decode_dc_source_patch,
     decode_rf_output_patch,
-    encode_dc_source_state,
     encode_dc_source_voltage_state,
     encode_driver_state,
     encode_rf_output_state,
     encode_temperature_readout_observation,
 )
 from scopecat_instruments.interface_declarations import (
-    DCSourceState,
-    DCSourceVoltage,
+    DCSourceVoltageState,
     RFOutputState,
     TemperatureReadoutObservation,
 )
@@ -84,7 +82,7 @@ def test_exact_temperature_observation_encoder_uses_declared_member_refs() -> No
     }
 
 
-def test_driver_state_merges_common_and_discriminated_canonical_schemas() -> None:
+def test_discriminated_case_encoder_uses_one_complete_canonical_state() -> None:
     patch = decode_dc_source_patch(
         DriverStatePatch(
             values={
@@ -93,12 +91,10 @@ def test_driver_state_merges_common_and_discriminated_canonical_schemas() -> Non
             }
         )
     )
-    common = DCSourceState(
+    voltage = DCSourceVoltageState(
         voltage_protection=Quantity(10.0, "V"),
         current_protection=Quantity(0.01, "A"),
         output_enabled=False,
-    )
-    voltage = DCSourceVoltage(
         range=Quantity(1.0, "V"),
         level=Quantity(0.25, "V"),
     )
@@ -109,7 +105,6 @@ def test_driver_state_merges_common_and_discriminated_canonical_schemas() -> Non
         "voltage_range": Quantity(1.0, "V"),
     }
     state = encode_driver_state(
-        encode_dc_source_state(common),
         encode_dc_source_voltage_state(voltage),
         metadata={"source": "test"},
     )

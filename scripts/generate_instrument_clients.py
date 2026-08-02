@@ -1084,6 +1084,8 @@ def _render_driver_states_module(
             )
 
         for layout in model.states:
+            if layout.role == "common":
+                continue
             encoder_name = _state_encoder_name(layout.source_type)
             owner = _type_identity(layout.source_type)
             existing_owner = encoder_owners.get(encoder_name)

@@ -48,15 +48,13 @@ from scopecat_instruments.driver_states import (
     decode_dc_source_patch,
     encode_dc_monitor_state,
     encode_dc_source_current_state,
-    encode_dc_source_state,
     encode_dc_source_voltage_state,
     encode_driver_state,
 )
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
-    DCSourceCurrent,
-    DCSourceState,
-    DCSourceVoltage,
+    DCSourceCurrentState,
+    DCSourceVoltageState,
 )
 from scopecat_instruments.interfaces import dc_monitor_interface, dc_source_interface
 from scopecat_instruments.members import (
@@ -75,14 +73,13 @@ _CONDITION_NO_TRIGGER_SAMPLING_ERROR = 1 << 4
 
 @dataclass(frozen=True)
 class _GS200Snapshot:
-    source: DCSourceState
-    active_source: DCSourceVoltage | DCSourceCurrent
+    source: DCSourceVoltageState | DCSourceCurrentState
     monitor: DCMonitorState | None
     metadata: dict[str, JsonValue]
 
     @property
     def source_mode(self) -> Literal["voltage", "current"]:
-        if isinstance(self.active_source, DCSourceVoltage):
+        if isinstance(self.source, DCSourceVoltageState):
             return "voltage"
         return "current"
 
@@ -127,15 +124,11 @@ class YokogawaGS200:
 
     def read_state(self) -> DriverState:
         snapshot = self._read_snapshot()
-        encoded_states = [encode_dc_source_state(snapshot.source)]
-        if isinstance(snapshot.active_source, DCSourceVoltage):
-            encoded_states.append(
-                encode_dc_source_voltage_state(snapshot.active_source)
-            )
+        if isinstance(snapshot.source, DCSourceVoltageState):
+            encoded_source = encode_dc_source_voltage_state(snapshot.source)
         else:
-            encoded_states.append(
-                encode_dc_source_current_state(snapshot.active_source)
-            )
+            encoded_source = encode_dc_source_current_state(snapshot.source)
+        encoded_states = [encoded_source]
         if snapshot.monitor is not None:
             encoded_states.append(encode_dc_monitor_state(snapshot.monitor))
         return encode_driver_state(*encoded_states, metadata=snapshot.metadata)
@@ -146,22 +139,27 @@ class YokogawaGS200:
         source_range = self.source_range()
         self._validate_source_profile(mode, source_range)
         active_unit = "V" if mode == "voltage" else "A"
-        active_source: DCSourceVoltage | DCSourceCurrent
+        source_level = self.source_level()
+        voltage_protection = Quantity(self.voltage_protection(), "V")
+        current_protection = Quantity(self.current_protection(), "A")
+        output_enabled = self.output_enabled()
+        source: DCSourceVoltageState | DCSourceCurrentState
         if mode == "voltage":
-            active_source = DCSourceVoltage(
+            source = DCSourceVoltageState(
+                voltage_protection=voltage_protection,
+                current_protection=current_protection,
+                output_enabled=output_enabled,
                 range=Quantity(source_range, active_unit),
-                level=Quantity(self.source_level(), active_unit),
+                level=Quantity(source_level, active_unit),
             )
         else:
-            active_source = DCSourceCurrent(
+            source = DCSourceCurrentState(
+                voltage_protection=voltage_protection,
+                current_protection=current_protection,
+                output_enabled=output_enabled,
                 range=Quantity(source_range, active_unit),
-                level=Quantity(self.source_level(), active_unit),
+                level=Quantity(source_level, active_unit),
             )
-        source = DCSourceState(
-            voltage_protection=Quantity(self.voltage_protection(), "V"),
-            current_protection=Quantity(self.current_protection(), "A"),
-            output_enabled=self.output_enabled(),
-        )
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Yokogawa",
             "model": "GS200",
@@ -179,7 +177,6 @@ class YokogawaGS200:
         )
         return _GS200Snapshot(
             source=source,
-            active_source=active_source,
             monitor=monitor,
             metadata=metadata,
         )
@@ -536,8 +533,8 @@ class YokogawaGS200:
             return True
         if "voltage_range" in patch:
             target_range = quantity_value(patch["voltage_range"], "V")
-        elif isinstance(baseline.active_source, DCSourceVoltage):
-            target_range = quantity_value(baseline.active_source.range, "V")
+        elif isinstance(baseline.source, DCSourceVoltageState):
+            target_range = quantity_value(baseline.source.range, "V")
         else:
             return False
         return self._source_profile_is_valid(target_mode, target_range)
