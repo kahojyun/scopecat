@@ -788,14 +788,10 @@ def declared_component_ref(
 ) -> ComponentRef:
     """Resolve typed component attribute names to a stable component path."""
 
-    scope: InterfaceRef | ComponentRef = declared_interface_ref(interface_type)
-    capability_type = interface_type
-    for selected_name in (attribute_name, *nested_attribute_names):
-        capability_type, declaration = _declared_component(
-            capability_type,
-            selected_name,
-        )
-        scope = scope.component(declaration.id or selected_name)
+    _, scope = _resolve_declared_scope(
+        interface_type,
+        (attribute_name, *nested_attribute_names),
+    )
     if not isinstance(scope, ComponentRef):
         raise AssertionError("declared component resolution produced an interface ref")
     return scope
@@ -804,38 +800,42 @@ def declared_component_ref(
 def declared_operation_ref(
     interface_type: type[object],
     method_name: str,
+    *,
+    component: tuple[str, ...] = (),
 ) -> OperationRef:
-    """Resolve a decorated method to its atomic-operation identity."""
+    """Resolve a decorated method in one declared scope to its operation identity."""
 
-    method = _declared_members(interface_type).get(method_name)
+    capability_type, scope = _resolve_declared_scope(interface_type, component)
+    method = _declared_members(capability_type).get(method_name)
     if method is None:
-        raise ValueError(f"interface has no method {method_name!r}")
+        raise ValueError(f"declared scope has no method {method_name!r}")
     declaration = _required_metadata(
         method,
         _OPERATION_METADATA,
         OperationMetadata,
-        f"interface method {method_name!r}",
+        f"declared scope method {method_name!r}",
     )
-    return declared_interface_ref(interface_type).operation(
-        declaration.id or method_name
-    )
+    return scope.operation(declaration.id or method_name)
 
 
 def declared_argument_ref(
     interface_type: type[object],
     method_name: str,
     parameter_name: str,
+    *,
+    component: tuple[str, ...] = (),
 ) -> OperationArgumentRef:
-    """Resolve one typed operation parameter to its stable argument identity."""
+    """Resolve one operation parameter in a declared scope to its identity."""
 
-    method = _declared_members(interface_type).get(method_name)
+    capability_type, _ = _resolve_declared_scope(interface_type, component)
+    method = _declared_members(capability_type).get(method_name)
     if method is None:
-        raise ValueError(f"interface has no method {method_name!r}")
+        raise ValueError(f"declared scope has no method {method_name!r}")
     _required_metadata(
         method,
         _OPERATION_METADATA,
         OperationMetadata,
-        f"interface method {method_name!r}",
+        f"declared scope method {method_name!r}",
     )
     hints = cast(
         "Mapping[str, object]",
@@ -852,7 +852,11 @@ def declared_argument_ref(
             f"{parameter_name!r}"
         )
     _, metadata = _split_annotation(annotation, ArgumentMetadata)
-    return declared_operation_ref(interface_type, method_name).argument(
+    return declared_operation_ref(
+        interface_type,
+        method_name,
+        component=component,
+    ).argument(
         parameter_name if metadata is None or metadata.id is None else metadata.id
     )
 
@@ -896,15 +900,19 @@ def declared_acquisition[InterfaceT, ResultT](
     compiled: CompiledInterface[InterfaceT],
     method: Callable[..., ResultT],
     /,
+    *,
+    component: tuple[str, ...] = (),
 ) -> DeclaredAcquisition[ResultT]:
-    """Bind one decorated Protocol/ABC method to its compiled result layouts."""
+    """Bind a decorated method in one scope to its compiled result layouts."""
 
+    capability_type, scope = _resolve_declared_scope(
+        compiled.interface_type,
+        component,
+    )
     method_name = next(
         (
             name
-            for name, declared_method in _declared_members(
-                compiled.interface_type
-            ).items()
+            for name, declared_method in _declared_members(capability_type).items()
             if declared_method is method
         ),
         None,
@@ -918,10 +926,11 @@ def declared_acquisition[InterfaceT, ResultT](
         f"interface method {method_name!r}",
     )
     acquisition_id = declaration.id or method_name
+    scope_spec = _resolve_compiled_scope_spec(compiled.spec, scope)
     acquisition_spec = next(
-        item for item in compiled.spec.acquisitions if item.id == acquisition_id
+        item for item in scope_spec.acquisitions if item.id == acquisition_id
     )
-    acquisition_ref = compiled.ref.acquisition(acquisition_id)
+    acquisition_ref = scope.acquisition(acquisition_id)
     if isinstance(acquisition_spec, FixedAcquisitionSpec):
         result_type = _declared_method_result_type(method, method_name=method_name)
         layouts = (
@@ -962,38 +971,42 @@ def declared_acquisition[InterfaceT, ResultT](
 def declared_acquisition_ref(
     interface_type: type[object],
     method_name: str,
+    *,
+    component: tuple[str, ...] = (),
 ) -> AcquisitionRef:
-    """Resolve a decorated method to its acquisition identity."""
+    """Resolve a decorated method in one declared scope to its acquisition identity."""
 
-    method = _declared_members(interface_type).get(method_name)
+    capability_type, scope = _resolve_declared_scope(interface_type, component)
+    method = _declared_members(capability_type).get(method_name)
     if method is None:
-        raise ValueError(f"interface has no method {method_name!r}")
+        raise ValueError(f"declared scope has no method {method_name!r}")
     declaration = _required_metadata(
         method,
         _ACQUISITION_METADATA,
         AcquisitionMetadata,
-        f"interface method {method_name!r}",
+        f"declared scope method {method_name!r}",
     )
-    return declared_interface_ref(interface_type).acquisition(
-        declaration.id or method_name
-    )
+    return scope.acquisition(declaration.id or method_name)
 
 
 def declared_result_ref(
     interface_type: type[object],
     method_name: str,
     field_name: str,
+    *,
+    component: tuple[str, ...] = (),
 ) -> AcquisitionResultRef:
-    """Resolve a result dataclass field to its acquisition result identity."""
+    """Resolve a result field in one declared scope to its acquisition identity."""
 
-    method = _declared_members(interface_type).get(method_name)
+    capability_type, _ = _resolve_declared_scope(interface_type, component)
+    method = _declared_members(capability_type).get(method_name)
     if method is None:
-        raise ValueError(f"interface has no method {method_name!r}")
+        raise ValueError(f"declared scope has no method {method_name!r}")
     declaration = _required_metadata(
         method,
         _ACQUISITION_METADATA,
         AcquisitionMetadata,
-        f"interface method {method_name!r}",
+        f"declared scope method {method_name!r}",
     )
     if declaration.cases:
         result_types = tuple(
@@ -1031,7 +1044,11 @@ def declared_result_ref(
             f"acquisition result field {field_name!r} must resolve exactly once"
         )
     [result_id] = result_ids
-    return declared_acquisition_ref(interface_type, method_name).result(result_id)
+    return declared_acquisition_ref(
+        interface_type,
+        method_name,
+        component=component,
+    ).result(result_id)
 
 
 def _declared_method_result_type(
@@ -1470,6 +1487,35 @@ def _declared_component(
             f"component attribute {attribute_name!r} must name a capability type"
         )
     return nested_type, declaration
+
+
+def _resolve_declared_scope(
+    interface_type: type[object],
+    component: tuple[str, ...],
+) -> tuple[type[object], InterfaceRef | ComponentRef]:
+    capability_type = interface_type
+    scope: InterfaceRef | ComponentRef = declared_interface_ref(interface_type)
+    for attribute_name in component:
+        capability_type, declaration = _declared_component(
+            capability_type,
+            attribute_name,
+        )
+        scope = scope.component(declaration.id or attribute_name)
+    return capability_type, scope
+
+
+def _resolve_compiled_scope_spec(
+    interface_spec: InterfaceSpec,
+    scope: InterfaceRef | ComponentRef,
+) -> InterfaceSpec | ComponentSpec:
+    if isinstance(scope, InterfaceRef):
+        return interface_spec
+    scope_spec: InterfaceSpec | ComponentSpec = interface_spec
+    for component_id in scope.component_path:
+        scope_spec = next(
+            item for item in scope_spec.components if item.id == component_id
+        )
+    return scope_spec
 
 
 def _compile_operation(

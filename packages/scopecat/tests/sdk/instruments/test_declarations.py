@@ -357,9 +357,45 @@ class ScannerObservation:
     ]
 
 
+@instrument_result
+@dataclass(frozen=True, slots=True)
+class TriggerSampleResults:
+    value: Annotated[
+        float,
+        result(
+            id="trigger_value",
+            unit="V",
+            label="Trigger value",
+            description="Value sampled at the trigger input.",
+        ),
+    ]
+
+
 class TriggerCapability(Protocol):
-    @operation(label="Reset trigger", description="Reset trigger state.")
-    def reset(self) -> None: ...
+    @operation(
+        id="reset_trigger",
+        label="Reset trigger",
+        description="Reset trigger state.",
+    )
+    def reset(
+        self,
+        cycles: Annotated[
+            int,
+            argument(
+                id="wait_cycles",
+                minimum=0,
+                label="Wait cycles",
+                description="Cycles to wait after reset.",
+            ),
+        ],
+    ) -> None: ...
+
+    @acquisition(
+        id="sample_trigger",
+        label="Sample trigger",
+        description="Sample the trigger input.",
+    )
+    def sample(self) -> TriggerSampleResults: ...
 
 
 class OutputCapability(Protocol):
@@ -649,9 +685,34 @@ def test_operations_observed_state_and_nested_components_compile_together() -> N
                         description="External trigger endpoint.",
                         operations=[
                             expected_operation(
-                                "reset",
+                                "reset_trigger",
                                 label="Reset trigger",
                                 description="Reset trigger state.",
+                                arguments=[
+                                    expected_operation_argument(
+                                        "wait_cycles",
+                                        value_type=Scalar(IntType(minimum=0)),
+                                        label="Wait cycles",
+                                        description="Cycles to wait after reset.",
+                                    )
+                                ],
+                            )
+                        ],
+                        acquisitions=[
+                            expected_acquisition(
+                                "sample_trigger",
+                                label="Sample trigger",
+                                description="Sample the trigger input.",
+                                results=[
+                                    expected_result(
+                                        "trigger_value",
+                                        unit="V",
+                                        label="Trigger value",
+                                        description=(
+                                            "Value sampled at the trigger input."
+                                        ),
+                                    )
+                                ],
                             )
                         ],
                     )
@@ -665,6 +726,7 @@ def test_operations_observed_state_and_nested_components_compile_together() -> N
 
 def test_operation_and_component_refs_use_python_member_names() -> None:
     select = declared_operation_ref(TypedControlContract, "select")
+    output = declared_component_ref(TypedControlContract, "output")
 
     assert select == declared_interface_ref(TypedControlContract).operation(
         "select_input"
@@ -672,14 +734,82 @@ def test_operation_and_component_refs_use_python_member_names() -> None:
     assert declared_argument_ref(TypedControlContract, "select", "channel") == (
         select.argument("input")
     )
-    assert declared_component_ref(TypedControlContract, "output") == (
-        declared_interface_ref(TypedControlContract).component("output-a")
-    )
+    assert output == declared_interface_ref(TypedControlContract).component("output-a")
+    assert declared_operation_ref(
+        TypedControlContract,
+        "arm",
+        component=("output",),
+    ) == output.operation("arm_output")
     assert declared_component_ref(
         TypedControlContract,
         "output",
         "trigger",
     ).component_path == ("output-a", "trigger-input")
+
+
+def test_nested_component_member_refs_use_python_paths() -> None:
+    component_path = ("output", "trigger")
+    trigger = declared_component_ref(TypedControlContract, *component_path)
+    reset = declared_operation_ref(
+        TypedControlContract,
+        "reset",
+        component=component_path,
+    )
+    sample = declared_acquisition_ref(
+        TypedControlContract,
+        "sample",
+        component=component_path,
+    )
+
+    assert reset == trigger.operation("reset_trigger")
+    assert declared_argument_ref(
+        TypedControlContract,
+        "reset",
+        "cycles",
+        component=component_path,
+    ) == reset.argument("wait_cycles")
+    assert sample == trigger.acquisition("sample_trigger")
+    assert declared_result_ref(
+        TypedControlContract,
+        "sample",
+        "value",
+        component=component_path,
+    ) == sample.result("trigger_value")
+
+
+def test_declared_acquisition_resolves_nested_component_result_layout() -> None:
+    compiled = compile_interface(TypedControlContract)
+    component_path = ("output", "trigger")
+
+    declared = assert_type(
+        declared_acquisition(
+            compiled,
+            TriggerCapability.sample,
+            component=component_path,
+        ),
+        DeclaredAcquisition[TriggerSampleResults],
+    )
+
+    trigger_spec = compiled.spec.components[0].components[0]
+    assert declared.method_name == "sample"
+    assert declared.ref == declared_acquisition_ref(
+        TypedControlContract,
+        "sample",
+        component=component_path,
+    )
+    assert declared.spec is trigger_spec.acquisitions[0]
+    assert declared.discriminator is None
+    assert [layout.case_value for layout in declared.layouts] == [None]
+    assert [
+        (field.python_name, field.result_id, field.spec.id)
+        for field in declared.active_result_fields()
+    ] == [
+        (
+            "value",
+            "trigger_value",
+            "trigger_value",
+        )
+    ]
 
 
 def test_observed_state_has_refs_but_cannot_be_encoded_as_desired_state() -> None:
