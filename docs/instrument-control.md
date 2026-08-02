@@ -160,24 +160,24 @@ experiment authoring. The first argument selects the time model:
 - `network_sweep(experiment, "readout")` declares a typed logical resource on
   the root experiment.
 
-The state classes, client method names, and acquisition result field names are
-the same. The state verb deliberately differs: `apply(...)` requests a hardware
-transition now and accepts concrete values, while `ensure(...)` adds a desired
-state effect to the experiment and also accepts point-resolved `ValueRef`
+The member names, client method names, and acquisition result fields come from
+one concrete schema. Generated carrier names make the time model explicit:
+`Patch` requests a hardware transition now with concrete values, while `Target`
+adds an experiment state effect and may contain point-resolved `ValueRef`
 objects.
 
 Live control is imperative:
 
 ```python
 import scopecat as sc
-from scopecat_instruments import NetworkSweepState, network_sweep
+from scopecat_instruments import NetworkSweepPatch, network_sweep
 
 READOUT_VNA = network_sweep("readout-vna")
 
 with sc.open_project(".").connect(operator="alice") as lab:
     with lab.instruments.open(READOUT_VNA) as devices:
         vna = devices[READOUT_VNA]
-        vna.apply(NetworkSweepState(points=401))
+        vna.apply(NetworkSweepPatch(points=401))
         trace = vna.sweep()  # NetworkSweepReadback, produced now
 ```
 
@@ -196,9 +196,9 @@ mapping:
 ```python
 import scopecat as sc
 from scopecat_instruments import (
-    DCSourceState,
-    DCSourceVoltage,
-    NetworkSweepState,
+    DCSourceTarget,
+    DCSourceVoltageTarget,
+    NetworkSweepTarget,
     dc_source,
     network_sweep,
 )
@@ -223,14 +223,14 @@ def capture(experiment: sc.ExperimentContext) -> None:
     vna = network_sweep(experiment, "readout")
 
     flux.ensure(
-        DCSourceVoltage(
+        DCSourceVoltageTarget(
             range=sc.Quantity(1, "V"),  # fixed for every point
             level=DC_BIAS,  # resolved from the scan point
             output_enabled=True,
         )
     )
     vna.ensure(
-        NetworkSweepState(
+        NetworkSweepTarget(
             start_frequency=sc.Quantity(4.9, "GHz"),
             stop_frequency=sc.Quantity(5.1, "GHz"),
             points=751,
@@ -243,7 +243,7 @@ def capture(experiment: sc.ExperimentContext) -> None:
     experiment.record(trace.s_parameter)
     experiment.finalize(
         flux,
-        DCSourceState(output_enabled=False),
+        DCSourceTarget(output_enabled=False),
     )
 ```
 
@@ -292,7 +292,8 @@ DC monitoring is an optional capability in both live and symbolic use.
 `dc_source(...)` returns a source-only typed client and requires only the source
 interface by default. `dc_source(..., monitor=True)` instead returns the
 monitor-capable client type, requires both interfaces, and enables
-`DCMonitorState` and `monitor()`. This keeps ordinary source-only control and
+the generated `DCMonitorPatch`/`DCMonitorTarget` surfaces and `monitor()`. This
+keeps ordinary source-only control and
 experiments routable to hardware without the monitor option. State fields that
 determine output shape, such as network-sweep `points`, must resolve during
 configuration binding, before point execution; scan coordinates and point-local
@@ -324,13 +325,9 @@ from scopecat.sdk.instruments.declarations import (
     result_field,
 )
 
-type Desired[T] = T | sc.ValueRef
-
-
 @instrument_state
 class NetworkSweepState:
-    points: Desired[int] | None = member_field(
-        default=None,
+    points: int = member_field(
         minimum=2,
         label="Sweep points",
     )
@@ -355,11 +352,13 @@ class NetworkSweep(Protocol):
     def sweep(self) -> SweepResults: ...
 ```
 
-The state, observed-state, and result decorators are standard dataclass
-transforms: they create frozen, slotted, keyword-only dataclasses while exposing
-the synthesized constructor to static type checkers. `member_field(...)` and
-`result_field(...)` use namespaced dataclass field metadata; `Annotated` metadata
-remains available when declarations need to compose additional typing metadata.
+State declarations are concrete capability schemas, not user-authored patches:
+their fields contain the hardware value type `T`, are required, and never gain
+`ValueRef` or omission semantics. The state, observed-state, and result
+decorators are standard dataclass transforms that create frozen, slotted,
+keyword-only schema records. `member_field(...)` and `result_field(...)` use
+namespaced dataclass field metadata; `Annotated` metadata remains available when
+declarations need to compose additional typing metadata.
 Interface and method decorators only attach metadata and preserve the authored
 methods. `NetworkSweep` therefore remains usable as a structural `Protocol`; an
 `ABC` works as well when nominal implementation inheritance is useful, and
@@ -377,24 +376,22 @@ capabilities may contain operations and acquisitions and may nest further, while
 the Python annotations remain visible to static type checkers.
 
 Compiled declarations expose typed member descriptors in addition to the wire
-contract. `declared_operation(...)` binds the original Python call signature and
+contract. `declared_operation(...)` binds the concrete Python call signature and
 maps its arguments to stable operation refs, `declared_acquisition(...)` binds
 result layouts, and `declared_observed_state(...)` decodes complete snapshots
-back into the declared dataclass. Operation annotations may include `ValueRef`
-through `Desired[T]`; the compiled hardware argument remains `T`. A live client
-narrows its public method to concrete values, while its symbolic counterpart
-retains the point-resolved type and records the same operation ref.
+back into the declared dataclass. Operations are also authored with concrete
+`T` parameters; generation projects them to `T | ValueRef` only on symbolic
+clients and lifts those values per entity on group clients.
 
-Declared state dataclasses are intentionally plain data. Both time models use
-the same declaration codec: live clients encode resolved values, while symbolic
-clients retain `ValueRef` bindings. Users normally call the typed client's
-`apply(...)` or `ensure(...)`; root experiments can also pass that client and a
-declared state directly to `finalize(...)`. A symbolic group accepts either one
-broadcast state or an exact `PerEntity[state]` mapping in the same way as its
-`ensure(...)` method. The state class does not grow a hidden
-`target_assignments()` method merely to satisfy the lower-level authoring
-protocol. Instrument packages provide the small typed finalization adapter;
-`resource + DesiredState` remains available as the low-level escape hatch.
+For every writable schema the catalog generator emits three nominal sparse
+carriers. `NetworkSweepPatch` contains only concrete `T` values for live
+`apply(...)`; `NetworkSweepTarget` contains `T | ValueRef` values for scalar
+`ensure(...)`; `NetworkSweepGroupTarget` additionally accepts
+`PerEntity[T | ValueRef]` independently for each field. Field presence is
+tracked by a private sentinel, not by `None`, so omission is orthogonal to the
+domain value. A group also accepts `PerEntity[NetworkSweepTarget]` when complete
+targets or discriminated cases differ by entity. The lower-level
+`resource + DesiredState` path remains available as an escape hatch.
 
 This declaration layer generates the stable contract and refs, but it does not
 invent session behavior. A typed factory still defines whether an action is
@@ -416,21 +413,21 @@ positional-only and keyword-only parameters, narrow live argument carriers, add
 symbolic effect ids, and lift each parameter independently for entity groups.
 The repository's committed static generator holds a typed manifest of decorated
 interface classes, compiles their layouts while generating, and writes that
-source deterministically. Generated modules derive interface refs directly from
-those classes; interfaces that only declare persistent state therefore do not
-compile a layout again when the generated module is imported. The production
+source deterministically. Generated modules derive interface refs and state
+projection layouts directly from those classes. The production
 target generates complete `TemperatureReadout`, `RFOutput`, and `NetworkSweep`
 families, plus source-only and source-with-monitor `DCSource` live, symbolic
 single-entity, and group clients. The generated `dc_source(..., monitor=...)`
 facade selects those two typed surfaces. Generated source also includes
 applicable observation accessors and acquisition result carriers. Root-level
-flat and discriminated declared states both produce typed `apply(...)`,
-`ensure(...)`, and group state surfaces.
+flat and discriminated schemas both produce typed `apply(...)`, `ensure(...)`,
+and field-wise group target surfaces.
 The same catalog pass writes the public `members.py`, `interfaces.py`, and
 `states.py` projections: refs recurse through components and operations,
-interface factories return fresh wire specs, and state exports preserve the
-authored Python type identities. These projections are generated source rather
-than a second authoring surface.
+interface factories return fresh wire specs, and state projections preserve the
+canonical field types while adding only presence, binding-time, or entity
+cardinality semantics. These projections are generated source rather than a
+second authoring surface.
 
 Regenerate the committed Python surfaces, or verify that they are current, with:
 
@@ -441,11 +438,11 @@ uv run --locked python scripts/generate_instrument_clients.py --check
 
 For supported nested component operations, generation emits a typed component
 proxy tree while retaining the recursively resolved component and operation
-refs. The live method narrows every declared `Desired[T]` argument to concrete
-`T` and returns `InvokeReceipt`. The scalar symbolic method retains
-`Desired[T]` and adds `effect_id`; its group counterpart accepts either a
-broadcast `Desired[T]` or `PerEntity[Desired[T]]` independently for each
-argument. The group aligns every argument before recording any invocation, then
+refs. The authored operation uses concrete `T` arguments. The live method keeps
+`T` and returns `InvokeReceipt`; the scalar symbolic method projects each
+argument to `T | ValueRef` and adds `effect_id`; its group counterpart also
+accepts `PerEntity[T | ValueRef]` independently for each argument. The group
+aligns every argument before recording any invocation, then
 emits one ordinary scalar effect per child resource. Alignment is an exact join
 by entity identity, not by input order.
 
@@ -531,7 +528,7 @@ biases = rows.map(lambda row: row.flux_bias)  # PerEntity[ValueRef]
 sources = dc_source(experiment, "flux", for_=targets)
 sources.ensure(
     biases.map(
-        lambda bias: DCSourceVoltage(
+        lambda bias: DCSourceVoltageTarget(
             range=sc.Quantity(1, "V"),
             level=bias,
             output_enabled=True,
@@ -540,15 +537,16 @@ sources.ensure(
 )
 
 readouts = network_sweep(experiment, "readout", for_=targets)
-readouts.ensure(NetworkSweepState(points=751))  # one common target
+readouts.ensure(NetworkSweepGroupTarget(points=751))  # one common target
 traces = readouts.sweep()  # PerEntity[NetworkSweepProducts]
 experiment.record(traces.map(lambda trace: trace.s_parameter))
 ```
 
 `QUBITS[sc.one("q0")]` instead returns one `QubitParameters` row, so its
 `flux_bias` field is exactly one `ValueRef`. This row/client-container symmetry
-keeps single- and multi-entity code predictable without weakening every field
-to a scalar-or-mapping union.
+keeps single- and multi-entity code predictable. Only generated `GroupTarget`
+fields gain the scalar-or-mapping lift; canonical schemas and scalar targets
+remain narrow.
 
 `for_=sc.each(...)` is explicit authoring-time fan-out: it creates independently
 routable per-entity resources and effects rather than asking a driver to
@@ -791,7 +789,7 @@ The normal project connection exposes the same daemon-owned path:
 ```python
 import scopecat as sc
 from scopecat_instruments import (
-    NetworkSweepState,
+    NetworkSweepPatch,
     network_sweep,
 )
 
@@ -807,7 +805,7 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.observed_state())
 
         receipt = vna.apply(
-            NetworkSweepState(
+            NetworkSweepPatch(
                 start_frequency=sc.Quantity(4.8, "GHz"),
                 stop_frequency=sc.Quantity(5.2, "GHz"),
                 points=401,
@@ -817,8 +815,8 @@ with sc.open_project(".").connect(operator="alice") as lab:
 ```
 
 Typed physical refs bind a project-owned instrument id to a statically known
-client inside the daemon-owned session. State dataclasses correlate property
-names with Python value types, and typed acquisitions expose named result
+client inside the daemon-owned session. Generated patches correlate property
+names, concrete Python value types, and explicit presence, while typed acquisitions expose named result
 fields. Experiment lowering and the low-level dynamic API continue to use
 nominal member refs, so an acquisition result cannot be accidentally paired
 with another interface or component. Specs, compiler IR, and daemon requests
@@ -835,7 +833,7 @@ coherent set:
 
 ```python
 from scopecat_instruments import (
-    DCSourceVoltage,
+    DCSourceVoltagePatch,
     dc_source,
     network_sweep,
 )
@@ -848,7 +846,7 @@ with lab.instruments.open(FLUX_SOURCE, READOUT_VNA) as devices:
     vna = devices[READOUT_VNA]
 
     source.apply(
-        DCSourceVoltage(
+        DCSourceVoltagePatch(
             range=sc.Quantity(1.0, "V"),
             level=sc.Quantity(0.05, "V"),
             output_enabled=True,

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import scopecat as sc
 from scopecat_instruments import (
-    DCSourceState,
-    DCSourceVoltage,
-    NetworkSweepState,
+    DCSourceTarget,
+    DCSourceVoltageTarget,
+    NetworkSweepTarget,
     dc_source,
     network_sweep,
     temperature_readout,
@@ -52,7 +52,7 @@ def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
     readout = network_sweep(experiment, VNA_RESOURCE)
 
     flux_source.ensure(
-        DCSourceVoltage(
+        DCSourceVoltageTarget(
             range=sc.Quantity(1.0, "V"),
             level=DC_BIAS,
             current_protection=sc.Quantity(100.0, "uA"),
@@ -60,7 +60,7 @@ def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
         )
     )
     readout.ensure(
-        NetworkSweepState(
+        NetworkSweepTarget(
             start_frequency=SWEEP_START,
             stop_frequency=SWEEP_STOP,
             points=TRACE_POINTS,
@@ -71,7 +71,7 @@ def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
     )
     trace = readout.sweep()
     sample = temperature.sample()
-    experiment.finalize(flux_source, DCSourceState(output_enabled=False))
+    experiment.finalize(flux_source, DCSourceTarget(output_enabled=False))
 
     experiment.record_coordinate(trace.frequency)
     experiment.record(

@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Annotated
 
 import pytest
-from scopecat_instruments import NetworkSweepState, network_sweep
+from scopecat_instruments import NetworkSweepGroupTarget, network_sweep
 from scopecat_instruments.members import NETWORK_SWEEP
 
 import scopecat.authoring as authoring
@@ -110,7 +110,7 @@ def test_typed_each_resources_route_to_different_instruments() -> None:
             "readout",
             for_=authoring.each(q0, q1),
         )
-        analyzers.ensure(NetworkSweepState(points=points))
+        analyzers.ensure(NetworkSweepGroupTarget(points=points))
         traces = analyzers.sweep()
         context.record(traces.map(lambda trace: trace.s_parameter))
 

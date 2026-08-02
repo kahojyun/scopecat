@@ -17,20 +17,20 @@ from scopecat.sdk.instruments import ApplyReceipt, PropertyRef
 from scopecat.sdk.instruments.declarations import (
     compile_interface,
     declared_interface_layout,
-    declared_state_assignments,
+    state_projection_assignments,
 )
 
 import scopecat_instruments.clients as client_module
 from scopecat_instruments import (
-    DCMonitorState,
+    DCMonitorPatch,
     DCSourceClient,
     DCSourceMonitorClient,
-    DCSourceState,
-    DCSourceVoltage,
+    DCSourcePatch,
+    DCSourceVoltagePatch,
     NetworkSweepClient,
-    NetworkSweepState,
+    NetworkSweepPatch,
     RFOutputClient,
-    RFOutputState,
+    RFOutputPatch,
     TemperatureReadoutClient,
     TemperatureReadoutObservation,
     dc_source,
@@ -168,7 +168,7 @@ def test_generated_dc_source_live_client_applies_discriminated_state() -> None:
 
     receipt = assert_type(
         client.apply(
-            DCSourceVoltage(
+            DCSourceVoltagePatch(
                 range=Quantity(1.0, "V"),
                 level=Quantity(0.05, "V"),
                 output_enabled=True,
@@ -196,7 +196,7 @@ def test_generated_rf_live_client_lowers_declared_state() -> None:
 
     receipt = assert_type(
         client.apply(
-            RFOutputState(
+            RFOutputPatch(
                 frequency=Quantity(5.0, "GHz"),
                 power=Quantity(-20.0, "dBm"),
                 output_enabled=True,
@@ -227,9 +227,11 @@ def test_generated_rf_live_client_rejects_symbolic_state_before_io() -> None:
 
     with pytest.raises(
         TypeError,
-        match="direct instrument state must contain concrete values",
+        match="direct instrument patch must contain concrete values",
     ):
-        client.apply(RFOutputState(frequency=frequency))
+        client.apply(
+            RFOutputPatch(frequency=cast("Quantity", cast("object", frequency)))
+        )
 
     assert channel.values is None
     assert channel.instrument_id is None
@@ -306,7 +308,7 @@ def test_generated_live_dc_monitor_applies_monitor_state() -> None:
     )
 
     receipt = assert_type(
-        client.apply(DCMonitorState(measurement_enabled=True)),
+        client.apply(DCMonitorPatch(measurement_enabled=True)),
         ApplyReceipt,
     )
 
@@ -315,13 +317,13 @@ def test_generated_live_dc_monitor_applies_monitor_state() -> None:
 
 
 def test_voltage_state_is_one_complete_mode_transition() -> None:
-    state = DCSourceVoltage(
+    state = DCSourceVoltagePatch(
         range=Quantity(1.0, "V"),
         level=Quantity(0.05, "V"),
         output_enabled=True,
     )
 
-    assert declared_state_assignments(state) == {
+    assert state_projection_assignments(state) == {
         DC_SOURCE_MODE: "voltage",
         DC_SOURCE_VOLTAGE_RANGE: Quantity(1.0, "V"),
         DC_SOURCE_VOLTAGE_LEVEL: Quantity(0.05, "V"),
@@ -330,11 +332,11 @@ def test_voltage_state_is_one_complete_mode_transition() -> None:
 
 
 def test_sparse_state_omits_unspecified_properties() -> None:
-    assert declared_state_assignments(DCSourceState(output_enabled=False)) == {
+    assert state_projection_assignments(DCSourcePatch(output_enabled=False)) == {
         DC_SOURCE_OUTPUT_ENABLED: False
     }
-    assert declared_state_assignments(
-        NetworkSweepState(
+    assert state_projection_assignments(
+        NetworkSweepPatch(
             start_frequency=Quantity(4.8, "GHz"),
             points=401,
             s_parameter="S21",

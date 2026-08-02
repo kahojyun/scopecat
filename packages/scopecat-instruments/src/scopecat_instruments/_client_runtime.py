@@ -23,7 +23,7 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
     DeclaredOperation,
-    declared_state_assignments,
+    state_projection_assignments,
 )
 
 
@@ -113,11 +113,11 @@ def _concrete_assignments(state: object) -> dict[PropertyRef, StateLiteral]:
     try:
         return {
             target: StateValue.model_validate(value).root
-            for target, value in declared_state_assignments(state).items()
+            for target, value in state_projection_assignments(state).items()
         }
     except ValueError as error:
         raise TypeError(
-            "direct instrument state must contain concrete values"
+            "direct instrument patch must contain concrete values"
         ) from error
 
 

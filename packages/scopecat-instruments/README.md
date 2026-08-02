@@ -20,7 +20,7 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat_instruments import (
-    NetworkSweepState,
+    NetworkSweepPatch,
     network_sweep,
 )
 
@@ -35,7 +35,7 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.describe())
         print(vna.observed_state())
         vna.apply(
-            NetworkSweepState(
+            NetworkSweepPatch(
                 start_frequency=sc.Quantity(5.9, "GHz"),
                 stop_frequency=sc.Quantity(6.1, "GHz"),
                 points=401,
@@ -45,10 +45,11 @@ with sc.open_project(".").connect(operator="alice") as lab:
 ```
 
 Typed physical references retain project-owned instrument identity and bind a
-statically known client inside the daemon-owned session. State dataclasses keep
-property names and Python value types correlated, while acquisition clients
-return named readback fields. The lower-level member catalog continues to carry
-interface, component, and member identity for drivers and experiment lowering.
+statically known client inside the daemon-owned session. Generated patches keep
+property names, concrete Python value types, and explicit field presence
+correlated, while acquisition clients return named readback fields. The
+lower-level member catalog continues to carry interface, component, and member
+identity for drivers and experiment lowering.
 
 Read-only declarations also return named state instead of forcing callers to
 decode property ids. A temperature client exposes `observation()` for the
@@ -56,14 +57,15 @@ session-opening cached `TemperatureReadoutObservation` and
 `refresh_observation()` for an explicit device read; `observed_state()` and
 `refresh()` remain the raw snapshot escape hatch.
 
-Experiment modules reuse the same state dataclasses. Their fields accept either
-fixed values or typed Scopecat value references:
+Experiment modules use generated symbolic targets from the same concrete
+interface schema. Target fields accept either fixed values or typed Scopecat
+value references:
 
 ```python
 from typing import Annotated
 
 import scopecat as sc
-from scopecat_instruments import DCSourceVoltage, dc_source
+from scopecat_instruments import DCSourceVoltageTarget, dc_source
 
 DC_BIAS = sc.coordinate(
     "dc_bias",
@@ -80,7 +82,7 @@ def capture(
 ) -> None:
     flux = dc_source(module, "flux")
     flux.ensure(
-        DCSourceVoltage(
+        DCSourceVoltageTarget(
             range=sc.Quantity(1, "V"),
             level=dc_bias,
             output_enabled=True,
@@ -114,13 +116,13 @@ group client classes in generated Python source. Its boolean `monitor` facade is
 generated with exact literal overloads and ordinary-`bool` union fallbacks.
 Applicable observation accessors and acquisition result carriers are generated
 as well, so editors and type checkers see exact
-signatures. Root-level flat and discriminated declared states both generate
-typed live, symbolic, and grouped state surfaces. The generator manifest refers
+signatures. Root-level flat and discriminated concrete schemas generate
+separate `Patch`, `Target`, and `GroupTarget` surfaces. The generator manifest refers
 to the decorated interface classes themselves; declaration modules do not need
 parallel compiled constants. Generated state-only clients derive their interface
 refs without compiling a layout at import time. The same pass generates the
-public member-ref catalog, fresh interface factories, and authored state-type
-reexports, so those projections do not need parallel hand-maintained mappings.
+public member-ref catalog, fresh interface factories, and generated state
+projections, so those surfaces do not need parallel hand-maintained mappings.
 
 Run the generator from the repository root after changing a supported
 declaration, and use its check mode in validation or CI:
@@ -134,8 +136,9 @@ Do not edit `clients.py`, `members.py`, `interfaces.py`, or `states.py`
 directly. The generated source includes nested component operation proxies for
 supported declarations. A live operation
 accepts concrete arguments and returns `InvokeReceipt`; the scalar symbolic
-form accepts `Desired[T]` arguments and an `effect_id`. Its group form accepts a
-scalar or `PerEntity` value independently for every argument, performs exact
+form projects each concrete `T` argument to `T | ValueRef` and adds an
+`effect_id`. Its group form accepts a scalar or `PerEntity` value independently
+for every argument, performs exact
 identity joins for all mappings before recording any effect, and then records
 one scalar invocation per entity. Mapping order is therefore irrelevant, while
 missing or extra entity identities fail before partial effects are created.
@@ -143,8 +146,9 @@ missing or extra entity identities fail before partial effects are created.
 The optional `DCSource`/`DCMonitor` surface is an ordered, member-free Protocol
 bundle over the two existing wire interfaces. The generator merges their root
 state and acquisition surfaces and emits `dc_source(..., monitor=...)`; the flag
-selects one capability set for the whole group, while complete states may still
-be broadcast or mapped exactly by entity.
+selects one capability set for the whole group. A `GroupTarget` can map each
+field independently, while `PerEntity[Target]` supports different discriminated
+cases for different entities.
 
 Payload-bearing operations are rejected until their schema-specific live and
 symbolic carriers are defined. Component-owned state and component acquisitions

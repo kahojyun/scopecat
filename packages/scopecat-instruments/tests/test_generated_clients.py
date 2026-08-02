@@ -99,7 +99,12 @@ def test_codegen_imports_literal_for_resolved_declared_annotations() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "from typing import Literal" in completed.stdout
-    assert "mode: Literal[" in completed.stdout
+    assert 'mode: Literal["left", "right"],' in completed.stdout
+    assert 'mode: Literal["left", "right"] | ValueRef,' in completed.stdout
+    assert (
+        'mode: Literal["left", "right"] | ValueRef | '
+        'PerEntity[Literal["left", "right"] | ValueRef],'
+    ) in completed.stdout
 
 
 def test_codegen_rejects_every_colliding_generated_symbol() -> None:
@@ -122,17 +127,20 @@ def test_codegen_derives_base_family_suppression_from_a_facade_bundle() -> None:
     assert completed.returncode == 0, completed.stderr
     compile(completed.stdout, "<generated-dc-source>", "exec")
     assert (
-        "type _DCSourceState = DCSourceState | DCSourceVoltage | DCSourceCurrent"
+        "type _DCSourcePatch = DCSourcePatch | DCSourceVoltagePatch | "
+        "DCSourceCurrentPatch"
     ) in completed.stdout
-    assert "class DCSourceClient(DeclaredStateClientBase[_DCSourceState]):" in (
+    assert "class DCSourceClient(DeclaredStateClientBase[_DCSourcePatch]):" in (
         completed.stdout
     )
     assert (
-        "class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[_DCSourceState]):"
+        "class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase["
+        "_DCSourceTarget]):"
     ) in completed.stdout
-    assert (
-        "DeclaredStateSymbolicGroupBase[_DCSourceState, SymbolicDCSourceClient]"
-    ) in completed.stdout
+    assert "DeclaredStateSymbolicGroupBase[" in completed.stdout
+    assert "_DCSourceTarget, _DCSourceGroupTarget, SymbolicDCSourceClient" in (
+        completed.stdout
+    )
     assert "DC_SOURCE_DECLARATION" not in completed.stdout
     assert "_DC_SOURCE_REF = declared_interface_ref(DCSourceInterface)" in (
         completed.stdout
@@ -151,11 +159,11 @@ def test_codegen_composes_a_root_only_interface_bundle() -> None:
 
     assert completed.returncode == 0, completed.stderr
     compile(completed.stdout, "<generated-dc-source-monitor>", "exec")
-    assert "type _DCSourceMonitorState = (" in completed.stdout
-    assert "DCSourceState" in completed.stdout
-    assert "DCSourceVoltage" in completed.stdout
-    assert "DCSourceCurrent" in completed.stdout
-    assert "DCMonitorState" in completed.stdout
+    assert "type _DCSourceMonitorPatch = (" in completed.stdout
+    assert "DCSourcePatch" in completed.stdout
+    assert "DCSourceVoltageTarget" in completed.stdout
+    assert "DCSourceCurrentGroupTarget" in completed.stdout
+    assert "DCMonitorPatch" in completed.stdout
     assert "class DCMonitorReadback(" in completed.stdout
     assert "class DCMonitorProducts(" in completed.stdout
     assert "class DCSourceMonitorClient(" in completed.stdout

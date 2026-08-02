@@ -18,7 +18,6 @@ from scopecat.kernel.value_types import String as StringType
 from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.program.state import DesiredState
 from scopecat.program.value_refs import ValueRef
-from scopecat.program.values import input as program_input
 from scopecat.records.instrument import (
     InstrumentPropertyState,
     InstrumentStateSnapshot,
@@ -67,6 +66,7 @@ from scopecat.sdk.instruments.declarations import (
     DeclaredInterfaceLayout,
     DeclaredObservedState,
     DeclaredOperation,
+    DeclaredStateLayout,
     acquisition,
     acquisition_case,
     argument,
@@ -86,14 +86,13 @@ from scopecat.sdk.instruments.declarations import (
     declared_operation_ref,
     declared_property_ref,
     declared_result_ref,
-    declared_state_assignments,
-    declared_state_target,
     discriminated_state,
     instrument_bundle,
     instrument_interface,
     instrument_observed_state,
     instrument_result,
     instrument_state,
+    instrument_state_projection,
     interface_discriminator,
     member,
     member_field,
@@ -104,32 +103,37 @@ from scopecat.sdk.instruments.declarations import (
     state_case,
     state_discriminated_acquisition,
     state_field,
+    state_projection_assignments,
+    state_projection_field,
+    state_projection_target,
 )
 
-type Desired[T] = T | ValueRef
+type ConcreteAlias[ValueT] = ValueT
+type ModeAlias = Literal["once", "loop"]
+
+
+@instrument_result
+class AliasedScalarResults:
+    value: ConcreteAlias[float] = result_field()
 
 
 @instrument_state
 class SweepState:
-    start_frequency: Desired[Quantity] | None = member_field(
-        default=None,
+    start_frequency: Quantity = member_field(
         unit="Hz",
         label="Start frequency",
         description="First stimulus frequency.",
     )
-    points: Desired[int] | None = member_field(
-        default=None,
+    points: int = member_field(
         minimum=2,
         label="Sweep points",
         description="Number of frequency points.",
     )
-    trace: Desired[Literal["S11", "S21"]] | None = member_field(
-        default=None,
+    trace: Literal["S11", "S21"] = member_field(
         label="Trace",
         description="Selected response.",
     )
-    output_enabled: Desired[bool] | None = member_field(
-        default=None,
+    output_enabled: bool = member_field(
         label="Output",
         description="Whether output is enabled.",
     )
@@ -177,8 +181,7 @@ class SweepContract(Protocol):
 
 @instrument_state
 class SourceCommonState:
-    output_enabled: Desired[bool] | None = member_field(
-        default=None,
+    output_enabled: bool = member_field(
         label="Output",
         description="Whether output is enabled.",
     )
@@ -186,36 +189,34 @@ class SourceCommonState:
 
 @instrument_state
 class VoltageState:
-    range: Desired[Quantity] = member_field(
+    range: Quantity = member_field(
         id="voltage_range",
         unit="V",
         label="Voltage range",
         description="Selected voltage range.",
     )
-    level: Desired[Quantity] = member_field(
+    level: Quantity = member_field(
         id="voltage_level",
         unit="V",
         label="Voltage level",
         description="Selected voltage level.",
     )
-    output_enabled: Desired[bool] | None = None
 
 
 @instrument_state
 class CurrentState:
-    range: Desired[Quantity] = member_field(
+    range: Quantity = member_field(
         id="current_range",
         unit="A",
         label="Current range",
         description="Selected current range.",
     )
-    level: Desired[Quantity] = member_field(
+    level: Quantity = member_field(
         id="current_level",
         unit="A",
         label="Current level",
         description="Selected current level.",
     )
-    output_enabled: Desired[bool] | None = None
 
 
 @instrument_interface(
@@ -232,13 +233,11 @@ class CurrentState:
             state_case(
                 "voltage",
                 VoltageState,
-                fields=("range", "level"),
                 required_on_entry=("range", "level"),
             ),
             state_case(
                 "current",
                 CurrentState,
-                fields=("range", "level"),
                 required_on_entry=("range", "level"),
             ),
         ),
@@ -250,8 +249,7 @@ class SourceContract(Protocol): ...
 
 @instrument_state
 class MonitorState:
-    measurement_enabled: Desired[bool] | None = member_field(
-        default=None,
+    measurement_enabled: bool = member_field(
         label="Measurement",
         description="Whether measurement is enabled.",
     )
@@ -478,9 +476,9 @@ class OperationBindingContract(Protocol):
         self,
         channel: Annotated[int, argument(id="input", minimum=1)],
         /,
-        level: Annotated[Desired[Quantity], argument(unit="V", minimum=0.0)],
+        level: Annotated[Quantity, argument(unit="V", minimum=0.0)],
         *,
-        mode: Literal["once", "loop"] | ValueRef,
+        mode: Literal["once", "loop"],
         program: Annotated[
             bytes,
             argument(
@@ -497,15 +495,23 @@ class OperationLowerer(Protocol):
         self,
         channel: int,
         /,
-        level: Desired[Quantity],
+        level: Quantity,
         *,
-        mode: Literal["once", "loop"] | ValueRef,
+        mode: Literal["once", "loop"],
         program: bytes,
     ) -> dict[OperationArgumentRef, object]: ...
 
 
 def test_declaration_decorators_build_typed_python_dataclasses() -> None:
-    state = assert_type(SweepState(points=11), SweepState)
+    state = assert_type(
+        SweepState(
+            start_frequency=Quantity(1.0, "GHz"),
+            points=11,
+            trace="S11",
+            output_enabled=False,
+        ),
+        SweepState,
+    )
     results = assert_type(
         SweepResults(frequency=[1.0], response=[1.0 + 0.0j]),
         SweepResults,
@@ -681,7 +687,15 @@ def test_decorated_protocol_compiles_to_the_existing_contract_ir() -> None:
 
     typed_check: Callable[[SweepContract], None] = check_client_type
     assert typed_check is check_client_type
-    assert_type(SweepState(points=11), SweepState)
+    assert_type(
+        SweepState(
+            start_frequency=Quantity(1.0, "GHz"),
+            points=11,
+            trace="S11",
+            output_enabled=False,
+        ),
+        SweepState,
+    )
 
     frequency_axis = expected_axis(
         "frequency",
@@ -941,7 +955,7 @@ def test_declared_interface_layout_preserves_authored_tree_and_spec_identity() -
     )
 
     assert layout.compiled is compiled
-    assert layout.state_types == ()
+    assert layout.states == ()
     assert layout.observed_state is not None
     assert layout.observed_state.state_type is ScannerObservation
     assert [field.python_name for field in layout.observed_state.fields] == [
@@ -984,12 +998,7 @@ def test_declared_interface_layout_preserves_authored_tree_and_spec_identity() -
             strict=True,
         )
     )
-    assert [argument.declared_annotation for argument in select.arguments] == [
-        int,
-        Quantity,
-        Literal["normal", "fast"],
-    ]
-    assert [argument.concrete_annotation for argument in select.arguments] == [
+    assert [argument.annotation for argument in select.arguments] == [
         int,
         Quantity,
         Literal["normal", "fast"],
@@ -1021,8 +1030,7 @@ def test_declared_interface_layout_preserves_authored_tree_and_spec_identity() -
     [cycles] = reset.arguments
     assert cycles.python_name == "cycles"
     assert cycles.argument_id == "wait_cycles"
-    assert cycles.declared_annotation is int
-    assert cycles.concrete_annotation is int
+    assert cycles.annotation is int
     assert cycles.spec is reset.spec.arguments[0]
     [sample] = trigger.acquisitions
     assert sample.method_name == "sample"
@@ -1047,13 +1055,50 @@ def test_declared_interface_layout_covers_inherited_and_state_declarations() -> 
     discriminated = declared_interface_layout(compile_interface(SourceContract))
     monitor = declared_interface_layout(compile_interface(MonitorContract))
 
-    assert flat.state_types == (SweepState,)
-    assert discriminated.state_types == (
+    assert [state.source_type for state in flat.states] == [SweepState]
+    [flat_state] = flat.states
+    assert [field.python_name for field in flat_state.fields] == [
+        "start_frequency",
+        "points",
+        "trace",
+        "output_enabled",
+    ]
+    assert [field.annotation for field in flat_state.fields] == [
+        Quantity,
+        int,
+        Literal["S11", "S21"],
+        bool,
+    ]
+    assert flat_state.required_fields == ()
+    assert flat_state.constants == ()
+
+    assert [state.source_type for state in discriminated.states] == [
         SourceCommonState,
         VoltageState,
         CurrentState,
+    ]
+    common, voltage, current = discriminated.states
+    assert [field.python_name for field in common.fields] == ["output_enabled"]
+    assert [field.python_name for field in voltage.fields] == [
+        "range",
+        "level",
+        "output_enabled",
+    ]
+    assert voltage.required_fields == ("range", "level")
+    assert voltage.constants == (
+        (declared_discriminator_ref(SourceContract), "voltage"),
     )
-    assert monitor.state_types == (MonitorState,)
+    assert [field.python_name for field in current.fields] == [
+        "range",
+        "level",
+        "output_enabled",
+    ]
+    assert current.required_fields == ("range", "level")
+    assert current.constants == (
+        (declared_discriminator_ref(SourceContract), "current"),
+    )
+
+    assert [state.source_type for state in monitor.states] == [MonitorState]
     [monitor_acquisition] = monitor.root.acquisitions
     assert [item.result_type for item in monitor_acquisition.layouts] == [
         MonitorResults,
@@ -1125,13 +1170,7 @@ def test_declared_operation_preserves_signature_and_argument_layout() -> None:
         "mode",
         "waveform",
     ]
-    assert [argument.declared_annotation for argument in declared.arguments] == [
-        int,
-        Desired[Quantity],
-        Literal["once", "loop"] | ValueRef,
-        bytes,
-    ]
-    assert [argument.concrete_annotation for argument in declared.arguments] == [
+    assert [argument.annotation for argument in declared.arguments] == [
         int,
         Quantity,
         Literal["once", "loop"],
@@ -1163,18 +1202,6 @@ def test_declared_operation_preserves_signature_and_argument_layout() -> None:
         PayloadType(schema_id="test.waveform/v1")
     )
     assert lowered[payload_argument.ref] is payload
-
-    symbolic_level = program_input("level", Scalar(QuantityType(unit="V")))
-    symbolic_lowered = assert_type(
-        declared.lower_arguments(
-            3,
-            level=symbolic_level,
-            mode="once",
-            program=payload,
-        ),
-        dict[OperationArgumentRef, object],
-    )
-    assert symbolic_lowered[declared.arguments[1].ref] is symbolic_level
 
 
 def test_declared_operation_uses_signature_bind_errors() -> None:
@@ -1241,14 +1268,62 @@ def test_declared_operation_rejects_a_method_from_another_interface() -> None:
         declared_operation(compiled, OperationBindingContract.upload)
 
 
-def test_operation_symbolic_values_do_not_make_none_a_valid_argument() -> None:
+def test_operation_declarations_reject_symbolic_and_optional_wrappers() -> None:
     @instrument_interface("test.invalid_optional_operation/v1")
     class InvalidOptionalOperation(Protocol):
         @operation()
         def invoke(self, value: int | ValueRef | None) -> None: ...
 
-    with pytest.raises(TypeError, match="unsupported operation argument union"):
+    with pytest.raises(TypeError, match="uses unsupported annotation"):
         compile_interface(InvalidOptionalOperation)
+
+
+def test_state_declarations_reject_symbolic_and_optional_wrappers() -> None:
+    @instrument_state
+    class InvalidState:
+        value: int | ValueRef | None = member_field()
+
+    @instrument_interface("test.invalid_wrapped_state/v1", state=InvalidState)
+    class InvalidWrappedState(Protocol): ...
+
+    with pytest.raises(TypeError, match="uses unsupported annotation"):
+        compile_interface(InvalidWrappedState)
+
+
+def test_concrete_type_aliases_compile_without_authoring_wrapper_semantics() -> None:
+    @instrument_state
+    class AliasedState:
+        count: ConcreteAlias[int] = member_field(minimum=1)
+        mode: ModeAlias = member_field()
+
+    @instrument_interface("test.concrete_alias/v1", state=AliasedState)
+    class AliasedInterface(Protocol):
+        @operation()
+        def set_level(
+            self,
+            level: Annotated[
+                ConcreteAlias[Quantity],
+                argument(unit="V"),
+            ],
+        ) -> None: ...
+
+        @acquisition()
+        def sample(self) -> AliasedScalarResults: ...
+
+    compiled = compile_interface(AliasedInterface)
+
+    count_type = compiled.spec.properties[0].value_type.atom
+    assert isinstance(count_type, IntType)
+    assert count_type.minimum == 1
+    assert compiled.spec.properties[1].value_type == Scalar(
+        StringType(choices=("once", "loop"))
+    )
+    assert compiled.spec.operations[0].arguments[0].value_type == Scalar(
+        QuantityType(unit="V")
+    )
+    acquisition_spec = compiled.spec.acquisitions[0]
+    assert isinstance(acquisition_spec, FixedAcquisitionSpec)
+    assert acquisition_spec.results[0].dtype == "float64"
 
 
 def test_nested_component_member_refs_use_python_paths() -> None:
@@ -1323,8 +1398,11 @@ def test_observed_state_has_refs_but_cannot_be_encoded_as_desired_state() -> Non
     assert declared_property_ref(ScannerObservation, "channel") == (
         declared_interface_ref(TypedControlContract).property("active_channel")
     )
-    with pytest.raises(TypeError, match="instrument state is missing its decorator"):
-        declared_state_assignments(observation)
+    with pytest.raises(
+        TypeError,
+        match="instrument state projection is missing its decorator",
+    ):
+        state_projection_assignments(observation)
 
 
 def test_declared_observed_state_preserves_type_order_and_compiled_identity() -> None:
@@ -1552,18 +1630,6 @@ def test_discriminated_state_compiles_and_encodes_implicit_mode() -> None:
     )
     assert compiled.spec == expected
 
-    voltage = VoltageState(
-        range=Quantity(1, "V"),
-        level=Quantity(0.1, "V"),
-        output_enabled=True,
-    )
-    assert declared_state_assignments(voltage) == {
-        declared_discriminator_ref(SourceContract): "voltage",
-        declared_property_ref(VoltageState, "range"): Quantity(1, "V"),
-        declared_property_ref(VoltageState, "level"): Quantity(0.1, "V"),
-        declared_property_ref(SourceCommonState, "output_enabled"): True,
-    }
-
 
 def test_state_discriminated_acquisition_supports_cross_interface_members() -> None:
     compiled = compile_interface(MonitorContract)
@@ -1659,16 +1725,57 @@ def test_state_discriminated_acquisition_supports_cross_interface_members() -> N
         declared.active_result_fields("resistance")
 
 
-def test_declared_state_codec_omits_none_without_injecting_methods() -> None:
-    state = SweepState(points=11, trace="S21")
+def test_generated_state_projection_tracks_presence_without_using_none() -> None:
+    [layout] = declared_interface_layout(compile_interface(SweepContract)).states
+    assert_type(layout, DeclaredStateLayout)
 
-    assert not hasattr(state, "target_assignments")
-    assert declared_state_assignments(state) == {
+    @instrument_state_projection(layout)
+    class SweepProjection:
+        start_frequency: Quantity = state_projection_field()
+        points: int = state_projection_field()
+        trace: Literal["S11", "S21"] = state_projection_field()
+        output_enabled: bool = state_projection_field()
+
+    projection = SweepProjection(points=11, trace="S21")
+
+    assert not hasattr(projection, "target_assignments")
+    assert state_projection_assignments(projection) == {
         declared_property_ref(SweepState, "points"): 11,
         declared_property_ref(SweepState, "trace"): "S21",
     }
-    target: DesiredState = declared_state_target(state)
-    assert target.target_assignments() == declared_state_assignments(state)
+    target: DesiredState = state_projection_target(projection)
+    assert target.target_assignments() == state_projection_assignments(projection)
+
+    unchecked_constructor = cast("Callable[..., SweepProjection]", SweepProjection)
+    explicit_none = unchecked_constructor(output_enabled=None)
+    assert state_projection_assignments(explicit_none) == {
+        declared_property_ref(SweepState, "output_enabled"): None,
+    }
+
+
+def test_discriminated_projection_includes_required_fields_and_constants() -> None:
+    _, voltage_layout, _ = declared_interface_layout(
+        compile_interface(SourceContract)
+    ).states
+
+    @instrument_state_projection(voltage_layout)
+    class VoltageProjection:
+        range: Quantity
+        level: Quantity
+        output_enabled: bool = state_projection_field()
+
+    projection = VoltageProjection(
+        range=Quantity(1, "V"),
+        level=Quantity(0.1, "V"),
+        output_enabled=True,
+    )
+
+    assert state_projection_assignments(projection) == {
+        declared_discriminator_ref(SourceContract): "voltage",
+        declared_property_ref(VoltageState, "range"): Quantity(1, "V"),
+        declared_property_ref(VoltageState, "level"): Quantity(0.1, "V"),
+        declared_property_ref(SourceCommonState, "output_enabled"): True,
+    }
 
 
 def test_compilation_and_fresh_spec_do_not_share_mutable_models() -> None:

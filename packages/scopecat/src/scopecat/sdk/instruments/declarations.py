@@ -12,13 +12,14 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import Field, dataclass, field, fields, is_dataclass
 from enum import Enum, auto
 from inspect import Parameter, Signature, signature
-from types import NoneType, UnionType
+from types import GenericAlias, NoneType, UnionType
 from typing import (
     Annotated,
     Concatenate,
     Literal,
     Protocol,
     TypeAliasType,
+    TypeVar,
     cast,
     dataclass_transform,
     get_args,
@@ -46,7 +47,6 @@ from scopecat.kernel.value_types import String as StringType
 from scopecat.kernel.value_validation import coerce_literal
 from scopecat.measurements.results import MeasurementDType
 from scopecat.program.state import DesiredState, StateBinding
-from scopecat.program.value_refs import ValueRef
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
     AcquisitionAxisSpec,
@@ -103,7 +103,7 @@ _BUNDLE_METADATA = "__scopecat_instrument_bundle__"
 _ACQUISITION_METADATA = "__scopecat_instrument_acquisition__"
 _OPERATION_METADATA = "__scopecat_instrument_operation__"
 _STATE_INTERFACES_METADATA = "__scopecat_instrument_state_interfaces__"
-_STATE_BINDINGS_METADATA = "__scopecat_instrument_state_bindings__"
+_STATE_PROJECTION_METADATA = "__scopecat_instrument_state_projection__"
 _FIELD_DECLARATION_METADATA = "scopecat.instrument.declaration"
 
 
@@ -112,6 +112,13 @@ class _NoFieldDefault(Enum):
 
 
 _NO_FIELD_DEFAULT = _NoFieldDefault.TOKEN
+
+
+class _StateProjectionOmitted(Enum):
+    TOKEN = auto()
+
+
+_STATE_PROJECTION_OMITTED = _StateProjectionOmitted.TOKEN
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,7 +204,6 @@ class AxisMetadata:
 class StateCaseMetadata:
     value: str
     state_type: type[object]
-    fields: tuple[str, ...]
     required_on_entry: tuple[str, ...]
 
 
@@ -259,12 +265,6 @@ class OperationMetadata:
 
 
 @dataclass(frozen=True, slots=True)
-class StateBindingsMetadata:
-    fields: tuple[tuple[str, PropertyRef], ...]
-    constants: tuple[tuple[PropertyRef, StateBinding], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class CompiledInterface[InterfaceT]:
     """A typed declaration paired with its lowered instrument contract."""
 
@@ -276,6 +276,30 @@ class CompiledInterface[InterfaceT]:
         """Return a deep copy safe for consumers that normalize Pydantic models."""
 
         return self.spec.model_copy(deep=True)
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredStateField:
+    """One concrete state member paired with its compiled property identity."""
+
+    python_name: str
+    ref: PropertyRef
+    spec: PropertySpec
+    annotation: object
+
+    @property
+    def property_id(self) -> str:
+        return self.ref.property_id
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredStateLayout:
+    """One concrete schema projected into an authoring-state shape."""
+
+    source_type: type[object]
+    fields: tuple[DeclaredStateField, ...]
+    required_fields: tuple[str, ...] = ()
+    constants: tuple[tuple[PropertyRef, StateBinding], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,8 +361,7 @@ class DeclaredOperationArgument:
     ref: OperationArgumentRef
     spec: OperationArgumentSpec
     parameter: Parameter
-    declared_annotation: object
-    concrete_annotation: object
+    annotation: object
 
     @property
     def argument_id(self) -> str:
@@ -464,12 +487,12 @@ class DeclaredInterfaceLayout[InterfaceT]:
     compiled: CompiledInterface[InterfaceT]
     root: DeclaredScopeLayout
     observed_state: DeclaredObservedState[object] | None
-    state_types: tuple[type[object], ...]
+    states: tuple[DeclaredStateLayout, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class _DeclaredStateTarget:
-    """Internal desired-state adapter produced from a declared dataclass."""
+class _StateProjectionTarget:
+    """Internal desired-state adapter produced from a generated projection."""
 
     assignments: Mapping[PropertyRef, StateBinding]
 
@@ -504,10 +527,6 @@ def member(
 
 def member_field[ValueT](
     *,
-    default: ValueT | Literal[_NoFieldDefault.TOKEN] = _NO_FIELD_DEFAULT,
-    default_factory: Callable[[], ValueT] | Literal[_NoFieldDefault.TOKEN] = (
-        _NO_FIELD_DEFAULT
-    ),
     id: str | None = None,
     label: str | None = None,
     description: str | None = None,
@@ -516,8 +535,8 @@ def member_field[ValueT](
     minimum: float | None = None,
     maximum: float | None = None,
     choices: Sequence[str] | None = None,
-) -> ValueT:
-    """Declare one dataclass state field and its instrument metadata."""
+) -> ValueT:  # pyright: ignore[reportInvalidTypeVarUse]
+    """Declare one required concrete state field and its instrument metadata."""
 
     metadata = {
         _FIELD_DECLARATION_METADATA: member(
@@ -531,13 +550,13 @@ def member_field[ValueT](
             choices=choices,
         )
     }
-    if default_factory is not _NO_FIELD_DEFAULT:
-        if default is not _NO_FIELD_DEFAULT:
-            raise ValueError("cannot specify both default and default_factory")
-        return field(default_factory=default_factory, metadata=metadata)
-    if default is _NO_FIELD_DEFAULT:
-        return cast("ValueT", field(metadata=metadata))
-    return field(default=default, metadata=metadata)
+    return cast("ValueT", field(metadata=metadata))
+
+
+def state_projection_field[ValueT]() -> ValueT:  # pyright: ignore[reportInvalidTypeVarUse]
+    """Declare an omittable generated state-projection field."""
+
+    return cast("ValueT", field(default=_STATE_PROJECTION_OMITTED))
 
 
 def argument(
@@ -580,15 +599,13 @@ def state_case(
     value: str,
     state_type: type[object],
     *,
-    fields: Sequence[str],
     required_on_entry: Sequence[str] = (),
 ) -> StateCaseMetadata:
-    """Declare the state fields available for one discriminator value."""
+    """Declare one discriminator value and its case-specific state schema."""
 
     return StateCaseMetadata(
         value=value,
         state_type=state_type,
-        fields=tuple(fields),
         required_on_entry=tuple(required_on_entry),
     )
 
@@ -739,11 +756,29 @@ def axis(
     kw_only_default=True,
 )
 def instrument_state[ClassT](cls: type[ClassT], /) -> type[ClassT]:
-    """Create an immutable, slotted, keyword-only instrument state dataclass."""
+    """Create an immutable concrete instrument-state schema dataclass."""
 
     declared = dataclass(frozen=True, slots=True, kw_only=True)(cls)
     setattr(declared, _STATE_METADATA, True)
     return declared
+
+
+@dataclass_transform(
+    frozen_default=True,
+    kw_only_default=True,
+)
+def instrument_state_projection[ClassT](
+    layout: DeclaredStateLayout,
+    /,
+) -> Callable[[type[ClassT]], type[ClassT]]:
+    """Create a sparse generated carrier bound to one concrete state layout."""
+
+    def decorate(cls: type[ClassT]) -> type[ClassT]:
+        projected = dataclass(frozen=True, slots=True, kw_only=True)(cls)
+        setattr(projected, _STATE_PROJECTION_METADATA, layout)
+        return projected
+
+    return decorate
 
 
 @dataclass_transform(
@@ -1177,39 +1212,31 @@ def _declared_operation_argument_id(
     return parameter_name if metadata is None or metadata.id is None else metadata.id
 
 
-def declared_state_assignments(state: object) -> dict[PropertyRef, StateBinding]:
-    """Encode one decorated state dataclass without injecting instance methods."""
+def state_projection_assignments(
+    projection: object,
+) -> dict[PropertyRef, StateBinding]:
+    """Encode one generated state projection using explicit field presence."""
 
-    state_type = type(state)
-    _required_metadata(
-        state_type,
-        _STATE_METADATA,
-        bool,
-        "instrument state",
+    if not is_dataclass(projection):
+        raise TypeError("instrument state projection must be a dataclass instance")
+    layout = _required_metadata(
+        type(projection),
+        _STATE_PROJECTION_METADATA,
+        DeclaredStateLayout,
+        "instrument state projection",
     )
-    if not is_dataclass(state):
-        raise TypeError("instrument state must be a dataclass instance")
-    bindings = _required_metadata(
-        state_type,
-        _STATE_BINDINGS_METADATA,
-        StateBindingsMetadata,
-        "instrument state binding",
-    )
-    assignments = dict(bindings.constants)
-    for field_name, property_ref in bindings.fields:
-        value = cast("object", getattr(state, field_name))
-        if value is not None:
-            assignments[property_ref] = cast(
-                "StateBinding",
-                value,
-            )
+    assignments = dict(layout.constants)
+    for projected_field in layout.fields:
+        value = cast("object", getattr(projection, projected_field.python_name))
+        if value is not _STATE_PROJECTION_OMITTED:
+            assignments[projected_field.ref] = cast("StateBinding", value)
     return assignments
 
 
-def declared_state_target(state: object) -> DesiredState:
-    """Adapt a declared dataclass to the existing ``DesiredState`` protocol."""
+def state_projection_target(projection: object) -> DesiredState:
+    """Adapt a generated projection to the existing ``DesiredState`` protocol."""
 
-    return _DeclaredStateTarget(declared_state_assignments(state))
+    return _StateProjectionTarget(state_projection_assignments(projection))
 
 
 def declared_interface_layout[InterfaceT](
@@ -1225,15 +1252,6 @@ def declared_interface_layout[InterfaceT](
             compiled,
             declaration.observed_state,
         )
-    if isinstance(declaration.state, DiscriminatedStateMetadata):
-        state_types = (
-            declaration.state.common_state,
-            *(case.state_type for case in declaration.state.cases),
-        )
-    elif declaration.state is None:
-        state_types = ()
-    else:
-        state_types = (declaration.state,)
     return DeclaredInterfaceLayout(
         compiled=compiled,
         root=_declared_scope_layout(
@@ -1244,8 +1262,79 @@ def declared_interface_layout[InterfaceT](
             scope_spec=compiled.spec,
         ),
         observed_state=observed_state,
-        state_types=state_types,
+        states=_declared_state_layouts(compiled, declaration.state),
     )
+
+
+def _declared_state_layouts[InterfaceT](
+    compiled: CompiledInterface[InterfaceT],
+    declaration: StateMetadata | None,
+) -> tuple[DeclaredStateLayout, ...]:
+    if declaration is None:
+        return ()
+    if not isinstance(declaration, DiscriminatedStateMetadata):
+        return (
+            DeclaredStateLayout(
+                source_type=declaration,
+                fields=_declared_state_fields(compiled, declaration),
+            ),
+        )
+
+    common_fields = _declared_state_fields(compiled, declaration.common_state)
+    discriminator_id = declaration.discriminator.id
+    if discriminator_id is None:
+        raise ValueError("state discriminator member requires an explicit id")
+    discriminator_ref = compiled.ref.property(discriminator_id)
+    return (
+        DeclaredStateLayout(
+            source_type=declaration.common_state,
+            fields=common_fields,
+        ),
+        *(
+            DeclaredStateLayout(
+                source_type=case.state_type,
+                fields=(
+                    *_declared_state_fields(compiled, case.state_type),
+                    *common_fields,
+                ),
+                required_fields=case.required_on_entry,
+                constants=((discriminator_ref, case.value),),
+            )
+            for case in declaration.cases
+        ),
+    )
+
+
+def _declared_state_fields[InterfaceT](
+    compiled: CompiledInterface[InterfaceT],
+    state_type: type[object],
+) -> tuple[DeclaredStateField, ...]:
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(state_type, include_extras=True),
+    )
+    specs_by_id = {item.id: item for item in compiled.spec.properties}
+    declared_fields: list[DeclaredStateField] = []
+    for state_member in _instrument_state_fields(state_type):
+        annotation = hints.get(state_member.name)
+        if annotation is None:
+            raise TypeError(f"state field {state_member.name!r} must be annotated")
+        concrete_annotation, _ = _split_annotation(annotation, MemberMetadata)
+        property_id = _declared_dataclass_field_id(
+            state_type,
+            state_member.name,
+            metadata_type=MemberMetadata,
+            label="state",
+        )
+        declared_fields.append(
+            DeclaredStateField(
+                python_name=state_member.name,
+                ref=compiled.ref.property(property_id),
+                spec=specs_by_id[property_id],
+                annotation=concrete_annotation,
+            )
+        )
+    return tuple(declared_fields)
 
 
 def _declared_scope_layout[InterfaceT](
@@ -1360,7 +1449,7 @@ def declared_operation[InterfaceT, MethodSelfT, **P](
     specs_by_id = {item.id: item for item in operation_spec.arguments}
     arguments: list[DeclaredOperationArgument] = []
     for parameter in parameters:
-        declared_annotation, _ = _split_annotation(
+        annotation, _ = _split_annotation(
             hints[parameter.name],
             ArgumentMetadata,
         )
@@ -1374,8 +1463,7 @@ def declared_operation[InterfaceT, MethodSelfT, **P](
                 ref=operation_ref.argument(argument_id),
                 spec=specs_by_id[argument_id],
                 parameter=parameter,
-                declared_annotation=declared_annotation,
-                concrete_annotation=_strip_operation_wrappers(declared_annotation),
+                annotation=annotation,
             )
         )
     return DeclaredOperation(
@@ -1595,28 +1683,14 @@ def _declared_result_layout(
 
 
 def _bind_flat_state(interface_id: str, state_type: type[object]) -> None:
-    _require_instrument_state(state_type)
-    if not is_dataclass(state_type):
-        raise TypeError("instrument state must be a dataclass")
-    bindings = tuple(
-        (
-            state_field.name,
-            InterfaceRef(interface_id).property(
-                _declared_dataclass_field_id(
-                    state_type,
-                    state_field.name,
-                    metadata_type=MemberMetadata,
-                    label="state",
-                )
-            ),
+    for state_member in _instrument_state_fields(state_type):
+        _declared_dataclass_field_id(
+            state_type,
+            state_member.name,
+            metadata_type=MemberMetadata,
+            label="state",
         )
-        for state_field in fields(state_type)
-    )
-    _attach_state_bindings(
-        state_type,
-        interface_id=interface_id,
-        bindings=StateBindingsMetadata(bindings),
-    )
+    _attach_state_interface(state_type, interface_id=interface_id)
 
 
 def _bind_observed_state(interface_id: str, state_type: type[object]) -> None:
@@ -1624,7 +1698,7 @@ def _bind_observed_state(interface_id: str, state_type: type[object]) -> None:
     if not is_dataclass(state_type):
         raise TypeError("instrument observed state must be a dataclass")
     if getattr(state_type, _STATE_METADATA, False):
-        raise TypeError("observed state cannot also be declared as desired state")
+        raise TypeError("observed state cannot also be declared as writable state")
     for observed_field in fields(state_type):
         _declared_dataclass_field_id(
             state_type,
@@ -1642,66 +1716,50 @@ def _bind_discriminated_state(
     discriminator_id = declaration.discriminator.id
     if discriminator_id is None:
         raise ValueError("state discriminator member requires an explicit id")
-    discriminator_ref = InterfaceRef(interface_id).property(discriminator_id)
     _bind_flat_state(interface_id, declaration.common_state)
-    common_bindings = _required_metadata(
-        declaration.common_state,
-        _STATE_BINDINGS_METADATA,
-        StateBindingsMetadata,
-        "instrument state binding",
-    )
-    common_by_field = dict(common_bindings.fields)
+    common_members = _instrument_state_fields(declaration.common_state)
+    common_names = {item.name for item in common_members}
+    common_property_ids = {
+        _declared_dataclass_field_id(
+            declaration.common_state,
+            item.name,
+            metadata_type=MemberMetadata,
+            label="state",
+        )
+        for item in common_members
+    }
 
     for case in declaration.cases:
-        _require_instrument_state(case.state_type)
-        if not is_dataclass(case.state_type):
-            raise TypeError("instrument state must be a dataclass")
-        selected = set(case.fields)
-        case_bindings: list[tuple[str, PropertyRef]] = []
-        for state_field in fields(case.state_type):
-            if state_field.name in selected:
-                property_id = _declared_dataclass_field_id(
-                    case.state_type,
-                    state_field.name,
-                    metadata_type=MemberMetadata,
-                    label="state",
-                )
-                property_ref = InterfaceRef(interface_id).property(property_id)
-            else:
-                try:
-                    property_ref = common_by_field[state_field.name]
-                except KeyError:
-                    raise ValueError(
-                        f"state case {case.value!r} field {state_field.name!r} "
-                        "is neither case-specific nor common"
-                    ) from None
-            case_bindings.append((state_field.name, property_ref))
-        if selected - {name for name, _ in case_bindings}:
+        case_members = _instrument_state_fields(case.state_type)
+        case_names = {item.name for item in case_members}
+        duplicate_names = common_names & case_names
+        if duplicate_names:
             raise ValueError(
-                f"state case {case.value!r} references unknown fields: "
-                f"{sorted(selected - {name for name, _ in case_bindings})!r}"
+                f"state case {case.value!r} repeats common fields: "
+                f"{sorted(duplicate_names)!r}"
             )
-        _attach_state_bindings(
-            case.state_type,
-            interface_id=interface_id,
-            bindings=StateBindingsMetadata(
-                fields=tuple(case_bindings),
-                constants=((discriminator_ref, case.value),),
-            ),
-        )
-
-
-def _attach_state_bindings(
-    state_type: type[object],
-    *,
-    interface_id: str,
-    bindings: StateBindingsMetadata,
-) -> None:
-    _attach_state_interface(state_type, interface_id=interface_id)
-    existing = getattr(state_type, _STATE_BINDINGS_METADATA, None)
-    if existing is not None and existing != bindings:
-        raise ValueError("one declared state type cannot have multiple bindings")
-    setattr(state_type, _STATE_BINDINGS_METADATA, bindings)
+        unknown_required = set(case.required_on_entry) - case_names
+        if unknown_required:
+            raise ValueError(
+                f"state case {case.value!r} entry requirements reference unknown "
+                f"fields: {sorted(unknown_required)!r}"
+            )
+        case_property_ids = {
+            _declared_dataclass_field_id(
+                case.state_type,
+                item.name,
+                metadata_type=MemberMetadata,
+                label="state",
+            )
+            for item in case_members
+        }
+        duplicate_ids = common_property_ids & case_property_ids
+        if duplicate_ids:
+            raise ValueError(
+                f"state case {case.value!r} repeats common property ids: "
+                f"{sorted(duplicate_ids)!r}"
+            )
+        _attach_state_interface(case.state_type, interface_id=interface_id)
 
 
 def _attach_state_interface(
@@ -1729,6 +1787,15 @@ def _require_instrument_state(state_type: type[object]) -> None:
         raise TypeError("instrument state must be a dataclass")
 
 
+def _instrument_state_fields(
+    state_type: type[object],
+) -> tuple[Field[object], ...]:
+    _require_instrument_state(state_type)
+    if not is_dataclass(state_type):
+        raise TypeError("instrument state must be a dataclass")
+    return fields(state_type)
+
+
 def _require_instrument_observed_state(state_type: type[object]) -> None:
     _required_metadata(
         state_type,
@@ -1741,14 +1808,13 @@ def _require_instrument_observed_state(state_type: type[object]) -> None:
 
 
 def _compile_state(state_type: type[object]) -> list[PropertySpec]:
-    return _compile_state_fields(state_type, selected_fields=None)
+    return _compile_state_fields(state_type)
 
 
 def _compile_observed_state(state_type: type[object]) -> list[PropertySpec]:
     _require_instrument_observed_state(state_type)
     return _compile_state_fields(
         state_type,
-        selected_fields=None,
         observed=True,
     )
 
@@ -1756,7 +1822,6 @@ def _compile_observed_state(state_type: type[object]) -> list[PropertySpec]:
 def _compile_state_fields(
     state_type: type[object],
     *,
-    selected_fields: Sequence[str] | None,
     observed: bool = False,
 ) -> list[PropertySpec]:
     if observed:
@@ -1770,16 +1835,8 @@ def _compile_state_fields(
         get_type_hints(state_type, include_extras=True),
     )
     state_fields = {state_field.name: state_field for state_field in fields(state_type)}
-    field_names = (
-        tuple(state_fields) if selected_fields is None else tuple(selected_fields)
-    )
-    unknown = set(field_names) - state_fields.keys()
-    if unknown:
-        raise ValueError(
-            f"state declaration references unknown fields: {sorted(unknown)!r}"
-        )
     properties: list[PropertySpec] = []
-    for field_name in field_names:
+    for field_name in state_fields:
         state_field = state_fields[field_name]
         annotation = hints.get(field_name)
         if annotation is None:
@@ -1811,10 +1868,7 @@ def _compile_discriminated_state(
         cases=tuple(
             build_state_case(
                 case.value,
-                properties=_compile_state_fields(
-                    case.state_type,
-                    selected_fields=case.fields,
-                ),
+                properties=_compile_state(case.state_type),
                 required_on_entry_property_ids=tuple(
                     _declared_dataclass_field_id(
                         case.state_type,
@@ -1837,7 +1891,7 @@ def _compile_property(
     *,
     access: PropertyAccess | None = None,
 ) -> PropertySpec:
-    annotation = _strip_state_wrappers(annotation)
+    annotation = _expand_concrete_alias(annotation)
     property_id = metadata.id or field_name
     origin = get_origin(annotation)
     if annotation is bool:
@@ -2078,7 +2132,7 @@ def _compile_operation_argument(
     metadata: ArgumentMetadata,
 ) -> OperationArgumentSpec:
     argument_id = metadata.id or parameter_name
-    annotation = _strip_operation_wrappers(annotation)
+    annotation = _expand_concrete_alias(annotation)
     origin = get_origin(annotation)
     if metadata.payload_schema_id is not None:
         unsupported = any(
@@ -2328,13 +2382,13 @@ def _compile_results(
 
 
 def _infer_result_dtype(annotation: object) -> MeasurementDType:
-    annotation = _strip_optional(annotation)
+    annotation = _strip_optional(_expand_concrete_alias(annotation))
     origin = get_origin(annotation)
     if origin in (list, Sequence):
         arguments = cast("tuple[object, ...]", get_args(annotation))
         if not arguments:
             raise TypeError("result collection annotations require an element type")
-        annotation = arguments[0]
+        annotation = _expand_concrete_alias(arguments[0])
     if annotation is bool:
         return "bool"
     if annotation is int:
@@ -2363,6 +2417,85 @@ def _split_annotation[MetadataT](
     return base, metadata[0] if metadata else None
 
 
+def _expand_concrete_alias(annotation: object) -> object:
+    """Resolve a concrete PEP 695 alias without changing its value domain."""
+
+    if isinstance(annotation, TypeAliasType):
+        parameters = cast(
+            "tuple[TypeVar, ...]",
+            annotation.__type_params__,
+        )
+        if parameters:
+            return annotation
+        return _expand_concrete_alias(cast("object", annotation.__value__))
+
+    origin = get_origin(annotation)
+    if not isinstance(origin, TypeAliasType):
+        return annotation
+    parameters = cast("tuple[TypeVar, ...]", origin.__type_params__)
+    arguments = cast("tuple[object, ...]", get_args(annotation))
+    if len(parameters) != len(arguments):
+        raise TypeError(f"invalid concrete type alias {annotation!r}")
+    expanded = _substitute_type_parameters(
+        cast("object", origin.__value__),
+        dict(zip(parameters, arguments, strict=True)),
+    )
+    return _expand_concrete_alias(expanded)
+
+
+def _substitute_type_parameters(
+    annotation: object,
+    substitutions: Mapping[TypeVar, object],
+) -> object:
+    if isinstance(annotation, TypeVar):
+        return substitutions.get(annotation, annotation)
+
+    origin = get_origin(annotation)
+    if origin is None:
+        return annotation
+    arguments = cast("tuple[object, ...]", get_args(annotation))
+    if isinstance(origin, TypeAliasType):
+        resolved_arguments = tuple(
+            _substitute_type_parameters(item, substitutions) for item in arguments
+        )
+        applied = origin[
+            resolved_arguments[0]
+            if len(resolved_arguments) == 1
+            else resolved_arguments
+        ]
+        return _expand_concrete_alias(applied)
+    if origin is UnionType:
+        resolved = tuple(
+            _substitute_type_parameters(item, substitutions) for item in arguments
+        )
+        union = resolved[0]
+        for item in resolved[1:]:
+            union = cast("type[object]", union) | cast("type[object]", item)
+        return union
+    if origin is Annotated:
+        return Annotated[
+            _substitute_type_parameters(arguments[0], substitutions),
+            *arguments[1:],
+        ]
+    if origin is Literal:
+        return annotation
+
+    resolved = tuple(
+        _substitute_type_parameters(item, substitutions) for item in arguments
+    )
+    if resolved == arguments:
+        return annotation
+    if isinstance(annotation, GenericAlias):
+        return GenericAlias(
+            cast("type[object]", origin),
+            resolved[0] if len(resolved) == 1 else resolved,
+        )
+    copy_with = getattr(annotation, "copy_with", None)
+    if callable(copy_with):
+        return cast("Callable[[tuple[object, ...]], object]", copy_with)(resolved)
+    raise TypeError(f"unsupported generic concrete alias value {annotation!r}")
+
+
 def _strip_optional(annotation: object) -> object:
     if get_origin(annotation) is not UnionType:
         return annotation
@@ -2373,78 +2506,6 @@ def _strip_optional(annotation: object) -> object:
     if len(remaining) != 1:
         raise TypeError(f"unsupported union annotation {annotation!r}")
     return remaining[0]
-
-
-def _strip_state_wrappers(annotation: object) -> object:
-    """Remove sparse ``None`` and the known symbolic ``ValueRef`` branch."""
-
-    return _strip_declared_value_wrappers(
-        annotation,
-        allow_none=True,
-        label="state",
-    )
-
-
-def _strip_operation_wrappers(annotation: object) -> object:
-    """Remove the symbolic ``ValueRef`` branch without accepting ``None``."""
-
-    return _strip_declared_value_wrappers(
-        annotation,
-        allow_none=False,
-        label="operation argument",
-    )
-
-
-def _strip_declared_value_wrappers(
-    annotation: object,
-    *,
-    allow_none: bool,
-    label: str,
-) -> object:
-    """Select one concrete value type from shared live/symbolic annotations."""
-
-    arguments = (
-        cast("tuple[object, ...]", get_args(annotation))
-        if get_origin(annotation) is UnionType
-        else (annotation,)
-    )
-    remaining = tuple(
-        item
-        for item in arguments
-        if item is not ValueRef and (not allow_none or item is not NoneType)
-    )
-    if len(remaining) != 1:
-        raise TypeError(f"unsupported {label} union annotation {annotation!r}")
-    selected = remaining[0]
-    if isinstance(selected, TypeAliasType):
-        return _strip_declared_value_wrappers(
-            getattr(selected, "__value__", None),
-            allow_none=allow_none,
-            label=label,
-        )
-    alias = get_origin(selected)
-    if not isinstance(alias, TypeAliasType):
-        return selected
-
-    alias_value = getattr(alias, "__value__", None)
-    alias_parameters = cast(
-        "tuple[object, ...]",
-        getattr(alias, "__type_params__", ()),
-    )
-    alias_arguments = cast("tuple[object, ...]", get_args(selected))
-    value_arguments = cast("tuple[object, ...]", get_args(alias_value))
-    if (
-        len(alias_parameters) == 1
-        and len(alias_arguments) == 1
-        and alias_parameters[0] in value_arguments
-        and ValueRef in value_arguments
-    ):
-        return _strip_declared_value_wrappers(
-            alias_arguments[0],
-            allow_none=allow_none,
-            label=label,
-        )
-    raise TypeError(f"unsupported {label} type alias {selected!r}")
 
 
 def _declared_members(interface_type: type[object]) -> Mapping[str, object]:
@@ -2640,6 +2701,8 @@ __all__ = [
     "DeclaredResultField",
     "DeclaredResultLayout",
     "DeclaredScopeLayout",
+    "DeclaredStateField",
+    "DeclaredStateLayout",
     "DiscriminatedStateMetadata",
     "DiscriminatorReference",
     "InterfaceMetadata",
@@ -2671,14 +2734,13 @@ __all__ = [
     "declared_operation_ref",
     "declared_property_ref",
     "declared_result_ref",
-    "declared_state_assignments",
-    "declared_state_target",
     "discriminated_state",
     "instrument_bundle",
     "instrument_interface",
     "instrument_observed_state",
     "instrument_result",
     "instrument_state",
+    "instrument_state_projection",
     "interface_discriminator",
     "member",
     "member_field",
@@ -2689,4 +2751,7 @@ __all__ = [
     "state_case",
     "state_discriminated_acquisition",
     "state_field",
+    "state_projection_assignments",
+    "state_projection_field",
+    "state_projection_target",
 ]

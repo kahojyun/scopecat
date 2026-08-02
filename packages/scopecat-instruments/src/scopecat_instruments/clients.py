@@ -39,19 +39,33 @@ from scopecat_instruments._symbolic_runtime import (
 from scopecat_instruments.interface_declarations import (
     DCMonitorInterface,
     DCMonitorResults,
-    DCMonitorState,
-    DCSourceCurrent,
     DCSourceInterface,
-    DCSourceState,
-    DCSourceVoltage,
     NetworkSweepInterface,
     NetworkSweepResults,
-    NetworkSweepState,
     RFOutputInterface,
-    RFOutputState,
     TemperatureReadoutInterface,
     TemperatureReadoutObservation,
     TemperatureSampleResults,
+)
+from scopecat_instruments.states import (
+    DCMonitorGroupTarget,
+    DCMonitorPatch,
+    DCMonitorTarget,
+    DCSourceCurrentGroupTarget,
+    DCSourceCurrentPatch,
+    DCSourceCurrentTarget,
+    DCSourceGroupTarget,
+    DCSourcePatch,
+    DCSourceTarget,
+    DCSourceVoltageGroupTarget,
+    DCSourceVoltagePatch,
+    DCSourceVoltageTarget,
+    NetworkSweepGroupTarget,
+    NetworkSweepPatch,
+    NetworkSweepTarget,
+    RFOutputGroupTarget,
+    RFOutputPatch,
+    RFOutputTarget,
 )
 
 _TEMPERATURE_READOUT_REF = declared_interface_ref(TemperatureReadoutInterface)
@@ -182,11 +196,11 @@ temperature_readout: InstrumentFamily[
 )
 
 
-class RFOutputClient(DeclaredStateClientBase[RFOutputState]):
+class RFOutputClient(DeclaredStateClientBase[RFOutputPatch]):
     pass
 
 
-class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputState]):
+class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputTarget]):
     __slots__ = ()
 
     def __init__(
@@ -205,7 +219,9 @@ class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputState]):
 
 
 class SymbolicRFOutputGroup(
-    DeclaredStateSymbolicGroupBase[RFOutputState, SymbolicRFOutputClient]
+    DeclaredStateSymbolicGroupBase[
+        RFOutputTarget, RFOutputGroupTarget, SymbolicRFOutputClient
+    ]
 ):
     __slots__ = ()
 
@@ -236,14 +252,22 @@ rf_output: InstrumentFamily[
 )
 
 
-type _DCSourceState = DCSourceState | DCSourceVoltage | DCSourceCurrent
+type _DCSourcePatch = DCSourcePatch | DCSourceVoltagePatch | DCSourceCurrentPatch
 
 
-class DCSourceClient(DeclaredStateClientBase[_DCSourceState]):
+type _DCSourceTarget = DCSourceTarget | DCSourceVoltageTarget | DCSourceCurrentTarget
+
+
+type _DCSourceGroupTarget = (
+    DCSourceGroupTarget | DCSourceVoltageGroupTarget | DCSourceCurrentGroupTarget
+)
+
+
+class DCSourceClient(DeclaredStateClientBase[_DCSourcePatch]):
     pass
 
 
-class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[_DCSourceState]):
+class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[_DCSourceTarget]):
     __slots__ = ()
 
     def __init__(
@@ -262,7 +286,9 @@ class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[_DCSourceState]):
 
 
 class SymbolicDCSourceGroup(
-    DeclaredStateSymbolicGroupBase[_DCSourceState, SymbolicDCSourceClient]
+    DeclaredStateSymbolicGroupBase[
+        _DCSourceTarget, _DCSourceGroupTarget, SymbolicDCSourceClient
+    ]
 ):
     __slots__ = ()
 
@@ -281,8 +307,21 @@ class SymbolicDCSourceGroup(
         )
 
 
-type _DCSourceMonitorState = (
-    DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState
+type _DCSourceMonitorPatch = (
+    DCSourcePatch | DCSourceVoltagePatch | DCSourceCurrentPatch | DCMonitorPatch
+)
+
+
+type _DCSourceMonitorTarget = (
+    DCSourceTarget | DCSourceVoltageTarget | DCSourceCurrentTarget | DCMonitorTarget
+)
+
+
+type _DCSourceMonitorGroupTarget = (
+    DCSourceGroupTarget
+    | DCSourceVoltageGroupTarget
+    | DCSourceCurrentGroupTarget
+    | DCMonitorGroupTarget
 )
 
 
@@ -298,7 +337,7 @@ class DCMonitorProducts(DCMonitorResults[ProductRef]):
     """Typed logical products produced by monitor."""
 
 
-class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorState]):
+class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
     def monitor(self) -> DCMonitorReadback:
         return self._collect_declared(
             _DC_MONITOR_MONITOR_DECLARATION,
@@ -307,7 +346,7 @@ class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorState]):
 
 
 class SymbolicDCSourceMonitorClient(
-    DeclaredStateSymbolicClientBase[_DCSourceMonitorState]
+    DeclaredStateSymbolicClientBase[_DCSourceMonitorTarget]
 ):
     __slots__ = ()
 
@@ -338,7 +377,11 @@ class SymbolicDCSourceMonitorClient(
 
 
 class SymbolicDCSourceMonitorGroup(
-    DeclaredStateSymbolicGroupBase[_DCSourceMonitorState, SymbolicDCSourceMonitorClient]
+    DeclaredStateSymbolicGroupBase[
+        _DCSourceMonitorTarget,
+        _DCSourceMonitorGroupTarget,
+        SymbolicDCSourceMonitorClient,
+    ]
 ):
     __slots__ = ()
 
@@ -378,7 +421,7 @@ class NetworkSweepProducts(NetworkSweepResults[ProductRef, ProductRef]):
     """Typed logical products produced by sweep."""
 
 
-class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepState]):
+class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
     def sweep(self) -> NetworkSweepReadback:
         return self._collect_declared(
             _NETWORK_SWEEP_SWEEP_DECLARATION,
@@ -386,7 +429,7 @@ class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepState]):
         )
 
 
-class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepState]):
+class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepTarget]):
     __slots__ = ()
 
     def __init__(
@@ -416,7 +459,9 @@ class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepSta
 
 
 class SymbolicNetworkSweepGroup(
-    DeclaredStateSymbolicGroupBase[NetworkSweepState, SymbolicNetworkSweepClient]
+    DeclaredStateSymbolicGroupBase[
+        NetworkSweepTarget, NetworkSweepGroupTarget, SymbolicNetworkSweepClient
+    ]
 ):
     __slots__ = ()
 

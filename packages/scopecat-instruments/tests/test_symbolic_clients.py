@@ -24,14 +24,19 @@ from scopecat.program.expressions import LiteralScalarExpr
 from scopecat.program.module import ModuleAcquireEffect
 
 from scopecat_instruments import (
+    DCMonitorGroupTarget,
     DCMonitorProducts,
-    DCMonitorState,
-    DCSourceCurrent,
-    DCSourceState,
-    DCSourceVoltage,
+    DCMonitorTarget,
+    DCSourceCurrentTarget,
+    DCSourceGroupTarget,
+    DCSourceTarget,
+    DCSourceVoltageGroupTarget,
+    DCSourceVoltageTarget,
+    NetworkSweepGroupTarget,
     NetworkSweepProducts,
-    NetworkSweepState,
-    RFOutputState,
+    NetworkSweepTarget,
+    RFOutputGroupTarget,
+    RFOutputTarget,
     SymbolicDCSourceClient,
     SymbolicDCSourceGroup,
     SymbolicDCSourceMonitorClient,
@@ -157,7 +162,7 @@ def test_each_expands_into_single_entity_resources_and_unique_acquisitions() -> 
     assert_type(analyzers, SymbolicNetworkSweepGroup)
     assert analyzers.entities == (q0, q1)
     assert analyzers[q0] is analyzers.clients[q0]
-    analyzers.ensure(NetworkSweepState(points=11))
+    analyzers.ensure(NetworkSweepGroupTarget(points=11))
     traces = analyzers.sweep()
 
     assert_type(traces, PerEntity[NetworkSweepProducts])
@@ -197,11 +202,11 @@ def test_group_sweep_uses_entity_aligned_output_shape_state() -> None:
     states = assert_type(
         PerEntity(
             (
-                (q1, NetworkSweepState(points=17)),
-                (q0, NetworkSweepState(points=5)),
+                (q1, NetworkSweepTarget(points=17)),
+                (q0, NetworkSweepTarget(points=5)),
             )
         ),
-        PerEntity[NetworkSweepState],
+        PerEntity[NetworkSweepTarget],
     )
 
     analyzers.ensure(states)
@@ -225,7 +230,7 @@ def test_each_factories_keep_the_typed_interface_specific_group_verbs() -> None:
     thermometers = temperature_readout(context, "temperature", for_=selection)
     assert_type(outputs, SymbolicRFOutputGroup)
     assert_type(thermometers, SymbolicTemperatureReadoutGroup)
-    outputs.ensure(RFOutputState(output_enabled=False))
+    outputs.ensure(RFOutputGroupTarget(output_enabled=False))
     samples = thermometers.sample()
 
     assert_type(samples, PerEntity[TemperatureSampleProducts])
@@ -238,7 +243,7 @@ def test_dc_group_accepts_broadcast_and_typed_per_entity_state() -> None:
     q1 = EntityRef(id="q1", kind="logical_device")
     biases = dc_source(context, "flux", for_=each(q0, q1))
     assert_type(biases, SymbolicDCSourceGroup)
-    common = DCSourceVoltage(
+    common = DCSourceVoltageGroupTarget(
         range=Quantity(1, "V"),
         level=Quantity(0.01, "V"),
     )
@@ -248,21 +253,21 @@ def test_dc_group_accepts_broadcast_and_typed_per_entity_state() -> None:
             (
                 (
                     q1,
-                    DCSourceVoltage(
+                    DCSourceVoltageTarget(
                         range=Quantity(1, "V"),
                         level=Quantity(0.02, "V"),
                     ),
                 ),
                 (
                     q0,
-                    DCSourceVoltage(
+                    DCSourceVoltageTarget(
                         range=Quantity(1, "V"),
                         level=Quantity(0.03, "V"),
                     ),
                 ),
             )
         ),
-        PerEntity[DCSourceVoltage],
+        PerEntity[DCSourceVoltageTarget],
     )
 
     biases.ensure(states)
@@ -287,12 +292,12 @@ def test_generated_rf_group_aligns_state_and_finalization() -> None:
         outputs.ensure(
             PerEntity(
                 (
-                    (q1, RFOutputState(output_enabled=True)),
-                    (q0, RFOutputState(output_enabled=False)),
+                    (q1, RFOutputTarget(output_enabled=True)),
+                    (q0, RFOutputTarget(output_enabled=False)),
                 )
             )
         )
-        context.finalize(outputs, RFOutputState(output_enabled=False))
+        context.finalize(outputs, RFOutputGroupTarget(output_enabled=False))
 
     definition = experiment.definition
     ensures = tuple(
@@ -308,12 +313,42 @@ def test_generated_rf_group_aligns_state_and_finalization() -> None:
     ]
 
 
+def test_group_target_lifts_each_field_independently() -> None:
+    context = ModuleContext()
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+    outputs = rf_output(context, "drive", for_=each(q0, q1))
+
+    outputs.ensure(
+        RFOutputGroupTarget(
+            power=Quantity(-20, "dBm"),
+            output_enabled=PerEntity(((q1, True), (q0, False))),
+        )
+    )
+
+    definition = context.close_definition_internal(id="test.symbolic.field-lift")
+    ensures = tuple(
+        effect
+        for effect in definition.body.effects
+        if isinstance(effect, EnsureStateIntent)
+    )
+    assert len(ensures) == 2
+    assert [assignment.value for assignment in ensures[0].assignments] == [
+        Quantity(-20, "dBm"),
+        False,
+    ]
+    assert [assignment.value for assignment in ensures[1].assignments] == [
+        Quantity(-20, "dBm"),
+        True,
+    ]
+
+
 def test_group_per_entity_state_requires_an_exact_full_identity_join() -> None:
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
     wrong_q1 = EntityRef(id="q1", kind="logical_coupler")
     biases = dc_source(ModuleContext(), "flux", for_=each(q0, q1))
-    state = DCSourceVoltage(
+    state = DCSourceVoltageTarget(
         range=Quantity(1, "V"),
         level=Quantity(0.01, "V"),
     )
@@ -342,7 +377,7 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
     @template(id="test.symbolic.root", kind="symbolic_root")
     def experiment(context: ExperimentContext) -> None:
         vna = network_sweep(context, "readout")
-        vna.ensure(NetworkSweepState(points=11))
+        vna.ensure(NetworkSweepTarget(points=11))
         trace = vna.sweep()
         context.record(trace.frequency, trace.s_parameter)
 
@@ -365,7 +400,7 @@ def test_root_finalization_accepts_a_typed_symbolic_client_and_declared_state() 
     @template(id="test.symbolic.typed-finalization", kind="symbolic_root")
     def experiment(context: ExperimentContext) -> None:
         source = dc_source(context, "flux")
-        context.finalize(source, DCSourceState(output_enabled=False))
+        context.finalize(source, DCSourceTarget(output_enabled=False))
 
     definition = experiment.definition
     assert definition.final_state is not None
@@ -390,16 +425,16 @@ def test_root_finalization_accepts_group_broadcast_and_per_entity_state(
     )
     def experiment(context: ExperimentContext) -> None:
         sources = dc_source(context, "flux", for_=each(q0, q1))
-        target: DCSourceState | PerEntity[DCSourceState]
+        target: DCSourceGroupTarget | PerEntity[DCSourceTarget]
         if per_entity:
             target = PerEntity(
                 (
-                    (q1, DCSourceState(output_enabled=True)),
-                    (q0, DCSourceState(output_enabled=False)),
+                    (q1, DCSourceTarget(output_enabled=True)),
+                    (q0, DCSourceTarget(output_enabled=False)),
                 )
             )
         else:
-            target = DCSourceState(output_enabled=False)
+            target = DCSourceGroupTarget(output_enabled=False)
         context.finalize(sources, target)
 
     definition = experiment.definition
@@ -416,8 +451,8 @@ def test_two_scalar_clients_use_distinct_structured_product_scopes() -> None:
     context = ModuleContext()
     left = network_sweep(context, "left")
     right = network_sweep(context, "right")
-    left.ensure(NetworkSweepState(points=3))
-    right.ensure(NetworkSweepState(points=3))
+    left.ensure(NetworkSweepTarget(points=3))
+    right.ensure(NetworkSweepTarget(points=3))
 
     left_trace = left.sweep()
     right_trace = right.sweep()
@@ -434,14 +469,14 @@ def test_state_clients_record_typed_ensure_effects() -> None:
     rf = rf_output(context, "drive")
 
     source.ensure(
-        DCSourceVoltage(
+        DCSourceVoltageTarget(
             range=Quantity(1.0, "V"),
             level=Quantity(0.05, "V"),
             output_enabled=True,
         )
     )
     rf.ensure(
-        RFOutputState(
+        RFOutputTarget(
             frequency=Quantity(5.0, "GHz"),
             power=Quantity(-20.0, "dBm"),
             output_enabled=True,
@@ -465,13 +500,13 @@ def test_dc_monitor_selects_the_contract_result_for_the_ensured_source_mode() ->
     source = dc_source(context, "flux", monitor=True)
     assert_type(source, SymbolicDCSourceMonitorClient)
     source.ensure(
-        DCSourceVoltage(
+        DCSourceVoltageTarget(
             range=Quantity(1.0, "V"),
             level=Quantity(0.05, "V"),
             output_enabled=True,
         )
     )
-    source.ensure(DCMonitorState(measurement_enabled=True))
+    source.ensure(DCMonitorTarget(measurement_enabled=True))
 
     sample = source.monitor()
 
@@ -543,14 +578,14 @@ def test_dc_monitor_group_uses_each_entity_source_discriminator() -> None:
             (
                 (
                     q1,
-                    DCSourceCurrent(
+                    DCSourceCurrentTarget(
                         range=Quantity(1.0, "A"),
                         level=Quantity(0.02, "A"),
                     ),
                 ),
                 (
                     q0,
-                    DCSourceVoltage(
+                    DCSourceVoltageTarget(
                         range=Quantity(1.0, "V"),
                         level=Quantity(0.03, "V"),
                     ),
@@ -558,7 +593,7 @@ def test_dc_monitor_group_uses_each_entity_source_discriminator() -> None:
             )
         )
     )
-    sources.ensure(DCMonitorState(measurement_enabled=True))
+    sources.ensure(DCMonitorGroupTarget(measurement_enabled=True))
 
     samples = sources.monitor()
 
@@ -580,7 +615,7 @@ def test_network_sweep_declares_contract_products_and_ensured_points() -> None:
     context = ModuleContext()
     vna = network_sweep(context, "readout")
     vna.ensure(
-        NetworkSweepState(
+        NetworkSweepTarget(
             start_frequency=Quantity(4.9, "GHz"),
             stop_frequency=Quantity(5.1, "GHz"),
             points=337,
@@ -632,7 +667,7 @@ def test_network_sweep_rejects_point_varying_output_shape() -> None:
     context = ModuleContext()
     points = coordinate("points", ScalarType(IntType()))
     vna = network_sweep(context, "readout")
-    vna.ensure(NetworkSweepState(points=points))
+    vna.ensure(NetworkSweepTarget(points=points))
 
     with pytest.raises(
         ValueError,
@@ -644,7 +679,7 @@ def test_network_sweep_rejects_point_varying_output_shape() -> None:
 def test_explicit_acquisition_id_namespaces_the_scoped_local_products() -> None:
     context = ModuleContext()
     vna = network_sweep(context, "readout")
-    vna.ensure(NetworkSweepState(points=5))
+    vna.ensure(NetworkSweepTarget(points=5))
 
     trace = vna.sweep(id="second")
 

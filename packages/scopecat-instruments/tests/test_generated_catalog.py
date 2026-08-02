@@ -13,10 +13,6 @@ from scopecat.sdk.instruments import (
 from client_codegen_fixture_declarations import (
     CatalogProjectionObservation as DeclaredCatalogProjectionObservation,
 )
-from client_codegen_fixture_declarations import (
-    CatalogProjectionState as DeclaredCatalogProjectionState,
-)
-from client_codegen_fixture_declarations import Desired as DeclaredDesired
 from generated_interface_catalog_fixture import catalog_projection_interface
 from generated_member_catalog_fixture import (
     CATALOG_PROJECTION,
@@ -30,9 +26,10 @@ from generated_member_catalog_fixture import (
     CATALOG_PROJECTION_STATUS,
 )
 from generated_state_catalog_fixture import (
+    CatalogProjectionGroupTarget,
     CatalogProjectionObservation,
-    CatalogProjectionState,
-    Desired,
+    CatalogProjectionPatch,
+    CatalogProjectionTarget,
 )
 from scopecat_instruments.interface_declarations import (
     TemperatureReadoutObservation as DeclaredTemperatureReadoutObservation,
@@ -84,8 +81,12 @@ def test_generated_interface_factory_returns_fresh_deep_copies() -> None:
     assert first.components[0] is not second.components[0]
 
 
-def test_generated_state_catalog_reexports_authored_types() -> None:
-    assert CatalogProjectionState is DeclaredCatalogProjectionState
+def test_generated_state_catalog_projects_concrete_schema_types() -> None:
+    assert_type(CatalogProjectionPatch(enabled=True), CatalogProjectionPatch)
+    assert_type(CatalogProjectionTarget(enabled=True), CatalogProjectionTarget)
+    assert_type(
+        CatalogProjectionGroupTarget(enabled=True),
+        CatalogProjectionGroupTarget,
+    )
     assert CatalogProjectionObservation is DeclaredCatalogProjectionObservation
-    assert Desired is DeclaredDesired
     assert TemperatureReadoutObservation is DeclaredTemperatureReadoutObservation

@@ -20,6 +20,7 @@ from scopecat.sdk.instruments.declarations import (
     DeclaredInterfaceLayout,
     DeclaredOperation,
     DeclaredScopeLayout,
+    DeclaredStateLayout,
     compile_interface,
     declared_bundle_interfaces,
     declared_interface_layout,
@@ -27,7 +28,6 @@ from scopecat.sdk.instruments.declarations import (
 from scopecat_instruments.interface_declarations import (
     DCSourceInterface,
     DCSourceMonitorInterface,
-    Desired,
     NetworkSweepInterface,
     ReferenceSource,
     RFOutputInterface,
@@ -158,7 +158,6 @@ class _Options(argparse.Namespace):
 class _FixtureDeclarations(Protocol):
     CatalogProjectionInterface: type[object]
     ComponentOperationInterface: type[object]
-    Desired: object
 
 
 _PRODUCTION_SURFACES: tuple[GenerationSurface, ...] = (
@@ -182,7 +181,7 @@ PRODUCTION_CATALOG_TARGET = CatalogTarget(
     interfaces_output=INTERFACES_OUTPUT,
     states_output=STATES_OUTPUT,
     interface_types=_surface_interface_types(_PRODUCTION_SURFACES),
-    public_types=(Desired, ReferenceSource, SParameter),
+    public_types=(ReferenceSource, SParameter),
 )
 
 
@@ -201,7 +200,6 @@ def _fixture_catalog_target() -> CatalogTarget:
         interfaces_output=FIXTURE_INTERFACES_OUTPUT,
         states_output=FIXTURE_STATES_OUTPUT,
         interface_types=(declarations.CatalogProjectionInterface,),
-        public_types=(declarations.Desired,),
     )
 
 
@@ -227,8 +225,8 @@ def _catalog_targets() -> tuple[CatalogTarget, ...]:
 class _OperationArgumentModel:
     python_name: str
     kind: str
-    declared_annotation: str
     concrete_annotation: str
+    symbolic_annotation: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,21 +312,47 @@ class _InterfaceModel:
     factory_name: str
     generate_family: bool
     observation_type_name: str | None
-    state_type_names: tuple[str, ...]
+    live_state_type_names: tuple[str, ...]
+    symbolic_state_type_names: tuple[str, ...]
+    group_state_type_names: tuple[str, ...]
     constituents: tuple[_InterfaceConstituentModel, ...]
     root: _ScopeModel
 
     @property
-    def state_type_name(self) -> str | None:
-        if not self.state_type_names:
+    def live_state_type_name(self) -> str | None:
+        if not self.live_state_type_names:
             return None
-        if len(self.state_type_names) == 1:
-            return self.state_type_names[0]
-        return self.state_alias_name
+        if len(self.live_state_type_names) == 1:
+            return self.live_state_type_names[0]
+        return self.live_state_alias_name
 
     @property
-    def state_alias_name(self) -> str:
-        return f"_{self.stem}State"
+    def symbolic_state_type_name(self) -> str | None:
+        if not self.symbolic_state_type_names:
+            return None
+        if len(self.symbolic_state_type_names) == 1:
+            return self.symbolic_state_type_names[0]
+        return self.symbolic_state_alias_name
+
+    @property
+    def group_state_type_name(self) -> str | None:
+        if not self.group_state_type_names:
+            return None
+        if len(self.group_state_type_names) == 1:
+            return self.group_state_type_names[0]
+        return self.group_state_alias_name
+
+    @property
+    def live_state_alias_name(self) -> str:
+        return f"_{self.stem}Patch"
+
+    @property
+    def symbolic_state_alias_name(self) -> str:
+        return f"_{self.stem}Target"
+
+    @property
+    def group_state_alias_name(self) -> str:
+        return f"_{self.stem}GroupTarget"
 
     @property
     def live_client_name(self) -> str:
@@ -384,8 +408,61 @@ class _CatalogInterfaceModel:
     constant_prefix: str
     factory_name: str
     root: DeclaredScopeLayout
-    state_types: tuple[type[object], ...]
+    states: tuple[DeclaredStateLayout, ...]
     observed_state_type: type[object] | None
+
+
+@dataclass(frozen=True, slots=True)
+class _StateProjectionNames:
+    patch: str
+    target: str
+    group_target: str
+
+
+def _state_projection_names(layout: DeclaredStateLayout) -> _StateProjectionNames:
+    source_name = layout.source_type.__name__
+    stem = source_name.removesuffix("State") or source_name
+    return _StateProjectionNames(
+        patch=f"{stem}Patch",
+        target=f"{stem}Target",
+        group_target=f"{stem}GroupTarget",
+    )
+
+
+def _state_projection_module(interface_type: type[object]) -> str:
+    package, separator, _ = interface_type.__module__.rpartition(".")
+    if not separator:
+        raise ClientGenerationError(
+            "generated state clients require interface declarations in a package"
+        )
+    return f"{package}.states"
+
+
+def _register_state_projection_types(
+    renderer: _AnnotationRenderer,
+    interface_type: type[object],
+    layouts: tuple[DeclaredStateLayout, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    names = tuple(_state_projection_names(layout) for layout in layouts)
+    if names:
+        imported = renderer.imports.setdefault(
+            _state_projection_module(interface_type),
+            set(),
+        )
+        imported.update(
+            name
+            for projection_names in names
+            for name in (
+                projection_names.patch,
+                projection_names.target,
+                projection_names.group_target,
+            )
+        )
+    return (
+        tuple(item.patch for item in names),
+        tuple(item.target for item in names),
+        tuple(item.group_target for item in names),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -443,7 +520,14 @@ class _AnnotationRenderer:
             return self._render(arguments[0], substitutions=substitutions)
         if origin is typing.Literal:
             self.imports.setdefault("typing", set()).add("Literal")
-            return "Literal[" + ", ".join(repr(item) for item in arguments) + "]"
+            return (
+                "Literal["
+                + ", ".join(
+                    _string_literal(item) if isinstance(item, str) else repr(item)
+                    for item in arguments
+                )
+                + "]"
+            )
         if origin is not None:
             rendered_origin = self._render(origin, substitutions=substitutions)
             rendered_arguments = ", ".join(
@@ -514,7 +598,7 @@ def _catalog_models(
                 constant_prefix=_snake_case(stem).upper(),
                 factory_name=f"{_snake_case(stem)}_interface",
                 root=layout.root,
-                state_types=layout.state_types,
+                states=layout.states,
                 observed_state_type=(
                     None
                     if layout.observed_state is None
@@ -775,36 +859,193 @@ def _render_states_module(
     *,
     public_types: tuple[object, ...],
 ) -> str:
-    exports_by_name: dict[str, tuple[str, str]] = {}
-    candidates: list[object] = [
-        state_type for model in models for state_type in model.state_types
-    ]
-    candidates.extend(
-        model.observed_state_type
-        for model in models
-        if model.observed_state_type is not None
-    )
-    candidates.extend(public_types)
-    for candidate in candidates:
-        module, name = _public_type_location(candidate)
-        existing = exports_by_name.get(name)
-        if existing is not None and existing != (module, name):
-            raise ClientGenerationError(
-                f"generated state export collision {name}: "
-                f"{existing[0]}.{existing[1]} vs {module}.{name}"
-            )
-        exports_by_name[name] = (module, name)
+    renderer = _AnnotationRenderer()
     imports: dict[str, set[str]] = {}
-    for module, name in exports_by_name.values():
-        imports.setdefault(module, set()).add(name)
-    exports = tuple(sorted(exports_by_name))
+    exports_by_name: dict[str, str] = {}
+    declarations: list[str] = []
+    seen_sources: dict[type[object], DeclaredStateLayout] = {}
+
+    for candidate in (
+        *(
+            model.observed_state_type
+            for model in models
+            if model.observed_state_type is not None
+        ),
+        *public_types,
+    ):
+        module, name = _public_type_location(candidate)
+        owner = f"{module}.{name}"
+        existing = exports_by_name.get(name)
+        if existing is not None and existing != owner:
+            raise ClientGenerationError(
+                f"generated state export collision {name}: {existing} vs {owner}"
+            )
+        exports_by_name[name] = owner
+        imports.setdefault(module, set()).add(f"{name} as {name}")
+
+    has_states = any(model.states for model in models)
+    if has_states:
+        imports["scopecat.authoring"] = {"PerEntity", "ValueRef"}
+        imports["scopecat.sdk.instruments.declarations"] = {
+            "compile_interface",
+            "declared_interface_layout",
+            "instrument_state_projection",
+            "state_projection_field",
+        }
+
+    for model in models:
+        if not model.states:
+            continue
+        imports.setdefault(model.interface_type.__module__, set()).add(
+            model.interface_type_name
+        )
+        layouts_name = f"_{model.constant_prefix}_STATE_LAYOUTS"
+        declarations.append(
+            ("\n\n" if declarations else "\n")
+            + f"{layouts_name} = declared_interface_layout(\n"
+            f"    compile_interface({model.interface_type_name})\n"
+            ").states\n"
+        )
+        for index, layout in enumerate(model.states):
+            existing_layout = seen_sources.get(layout.source_type)
+            if existing_layout is not None:
+                if existing_layout != layout:
+                    raise ClientGenerationError(
+                        "one state schema produced inconsistent projection layouts: "
+                        f"{layout.source_type.__module__}."
+                        f"{layout.source_type.__qualname__}"
+                    )
+                continue
+            seen_sources[layout.source_type] = layout
+            names = _state_projection_names(layout)
+            owner = f"{layout.source_type.__module__}.{layout.source_type.__qualname__}"
+            for name in (names.patch, names.target, names.group_target):
+                existing = exports_by_name.get(name)
+                if existing is not None:
+                    raise ClientGenerationError(
+                        f"generated state export collision {name}: "
+                        f"{existing} vs {owner}"
+                    )
+                exports_by_name[name] = owner
+            layout_expression = f"{layouts_name}[{index}]"
+            declarations.extend(
+                (
+                    _render_state_projection(
+                        names.patch,
+                        layout,
+                        layout_expression=layout_expression,
+                        renderer=renderer,
+                        projection="live",
+                    ),
+                    _render_state_projection(
+                        names.target,
+                        layout,
+                        layout_expression=layout_expression,
+                        renderer=renderer,
+                        projection="symbolic",
+                    ),
+                    _render_state_projection(
+                        names.group_target,
+                        layout,
+                        layout_expression=layout_expression,
+                        renderer=renderer,
+                        projection="group",
+                    ),
+                )
+            )
+
+    for module, names in renderer.imports.items():
+        imports.setdefault(module, set()).update(names)
+    import_block = _render_import_block(imports) if imports else ""
     return (
         _generated_module_header(
-            "Typed states generated from the declared instrument interfaces."
+            "Typed state projections generated from instrument interfaces."
         )
-        + _render_reexport_block(imports)
-        + _render_all(exports)
+        + import_block
+        + "".join(declarations)
+        + ("\n" if declarations else "")
+        + _render_all(tuple(exports_by_name))
     )
+
+
+def _render_state_projection(
+    name: str,
+    layout: DeclaredStateLayout,
+    *,
+    layout_expression: str,
+    renderer: _AnnotationRenderer,
+    projection: str,
+) -> str:
+    required = frozenset(layout.required_fields)
+    fields: list[str] = []
+    for declared_field in layout.fields:
+        concrete = renderer.render(declared_field.annotation)
+        if projection == "live":
+            annotation = concrete
+        elif projection == "symbolic":
+            annotation = f"{concrete} | ValueRef"
+        elif projection == "group":
+            annotation = f"{concrete} | ValueRef | PerEntity[{concrete} | ValueRef]"
+        else:
+            raise AssertionError(f"unknown state projection {projection!r}")
+        fields.append(
+            _render_state_projection_field(
+                declared_field.python_name,
+                annotation,
+                required=declared_field.python_name in required,
+            )
+        )
+    body = "".join(fields) or "    pass\n"
+    return (
+        f"\n\n@instrument_state_projection({layout_expression})\nclass {name}:\n{body}"
+    )
+
+
+def _render_state_projection_field(
+    name: str,
+    annotation: str,
+    *,
+    required: bool,
+) -> str:
+    default = "" if required else " = state_projection_field()"
+    compact = f"    {name}: {annotation}{default}\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    if not required:
+        wrapped_default = f"    {name}: {annotation} = (\n"
+        if len(wrapped_default.rstrip("\n")) <= 88:
+            return wrapped_default + "        state_projection_field()\n    )\n"
+
+    branches = _split_top_level_union(annotation)
+    if len(branches) == 1:
+        return compact
+    lines = [f"    {name}: (\n", f"        {branches[0]}\n"]
+    lines.extend(f"        | {branch}\n" for branch in branches[1:])
+    lines.append("    )")
+    if not required:
+        lines.append(" = state_projection_field()")
+    lines.append("\n")
+    return "".join(lines)
+
+
+def _split_top_level_union(annotation: str) -> tuple[str, ...]:
+    branches: list[str] = []
+    depth = 0
+    start = 0
+    index = 0
+    while index < len(annotation):
+        character = annotation[index]
+        if character in "[({":
+            depth += 1
+        elif character in "])}":
+            depth -= 1
+        elif depth == 0 and annotation.startswith(" | ", index):
+            branches.append(annotation[start:index])
+            index += 2
+            start = index + 1
+        index += 1
+    branches.append(annotation[start:])
+    return tuple(branches)
 
 
 def render_generation_target(target: GenerationTarget) -> str:
@@ -893,6 +1134,11 @@ def _interface_model(
         overrides=overrides,
         renderer=renderer,
     )
+    live_states, symbolic_states, group_states = _register_state_projection_types(
+        renderer,
+        surface.interface_type,
+        layout.states,
+    )
     return _InterfaceModel(
         interface_identity=(
             f"{surface.interface_type.__module__}.{surface.interface_type.__qualname__}"
@@ -901,9 +1147,9 @@ def _interface_model(
         factory_name=overrides.get("factory", _snake_case(stem)),
         generate_family=generate_family,
         observation_type_name=observation_type_name,
-        state_type_names=tuple(
-            renderer.reference(state_type) for state_type in layout.state_types
-        ),
+        live_state_type_names=live_states,
+        symbolic_state_type_names=symbolic_states,
+        group_state_type_names=group_states,
         constituents=(constituent,),
         root=root,
     )
@@ -986,11 +1232,25 @@ def _bundle_model(
         ),
         components=(),
     )
-    state_types: list[type[object]] = []
+    state_layouts: list[DeclaredStateLayout] = []
+    live_states: list[str] = []
+    symbolic_states: list[str] = []
+    group_states: list[str] = []
     for constituent in constituents:
-        for state_type in constituent.layout.state_types:
-            if state_type not in state_types:
-                state_types.append(state_type)
+        new_layouts = tuple(
+            layout
+            for layout in constituent.layout.states
+            if all(layout.source_type is not item.source_type for item in state_layouts)
+        )
+        state_layouts.extend(new_layouts)
+        registered = _register_state_projection_types(
+            renderer,
+            constituent.layout.compiled.interface_type,
+            new_layouts,
+        )
+        live_states.extend(registered[0])
+        symbolic_states.extend(registered[1])
+        group_states.extend(registered[2])
     return _InterfaceModel(
         interface_identity=bundle_identity,
         stem=stem,
@@ -1001,9 +1261,9 @@ def _bundle_model(
             if not observed_constituents
             else observed_constituents[0].observation_type_name
         ),
-        state_type_names=tuple(
-            renderer.reference(state_type) for state_type in state_types
-        ),
+        live_state_type_names=tuple(live_states),
+        symbolic_state_type_names=tuple(symbolic_states),
+        group_state_type_names=tuple(group_states),
         constituents=constituents,
         root=root,
     )
@@ -1150,8 +1410,25 @@ def _validate_generated_symbols(
 
     for model in models:
         declaration = model.interface_identity
-        if len(model.state_type_names) > 1:
-            register(model.state_alias_name, f"{declaration} state union")
+        for type_names, alias_name, projection in (
+            (
+                model.live_state_type_names,
+                model.live_state_alias_name,
+                "live patch",
+            ),
+            (
+                model.symbolic_state_type_names,
+                model.symbolic_state_alias_name,
+                "symbolic target",
+            ),
+            (
+                model.group_state_type_names,
+                model.group_state_alias_name,
+                "group target",
+            ),
+        ):
+            if len(type_names) > 1:
+                register(alias_name, f"{declaration} {projection} union")
         if model.generate_family:
             register(model.factory_name, f"{declaration} factory")
         for scope in _walk_scopes(model.root):
@@ -1261,12 +1538,13 @@ def _operation_model(
                 "generated clients do not support payload operation argument "
                 f"{qualified_method}.{argument.python_name}"
             )
+        concrete_annotation = renderer.render(argument.annotation)
         arguments.append(
             _OperationArgumentModel(
                 python_name=argument.python_name,
                 kind=argument.parameter.kind.name,
-                declared_annotation=renderer.render(argument.declared_annotation),
-                concrete_annotation=renderer.render(argument.concrete_annotation),
+                concrete_annotation=concrete_annotation,
+                symbolic_annotation=f"{concrete_annotation} | ValueRef",
             )
         )
     return _OperationModel(
@@ -1325,8 +1603,8 @@ def _render_header(
     has_operations = any(scope.operations for scope in scopes)
     has_acquisitions = any(scope.acquisitions for scope in scopes)
     has_observations = any(model.observation_type_name for model in models)
-    has_state = any(model.state_type_name is not None for model in models)
-    has_plain_root = any(model.state_type_name is None for model in models)
+    has_state = any(model.live_state_type_name is not None for model in models)
+    has_plain_root = any(model.live_state_type_name is None for model in models)
 
     imports: dict[str, set[str]] = {
         "scopecat.authoring": {"EachEntity", "OneEntity"},
@@ -1363,6 +1641,8 @@ def _render_header(
         )
     if has_operations or has_acquisitions:
         imports["scopecat.authoring"].add("PerEntity")
+    if has_operations:
+        imports["scopecat.authoring"].add("ValueRef")
     if has_acquisitions:
         imports["dataclasses"] = {"dataclass", "field"}
         imports["scopecat.authoring"].add("ProductRef")
@@ -1398,6 +1678,16 @@ def _render_header(
 
 
 def _render_from_import(module: str, names: set[str]) -> str:
+    bare_names = {name for name in names if " as " not in name}
+    aliases = names - bare_names
+    rendered = _render_bare_from_import(module, bare_names) if bare_names else ""
+    return rendered + "".join(
+        f"from {module} import (\n    {alias},\n)\n"
+        for alias in sorted(aliases, key=str.casefold)
+    )
+
+
+def _render_bare_from_import(module: str, names: set[str]) -> str:
     ordered = sorted(names, key=_import_name_key)
     compact = f"from {module} import {', '.join(ordered)}\n"
     if len(compact.rstrip("\n")) <= 88:
@@ -1431,18 +1721,6 @@ def _render_import_block(imports: dict[str, set[str]]) -> str:
         f"{'\n' if (standard_imports or external_imports) and local_imports else ''}"
         f"{local_imports}"
     )
-
-
-def _render_reexport_block(imports: dict[str, set[str]]) -> str:
-    sections: list[str] = []
-    for module in sorted(imports):
-        names = sorted(imports[module], key=str.casefold)
-        sections.append(
-            "".join(
-                f"from {module} import (\n    {name} as {name},\n)\n" for name in names
-            )
-        )
-    return "\n".join(sections)
 
 
 def _generated_module_header(description: str) -> str:
@@ -1489,19 +1767,29 @@ def _import_name_key(name: str) -> tuple[int, str]:
 
 
 def _render_state_alias(model: _InterfaceModel) -> str:
-    if len(model.state_type_names) <= 1:
-        return ""
-    union = " | ".join(model.state_type_names)
-    compact = f"type {model.state_alias_name} = {union}\n"
+    return "".join(
+        _render_type_union(alias_name, type_names)
+        for alias_name, type_names in (
+            (model.live_state_alias_name, model.live_state_type_names),
+            (model.symbolic_state_alias_name, model.symbolic_state_type_names),
+            (model.group_state_alias_name, model.group_state_type_names),
+        )
+        if len(type_names) > 1
+    )
+
+
+def _render_type_union(alias_name: str, type_names: tuple[str, ...]) -> str:
+    union = " | ".join(type_names)
+    compact = f"type {alias_name} = {union}\n"
     if len(compact.rstrip("\n")) <= 88:
         return "\n\n" + compact
     if len(f"    {union}") <= 88:
-        return f"\n\ntype {model.state_alias_name} = (\n    {union}\n)\n"
+        return f"\n\ntype {alias_name} = (\n    {union}\n)\n"
     return (
-        f"\n\ntype {model.state_alias_name} = (\n"
+        f"\n\ntype {alias_name} = (\n"
         + "\n".join(
             f"    {'| ' if index else ''}{state_type}"
-            for index, state_type in enumerate(model.state_type_names)
+            for index, state_type in enumerate(type_names)
         )
         + "\n)\n"
     )
@@ -1659,8 +1947,8 @@ def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
     if scope.is_root:
         base = (
             "InstrumentClientBase"
-            if model.state_type_name is None
-            else f"DeclaredStateClientBase[{model.state_type_name}]"
+            if model.live_state_type_name is None
+            else f"DeclaredStateClientBase[{model.live_state_type_name}]"
         )
     else:
         base = "InstrumentComponentClientBase"
@@ -1742,8 +2030,8 @@ def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
     if scope.is_root:
         base = (
             "SymbolicInstrumentClientBase"
-            if model.state_type_name is None
-            else f"DeclaredStateSymbolicClientBase[{model.state_type_name}]"
+            if model.symbolic_state_type_name is None
+            else f"DeclaredStateSymbolicClientBase[{model.symbolic_state_type_name}]"
         )
     else:
         base = "SymbolicInstrumentComponentClientBase"
@@ -1791,7 +2079,7 @@ def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
 def _render_symbolic_operation(operation: _OperationModel) -> str:
     signature = _render_operation_signature(
         operation,
-        annotation="declared_annotation",
+        annotation="symbolic_annotation",
         return_annotation="None",
         effect_id=True,
     )
@@ -1833,9 +2121,10 @@ def _render_symbolic_group_scope(
     if scope.is_root:
         base = (
             f"SymbolicInstrumentGroupBase[{scope.symbolic_client_name}]"
-            if model.state_type_name is None
+            if model.symbolic_state_type_name is None
             else "DeclaredStateSymbolicGroupBase["
-            f"{model.state_type_name}, {scope.symbolic_client_name}]"
+            f"{model.symbolic_state_type_name}, "
+            f"{model.group_state_type_name}, {scope.symbolic_client_name}]"
         )
     else:
         base = f"SymbolicInstrumentComponentGroupBase[{scope.symbolic_client_name}]"
@@ -1880,15 +2169,48 @@ def _render_symbolic_group_scope(
     return (
         "\n\n"
         f"class {scope.symbolic_group_name}(\n"
-        f"    {base}\n"
+        f"{_render_group_base(base)}"
         "):\n" + "".join(body).rstrip("\n") + "\n"
     )
+
+
+def _render_group_base(base: str) -> str:
+    if len(f"    {base}") <= 88:
+        return f"    {base}\n"
+    origin, separator, arguments = base.partition("[")
+    if not separator or not arguments.endswith("]"):
+        return f"    {base}\n"
+    type_arguments = _split_top_level_arguments(arguments[:-1])
+    compact_arguments = ", ".join(type_arguments)
+    if len(f"        {compact_arguments}") <= 88:
+        rendered_arguments = f"        {compact_arguments}\n"
+    else:
+        rendered_arguments = "".join(
+            f"        {argument},\n" for argument in type_arguments
+        )
+    return f"    {origin}[\n{rendered_arguments}    ]\n"
+
+
+def _split_top_level_arguments(arguments: str) -> tuple[str, ...]:
+    items: list[str] = []
+    depth = 0
+    start = 0
+    for index, character in enumerate(arguments):
+        if character in "[({":
+            depth += 1
+        elif character in "])}":
+            depth -= 1
+        elif character == "," and depth == 0:
+            items.append(arguments[start:index].strip())
+            start = index + 1
+    items.append(arguments[start:].strip())
+    return tuple(items)
 
 
 def _render_group_operation(operation: _OperationModel) -> str:
     signature = _render_operation_signature(
         operation,
-        annotation="declared_annotation",
+        annotation="symbolic_annotation",
         return_annotation="None",
         effect_id=True,
         per_entity=True,

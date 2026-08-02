@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Protocol, cast
 
 from scopecat.authoring import (
@@ -41,7 +42,8 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
     DeclaredOperation,
-    declared_state_target,
+    state_projection_assignments,
+    state_projection_target,
 )
 
 
@@ -126,13 +128,13 @@ class SymbolicInstrumentClientBase:
         self._recorder.ensure(self._resource, target)
         self._state_assignments.update(assignments)
 
-    def _invoke_declared[**P](
+    def _invoke_declared(
         self,
-        operation: DeclaredOperation[P],
+        operation: DeclaredOperation[...],
         effect_id: str | None,
         /,
-        *args: P.args,
-        **kwargs: P.kwargs,
+        *args: StateBinding,
+        **kwargs: StateBinding,
     ) -> None:
         occurrence_id = operation.spec.id if effect_id is None else effect_id
         if not occurrence_id:
@@ -224,7 +226,7 @@ class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
         return ((self.resource, self._desired_state_target(state)),)
 
     def _desired_state_target(self, state: StateT) -> DesiredState:
-        return declared_state_target(state)
+        return state_projection_target(state)
 
 
 class _SymbolicClientFactory[ClientT: SymbolicInstrumentClientBase](Protocol):
@@ -332,25 +334,65 @@ class SymbolicInstrumentComponentGroupBase[ComponentT]:
         return self._entities.align(value)
 
 
+@dataclass(frozen=True, slots=True)
+class _ProjectedStateTarget:
+    assignments: Mapping[PropertyRef, StateBinding]
+
+    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
+        return self.assignments
+
+
 class DeclaredStateSymbolicGroupBase[
     StateT,
+    GroupStateT,
     ClientT: SymbolicInstrumentClientBase,
 ](SymbolicInstrumentGroupBase[ClientT]):
-    def ensure(self, state: StateT | PerEntity[StateT]) -> None:
-        for entity, target in self._align(state).items():
-            self._state_client(entity).ensure(target)
+    def ensure(self, state: GroupStateT | PerEntity[StateT]) -> None:
+        for entity, target in self._aligned_targets(state):
+            self._state_client(entity)._ensure(  # pyright: ignore[reportPrivateUsage]
+                target
+            )
 
     def finalization_targets(
         self,
-        state: StateT | PerEntity[StateT],
+        state: GroupStateT | PerEntity[StateT],
         /,
     ) -> tuple[FinalizationTarget, ...]:
         return tuple(
-            target
-            for entity, state_for_entity in self._align(state).items()
-            for target in self._state_client(entity).finalization_targets(
-                state_for_entity
+            (self._state_client(entity).resource, target)
+            for entity, target in self._aligned_targets(state)
+        )
+
+    def _aligned_targets(
+        self,
+        state: GroupStateT | PerEntity[StateT],
+    ) -> tuple[tuple[EntityRef, DesiredState], ...]:
+        if isinstance(state, PerEntity):
+            projections = self._align(cast("PerEntity[StateT]", state))
+            return tuple(
+                (entity, state_projection_target(projection))
+                for entity, projection in projections.items()
             )
+
+        assignments = cast(
+            "Mapping[PropertyRef, StateBinding | PerEntity[StateBinding]]",
+            state_projection_assignments(state),
+        )
+        aligned = {
+            property_ref: self._align(value)
+            for property_ref, value in assignments.items()
+        }
+        return tuple(
+            (
+                entity,
+                _ProjectedStateTarget(
+                    {
+                        property_ref: values[entity]
+                        for property_ref, values in aligned.items()
+                    }
+                ),
+            )
+            for entity in self._entities
         )
 
     def _state_client(

@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Literal, Protocol
 
 from scopecat.kernel.quantity import Quantity
-from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.declarations import (
     acquisition,
     acquisition_case,
@@ -26,29 +25,25 @@ from scopecat.sdk.instruments.declarations import (
     state_field,
 )
 
-type Desired[T] = T | ValueRef
 type ReferenceSource = Literal["internal", "external"]
 type SParameter = Literal["S11", "S21", "S12", "S22"]
 
 
 @instrument_state
 class DCSourceState:
-    """Sparse common DC-source state, without changing source mode."""
+    """Concrete common DC-source state schema."""
 
-    voltage_protection: Desired[Quantity] | None = member_field(
-        default=None,
+    voltage_protection: Quantity = member_field(
         unit="V",
         label="Voltage protection",
         description="Absolute voltage limiter level.",
     )
-    current_protection: Desired[Quantity] | None = member_field(
-        default=None,
+    current_protection: Quantity = member_field(
         unit="A",
         label="Current protection",
         description="Absolute current limiter level.",
     )
-    output_enabled: Desired[bool] | None = member_field(
-        default=None,
+    output_enabled: bool = member_field(
         label="DC output",
         description="Whether the source output is enabled.",
     )
@@ -56,44 +51,38 @@ class DCSourceState:
 
 @instrument_state
 class DCSourceVoltage:
-    """Desired voltage-source mode, with fixed or point-resolved fields."""
+    """Concrete voltage-source mode schema."""
 
-    range: Desired[Quantity] = member_field(
+    range: Quantity = member_field(
         id="voltage_range",
         unit="V",
         label="Voltage range",
         description="Voltage-source range, available in voltage mode.",
     )
-    level: Desired[Quantity] = member_field(
+    level: Quantity = member_field(
         id="voltage_level",
         unit="V",
         label="Voltage level",
         description="Voltage-source level, available in voltage mode.",
     )
-    voltage_protection: Desired[Quantity] | None = None
-    current_protection: Desired[Quantity] | None = None
-    output_enabled: Desired[bool] | None = None
 
 
 @instrument_state
 class DCSourceCurrent:
-    """Desired current-source mode, with fixed or point-resolved fields."""
+    """Concrete current-source mode schema."""
 
-    range: Desired[Quantity] = member_field(
+    range: Quantity = member_field(
         id="current_range",
         unit="A",
         label="Current range",
         description="Current-source range, available in current mode.",
     )
-    level: Desired[Quantity] = member_field(
+    level: Quantity = member_field(
         id="current_level",
         unit="A",
         label="Current level",
         description="Current-source level, available in current mode.",
     )
-    voltage_protection: Desired[Quantity] | None = None
-    current_protection: Desired[Quantity] | None = None
-    output_enabled: Desired[bool] | None = None
 
 
 @instrument_interface(
@@ -110,13 +99,11 @@ class DCSourceCurrent:
             state_case(
                 "voltage",
                 DCSourceVoltage,
-                fields=("range", "level"),
                 required_on_entry=("range", "level"),
             ),
             state_case(
                 "current",
                 DCSourceCurrent,
-                fields=("range", "level"),
                 required_on_entry=("range", "level"),
             ),
         ),
@@ -131,20 +118,17 @@ class DCSourceInterface(Protocol): ...
 
 @instrument_state
 class DCMonitorState:
-    measurement_enabled: Desired[bool] | None = member_field(
-        default=None,
+    measurement_enabled: bool = member_field(
         label="Measurement",
         description="Whether monitor measurements are enabled.",
     )
-    integration_cycles: Desired[int] | None = member_field(
-        default=None,
+    integration_cycles: int = member_field(
         minimum=1,
         maximum=25,
         label="Integration cycles",
         description="Power-line cycles integrated for each measurement.",
     )
-    measurement_delay: Desired[Quantity] | None = member_field(
-        default=None,
+    measurement_delay: Quantity = member_field(
         unit="s",
         minimum=0.0,
         maximum=999.999,
@@ -273,27 +257,23 @@ class TemperatureReadoutInterface(Protocol):
 
 @instrument_state
 class RFOutputState:
-    """Sparse continuous-wave RF output state."""
+    """Concrete continuous-wave RF output state schema."""
 
-    frequency: Desired[Quantity] | None = member_field(
-        default=None,
+    frequency: Quantity = member_field(
         unit="Hz",
         label="CW frequency",
         description="Continuous-wave carrier frequency.",
     )
-    power: Desired[Quantity] | None = member_field(
-        default=None,
+    power: Quantity = member_field(
         unit="dBm",
         label="Output power",
         description="Configured RF output level at the source connector.",
     )
-    output_enabled: Desired[bool] | None = member_field(
-        default=None,
+    output_enabled: bool = member_field(
         label="RF output",
         description="Whether the RF output connector is enabled.",
     )
-    reference_source: Desired[ReferenceSource] | None = member_field(
-        default=None,
+    reference_source: ReferenceSource = member_field(
         label="Reference source",
         description="Reference oscillator source; external frequency is not set.",
     )
@@ -310,40 +290,34 @@ class RFOutputInterface(Protocol): ...
 
 @instrument_state
 class NetworkSweepState:
-    """Sparse network-sweep state shared by live and symbolic clients."""
+    """Concrete network-sweep state schema."""
 
-    start_frequency: Desired[Quantity] | None = member_field(
-        default=None,
+    start_frequency: Quantity = member_field(
         unit="Hz",
         label="Start frequency",
         description="First stimulus frequency in the linear sweep.",
     )
-    stop_frequency: Desired[Quantity] | None = member_field(
-        default=None,
+    stop_frequency: Quantity = member_field(
         unit="Hz",
         label="Stop frequency",
         description="Last stimulus frequency in the linear sweep.",
     )
-    points: Desired[int] | None = member_field(
-        default=None,
+    points: int = member_field(
         minimum=2,
         label="Sweep points",
         description="Number of equally spaced frequency points.",
     )
-    if_bandwidth: Desired[Quantity] | None = member_field(
-        default=None,
+    if_bandwidth: Quantity = member_field(
         unit="Hz",
         label="IF bandwidth",
         description="Receiver intermediate-frequency bandwidth.",
     )
-    source_power: Desired[Quantity] | None = member_field(
-        default=None,
+    source_power: Quantity = member_field(
         unit="dBm",
         label="Source power",
         description="Stimulus power for the selected analyzer channel.",
     )
-    s_parameter: Desired[SParameter] | None = member_field(
-        default=None,
+    s_parameter: SParameter = member_field(
         label="S-parameter",
         description="Two-port S-parameter measured by the selected trace.",
     )
@@ -401,7 +375,6 @@ __all__ = [
     "DCSourceMonitorInterface",
     "DCSourceState",
     "DCSourceVoltage",
-    "Desired",
     "NetworkSweepInterface",
     "NetworkSweepResults",
     "NetworkSweepState",

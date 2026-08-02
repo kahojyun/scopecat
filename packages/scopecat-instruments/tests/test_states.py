@@ -3,15 +3,16 @@ from __future__ import annotations
 from typing import assert_type
 
 import scopecat as sc
-from scopecat.sdk.instruments.declarations import declared_state_assignments
+from scopecat.sdk.instruments.declarations import state_projection_assignments
 
 from scopecat_instruments import (
-    DCMonitorState,
-    DCSourceCurrent,
-    DCSourceState,
-    DCSourceVoltage,
-    NetworkSweepState,
-    RFOutputState,
+    DCMonitorPatch,
+    DCSourceCurrentPatch,
+    DCSourcePatch,
+    DCSourceVoltagePatch,
+    DCSourceVoltageTarget,
+    NetworkSweepPatch,
+    RFOutputPatch,
 )
 from scopecat_instruments.interfaces import (
     dc_monitor_interface,
@@ -35,19 +36,19 @@ from scopecat_instruments.members import (
 )
 
 
-def test_voltage_state_accepts_fixed_and_scanned_desired_values() -> None:
+def test_voltage_target_accepts_fixed_and_scanned_values() -> None:
     level = sc.coordinate(
         "dc_bias",
         sc.ScalarType(sc.QuantityType(unit="V")),
     )
-    target = DCSourceVoltage(
+    target = DCSourceVoltageTarget(
         range=sc.Quantity(1.0, "V"),
         level=level,
         output_enabled=True,
     )
 
-    assert_type(target, DCSourceVoltage)
-    assert declared_state_assignments(target) == {
+    assert_type(target, DCSourceVoltageTarget)
+    assert state_projection_assignments(target) == {
         DC_SOURCE_MODE: "voltage",
         DC_SOURCE_VOLTAGE_RANGE: sc.Quantity(1.0, "V"),
         DC_SOURCE_VOLTAGE_LEVEL: level,
@@ -55,12 +56,12 @@ def test_voltage_state_accepts_fixed_and_scanned_desired_values() -> None:
     }
 
 
-def test_sparse_states_omit_unspecified_properties() -> None:
-    assert declared_state_assignments(DCSourceState(output_enabled=False)) == {
+def test_sparse_patches_omit_unspecified_properties() -> None:
+    assert state_projection_assignments(DCSourcePatch(output_enabled=False)) == {
         DC_SOURCE_OUTPUT_ENABLED: False
     }
-    assert declared_state_assignments(
-        NetworkSweepState(
+    assert state_projection_assignments(
+        NetworkSweepPatch(
             start_frequency=sc.Quantity(4.8, "GHz"),
             points=401,
             s_parameter="S21",
@@ -72,9 +73,9 @@ def test_sparse_states_omit_unspecified_properties() -> None:
     }
 
 
-def test_current_and_monitor_states_use_the_shared_declaration_codec() -> None:
-    assert declared_state_assignments(
-        DCSourceCurrent(
+def test_current_and_monitor_patches_use_the_shared_declaration_codec() -> None:
+    assert state_projection_assignments(
+        DCSourceCurrentPatch(
             range=sc.Quantity(10.0, "mA"),
             level=sc.Quantity(2.0, "mA"),
         )
@@ -83,8 +84,8 @@ def test_current_and_monitor_states_use_the_shared_declaration_codec() -> None:
         DC_SOURCE_CURRENT_RANGE: sc.Quantity(10.0, "mA"),
         DC_SOURCE_CURRENT_LEVEL: sc.Quantity(2.0, "mA"),
     }
-    assert declared_state_assignments(
-        DCMonitorState(
+    assert state_projection_assignments(
+        DCMonitorPatch(
             measurement_enabled=True,
             integration_cycles=3,
             measurement_delay=sc.Quantity(10.0, "ms"),
@@ -96,20 +97,20 @@ def test_current_and_monitor_states_use_the_shared_declaration_codec() -> None:
     }
 
 
-def test_every_first_party_state_assignment_is_writable() -> None:
-    states = (
-        DCSourceState(output_enabled=False),
-        DCSourceVoltage(
+def test_every_first_party_patch_assignment_is_writable() -> None:
+    patches = (
+        DCSourcePatch(output_enabled=False),
+        DCSourceVoltagePatch(
             range=sc.Quantity(1.0, "V"),
             level=sc.Quantity(0.0, "V"),
         ),
-        DCSourceCurrent(
+        DCSourceCurrentPatch(
             range=sc.Quantity(1.0, "mA"),
             level=sc.Quantity(0.0, "mA"),
         ),
-        DCMonitorState(measurement_enabled=True),
-        RFOutputState(output_enabled=False),
-        NetworkSweepState(points=401),
+        DCMonitorPatch(measurement_enabled=True),
+        RFOutputPatch(output_enabled=False),
+        NetworkSweepPatch(points=401),
     )
     interfaces = {
         interface.id: interface
@@ -121,8 +122,8 @@ def test_every_first_party_state_assignment_is_writable() -> None:
         )
     }
 
-    for state in states:
-        assignments = declared_state_assignments(state)
+    for patch in patches:
+        assignments = state_projection_assignments(patch)
         for property_ref in assignments:
             interface = interfaces[property_ref.interface_id]
             property_spec = next(

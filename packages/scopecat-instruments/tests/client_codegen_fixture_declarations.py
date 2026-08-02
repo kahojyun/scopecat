@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Annotated, Literal, Protocol
 
 from scopecat.kernel.quantity import Quantity
-from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.declarations import (
     argument,
     component,
@@ -17,21 +16,19 @@ from scopecat.sdk.instruments.declarations import (
     operation,
 )
 
-type Desired[T] = T | ValueRef
-
 
 class TriggerCapability(Protocol):
     @operation(id="emit_pulse")
     def emit(
         self,
-        count: Annotated[Desired[int], argument(id="pulse_count")],
+        count: Annotated[int, argument(id="pulse_count")],
         /,
         width: Annotated[
-            Desired[Quantity],
+            Quantity,
             argument(id="pulse_width", unit="s"),
         ],
         *,
-        label: Annotated[Desired[str], argument(id="pulse_label")],
+        label: Annotated[str, argument(id="pulse_label")],
     ) -> None: ...
 
 
@@ -44,7 +41,7 @@ class OutputCapability(Protocol):
 
 @instrument_state
 class CatalogProjectionState:
-    enabled: Desired[bool] | None = member_field(default=None)
+    enabled: bool = member_field()
 
 
 @instrument_observed_state
@@ -145,7 +142,7 @@ class LiteralOperationInterface(Protocol):
     def select(
         self,
         mode: Annotated[
-            Desired[Literal["left", "right"]],
+            Literal["left", "right"],
             argument(),
         ],
     ) -> None: ...
@@ -156,7 +153,7 @@ class EffectIdCollisionInterface(Protocol):
     @operation()
     def emit(
         self,
-        effect_id: Annotated[Desired[str], argument()],
+        effect_id: Annotated[str, argument()],
     ) -> None: ...
 
 
@@ -199,7 +196,6 @@ __all__ = [
     "CatalogProjectionState",
     "ComponentBundleInterface",
     "ComponentOperationInterface",
-    "Desired",
     "EffectIdCollisionInterface",
     "FlatFooBarCapability",
     "LiteralOperationInterface",
