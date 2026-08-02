@@ -7,6 +7,8 @@ from __future__ import annotations
 from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
+from scopecat_instruments.package_manifest import PACKAGE_MANIFEST
+
 if TYPE_CHECKING:
     from scopecat_instruments.virtual.drivers import (
         VirtualDcSource,
@@ -18,11 +20,12 @@ if TYPE_CHECKING:
 
 
 _EXPORTS = {
-    "VirtualDcSource": "scopecat_instruments.virtual.drivers",
     "VirtualLabWorld": "scopecat_instruments.virtual.world",
-    "VirtualNetworkAnalyzer": "scopecat_instruments.virtual.drivers",
-    "VirtualRfSource": "scopecat_instruments.virtual.drivers",
-    "VirtualTemperatureMonitor": "scopecat_instruments.virtual.drivers",
+    **{
+        registration.implementation.qualname: registration.implementation.module
+        for registration in PACKAGE_MANIFEST.drivers
+        if registration.implementation.module.startswith(f"{__name__}.")
+    },
 }
 
 

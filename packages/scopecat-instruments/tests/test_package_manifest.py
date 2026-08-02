@@ -39,6 +39,38 @@ def test_provider_import_does_not_load_driver_implementations() -> None:
     )
 
 
+def test_driver_package_exports_follow_manifest_without_loading_drivers() -> None:
+    script = (
+        "import sys\n"
+        "import scopecat_instruments.drivers as real\n"
+        "import scopecat_instruments.virtual as virtual\n"
+        "from scopecat_instruments.package_manifest import PACKAGE_MANIFEST\n"
+        "real_prefix = 'scopecat_instruments.drivers.'\n"
+        "virtual_prefix = 'scopecat_instruments.virtual.'\n"
+        "real_expected = sorted(\n"
+        "    item.implementation.qualname\n"
+        "    for item in PACKAGE_MANIFEST.drivers\n"
+        "    if item.implementation.module.startswith(real_prefix)\n"
+        ")\n"
+        "virtual_expected = sorted((\n"
+        "    'VirtualLabWorld',\n"
+        "    *(item.implementation.qualname\n"
+        "      for item in PACKAGE_MANIFEST.drivers\n"
+        "      if item.implementation.module.startswith(virtual_prefix)),\n"
+        "))\n"
+        "assert real.__all__ == real_expected\n"
+        "assert virtual.__all__ == virtual_expected\n"
+        f"forbidden = {_DRIVER_MODULES!r}\n"
+        "loaded = [name for name in forbidden if name in sys.modules]\n"
+        "assert not loaded, loaded\n"
+    )
+
+    subprocess.run(  # noqa: S603 - fixed interpreter and local test source
+        [sys.executable, "-c", script],
+        check=True,
+    )
+
+
 def test_resolving_one_driver_does_not_load_sibling_implementations() -> None:
     forbidden = tuple(
         module for module in _DRIVER_MODULES if not module.endswith(".gs200")

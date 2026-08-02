@@ -7,6 +7,8 @@ from __future__ import annotations
 from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
+from scopecat_instruments.package_manifest import PACKAGE_MANIFEST
+
 if TYPE_CHECKING:
     from scopecat_instruments.drivers.e5080b import KeysightE5080B
     from scopecat_instruments.drivers.gs200 import YokogawaGS200
@@ -15,10 +17,9 @@ if TYPE_CHECKING:
 
 
 _EXPORTS = {
-    "KeysightE5080B": "scopecat_instruments.drivers.e5080b",
-    "LakeShore372": "scopecat_instruments.drivers.lakeshore372",
-    "RohdeSchwarzSGS100A": "scopecat_instruments.drivers.sgs100a",
-    "YokogawaGS200": "scopecat_instruments.drivers.gs200",
+    registration.implementation.qualname: registration.implementation.module
+    for registration in PACKAGE_MANIFEST.drivers
+    if registration.implementation.module.startswith(f"{__name__}.")
 }
 
 
