@@ -4,19 +4,9 @@
 
 from __future__ import annotations
 
-from scopecat.sdk.instruments.declarations import declared_interface_ref
+from scopecat.sdk.instruments import InterfaceRef
 
-from client_codegen_fixture_declarations import (
-    CatalogProjectionInterface,
-    ComponentOperationInterface,
-    DriverFixedAcquisitionInterface,
-    DriverMonitorInterface,
-    DriverSourceInterface,
-    LiteralOperationInterface,
-    PayloadOperationInterface,
-)
-
-CATALOG_PROJECTION = declared_interface_ref(CatalogProjectionInterface)
+CATALOG_PROJECTION = InterfaceRef("test.generated_catalog_projection/v1")
 CATALOG_PROJECTION_ENABLED = CATALOG_PROJECTION.property("enabled")
 CATALOG_PROJECTION_STATUS = CATALOG_PROJECTION.property("status")
 CATALOG_PROJECTION_SIGNAL_OUTPUT = CATALOG_PROJECTION.component("signal_output")
@@ -45,7 +35,7 @@ CATALOG_PROJECTION_SIGNAL_OUTPUT_PULSE_TRIGGER_EMIT_PULSE_LABEL = (
         "pulse_label",
     )
 )
-COMPONENT_OPERATION = declared_interface_ref(ComponentOperationInterface)
+COMPONENT_OPERATION = InterfaceRef("test.generated_component_operation/v1")
 COMPONENT_OPERATION_SIGNAL_OUTPUT = COMPONENT_OPERATION.component("signal_output")
 COMPONENT_OPERATION_SIGNAL_OUTPUT_PULSE_TRIGGER = (
     COMPONENT_OPERATION_SIGNAL_OUTPUT.component(
@@ -72,23 +62,23 @@ COMPONENT_OPERATION_SIGNAL_OUTPUT_PULSE_TRIGGER_EMIT_PULSE_LABEL = (
         "pulse_label",
     )
 )
-LITERAL_OPERATION = declared_interface_ref(LiteralOperationInterface)
+LITERAL_OPERATION = InterfaceRef("test.generated_literal_operation/v1")
 LITERAL_OPERATION_SELECT = LITERAL_OPERATION.operation("select")
 LITERAL_OPERATION_SELECT_MODE = LITERAL_OPERATION_SELECT.argument("mode")
-PAYLOAD_OPERATION = declared_interface_ref(PayloadOperationInterface)
+PAYLOAD_OPERATION = InterfaceRef("test.generated_payload_operation/v1")
 PAYLOAD_OPERATION_UPLOAD = PAYLOAD_OPERATION.operation("upload")
 PAYLOAD_OPERATION_UPLOAD_PAYLOAD = PAYLOAD_OPERATION_UPLOAD.argument("payload")
-DRIVER_FIXED_ACQUISITION = declared_interface_ref(DriverFixedAcquisitionInterface)
+DRIVER_FIXED_ACQUISITION = InterfaceRef("test.generated_driver_fixed_acquisition/v1")
 DRIVER_FIXED_ACQUISITION_ACQUIRE = DRIVER_FIXED_ACQUISITION.acquisition("acquire")
 DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT = DRIVER_FIXED_ACQUISITION_ACQUIRE.result(
     "signal",
 )
-DRIVER_SOURCE = declared_interface_ref(DriverSourceInterface)
+DRIVER_SOURCE = InterfaceRef("test.generated_driver_source/v1")
 DRIVER_SOURCE_MODE = DRIVER_SOURCE.property("mode")
 DRIVER_SOURCE_ENABLED = DRIVER_SOURCE.property("enabled")
 DRIVER_SOURCE_LEFT_LEVEL = DRIVER_SOURCE.property("left_level")
 DRIVER_SOURCE_RIGHT_LEVEL = DRIVER_SOURCE.property("right_level")
-DRIVER_MONITOR = declared_interface_ref(DriverMonitorInterface)
+DRIVER_MONITOR = InterfaceRef("test.generated_driver_monitor/v1")
 DRIVER_MONITOR_ENABLED = DRIVER_MONITOR.property("enabled")
 DRIVER_MONITOR_ACQUISITION = DRIVER_MONITOR.acquisition("monitor")
 DRIVER_MONITOR_LEFT_RESULT = DRIVER_MONITOR_ACQUISITION.result("left_value")

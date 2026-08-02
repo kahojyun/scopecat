@@ -762,7 +762,11 @@ def render_catalog_target(
         (target.interfaces_output, _render_interfaces_module(models)),
         (
             target.states_output,
-            _render_states_module(models, public_types=target.public_types),
+            _render_states_module(
+                models,
+                public_types=target.public_types,
+                members_module=target.members_module,
+            ),
         ),
         (
             target.driver_states_output,
@@ -813,12 +817,8 @@ def _render_members_module(models: tuple[_CatalogInterfaceModel, ...]) -> str:
     )
     _validate_member_projections(projections)
     imports: dict[str, set[str]] = {
-        "scopecat.sdk.instruments.declarations": {"declared_interface_ref"},
+        "scopecat.sdk.instruments": {"InterfaceRef"},
     }
-    for model in models:
-        imports.setdefault(model.interface_type.__module__, set()).add(
-            model.interface_type_name
-        )
     declarations = "".join(
         _render_member_projection(projection) for projection in projections
     )
@@ -840,7 +840,7 @@ def _interface_member_projections(
     projections = [
         _MemberProjection(
             name=root_name,
-            expression=f"declared_interface_ref({model.interface_type_name})",
+            expression=f"InterfaceRef({_string_literal(model.root.ref.interface_id)})",
             owner=f"{model.interface_identity} interface",
         )
     ]
@@ -1054,12 +1054,14 @@ def _render_states_module(
     models: tuple[_CatalogInterfaceModel, ...],
     *,
     public_types: tuple[object, ...],
+    members_module: str,
 ) -> str:
     renderer = _AnnotationRenderer()
     imports: dict[str, set[str]] = {}
     exports_by_name: dict[str, str] = {}
     declarations: list[str] = []
     seen_sources: dict[type[object], DeclaredStateLayout] = {}
+    member_imports: set[str] = set()
 
     for candidate in (
         *(
@@ -1083,8 +1085,8 @@ def _render_states_module(
     if has_states:
         imports["scopecat.authoring"] = {"PerEntity", "ValueRef"}
         imports["scopecat.sdk.instruments.declarations"] = {
-            "compile_interface",
-            "declared_interface_layout",
+            "StateProjectionField",
+            "StateProjectionLayout",
             "instrument_state_projection",
             "state_projection_field",
         }
@@ -1092,17 +1094,7 @@ def _render_states_module(
     for model in models:
         if not model.states:
             continue
-        imports.setdefault(model.interface_type.__module__, set()).add(
-            model.interface_type_name
-        )
-        layouts_name = f"_{model.constant_prefix}_STATE_LAYOUTS"
-        declarations.append(
-            ("\n\n" if declarations else "\n")
-            + f"{layouts_name} = declared_interface_layout(\n"
-            f"    compile_interface({model.interface_type_name})\n"
-            ").states\n"
-        )
-        for index, layout in enumerate(model.states):
+        for layout in model.states:
             existing_layout = seen_sources.get(layout.source_type)
             if existing_layout is not None:
                 if existing_layout != layout:
@@ -1123,7 +1115,15 @@ def _render_states_module(
                         f"{existing} vs {owner}"
                     )
                 exports_by_name[name] = owner
-            layout_expression = f"{layouts_name}[{index}]"
+            layout_expression = _state_projection_layout_name(names)
+            declarations.append(
+                _render_state_projection_layout(
+                    layout_expression,
+                    layout,
+                    constant_prefix=model.constant_prefix,
+                    member_imports=member_imports,
+                )
+            )
             declarations.extend(
                 (
                     _render_state_projection(
@@ -1152,13 +1152,18 @@ def _render_states_module(
 
     for module, names in renderer.imports.items():
         imports.setdefault(module, set()).update(names)
+    if member_imports:
+        imports[members_module] = member_imports
     import_block = _render_import_block(imports) if imports else ""
+    declaration_block = "".join(declarations)
+    if import_block:
+        declaration_block = declaration_block.removeprefix("\n")
     return (
         _generated_module_header(
             "Typed state projections generated from instrument interfaces."
         )
         + import_block
-        + "".join(declarations)
+        + declaration_block
         + ("\n" if declarations else "")
         + _render_all(tuple(exports_by_name))
     )
@@ -2362,6 +2367,56 @@ def _render_encode_driver_state() -> str:
         "        values=values,\n"
         "        metadata={} if metadata is None else metadata,\n"
         "    )\n"
+    )
+
+
+def _state_projection_layout_name(names: _StateProjectionNames) -> str:
+    stem = names.patch.removesuffix("Patch")
+    return f"_{_snake_case(stem).upper()}_STATE_LAYOUT"
+
+
+def _render_state_projection_layout(
+    name: str,
+    layout: DeclaredStateLayout,
+    *,
+    constant_prefix: str,
+    member_imports: set[str],
+) -> str:
+    fields: list[str] = []
+    for field in layout.fields:
+        member_name = _member_constant_name(constant_prefix, field.ref)
+        member_imports.add(member_name)
+        fields.append(
+            f"StateProjectionField({_string_literal(field.python_name)}, {member_name})"
+        )
+
+    constants: list[str] = []
+    for ref, value in layout.constants:
+        if not isinstance(value, str):
+            raise ClientGenerationError(
+                "generated state case discriminator must be a string"
+            )
+        member_name = _member_constant_name(constant_prefix, ref)
+        member_imports.add(member_name)
+        constants.append(f"({member_name}, {_string_literal(value)})")
+
+    return (
+        f"\n\n{name} = StateProjectionLayout(\n"
+        + _render_state_layout_argument("fields", fields)
+        + _render_state_layout_argument("constants", constants)
+        + ")\n"
+    )
+
+
+def _render_state_layout_argument(name: str, values: list[str]) -> str:
+    compact_tuple = f"({', '.join(values)}{',' if len(values) == 1 else ''})"
+    compact = f"    {name}={compact_tuple},\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    return (
+        f"    {name}=(\n"
+        + "".join(f"        {value},\n" for value in values)
+        + "    ),\n"
     )
 
 

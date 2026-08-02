@@ -9,18 +9,12 @@ from typing import Literal
 from scopecat.authoring import PerEntity, ValueRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
-    compile_interface,
-    declared_interface_layout,
+    StateProjectionField,
+    StateProjectionLayout,
     instrument_state_projection,
     state_projection_field,
 )
 
-from scopecat_instruments.interface_declarations import (
-    DCMonitorInterface,
-    DCSourceInterface,
-    NetworkSweepInterface,
-    RFOutputInterface,
-)
 from scopecat_instruments.interface_declarations import (
     ReferenceSource as ReferenceSource,
 )
@@ -30,13 +24,42 @@ from scopecat_instruments.interface_declarations import (
 from scopecat_instruments.interface_declarations import (
     TemperatureReadoutObservation as TemperatureReadoutObservation,
 )
+from scopecat_instruments.members import (
+    DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASUREMENT_DELAY,
+    DC_MONITOR_MEASUREMENT_ENABLED,
+    DC_SOURCE_CURRENT_LEVEL,
+    DC_SOURCE_CURRENT_PROTECTION,
+    DC_SOURCE_CURRENT_RANGE,
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_PROTECTION,
+    DC_SOURCE_VOLTAGE_RANGE,
+    NETWORK_SWEEP_IF_BANDWIDTH,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER,
+    NETWORK_SWEEP_SOURCE_POWER,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
+    RF_OUTPUT_ENABLED,
+    RF_OUTPUT_FREQUENCY,
+    RF_OUTPUT_POWER,
+    RF_OUTPUT_REFERENCE_SOURCE,
+)
 
-_RF_OUTPUT_STATE_LAYOUTS = declared_interface_layout(
-    compile_interface(RFOutputInterface)
-).states
+_RF_OUTPUT_STATE_LAYOUT = StateProjectionLayout(
+    fields=(
+        StateProjectionField("frequency", RF_OUTPUT_FREQUENCY),
+        StateProjectionField("power", RF_OUTPUT_POWER),
+        StateProjectionField("output_enabled", RF_OUTPUT_ENABLED),
+        StateProjectionField("reference_source", RF_OUTPUT_REFERENCE_SOURCE),
+    ),
+    constants=(),
+)
 
 
-@instrument_state_projection(_RF_OUTPUT_STATE_LAYOUTS[0])
+@instrument_state_projection(_RF_OUTPUT_STATE_LAYOUT)
 class RFOutputPatch:
     frequency: Quantity = state_projection_field()
     power: Quantity = state_projection_field()
@@ -44,7 +67,7 @@ class RFOutputPatch:
     reference_source: Literal["internal", "external"] = state_projection_field()
 
 
-@instrument_state_projection(_RF_OUTPUT_STATE_LAYOUTS[0])
+@instrument_state_projection(_RF_OUTPUT_STATE_LAYOUT)
 class RFOutputTarget:
     frequency: Quantity | ValueRef = state_projection_field()
     power: Quantity | ValueRef = state_projection_field()
@@ -54,7 +77,7 @@ class RFOutputTarget:
     )
 
 
-@instrument_state_projection(_RF_OUTPUT_STATE_LAYOUTS[0])
+@instrument_state_projection(_RF_OUTPUT_STATE_LAYOUT)
 class RFOutputGroupTarget:
     frequency: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
         state_projection_field()
@@ -72,26 +95,31 @@ class RFOutputGroupTarget:
     ) = state_projection_field()
 
 
-_DC_SOURCE_STATE_LAYOUTS = declared_interface_layout(
-    compile_interface(DCSourceInterface)
-).states
+_DC_SOURCE_STATE_LAYOUT = StateProjectionLayout(
+    fields=(
+        StateProjectionField("voltage_protection", DC_SOURCE_VOLTAGE_PROTECTION),
+        StateProjectionField("current_protection", DC_SOURCE_CURRENT_PROTECTION),
+        StateProjectionField("output_enabled", DC_SOURCE_OUTPUT_ENABLED),
+    ),
+    constants=(),
+)
 
 
-@instrument_state_projection(_DC_SOURCE_STATE_LAYOUTS[0])
+@instrument_state_projection(_DC_SOURCE_STATE_LAYOUT)
 class DCSourcePatch:
     voltage_protection: Quantity = state_projection_field()
     current_protection: Quantity = state_projection_field()
     output_enabled: bool = state_projection_field()
 
 
-@instrument_state_projection(_DC_SOURCE_STATE_LAYOUTS[0])
+@instrument_state_projection(_DC_SOURCE_STATE_LAYOUT)
 class DCSourceTarget:
     voltage_protection: Quantity | ValueRef = state_projection_field()
     current_protection: Quantity | ValueRef = state_projection_field()
     output_enabled: bool | ValueRef = state_projection_field()
 
 
-@instrument_state_projection(_DC_SOURCE_STATE_LAYOUTS[0])
+@instrument_state_projection(_DC_SOURCE_STATE_LAYOUT)
 class DCSourceGroupTarget:
     voltage_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
         state_projection_field()
@@ -104,7 +132,19 @@ class DCSourceGroupTarget:
     )
 
 
-@instrument_state_projection(_DC_SOURCE_STATE_LAYOUTS[1])
+_DC_SOURCE_VOLTAGE_STATE_LAYOUT = StateProjectionLayout(
+    fields=(
+        StateProjectionField("voltage_protection", DC_SOURCE_VOLTAGE_PROTECTION),
+        StateProjectionField("current_protection", DC_SOURCE_CURRENT_PROTECTION),
+        StateProjectionField("output_enabled", DC_SOURCE_OUTPUT_ENABLED),
+        StateProjectionField("range", DC_SOURCE_VOLTAGE_RANGE),
+        StateProjectionField("level", DC_SOURCE_VOLTAGE_LEVEL),
+    ),
+    constants=((DC_SOURCE_MODE, "voltage"),),
+)
+
+
+@instrument_state_projection(_DC_SOURCE_VOLTAGE_STATE_LAYOUT)
 class DCSourceVoltagePatch:
     voltage_protection: Quantity = state_projection_field()
     current_protection: Quantity = state_projection_field()
@@ -113,7 +153,7 @@ class DCSourceVoltagePatch:
     level: Quantity
 
 
-@instrument_state_projection(_DC_SOURCE_STATE_LAYOUTS[1])
+@instrument_state_projection(_DC_SOURCE_VOLTAGE_STATE_LAYOUT)
 class DCSourceVoltageTarget:
     voltage_protection: Quantity | ValueRef = state_projection_field()
     current_protection: Quantity | ValueRef = state_projection_field()
@@ -122,7 +162,7 @@ class DCSourceVoltageTarget:
     level: Quantity | ValueRef
 
 
-@instrument_state_projection(_DC_SOURCE_STATE_LAYOUTS[1])
+@instrument_state_projection(_DC_SOURCE_VOLTAGE_STATE_LAYOUT)
 class DCSourceVoltageGroupTarget:
     voltage_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
         state_projection_field()
@@ -137,7 +177,19 @@ class DCSourceVoltageGroupTarget:
     level: Quantity | ValueRef | PerEntity[Quantity | ValueRef]
 
 
-@instrument_state_projection(_DC_SOURCE_STATE_LAYOUTS[2])
+_DC_SOURCE_CURRENT_STATE_LAYOUT = StateProjectionLayout(
+    fields=(
+        StateProjectionField("voltage_protection", DC_SOURCE_VOLTAGE_PROTECTION),
+        StateProjectionField("current_protection", DC_SOURCE_CURRENT_PROTECTION),
+        StateProjectionField("output_enabled", DC_SOURCE_OUTPUT_ENABLED),
+        StateProjectionField("range", DC_SOURCE_CURRENT_RANGE),
+        StateProjectionField("level", DC_SOURCE_CURRENT_LEVEL),
+    ),
+    constants=((DC_SOURCE_MODE, "current"),),
+)
+
+
+@instrument_state_projection(_DC_SOURCE_CURRENT_STATE_LAYOUT)
 class DCSourceCurrentPatch:
     voltage_protection: Quantity = state_projection_field()
     current_protection: Quantity = state_projection_field()
@@ -146,7 +198,7 @@ class DCSourceCurrentPatch:
     level: Quantity
 
 
-@instrument_state_projection(_DC_SOURCE_STATE_LAYOUTS[2])
+@instrument_state_projection(_DC_SOURCE_CURRENT_STATE_LAYOUT)
 class DCSourceCurrentTarget:
     voltage_protection: Quantity | ValueRef = state_projection_field()
     current_protection: Quantity | ValueRef = state_projection_field()
@@ -155,7 +207,7 @@ class DCSourceCurrentTarget:
     level: Quantity | ValueRef
 
 
-@instrument_state_projection(_DC_SOURCE_STATE_LAYOUTS[2])
+@instrument_state_projection(_DC_SOURCE_CURRENT_STATE_LAYOUT)
 class DCSourceCurrentGroupTarget:
     voltage_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
         state_projection_field()
@@ -170,26 +222,31 @@ class DCSourceCurrentGroupTarget:
     level: Quantity | ValueRef | PerEntity[Quantity | ValueRef]
 
 
-_DC_MONITOR_STATE_LAYOUTS = declared_interface_layout(
-    compile_interface(DCMonitorInterface)
-).states
+_DC_MONITOR_STATE_LAYOUT = StateProjectionLayout(
+    fields=(
+        StateProjectionField("measurement_enabled", DC_MONITOR_MEASUREMENT_ENABLED),
+        StateProjectionField("integration_cycles", DC_MONITOR_INTEGRATION_CYCLES),
+        StateProjectionField("measurement_delay", DC_MONITOR_MEASUREMENT_DELAY),
+    ),
+    constants=(),
+)
 
 
-@instrument_state_projection(_DC_MONITOR_STATE_LAYOUTS[0])
+@instrument_state_projection(_DC_MONITOR_STATE_LAYOUT)
 class DCMonitorPatch:
     measurement_enabled: bool = state_projection_field()
     integration_cycles: int = state_projection_field()
     measurement_delay: Quantity = state_projection_field()
 
 
-@instrument_state_projection(_DC_MONITOR_STATE_LAYOUTS[0])
+@instrument_state_projection(_DC_MONITOR_STATE_LAYOUT)
 class DCMonitorTarget:
     measurement_enabled: bool | ValueRef = state_projection_field()
     integration_cycles: int | ValueRef = state_projection_field()
     measurement_delay: Quantity | ValueRef = state_projection_field()
 
 
-@instrument_state_projection(_DC_MONITOR_STATE_LAYOUTS[0])
+@instrument_state_projection(_DC_MONITOR_STATE_LAYOUT)
 class DCMonitorGroupTarget:
     measurement_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = (
         state_projection_field()
@@ -202,12 +259,20 @@ class DCMonitorGroupTarget:
     )
 
 
-_NETWORK_SWEEP_STATE_LAYOUTS = declared_interface_layout(
-    compile_interface(NetworkSweepInterface)
-).states
+_NETWORK_SWEEP_STATE_LAYOUT = StateProjectionLayout(
+    fields=(
+        StateProjectionField("start_frequency", NETWORK_SWEEP_START_FREQUENCY),
+        StateProjectionField("stop_frequency", NETWORK_SWEEP_STOP_FREQUENCY),
+        StateProjectionField("points", NETWORK_SWEEP_POINTS),
+        StateProjectionField("if_bandwidth", NETWORK_SWEEP_IF_BANDWIDTH),
+        StateProjectionField("source_power", NETWORK_SWEEP_SOURCE_POWER),
+        StateProjectionField("s_parameter", NETWORK_SWEEP_S_PARAMETER),
+    ),
+    constants=(),
+)
 
 
-@instrument_state_projection(_NETWORK_SWEEP_STATE_LAYOUTS[0])
+@instrument_state_projection(_NETWORK_SWEEP_STATE_LAYOUT)
 class NetworkSweepPatch:
     start_frequency: Quantity = state_projection_field()
     stop_frequency: Quantity = state_projection_field()
@@ -217,7 +282,7 @@ class NetworkSweepPatch:
     s_parameter: Literal["S11", "S21", "S12", "S22"] = state_projection_field()
 
 
-@instrument_state_projection(_NETWORK_SWEEP_STATE_LAYOUTS[0])
+@instrument_state_projection(_NETWORK_SWEEP_STATE_LAYOUT)
 class NetworkSweepTarget:
     start_frequency: Quantity | ValueRef = state_projection_field()
     stop_frequency: Quantity | ValueRef = state_projection_field()
@@ -229,7 +294,7 @@ class NetworkSweepTarget:
     )
 
 
-@instrument_state_projection(_NETWORK_SWEEP_STATE_LAYOUTS[0])
+@instrument_state_projection(_NETWORK_SWEEP_STATE_LAYOUT)
 class NetworkSweepGroupTarget:
     start_frequency: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
         state_projection_field()

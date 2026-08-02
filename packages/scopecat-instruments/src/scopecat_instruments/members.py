@@ -4,17 +4,9 @@
 
 from __future__ import annotations
 
-from scopecat.sdk.instruments.declarations import declared_interface_ref
+from scopecat.sdk.instruments import InterfaceRef
 
-from scopecat_instruments.interface_declarations import (
-    DCMonitorInterface,
-    DCSourceInterface,
-    NetworkSweepInterface,
-    RFOutputInterface,
-    TemperatureReadoutInterface,
-)
-
-TEMPERATURE_READOUT = declared_interface_ref(TemperatureReadoutInterface)
+TEMPERATURE_READOUT = InterfaceRef("scopecat.temperature_readout/v1")
 TEMPERATURE_READOUT_SCAN_CHANNEL = TEMPERATURE_READOUT.property("scan_channel")
 TEMPERATURE_READOUT_AUTOSCAN_ENABLED = TEMPERATURE_READOUT.property("autoscan_enabled")
 TEMPERATURE_READOUT_SAMPLE = TEMPERATURE_READOUT.acquisition("sample")
@@ -22,12 +14,12 @@ TEMPERATURE_READOUT_TEMPERATURE_RESULT = TEMPERATURE_READOUT_SAMPLE.result(
     "temperature",
 )
 TEMPERATURE_READOUT_RESISTANCE_RESULT = TEMPERATURE_READOUT_SAMPLE.result("resistance")
-RF_OUTPUT = declared_interface_ref(RFOutputInterface)
+RF_OUTPUT = InterfaceRef("scopecat.rf_output/v1")
 RF_OUTPUT_FREQUENCY = RF_OUTPUT.property("frequency")
 RF_OUTPUT_POWER = RF_OUTPUT.property("power")
 RF_OUTPUT_ENABLED = RF_OUTPUT.property("output_enabled")
 RF_OUTPUT_REFERENCE_SOURCE = RF_OUTPUT.property("reference_source")
-DC_SOURCE = declared_interface_ref(DCSourceInterface)
+DC_SOURCE = InterfaceRef("scopecat.dc_source/v2")
 DC_SOURCE_MODE = DC_SOURCE.property("source_mode")
 DC_SOURCE_VOLTAGE_PROTECTION = DC_SOURCE.property("voltage_protection")
 DC_SOURCE_CURRENT_PROTECTION = DC_SOURCE.property("current_protection")
@@ -36,14 +28,14 @@ DC_SOURCE_VOLTAGE_RANGE = DC_SOURCE.property("voltage_range")
 DC_SOURCE_VOLTAGE_LEVEL = DC_SOURCE.property("voltage_level")
 DC_SOURCE_CURRENT_RANGE = DC_SOURCE.property("current_range")
 DC_SOURCE_CURRENT_LEVEL = DC_SOURCE.property("current_level")
-DC_MONITOR = declared_interface_ref(DCMonitorInterface)
+DC_MONITOR = InterfaceRef("scopecat.dc_monitor/v3")
 DC_MONITOR_MEASUREMENT_ENABLED = DC_MONITOR.property("measurement_enabled")
 DC_MONITOR_INTEGRATION_CYCLES = DC_MONITOR.property("integration_cycles")
 DC_MONITOR_MEASUREMENT_DELAY = DC_MONITOR.property("measurement_delay")
 DC_MONITOR_ACQUISITION = DC_MONITOR.acquisition("monitor")
 DC_MONITOR_CURRENT_RESULT = DC_MONITOR_ACQUISITION.result("monitored_current")
 DC_MONITOR_VOLTAGE_RESULT = DC_MONITOR_ACQUISITION.result("monitored_voltage")
-NETWORK_SWEEP = declared_interface_ref(NetworkSweepInterface)
+NETWORK_SWEEP = InterfaceRef("scopecat.network_sweep/v1")
 NETWORK_SWEEP_START_FREQUENCY = NETWORK_SWEEP.property("start_frequency")
 NETWORK_SWEEP_STOP_FREQUENCY = NETWORK_SWEEP.property("stop_frequency")
 NETWORK_SWEEP_POINTS = NETWORK_SWEEP.property("points")
