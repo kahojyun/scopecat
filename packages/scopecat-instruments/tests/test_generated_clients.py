@@ -17,17 +17,27 @@ if sys.argv[4] != "-":
 from generate_instrument_clients import (
     clients_for,
     clients_for_bundle,
+    facade_for_bundle,
     render_client_module,
 )
+from scopecat.sdk.instruments.declarations import declared_bundle_interfaces
 
 declarations = import_module(sys.argv[2])
 declaration = getattr(declarations, sys.argv[3])
-surface = (
-    clients_for_bundle(declaration)
-    if sys.argv[6] == "bundle"
-    else clients_for(declaration, generate_family=sys.argv[5] == "true")
-)
-print(render_client_module((surface,)), end="")
+if sys.argv[7] == "facade":
+    base, *_ = declared_bundle_interfaces(declaration)
+    surfaces = (clients_for_bundle(declaration),)
+    if sys.argv[9] == "include-base":
+        surfaces = (clients_for(base, generate_family=False), *surfaces)
+    facades = (facade_for_bundle(declaration, flag=sys.argv[8]),)
+else:
+    surfaces = (
+        clients_for_bundle(declaration)
+        if sys.argv[6] == "bundle"
+        else clients_for(declaration, generate_family=sys.argv[5] == "true"),
+    )
+    facades = ()
+print(render_client_module(surfaces, facades=facades), end="")
 """
 
 
@@ -38,6 +48,9 @@ def _render_surface(
     import_root: Path | None = FIXTURE_IMPORT_ROOT,
     generate_family: bool = True,
     bundle: bool = False,
+    facade: bool = False,
+    flag: str = "monitor",
+    include_base: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed interpreter and repository code
         [
@@ -50,6 +63,9 @@ def _render_surface(
             "-" if import_root is None else str(import_root),
             "true" if generate_family else "false",
             "bundle" if bundle else "interface",
+            "facade" if facade else "surface",
+            flag,
+            "include-base" if include_base else "omit-base",
         ],
         cwd=REPOSITORY_ROOT,
         check=False,
@@ -155,6 +171,61 @@ def test_codegen_composes_a_root_only_interface_bundle() -> None:
     assert "class SymbolicDCSourceMonitorGroup(" in completed.stdout
     assert "requires=(_DC_SOURCE_REF, _DC_MONITOR_REF)," in completed.stdout
     assert "compile_interface(DCSourceMonitorInterface)" not in completed.stdout
+
+
+def test_codegen_renders_a_two_interface_boolean_facade() -> None:
+    completed = _render_surface(
+        "DCSourceMonitorInterface",
+        module="scopecat_instruments.interface_declarations",
+        import_root=None,
+        facade=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-dc-source-facade>", "exec")
+    assert completed.stdout.count("@overload") == 9
+    assert "monitor: Literal[False] = False" in completed.stdout
+    assert "monitor: Literal[True]" in completed.stdout
+    assert completed.stdout.count("monitor: bool,") == 3
+    assert "PerEntity[bool]" not in completed.stdout
+    assert "def dc_source(" in completed.stdout
+    assert '"dc_source"' in completed.stdout
+    assert "requires=(_DC_SOURCE_REF,)" in completed.stdout
+    assert "requires=(_DC_SOURCE_REF, _DC_MONITOR_REF)" in completed.stdout
+
+
+def test_codegen_rejects_a_facade_without_its_base_surface() -> None:
+    completed = _render_surface(
+        "DCSourceMonitorInterface",
+        module="scopecat_instruments.interface_declarations",
+        import_root=None,
+        facade=True,
+        include_base=False,
+    )
+
+    assert completed.returncode != 0
+    assert "requires its first constituent" in completed.stderr
+    assert "as a generated base surface" in completed.stderr
+
+
+def test_codegen_rejects_a_facade_for_more_than_two_interfaces() -> None:
+    completed = _render_surface("ThreePartBundleInterface", facade=True)
+
+    assert completed.returncode != 0
+    assert "requires exactly two interfaces" in completed.stderr
+
+
+def test_codegen_reserves_fixed_facade_parameters() -> None:
+    completed = _render_surface(
+        "DCSourceMonitorInterface",
+        module="scopecat_instruments.interface_declarations",
+        import_root=None,
+        facade=True,
+        flag="for_",
+    )
+
+    assert completed.returncode != 0
+    assert "bundle facade flag reserves factory parameter 'for_'" in completed.stderr
 
 
 def test_codegen_rejects_bundle_components() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import keyword
 import re
 import sys
 import types
@@ -55,6 +56,7 @@ FIXTURE_INTERFACES_OUTPUT = (
 )
 FIXTURE_STATES_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_state_catalog_fixture.py"
 _TYPING_UNION_ORIGIN: object = typing.Union  # pyright: ignore[reportDeprecated]
+_FACADE_PARAMETER_NAMES = frozenset({"instrument_id", "resource_id", "for_"})
 
 
 class ClientGenerationError(ValueError):
@@ -79,6 +81,14 @@ class BundleClientSurface:
 
 
 type GenerationSurface = ClientSurface | BundleClientSurface
+
+
+@dataclass(frozen=True, slots=True)
+class BundleFlagFacade:
+    """One boolean facade selecting a base interface or its two-part bundle."""
+
+    bundle_type: type[object]
+    flag_name: str
 
 
 def clients_for(
@@ -111,12 +121,24 @@ def clients_for_bundle(
     )
 
 
+def facade_for_bundle(
+    bundle_type: type[object],
+    /,
+    *,
+    flag: str,
+) -> BundleFlagFacade:
+    """Select one two-interface bundle behind a boolean factory flag."""
+
+    return BundleFlagFacade(bundle_type=bundle_type, flag_name=flag)
+
+
 @dataclass(frozen=True, slots=True)
 class GenerationTarget:
     """One independently importable generated module and its declarations."""
 
     output: Path
     surfaces: tuple[GenerationSurface, ...]
+    facades: tuple[BundleFlagFacade, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +177,7 @@ PRODUCTION_TARGET = GenerationTarget(
         clients_for_bundle(DCSourceMonitorInterface),
         clients_for(NetworkSweepInterface),
     ),
+    facades=(facade_for_bundle(DCSourceMonitorInterface, flag="monitor"),),
 )
 
 PRODUCTION_CATALOG_TARGET = CatalogTarget(
@@ -352,6 +375,14 @@ class _InterfaceModel:
     @property
     def needs_layout(self) -> bool:
         return any(constituent.needs_layout for constituent in self.constituents)
+
+
+@dataclass(frozen=True, slots=True)
+class _BundleFlagFacadeModel:
+    factory_name: str
+    flag_name: str
+    base: _InterfaceModel
+    bundle: _InterfaceModel
 
 
 @dataclass(frozen=True, slots=True)
@@ -794,10 +825,14 @@ def _render_states_module(
 def render_generation_target(target: GenerationTarget) -> str:
     """Render one configured generated module."""
 
-    return render_client_module(target.surfaces)
+    return render_client_module(target.surfaces, facades=target.facades)
 
 
-def render_client_module(surfaces: tuple[GenerationSurface, ...]) -> str:
+def render_client_module(
+    surfaces: tuple[GenerationSurface, ...],
+    *,
+    facades: tuple[BundleFlagFacade, ...] = (),
+) -> str:
     """Render an independently importable module for selected declarations."""
 
     renderer = _AnnotationRenderer()
@@ -806,10 +841,11 @@ def render_client_module(surfaces: tuple[GenerationSurface, ...]) -> str:
     )
     if not models:
         raise ClientGenerationError("a generated client module requires a declaration")
-    _validate_generated_symbols(models)
+    facade_models = _bundle_flag_facade_models(facades, models=models)
+    _validate_generated_symbols(models, facades=facade_models)
 
     sections = [
-        _render_header(models, renderer=renderer),
+        _render_header(models, facades=facade_models, renderer=renderer),
         _render_interface_refs(models),
         _render_descriptors(models),
     ]
@@ -824,7 +860,8 @@ def render_client_module(surfaces: tuple[GenerationSurface, ...]) -> str:
                 _render_family(model),
             )
         )
-    sections.append(_render_exports(models))
+    sections.append(_render_bundle_flag_facades(facade_models))
+    sections.append(_render_exports(models, facades=facade_models))
     return "".join(sections)
 
 
@@ -999,7 +1036,67 @@ def _constituent_model(
     )
 
 
-def _validate_generated_symbols(models: tuple[_InterfaceModel, ...]) -> None:
+def _bundle_flag_facade_models(
+    facades: tuple[BundleFlagFacade, ...],
+    *,
+    models: tuple[_InterfaceModel, ...],
+) -> tuple[_BundleFlagFacadeModel, ...]:
+    models_by_identity = {model.interface_identity: model for model in models}
+    resolved: list[_BundleFlagFacadeModel] = []
+    for facade in facades:
+        if not facade.flag_name.isidentifier() or keyword.iskeyword(facade.flag_name):
+            raise ClientGenerationError(
+                f"bundle facade flag must be a Python identifier: {facade.flag_name!r}"
+            )
+        if facade.flag_name in _FACADE_PARAMETER_NAMES:
+            raise ClientGenerationError(
+                f"bundle facade flag reserves factory parameter {facade.flag_name!r}"
+            )
+        bundle_type = facade.bundle_type
+        bundle_identity = f"{bundle_type.__module__}.{bundle_type.__qualname__}"
+        constituent_types = declared_bundle_interfaces(bundle_type)
+        if len(constituent_types) != 2:
+            raise ClientGenerationError(
+                f"bundle facade {bundle_identity} requires exactly two interfaces"
+            )
+        base_type, _ = constituent_types
+        base_identity = f"{base_type.__module__}.{base_type.__qualname__}"
+        base = models_by_identity.get(base_identity)
+        if base is None or len(base.constituents) != 1:
+            raise ClientGenerationError(
+                f"bundle facade {bundle_identity} requires its first constituent "
+                f"{base_identity} as a generated base surface"
+            )
+        bundle = models_by_identity.get(bundle_identity)
+        if bundle is None or tuple(
+            constituent.interface_identity for constituent in bundle.constituents
+        ) != tuple(
+            f"{interface_type.__module__}.{interface_type.__qualname__}"
+            for interface_type in constituent_types
+        ):
+            raise ClientGenerationError(
+                f"bundle facade {bundle_identity} requires a generated bundle surface"
+            )
+        if base.generate_family:
+            raise ClientGenerationError(
+                f"bundle facade base {base_identity} must disable its ordinary family"
+            )
+        resolved.append(
+            _BundleFlagFacadeModel(
+                factory_name=base.factory_name,
+                flag_name=facade.flag_name,
+                base=base,
+                bundle=bundle,
+            )
+        )
+    return tuple(resolved)
+
+
+def _validate_generated_symbols(
+    models: tuple[_InterfaceModel, ...],
+    *,
+    facades: tuple[_BundleFlagFacadeModel, ...] = (),
+) -> None:
     owners_by_symbol: dict[str, list[str]] = {}
 
     def register(symbol: str, owner: str) -> None:
@@ -1061,6 +1158,12 @@ def _validate_generated_symbols(models: tuple[_InterfaceModel, ...]) -> None:
                     acquisition.products_name,
                     f"{acquisition_owner} symbolic results",
                 )
+
+    for facade in facades:
+        register(
+            facade.factory_name,
+            f"{facade.bundle.interface_identity} boolean facade",
+        )
 
     collisions = {
         symbol: owners for symbol, owners in owners_by_symbol.items() if len(owners) > 1
@@ -1200,6 +1303,7 @@ def _acquisition_model(
 def _render_header(
     models: tuple[_InterfaceModel, ...],
     *,
+    facades: tuple[_BundleFlagFacadeModel, ...],
     renderer: _AnnotationRenderer,
 ) -> str:
     scopes = tuple(scope for model in models for scope in _walk_scopes(model.root))
@@ -1214,6 +1318,10 @@ def _render_header(
         "scopecat.authoring": {"EachEntity", "OneEntity"},
         "scopecat_instruments._symbolic_runtime": {"SymbolicInstrumentRecorder"},
     }
+    if facades:
+        imports["typing"] = {"Literal", "overload"}
+        imports["scopecat.api._instruments"] = {"InstrumentRef", "instrument"}
+        imports["scopecat.authoring"].add("EntitySelection")
     if any(model.generate_family for model in models):
         imports["scopecat_instruments._family_runtime"] = {"InstrumentFamily"}
     imports["scopecat.sdk.instruments.declarations"] = {"declared_interface_ref"}
@@ -1249,7 +1357,7 @@ def _render_header(
     if has_operations:
         imports.setdefault("scopecat.sdk.instruments", set()).add("InvokeReceipt")
     if has_observations:
-        imports["typing"] = {"cast"}
+        imports.setdefault("typing", set()).add("cast")
         imports["scopecat.sdk.instruments.declarations"].add("DeclaredObservedState")
     if has_components:
         imports["scopecat_instruments._client_runtime"].add(
@@ -1879,7 +1987,151 @@ def _render_family(model: _InterfaceModel) -> str:
     )
 
 
-def _render_exports(models: tuple[_InterfaceModel, ...]) -> str:
+def _render_bundle_flag_facades(
+    facades: tuple[_BundleFlagFacadeModel, ...],
+) -> str:
+    rendered = "".join(_render_bundle_flag_facade(facade) for facade in facades)
+    return rendered + ("\n" if rendered else "")
+
+
+def _render_bundle_flag_facade(facade: _BundleFlagFacadeModel) -> str:
+    name = facade.factory_name
+    flag = facade.flag_name
+    base = facade.base
+    bundle = facade.bundle
+    base_live = f"InstrumentRef[{base.live_client_name}]"
+    bundle_live = f"InstrumentRef[{bundle.live_client_name}]"
+    return (
+        "\n\n@overload\n"
+        f"def {name}(\n"
+        "    instrument_id: str,\n"
+        "    *,\n"
+        f"    {flag}: Literal[False] = False,\n"
+        f") -> {base_live}: ...\n"
+        "\n\n@overload\n"
+        f"def {name}(\n"
+        "    instrument_id: str,\n"
+        "    *,\n"
+        f"    {flag}: Literal[True],\n"
+        f") -> {bundle_live}: ...\n"
+        "\n\n@overload\n"
+        f"def {name}(\n"
+        "    instrument_id: str,\n"
+        "    *,\n"
+        f"    {flag}: bool,\n"
+        f") -> {base_live} | {bundle_live}: ...\n"
+        "\n\n@overload\n"
+        f"def {name}(\n"
+        "    instrument_id: SymbolicInstrumentRecorder,\n"
+        "    resource_id: str,\n"
+        "    *,\n"
+        "    for_: EachEntity,\n"
+        f"    {flag}: Literal[False] = False,\n"
+        f") -> {base.symbolic_group_name}: ...\n"
+        "\n\n@overload\n"
+        f"def {name}(\n"
+        "    instrument_id: SymbolicInstrumentRecorder,\n"
+        "    resource_id: str,\n"
+        "    *,\n"
+        "    for_: EachEntity,\n"
+        f"    {flag}: Literal[True],\n"
+        f") -> {bundle.symbolic_group_name}: ...\n"
+        "\n\n@overload\n"
+        f"def {name}(\n"
+        "    instrument_id: SymbolicInstrumentRecorder,\n"
+        "    resource_id: str,\n"
+        "    *,\n"
+        "    for_: EachEntity,\n"
+        f"    {flag}: bool,\n"
+        f") -> {base.symbolic_group_name} | {bundle.symbolic_group_name}: ...\n"
+        "\n\n@overload\n"
+        f"def {name}(\n"
+        "    instrument_id: SymbolicInstrumentRecorder,\n"
+        "    resource_id: str,\n"
+        "    *,\n"
+        "    for_: OneEntity | None = None,\n"
+        f"    {flag}: Literal[False] = False,\n"
+        f") -> {base.symbolic_client_name}: ...\n"
+        "\n\n@overload\n"
+        f"def {name}(\n"
+        "    instrument_id: SymbolicInstrumentRecorder,\n"
+        "    resource_id: str,\n"
+        "    *,\n"
+        "    for_: OneEntity | None = None,\n"
+        f"    {flag}: Literal[True],\n"
+        f") -> {bundle.symbolic_client_name}: ...\n"
+        "\n\n@overload\n"
+        f"def {name}(\n"
+        "    instrument_id: SymbolicInstrumentRecorder,\n"
+        "    resource_id: str,\n"
+        "    *,\n"
+        "    for_: OneEntity | None = None,\n"
+        f"    {flag}: bool,\n"
+        f") -> {base.symbolic_client_name} | {bundle.symbolic_client_name}: ...\n"
+        "\n\n"
+        f"def {name}(\n"
+        "    instrument_id: str | SymbolicInstrumentRecorder,\n"
+        "    resource_id: str | None = None,\n"
+        "    *,\n"
+        "    for_: EntitySelection | None = None,\n"
+        f"    {flag}: bool = False,\n"
+        ") -> (\n"
+        f"    {base_live}\n"
+        f"    | {bundle_live}\n"
+        f"    | {base.symbolic_client_name}\n"
+        f"    | {base.symbolic_group_name}\n"
+        f"    | {bundle.symbolic_client_name}\n"
+        f"    | {bundle.symbolic_group_name}\n"
+        "):\n"
+        "    if isinstance(instrument_id, str):\n"
+        "        if resource_id is not None or for_ is not None:\n"
+        '            raise TypeError("live instrument clients only accept an '
+        'instrument id")\n'
+        f"        if {flag}:\n"
+        "            return instrument(\n"
+        "                instrument_id,\n"
+        f"                {bundle.live_client_name},\n"
+        f"                requires={bundle.requires_expression},\n"
+        "            )\n"
+        "        return instrument(\n"
+        "            instrument_id,\n"
+        f"            {base.live_client_name},\n"
+        f"            requires={base.requires_expression},\n"
+        "        )\n"
+        "    if resource_id is None:\n"
+        '        raise TypeError("symbolic instrument clients require a logical '
+        'resource id")\n'
+        "    if isinstance(for_, EachEntity):\n"
+        f"        if {flag}:\n"
+        f"            return {bundle.symbolic_group_name}(\n"
+        "                instrument_id,\n"
+        "                resource_id,\n"
+        "                for_=for_,\n"
+        "            )\n"
+        f"        return {base.symbolic_group_name}(\n"
+        "            instrument_id,\n"
+        "            resource_id,\n"
+        "            for_=for_,\n"
+        "        )\n"
+        f"    if {flag}:\n"
+        f"        return {bundle.symbolic_client_name}(\n"
+        "            instrument_id,\n"
+        "            resource_id,\n"
+        "            for_=for_,\n"
+        "        )\n"
+        f"    return {base.symbolic_client_name}(\n"
+        "        instrument_id,\n"
+        "        resource_id,\n"
+        "        for_=for_,\n"
+        "    )\n"
+    )
+
+
+def _render_exports(
+    models: tuple[_InterfaceModel, ...],
+    *,
+    facades: tuple[_BundleFlagFacadeModel, ...] = (),
+) -> str:
     exports: set[str] = set()
     for model in models:
         if model.generate_family:
@@ -1896,6 +2148,7 @@ def _render_exports(models: tuple[_InterfaceModel, ...]) -> str:
             )
             for acquisition in scope.acquisitions:
                 exports.update({acquisition.products_name, acquisition.readback_name})
+    exports.update(facade.factory_name for facade in facades)
     return (
         "\n__all__ = [\n"
         + "".join(f'    "{name}",\n' for name in sorted(exports))

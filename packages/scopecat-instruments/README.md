@@ -109,9 +109,11 @@ transient transport failure.
 Decorated Python interface declarations are the shared source for the wire
 contract and supported typed clients. The committed production output covers
 complete `TemperatureReadout`, `RFOutput`, and `NetworkSweep` families, plus the
-source-only `DCSource` live, symbolic single-entity, and group client classes in
-generated Python source. Applicable observation accessors and acquisition result
-carriers are generated as well, so editors and type checkers see exact
+source-only and source-with-monitor `DCSource` live, symbolic single-entity, and
+group client classes in generated Python source. Its boolean `monitor` facade is
+generated with exact literal overloads and ordinary-`bool` union fallbacks.
+Applicable observation accessors and acquisition result carriers are generated
+as well, so editors and type checkers see exact
 signatures. Root-level flat and discriminated declared states both generate
 typed live, symbolic, and grouped state surfaces. The generator manifest refers
 to the decorated interface classes themselves; declaration modules do not need
@@ -138,9 +140,12 @@ identity joins for all mappings before recording any effect, and then records
 one scalar invocation per entity. Mapping order is therefore irrelevant, while
 missing or extra entity identities fail before partial effects are created.
 
-The optional `DCSource`/`DCMonitor` two-interface composition and its public
-`dc_source(..., monitor=...)` flag-dispatching facade remain hand-written because
-the required capabilities and return types are policy beyond one declaration.
+The optional `DCSource`/`DCMonitor` surface is an ordered, member-free Protocol
+bundle over the two existing wire interfaces. The generator merges their root
+state and acquisition surfaces and emits `dc_source(..., monitor=...)`; the flag
+selects one capability set for the whole group, while complete states may still
+be broadcast or mapped exactly by entity.
+
 Payload-bearing operations are rejected until their schema-specific live and
 symbolic carriers are defined. Component-owned state and component acquisitions
 also remain outside the current generated surface.

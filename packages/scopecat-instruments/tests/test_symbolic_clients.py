@@ -106,6 +106,54 @@ def test_dc_source_symbolic_exports_are_generated() -> None:
     assert SymbolicDCSourceMonitorGroup is GeneratedSymbolicDCSourceMonitorGroup
 
 
+def test_dc_source_literal_monitor_overloads_cover_scalar_and_group() -> None:
+    context = ModuleContext()
+    q0 = EntityRef(id="q0", kind="logical_device")
+    selection = each(q0)
+
+    scalar = dc_source(context, "scalar", monitor=False)
+    scalar_monitor = dc_source(context, "scalar-monitor", monitor=True)
+    group = dc_source(context, "group", for_=selection, monitor=False)
+    group_monitor = dc_source(
+        context,
+        "group-monitor",
+        for_=selection,
+        monitor=True,
+    )
+
+    assert_type(scalar, SymbolicDCSourceClient)
+    assert_type(scalar_monitor, SymbolicDCSourceMonitorClient)
+    assert_type(group, SymbolicDCSourceGroup)
+    assert_type(group_monitor, SymbolicDCSourceMonitorGroup)
+
+
+@pytest.mark.parametrize("monitor", [False, True])
+def test_dc_source_dynamic_symbolic_monitor_dispatch(monitor: bool) -> None:
+    context = ModuleContext()
+    q0 = EntityRef(id="q0", kind="logical_device")
+    scalar = assert_type(
+        dc_source(context, "scalar", monitor=monitor),
+        SymbolicDCSourceClient | SymbolicDCSourceMonitorClient,
+    )
+    group = assert_type(
+        dc_source(context, "group", for_=each(q0), monitor=monitor),
+        SymbolicDCSourceGroup | SymbolicDCSourceMonitorGroup,
+    )
+
+    if monitor:
+        assert type(scalar) is SymbolicDCSourceMonitorClient
+        assert type(group) is SymbolicDCSourceMonitorGroup
+        required = (DC_SOURCE.interface_id, DC_MONITOR.interface_id)
+    else:
+        assert type(scalar) is SymbolicDCSourceClient
+        assert type(group) is SymbolicDCSourceGroup
+        required = (DC_SOURCE.interface_id,)
+    interface, _, _ = context.close_experiment_parts_internal()
+    assert all(
+        resource.selector.interfaces == required for resource in interface.resources
+    )
+
+
 def test_one_concrete_entity_lowers_to_one_literal_entity_input() -> None:
     context = ModuleContext()
     q0 = EntityRef(id="q0", kind="logical_device")

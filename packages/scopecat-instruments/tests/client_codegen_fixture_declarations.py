@@ -111,6 +111,15 @@ class MethodMergeBundleInterface(
 
 
 @instrument_bundle
+class ThreePartBundleInterface(
+    BundleMethodLeftInterface,
+    BundleMethodPeerInterface,
+    BundlePeerInterface,
+    Protocol,
+): ...
+
+
+@instrument_bundle
 class MethodCollisionBundleInterface(
     BundleMethodLeftInterface,
     BundleMethodRightInterface,
@@ -201,5 +210,6 @@ __all__ = [
     "OutputCapability",
     "PayloadOperationInterface",
     "SymbolCollisionInterface",
+    "ThreePartBundleInterface",
     "TriggerCapability",
 ]

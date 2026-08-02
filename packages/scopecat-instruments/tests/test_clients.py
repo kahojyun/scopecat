@@ -43,6 +43,7 @@ from scopecat_instruments._generated_clients import (
 from scopecat_instruments._generated_clients import (
     DCSourceMonitorClient as GeneratedDCSourceMonitorClient,
 )
+from scopecat_instruments._generated_clients import dc_source as generated_dc_source
 from scopecat_instruments.interface_declarations import (
     TemperatureReadoutInterface,
 )
@@ -152,6 +153,22 @@ def test_first_party_factories_retain_static_client_types() -> None:
 def test_dc_source_live_clients_are_generated() -> None:
     assert DCSourceClient is GeneratedDCSourceClient
     assert DCSourceMonitorClient is GeneratedDCSourceMonitorClient
+    assert dc_source is generated_dc_source
+
+
+@pytest.mark.parametrize("monitor", [False, True])
+def test_live_dc_source_dynamic_monitor_dispatch(monitor: bool) -> None:
+    source = assert_type(
+        dc_source("dynamic-flux-source", monitor=monitor),
+        InstrumentRef[DCSourceClient] | InstrumentRef[DCSourceMonitorClient],
+    )
+
+    if monitor:
+        assert source.client_factory is DCSourceMonitorClient
+        assert source.requires == (DC_SOURCE, DC_MONITOR)
+    else:
+        assert source.client_factory is DCSourceClient
+        assert source.requires == (DC_SOURCE,)
 
 
 def test_generated_dc_source_live_client_applies_discriminated_state() -> None:
@@ -279,9 +296,12 @@ def test_temperature_observation_descriptor_and_top_level_export_are_shared() ->
 
 
 def test_live_dc_monitor_selection_requires_the_combined_capability() -> None:
+    source_only = dc_source("source-only", monitor=False)
     source = dc_source("flux-source", monitor=True)
 
+    assert_type(source_only, InstrumentRef[DCSourceClient])
     assert_type(source, InstrumentRef[DCSourceMonitorClient])
+    assert source_only.requires == (DC_SOURCE,)
     assert source.requires == (DC_SOURCE, DC_MONITOR)
 
 

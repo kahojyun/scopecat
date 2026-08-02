@@ -5,9 +5,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Literal, cast, overload
 
-from scopecat.authoring import EachEntity, OneEntity, PerEntity, ProductRef
+from scopecat.api._instruments import InstrumentRef, instrument
+from scopecat.authoring import (
+    EachEntity,
+    EntitySelection,
+    OneEntity,
+    PerEntity,
+    ProductRef,
+)
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import CollectReceipt
 from scopecat.sdk.instruments.declarations import (
@@ -446,6 +453,146 @@ network_sweep: InstrumentFamily[
     requires=(_NETWORK_SWEEP_REF,),
 )
 
+
+@overload
+def dc_source(
+    instrument_id: str,
+    *,
+    monitor: Literal[False] = False,
+) -> InstrumentRef[DCSourceClient]: ...
+
+
+@overload
+def dc_source(
+    instrument_id: str,
+    *,
+    monitor: Literal[True],
+) -> InstrumentRef[DCSourceMonitorClient]: ...
+
+
+@overload
+def dc_source(
+    instrument_id: str,
+    *,
+    monitor: bool,
+) -> InstrumentRef[DCSourceClient] | InstrumentRef[DCSourceMonitorClient]: ...
+
+
+@overload
+def dc_source(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_: EachEntity,
+    monitor: Literal[False] = False,
+) -> SymbolicDCSourceGroup: ...
+
+
+@overload
+def dc_source(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_: EachEntity,
+    monitor: Literal[True],
+) -> SymbolicDCSourceMonitorGroup: ...
+
+
+@overload
+def dc_source(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_: EachEntity,
+    monitor: bool,
+) -> SymbolicDCSourceGroup | SymbolicDCSourceMonitorGroup: ...
+
+
+@overload
+def dc_source(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_: OneEntity | None = None,
+    monitor: Literal[False] = False,
+) -> SymbolicDCSourceClient: ...
+
+
+@overload
+def dc_source(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_: OneEntity | None = None,
+    monitor: Literal[True],
+) -> SymbolicDCSourceMonitorClient: ...
+
+
+@overload
+def dc_source(
+    instrument_id: SymbolicInstrumentRecorder,
+    resource_id: str,
+    *,
+    for_: OneEntity | None = None,
+    monitor: bool,
+) -> SymbolicDCSourceClient | SymbolicDCSourceMonitorClient: ...
+
+
+def dc_source(
+    instrument_id: str | SymbolicInstrumentRecorder,
+    resource_id: str | None = None,
+    *,
+    for_: EntitySelection | None = None,
+    monitor: bool = False,
+) -> (
+    InstrumentRef[DCSourceClient]
+    | InstrumentRef[DCSourceMonitorClient]
+    | SymbolicDCSourceClient
+    | SymbolicDCSourceGroup
+    | SymbolicDCSourceMonitorClient
+    | SymbolicDCSourceMonitorGroup
+):
+    if isinstance(instrument_id, str):
+        if resource_id is not None or for_ is not None:
+            raise TypeError("live instrument clients only accept an instrument id")
+        if monitor:
+            return instrument(
+                instrument_id,
+                DCSourceMonitorClient,
+                requires=(_DC_SOURCE_REF, _DC_MONITOR_REF),
+            )
+        return instrument(
+            instrument_id,
+            DCSourceClient,
+            requires=(_DC_SOURCE_REF,),
+        )
+    if resource_id is None:
+        raise TypeError("symbolic instrument clients require a logical resource id")
+    if isinstance(for_, EachEntity):
+        if monitor:
+            return SymbolicDCSourceMonitorGroup(
+                instrument_id,
+                resource_id,
+                for_=for_,
+            )
+        return SymbolicDCSourceGroup(
+            instrument_id,
+            resource_id,
+            for_=for_,
+        )
+    if monitor:
+        return SymbolicDCSourceMonitorClient(
+            instrument_id,
+            resource_id,
+            for_=for_,
+        )
+    return SymbolicDCSourceClient(
+        instrument_id,
+        resource_id,
+        for_=for_,
+    )
+
+
 __all__ = [
     "DCMonitorProducts",
     "DCMonitorReadback",
@@ -469,6 +616,7 @@ __all__ = [
     "TemperatureReadoutClient",
     "TemperatureReadoutObservation",
     "TemperatureSampleProducts",
+    "dc_source",
     "network_sweep",
     "rf_output",
     "temperature_readout",

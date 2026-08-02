@@ -316,6 +316,7 @@ import scopecat as sc
 from scopecat.sdk.instruments.declarations import (
     acquisition,
     axis,
+    instrument_bundle,
     instrument_interface,
     instrument_result,
     instrument_state,
@@ -397,11 +398,14 @@ protocol. Instrument packages provide the small typed finalization adapter;
 
 This declaration layer generates the stable contract and refs, but it does not
 invent session behavior. A typed factory still defines whether an action is
-live or symbolic, how optional interface combinations such as DC monitoring
-are exposed, and how `each(...)` fans one logical operation out to independently
-routable resources. The compiler covers persistent flat and discriminated
-scalar state, read-only observed state, typed atomic operations, fixed and
-state-discriminated acquisitions, axes, results, preconditions, and nested
+live or symbolic, while a small typed generation manifest defines how optional
+interface combinations are exposed. `@instrument_bundle` marks an ordered,
+member-free Protocol intersection; it composes existing interfaces without
+creating a third wire interface, and `compile_interface(...)` rejects it. The
+factory also defines how `each(...)` fans one logical operation out to
+independently routable resources. The compiler covers persistent flat and
+discriminated scalar state, read-only observed state, typed atomic operations,
+fixed and state-discriminated acquisitions, axes, results, preconditions, and nested
 method capabilities. Explicit contract builders remain the escape hatch for
 component-owned state or properties, combining observed and discriminated state,
 and other unusual contract shapes.
@@ -416,15 +420,18 @@ source deterministically. Generated modules derive interface refs directly from
 those classes; interfaces that only declare persistent state therefore do not
 compile a layout again when the generated module is imported. The production
 target generates complete `TemperatureReadout`, `RFOutput`, and `NetworkSweep`
-families, plus the source-only `DCSource` live, symbolic single-entity, and group
-client classes. Generated source also includes applicable observation accessors
-and acquisition result carriers. Root-level flat and discriminated declared
-states both produce typed `apply(...)`, `ensure(...)`, and group state surfaces.
+families, plus source-only and source-with-monitor `DCSource` live, symbolic
+single-entity, and group clients. The generated `dc_source(..., monitor=...)`
+facade selects those two typed surfaces. Generated source also includes
+applicable observation accessors and acquisition result carriers. Root-level
+flat and discriminated declared states both produce typed `apply(...)`,
+`ensure(...)`, and group state surfaces.
 The same catalog pass writes the public `members.py`, `interfaces.py`, and
 `states.py` projections: refs recurse through components and operations,
 interface factories return fresh wire specs, and state exports preserve the
 authored Python type identities. These projections are generated source rather
 than a second authoring surface.
+
 Regenerate the committed Python surfaces, or verify that they are current, with:
 
 ```console
@@ -442,10 +449,24 @@ argument. The group aligns every argument before recording any invocation, then
 emits one ordinary scalar effect per child resource. Alignment is an exact join
 by entity identity, not by input order.
 
-The optional `DCSource`/`DCMonitor` two-interface composition remains
-hand-written. Its public `dc_source(..., monitor=...)` facade selects different
-required capabilities and return types; this policy is not implied by either
-interface declaration alone.
+The optional DC monitor is declared using ordinary Protocol inheritance:
+
+```python
+@instrument_bundle
+class DCSourceMonitorInterface(
+    DCSourceInterface,
+    DCMonitorInterface,
+    Protocol,
+): ...
+```
+
+The generator treats the first constituent as the base surface and emits the
+boolean `monitor` facade policy. Literal `False` and `True` calls retain exact
+return types; a runtime `bool` returns the corresponding union. The flag chooses
+one capability set for the whole group rather than becoming
+`PerEntity[bool]`. Each child still has its own resource and discriminator state,
+so one group can map complete voltage/current states per entity and produce the
+mode-appropriate monitor result for each.
 
 This source generator intentionally supports concrete declaration shapes rather
 than claiming every compiled interface shape. Payload-bearing operations are
