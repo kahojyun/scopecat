@@ -7,13 +7,11 @@ from typing import Literal, Protocol
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.declarations import (
-    DeclaredAcquisition,
     acquisition,
     acquisition_case,
     axis,
-    compile_interface,
-    declared_acquisition,
     discriminated_state,
+    instrument_bundle,
     instrument_interface,
     instrument_observed_state,
     instrument_result,
@@ -214,12 +212,12 @@ class DCMonitorInterface(Protocol):
     def monitor(self) -> DCMonitorResults[float]: ...
 
 
-DC_MONITOR_ACQUISITION_DECLARATION: DeclaredAcquisition[DCMonitorResults[float]] = (
-    declared_acquisition(
-        compile_interface(DCMonitorInterface),
-        DCMonitorInterface.monitor,
-    )
-)
+@instrument_bundle
+class DCSourceMonitorInterface(
+    DCSourceInterface,
+    DCMonitorInterface,
+    Protocol,
+): ...
 
 
 @instrument_observed_state
@@ -395,12 +393,12 @@ class NetworkSweepInterface(Protocol):
 
 
 __all__ = [
-    "DC_MONITOR_ACQUISITION_DECLARATION",
     "DCMonitorInterface",
     "DCMonitorResults",
     "DCMonitorState",
     "DCSourceCurrent",
     "DCSourceInterface",
+    "DCSourceMonitorInterface",
     "DCSourceState",
     "DCSourceVoltage",
     "Desired",

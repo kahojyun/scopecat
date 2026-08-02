@@ -26,6 +26,7 @@ from scopecat.program.module import ModuleAcquireEffect
 from scopecat_instruments import (
     DCMonitorProducts,
     DCMonitorState,
+    DCSourceCurrent,
     DCSourceState,
     DCSourceVoltage,
     NetworkSweepProducts,
@@ -53,6 +54,12 @@ from scopecat_instruments._generated_clients import (
 )
 from scopecat_instruments._generated_clients import (
     SymbolicDCSourceGroup as GeneratedSymbolicDCSourceGroup,
+)
+from scopecat_instruments._generated_clients import (
+    SymbolicDCSourceMonitorClient as GeneratedSymbolicDCSourceMonitorClient,
+)
+from scopecat_instruments._generated_clients import (
+    SymbolicDCSourceMonitorGroup as GeneratedSymbolicDCSourceMonitorGroup,
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
@@ -95,6 +102,8 @@ def test_factories_bind_typed_symbolic_clients_and_declare_resources() -> None:
 def test_dc_source_symbolic_exports_are_generated() -> None:
     assert SymbolicDCSourceClient is GeneratedSymbolicDCSourceClient
     assert SymbolicDCSourceGroup is GeneratedSymbolicDCSourceGroup
+    assert SymbolicDCSourceMonitorClient is GeneratedSymbolicDCSourceMonitorClient
+    assert SymbolicDCSourceMonitorGroup is GeneratedSymbolicDCSourceMonitorGroup
 
 
 def test_one_concrete_entity_lowers_to_one_literal_entity_input() -> None:
@@ -488,6 +497,54 @@ def test_dc_monitor_group_selection_retains_monitor_verbs() -> None:
     assert_type(sources, SymbolicDCSourceMonitorGroup)
     assert_type(sources[q0], SymbolicDCSourceMonitorClient)
     assert hasattr(sources, "monitor")
+
+
+def test_dc_monitor_group_uses_each_entity_source_discriminator() -> None:
+    context = ModuleContext()
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+    sources = dc_source(
+        context,
+        "flux",
+        for_=each(q0, q1),
+        monitor=True,
+    )
+    sources.ensure(
+        PerEntity(
+            (
+                (
+                    q1,
+                    DCSourceCurrent(
+                        range=Quantity(1.0, "A"),
+                        level=Quantity(0.02, "A"),
+                    ),
+                ),
+                (
+                    q0,
+                    DCSourceVoltage(
+                        range=Quantity(1.0, "V"),
+                        level=Quantity(0.03, "V"),
+                    ),
+                ),
+            )
+        )
+    )
+    sources.ensure(DCMonitorState(measurement_enabled=True))
+
+    samples = sources.monitor()
+
+    assert_type(samples, PerEntity[DCMonitorProducts])
+    assert samples[q0].current is not None
+    assert samples[q0].voltage is None
+    assert samples[q1].current is None
+    assert samples[q1].voltage is not None
+    definition = context.close_definition_internal(
+        id="test.symbolic.dc-monitor-each-discriminator"
+    )
+    assert [product.id for product in definition.body.products] == [
+        "monitored_current",
+        "monitored_voltage",
+    ]
 
 
 def test_network_sweep_declares_contract_products_and_ensured_points() -> None:

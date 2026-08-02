@@ -2,28 +2,27 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Literal, overload, override
+from typing import Literal, overload
 
 from scopecat.api._instruments import (
     InstrumentRef,
     instrument,
 )
 from scopecat.authoring import EachEntity, EntitySelection, OneEntity
-from scopecat.records.measurement import MeasurementValue
-from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectReceipt,
-)
 
 from scopecat_instruments._generated_clients import (
+    DCMonitorProducts,
+    DCMonitorReadback,
     DCSourceClient,
+    DCSourceMonitorClient,
     NetworkSweepClient,
     NetworkSweepProducts,
     NetworkSweepReadback,
     RFOutputClient,
     SymbolicDCSourceClient,
     SymbolicDCSourceGroup,
+    SymbolicDCSourceMonitorClient,
+    SymbolicDCSourceMonitorGroup,
     SymbolicNetworkSweepClient,
     SymbolicNetworkSweepGroup,
     SymbolicRFOutputClient,
@@ -38,48 +37,11 @@ from scopecat_instruments._generated_clients import (
     rf_output,
     temperature_readout,
 )
-from scopecat_instruments.interface_declarations import (
-    DC_MONITOR_ACQUISITION_DECLARATION,
-    DCMonitorResults,
-)
+from scopecat_instruments._symbolic_runtime import SymbolicInstrumentRecorder
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
 )
-from scopecat_instruments.states import (
-    DCMonitorState,
-    DCSourceCurrent,
-    DCSourceState,
-    DCSourceVoltage,
-)
-from scopecat_instruments.symbolic import (
-    DCMonitorProducts,
-    SymbolicDCSourceMonitorClient,
-    SymbolicDCSourceMonitorGroup,
-    SymbolicInstrumentRecorder,
-)
-
-
-@dataclass(frozen=True, slots=True)
-class DCMonitorReadback(DCMonitorResults[MeasurementValue]):
-    """Named mode-dependent monitor results plus their effect receipt."""
-
-    receipt: CollectReceipt = field(repr=False)
-
-
-class DCSourceMonitorClient(DCSourceClient):
-    @override
-    def apply(
-        self,
-        patch: DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState,
-    ) -> ApplyReceipt:
-        return self._apply_declared(patch)
-
-    def monitor(self) -> DCMonitorReadback:
-        return self._collect_declared(
-            DC_MONITOR_ACQUISITION_DECLARATION,
-            DCMonitorReadback,
-        )
 
 
 @overload

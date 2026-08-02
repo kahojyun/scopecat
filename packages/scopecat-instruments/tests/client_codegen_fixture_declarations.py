@@ -9,6 +9,7 @@ from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.declarations import (
     argument,
     component,
+    instrument_bundle,
     instrument_interface,
     instrument_observed_state,
     instrument_state,
@@ -69,6 +70,52 @@ class ComponentOperationInterface(Protocol):
         OutputCapability,
         component(id="signal_output"),
     ]
+
+
+@instrument_interface("test.generated_bundle_peer/v1")
+class BundlePeerInterface(Protocol): ...
+
+
+@instrument_bundle
+class ComponentBundleInterface(
+    ComponentOperationInterface,
+    BundlePeerInterface,
+    Protocol,
+): ...
+
+
+@instrument_interface("test.generated_bundle_method_left/v1")
+class BundleMethodLeftInterface(Protocol):
+    @operation(id="left_fire")
+    def fire(self) -> None: ...
+
+
+@instrument_interface("test.generated_bundle_method_right/v1")
+class BundleMethodRightInterface(Protocol):
+    @operation(id="right_fire")
+    def fire(self) -> None: ...
+
+
+@instrument_interface("test.generated_bundle_method_peer/v1")
+class BundleMethodPeerInterface(Protocol):
+    @operation(id="peer_arm")
+    def arm(self) -> None: ...
+
+
+@instrument_bundle
+class MethodMergeBundleInterface(
+    BundleMethodLeftInterface,
+    BundleMethodPeerInterface,
+    Protocol,
+): ...
+
+
+@instrument_bundle
+class MethodCollisionBundleInterface(
+    BundleMethodLeftInterface,
+    BundleMethodRightInterface,
+    Protocol,
+): ...
 
 
 @instrument_interface("test.generated_payload_operation/v1")
@@ -134,14 +181,21 @@ class SymbolCollisionInterface(Protocol):
 
 
 __all__ = [
+    "BundleMethodLeftInterface",
+    "BundleMethodPeerInterface",
+    "BundleMethodRightInterface",
+    "BundlePeerInterface",
     "CatalogProjectionInterface",
     "CatalogProjectionObservation",
     "CatalogProjectionState",
+    "ComponentBundleInterface",
     "ComponentOperationInterface",
     "Desired",
     "EffectIdCollisionInterface",
     "FlatFooBarCapability",
     "LiteralOperationInterface",
+    "MethodCollisionBundleInterface",
+    "MethodMergeBundleInterface",
     "NestedBarCapability",
     "NestedFooCapability",
     "OutputCapability",

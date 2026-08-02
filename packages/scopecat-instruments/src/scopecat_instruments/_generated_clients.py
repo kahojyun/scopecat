@@ -30,6 +30,9 @@ from scopecat_instruments._symbolic_runtime import (
     SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
+    DCMonitorInterface,
+    DCMonitorResults,
+    DCMonitorState,
     DCSourceCurrent,
     DCSourceInterface,
     DCSourceState,
@@ -46,6 +49,14 @@ from scopecat_instruments.interface_declarations import (
 
 _TEMPERATURE_READOUT_REF = declared_interface_ref(TemperatureReadoutInterface)
 
+_RF_OUTPUT_REF = declared_interface_ref(RFOutputInterface)
+
+_DC_SOURCE_REF = declared_interface_ref(DCSourceInterface)
+
+_DC_MONITOR_REF = declared_interface_ref(DCMonitorInterface)
+
+_NETWORK_SWEEP_REF = declared_interface_ref(NetworkSweepInterface)
+
 _TEMPERATURE_READOUT_LAYOUT = declared_interface_layout(
     compile_interface(TemperatureReadoutInterface)
 )
@@ -56,6 +67,14 @@ _TEMPERATURE_READOUT_OBSERVATION_DECLARATION = cast(
 _TEMPERATURE_READOUT_SAMPLE_DECLARATION = _TEMPERATURE_READOUT_LAYOUT.root.acquisitions[
     0
 ]
+
+_DC_MONITOR_LAYOUT = declared_interface_layout(compile_interface(DCMonitorInterface))
+_DC_MONITOR_MONITOR_DECLARATION = _DC_MONITOR_LAYOUT.root.acquisitions[0]
+
+_NETWORK_SWEEP_LAYOUT = declared_interface_layout(
+    compile_interface(NetworkSweepInterface)
+)
+_NETWORK_SWEEP_SWEEP_DECLARATION = _NETWORK_SWEEP_LAYOUT.root.acquisitions[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,8 +174,6 @@ temperature_readout: InstrumentFamily[
     requires=(_TEMPERATURE_READOUT_REF,),
 )
 
-_RF_OUTPUT_REF = declared_interface_ref(RFOutputInterface)
-
 
 class RFOutputClient(DeclaredStateClientBase[RFOutputState]):
     pass
@@ -211,7 +228,6 @@ rf_output: InstrumentFamily[
     requires=(_RF_OUTPUT_REF,),
 )
 
-_DC_SOURCE_REF = declared_interface_ref(DCSourceInterface)
 
 type _DCSourceState = DCSourceState | DCSourceVoltage | DCSourceCurrent
 
@@ -258,12 +274,87 @@ class SymbolicDCSourceGroup(
         )
 
 
-_NETWORK_SWEEP_REF = declared_interface_ref(NetworkSweepInterface)
-
-_NETWORK_SWEEP_LAYOUT = declared_interface_layout(
-    compile_interface(NetworkSweepInterface)
+type _DCSourceMonitorState = (
+    DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState
 )
-_NETWORK_SWEEP_SWEEP_DECLARATION = _NETWORK_SWEEP_LAYOUT.root.acquisitions[0]
+
+
+@dataclass(frozen=True, slots=True)
+class DCMonitorReadback(DCMonitorResults[MeasurementValue | None]):
+    """Named monitor results plus their effect receipt."""
+
+    receipt: CollectReceipt = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class DCMonitorProducts(DCMonitorResults[ProductRef]):
+    """Typed logical products produced by monitor."""
+
+
+class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorState]):
+    def monitor(self) -> DCMonitorReadback:
+        return self._collect_declared(
+            _DC_MONITOR_MONITOR_DECLARATION,
+            DCMonitorReadback,
+        )
+
+
+class SymbolicDCSourceMonitorClient(
+    DeclaredStateSymbolicClientBase[_DCSourceMonitorState]
+):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: OneEntity | None = None,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            requires=(_DC_SOURCE_REF, _DC_MONITOR_REF),
+            for_=for_,
+        )
+
+    def monitor(
+        self,
+        *,
+        id: str | None = None,
+    ) -> DCMonitorProducts:
+        return self._acquire_declared(
+            _DC_MONITOR_MONITOR_DECLARATION,
+            DCMonitorProducts,
+            id=id,
+        )
+
+
+class SymbolicDCSourceMonitorGroup(
+    DeclaredStateSymbolicGroupBase[_DCSourceMonitorState, SymbolicDCSourceMonitorClient]
+):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: EachEntity,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            for_=for_,
+            client_factory=SymbolicDCSourceMonitorClient,
+        )
+
+    def monitor(
+        self,
+        *,
+        id: str | None = None,
+    ) -> PerEntity[DCMonitorProducts]:
+        return self._clients.map(lambda client: client.monitor(id=id))
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,13 +447,18 @@ network_sweep: InstrumentFamily[
 )
 
 __all__ = [
+    "DCMonitorProducts",
+    "DCMonitorReadback",
     "DCSourceClient",
+    "DCSourceMonitorClient",
     "NetworkSweepClient",
     "NetworkSweepProducts",
     "NetworkSweepReadback",
     "RFOutputClient",
     "SymbolicDCSourceClient",
     "SymbolicDCSourceGroup",
+    "SymbolicDCSourceMonitorClient",
+    "SymbolicDCSourceMonitorGroup",
     "SymbolicNetworkSweepClient",
     "SymbolicNetworkSweepGroup",
     "SymbolicRFOutputClient",

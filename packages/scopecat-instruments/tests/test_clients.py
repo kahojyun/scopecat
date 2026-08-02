@@ -40,6 +40,9 @@ from scopecat_instruments import (
 from scopecat_instruments._generated_clients import (
     DCSourceClient as GeneratedDCSourceClient,
 )
+from scopecat_instruments._generated_clients import (
+    DCSourceMonitorClient as GeneratedDCSourceMonitorClient,
+)
 from scopecat_instruments.interface_declarations import (
     TemperatureReadoutInterface,
 )
@@ -146,9 +149,9 @@ def test_first_party_factories_retain_static_client_types() -> None:
     assert thermometer.requires == (TEMPERATURE_READOUT,)
 
 
-def test_dc_source_live_client_and_monitor_subclass_share_generated_base() -> None:
+def test_dc_source_live_clients_are_generated() -> None:
     assert DCSourceClient is GeneratedDCSourceClient
-    assert DCSourceMonitorClient.__bases__ == (GeneratedDCSourceClient,)
+    assert DCSourceMonitorClient is GeneratedDCSourceMonitorClient
 
 
 def test_generated_dc_source_live_client_applies_discriminated_state() -> None:
@@ -282,7 +285,7 @@ def test_live_dc_monitor_selection_requires_the_combined_capability() -> None:
     assert source.requires == (DC_SOURCE, DC_MONITOR)
 
 
-def test_live_dc_monitor_subclass_still_applies_monitor_state() -> None:
+def test_generated_live_dc_monitor_applies_monitor_state() -> None:
     channel = _ApplyChannel()
     client = DCSourceMonitorClient(
         cast("InstrumentClientChannel", cast("object", channel)),

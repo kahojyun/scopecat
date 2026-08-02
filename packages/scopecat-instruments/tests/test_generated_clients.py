@@ -14,12 +14,18 @@ from importlib import import_module
 sys.path.insert(0, sys.argv[1])
 if sys.argv[4] != "-":
     sys.path.insert(0, sys.argv[4])
-from generate_instrument_clients import clients_for, render_client_module
+from generate_instrument_clients import (
+    clients_for,
+    clients_for_bundle,
+    render_client_module,
+)
 
 declarations = import_module(sys.argv[2])
-surface = clients_for(
-    getattr(declarations, sys.argv[3]),
-    generate_family=sys.argv[5] == "true",
+declaration = getattr(declarations, sys.argv[3])
+surface = (
+    clients_for_bundle(declaration)
+    if sys.argv[6] == "bundle"
+    else clients_for(declaration, generate_family=sys.argv[5] == "true")
 )
 print(render_client_module((surface,)), end="")
 """
@@ -31,6 +37,7 @@ def _render_surface(
     module: str = "client_codegen_fixture_declarations",
     import_root: Path | None = FIXTURE_IMPORT_ROOT,
     generate_family: bool = True,
+    bundle: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed interpreter and repository code
         [
@@ -42,6 +49,7 @@ def _render_surface(
             interface_name,
             "-" if import_root is None else str(import_root),
             "true" if generate_family else "false",
+            "bundle" if bundle else "interface",
         ],
         cwd=REPOSITORY_ROOT,
         check=False,
@@ -123,3 +131,60 @@ def test_codegen_renders_discriminated_state_without_an_optional_family() -> Non
     )
     assert "InstrumentFamily" not in completed.stdout
     assert '"dc_source"' not in completed.stdout
+
+
+def test_codegen_composes_a_root_only_interface_bundle() -> None:
+    completed = _render_surface(
+        "DCSourceMonitorInterface",
+        module="scopecat_instruments.interface_declarations",
+        import_root=None,
+        bundle=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-dc-source-monitor>", "exec")
+    assert "type _DCSourceMonitorState = (" in completed.stdout
+    assert "DCSourceState" in completed.stdout
+    assert "DCSourceVoltage" in completed.stdout
+    assert "DCSourceCurrent" in completed.stdout
+    assert "DCMonitorState" in completed.stdout
+    assert "class DCMonitorReadback(" in completed.stdout
+    assert "class DCMonitorProducts(" in completed.stdout
+    assert "class DCSourceMonitorClient(" in completed.stdout
+    assert "class SymbolicDCSourceMonitorClient(" in completed.stdout
+    assert "class SymbolicDCSourceMonitorGroup(" in completed.stdout
+    assert "requires=(_DC_SOURCE_REF, _DC_MONITOR_REF)," in completed.stdout
+    assert "compile_interface(DCSourceMonitorInterface)" not in completed.stdout
+
+
+def test_codegen_rejects_bundle_components() -> None:
+    completed = _render_surface("ComponentBundleInterface", bundle=True)
+
+    assert completed.returncode != 0
+    assert "only supports root members" in completed.stderr
+    assert "ComponentOperationInterface" in completed.stderr
+
+
+def test_codegen_composes_distinct_root_operations_from_each_constituent() -> None:
+    completed = _render_surface("MethodMergeBundleInterface", bundle=True)
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-method-bundle>", "exec")
+    assert completed.stdout.count("    def fire(") == 3
+    assert completed.stdout.count("    def arm(") == 3
+    assert "_BUNDLE_METHOD_LEFT_FIRE_DECLARATION" in completed.stdout
+    assert "_BUNDLE_METHOD_PEER_ARM_DECLARATION" in completed.stdout
+    assert (
+        "requires=(_BUNDLE_METHOD_LEFT_REF, _BUNDLE_METHOD_PEER_REF),"
+        in completed.stdout
+    )
+
+
+def test_codegen_rejects_bundle_method_collisions() -> None:
+    completed = _render_surface("MethodCollisionBundleInterface", bundle=True)
+
+    assert completed.returncode != 0
+    assert "generated bundle method collisions" in completed.stderr
+    assert "fire:" in completed.stderr
+    assert "BundleMethodLeftInterface" in completed.stderr
+    assert "BundleMethodRightInterface" in completed.stderr

@@ -16,14 +16,17 @@ from typing import Protocol, TypeAliasType, TypeVar, cast, get_args, get_origin
 from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
+    DeclaredInterfaceLayout,
     DeclaredOperation,
     DeclaredScopeLayout,
     compile_interface,
+    declared_bundle_interfaces,
     declared_interface_layout,
 )
 from scopecat_instruments.interface_declarations import (
     DCMonitorInterface,
     DCSourceInterface,
+    DCSourceMonitorInterface,
     Desired,
     NetworkSweepInterface,
     ReferenceSource,
@@ -67,6 +70,17 @@ class ClientSurface:
     public_name_overrides: tuple[tuple[str, str], ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class BundleClientSurface:
+    """One typed client surface composed from an instrument bundle."""
+
+    bundle_type: type[object]
+    public_name_overrides: tuple[tuple[str, str], ...] = ()
+
+
+type GenerationSurface = ClientSurface | BundleClientSurface
+
+
 def clients_for(
     interface_type: type[object],
     /,
@@ -83,12 +97,26 @@ def clients_for(
     )
 
 
+def clients_for_bundle(
+    bundle_type: type[object],
+    /,
+    *,
+    public_name_overrides: tuple[tuple[str, str], ...] = (),
+) -> BundleClientSurface:
+    """Select one declared bundle for typed client generation."""
+
+    return BundleClientSurface(
+        bundle_type=bundle_type,
+        public_name_overrides=public_name_overrides,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class GenerationTarget:
     """One independently importable generated module and its declarations."""
 
     output: Path
-    surfaces: tuple[ClientSurface, ...]
+    surfaces: tuple[GenerationSurface, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +152,7 @@ PRODUCTION_TARGET = GenerationTarget(
             DCSourceInterface,
             generate_family=False,
         ),
+        clients_for_bundle(DCSourceMonitorInterface),
         clients_for(NetworkSweepInterface),
     ),
 )
@@ -190,7 +219,6 @@ class _OperationArgumentModel:
 
 @dataclass(frozen=True, slots=True)
 class _OperationModel:
-    index: int
     method_name: str
     descriptor_name: str
     arguments: tuple[_OperationArgumentModel, ...]
@@ -198,7 +226,6 @@ class _OperationModel:
 
 @dataclass(frozen=True, slots=True)
 class _AcquisitionModel:
-    index: int
     method_name: str
     descriptor_name: str
     result_type_name: str
@@ -210,7 +237,6 @@ class _AcquisitionModel:
 @dataclass(frozen=True, slots=True)
 class _ScopeModel:
     python_path: tuple[str, ...]
-    component_indexes: tuple[int, ...]
     class_stem: str
     operations: tuple[_OperationModel, ...]
     acquisitions: tuple[_AcquisitionModel, ...]
@@ -238,16 +264,44 @@ class _ScopeModel:
 
 
 @dataclass(frozen=True, slots=True)
-class _InterfaceModel:
+class _InterfaceConstituentModel:
     interface_identity: str
     interface_type_name: str
     constant_prefix: str
-    interface_name: str
+    layout: DeclaredInterfaceLayout[object]
+    observation_type_name: str | None
+
+    @property
+    def ref_name(self) -> str:
+        return f"_{self.constant_prefix}_REF"
+
+    @property
+    def layout_name(self) -> str:
+        return f"_{self.constant_prefix}_LAYOUT"
+
+    @property
+    def observation_descriptor_name(self) -> str | None:
+        if self.observation_type_name is None:
+            return None
+        return f"_{self.constant_prefix}_OBSERVATION_DECLARATION"
+
+    @property
+    def needs_layout(self) -> bool:
+        return self.layout.observed_state is not None or any(
+            scope.operations or scope.acquisitions
+            for scope in _walk_declared_scopes(self.layout.root)
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _InterfaceModel:
+    interface_identity: str
     stem: str
     factory_name: str
     generate_family: bool
     observation_type_name: str | None
     state_type_names: tuple[str, ...]
+    constituents: tuple[_InterfaceConstituentModel, ...]
     root: _ScopeModel
 
     @property
@@ -275,14 +329,29 @@ class _InterfaceModel:
         return self.root.symbolic_group_name
 
     @property
-    def ref_name(self) -> str:
-        return f"_{self.constant_prefix}_REF"
+    def ref_names(self) -> tuple[str, ...]:
+        return tuple(constituent.ref_name for constituent in self.constituents)
+
+    @property
+    def requires_expression(self) -> str:
+        return _render_tuple(self.ref_names)
+
+    @property
+    def observation_descriptor_name(self) -> str | None:
+        descriptors = tuple(
+            descriptor
+            for constituent in self.constituents
+            if (descriptor := constituent.observation_descriptor_name) is not None
+        )
+        if not descriptors:
+            return None
+        if len(descriptors) != 1:
+            raise AssertionError("generated model has multiple observation descriptors")
+        return descriptors[0]
 
     @property
     def needs_layout(self) -> bool:
-        return self.observation_type_name is not None or any(
-            scope.operations or scope.acquisitions for scope in _walk_scopes(self.root)
-        )
+        return any(constituent.needs_layout for constituent in self.constituents)
 
 
 @dataclass(frozen=True, slots=True)
@@ -728,22 +797,26 @@ def render_generation_target(target: GenerationTarget) -> str:
     return render_client_module(target.surfaces)
 
 
-def render_client_module(surfaces: tuple[ClientSurface, ...]) -> str:
+def render_client_module(surfaces: tuple[GenerationSurface, ...]) -> str:
     """Render an independently importable module for selected declarations."""
 
     renderer = _AnnotationRenderer()
-    models = tuple(_interface_model(surface, renderer=renderer) for surface in surfaces)
+    models = tuple(
+        _generation_model(surface, renderer=renderer) for surface in surfaces
+    )
     if not models:
         raise ClientGenerationError("a generated client module requires a declaration")
     _validate_generated_symbols(models)
 
-    sections = [_render_header(models, renderer=renderer)]
+    sections = [
+        _render_header(models, renderer=renderer),
+        _render_interface_refs(models),
+        _render_descriptors(models),
+    ]
     for model in models:
         sections.extend(
             (
-                _render_interface_ref(model),
                 _render_state_alias(model),
-                _render_descriptors(model),
                 _render_result_types(model),
                 _render_live_scopes(model),
                 _render_symbolic_scopes(model),
@@ -755,15 +828,24 @@ def render_client_module(surfaces: tuple[ClientSurface, ...]) -> str:
     return "".join(sections)
 
 
+def _generation_model(
+    surface: GenerationSurface,
+    *,
+    renderer: _AnnotationRenderer,
+) -> _InterfaceModel:
+    if isinstance(surface, BundleClientSurface):
+        return _bundle_model(surface, renderer=renderer)
+    return _interface_model(surface, renderer=renderer)
+
+
 def _interface_model(
     surface: ClientSurface,
     *,
     renderer: _AnnotationRenderer,
 ) -> _InterfaceModel:
-    compiled = compile_interface(surface.interface_type)
-    layout = declared_interface_layout(compiled)
-    interface_name = compiled.interface_type.__name__
-    interface_type_name = renderer.reference(compiled.interface_type)
+    constituent = _constituent_model(surface.interface_type, renderer=renderer)
+    layout = constituent.layout
+    interface_name = surface.interface_type.__name__
     stem = interface_name.removesuffix("Interface")
     overrides = dict(surface.public_name_overrides)
     observation_type_name = (
@@ -771,23 +853,17 @@ def _interface_model(
         if layout.observed_state is None
         else renderer.reference(layout.observed_state.state_type)
     )
-    constant_prefix = _snake_case(stem).upper()
     root = _scope_model(
         layout.root,
-        component_indexes=(),
         interface_stem=stem,
-        constant_prefix=constant_prefix,
+        constant_prefix=constituent.constant_prefix,
         overrides=overrides,
         renderer=renderer,
     )
     return _InterfaceModel(
         interface_identity=(
-            f"{compiled.interface_type.__module__}."
-            f"{compiled.interface_type.__qualname__}"
+            f"{surface.interface_type.__module__}.{surface.interface_type.__qualname__}"
         ),
-        interface_type_name=interface_type_name,
-        constant_prefix=constant_prefix,
-        interface_name=interface_name,
         stem=stem,
         factory_name=overrides.get("factory", _snake_case(stem)),
         generate_family=surface.generate_family,
@@ -795,7 +871,131 @@ def _interface_model(
         state_type_names=tuple(
             renderer.reference(state_type) for state_type in layout.state_types
         ),
+        constituents=(constituent,),
         root=root,
+    )
+
+
+def _bundle_model(
+    surface: BundleClientSurface,
+    *,
+    renderer: _AnnotationRenderer,
+) -> _InterfaceModel:
+    bundle_type = surface.bundle_type
+    bundle_identity = f"{bundle_type.__module__}.{bundle_type.__qualname__}"
+    constituents = tuple(
+        _constituent_model(interface_type, renderer=renderer)
+        for interface_type in declared_bundle_interfaces(bundle_type)
+    )
+    for constituent in constituents:
+        if constituent.layout.root.components:
+            raise ClientGenerationError(
+                f"generated bundle {bundle_identity} only supports root members; "
+                f"constituent {constituent.interface_identity} declares components"
+            )
+
+    owners_by_method: dict[str, list[str]] = {}
+    for constituent in constituents:
+        for operation in constituent.layout.root.operations:
+            owners_by_method.setdefault(operation.method_name, []).append(
+                f"{constituent.interface_identity} operation"
+            )
+        for acquisition in constituent.layout.root.acquisitions:
+            owners_by_method.setdefault(acquisition.method_name, []).append(
+                f"{constituent.interface_identity} acquisition"
+            )
+    method_collisions = {
+        name: owners for name, owners in owners_by_method.items() if len(owners) > 1
+    }
+    if method_collisions:
+        details = "; ".join(
+            f"{name}: {' vs '.join(owners)}"
+            for name, owners in sorted(method_collisions.items())
+        )
+        raise ClientGenerationError(
+            f"generated bundle method collisions for {bundle_identity}: {details}"
+        )
+
+    observed_constituents = tuple(
+        constituent
+        for constituent in constituents
+        if constituent.observation_type_name is not None
+    )
+    if len(observed_constituents) > 1:
+        rendered = ", ".join(
+            constituent.interface_identity for constituent in observed_constituents
+        )
+        raise ClientGenerationError(
+            f"generated bundle {bundle_identity} has multiple observed states: "
+            f"{rendered}"
+        )
+
+    bundle_name = bundle_type.__name__
+    stem = bundle_name.removesuffix("Interface")
+    overrides = dict(surface.public_name_overrides)
+    scopes = tuple(
+        _scope_model(
+            constituent.layout.root,
+            interface_stem=stem,
+            constant_prefix=constituent.constant_prefix,
+            overrides=overrides,
+            renderer=renderer,
+        )
+        for constituent in constituents
+    )
+    root = _ScopeModel(
+        python_path=(),
+        class_stem=stem,
+        operations=tuple(
+            operation for scope in scopes for operation in scope.operations
+        ),
+        acquisitions=tuple(
+            acquisition for scope in scopes for acquisition in scope.acquisitions
+        ),
+        components=(),
+    )
+    state_types: list[type[object]] = []
+    for constituent in constituents:
+        for state_type in constituent.layout.state_types:
+            if state_type not in state_types:
+                state_types.append(state_type)
+    return _InterfaceModel(
+        interface_identity=bundle_identity,
+        stem=stem,
+        factory_name=overrides.get("factory", _snake_case(stem)),
+        generate_family=False,
+        observation_type_name=(
+            None
+            if not observed_constituents
+            else observed_constituents[0].observation_type_name
+        ),
+        state_type_names=tuple(
+            renderer.reference(state_type) for state_type in state_types
+        ),
+        constituents=constituents,
+        root=root,
+    )
+
+
+def _constituent_model(
+    interface_type: type[object],
+    *,
+    renderer: _AnnotationRenderer,
+) -> _InterfaceConstituentModel:
+    compiled = compile_interface(interface_type)
+    layout = declared_interface_layout(compiled)
+    interface_name = interface_type.__name__
+    observation_type_name = (
+        None
+        if layout.observed_state is None
+        else renderer.reference(layout.observed_state.state_type)
+    )
+    return _InterfaceConstituentModel(
+        interface_identity=f"{interface_type.__module__}.{interface_type.__qualname__}",
+        interface_type_name=renderer.reference(interface_type),
+        constant_prefix=_snake_case(interface_name.removesuffix("Interface")).upper(),
+        layout=layout,
+        observation_type_name=observation_type_name,
     )
 
 
@@ -805,16 +1005,40 @@ def _validate_generated_symbols(models: tuple[_InterfaceModel, ...]) -> None:
     def register(symbol: str, owner: str) -> None:
         owners_by_symbol.setdefault(symbol, []).append(owner)
 
-    for model in models:
-        declaration = model.interface_identity
-        register(model.ref_name, f"{declaration} interface ref")
-        if model.needs_layout:
-            register(f"_{model.constant_prefix}_LAYOUT", f"{declaration} layout")
-        if model.observation_type_name is not None:
+    for constituent in _unique_constituents(models):
+        declaration = constituent.interface_identity
+        register(constituent.ref_name, f"{declaration} interface ref")
+        if constituent.needs_layout:
+            register(constituent.layout_name, f"{declaration} layout")
+        if constituent.observation_descriptor_name is not None:
             register(
-                f"_{model.constant_prefix}_OBSERVATION_DECLARATION",
+                constituent.observation_descriptor_name,
                 f"{declaration} observation",
             )
+        for scope in _walk_declared_scopes(constituent.layout.root):
+            path = ".".join(scope.python_path) or "<root>"
+            scope_owner = f"{declaration} scope {path}"
+            for operation in scope.operations:
+                register(
+                    _descriptor_name(
+                        constituent.constant_prefix,
+                        scope.python_path,
+                        operation.method_name,
+                    ),
+                    f"{scope_owner} operation {operation.method_name}",
+                )
+            for acquisition in scope.acquisitions:
+                register(
+                    _descriptor_name(
+                        constituent.constant_prefix,
+                        scope.python_path,
+                        acquisition.method_name,
+                    ),
+                    f"{scope_owner} acquisition {acquisition.method_name}",
+                )
+
+    for model in models:
+        declaration = model.interface_identity
         if len(model.state_type_names) > 1:
             register(model.state_alias_name, f"{declaration} state union")
         if model.generate_family:
@@ -825,16 +1049,10 @@ def _validate_generated_symbols(models: tuple[_InterfaceModel, ...]) -> None:
             register(scope.live_client_name, f"{scope_owner} live client")
             register(scope.symbolic_client_name, f"{scope_owner} symbolic client")
             register(scope.symbolic_group_name, f"{scope_owner} symbolic group")
-            for operation in scope.operations:
-                register(
-                    operation.descriptor_name,
-                    f"{scope_owner} operation {operation.method_name}",
-                )
             for acquisition in scope.acquisitions:
                 acquisition_owner = (
                     f"{scope_owner} acquisition {acquisition.method_name}"
                 )
-                register(acquisition.descriptor_name, acquisition_owner)
                 register(
                     acquisition.readback_name,
                     f"{acquisition_owner} live results",
@@ -859,7 +1077,6 @@ def _validate_generated_symbols(models: tuple[_InterfaceModel, ...]) -> None:
 def _scope_model(
     scope: DeclaredScopeLayout,
     *,
-    component_indexes: tuple[int, ...],
     interface_stem: str,
     constant_prefix: str,
     overrides: dict[str, str],
@@ -871,38 +1088,34 @@ def _scope_model(
     operations = tuple(
         _operation_model(
             operation,
-            index=index,
             python_path=scope.python_path,
             constant_prefix=constant_prefix,
             renderer=renderer,
         )
-        for index, operation in enumerate(scope.operations)
+        for operation in scope.operations
     )
     acquisitions = tuple(
         _acquisition_model(
             acquisition,
-            index=index,
             python_path=scope.python_path,
             constant_prefix=constant_prefix,
             overrides=overrides,
             renderer=renderer,
         )
-        for index, acquisition in enumerate(scope.acquisitions)
+        for acquisition in scope.acquisitions
     )
     components = tuple(
         _scope_model(
             component,
-            component_indexes=(*component_indexes, index),
             interface_stem=interface_stem,
             constant_prefix=constant_prefix,
             overrides=overrides,
             renderer=renderer,
         )
-        for index, component in enumerate(scope.components)
+        for component in scope.components
     )
     return _ScopeModel(
         python_path=scope.python_path,
-        component_indexes=component_indexes,
         class_stem=class_stem,
         operations=operations,
         acquisitions=acquisitions,
@@ -913,7 +1126,6 @@ def _scope_model(
 def _operation_model(
     operation: DeclaredOperation[...],
     *,
-    index: int,
     python_path: tuple[str, ...],
     constant_prefix: str,
     renderer: _AnnotationRenderer,
@@ -941,7 +1153,6 @@ def _operation_model(
             )
         )
     return _OperationModel(
-        index=index,
         method_name=operation.method_name,
         descriptor_name=_descriptor_name(
             constant_prefix,
@@ -955,7 +1166,6 @@ def _operation_model(
 def _acquisition_model(
     acquisition: DeclaredAcquisition[object],
     *,
-    index: int,
     python_path: tuple[str, ...],
     constant_prefix: str,
     overrides: dict[str, str],
@@ -968,7 +1178,6 @@ def _acquisition_model(
     method_name = acquisition.method_name
     override_prefix = ".".join((*python_path, method_name))
     return _AcquisitionModel(
-        index=index,
         method_name=method_name,
         descriptor_name=_descriptor_name(
             constant_prefix,
@@ -1163,9 +1372,11 @@ def _render_state_alias(model: _InterfaceModel) -> str:
     union = " | ".join(model.state_type_names)
     compact = f"type {model.state_alias_name} = {union}\n"
     if len(compact.rstrip("\n")) <= 88:
-        return "\n" + compact
+        return "\n\n" + compact
+    if len(f"    {union}") <= 88:
+        return f"\n\ntype {model.state_alias_name} = (\n    {union}\n)\n"
     return (
-        f"\ntype {model.state_alias_name} = (\n"
+        f"\n\ntype {model.state_alias_name} = (\n"
         + "\n".join(
             f"    {'| ' if index else ''}{state_type}"
             for index, state_type in enumerate(model.state_type_names)
@@ -1174,51 +1385,102 @@ def _render_state_alias(model: _InterfaceModel) -> str:
     )
 
 
-def _render_interface_ref(model: _InterfaceModel) -> str:
-    return f"\n{model.ref_name} = declared_interface_ref({model.interface_type_name})\n"
+def _render_interface_refs(models: tuple[_InterfaceModel, ...]) -> str:
+    return "".join(
+        f"\n{constituent.ref_name} = declared_interface_ref("
+        f"{constituent.interface_type_name})\n"
+        for constituent in _unique_constituents(models)
+    )
 
 
-def _render_descriptors(model: _InterfaceModel) -> str:
-    if not model.needs_layout:
+def _render_descriptors(models: tuple[_InterfaceModel, ...]) -> str:
+    return "".join(
+        _render_constituent_descriptors(constituent)
+        for constituent in _unique_constituents(models)
+    )
+
+
+def _render_constituent_descriptors(
+    constituent: _InterfaceConstituentModel,
+) -> str:
+    if not constituent.needs_layout:
         return ""
-    layout_name = f"_{model.constant_prefix}_LAYOUT"
-    sections = [
-        "\n",
-        f"{layout_name} = declared_interface_layout(\n",
-        f"    compile_interface({model.interface_type_name})\n",
-        ")\n",
-    ]
-    if model.observation_type_name is not None:
-        observation_name = f"_{model.constant_prefix}_OBSERVATION_DECLARATION"
+    compact_layout = (
+        f"{constituent.layout_name} = declared_interface_layout("
+        f"compile_interface({constituent.interface_type_name}))\n"
+    )
+    sections = ["\n"]
+    if len(compact_layout.rstrip("\n")) <= 88:
+        sections.append(compact_layout)
+    else:
         sections.extend(
             (
-                f"{observation_name} = cast(\n",
-                f'    "DeclaredObservedState[{model.observation_type_name}]",\n',
-                f"    {layout_name}.observed_state,\n",
+                f"{constituent.layout_name} = declared_interface_layout(\n",
+                f"    compile_interface({constituent.interface_type_name})\n",
                 ")\n",
             )
         )
-    for scope in _walk_scopes(model.root):
-        scope_expression = _scope_expression(layout_name, scope.component_indexes)
+    if constituent.observation_type_name is not None:
+        observation_name = constituent.observation_descriptor_name
+        if observation_name is None:
+            raise AssertionError("observed constituent requires a descriptor name")
         sections.extend(
-            _render_descriptor_assignment(
-                operation.descriptor_name,
-                scope_expression,
-                collection="operations",
-                index=operation.index,
+            (
+                f"{observation_name} = cast(\n",
+                f'    "DeclaredObservedState[{constituent.observation_type_name}]",\n',
+                f"    {constituent.layout_name}.observed_state,\n",
+                ")\n",
             )
-            for operation in scope.operations
         )
-        sections.extend(
-            _render_descriptor_assignment(
-                acquisition.descriptor_name,
-                scope_expression,
-                collection="acquisitions",
-                index=acquisition.index,
-            )
-            for acquisition in scope.acquisitions
-        )
+    _append_declared_scope_descriptors(
+        sections,
+        constituent.layout.root,
+        scope_expression=f"{constituent.layout_name}.root",
+        constant_prefix=constituent.constant_prefix,
+    )
     return "".join(sections)
+
+
+def _append_declared_scope_descriptors(
+    sections: list[str],
+    scope: DeclaredScopeLayout,
+    *,
+    scope_expression: str,
+    constant_prefix: str,
+) -> None:
+    sections.extend(
+        _render_descriptor_assignment(
+            _descriptor_name(
+                constant_prefix,
+                scope.python_path,
+                operation.method_name,
+            ),
+            scope_expression,
+            collection="operations",
+            index=index,
+        )
+        for index, operation in enumerate(scope.operations)
+    )
+    sections.extend(
+        _render_descriptor_assignment(
+            _descriptor_name(
+                constant_prefix,
+                scope.python_path,
+                acquisition.method_name,
+            ),
+            scope_expression,
+            collection="acquisitions",
+            index=index,
+        )
+        for index, acquisition in enumerate(scope.acquisitions)
+    )
+    for index, component in enumerate(scope.components):
+        _append_declared_scope_descriptors(
+            sections,
+            component,
+            scope_expression=f"{scope_expression}.components[{index}]",
+            constant_prefix=constant_prefix,
+        )
 
 
 def _render_result_types(model: _InterfaceModel) -> str:
@@ -1282,7 +1544,9 @@ def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
         base = "InstrumentComponentClientBase"
     body: list[str] = []
     if scope.is_root and model.observation_type_name is not None:
-        observation_name = f"_{model.constant_prefix}_OBSERVATION_DECLARATION"
+        observation_name = model.observation_descriptor_name
+        if observation_name is None:
+            raise AssertionError("observed model requires a descriptor name")
         body.extend(
             (
                 f"    def observation(self) -> {model.observation_type_name}:\n",
@@ -1376,7 +1640,7 @@ def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
                 "        super().__init__(\n",
                 "            recorder,\n",
                 "            resource_id,\n",
-                f"            requires=({model.ref_name},),\n",
+                f"            requires={model.requires_expression},\n",
                 "            for_=for_,\n",
                 "        )\n",
             )
@@ -1599,7 +1863,7 @@ def _render_declared_call(
 
 def _render_family(model: _InterfaceModel) -> str:
     if not model.generate_family:
-        return "\n"
+        return ""
     return (
         "\n\n"
         f"{model.factory_name}: InstrumentFamily[\n"
@@ -1610,7 +1874,7 @@ def _render_family(model: _InterfaceModel) -> str:
         f"    {model.live_client_name},\n"
         f"    {model.symbolic_client_name},\n"
         f"    {model.symbolic_group_name},\n"
-        f"    requires=({model.ref_name},),\n"
+        f"    requires={model.requires_expression},\n"
         ")\n"
     )
 
@@ -1657,11 +1921,43 @@ def _walk_scopes_postorder(root: _ScopeModel) -> tuple[_ScopeModel, ...]:
     )
 
 
-def _scope_expression(layout_name: str, indexes: tuple[int, ...]) -> str:
-    expression = f"{layout_name}.root"
-    for index in indexes:
-        expression += f".components[{index}]"
-    return expression
+def _walk_declared_scopes(root: DeclaredScopeLayout) -> tuple[DeclaredScopeLayout, ...]:
+    return (
+        root,
+        *(
+            child
+            for component in root.components
+            for child in _walk_declared_scopes(component)
+        ),
+    )
+
+
+def _unique_constituents(
+    models: tuple[_InterfaceModel, ...],
+) -> tuple[_InterfaceConstituentModel, ...]:
+    constituents_by_identity: dict[str, _InterfaceConstituentModel] = {}
+    for model in models:
+        for constituent in model.constituents:
+            existing = constituents_by_identity.get(constituent.interface_identity)
+            if existing is not None:
+                if (
+                    existing.interface_type_name != constituent.interface_type_name
+                    or existing.constant_prefix != constituent.constant_prefix
+                ):
+                    raise ClientGenerationError(
+                        "inconsistent generated constituent model for "
+                        f"{constituent.interface_identity}"
+                    )
+                continue
+            constituents_by_identity[constituent.interface_identity] = constituent
+    return tuple(constituents_by_identity.values())
+
+
+def _render_tuple(values: tuple[str, ...]) -> str:
+    if not values:
+        return "()"
+    trailing_comma = "," if len(values) == 1 else ""
+    return f"({', '.join(values)}{trailing_comma})"
 
 
 def _render_descriptor_assignment(
