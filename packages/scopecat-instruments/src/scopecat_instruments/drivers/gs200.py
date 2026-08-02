@@ -48,7 +48,6 @@ from scopecat_instruments.driver_handlers import (
 )
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
-    DCSourceObservation,
     DCSourceState,
 )
 from scopecat_instruments.interfaces import dc_monitor_interface, dc_source_interface
@@ -113,6 +112,7 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
             voltage_protection=Quantity(self.voltage_protection(), "V"),
             current_protection=Quantity(self.current_protection(), "A"),
             output_enabled=self.output_enabled(),
+            source_mode=mode,
         )
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Yokogawa",
@@ -131,7 +131,6 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
         )
         return DCSourceMonitorDriverSnapshot(
             dc_source=source,
-            dc_source_observation=DCSourceObservation(source_mode=mode),
             dc_monitor=monitor,
             metadata=metadata,
         )

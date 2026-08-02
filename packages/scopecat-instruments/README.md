@@ -51,10 +51,10 @@ lower-level member catalog continues to carry
 interface, component, and member identity for drivers and experiment lowering.
 
 Read-only declarations also return named state instead of forcing callers to
-decode property ids. A temperature client exposes `observation()` for the
-session-opening cached `TemperatureReadoutObservation` and
-`refresh_observation()` for an explicit device read; `observed_state()` and
-`refresh()` remain the raw snapshot escape hatch.
+decode property ids. A temperature client exposes `state()` for the
+session-opening cached `TemperatureReadoutState` and `refresh_state()` for an
+explicit device read; `observed_state()` and `refresh()` remain the raw snapshot
+escape hatch.
 
 Experiment modules use generated symbolic targets from the same concrete
 interface schema. Target fields accept either fixed values or typed Scopecat
@@ -117,7 +117,7 @@ symbolic single-entity, and group clients.
 One generation pass writes the six public runtime modules—`clients.py`,
 `members.py`, `interfaces.py`, `states.py`, `driver_states.py`, and
 `driver_handlers.py`—plus the typed, lazy package facade. Client acquisition and
-observation descriptors, member refs, state projection layouts, and wire specs
+state-schema descriptors, member refs, state projection layouts, and wire specs
 are static generated data, so importing these modules does not compile interface
 declarations. Interface factories parse generated JSON into a fresh
 `InterfaceSpec`.
@@ -125,10 +125,10 @@ declarations. Interface factories parse generated JSON into a fresh
 Writable interfaces receive sparse concrete `TypedDict` patches and exact
 canonical snapshot encoders. Generated adapters own the worker's generic
 request/ref ABI; a composite adapter accepts one validated batch and calls the
-concrete driver once with one typed composite patch. Observed-only state generates
+concrete driver once with one typed composite patch. Read-only state generates
 snapshot and acquisition hooks but no artificial writable patch. DC source
-protection and output form one flat persistent state; the reported source mode
-is read-only observation, while typed `source_voltage(...)` and
+protection, output, and reported source mode form one state schema; the mode is
+`read_only`, while typed `source_voltage(...)` and
 `source_current(...)` operations carry the required range and level.
 
 Run the generator from the repository root after changing a supported

@@ -46,12 +46,11 @@ from scopecat_instruments.driver_states import (
 )
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
-    DCSourceObservation,
     DCSourceState,
     NetworkSweepState,
     ReferenceSource,
     RFOutputState,
-    TemperatureReadoutObservation,
+    TemperatureReadoutState,
 )
 from scopecat_instruments.interfaces import (
     dc_monitor_interface,
@@ -196,8 +195,8 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
                 voltage_protection=Quantity(source.voltage_protection_v, "V"),
                 current_protection=Quantity(source.current_protection_a, "A"),
                 output_enabled=source.output_enabled,
+                source_mode=source.source_mode,
             )
-            source_observation = DCSourceObservation(source_mode=source.source_mode)
             monitor = DCMonitorState(
                 measurement_enabled=source.measurement_enabled,
                 integration_cycles=source.integration_cycles,
@@ -205,7 +204,6 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
             )
         return DCSourceMonitorDriverSnapshot(
             dc_source=source_state,
-            dc_source_observation=source_observation,
             dc_monitor=monitor,
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
@@ -449,12 +447,12 @@ class VirtualTemperatureMonitor(TemperatureReadoutDriverAdapter):
     def read_temperature_readout_state(self) -> TemperatureReadoutDriverSnapshot:
         with self.world.lock:
             state = self.world.temperature_monitor(self.instrument_id)
-            observation = TemperatureReadoutObservation(
+            state_snapshot = TemperatureReadoutState(
                 scan_channel=state.scan_channel,
                 autoscan_enabled=state.autoscan_enabled,
             )
         return TemperatureReadoutDriverSnapshot(
-            observation=observation,
+            state=state_snapshot,
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 

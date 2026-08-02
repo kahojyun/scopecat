@@ -24,6 +24,36 @@ def catalog_projection_interface() -> InterfaceSpec:
     return InterfaceSpec.model_validate_json(_CATALOG_PROJECTION_SPEC_JSON)
 
 
+_SHARED_STATE_FIRST_SPEC_JSON = (
+    '{"id":"test.generated_shared_state_first'
+    '/v1","label":null,"description":null,"pr'
+    'operties":[{"id":"enabled","label":null,'
+    '"description":null,"access":"read_write"'
+    ',"value_type":{"type":"bool"}}],"state":'
+    'null,"operations":[],"acquisitions":[],"'
+    'components":[]}'
+)
+
+
+def shared_state_first_interface() -> InterfaceSpec:
+    return InterfaceSpec.model_validate_json(_SHARED_STATE_FIRST_SPEC_JSON)
+
+
+_SHARED_STATE_SECOND_SPEC_JSON = (
+    '{"id":"test.generated_shared_state_secon'
+    'd/v1","label":null,"description":null,"p'
+    'roperties":[{"id":"enabled","label":null'
+    ',"description":null,"access":"read_write'
+    '","value_type":{"type":"bool"}}],"state"'
+    ':null,"operations":[],"acquisitions":[],'
+    '"components":[]}'
+)
+
+
+def shared_state_second_interface() -> InterfaceSpec:
+    return InterfaceSpec.model_validate_json(_SHARED_STATE_SECOND_SPEC_JSON)
+
+
 _SCALAR_OPERATION_SPEC_JSON = (
     '{"id":"test.generated_scalar_operation/v'
     '1","label":null,"description":null,"prop'
@@ -162,4 +192,6 @@ __all__ = [
     "literal_operation_interface",
     "payload_operation_interface",
     "scalar_operation_interface",
+    "shared_state_first_interface",
+    "shared_state_second_interface",
 ]

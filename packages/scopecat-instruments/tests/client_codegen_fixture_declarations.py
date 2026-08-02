@@ -11,7 +11,6 @@ from scopecat.sdk.instruments.declarations import (
     axis,
     discriminated_state,
     instrument_interface,
-    instrument_observed_state,
     instrument_result,
     instrument_state,
     member,
@@ -41,19 +40,27 @@ class ScalarOperationInterface(Protocol):
 @instrument_state
 class CatalogProjectionState:
     enabled: bool = member_field()
-
-
-@instrument_observed_state
-class CatalogProjectionObservation:
-    status: str = member_field()
+    status: str = member_field(access="read_only")
 
 
 @instrument_interface(
     "test.generated_catalog_projection/v1",
     state=CatalogProjectionState,
-    observed_state=CatalogProjectionObservation,
 )
 class CatalogProjectionInterface(Protocol): ...
+
+
+@instrument_state
+class SharedFixtureState:
+    enabled: bool = member_field()
+
+
+@instrument_interface("test.generated_shared_state_first/v1", state=SharedFixtureState)
+class SharedStateFirstInterface(Protocol): ...
+
+
+@instrument_interface("test.generated_shared_state_second/v1", state=SharedFixtureState)
+class SharedStateSecondInterface(Protocol): ...
 
 
 @instrument_interface("test.generated_composite_peer/v1")
@@ -187,7 +194,6 @@ class EffectIdCollisionInterface(Protocol):
 
 __all__ = [
     "CatalogProjectionInterface",
-    "CatalogProjectionObservation",
     "CatalogProjectionState",
     "CompositeMethodLeftInterface",
     "CompositeMethodPeerInterface",
@@ -206,4 +212,7 @@ __all__ = [
     "LiteralOperationInterface",
     "PayloadOperationInterface",
     "ScalarOperationInterface",
+    "SharedFixtureState",
+    "SharedStateFirstInterface",
+    "SharedStateSecondInterface",
 ]

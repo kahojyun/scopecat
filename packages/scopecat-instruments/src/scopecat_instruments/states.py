@@ -16,16 +16,25 @@ from scopecat.sdk.instruments.declarations import (
 )
 
 from scopecat_instruments.interface_declarations import (
-    DCSourceObservation as DCSourceObservation,
+    DCMonitorState as DCMonitorState,
+)
+from scopecat_instruments.interface_declarations import (
+    DCSourceState as DCSourceState,
+)
+from scopecat_instruments.interface_declarations import (
+    NetworkSweepState as NetworkSweepState,
 )
 from scopecat_instruments.interface_declarations import (
     ReferenceSource as ReferenceSource,
 )
 from scopecat_instruments.interface_declarations import (
+    RFOutputState as RFOutputState,
+)
+from scopecat_instruments.interface_declarations import (
     SParameter as SParameter,
 )
 from scopecat_instruments.interface_declarations import (
-    TemperatureReadoutObservation as TemperatureReadoutObservation,
+    TemperatureReadoutState as TemperatureReadoutState,
 )
 from scopecat_instruments.members import (
     DC_MONITOR_INTEGRATION_CYCLES,
@@ -227,18 +236,21 @@ class NetworkSweepGroupTarget:
 __all__ = [
     "DCMonitorGroupTarget",
     "DCMonitorPatch",
+    "DCMonitorState",
     "DCMonitorTarget",
     "DCSourceGroupTarget",
-    "DCSourceObservation",
     "DCSourcePatch",
+    "DCSourceState",
     "DCSourceTarget",
     "NetworkSweepGroupTarget",
     "NetworkSweepPatch",
+    "NetworkSweepState",
     "NetworkSweepTarget",
     "RFOutputGroupTarget",
     "RFOutputPatch",
+    "RFOutputState",
     "RFOutputTarget",
     "ReferenceSource",
     "SParameter",
-    "TemperatureReadoutObservation",
+    "TemperatureReadoutState",
 ]

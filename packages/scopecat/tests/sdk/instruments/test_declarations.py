@@ -9,19 +9,13 @@ from typing import Annotated, Literal, Protocol, assert_type, cast
 import pytest
 
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Int as IntType
 from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
-from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.program.state import DesiredState
 from scopecat.program.value_refs import ValueRef
-from scopecat.records.instrument import (
-    InstrumentPropertyState,
-    InstrumentStateSnapshot,
-)
 from scopecat.sdk.instruments import (
     FixedAcquisitionSpec,
     acquisition_results,
@@ -63,7 +57,6 @@ from scopecat.sdk.instruments.declarations import (
     CompiledInterface,
     DeclaredAcquisition,
     DeclaredInterfaceLayout,
-    DeclaredObservedState,
     DeclaredOperation,
     DeclaredStateLayout,
     StateProjectionField,
@@ -79,14 +72,12 @@ from scopecat.sdk.instruments.declarations import (
     declared_discriminator_ref,
     declared_interface_layout,
     declared_interface_ref,
-    declared_observed_state,
     declared_operation,
     declared_operation_ref,
     declared_property_ref,
     declared_result_ref,
     discriminated_state,
     instrument_interface,
-    instrument_observed_state,
     instrument_result,
     instrument_state,
     instrument_state_projection,
@@ -313,7 +304,7 @@ class MonitorContract(Protocol):
         label="Monitor",
         preconditions=(
             precondition(
-                state_field(SourceCommonState, "output_enabled"),
+                state_field(SourceContract, SourceCommonState, "output_enabled"),
                 value=True,
                 unavailable_reason="Source output is disabled.",
             ),
@@ -352,27 +343,30 @@ class AbstractContract(ABC):
     def sample(self) -> ScalarResults: ...
 
 
-@instrument_observed_state
-class ScannerObservation:
+@instrument_state
+class ScannerState:
     channel: int = member_field(
         id="active_channel",
+        access="read_only",
         minimum=1,
         maximum=16,
         label="Active channel",
         description="Input currently selected by the scanner.",
     )
     autoscan: bool = member_field(
+        access="read_only",
         label="Autoscan",
         description="Whether the scanner advances automatically.",
     )
 
 
-@instrument_observed_state
-class NumericObservation:
+@instrument_state
+class NumericState:
     reading: Annotated[
         float,
         member(
             id="reading_value",
+            access="read_only",
             minimum=0.0,
             maximum=5.0,
         ),
@@ -380,22 +374,17 @@ class NumericObservation:
 
 
 @instrument_interface(
-    "test.numeric_observation/v1",
-    observed_state=NumericObservation,
+    "test.numeric_state/v1",
+    state=NumericState,
 )
-class NumericObservationContract(Protocol): ...
-
-
-@instrument_observed_state
-class UnrelatedObservation:
-    value: int
+class NumericStateContract(Protocol): ...
 
 
 @instrument_interface(
     "test.typed_control/v1",
-    observed_state=ScannerObservation,
+    state=ScannerState,
     label="Typed control",
-    description="Operations and observations.",
+    description="Operations and state readback.",
 )
 class TypedControlContract(Protocol):
     @operation(
@@ -569,7 +558,7 @@ def test_decorated_protocol_compiles_to_the_existing_contract_ir() -> None:
 
     frequency_axis = expected_axis(
         "frequency",
-        size=declared_property_ref(SweepState, "points"),
+        size=declared_property_ref(SweepContract, SweepState, "points"),
         kind="frequency",
         unit="Hz",
         label="Frequency",
@@ -697,7 +686,7 @@ def test_declared_acquisition_resolves_an_inherited_protocol_method() -> None:
     assert [field.python_name for field in declared.active_result_fields()] == ["value"]
 
 
-def test_operations_and_observed_state_compile_together() -> None:
+def test_operations_and_read_only_state_compile_together() -> None:
     compiled = compile_interface(TypedControlContract)
 
     def check_client_type(client: TypedControlContract) -> None:
@@ -712,7 +701,7 @@ def test_operations_and_observed_state_compile_together() -> None:
     expected = expected_interface(
         "test.typed_control/v1",
         label="Typed control",
-        description="Operations and observations.",
+        description="Operations and state readback.",
         properties=[
             int_property(
                 "active_channel",
@@ -771,21 +760,21 @@ def test_declared_interface_layout_preserves_root_members_and_spec_identity() ->
     )
 
     assert layout.compiled is compiled
-    assert layout.states == ()
-    assert layout.observed_state is not None
-    assert layout.observed_state.state_type is ScannerObservation
-    assert [field.python_name for field in layout.observed_state.fields] == [
+    [state] = layout.states
+    assert state.source_type is ScannerState
+    assert [field.python_name for field in state.fields] == [
         "channel",
         "autoscan",
     ]
     assert all(
         field.spec is spec
         for field, spec in zip(
-            layout.observed_state.fields,
+            state.fields,
             compiled.spec.properties,
             strict=True,
         )
     )
+    assert all(field.spec.access == "read_only" for field in state.fields)
 
     root = layout.root
     assert root.capability_type is TypedControlContract
@@ -1031,17 +1020,18 @@ def test_discriminated_cases_must_inherit_their_common_state() -> None:
     class IndependentCase:
         level: int = member_field()
 
+    @instrument_interface(
+        "test.invalid_discriminated_inheritance/v1",
+        state=discriminated_state(
+            member(id="mode", choices=("active",)),
+            common=CommonState,
+            cases=(state_case("active", IndependentCase),),
+        ),
+    )
     class InvalidDiscriminatedInheritance(Protocol): ...
 
     with pytest.raises(TypeError, match="must inherit CommonState"):
-        instrument_interface(
-            "test.invalid_discriminated_inheritance/v1",
-            state=discriminated_state(
-                member(id="mode", choices=("active",)),
-                common=CommonState,
-                cases=(state_case("active", IndependentCase),),
-            ),
-        )(InvalidDiscriminatedInheritance)
+        compile_interface(InvalidDiscriminatedInheritance)
 
 
 def test_state_case_entry_requirements_are_case_owned() -> None:
@@ -1053,26 +1043,27 @@ def test_state_case_entry_requirements_are_case_owned() -> None:
     class ActiveState(CommonState):
         level: int = member_field()
 
+    @instrument_interface(
+        "test.invalid_inherited_entry_requirement/v1",
+        state=discriminated_state(
+            member(id="mode", choices=("active",)),
+            common=CommonState,
+            cases=(
+                state_case(
+                    "active",
+                    ActiveState,
+                    required_on_entry=("enabled",),
+                ),
+            ),
+        ),
+    )
     class InvalidInheritedEntryRequirement(Protocol): ...
 
     with pytest.raises(
         ValueError,
         match=r"entry requirements reference unknown fields: \['enabled'\]",
     ):
-        instrument_interface(
-            "test.invalid_inherited_entry_requirement/v1",
-            state=discriminated_state(
-                member(id="mode", choices=("active",)),
-                common=CommonState,
-                cases=(
-                    state_case(
-                        "active",
-                        ActiveState,
-                        required_on_entry=("enabled",),
-                    ),
-                ),
-            ),
-        )(InvalidInheritedEntryRequirement)
+        compile_interface(InvalidInheritedEntryRequirement)
 
 
 def test_concrete_type_aliases_compile_without_authoring_wrapper_semantics() -> None:
@@ -1111,169 +1102,36 @@ def test_concrete_type_aliases_compile_without_authoring_wrapper_semantics() -> 
     assert acquisition_spec.results[0].dtype == "float64"
 
 
-def test_observed_state_has_refs_but_cannot_be_encoded_as_desired_state() -> None:
-    observation = ScannerObservation(channel=3, autoscan=True)
+def test_read_only_state_uses_explicit_interface_refs() -> None:
+    state = ScannerState(channel=3, autoscan=True)
 
-    assert declared_property_ref(ScannerObservation, "channel") == (
+    assert declared_property_ref(TypedControlContract, ScannerState, "channel") == (
         declared_interface_ref(TypedControlContract).property("active_channel")
     )
     with pytest.raises(
         TypeError,
         match="instrument state projection is missing its decorator",
     ):
-        state_projection_assignments(observation)
+        state_projection_assignments(state)
 
 
-def test_declared_observed_state_preserves_type_order_and_compiled_identity() -> None:
-    compiled = compile_interface(TypedControlContract)
+def test_state_schema_can_be_reused_without_interface_ownership() -> None:
+    @instrument_interface("test.reused_scanner_state/v1", state=ScannerState)
+    class ReusedScannerContract(Protocol): ...
 
-    declared = assert_type(
-        declared_observed_state(compiled, ScannerObservation),
-        DeclaredObservedState[ScannerObservation],
+    first = compile_interface(TypedControlContract)
+    second = compile_interface(ReusedScannerContract)
+
+    assert first.spec.properties == second.spec.properties
+    assert declared_property_ref(TypedControlContract, ScannerState, "channel") != (
+        declared_property_ref(ReusedScannerContract, ScannerState, "channel")
     )
-
-    assert declared.state_type is ScannerObservation
-    assert [(field.python_name, field.property_id) for field in declared.fields] == [
-        ("channel", "active_channel"),
-        ("autoscan", "autoscan"),
-    ]
-    assert [field.ref for field in declared.fields] == [
-        declared_property_ref(ScannerObservation, "channel"),
-        declared_property_ref(ScannerObservation, "autoscan"),
-    ]
-    assert all(
-        field.spec is spec
-        for field, spec in zip(
-            declared.fields,
-            compiled.spec.properties,
-            strict=True,
-        )
-    )
-    assert declared.fields[0].spec.value_type == Scalar(IntType(minimum=1, maximum=16))
-
-
-def test_declared_observed_state_decodes_exact_refs_and_ignores_extras() -> None:
-    declared = declared_observed_state(
-        compile_interface(TypedControlContract),
-        ScannerObservation,
-    )
-    channel, autoscan = (field.ref for field in declared.fields)
-    snapshot = InstrumentStateSnapshot(
-        instrument_id="scanner-0",
-        properties=[
-            InstrumentPropertyState(
-                interface_id=channel.interface_id,
-                component_path=list(channel.component_path),
-                property_id=channel.property_id,
-                value=StateValue(3),
-            ),
-            InstrumentPropertyState(
-                interface_id=autoscan.interface_id,
-                component_path=list(autoscan.component_path),
-                property_id=autoscan.property_id,
-                value=StateValue(True),
-            ),
-            InstrumentPropertyState(
-                interface_id=channel.interface_id,
-                component_path=["unrelated-component"],
-                property_id=channel.property_id,
-                value=StateValue(15),
-            ),
-            InstrumentPropertyState(
-                interface_id="test.unrelated_observation/v1",
-                property_id=channel.property_id,
-                value=StateValue(16),
-            ),
-        ],
-    )
-
-    assert assert_type(
-        declared.decode(snapshot),
-        ScannerObservation,
-    ) == ScannerObservation(channel=3, autoscan=True)
-
-
-def test_declared_observed_state_reports_missing_python_and_wire_fields() -> None:
-    declared = declared_observed_state(
-        compile_interface(TypedControlContract),
-        ScannerObservation,
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="observed-state snapshot is missing declared fields",
-    ) as captured:
-        declared.decode(InstrumentStateSnapshot(instrument_id="scanner-0"))
-
-    message = str(captured.value)
-    assert "observed-state snapshot is missing declared fields" in message
-    for field in declared.fields:
-        assert field.python_name in message
-        assert repr(field.ref) in message
-
-
-def test_declared_observed_state_coerces_values_and_reports_field_path() -> None:
-    declared = declared_observed_state(
-        compile_interface(NumericObservationContract),
-        NumericObservation,
-    )
-    [field] = declared.fields
-
-    decoded = declared.decode(
-        InstrumentStateSnapshot(
-            instrument_id="meter-0",
-            properties=[
-                InstrumentPropertyState(
-                    interface_id=field.ref.interface_id,
-                    component_path=list(field.ref.component_path),
-                    property_id=field.ref.property_id,
-                    value=StateValue(1),
-                )
-            ],
-        )
-    )
-    assert decoded == NumericObservation(reading=1.0)
-    assert type(decoded.reading) is float
-
-    with pytest.raises(
-        ValueValidationError,
-        match=r"observed_state\.reading: expected float, got 'invalid'",
-    ):
-        declared.decode(
-            InstrumentStateSnapshot(
-                instrument_id="meter-0",
-                properties=[
-                    InstrumentPropertyState(
-                        interface_id=field.ref.interface_id,
-                        component_path=list(field.ref.component_path),
-                        property_id=field.ref.property_id,
-                        value=StateValue("invalid"),
-                    )
-                ],
-            )
-        )
-
-
-def test_declared_observed_state_requires_the_interface_exact_state_type() -> None:
-    compiled = compile_interface(TypedControlContract)
-
-    with pytest.raises(
-        ValueError,
-        match=("declares observed state ScannerObservation, not UnrelatedObservation"),
-    ):
-        declared_observed_state(compiled, UnrelatedObservation)
-
-    with pytest.raises(
-        ValueError,
-        match="compiled interface does not declare observed state",
-    ):
-        declared_observed_state(compile_interface(SweepContract), ScannerObservation)
 
 
 def test_declaration_ref_helpers_use_python_member_names() -> None:
     acquisition_ref = declared_acquisition_ref(SweepContract, "sweep")
 
-    assert declared_property_ref(SweepState, "start_frequency") == (
+    assert declared_property_ref(SweepContract, SweepState, "start_frequency") == (
         declared_interface_ref(SweepContract).property("start_frequency")
     )
     assert acquisition_ref.acquisition_id == "sweep"
@@ -1352,8 +1210,13 @@ def test_discriminated_state_compiles_and_encodes_implicit_mode() -> None:
 
 def test_state_discriminated_acquisition_supports_cross_interface_members() -> None:
     compiled = compile_interface(MonitorContract)
-    source_output = declared_property_ref(SourceCommonState, "output_enabled")
+    source_output = declared_property_ref(
+        SourceContract,
+        SourceCommonState,
+        "output_enabled",
+    )
     measurement_enabled = declared_property_ref(
+        MonitorContract,
         MonitorState,
         "measurement_enabled",
     )
@@ -1459,8 +1322,12 @@ def test_generated_state_projection_distinguishes_omission_from_falsy_values() -
 
     assert not hasattr(projection, "target_assignments")
     assert state_projection_assignments(projection) == {
-        declared_property_ref(SweepState, "points"): 0,
-        declared_property_ref(SweepState, "output_enabled"): False,
+        declared_property_ref(SweepContract, SweepState, "points"): 0,
+        declared_property_ref(
+            SweepContract,
+            SweepState,
+            "output_enabled",
+        ): False,
     }
     assert repr(projection) == (
         f"{type(projection).__qualname__}(points=0, output_enabled=False)"
@@ -1499,7 +1366,7 @@ def test_state_projection_accepts_a_compile_free_runtime_layout() -> None:
     projection = SweepProjection(points=3)
 
     assert state_projection_assignments(projection) == {
-        declared_property_ref(SweepState, "points"): 3,
+        declared_property_ref(SweepContract, SweepState, "points"): 3,
     }
     assert repr(projection) == f"{type(projection).__qualname__}(points=3)"
 
@@ -1523,9 +1390,16 @@ def test_discriminated_projection_includes_required_fields_and_constants() -> No
 
     assert state_projection_assignments(projection) == {
         declared_discriminator_ref(SourceContract): "voltage",
-        declared_property_ref(VoltageState, "range"): Quantity(1, "V"),
-        declared_property_ref(VoltageState, "level"): Quantity(0.1, "V"),
-        declared_property_ref(SourceCommonState, "output_enabled"): True,
+        declared_property_ref(SourceContract, VoltageState, "range"): Quantity(1, "V"),
+        declared_property_ref(SourceContract, VoltageState, "level"): Quantity(
+            0.1,
+            "V",
+        ),
+        declared_property_ref(
+            SourceContract,
+            SourceCommonState,
+            "output_enabled",
+        ): True,
     }
     assert repr(projection) == (
         f"{type(projection).__qualname__}("

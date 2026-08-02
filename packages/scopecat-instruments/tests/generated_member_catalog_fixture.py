@@ -9,6 +9,10 @@ from scopecat.sdk.instruments import InterfaceRef
 CATALOG_PROJECTION = InterfaceRef("test.generated_catalog_projection/v1")
 CATALOG_PROJECTION_ENABLED = CATALOG_PROJECTION.property("enabled")
 CATALOG_PROJECTION_STATUS = CATALOG_PROJECTION.property("status")
+SHARED_STATE_FIRST = InterfaceRef("test.generated_shared_state_first/v1")
+SHARED_STATE_FIRST_ENABLED = SHARED_STATE_FIRST.property("enabled")
+SHARED_STATE_SECOND = InterfaceRef("test.generated_shared_state_second/v1")
+SHARED_STATE_SECOND_ENABLED = SHARED_STATE_SECOND.property("enabled")
 SCALAR_OPERATION = InterfaceRef("test.generated_scalar_operation/v1")
 SCALAR_OPERATION_EMIT_PULSE = SCALAR_OPERATION.operation("emit_pulse")
 SCALAR_OPERATION_EMIT_PULSE_COUNT = SCALAR_OPERATION_EMIT_PULSE.argument("pulse_count")
@@ -64,4 +68,8 @@ __all__ = [
     "SCALAR_OPERATION_EMIT_PULSE_COUNT",
     "SCALAR_OPERATION_EMIT_PULSE_LABEL",
     "SCALAR_OPERATION_EMIT_PULSE_WIDTH",
+    "SHARED_STATE_FIRST",
+    "SHARED_STATE_FIRST_ENABLED",
+    "SHARED_STATE_SECOND",
+    "SHARED_STATE_SECOND_ENABLED",
 ]

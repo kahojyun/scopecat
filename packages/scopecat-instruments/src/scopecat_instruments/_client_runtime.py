@@ -36,16 +36,16 @@ from scopecat.sdk.problems import ProblemPhase, model_location, problem
 
 
 @dataclass(frozen=True, slots=True)
-class ClientObservedField:
+class ClientStateField:
     python_name: str
     ref: PropertyRef
     value_type: ValueType
 
 
 @dataclass(frozen=True, slots=True)
-class ClientObservedState[StateT]:
+class ClientStateSchema[StateT]:
     state_type: type[StateT]
-    fields: tuple[ClientObservedField, ...]
+    fields: tuple[ClientStateField, ...]
 
     def decode(self, snapshot: InstrumentStateSnapshot, /) -> StateT:
         properties = {
@@ -62,13 +62,13 @@ class ClientObservedState[StateT]:
                 f"{field.python_name} ({field.ref!r})" for field in missing
             )
             raise ValueError(
-                f"observed-state snapshot is missing generated fields: {rendered}"
+                f"instrument-state snapshot is missing declared fields: {rendered}"
             )
         values = {
             field.python_name: coerce_literal(
                 field.value_type,
                 properties[field.ref].value.root,
-                path=("observed_state", field.python_name),
+                path=("state", field.python_name),
             )
             for field in self.fields
         }
@@ -272,8 +272,8 @@ __all__ = [
     "ClientAcquisitionAxis",
     "ClientAcquisitionLayout",
     "ClientAcquisitionResult",
-    "ClientObservedField",
-    "ClientObservedState",
+    "ClientStateField",
+    "ClientStateSchema",
     "DeclaredStateClientBase",
     "InstrumentClientBase",
     "client_property_value_type",

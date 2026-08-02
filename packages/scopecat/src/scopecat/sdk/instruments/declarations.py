@@ -23,6 +23,7 @@ from typing import (
     get_args,
     get_origin,
     get_type_hints,
+    overload,
 )
 
 from scopecat.kernel.instrument_members import (
@@ -41,10 +42,8 @@ from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
-from scopecat.kernel.value_validation import coerce_literal
 from scopecat.measurements.results import MeasurementDType
 from scopecat.program.state import DesiredState, StateBinding
-from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
     AcquisitionAxisSpec,
     AcquisitionPreconditionSpec,
@@ -87,16 +86,14 @@ from scopecat.sdk.instruments.contracts import (
     state_discriminated_acquisition as build_state_discriminated_acquisition,
 )
 
-type PropertyAccess = Literal["read_only", "write_only", "read_write"]
+type PropertyAccess = Literal["read_only", "read_write"]
 type PreconditionValue = bool | int | float | str | Quantity
 
 _STATE_METADATA = "__scopecat_instrument_state__"
-_OBSERVED_STATE_METADATA = "__scopecat_instrument_observed_state__"
 _RESULT_METADATA = "__scopecat_instrument_result__"
 _INTERFACE_METADATA = "__scopecat_instrument_interface__"
 _ACQUISITION_METADATA = "__scopecat_instrument_acquisition__"
 _OPERATION_METADATA = "__scopecat_instrument_operation__"
-_STATE_INTERFACES_METADATA = "__scopecat_instrument_state_interfaces__"
 _STATE_PROJECTION_METADATA = "__scopecat_instrument_state_projection__"
 _FIELD_DECLARATION_METADATA = "scopecat.instrument.declaration"
 
@@ -175,6 +172,7 @@ class ArgumentMetadata:
 class StateFieldReference:
     """A deferred property reference addressed by a typed state field."""
 
+    interface_type: type[object] | None
     state_type: type[object]
     field_name: str
 
@@ -222,7 +220,6 @@ type StateMetadata = type[object] | DiscriminatedStateMetadata
 class InterfaceMetadata:
     id: str
     state: StateMetadata | None
-    observed_state: type[object] | None
     label: str | None
     description: str | None
 
@@ -306,57 +303,6 @@ class DeclaredStateLayout(StateProjectionLayout):
     projection_stem: str
     role: Literal["flat", "common", "case"]
     required_fields: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class DeclaredObservedField:
-    """One Python observation field paired with its compiled property identity."""
-
-    python_name: str
-    ref: PropertyRef
-    spec: PropertySpec
-
-    @property
-    def property_id(self) -> str:
-        return self.ref.property_id
-
-
-@dataclass(frozen=True, slots=True)
-class DeclaredObservedState[StateT]:
-    """Typed observed-state dataclass paired with its compiled field layout."""
-
-    state_type: type[StateT]
-    fields: tuple[DeclaredObservedField, ...]
-
-    def decode(self, snapshot: InstrumentStateSnapshot, /) -> StateT:
-        """Project one instrument snapshot into the declared observed state."""
-
-        properties = {
-            PropertyRef(
-                item.interface_id,
-                tuple(item.component_path),
-                item.property_id,
-            ): item
-            for item in snapshot.properties
-        }
-        missing = tuple(field for field in self.fields if field.ref not in properties)
-        if missing:
-            rendered = ", ".join(
-                f"{field.python_name} ({field.ref!r})" for field in missing
-            )
-            raise ValueError(
-                f"observed-state snapshot is missing declared fields: {rendered}"
-            )
-        values = {
-            field.python_name: coerce_literal(
-                field.spec.value_type,
-                properties[field.ref].value.root,
-                path=("observed_state", field.python_name),
-            )
-            for field in self.fields
-        }
-        constructor = cast("Callable[..., StateT]", self.state_type)
-        return constructor(**values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -476,7 +422,6 @@ class DeclaredInterfaceLayout[InterfaceT]:
 
     compiled: CompiledInterface[InterfaceT]
     root: DeclaredScopeLayout
-    observed_state: DeclaredObservedState[object] | None
     states: tuple[DeclaredStateLayout, ...]
 
 
@@ -606,13 +551,42 @@ def discriminated_state(
     )
 
 
+@overload
 def state_field(
     state_type: type[object],
     field_name: str,
+    /,
+) -> StateFieldReference: ...
+
+
+@overload
+def state_field(
+    interface_type: type[object],
+    state_type: type[object],
+    field_name: str,
+    /,
+) -> StateFieldReference: ...
+
+
+def state_field(
+    interface_or_state_type: type[object],
+    state_type_or_field_name: type[object] | str,
+    field_name: str | None = None,
+    /,
 ) -> StateFieldReference:
     """Defer a cross-property reference until all declarations are defined."""
 
-    return StateFieldReference(state_type=state_type, field_name=field_name)
+    if field_name is None:
+        return StateFieldReference(
+            interface_type=None,
+            state_type=interface_or_state_type,
+            field_name=cast("str", state_type_or_field_name),
+        )
+    return StateFieldReference(
+        interface_type=interface_or_state_type,
+        state_type=cast("type[object]", state_type_or_field_name),
+        field_name=field_name,
+    )
 
 
 def interface_discriminator(
@@ -762,19 +736,6 @@ def instrument_state_projection[ClassT](
 
 
 @dataclass_transform(
-    field_specifiers=(member_field,),
-    frozen_default=True,
-    kw_only_default=True,
-)
-def instrument_observed_state[ClassT](cls: type[ClassT], /) -> type[ClassT]:
-    """Create an immutable readback dataclass that is not desired state."""
-
-    declared = dataclass(frozen=True, slots=True, kw_only=True)(cls)
-    setattr(declared, _OBSERVED_STATE_METADATA, True)
-    return declared
-
-
-@dataclass_transform(
     field_specifiers=(result_field,),
     frozen_default=True,
     kw_only_default=True,
@@ -791,7 +752,6 @@ def instrument_interface[ClassT: type[object]](
     id: str,
     *,
     state: StateMetadata | None = None,
-    observed_state: type[object] | None = None,
     label: str | None = None,
     description: str | None = None,
 ) -> Callable[[ClassT], ClassT]:
@@ -800,19 +760,12 @@ def instrument_interface[ClassT: type[object]](
     declaration = InterfaceMetadata(
         id=id,
         state=state,
-        observed_state=observed_state,
         label=label,
         description=description,
     )
 
     def decorate(cls: ClassT) -> ClassT:
         setattr(cls, _INTERFACE_METADATA, declaration)
-        if isinstance(state, DiscriminatedStateMetadata):
-            _bind_discriminated_state(id, state)
-        elif state is not None:
-            _bind_flat_state(id, state)
-        if observed_state is not None:
-            _bind_observed_state(id, observed_state)
         return cls
 
     return decorate
@@ -904,15 +857,9 @@ def compile_interface[InterfaceT](
     properties: list[PropertySpec] = []
     compiled_state: DiscriminatedState | None = None
     if isinstance(declaration.state, DiscriminatedStateMetadata):
-        if declaration.observed_state is not None:
-            raise ValueError(
-                "observed state cannot currently be combined with discriminated state"
-            )
         compiled_state = _compile_discriminated_state(declaration.state)
     elif declaration.state is not None:
         properties = _compile_state(declaration.state)
-    if declaration.observed_state is not None:
-        properties.extend(_compile_observed_state(declaration.observed_state))
     scope = InterfaceRef(declaration.id)
     operations: list[OperationSpec] = []
     acquisitions: list[AcquisitionSpec] = []
@@ -970,67 +917,19 @@ def declared_interface_ref(interface_type: type[object]) -> InterfaceRef:
 
 
 def declared_property_ref(
+    interface_type: type[object],
     state_type: type[object],
     field_name: str,
 ) -> PropertyRef:
     """Resolve a state dataclass field to its declared property identity."""
 
-    interface_ids = cast(
-        "tuple[str, ...]",
-        getattr(state_type, _STATE_INTERFACES_METADATA, ()),
-    )
-    if len(interface_ids) != 1:
-        raise ValueError(
-            "state property refs require the state type to belong to exactly "
-            "one declared interface"
-        )
-    return InterfaceRef(interface_ids[0]).property(
+    return declared_interface_ref(interface_type).property(
         _declared_dataclass_field_id(
             state_type,
             field_name,
             metadata_type=MemberMetadata,
             label="state",
         )
-    )
-
-
-def declared_observed_state[InterfaceT, StateT](
-    compiled: CompiledInterface[InterfaceT],
-    state_type: type[StateT],
-    /,
-) -> DeclaredObservedState[StateT]:
-    """Bind an interface's exact observed-state dataclass to its wire layout."""
-
-    declaration = _required_interface_metadata(compiled.interface_type)
-    if declaration.observed_state is None:
-        raise ValueError("compiled interface does not declare observed state")
-    if declaration.observed_state is not state_type:
-        raise ValueError(
-            "compiled interface declares observed state "
-            f"{declaration.observed_state.__name__}, not {state_type.__name__}"
-        )
-    if not is_dataclass(state_type):
-        raise TypeError("instrument observed state must be a dataclass")
-    specs_by_id = {item.id: item for item in compiled.spec.properties}
-    declared_fields = tuple(
-        DeclaredObservedField(
-            python_name=observed_field.name,
-            ref=compiled.ref.property(property_id),
-            spec=specs_by_id[property_id],
-        )
-        for observed_field in fields(state_type)
-        if (
-            property_id := _declared_dataclass_field_id(
-                state_type,
-                observed_field.name,
-                metadata_type=MemberMetadata,
-                label="observed state",
-            )
-        )
-    )
-    return DeclaredObservedState(
-        state_type=state_type,
-        fields=declared_fields,
     )
 
 
@@ -1155,18 +1054,11 @@ def declared_interface_layout[InterfaceT](
     """Project a compiled interface into its complete typed Python member tree."""
 
     declaration = _required_interface_metadata(compiled.interface_type)
-    observed_state: DeclaredObservedState[object] | None = None
-    if declaration.observed_state is not None:
-        observed_state = declared_observed_state(
-            compiled,
-            declaration.observed_state,
-        )
     return DeclaredInterfaceLayout(
         compiled=compiled,
         root=_declared_scope_layout(
             compiled,
         ),
-        observed_state=observed_state,
         states=_declared_state_layouts(compiled, declaration.state),
     )
 
@@ -1549,7 +1441,7 @@ def _declared_result_layout(
     )
 
 
-def _bind_flat_state(interface_id: str, state_type: type[object]) -> None:
+def _validate_flat_state(state_type: type[object]) -> None:
     for state_member in _instrument_state_fields(state_type):
         _declared_dataclass_field_id(
             state_type,
@@ -1557,33 +1449,15 @@ def _bind_flat_state(interface_id: str, state_type: type[object]) -> None:
             metadata_type=MemberMetadata,
             label="state",
         )
-    _attach_state_interface(state_type, interface_id=interface_id)
 
 
-def _bind_observed_state(interface_id: str, state_type: type[object]) -> None:
-    _require_instrument_observed_state(state_type)
-    if not is_dataclass(state_type):
-        raise TypeError("instrument observed state must be a dataclass")
-    if getattr(state_type, _STATE_METADATA, False):
-        raise TypeError("observed state cannot also be declared as writable state")
-    for observed_field in fields(state_type):
-        _declared_dataclass_field_id(
-            state_type,
-            observed_field.name,
-            metadata_type=MemberMetadata,
-            label="observed state",
-        )
-    _attach_state_interface(state_type, interface_id=interface_id)
-
-
-def _bind_discriminated_state(
-    interface_id: str,
+def _validate_discriminated_state(
     declaration: DiscriminatedStateMetadata,
 ) -> None:
     discriminator_id = declaration.discriminator.id
     if discriminator_id is None:
         raise ValueError("state discriminator member requires an explicit id")
-    _bind_flat_state(interface_id, declaration.common_state)
+    _validate_flat_state(declaration.common_state)
     common_members = _instrument_state_fields(declaration.common_state)
     common_names = {item.name for item in common_members}
     common_property_ids = {
@@ -1643,21 +1517,6 @@ def _bind_discriminated_state(
                 f"state case {case.value!r} repeats common property ids: "
                 f"{sorted(duplicate_ids)!r}"
             )
-        _attach_state_interface(case.state_type, interface_id=interface_id)
-
-
-def _attach_state_interface(
-    state_type: type[object],
-    *,
-    interface_id: str,
-) -> None:
-    interface_ids = cast(
-        "tuple[str, ...]",
-        getattr(state_type, _STATE_INTERFACES_METADATA, ()),
-    )
-    if interface_ids and interface_ids != (interface_id,):
-        raise ValueError("one declared state type cannot belong to multiple interfaces")
-    setattr(state_type, _STATE_INTERFACES_METADATA, (interface_id,))
 
 
 def _require_instrument_state(state_type: type[object]) -> None:
@@ -1692,39 +1551,16 @@ def _own_instrument_state_fields(
     )
 
 
-def _require_instrument_observed_state(state_type: type[object]) -> None:
-    _required_metadata(
-        state_type,
-        _OBSERVED_STATE_METADATA,
-        bool,
-        "instrument observed state",
-    )
-    if not is_dataclass(state_type):
-        raise TypeError("instrument observed state must be a dataclass")
-
-
 def _compile_state(state_type: type[object]) -> list[PropertySpec]:
     return _compile_state_fields(state_type)
-
-
-def _compile_observed_state(state_type: type[object]) -> list[PropertySpec]:
-    _require_instrument_observed_state(state_type)
-    return _compile_state_fields(
-        state_type,
-        observed=True,
-    )
 
 
 def _compile_state_fields(
     state_type: type[object],
     *,
-    observed: bool = False,
     own_fields: bool = False,
 ) -> list[PropertySpec]:
-    if observed:
-        _require_instrument_observed_state(state_type)
-    else:
-        _require_instrument_state(state_type)
+    _require_instrument_state(state_type)
     if not is_dataclass(state_type):
         raise TypeError("instrument state must be a dataclass")
     hints = cast(
@@ -1750,7 +1586,6 @@ def _compile_state_fields(
                 field_name,
                 base,
                 metadata or MemberMetadata(),
-                access="read_only" if observed else None,
             )
         )
     return properties
@@ -1759,6 +1594,7 @@ def _compile_state_fields(
 def _compile_discriminated_state(
     declaration: DiscriminatedStateMetadata,
 ) -> DiscriminatedState:
+    _validate_discriminated_state(declaration)
     discriminator = declaration.discriminator
     if discriminator.id is None:
         raise ValueError("state discriminator member requires an explicit id")
@@ -1791,8 +1627,6 @@ def _compile_property(
     field_name: str,
     annotation: object,
     metadata: MemberMetadata,
-    *,
-    access: PropertyAccess | None = None,
 ) -> PropertySpec:
     annotation = _expand_concrete_alias(annotation)
     property_id = metadata.id or field_name
@@ -1854,7 +1688,7 @@ def _compile_property(
         id=property_id,
         label=metadata.label,
         description=metadata.description,
-        access=metadata.access if access is None else access,
+        access=metadata.access,
         value_type=Scalar(atom),
     )
 
@@ -2030,9 +1864,9 @@ def _compile_acquisition(
                 else (
                     scope.property(axis_metadata.size)
                     if isinstance(axis_metadata.size, str)
-                    else declared_property_ref(
-                        axis_metadata.size.state_type,
-                        axis_metadata.size.field_name,
+                    else _resolve_state_field_reference(
+                        axis_metadata.size,
+                        scope=scope,
                     )
                 )
             ),
@@ -2043,7 +1877,7 @@ def _compile_acquisition(
         )
         for axis_id, axis_metadata in declaration.axes
     }
-    preconditions = _compile_preconditions(declaration.preconditions)
+    preconditions = _compile_preconditions(declaration.preconditions, scope=scope)
     acquisition_id = declaration.id or method_name
     if declaration.discriminator is not None:
         if not declaration.cases:
@@ -2054,7 +1888,10 @@ def _compile_acquisition(
             acquisition_id,
             label=declaration.label,
             description=declaration.description,
-            discriminator=_resolve_property_target(declaration.discriminator),
+            discriminator=_resolve_property_target(
+                declaration.discriminator,
+                scope=scope,
+            ),
             preconditions=preconditions,
             cases=tuple(
                 build_acquisition_case(
@@ -2065,7 +1902,10 @@ def _compile_acquisition(
                         axes=axes,
                         selected_fields=case.fields,
                     ),
-                    preconditions=_compile_preconditions(case.preconditions),
+                    preconditions=_compile_preconditions(
+                        case.preconditions,
+                        scope=scope,
+                    ),
                 )
                 for case in declaration.cases
             ),
@@ -2086,10 +1926,12 @@ def _compile_acquisition(
 
 def _compile_preconditions(
     declarations: Sequence[PreconditionMetadata],
+    *,
+    scope: InterfaceRef,
 ) -> list[AcquisitionPreconditionSpec]:
     return [
         build_acquisition_precondition(
-            _resolve_property_target(declaration.property),
+            _resolve_property_target(declaration.property, scope=scope),
             value=declaration.value,
             unavailable_reason=declaration.unavailable_reason,
         )
@@ -2097,12 +1939,37 @@ def _compile_preconditions(
     ]
 
 
-def _resolve_property_target(target: DeclaredPropertyTarget) -> PropertyRef:
+def _resolve_property_target(
+    target: DeclaredPropertyTarget,
+    *,
+    scope: InterfaceRef,
+) -> PropertyRef:
     if isinstance(target, PropertyRef):
         return target
     if isinstance(target, StateFieldReference):
-        return declared_property_ref(target.state_type, target.field_name)
+        return _resolve_state_field_reference(target, scope=scope)
     return declared_discriminator_ref(target.interface_type)
+
+
+def _resolve_state_field_reference(
+    target: StateFieldReference,
+    *,
+    scope: InterfaceRef,
+) -> PropertyRef:
+    if target.interface_type is not None:
+        return declared_property_ref(
+            target.interface_type,
+            target.state_type,
+            target.field_name,
+        )
+    return scope.property(
+        _declared_dataclass_field_id(
+            target.state_type,
+            target.field_name,
+            metadata_type=MemberMetadata,
+            label="state",
+        )
+    )
 
 
 def _compile_results(
@@ -2484,8 +2351,6 @@ __all__ = [
     "CompiledInterface",
     "DeclaredAcquisition",
     "DeclaredInterfaceLayout",
-    "DeclaredObservedField",
-    "DeclaredObservedState",
     "DeclaredOperation",
     "DeclaredOperationArgument",
     "DeclaredPropertyTarget",
@@ -2519,14 +2384,12 @@ __all__ = [
     "declared_discriminator_ref",
     "declared_interface_layout",
     "declared_interface_ref",
-    "declared_observed_state",
     "declared_operation",
     "declared_operation_ref",
     "declared_property_ref",
     "declared_result_ref",
     "discriminated_state",
     "instrument_interface",
-    "instrument_observed_state",
     "instrument_result",
     "instrument_state",
     "instrument_state_projection",

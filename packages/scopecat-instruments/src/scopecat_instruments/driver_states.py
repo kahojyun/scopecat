@@ -18,11 +18,10 @@ from scopecat.sdk.instruments import (
 
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
-    DCSourceObservation,
     DCSourceState,
     NetworkSweepState,
     RFOutputState,
-    TemperatureReadoutObservation,
+    TemperatureReadoutState,
 )
 from scopecat_instruments.members import (
     DC_MONITOR_INTEGRATION_CYCLES,
@@ -47,8 +46,8 @@ from scopecat_instruments.members import (
 )
 
 
-def encode_temperature_readout_observation(
-    state: TemperatureReadoutObservation, /
+def encode_temperature_readout_state(
+    state: TemperatureReadoutState, /
 ) -> dict[PropertyRef, DriverScalar]:
     return {
         TEMPERATURE_READOUT_SCAN_CHANNEL: state.scan_channel,
@@ -130,13 +129,6 @@ def encode_dc_source_state(state: DCSourceState, /) -> dict[PropertyRef, DriverS
         DC_SOURCE_VOLTAGE_PROTECTION: state.voltage_protection,
         DC_SOURCE_CURRENT_PROTECTION: state.current_protection,
         DC_SOURCE_OUTPUT_ENABLED: state.output_enabled,
-    }
-
-
-def encode_dc_source_observation(
-    state: DCSourceObservation, /
-) -> dict[PropertyRef, DriverScalar]:
-    return {
         DC_SOURCE_MODE: state.source_mode,
     }
 
@@ -259,10 +251,9 @@ __all__ = [
     "decode_network_sweep_patch",
     "decode_rf_output_patch",
     "encode_dc_monitor_state",
-    "encode_dc_source_observation",
     "encode_dc_source_state",
     "encode_driver_state",
     "encode_network_sweep_state",
     "encode_rf_output_state",
-    "encode_temperature_readout_observation",
+    "encode_temperature_readout_state",
 ]

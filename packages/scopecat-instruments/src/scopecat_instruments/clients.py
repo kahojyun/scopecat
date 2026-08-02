@@ -22,8 +22,8 @@ from scopecat_instruments._client_runtime import (
     ClientAcquisitionAxis,
     ClientAcquisitionLayout,
     ClientAcquisitionResult,
-    ClientObservedField,
-    ClientObservedState,
+    ClientStateField,
+    ClientStateSchema,
     DeclaredStateClientBase,
     InstrumentClientBase,
     client_property_value_type,
@@ -37,8 +37,11 @@ from scopecat_instruments._symbolic_runtime import (
     SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
-    DCSourceObservation,
-    TemperatureReadoutObservation,
+    DCMonitorState,
+    DCSourceState,
+    NetworkSweepState,
+    RFOutputState,
+    TemperatureReadoutState,
 )
 from scopecat_instruments.states import (
     DCMonitorGroupTarget,
@@ -65,17 +68,17 @@ _DC_MONITOR_REF = InterfaceRef("scopecat.dc_monitor/v4")
 
 _NETWORK_SWEEP_REF = InterfaceRef("scopecat.network_sweep/v1")
 
-_TEMPERATURE_READOUT_OBSERVATION_DECLARATION = ClientObservedState(
-    TemperatureReadoutObservation,
+_TEMPERATURE_READOUT_STATE_SCHEMA = ClientStateSchema(
+    TemperatureReadoutState,
     fields=(
-        ClientObservedField(
+        ClientStateField(
             "scan_channel",
             InterfaceRef("scopecat.temperature_readout/v1").property("scan_channel"),
             client_property_value_type(
                 '{"type":"int","minimum":1,"maximum":9007199254740991}'
             ),
         ),
-        ClientObservedField(
+        ClientStateField(
             "autoscan_enabled",
             InterfaceRef("scopecat.temperature_readout/v1").property(
                 "autoscan_enabled"
@@ -113,10 +116,69 @@ _TEMPERATURE_READOUT_SAMPLE_DECLARATION = ClientAcquisition(
     ),
 )
 
-_DC_SOURCE_OBSERVATION_DECLARATION = ClientObservedState(
-    DCSourceObservation,
+_RF_OUTPUT_STATE_SCHEMA = ClientStateSchema(
+    RFOutputState,
     fields=(
-        ClientObservedField(
+        ClientStateField(
+            "frequency",
+            InterfaceRef("scopecat.rf_output/v1").property("frequency"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"Hz","minimum":null,"maxi'
+                'mum":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "power",
+            InterfaceRef("scopecat.rf_output/v1").property("power"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"dBm","minimum":null,"max'
+                'imum":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "output_enabled",
+            InterfaceRef("scopecat.rf_output/v1").property("output_enabled"),
+            client_property_value_type('{"type":"bool"}'),
+        ),
+        ClientStateField(
+            "reference_source",
+            InterfaceRef("scopecat.rf_output/v1").property("reference_source"),
+            client_property_value_type(
+                '{"type":"string","choices":["internal","external"]}'
+            ),
+        ),
+    ),
+)
+
+_DC_SOURCE_STATE_SCHEMA = ClientStateSchema(
+    DCSourceState,
+    fields=(
+        ClientStateField(
+            "voltage_protection",
+            InterfaceRef("scopecat.dc_source/v3").property("voltage_protection"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"V","minimum":null,"maxim'
+                'um":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "current_protection",
+            InterfaceRef("scopecat.dc_source/v3").property("current_protection"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"A","minimum":null,"maxim'
+                'um":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "output_enabled",
+            InterfaceRef("scopecat.dc_source/v3").property("output_enabled"),
+            client_property_value_type('{"type":"bool"}'),
+        ),
+        ClientStateField(
             "source_mode",
             InterfaceRef("scopecat.dc_source/v3").property("source_mode"),
             client_property_value_type(
@@ -129,6 +191,33 @@ _DC_SOURCE_OBSERVATION_DECLARATION = ClientObservedState(
 _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION = _DC_SOURCE_REF.operation("source_voltage")
 
 _DC_SOURCE_SOURCE_CURRENT_DECLARATION = _DC_SOURCE_REF.operation("source_current")
+
+_DC_MONITOR_STATE_SCHEMA = ClientStateSchema(
+    DCMonitorState,
+    fields=(
+        ClientStateField(
+            "measurement_enabled",
+            InterfaceRef("scopecat.dc_monitor/v4").property("measurement_enabled"),
+            client_property_value_type('{"type":"bool"}'),
+        ),
+        ClientStateField(
+            "integration_cycles",
+            InterfaceRef("scopecat.dc_monitor/v4").property("integration_cycles"),
+            client_property_value_type(
+                '{"type":"int","minimum":1,"maximum":9007199254740991}'
+            ),
+        ),
+        ClientStateField(
+            "measurement_delay",
+            InterfaceRef("scopecat.dc_monitor/v4").property("measurement_delay"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"s","minimum":0.0,"maximu'
+                'm":null,"finite":true}'
+            ),
+        ),
+    ),
+)
 
 _DC_MONITOR_MEASURE_CURRENT_DECLARATION = ClientAcquisition(
     ref=_DC_MONITOR_REF.acquisition("measure_current"),
@@ -167,6 +256,62 @@ _DC_MONITOR_MEASURE_VOLTAGE_DECLARATION = ClientAcquisition(
                     unit="V",
                     axes=(),
                 ),
+            ),
+        ),
+    ),
+)
+
+_NETWORK_SWEEP_STATE_SCHEMA = ClientStateSchema(
+    NetworkSweepState,
+    fields=(
+        ClientStateField(
+            "start_frequency",
+            InterfaceRef("scopecat.network_sweep/v1").property("start_frequency"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"Hz","minimum":null,"maxi'
+                'mum":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "stop_frequency",
+            InterfaceRef("scopecat.network_sweep/v1").property("stop_frequency"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"Hz","minimum":null,"maxi'
+                'mum":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "points",
+            InterfaceRef("scopecat.network_sweep/v1").property("points"),
+            client_property_value_type(
+                '{"type":"int","minimum":2,"maximum":9007199254740991}'
+            ),
+        ),
+        ClientStateField(
+            "if_bandwidth",
+            InterfaceRef("scopecat.network_sweep/v1").property("if_bandwidth"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"Hz","minimum":null,"maxi'
+                'mum":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "source_power",
+            InterfaceRef("scopecat.network_sweep/v1").property("source_power"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"dBm","minimum":null,"max'
+                'imum":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "s_parameter",
+            InterfaceRef("scopecat.network_sweep/v1").property("s_parameter"),
+            client_property_value_type(
+                '{"type":"string","choices":["S11","S21","S12","S22"]}'
             ),
         ),
     ),
@@ -235,15 +380,13 @@ class TemperatureSampleProducts:
 
 
 class TemperatureReadoutClient(InstrumentClientBase):
-    def observation(self) -> TemperatureReadoutObservation:
-        return _TEMPERATURE_READOUT_OBSERVATION_DECLARATION.decode(
-            self._session.observed_state(self.instrument_id)
-        )
+    def state(self) -> TemperatureReadoutState:
+        snapshot = self._session.observed_state(self.instrument_id)
+        return _TEMPERATURE_READOUT_STATE_SCHEMA.decode(snapshot)
 
-    def refresh_observation(self) -> TemperatureReadoutObservation:
-        return _TEMPERATURE_READOUT_OBSERVATION_DECLARATION.decode(
-            self._session.read_state(self.instrument_id)
-        )
+    def refresh_state(self) -> TemperatureReadoutState:
+        snapshot = self._session.read_state(self.instrument_id)
+        return _TEMPERATURE_READOUT_STATE_SCHEMA.decode(snapshot)
 
     def sample(self) -> TemperatureReadback:
         return self._collect(
@@ -348,6 +491,14 @@ class RFOutputClient(DeclaredStateClientBase[RFOutputPatch]):
             RFOutputPatch,
             fields,
         )
+
+    def state(self) -> RFOutputState:
+        snapshot = self._session.observed_state(self.instrument_id)
+        return _RF_OUTPUT_STATE_SCHEMA.decode(snapshot)
+
+    def refresh_state(self) -> RFOutputState:
+        snapshot = self._session.read_state(self.instrument_id)
+        return _RF_OUTPUT_STATE_SCHEMA.decode(snapshot)
 
 
 class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputTarget]):
@@ -490,15 +641,13 @@ class DCSourceClient(DeclaredStateClientBase[DCSourcePatch]):
             fields,
         )
 
-    def observation(self) -> DCSourceObservation:
-        return _DC_SOURCE_OBSERVATION_DECLARATION.decode(
-            self._session.observed_state(self.instrument_id)
-        )
+    def state(self) -> DCSourceState:
+        snapshot = self._session.observed_state(self.instrument_id)
+        return _DC_SOURCE_STATE_SCHEMA.decode(snapshot)
 
-    def refresh_observation(self) -> DCSourceObservation:
-        return _DC_SOURCE_OBSERVATION_DECLARATION.decode(
-            self._session.read_state(self.instrument_id)
-        )
+    def refresh_state(self) -> DCSourceState:
+        snapshot = self._session.read_state(self.instrument_id)
+        return _DC_SOURCE_STATE_SCHEMA.decode(snapshot)
 
     def source_voltage(
         self,
@@ -757,6 +906,14 @@ class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
             fields,
         )
 
+    def state(self) -> DCMonitorState:
+        snapshot = self._session.observed_state(self.instrument_id)
+        return _DC_MONITOR_STATE_SCHEMA.decode(snapshot)
+
+    def refresh_state(self) -> DCMonitorState:
+        snapshot = self._session.read_state(self.instrument_id)
+        return _DC_MONITOR_STATE_SCHEMA.decode(snapshot)
+
     def measure_current(self) -> DCMonitorCurrentReadback:
         return self._collect(
             _DC_MONITOR_MEASURE_CURRENT_DECLARATION,
@@ -912,6 +1069,12 @@ dc_monitor: InstrumentFamily[
 )
 
 
+@dataclass(frozen=True, slots=True)
+class DCSourceMonitorState:
+    dc_source: DCSourceState
+    dc_monitor: DCMonitorState
+
+
 type _DCSourceMonitorPatch = DCSourcePatch | DCMonitorPatch
 
 
@@ -922,14 +1085,18 @@ type _DCSourceMonitorGroupTarget = DCSourceGroupTarget | DCMonitorGroupTarget
 
 
 class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
-    def observation(self) -> DCSourceObservation:
-        return _DC_SOURCE_OBSERVATION_DECLARATION.decode(
-            self._session.observed_state(self.instrument_id)
+    def state(self) -> DCSourceMonitorState:
+        snapshot = self._session.observed_state(self.instrument_id)
+        return DCSourceMonitorState(
+            dc_source=_DC_SOURCE_STATE_SCHEMA.decode(snapshot),
+            dc_monitor=_DC_MONITOR_STATE_SCHEMA.decode(snapshot),
         )
 
-    def refresh_observation(self) -> DCSourceObservation:
-        return _DC_SOURCE_OBSERVATION_DECLARATION.decode(
-            self._session.read_state(self.instrument_id)
+    def refresh_state(self) -> DCSourceMonitorState:
+        snapshot = self._session.read_state(self.instrument_id)
+        return DCSourceMonitorState(
+            dc_source=_DC_SOURCE_STATE_SCHEMA.decode(snapshot),
+            dc_monitor=_DC_MONITOR_STATE_SCHEMA.decode(snapshot),
         )
 
     def source_voltage(
@@ -1177,6 +1344,14 @@ class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
             fields,
         )
 
+    def state(self) -> NetworkSweepState:
+        snapshot = self._session.observed_state(self.instrument_id)
+        return _NETWORK_SWEEP_STATE_SCHEMA.decode(snapshot)
+
+    def refresh_state(self) -> NetworkSweepState:
+        snapshot = self._session.read_state(self.instrument_id)
+        return _NETWORK_SWEEP_STATE_SCHEMA.decode(snapshot)
+
     def sweep(self) -> NetworkSweepReadback:
         return self._collect(
             _NETWORK_SWEEP_SWEEP_DECLARATION,
@@ -1325,6 +1500,7 @@ __all__ = [
     "DCMonitorVoltageReadback",
     "DCSourceClient",
     "DCSourceMonitorClient",
+    "DCSourceMonitorState",
     "NetworkSweepClient",
     "NetworkSweepProducts",
     "NetworkSweepReadback",

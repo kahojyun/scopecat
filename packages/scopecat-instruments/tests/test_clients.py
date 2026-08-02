@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # pyright: reportPrivateUsage=false
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import assert_type, cast
 
 import pytest
@@ -13,6 +14,7 @@ from scopecat.api._instruments import (
 from scopecat.authoring import QuantityType, ScalarType, coordinate
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateLiteral, StateValue
+from scopecat.kernel.value_types import Bool, Int, Scalar
 from scopecat.records.instrument import (
     InstrumentPropertyState,
     InstrumentStateSnapshot,
@@ -33,27 +35,35 @@ from scopecat.sdk.instruments.declarations import (
 import scopecat_instruments.clients as client_module
 from scopecat_instruments import (
     DCMonitorPatch,
+    DCMonitorState,
     DCSourceClient,
     DCSourceMonitorClient,
-    DCSourceObservation,
+    DCSourceMonitorState,
     DCSourcePatch,
+    DCSourceState,
     NetworkSweepClient,
     NetworkSweepPatch,
     RFOutputClient,
     RFOutputPatch,
     TemperatureReadoutClient,
-    TemperatureReadoutObservation,
+    TemperatureReadoutState,
     dc_source,
     dc_source_monitor,
     network_sweep,
     rf_output,
     temperature_readout,
 )
+from scopecat_instruments._client_runtime import (
+    ClientStateField,
+    ClientStateSchema,
+)
 from scopecat_instruments.interface_declarations import (
     TemperatureReadoutInterface,
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
+    DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
     DC_SOURCE,
     DC_SOURCE_CURRENT,
@@ -79,11 +89,11 @@ from scopecat_instruments.members import (
     TEMPERATURE_READOUT_SCAN_CHANNEL,
 )
 from scopecat_instruments.states import (
-    TemperatureReadoutObservation as StateTemperatureReadoutObservation,
+    TemperatureReadoutState as CatalogTemperatureReadoutState,
 )
 
 
-class _ObservationChannel:
+class _StateChannel:
     def __init__(
         self,
         cached: InstrumentStateSnapshot,
@@ -101,6 +111,23 @@ class _ObservationChannel:
     def read_state(self, instrument_id: str) -> InstrumentStateSnapshot:
         self.refresh_requests.append(instrument_id)
         return self.fresh
+
+
+@dataclass(frozen=True, slots=True)
+class _ReadableState:
+    enabled: bool
+    channel: int
+
+
+_READABLE_ENABLED = PropertyRef("test.readable_state/v1", (), "enabled")
+_READABLE_CHANNEL = PropertyRef("test.readable_state/v1", (), "channel")
+_READABLE_STATE_SCHEMA = ClientStateSchema(
+    state_type=_ReadableState,
+    fields=(
+        ClientStateField("enabled", _READABLE_ENABLED, Scalar(Bool())),
+        ClientStateField("channel", _READABLE_CHANNEL, Scalar(Int(minimum=1))),
+    ),
+)
 
 
 class _ApplyChannel:
@@ -143,9 +170,24 @@ def _dc_source_snapshot(*, source_mode: str) -> InstrumentStateSnapshot:
         properties=[
             InstrumentPropertyState(
                 interface_id=DC_SOURCE.interface_id,
+                property_id=DC_SOURCE_VOLTAGE_PROTECTION.property_id,
+                value=StateValue(Quantity(2.0, "V")),
+            ),
+            InstrumentPropertyState(
+                interface_id=DC_SOURCE.interface_id,
+                property_id=DC_SOURCE_CURRENT_PROTECTION.property_id,
+                value=StateValue(Quantity(10.0, "mA")),
+            ),
+            InstrumentPropertyState(
+                interface_id=DC_SOURCE.interface_id,
+                property_id=DC_SOURCE_OUTPUT_ENABLED.property_id,
+                value=StateValue(True),
+            ),
+            InstrumentPropertyState(
+                interface_id=DC_SOURCE.interface_id,
                 property_id=DC_SOURCE_MODE.property_id,
                 value=StateValue(source_mode),
-            )
+            ),
         ],
     )
 
@@ -170,6 +212,73 @@ def _temperature_snapshot(
             ),
         ],
     )
+
+
+def _dc_source_monitor_snapshot(*, source_mode: str) -> InstrumentStateSnapshot:
+    source = _dc_source_snapshot(source_mode=source_mode)
+    return InstrumentStateSnapshot(
+        instrument_id=source.instrument_id,
+        properties=[
+            *source.properties,
+            InstrumentPropertyState(
+                interface_id=DC_MONITOR.interface_id,
+                property_id=DC_MONITOR_MEASUREMENT_ENABLED.property_id,
+                value=StateValue(True),
+            ),
+            InstrumentPropertyState(
+                interface_id=DC_MONITOR.interface_id,
+                property_id=DC_MONITOR_INTEGRATION_CYCLES.property_id,
+                value=StateValue(2),
+            ),
+            InstrumentPropertyState(
+                interface_id=DC_MONITOR.interface_id,
+                property_id=DC_MONITOR_MEASUREMENT_DELAY.property_id,
+                value=StateValue(Quantity(0.1, "s")),
+            ),
+        ],
+    )
+
+
+def test_client_state_schema_decodes_a_complete_readable_snapshot() -> None:
+    snapshot = InstrumentStateSnapshot(
+        instrument_id="readable",
+        properties=[
+            InstrumentPropertyState(
+                interface_id=_READABLE_ENABLED.interface_id,
+                property_id=_READABLE_ENABLED.property_id,
+                value=StateValue(True),
+            ),
+            InstrumentPropertyState(
+                interface_id=_READABLE_CHANNEL.interface_id,
+                property_id=_READABLE_CHANNEL.property_id,
+                value=StateValue(3),
+            ),
+        ],
+    )
+
+    assert _READABLE_STATE_SCHEMA.decode(snapshot) == _ReadableState(
+        enabled=True,
+        channel=3,
+    )
+
+
+def test_client_state_schema_rejects_an_incomplete_readable_snapshot() -> None:
+    snapshot = InstrumentStateSnapshot(
+        instrument_id="readable",
+        properties=[
+            InstrumentPropertyState(
+                interface_id=_READABLE_ENABLED.interface_id,
+                property_id=_READABLE_ENABLED.property_id,
+                value=StateValue(True),
+            )
+        ],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="instrument-state snapshot is missing declared fields: channel",
+    ):
+        _READABLE_STATE_SCHEMA.decode(snapshot)
 
 
 def test_first_party_factories_retain_static_client_types() -> None:
@@ -301,8 +410,8 @@ def test_generated_rf_live_client_rejects_symbolic_state_before_io() -> None:
     assert channel.instrument_id is None
 
 
-def test_dc_source_observation_decodes_the_read_only_mode() -> None:
-    channel = _ObservationChannel(
+def test_dc_source_state_combines_writable_values_and_read_only_mode() -> None:
+    channel = _StateChannel(
         _dc_source_snapshot(source_mode="voltage"),
         _dc_source_snapshot(source_mode="current"),
     )
@@ -311,16 +420,26 @@ def test_dc_source_observation_decodes_the_read_only_mode() -> None:
         "flux-source",
     )
 
-    assert assert_type(client.observation(), DCSourceObservation) == (
-        DCSourceObservation(source_mode="voltage")
+    assert assert_type(client.state(), DCSourceState) == (
+        DCSourceState(
+            voltage_protection=Quantity(2.0, "V"),
+            current_protection=Quantity(0.01, "A"),
+            output_enabled=True,
+            source_mode="voltage",
+        )
     )
-    assert assert_type(client.refresh_observation(), DCSourceObservation) == (
-        DCSourceObservation(source_mode="current")
+    assert assert_type(client.refresh_state(), DCSourceState) == (
+        DCSourceState(
+            voltage_protection=Quantity(2.0, "V"),
+            current_protection=Quantity(0.01, "A"),
+            output_enabled=True,
+            source_mode="current",
+        )
     )
 
 
-def test_temperature_observation_uses_cached_and_fresh_snapshot_paths() -> None:
-    channel = _ObservationChannel(
+def test_temperature_state_uses_cached_and_fresh_snapshot_paths() -> None:
+    channel = _StateChannel(
         _temperature_snapshot(scan_channel=3, autoscan_enabled=False),
         _temperature_snapshot(scan_channel=7, autoscan_enabled=True),
     )
@@ -329,9 +448,9 @@ def test_temperature_observation_uses_cached_and_fresh_snapshot_paths() -> None:
         "thermometer",
     )
 
-    cached = assert_type(client.observation(), TemperatureReadoutObservation)
+    cached = assert_type(client.state(), TemperatureReadoutState)
 
-    assert cached == TemperatureReadoutObservation(
+    assert cached == TemperatureReadoutState(
         scan_channel=3,
         autoscan_enabled=False,
     )
@@ -339,11 +458,11 @@ def test_temperature_observation_uses_cached_and_fresh_snapshot_paths() -> None:
     assert channel.refresh_requests == []
 
     fresh = assert_type(
-        client.refresh_observation(),
-        TemperatureReadoutObservation,
+        client.refresh_state(),
+        TemperatureReadoutState,
     )
 
-    assert fresh == TemperatureReadoutObservation(
+    assert fresh == TemperatureReadoutState(
         scan_channel=7,
         autoscan_enabled=True,
     )
@@ -357,11 +476,11 @@ def test_temperature_observation_uses_cached_and_fresh_snapshot_paths() -> None:
     assert channel.refresh_requests == ["thermometer", "thermometer"]
 
 
-def test_temperature_observation_descriptor_and_top_level_export_are_shared() -> None:
-    assert TemperatureReadoutObservation is StateTemperatureReadoutObservation
+def test_temperature_state_schema_and_top_level_export_are_shared() -> None:
+    assert TemperatureReadoutState is CatalogTemperatureReadoutState
     layout = declared_interface_layout(compile_interface(TemperatureReadoutInterface))
-    assert layout.observed_state is not None
-    assert [field.ref for field in layout.observed_state.fields] == [
+    [state] = layout.states
+    assert [field.ref for field in state.fields] == [
         TEMPERATURE_READOUT_SCAN_CHANNEL,
         TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     ]
@@ -369,7 +488,7 @@ def test_temperature_observation_descriptor_and_top_level_export_are_shared() ->
 
 def test_client_module_exports_only_client_owned_types() -> None:
     assert "SymbolicInstrumentRecorder" in client_module.__all__
-    assert "TemperatureReadoutObservation" not in client_module.__all__
+    assert "TemperatureReadoutState" not in client_module.__all__
 
 
 def test_live_dc_source_factories_expose_explicit_capabilities() -> None:
@@ -398,6 +517,27 @@ def test_generated_live_dc_monitor_applies_monitor_state() -> None:
 
     assert receipt is channel.receipt
     assert channel.values == {DC_MONITOR_MEASUREMENT_ENABLED: True}
+
+
+def test_composite_client_returns_state_grouped_by_interface() -> None:
+    channel = _StateChannel(
+        _dc_source_monitor_snapshot(source_mode="voltage"),
+        _dc_source_monitor_snapshot(source_mode="current"),
+    )
+    client = DCSourceMonitorClient(
+        cast("InstrumentClientChannel", cast("object", channel)),
+        "flux-source",
+    )
+
+    state = assert_type(client.state(), DCSourceMonitorState)
+
+    assert state.dc_source.source_mode == "voltage"
+    assert state.dc_monitor == DCMonitorState(
+        measurement_enabled=True,
+        integration_cycles=2,
+        measurement_delay=Quantity(0.1, "s"),
+    )
+    assert client.refresh_state().dc_source.source_mode == "current"
 
 
 def test_dc_source_patch_only_projects_persistent_controls() -> None:

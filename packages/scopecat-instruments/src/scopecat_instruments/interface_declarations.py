@@ -10,7 +10,6 @@ from scopecat.sdk.instruments.declarations import (
     argument,
     axis,
     instrument_interface,
-    instrument_observed_state,
     instrument_result,
     instrument_state,
     member_field,
@@ -24,7 +23,7 @@ type SParameter = Literal["S11", "S21", "S12", "S22"]
 
 @instrument_state
 class DCSourceState:
-    """Persistent DC-source settings independent of the selected source mode."""
+    """Complete DC-source state, including the hardware-selected source mode."""
 
     voltage_protection: Quantity = member_field(
         unit="V",
@@ -40,13 +39,8 @@ class DCSourceState:
         label="DC output",
         description="Whether the source output is enabled.",
     )
-
-
-@instrument_observed_state
-class DCSourceObservation:
-    """Source mode currently reported by the instrument."""
-
     source_mode: Literal["voltage", "current"] = member_field(
+        access="read_only",
         label="Source mode",
         description="Whether the instrument is currently sourcing voltage or current.",
     )
@@ -55,7 +49,6 @@ class DCSourceObservation:
 @instrument_interface(
     "scopecat.dc_source/v3",
     state=DCSourceState,
-    observed_state=DCSourceObservation,
     label="DC source",
     description=(
         "DC voltage/current source transitions, protection, and output control."
@@ -150,16 +143,18 @@ class DCMonitorInterface(Protocol):
     def measure_voltage(self) -> DCMonitorVoltageResults: ...
 
 
-@instrument_observed_state
-class TemperatureReadoutObservation:
-    """Scanner state reported by a temperature readout."""
+@instrument_state
+class TemperatureReadoutState:
+    """Read-only scanner state reported by a temperature readout."""
 
     scan_channel: int = member_field(
+        access="read_only",
         minimum=1,
         label="Scan channel",
         description="Sensor input currently selected by the scanner.",
     )
     autoscan_enabled: bool = member_field(
+        access="read_only",
         label="Autoscan",
         description="Whether the input scanner is advancing automatically.",
     )
@@ -185,7 +180,7 @@ class TemperatureSampleResults:
 
 @instrument_interface(
     "scopecat.temperature_readout/v1",
-    observed_state=TemperatureReadoutObservation,
+    state=TemperatureReadoutState,
     label="Temperature readout",
     description=(
         "Read-only scanner state and settled temperature or resistance "
@@ -317,7 +312,6 @@ __all__ = [
     "DCMonitorState",
     "DCMonitorVoltageResults",
     "DCSourceInterface",
-    "DCSourceObservation",
     "DCSourceState",
     "NetworkSweepInterface",
     "NetworkSweepResults",
@@ -327,6 +321,6 @@ __all__ = [
     "ReferenceSource",
     "SParameter",
     "TemperatureReadoutInterface",
-    "TemperatureReadoutObservation",
+    "TemperatureReadoutState",
     "TemperatureSampleResults",
 ]

@@ -13,7 +13,22 @@ from scopecat.sdk.instruments.declarations import (
 )
 
 from client_codegen_fixture_declarations import (
-    CatalogProjectionObservation as CatalogProjectionObservation,
+    CatalogProjectionState as CatalogProjectionState,
+)
+from client_codegen_fixture_declarations import (
+    DriverMonitorState as DriverMonitorState,
+)
+from client_codegen_fixture_declarations import (
+    DriverSourceLeftState as DriverSourceLeftState,
+)
+from client_codegen_fixture_declarations import (
+    DriverSourceRightState as DriverSourceRightState,
+)
+from client_codegen_fixture_declarations import (
+    SharedFixtureState as SharedFixtureState,
+)
+from client_codegen_fixture_declarations import (
+    _DriverSourceCommon as _DriverSourceCommon,
 )
 from generated_member_catalog_fixture import (
     CATALOG_PROJECTION_ENABLED,
@@ -22,6 +37,8 @@ from generated_member_catalog_fixture import (
     DRIVER_SOURCE_LEFT_LEVEL,
     DRIVER_SOURCE_MODE,
     DRIVER_SOURCE_RIGHT_LEVEL,
+    SHARED_STATE_FIRST_ENABLED,
+    SHARED_STATE_SECOND_ENABLED,
 )
 
 _CATALOG_PROJECTION_STATE_LAYOUT = StateProjectionLayout(
@@ -42,6 +59,48 @@ class CatalogProjectionTarget:
 
 @instrument_state_projection(_CATALOG_PROJECTION_STATE_LAYOUT)
 class CatalogProjectionGroupTarget:
+    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
+
+
+_SHARED_STATE_FIRST_STATE_LAYOUT = StateProjectionLayout(
+    fields=(StateProjectionField("enabled", SHARED_STATE_FIRST_ENABLED),),
+    constants=(),
+)
+
+
+@instrument_state_projection(_SHARED_STATE_FIRST_STATE_LAYOUT)
+class SharedStateFirstPatch:
+    enabled: bool = state_projection_field()
+
+
+@instrument_state_projection(_SHARED_STATE_FIRST_STATE_LAYOUT)
+class SharedStateFirstTarget:
+    enabled: bool | ValueRef = state_projection_field()
+
+
+@instrument_state_projection(_SHARED_STATE_FIRST_STATE_LAYOUT)
+class SharedStateFirstGroupTarget:
+    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
+
+
+_SHARED_STATE_SECOND_STATE_LAYOUT = StateProjectionLayout(
+    fields=(StateProjectionField("enabled", SHARED_STATE_SECOND_ENABLED),),
+    constants=(),
+)
+
+
+@instrument_state_projection(_SHARED_STATE_SECOND_STATE_LAYOUT)
+class SharedStateSecondPatch:
+    enabled: bool = state_projection_field()
+
+
+@instrument_state_projection(_SHARED_STATE_SECOND_STATE_LAYOUT)
+class SharedStateSecondTarget:
+    enabled: bool | ValueRef = state_projection_field()
+
+
+@instrument_state_projection(_SHARED_STATE_SECOND_STATE_LAYOUT)
+class SharedStateSecondGroupTarget:
     enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
 
 
@@ -143,19 +202,30 @@ class DriverMonitorGroupTarget:
 
 __all__ = [
     "CatalogProjectionGroupTarget",
-    "CatalogProjectionObservation",
     "CatalogProjectionPatch",
+    "CatalogProjectionState",
     "CatalogProjectionTarget",
     "DriverMonitorGroupTarget",
     "DriverMonitorPatch",
+    "DriverMonitorState",
     "DriverMonitorTarget",
     "DriverSourceGroupTarget",
     "DriverSourceLeftGroupTarget",
     "DriverSourceLeftPatch",
+    "DriverSourceLeftState",
     "DriverSourceLeftTarget",
     "DriverSourcePatch",
     "DriverSourceRightGroupTarget",
     "DriverSourceRightPatch",
+    "DriverSourceRightState",
     "DriverSourceRightTarget",
     "DriverSourceTarget",
+    "SharedFixtureState",
+    "SharedStateFirstGroupTarget",
+    "SharedStateFirstPatch",
+    "SharedStateFirstTarget",
+    "SharedStateSecondGroupTarget",
+    "SharedStateSecondPatch",
+    "SharedStateSecondTarget",
+    "_DriverSourceCommon",
 ]

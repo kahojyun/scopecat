@@ -157,6 +157,9 @@ def test_codegen_adds_keyword_convenience_for_one_flat_state_schema() -> None:
         "enabled: bool | ValueRef | PerEntity[bool | ValueRef] = ...,"
         in completed.stdout
     )
+    assert "status: str = ...," not in completed.stdout
+    assert "def state(self) -> CatalogProjectionState:" in completed.stdout
+    assert "def refresh_state(self) -> CatalogProjectionState:" in completed.stdout
 
 
 def test_codegen_renders_flat_dc_source_state_and_typed_transitions() -> None:
@@ -175,6 +178,8 @@ def test_codegen_renders_flat_dc_source_state_and_typed_transitions() -> None:
     assert "voltage_protection: Quantity = ...," in live_client
     assert "current_protection: Quantity = ...," in live_client
     assert "output_enabled: bool = ...," in live_client
+    assert "source_mode:" not in live_client
+    assert 'ClientStateField(\n            "source_mode",' in completed.stdout
     assert "def source_voltage(" in live_client
     assert "def source_current(" in live_client
     assert live_client.count("range: Quantity,") == 2
@@ -200,6 +205,22 @@ def test_codegen_accepts_a_projection_module_for_a_stateless_surface() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "from generated_state_catalog_fixture import" not in completed.stdout
+
+
+def test_codegen_keeps_read_only_state_out_of_authoring_projections() -> None:
+    completed = _render_surface(
+        "TemperatureReadoutInterface",
+        module="scopecat_instruments.interface_declarations",
+        import_root=None,
+        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "class TemperatureReadoutClient(InstrumentClientBase):" in completed.stdout
+    assert "def state(self) -> TemperatureReadoutState:" in completed.stdout
+    assert "def refresh_state(self) -> TemperatureReadoutState:" in completed.stdout
+    assert "TemperatureReadoutPatch" not in completed.stdout
+    assert "TemperatureReadoutTarget" not in completed.stdout
 
 
 def test_codegen_rejects_payload_operation_arguments_explicitly() -> None:
@@ -260,6 +281,10 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "DCMonitorCurrentResults" not in completed.stdout
     assert "DCMonitorVoltageResults" not in completed.stdout
     assert "class DCSourceMonitorClient(" in completed.stdout
+    assert "class DCSourceMonitorState:" in completed.stdout
+    assert "    dc_source: DCSourceState" in completed.stdout
+    assert "    dc_monitor: DCMonitorState" in completed.stdout
+    assert "def state(self) -> DCSourceMonitorState:" in completed.stdout
     assert (
         "class SymbolicDCSourceMonitorClient("
         "\n    DeclaredStateSymbolicClientBase[_DCSourceMonitorTarget]"

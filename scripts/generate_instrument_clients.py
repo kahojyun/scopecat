@@ -26,11 +26,11 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
     DeclaredInterfaceLayout,
-    DeclaredObservedState,
     DeclaredOperation,
     DeclaredResultField,
     DeclaredResultLayout,
     DeclaredScopeLayout,
+    DeclaredStateField,
     DeclaredStateLayout,
     compile_interface,
     declared_interface_layout,
@@ -233,6 +233,8 @@ class _FixtureDeclarations(Protocol):
     LiteralOperationInterface: type[object]
     PayloadOperationInterface: type[object]
     ScalarOperationInterface: type[object]
+    SharedStateFirstInterface: type[object]
+    SharedStateSecondInterface: type[object]
 
 
 def _manifest_surface(registration: SurfaceRegistration, /) -> GenerationSurface:
@@ -296,6 +298,8 @@ def _fixture_catalog_target() -> CatalogTarget:
         members_module="generated_member_catalog_fixture",
         interface_types=(
             declarations.CatalogProjectionInterface,
+            declarations.SharedStateFirstInterface,
+            declarations.SharedStateSecondInterface,
             *_surface_interface_types(handler_surfaces),
         ),
     )
@@ -420,19 +424,20 @@ class _StateKeywordModel:
 class _InterfaceConstituentModel:
     interface_identity: str
     interface_id: str
+    interface_stem: str
     constant_prefix: str
     layout: DeclaredInterfaceLayout[object]
-    observation_type_name: str | None
+    state_type_name: str | None
 
     @property
     def ref_name(self) -> str:
         return f"_{self.constant_prefix}_REF"
 
     @property
-    def observation_descriptor_name(self) -> str | None:
-        if self.observation_type_name is None:
+    def state_schema_name(self) -> str | None:
+        if self.state_type_name is None:
             return None
-        return f"_{self.constant_prefix}_OBSERVATION_DECLARATION"
+        return f"_{self.constant_prefix}_STATE_SCHEMA"
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,7 +446,6 @@ class _InterfaceModel:
     stem: str
     factory_name: str
     generate_family: bool
-    observation_type_name: str | None
     live_state_type_names: tuple[str, ...]
     symbolic_state_type_names: tuple[str, ...]
     group_state_type_names: tuple[str, ...]
@@ -506,17 +510,25 @@ class _InterfaceModel:
         return _render_tuple(self.ref_names)
 
     @property
-    def observation_descriptor_name(self) -> str | None:
-        descriptors = tuple(
-            descriptor
+    def state_constituents(self) -> tuple[_InterfaceConstituentModel, ...]:
+        return tuple(
+            constituent
             for constituent in self.constituents
-            if (descriptor := constituent.observation_descriptor_name) is not None
+            if constituent.state_type_name is not None
         )
-        if not descriptors:
+
+    @property
+    def state_type_name(self) -> str | None:
+        constituents = self.state_constituents
+        if not constituents:
             return None
-        if len(descriptors) != 1:
-            raise AssertionError("generated model has multiple observation descriptors")
-        return descriptors[0]
+        if len(self.constituents) == 1:
+            return constituents[0].state_type_name
+        return f"{self.stem}State"
+
+    @property
+    def generates_composite_state(self) -> bool:
+        return len(self.constituents) > 1 and bool(self.state_constituents)
 
 
 @dataclass(frozen=True, slots=True)
@@ -529,11 +541,6 @@ class _CatalogInterfaceModel:
     spec: InterfaceSpec
     root: DeclaredScopeLayout
     states: tuple[DeclaredStateLayout, ...]
-    observed_state: DeclaredObservedState[object] | None
-
-    @property
-    def observed_state_type(self) -> type[object] | None:
-        return None if self.observed_state is None else self.observed_state.state_type
 
 
 @dataclass(frozen=True, slots=True)
@@ -589,8 +596,18 @@ class _DriverOperationModel:
     optional: bool
 
 
-def _state_projection_names(layout: DeclaredStateLayout) -> _StateProjectionNames:
-    stem = layout.projection_stem
+def _state_projection_names(
+    interface_stem: str,
+    layout: DeclaredStateLayout,
+) -> _StateProjectionNames:
+    stem = interface_stem
+    if layout.role == "case":
+        case_stem = layout.projection_stem
+        stem = (
+            case_stem
+            if case_stem.startswith(interface_stem)
+            else f"{interface_stem}{case_stem}"
+        )
     return _StateProjectionNames(
         patch=f"{stem}Patch",
         target=f"{stem}Target",
@@ -602,9 +619,14 @@ def _register_state_projection_types(
     renderer: _AnnotationRenderer,
     layouts: tuple[DeclaredStateLayout, ...],
     *,
+    interface_stem: str,
     state_projection_module: str,
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-    names = tuple(_state_projection_names(layout) for layout in layouts)
+    names = tuple(
+        _state_projection_names(interface_stem, layout)
+        for layout in layouts
+        if _layout_has_writable_state(layout)
+    )
     if names:
         imported = renderer.imports.setdefault(
             state_projection_module,
@@ -629,6 +651,7 @@ def _register_state_projection_types(
 def _state_keyword_model(
     layouts: tuple[DeclaredStateLayout, ...],
     *,
+    interface_stem: str,
     renderer: _AnnotationRenderer,
 ) -> _StateKeywordModel | None:
     """Describe the unambiguous keyword surface for one flat state schema."""
@@ -638,9 +661,12 @@ def _state_keyword_model(
     layout = layouts[0]
     if layout.required_fields or layout.constants:
         return None
-    names = _state_projection_names(layout)
+    writable_fields = _writable_state_fields(layout)
+    if not writable_fields:
+        return None
+    names = _state_projection_names(interface_stem, layout)
     fields: list[_StateKeywordFieldModel] = []
-    for field in layout.fields:
+    for field in writable_fields:
         concrete = renderer.render(field.annotation)
         symbolic = f"{concrete} | ValueRef"
         fields.append(
@@ -657,6 +683,16 @@ def _state_keyword_model(
         group_target_type_name=names.group_target,
         fields=tuple(fields),
     )
+
+
+def _writable_state_fields(
+    layout: DeclaredStateLayout,
+) -> tuple[DeclaredStateField, ...]:
+    return tuple(field for field in layout.fields if field.spec.access != "read_only")
+
+
+def _layout_has_writable_state(layout: DeclaredStateLayout) -> bool:
+    return bool(_writable_state_fields(layout) or layout.constants)
 
 
 @dataclass(frozen=True, slots=True)
@@ -808,7 +844,6 @@ def _catalog_models(
                 spec=layout.compiled.spec,
                 root=layout.root,
                 states=layout.states,
-                observed_state=layout.observed_state,
             )
         )
     return tuple(models)
@@ -1035,22 +1070,12 @@ def _render_interfaces_module(models: tuple[_CatalogInterfaceModel, ...]) -> str
 def _unique_state_layouts(
     models: tuple[_CatalogInterfaceModel, ...],
 ) -> tuple[tuple[_CatalogInterfaceModel, DeclaredStateLayout], ...]:
-    selected: list[tuple[_CatalogInterfaceModel, DeclaredStateLayout]] = []
-    seen_sources: dict[type[object], DeclaredStateLayout] = {}
-    for model in models:
-        for layout in model.states:
-            existing = seen_sources.get(layout.source_type)
-            if existing is not None:
-                if existing != layout:
-                    raise ClientGenerationError(
-                        "one state schema produced inconsistent projection layouts: "
-                        f"{layout.source_type.__module__}."
-                        f"{layout.source_type.__qualname__}"
-                    )
-                continue
-            seen_sources[layout.source_type] = layout
-            selected.append((model, layout))
-    return tuple(selected)
+    return tuple(
+        (model, layout)
+        for model in models
+        for layout in model.states
+        if _layout_has_writable_state(layout)
+    )
 
 
 def _state_export_owners(
@@ -1061,11 +1086,7 @@ def _state_export_owners(
 ) -> dict[str, str]:
     exports_by_name: dict[str, str] = {}
     for candidate in (
-        *(
-            model.observed_state_type
-            for model in models
-            if model.observed_state_type is not None
-        ),
+        *(layout.source_type for model in models for layout in model.states),
         *public_types,
     ):
         module, name = _public_type_location(candidate)
@@ -1077,9 +1098,12 @@ def _state_export_owners(
             )
         exports_by_name[name] = owner
 
-    for _, layout in state_layouts:
+    for model, layout in state_layouts:
         owner = f"{layout.source_type.__module__}.{layout.source_type.__qualname__}"
-        names = _state_projection_names(layout)
+        names = _state_projection_names(
+            model.interface_type_name.removesuffix("Interface"),
+            layout,
+        )
         for name in (names.patch, names.target, names.group_target):
             existing = exports_by_name.get(name)
             if existing is not None:
@@ -1108,11 +1132,7 @@ def _render_states_module(
     )
 
     for candidate in (
-        *(
-            model.observed_state_type
-            for model in models
-            if model.observed_state_type is not None
-        ),
+        *(layout.source_type for model in models for layout in model.states),
         *public_types,
     ):
         module, name = _public_type_location(candidate)
@@ -1128,7 +1148,10 @@ def _render_states_module(
         }
 
     for model, layout in state_layouts:
-        names = _state_projection_names(layout)
+        names = _state_projection_names(
+            model.interface_type_name.removesuffix("Interface"),
+            layout,
+        )
         layout_expression = _state_projection_layout_name(names)
         declarations.append(
             _render_state_projection_layout(
@@ -1229,8 +1252,11 @@ def _render_driver_states_module(
         for layout in model.states:
             if layout.role == "common":
                 continue
-            encoder_name = _state_encoder_name(layout.source_type)
-            owner = _type_identity(layout.source_type)
+            encoder_name = _state_encoder_name(
+                model.interface_type_name.removesuffix("Interface"),
+                layout,
+            )
+            owner = f"{model.interface_identity}:{_type_identity(layout.source_type)}"
             existing_owner = encoder_owners.get(encoder_name)
             if existing_owner is not None:
                 if existing_owner != owner:
@@ -1251,31 +1277,6 @@ def _render_driver_states_module(
                     member_imports=member_imports,
                 )
             )
-
-        if model.observed_state is not None:
-            observation = model.observed_state
-            encoder_name = _observation_encoder_name(observation.state_type)
-            owner = _type_identity(observation.state_type)
-            existing_owner = encoder_owners.get(encoder_name)
-            if existing_owner is not None:
-                if existing_owner != owner:
-                    raise ClientGenerationError(
-                        f"generated driver state encoder collision {encoder_name}: "
-                        f"{existing_owner} vs {owner}"
-                    )
-            else:
-                encoder_owners[encoder_name] = owner
-                exports.append(encoder_name)
-                observation_type_name = renderer.reference(observation.state_type)
-                declarations.append(
-                    _render_observation_encoder(
-                        observation,
-                        constant_prefix=model.constant_prefix,
-                        encoder_name=encoder_name,
-                        observation_type_name=observation_type_name,
-                        member_imports=member_imports,
-                    )
-                )
 
     imports[members_module] = member_imports
     for module, names in renderer.imports.items():
@@ -1535,7 +1536,7 @@ def _render_driver_adapter(
             f"class {snapshot_name}:\n"
             + "".join(
                 f"    {name}: {annotation}\n"
-                for name, annotation, _constituent, _kind in snapshot_fields
+                for name, annotation, _constituent in snapshot_fields
             )
             + "    metadata: dict[str, JsonValue] = field(default_factory=dict)\n"
         )
@@ -1618,11 +1619,11 @@ def _driver_snapshot_fields(
     *,
     imports: dict[str, set[str]],
     driver_state_imports: set[str],
-) -> tuple[tuple[str, str, _DriverHandlerConstituent, str], ...]:
-    selected: list[tuple[str, str, _DriverHandlerConstituent, str]] = []
+) -> tuple[tuple[str, str, _DriverHandlerConstituent], ...]:
+    selected: list[tuple[str, str, _DriverHandlerConstituent]] = []
     is_composite = len(surface.constituents) > 1
     for constituent in surface.constituents:
-        state_layouts = _driver_writable_state_layouts(constituent.layout.states)
+        state_layouts = _driver_state_layouts(constituent.layout.states)
         if state_layouts:
             annotation = _driver_state_annotation(
                 constituent,
@@ -1632,40 +1633,35 @@ def _driver_snapshot_fields(
             if constituent.optional:
                 annotation = f"{annotation} | None"
             field_name = constituent.field_name if is_composite else "state"
-            selected.append((field_name, annotation, constituent, "state"))
-            driver_state_imports.add(f"decode_{_snake_case(constituent.stem)}_patch")
-            driver_state_imports.add(f"{constituent.stem}DriverPatch")
+            selected.append((field_name, annotation, constituent))
+            if _driver_writable_state_layouts(constituent.layout.states):
+                driver_state_imports.add(
+                    f"decode_{_snake_case(constituent.stem)}_patch"
+                )
+                driver_state_imports.add(f"{constituent.stem}DriverPatch")
             for layout in state_layouts:
-                driver_state_imports.add(_state_encoder_name(layout.source_type))
+                driver_state_imports.add(_state_encoder_name(constituent.stem, layout))
             for layout in state_layouts[:-1]:
                 imports.setdefault(layout.source_type.__module__, set()).add(
                     layout.source_type.__name__
                 )
-        observation = constituent.layout.observed_state
-        if observation is not None:
-            if is_composite:
-                field_name = (
-                    f"{constituent.field_name}_observation"
-                    if state_layouts
-                    else constituent.field_name
-                )
-            else:
-                field_name = "observation"
-            annotation = observation.state_type.__name__
-            if constituent.optional:
-                annotation = f"{annotation} | None"
-            selected.append((field_name, annotation, constituent, "observation"))
-            imports.setdefault(observation.state_type.__module__, set()).add(
-                observation.state_type.__name__
-            )
-            driver_state_imports.add(_observation_encoder_name(observation.state_type))
     return tuple(selected)
+
+
+def _driver_state_layouts(
+    layouts: tuple[DeclaredStateLayout, ...],
+) -> tuple[DeclaredStateLayout, ...]:
+    return tuple(layout for layout in layouts if layout.role != "common")
 
 
 def _driver_writable_state_layouts(
     layouts: tuple[DeclaredStateLayout, ...],
 ) -> tuple[DeclaredStateLayout, ...]:
-    return tuple(layout for layout in layouts if layout.role != "common")
+    return tuple(
+        layout
+        for layout in _driver_state_layouts(layouts)
+        if _layout_has_writable_state(layout)
+    )
 
 
 def _driver_state_annotation(
@@ -1771,7 +1767,7 @@ def _render_driver_acquisition_hook(model: _DriverAcquisitionModel) -> str:
 def _render_adapter_read_state(
     surface: _DriverHandlerSurface,
     *,
-    snapshot_fields: tuple[tuple[str, str, _DriverHandlerConstituent, str], ...],
+    snapshot_fields: tuple[tuple[str, str, _DriverHandlerConstituent], ...],
 ) -> str:
     lines = ["\n", "    def read_state(self) -> DriverState:\n"]
     if not snapshot_fields:
@@ -1785,29 +1781,9 @@ def _render_adapter_read_state(
             "        encoded: list[Mapping[PropertyRef, DriverScalar]] = []\n",
         )
     )
-    for field_name, _annotation, constituent, kind in snapshot_fields:
+    for field_name, _annotation, constituent in snapshot_fields:
         value = f"snapshot.{field_name}"
-        if kind == "observation":
-            encoder = _observation_encoder_name(
-                cast(
-                    "DeclaredObservedState[object]",
-                    constituent.layout.observed_state,
-                ).state_type
-            )
-            if constituent.optional:
-                flag = cast("str", surface.flag_name)
-                lines.extend(
-                    (
-                        f"        if self._driver_{flag}_enabled and "
-                        f"{value} is not None:\n",
-                        f"            encoded.append({encoder}({value}))\n",
-                    )
-                )
-            else:
-                lines.append(f"        encoded.append({encoder}({value}))\n")
-            continue
-
-        layouts = _driver_writable_state_layouts(constituent.layout.states)
+        layouts = _driver_state_layouts(constituent.layout.states)
         indent = "        "
         if constituent.optional:
             flag = cast("str", surface.flag_name)
@@ -1818,7 +1794,7 @@ def _render_adapter_read_state(
         if len(layouts) == 1:
             lines.append(
                 f"{indent}encoded.append("
-                f"{_state_encoder_name(layouts[0].source_type)}({value}))\n"
+                f"{_state_encoder_name(constituent.stem, layouts[0])}({value}))\n"
             )
             continue
         for index, layout in enumerate(layouts):
@@ -1827,7 +1803,7 @@ def _render_adapter_read_state(
                     (
                         f"{indent}else:\n",
                         f"{indent}    encoded.append("
-                        f"{_state_encoder_name(layout.source_type)}({value}))\n",
+                        f"{_state_encoder_name(constituent.stem, layout)}({value}))\n",
                     )
                 )
                 continue
@@ -1837,7 +1813,7 @@ def _render_adapter_read_state(
                     f"{indent}{keyword} isinstance({value}, "
                     f"{layout.source_type.__name__}):\n",
                     f"{indent}    encoded.append("
-                    f"{_state_encoder_name(layout.source_type)}({value}))\n",
+                    f"{_state_encoder_name(constituent.stem, layout)}({value}))\n",
                 )
             )
     lines.append(
@@ -2127,6 +2103,7 @@ def _driver_patch_fields(
     return tuple(
         _DriverPatchField(property_id=property_spec.id, annotation=annotation)
         for property_spec in model.root.spec.properties
+        if property_spec.access != "read_only"
         if (annotation := annotations_by_id.get(property_spec.id)) is not None
     )
 
@@ -2206,15 +2183,15 @@ def _render_driver_patch_decoder(
     return "\n\n" + "".join(body)
 
 
-def _state_encoder_name(source_type: type[object]) -> str:
-    stem = _snake_case(source_type.__name__)
+def _state_encoder_name(
+    interface_stem: str,
+    layout: DeclaredStateLayout,
+) -> str:
+    projection = _state_projection_names(interface_stem, layout)
+    stem = _snake_case(projection.patch.removesuffix("Patch"))
     if not stem.endswith("_state"):
         stem = f"{stem}_state"
     return f"encode_{stem}"
-
-
-def _observation_encoder_name(source_type: type[object]) -> str:
-    return f"encode_{_snake_case(source_type.__name__)}"
 
 
 def _render_exact_state_encoder(
@@ -2252,33 +2229,6 @@ def _render_exact_state_encoder(
             encoder_name,
             parameter="state",
             parameter_type=source_type_name,
-            return_type="dict[PropertyRef, DriverScalar]",
-        )
-        + "    return {\n"
-        + "".join(entries)
-        + "    }\n"
-    )
-
-
-def _render_observation_encoder(
-    observation: DeclaredObservedState[object],
-    *,
-    constant_prefix: str,
-    encoder_name: str,
-    observation_type_name: str,
-    member_imports: set[str],
-) -> str:
-    entries: list[str] = []
-    for observed_field in observation.fields:
-        member_name = _member_constant_name(constant_prefix, observed_field.ref)
-        member_imports.add(member_name)
-        entries.append(f"        {member_name}: state.{observed_field.python_name},\n")
-    return (
-        "\n\n"
-        + _render_driver_function_header(
-            encoder_name,
-            parameter="state",
-            parameter_type=observation_type_name,
             return_type="dict[PropertyRef, DriverScalar]",
         )
         + "    return {\n"
@@ -2354,7 +2304,7 @@ def _render_state_projection_layout(
     member_imports: set[str],
 ) -> str:
     fields: list[str] = []
-    for field in layout.fields:
+    for field in _writable_state_fields(layout):
         member_name = _member_constant_name(constant_prefix, field.ref)
         member_imports.add(member_name)
         fields.append(
@@ -2401,7 +2351,7 @@ def _render_state_projection(
 ) -> str:
     required = frozenset(layout.required_fields)
     fields: list[str] = []
-    for declared_field in layout.fields:
+    for declared_field in _writable_state_fields(layout):
         concrete = renderer.render(declared_field.annotation)
         if projection == "live":
             annotation = concrete
@@ -2511,6 +2461,7 @@ def render_client_module(
     for model in models:
         sections.extend(
             (
+                _render_client_state_type(model),
                 _render_state_alias(model),
                 _render_result_types(model, rendered=rendered_result_types),
                 _render_live_scopes(model),
@@ -2521,6 +2472,30 @@ def render_client_module(
         )
     sections.append(_render_exports(models))
     return "".join(sections)
+
+
+def _render_client_state_type(model: _InterfaceModel) -> str:
+    if not model.generates_composite_state:
+        return ""
+    state_type_name = model.state_type_name
+    if state_type_name is None:
+        raise AssertionError("composite state requires a type name")
+    fields = tuple(
+        (_snake_case(constituent.interface_stem), constituent.state_type_name)
+        for constituent in model.state_constituents
+    )
+    if any(state_type is None for _, state_type in fields):
+        raise AssertionError("composite state constituent requires a type name")
+    field_names = tuple(name for name, _ in fields)
+    if len(field_names) != len(set(field_names)):
+        raise ClientGenerationError(
+            f"generated composite {model.interface_identity} has colliding state fields"
+        )
+    return (
+        "\n\n@dataclass(frozen=True, slots=True)\n"
+        f"class {state_type_name}:\n"
+        + "".join(f"    {name}: {state_type}\n" for name, state_type in fields)
+    )
 
 
 def _client_models(
@@ -2689,11 +2664,6 @@ def _interface_model(
     interface_name = surface.interface_type.__name__
     stem = interface_name.removesuffix("Interface")
     overrides = dict(surface.public_name_overrides)
-    observation_type_name = (
-        None
-        if layout.observed_state is None
-        else renderer.reference(layout.observed_state.state_type)
-    )
     root = _scope_model(
         layout.root,
         interface_stem=stem,
@@ -2704,6 +2674,7 @@ def _interface_model(
     live_states, symbolic_states, group_states = _register_state_projection_types(
         renderer,
         layout.states,
+        interface_stem=stem,
         state_projection_module=state_projection_module,
     )
     return _InterfaceModel(
@@ -2713,11 +2684,14 @@ def _interface_model(
         stem=stem,
         factory_name=overrides.get("factory", _snake_case(stem)),
         generate_family=generate_family,
-        observation_type_name=observation_type_name,
         live_state_type_names=live_states,
         symbolic_state_type_names=symbolic_states,
         group_state_type_names=group_states,
-        keyword_state=_state_keyword_model(layout.states, renderer=renderer),
+        keyword_state=_state_keyword_model(
+            layout.states,
+            interface_stem=stem,
+            renderer=renderer,
+        ),
         constituents=(constituent,),
         root=root,
     )
@@ -2761,20 +2735,6 @@ def _composite_model(
             f"generated composite method collisions for {composite_identity}: {details}"
         )
 
-    observed_constituents = tuple(
-        constituent
-        for constituent in constituents
-        if constituent.observation_type_name is not None
-    )
-    if len(observed_constituents) > 1:
-        rendered = ", ".join(
-            constituent.interface_identity for constituent in observed_constituents
-        )
-        raise ClientGenerationError(
-            f"generated composite {composite_identity} has multiple observed states: "
-            f"{rendered}"
-        )
-
     stem = surface.name.removesuffix("Interface")
     scopes = tuple(
         _scope_model(
@@ -2800,15 +2760,12 @@ def _composite_model(
     symbolic_states: list[str] = []
     group_states: list[str] = []
     for constituent in constituents:
-        new_layouts = tuple(
-            layout
-            for layout in constituent.layout.states
-            if all(layout.source_type is not item.source_type for item in state_layouts)
-        )
+        new_layouts = constituent.layout.states
         state_layouts.extend(new_layouts)
         registered = _register_state_projection_types(
             renderer,
             new_layouts,
+            interface_stem=constituent.interface_stem,
             state_projection_module=state_projection_module,
         )
         live_states.extend(registered[0])
@@ -2819,15 +2776,14 @@ def _composite_model(
         stem=stem,
         factory_name=_snake_case(stem),
         generate_family=True,
-        observation_type_name=(
-            None
-            if not observed_constituents
-            else observed_constituents[0].observation_type_name
-        ),
         live_state_type_names=tuple(live_states),
         symbolic_state_type_names=tuple(symbolic_states),
         group_state_type_names=tuple(group_states),
-        keyword_state=_state_keyword_model(tuple(state_layouts), renderer=renderer),
+        keyword_state=_state_keyword_model(
+            tuple(state_layouts),
+            interface_stem=stem,
+            renderer=renderer,
+        ),
         constituents=constituents,
         root=root,
     )
@@ -2841,17 +2797,19 @@ def _constituent_model(
 ) -> _InterfaceConstituentModel:
     layout = declaration_cache.layout(interface_type)
     interface_name = interface_type.__name__
-    observation_type_name = (
-        None
-        if layout.observed_state is None
-        else renderer.reference(layout.observed_state.state_type)
+    interface_stem = interface_name.removesuffix("Interface")
+    state_type_name = (
+        renderer.reference(layout.states[0].source_type)
+        if len(layout.states) == 1 and layout.states[0].role == "flat"
+        else None
     )
     return _InterfaceConstituentModel(
         interface_identity=f"{interface_type.__module__}.{interface_type.__qualname__}",
         interface_id=layout.compiled.ref.interface_id,
-        constant_prefix=_snake_case(interface_name.removesuffix("Interface")).upper(),
+        interface_stem=interface_stem,
+        constant_prefix=_snake_case(interface_stem).upper(),
         layout=layout,
-        observation_type_name=observation_type_name,
+        state_type_name=state_type_name,
     )
 
 
@@ -2868,10 +2826,10 @@ def _validate_generated_symbols(
     for constituent in _unique_constituents(models):
         declaration = constituent.interface_identity
         register(constituent.ref_name, f"{declaration} interface ref")
-        if constituent.observation_descriptor_name is not None:
+        if constituent.state_schema_name is not None:
             register(
-                constituent.observation_descriptor_name,
-                f"{declaration} observation",
+                constituent.state_schema_name,
+                f"{declaration} state schema",
             )
         for operation in constituent.layout.root.operations:
             register(
@@ -2913,6 +2871,11 @@ def _validate_generated_symbols(
                 register(alias_name, f"{declaration} {projection} union")
         if model.generate_family:
             register(model.factory_name, f"{declaration} factory")
+        if model.generates_composite_state:
+            state_type_name = model.state_type_name
+            if state_type_name is None:
+                raise AssertionError("composite state requires a type name")
+            register(state_type_name, f"{declaration} composite state")
         scope = model.root
         register(scope.live_client_name, f"{declaration} live client")
         register(scope.symbolic_client_name, f"{declaration} symbolic client")
@@ -3052,7 +3015,7 @@ def _render_header(
     scopes = tuple(model.root for model in models)
     has_operations = any(scope.operations for scope in scopes)
     has_acquisitions = any(scope.acquisitions for scope in scopes)
-    has_observations = any(model.observation_type_name for model in models)
+    has_state_schemas = any(model.state_type_name for model in models)
     has_state = any(model.live_state_type_name is not None for model in models)
     has_keyword_state = any(model.keyword_state is not None for model in models)
     has_plain_root = any(model.live_state_type_name is None for model in models)
@@ -3105,11 +3068,13 @@ def _render_header(
         )
     if has_operations:
         imports.setdefault("scopecat.sdk.instruments", set()).add("InvokeReceipt")
-    if has_observations:
+    if any(model.generates_composite_state for model in models):
+        imports.setdefault("dataclasses", set()).add("dataclass")
+    if has_state_schemas:
         imports.setdefault("scopecat_instruments._client_runtime", set()).update(
             {
-                "ClientObservedField",
-                "ClientObservedState",
+                "ClientStateField",
+                "ClientStateSchema",
                 "client_property_value_type",
             }
         )
@@ -3133,7 +3098,10 @@ def _render_from_import(module: str, names: set[str]) -> str:
     rendered = _render_bare_from_import(module, bare_names) if bare_names else ""
     return rendered + "".join(
         f"from {module} import (\n    {alias},\n)\n"
-        for alias in sorted(aliases, key=str.casefold)
+        for alias in sorted(
+            aliases,
+            key=lambda item: _import_name_key(item.partition(" as ")[0]),
+        )
     )
 
 
@@ -3264,17 +3232,15 @@ def _render_constituent_descriptors(
     constituent: _InterfaceConstituentModel,
 ) -> str:
     sections: list[str] = []
-    observation = constituent.layout.observed_state
-    if observation is not None:
-        observation_name = constituent.observation_descriptor_name
-        observation_type_name = constituent.observation_type_name
-        if observation_name is None or observation_type_name is None:
-            raise AssertionError("observed constituent requires a descriptor name")
+    if constituent.state_type_name is not None:
+        schema_name = constituent.state_schema_name
+        if schema_name is None or len(constituent.layout.states) != 1:
+            raise AssertionError("client state requires one flat schema")
         sections.append(
-            _render_client_observation(
-                observation_name,
-                observation_type_name,
-                observation,
+            _render_client_state_schema(
+                schema_name,
+                constituent.state_type_name,
+                constituent.layout.states[0],
             )
         )
     _append_client_scope_descriptors(
@@ -3286,13 +3252,13 @@ def _render_constituent_descriptors(
     return "".join(sections)
 
 
-def _render_client_observation(
+def _render_client_state_schema(
     name: str,
-    observation_type_name: str,
-    observation: DeclaredObservedState[object],
+    state_type_name: str,
+    layout: DeclaredStateLayout,
 ) -> str:
     fields: list[str] = []
-    for field in observation.fields:
+    for field in layout.fields:
         value_type_json = _json_model_field(
             field.spec.model_dump_json(),
             "value_type",
@@ -3306,15 +3272,15 @@ def _render_client_observation(
             indent=12,
         )
         fields.append(
-            "        ClientObservedField(\n"
+            "        ClientStateField(\n"
             f"            {_string_literal(field.python_name)},\n"
             f"{ref_argument}"
             f"{value_type_argument}"
             "        ),\n"
         )
     return (
-        f"\n{name} = ClientObservedState(\n"
-        f"    {observation_type_name},\n"
+        f"\n{name} = ClientStateSchema(\n"
+        f"    {state_type_name},\n"
         "    fields=(\n"
         f"{''.join(fields)}"
         "    ),\n"
@@ -3672,25 +3638,9 @@ def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
                 returns=True,
             )
         )
-    if model.observation_type_name is not None:
+    if model.state_type_name is not None:
         _append_member_separator(body)
-        observation_name = model.observation_descriptor_name
-        if observation_name is None:
-            raise AssertionError("observed model requires a descriptor name")
-        body.extend(
-            (
-                f"    def observation(self) -> {model.observation_type_name}:\n",
-                f"        return {observation_name}.decode(\n",
-                "            self._session.observed_state(self.instrument_id)\n",
-                "        )\n",
-                "\n",
-                "    def refresh_observation(self) -> "
-                f"{model.observation_type_name}:\n",
-                f"        return {observation_name}.decode(\n",
-                "            self._session.read_state(self.instrument_id)\n",
-                "        )\n",
-            )
-        )
+        body.append(_render_client_state_methods(model))
     for operation in scope.operations:
         _append_member_separator(body)
         body.append(_render_live_operation(operation))
@@ -3702,6 +3652,43 @@ def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
     return (
         "\n\n"
         f"class {scope.live_client_name}({base}):\n" + "".join(body).rstrip("\n") + "\n"
+    )
+
+
+def _render_client_state_methods(model: _InterfaceModel) -> str:
+    state_type_name = model.state_type_name
+    if state_type_name is None:
+        raise AssertionError("client state methods require a state type")
+
+    def render_method(method_name: str, session_method: str) -> str:
+        lines = [
+            f"    def {method_name}(self) -> {state_type_name}:\n",
+            f"        snapshot = self._session.{session_method}(self.instrument_id)\n",
+        ]
+        if not model.generates_composite_state:
+            [constituent] = model.state_constituents
+            schema_name = constituent.state_schema_name
+            if schema_name is None:
+                raise AssertionError("client state requires a schema")
+            lines.append(f"        return {schema_name}.decode(snapshot)\n")
+            return "".join(lines)
+
+        lines.append(f"        return {state_type_name}(\n")
+        for constituent in model.state_constituents:
+            schema_name = constituent.state_schema_name
+            if schema_name is None:
+                raise AssertionError("composite state requires constituent schemas")
+            lines.append(
+                f"            {_snake_case(constituent.interface_stem)}="
+                f"{schema_name}.decode(snapshot),\n"
+            )
+        lines.append("        )\n")
+        return "".join(lines)
+
+    return (
+        render_method("state", "observed_state")
+        + "\n"
+        + render_method("refresh_state", "read_state")
     )
 
 
@@ -4060,6 +4047,11 @@ def _client_export_names(
     for model in models:
         if model.generate_family:
             exports.add(model.factory_name)
+        if model.generates_composite_state:
+            state_type_name = model.state_type_name
+            if state_type_name is None:
+                raise AssertionError("composite state requires a type name")
+            exports.add(state_type_name)
         scope = model.root
         exports.update(
             {

@@ -16,11 +16,11 @@ from scopecat.sdk.instruments import (
 )
 
 from client_codegen_fixture_declarations import (
-    CatalogProjectionObservation,
     CatalogProjectionState,
     DriverMonitorState,
     DriverSourceLeftState,
     DriverSourceRightState,
+    SharedFixtureState,
 )
 from generated_member_catalog_fixture import (
     CATALOG_PROJECTION_ENABLED,
@@ -30,6 +30,8 @@ from generated_member_catalog_fixture import (
     DRIVER_SOURCE_LEFT_LEVEL,
     DRIVER_SOURCE_MODE,
     DRIVER_SOURCE_RIGHT_LEVEL,
+    SHARED_STATE_FIRST_ENABLED,
+    SHARED_STATE_SECOND_ENABLED,
 )
 
 
@@ -55,14 +57,57 @@ def encode_catalog_projection_state(
 ) -> dict[PropertyRef, DriverScalar]:
     return {
         CATALOG_PROJECTION_ENABLED: state.enabled,
+        CATALOG_PROJECTION_STATUS: state.status,
     }
 
 
-def encode_catalog_projection_observation(
-    state: CatalogProjectionObservation, /
+class SharedStateFirstDriverPatch(TypedDict, total=False):
+    enabled: bool
+
+
+def decode_shared_state_first_patch(
+    request: DriverStatePatch, /
+) -> SharedStateFirstDriverPatch:
+    decoded: SharedStateFirstDriverPatch = {}
+    values = request.values
+    if SHARED_STATE_FIRST_ENABLED in values:
+        decoded["enabled"] = cast(
+            "bool",
+            values[SHARED_STATE_FIRST_ENABLED],
+        )
+    return decoded
+
+
+def encode_shared_state_first_state(
+    state: SharedFixtureState, /
 ) -> dict[PropertyRef, DriverScalar]:
     return {
-        CATALOG_PROJECTION_STATUS: state.status,
+        SHARED_STATE_FIRST_ENABLED: state.enabled,
+    }
+
+
+class SharedStateSecondDriverPatch(TypedDict, total=False):
+    enabled: bool
+
+
+def decode_shared_state_second_patch(
+    request: DriverStatePatch, /
+) -> SharedStateSecondDriverPatch:
+    decoded: SharedStateSecondDriverPatch = {}
+    values = request.values
+    if SHARED_STATE_SECOND_ENABLED in values:
+        decoded["enabled"] = cast(
+            "bool",
+            values[SHARED_STATE_SECOND_ENABLED],
+        )
+    return decoded
+
+
+def encode_shared_state_second_state(
+    state: SharedFixtureState, /
+) -> dict[PropertyRef, DriverScalar]:
+    return {
+        SHARED_STATE_SECOND_ENABLED: state.enabled,
     }
 
 
@@ -161,13 +206,18 @@ __all__ = [
     "CatalogProjectionDriverPatch",
     "DriverMonitorDriverPatch",
     "DriverSourceDriverPatch",
+    "SharedStateFirstDriverPatch",
+    "SharedStateSecondDriverPatch",
     "decode_catalog_projection_patch",
     "decode_driver_monitor_patch",
     "decode_driver_source_patch",
-    "encode_catalog_projection_observation",
+    "decode_shared_state_first_patch",
+    "decode_shared_state_second_patch",
     "encode_catalog_projection_state",
     "encode_driver_monitor_state",
     "encode_driver_source_left_state",
     "encode_driver_source_right_state",
     "encode_driver_state",
+    "encode_shared_state_first_state",
+    "encode_shared_state_second_state",
 ]

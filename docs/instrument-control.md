@@ -181,12 +181,12 @@ with sc.open_project(".").connect(operator="alice") as lab:
         trace = vna.sweep()  # NetworkSweepReadback, produced now
 ```
 
-Read-only typed observations use the same split between the cached state from
-session opening and an explicit hardware refresh. For example,
-`TemperatureReadoutClient.observation()` decodes the cached snapshot into
-`TemperatureReadoutObservation`, while `refresh_observation()` first reads the
-instrument. The lower-level `observed_state()` and `refresh()` snapshot methods
-remain available for diagnostics.
+Typed state uses the same split between the cached snapshot from session opening
+and an explicit hardware refresh. For example,
+`TemperatureReadoutClient.state()` decodes the cached snapshot into
+`TemperatureReadoutState`, while `refresh_state()` first reads the instrument.
+The lower-level `observed_state()` and `refresh()` snapshot methods remain
+available for diagnostics.
 
 The declarative form uses the same factory, state, and `sweep()` verb directly
 inside a root experiment. A one-off experiment does not need an intermediate
@@ -349,9 +349,9 @@ class NetworkSweep(Protocol):
 
 State declarations are concrete capability schemas, not user-authored patches:
 their fields contain the hardware value type `T`, are required, and never gain
-`ValueRef` or omission semantics. The state, observed-state, and result
-decorators are standard dataclass transforms that create frozen, slotted,
-keyword-only schema records. `member_field(...)` and `result_field(...)` use
+`ValueRef` or omission semantics. The state and result decorators are standard
+dataclass transforms that create frozen, slotted, keyword-only schema records.
+`member_field(...)` and `result_field(...)` use
 namespaced dataclass field metadata; `Annotated` metadata remains available when
 declarations need to compose additional typing metadata.
 Interface and method decorators only attach metadata and preserve the authored
@@ -365,24 +365,25 @@ the decorated interface type directly, so declarations do not need a parallel
 public compiled constant.
 
 Device mode changes need not become a discriminated desired-state schema.
-`DCSourceState` contains only persistent protection and output fields, while
-`DCSourceObservation` reports the current mode. Required range and level values
-belong to the typed `source_voltage(...)` and `source_current(...)` operations,
-which map directly onto live driver calls and ordered experiment effects.
+`DCSourceState` contains persistent protection and output fields together with
+the `read_only` current mode. Required range and level values belong to the typed
+`source_voltage(...)` and `source_current(...)` operations, which map directly
+onto live driver calls and ordered experiment effects.
 
-The same declaration surface also covers read-only observed-state dataclasses
-and typed atomic methods whose `Annotated` parameters carry operation-argument
-metadata. Decorated Python interfaces are deliberately root-only: nested or
+The same declaration surface covers schemas containing any mixture of
+`read_only` and `read_write` fields, plus typed atomic methods whose `Annotated`
+parameters carry operation-argument metadata. Decorated Python interfaces are
+deliberately root-only: nested or
 repeated component trees remain a low-level `InterfaceSpec` shape for drivers
 that need it, rather than a second recursive Python declaration and proxy model.
 
 Compiled declarations expose typed member descriptors in addition to the wire
 contract. `declared_operation(...)` binds the concrete Python call signature and
-maps its arguments to stable operation refs, `declared_acquisition(...)` binds
-result layouts, and `declared_observed_state(...)` decodes complete snapshots
-back into the declared dataclass. Operations are also authored with concrete
-`T` parameters; generation projects them to `T | ValueRef` only on symbolic
-clients and lifts those values per entity on group clients.
+maps its arguments to stable operation refs, while `declared_acquisition(...)`
+binds result layouts. Generated state schemas decode complete snapshots back
+into the declared dataclass. Operations are also authored with concrete `T`
+parameters; generation projects them to `T | ValueRef` only on symbolic clients
+and lifts those values per entity on group clients.
 
 For every writable schema the catalog generator emits three nominal sparse
 carriers. `NetworkSweepPatch` contains only concrete `T` values for live
@@ -406,9 +407,9 @@ generated adapter owns the generic worker ABI and its ref dispatch. A composite
 adapter takes one validated batch, lowers it at that boundary, and calls the
 driver once with one typed composite patch containing its constituent interface
 patches. Exact snapshot encoders perform the reverse projection from complete
-canonical state records. Read-only observed-state declarations generate only
-the snapshot and acquisition hooks: they do not invent a writable patch or
-target.
+canonical state records. A schema containing only `read_only` fields generates
+state-read and acquisition hooks but no writable patch or target. Mixed schemas
+use all readable fields for snapshots and only writable fields for authoring.
 
 This declaration layer generates the stable contract and refs, but it does not
 invent session behavior. A typed factory still defines whether an action is
@@ -419,11 +420,10 @@ their catalogs from it. A composite is package presentation metadata over
 existing interfaces, not a third wire interface or a decorated Python type. The
 factory also defines how `each(...)` fans one logical operation out to
 independently routable resources. The compiler covers persistent flat and
-discriminated scalar state, read-only observed state, typed atomic operations,
+discriminated scalar state, read-only fields, typed atomic operations,
 fixed and state-discriminated acquisitions, axes, results, and preconditions.
 Explicit contract builders remain the escape hatch for
-component-owned state or properties, combining observed and discriminated state,
-and other unusual contract shapes.
+component-owned state or properties and other unusual contract shapes.
 
 The descriptor boundary does not dynamically inject public client methods.
 Those methods remain real Python source so type checkers can preserve
@@ -438,10 +438,10 @@ target generates complete `TemperatureReadout`, `RFOutput`, and `NetworkSweep`
 families, plus source-only and source-with-monitor `DCSource` live, symbolic
 single-entity, and group clients. The generated `dc_source(...)` and
 `dc_source_monitor(...)` factories make those requirements explicit. Generated
-source also includes
-applicable observation accessors and acquisition result carriers. Root-level
-flat and discriminated schemas both produce typed `apply(...)`, `ensure(...)`,
-and field-wise group target surfaces.
+source also includes typed `state()` / `refresh_state()` accessors and acquisition
+result carriers. Composite clients return state grouped by constituent interface.
+Writable root-level flat and discriminated schemas produce typed `apply(...)`,
+`ensure(...)`, and field-wise group target surfaces.
 The same pass writes the six public runtime modules—`clients.py`, `members.py`,
 `interfaces.py`, `states.py`, `driver_states.py`, and `driver_handlers.py`—plus
 the package facade. Generated refs cover root properties, operations, and

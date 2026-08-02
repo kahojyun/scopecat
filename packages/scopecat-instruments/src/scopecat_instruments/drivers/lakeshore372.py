@@ -35,7 +35,7 @@ from scopecat_instruments.driver_handlers import (
     TemperatureReadoutDriverSnapshot,
     TemperatureReadoutSampleDriverReadback,
 )
-from scopecat_instruments.interface_declarations import TemperatureReadoutObservation
+from scopecat_instruments.interface_declarations import TemperatureReadoutState
 from scopecat_instruments.interfaces import temperature_readout_interface
 from scopecat_instruments.package_manifest import LAKESHORE_372_DRIVER
 
@@ -88,7 +88,7 @@ class LakeShore372(TemperatureReadoutDriverAdapter):
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
         return TemperatureReadoutDriverSnapshot(
-            observation=TemperatureReadoutObservation(
+            state=TemperatureReadoutState(
                 scan_channel=scan_channel,
                 autoscan_enabled=autoscan_enabled,
             ),

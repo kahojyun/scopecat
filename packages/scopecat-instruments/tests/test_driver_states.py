@@ -10,17 +10,15 @@ from scopecat_instruments.driver_states import (
     RFOutputDriverPatch,
     decode_dc_source_patch,
     decode_rf_output_patch,
-    encode_dc_source_observation,
     encode_dc_source_state,
     encode_driver_state,
     encode_rf_output_state,
-    encode_temperature_readout_observation,
+    encode_temperature_readout_state,
 )
 from scopecat_instruments.interface_declarations import (
-    DCSourceObservation,
     DCSourceState,
     RFOutputState,
-    TemperatureReadoutObservation,
+    TemperatureReadoutState,
 )
 from scopecat_instruments.members import (
     DC_SOURCE_CURRENT_PROTECTION,
@@ -70,19 +68,19 @@ def test_exact_rf_state_encoder_uses_declared_member_refs() -> None:
     }
 
 
-def test_exact_temperature_observation_encoder_uses_declared_member_refs() -> None:
-    observation = TemperatureReadoutObservation(
+def test_exact_temperature_state_encoder_uses_declared_member_refs() -> None:
+    state = TemperatureReadoutState(
         scan_channel=5,
         autoscan_enabled=False,
     )
 
-    assert encode_temperature_readout_observation(observation) == {
+    assert encode_temperature_readout_state(state) == {
         TEMPERATURE_READOUT_SCAN_CHANNEL: 5,
         TEMPERATURE_READOUT_AUTOSCAN_ENABLED: False,
     }
 
 
-def test_flat_dc_source_codec_separates_writable_state_from_observation() -> None:
+def test_flat_dc_source_codec_filters_read_only_patch_and_encodes_full_state() -> None:
     patch = decode_dc_source_patch(
         DriverStatePatch(
             values={
@@ -95,14 +93,13 @@ def test_flat_dc_source_codec_separates_writable_state_from_observation() -> Non
         voltage_protection=Quantity(10.0, "V"),
         current_protection=Quantity(0.01, "A"),
         output_enabled=False,
+        source_mode="voltage",
     )
-    observation = DCSourceObservation(source_mode="voltage")
 
     assert_type(patch, DCSourceDriverPatch)
     assert patch == {"output_enabled": False}
     encoded = encode_driver_state(
         encode_dc_source_state(state),
-        encode_dc_source_observation(observation),
         metadata={"source": "test"},
     )
     assert encoded.values == {
