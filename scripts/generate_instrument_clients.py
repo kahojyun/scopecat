@@ -296,6 +296,22 @@ class _ScopeModel:
 
 
 @dataclass(frozen=True, slots=True)
+class _StateKeywordFieldModel:
+    python_name: str
+    concrete_annotation: str
+    symbolic_annotation: str
+    group_annotation: str
+
+
+@dataclass(frozen=True, slots=True)
+class _StateKeywordModel:
+    patch_type_name: str
+    target_type_name: str
+    group_target_type_name: str
+    fields: tuple[_StateKeywordFieldModel, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _InterfaceConstituentModel:
     interface_identity: str
     interface_type_name: str
@@ -335,6 +351,7 @@ class _InterfaceModel:
     live_state_type_names: tuple[str, ...]
     symbolic_state_type_names: tuple[str, ...]
     group_state_type_names: tuple[str, ...]
+    keyword_state: _StateKeywordModel | None
     constituents: tuple[_InterfaceConstituentModel, ...]
     root: _ScopeModel
 
@@ -484,6 +501,39 @@ def _register_state_projection_types(
         tuple(item.patch for item in names),
         tuple(item.target for item in names),
         tuple(item.group_target for item in names),
+    )
+
+
+def _state_keyword_model(
+    layouts: tuple[DeclaredStateLayout, ...],
+    *,
+    renderer: _AnnotationRenderer,
+) -> _StateKeywordModel | None:
+    """Describe the unambiguous keyword surface for one flat state schema."""
+
+    if len(layouts) != 1:
+        return None
+    layout = layouts[0]
+    if layout.required_fields or layout.constants:
+        return None
+    names = _state_projection_names(layout)
+    fields: list[_StateKeywordFieldModel] = []
+    for field in layout.fields:
+        concrete = renderer.render(field.annotation)
+        symbolic = f"{concrete} | ValueRef"
+        fields.append(
+            _StateKeywordFieldModel(
+                python_name=field.python_name,
+                concrete_annotation=concrete,
+                symbolic_annotation=symbolic,
+                group_annotation=f"{symbolic} | PerEntity[{symbolic}]",
+            )
+        )
+    return _StateKeywordModel(
+        patch_type_name=names.patch,
+        target_type_name=names.target,
+        group_target_type_name=names.group_target,
+        fields=tuple(fields),
     )
 
 
@@ -1537,6 +1587,7 @@ def _interface_model(
         live_state_type_names=live_states,
         symbolic_state_type_names=symbolic_states,
         group_state_type_names=group_states,
+        keyword_state=_state_keyword_model(layout.states, renderer=renderer),
         constituents=(constituent,),
         root=root,
     )
@@ -1652,6 +1703,7 @@ def _bundle_model(
         live_state_type_names=tuple(live_states),
         symbolic_state_type_names=tuple(symbolic_states),
         group_state_type_names=tuple(group_states),
+        keyword_state=_state_keyword_model(tuple(state_layouts), renderer=renderer),
         constituents=constituents,
         root=root,
     )
@@ -1992,6 +2044,7 @@ def _render_header(
     has_acquisitions = any(scope.acquisitions for scope in scopes)
     has_observations = any(model.observation_type_name for model in models)
     has_state = any(model.live_state_type_name is not None for model in models)
+    has_keyword_state = any(model.keyword_state is not None for model in models)
     has_plain_root = any(model.live_state_type_name is None for model in models)
 
     imports: dict[str, set[str]] = {
@@ -2027,6 +2080,10 @@ def _render_header(
                 "DeclaredStateSymbolicGroupBase",
             }
         )
+    if has_keyword_state:
+        imports.setdefault("typing", set()).update({"overload", "override"})
+        imports["scopecat.authoring"].update({"PerEntity", "ValueRef"})
+        imports.setdefault("scopecat.sdk.instruments", set()).add("ApplyReceipt")
     if has_operations or has_acquisitions:
         imports["scopecat.authoring"].add("PerEntity")
     if has_operations:
@@ -2035,7 +2092,7 @@ def _render_header(
         imports["dataclasses"] = {"dataclass", "field"}
         imports["scopecat.authoring"].add("ProductRef")
         imports["scopecat.records.measurement"] = {"MeasurementValue"}
-        imports["scopecat.sdk.instruments"] = {"CollectReceipt"}
+        imports.setdefault("scopecat.sdk.instruments", set()).add("CollectReceipt")
     if has_operations:
         imports.setdefault("scopecat.sdk.instruments", set()).add("InvokeReceipt")
     if has_observations:
@@ -2325,6 +2382,87 @@ def _render_inherited_class_declaration(name: str, base: str) -> str:
     return f"class {name}(\n    {base}\n):\n"
 
 
+def _render_keyword_projection_method(
+    *,
+    method_name: str,
+    positional_name: str,
+    positional_annotation: str,
+    projection_type_name: str,
+    fields: tuple[_StateKeywordFieldModel, ...],
+    field_annotation: str,
+    return_annotation: str,
+    helper_name: str,
+    returns: bool,
+) -> str:
+    positional_parameter = f"        {positional_name}: {positional_annotation},\n"
+    if len(positional_parameter.rstrip("\n")) > 88:
+        branches = _split_top_level_union(positional_annotation)
+        positional_parameter = f"        {positional_name}: (\n"
+        positional_parameter += f"            {branches[0]}\n"
+        positional_parameter += "".join(
+            f"            | {branch}\n" for branch in branches[1:]
+        )
+        positional_parameter += "        ),\n"
+
+    keyword_parameters = "".join(
+        _render_optional_keyword_parameter(
+            field,
+            annotation=cast("str", getattr(field, field_annotation)),
+        )
+        for field in fields
+    )
+    if fields:
+        keyword_overload = (
+            f"    @overload\n"
+            f"    def {method_name}(\n"
+            "        self,\n"
+            "        *,\n"
+            f"{keyword_parameters}"
+            f"    ) -> {return_annotation}: ...\n"
+        )
+    else:
+        keyword_overload = (
+            f"    @overload\n    def {method_name}(self) -> {return_annotation}: ...\n"
+        )
+    return_prefix = "return " if returns else ""
+    return (
+        "    @overload\n"
+        f"    def {method_name}(\n"
+        "        self,\n"
+        f"{positional_parameter}"
+        f"    ) -> {return_annotation}: ...\n"
+        "\n"
+        f"{keyword_overload}"
+        "\n"
+        "    @override\n"
+        f"    def {method_name}(\n"
+        "        self,\n"
+        f"        {positional_name}: {positional_annotation} | None = None,\n"
+        "        **fields: object,\n"
+        f"    ) -> {return_annotation}:\n"
+        f"        {return_prefix}self.{helper_name}(\n"
+        f"            {positional_name},\n"
+        f"            {projection_type_name},\n"
+        "            fields,\n"
+        "        )\n"
+    )
+
+
+def _render_optional_keyword_parameter(
+    field: _StateKeywordFieldModel,
+    *,
+    annotation: str,
+) -> str:
+    compact = f"        {field.python_name}: {annotation} = ...,\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    branches = _split_top_level_union(annotation)
+    lines = [f"        {field.python_name}: (\n", f"            {branches[0]}\n"]
+    lines.extend(f"            | {branch}\n" for branch in branches[1:])
+    lines.append("        ) = ...,\n")
+    return "".join(lines)
+
+
 def _render_live_scopes(model: _InterfaceModel) -> str:
     return "".join(
         _render_live_scope(model, scope) for scope in _walk_scopes_postorder(model.root)
@@ -2341,7 +2479,23 @@ def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
     else:
         base = "InstrumentComponentClientBase"
     body: list[str] = []
+    if scope.is_root and model.keyword_state is not None:
+        state = model.keyword_state
+        body.append(
+            _render_keyword_projection_method(
+                method_name="apply",
+                positional_name="patch",
+                positional_annotation=state.patch_type_name,
+                projection_type_name=state.patch_type_name,
+                fields=state.fields,
+                field_annotation="concrete_annotation",
+                return_annotation="ApplyReceipt",
+                helper_name="_apply_projected",
+                returns=True,
+            )
+        )
     if scope.is_root and model.observation_type_name is not None:
+        _append_member_separator(body)
         observation_name = model.observation_descriptor_name
         if observation_name is None:
             raise AssertionError("observed model requires a descriptor name")
@@ -2443,6 +2597,22 @@ def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
                 "        )\n",
             )
         )
+        if model.keyword_state is not None:
+            _append_member_separator(body)
+            state = model.keyword_state
+            body.append(
+                _render_keyword_projection_method(
+                    method_name="ensure",
+                    positional_name="state",
+                    positional_annotation=state.target_type_name,
+                    projection_type_name=state.target_type_name,
+                    fields=state.fields,
+                    field_annotation="symbolic_annotation",
+                    return_annotation="None",
+                    helper_name="_ensure_projected",
+                    returns=False,
+                )
+            )
     for operation in scope.operations:
         _append_member_separator(body)
         body.append(_render_symbolic_operation(operation))
@@ -2536,6 +2706,25 @@ def _render_symbolic_group_scope(
                 "        )\n",
             )
         )
+        if model.keyword_state is not None:
+            _append_member_separator(body)
+            state = model.keyword_state
+            body.append(
+                _render_keyword_projection_method(
+                    method_name="ensure",
+                    positional_name="state",
+                    positional_annotation=(
+                        f"{state.group_target_type_name} | "
+                        f"PerEntity[{state.target_type_name}]"
+                    ),
+                    projection_type_name=state.group_target_type_name,
+                    fields=state.fields,
+                    field_annotation="group_annotation",
+                    return_annotation="None",
+                    helper_name="_ensure_projected",
+                    returns=False,
+                )
+            )
     for operation in scope.operations:
         _append_member_separator(body)
         body.append(_render_group_operation(operation))

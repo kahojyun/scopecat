@@ -16,13 +16,8 @@ Use the project connection's `lab.instruments` API. An experiment run is not
 required for direct instrument work:
 
 ```python
-from typing import Annotated
-
 import scopecat as sc
-from scopecat_instruments import (
-    NetworkSweepPatch,
-    network_sweep,
-)
+from scopecat_instruments import network_sweep
 
 READOUT_VNA = network_sweep("readout-vna")
 
@@ -35,21 +30,20 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.describe())
         print(vna.observed_state())
         vna.apply(
-            NetworkSweepPatch(
-                start_frequency=sc.Quantity(5.9, "GHz"),
-                stop_frequency=sc.Quantity(6.1, "GHz"),
-                points=401,
-            )
+            start_frequency=sc.Quantity(5.9, "GHz"),
+            stop_frequency=sc.Quantity(6.1, "GHz"),
+            points=401,
         )
         trace = vna.sweep()
 ```
 
 Typed physical references retain project-owned instrument identity and bind a
-statically known client inside the daemon-owned session. Generated patches keep
-property names, concrete Python value types, and explicit field presence
-correlated, while acquisition clients return named readback fields. The
-lower-level member catalog continues to carry interface, component, and member
-identity for drivers and experiment lowering.
+statically known client inside the daemon-owned session. Generated keyword
+signatures keep property names, concrete Python value types, and explicit field
+presence correlated; reusable generated patches remain available when a state
+transition should be composed or passed around. Acquisition clients return
+named readback fields. The lower-level member catalog continues to carry
+interface, component, and member identity for drivers and experiment lowering.
 
 Read-only declarations also return named state instead of forcing callers to
 decode property ids. A temperature client exposes `observation()` for the

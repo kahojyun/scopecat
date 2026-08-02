@@ -216,6 +216,21 @@ class SymbolicInstrumentComponentClientBase(SymbolicInstrumentClientBase):
 
 class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
     def ensure(self, state: StateT) -> None:
+        self._ensure_projected_state(state)
+
+    def _ensure_projected(
+        self,
+        state: StateT | None,
+        projection_factory: Callable[..., StateT],
+        fields: Mapping[str, object],
+        /,
+    ) -> None:
+        if state is not None and fields:
+            raise TypeError("ensure accepts either a target or keyword fields")
+        projected = projection_factory(**fields) if state is None else state
+        self._ensure_projected_state(projected)
+
+    def _ensure_projected_state(self, state: StateT, /) -> None:
         self._ensure(self._desired_state_target(state))
 
     def finalization_targets(
@@ -340,6 +355,25 @@ class DeclaredStateSymbolicGroupBase[
     ClientT: SymbolicInstrumentClientBase,
 ](SymbolicInstrumentGroupBase[ClientT]):
     def ensure(self, state: GroupStateT | PerEntity[StateT]) -> None:
+        self._ensure_projected_state(state)
+
+    def _ensure_projected(
+        self,
+        state: GroupStateT | PerEntity[StateT] | None,
+        projection_factory: Callable[..., GroupStateT],
+        fields: Mapping[str, object],
+        /,
+    ) -> None:
+        if state is not None and fields:
+            raise TypeError("ensure accepts either a target or keyword fields")
+        projected = projection_factory(**fields) if state is None else state
+        self._ensure_projected_state(projected)
+
+    def _ensure_projected_state(
+        self,
+        state: GroupStateT | PerEntity[StateT],
+        /,
+    ) -> None:
         for entity, target in self._aligned_targets(state):
             self._state_client(entity)._ensure(  # pyright: ignore[reportPrivateUsage]
                 target

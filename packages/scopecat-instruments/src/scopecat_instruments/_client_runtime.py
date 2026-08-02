@@ -108,6 +108,18 @@ class DeclaredStateClientBase[StateT](InstrumentClientBase):
     def apply(self, patch: StateT) -> ApplyReceipt:
         return self._apply_declared(patch)
 
+    def _apply_projected(
+        self,
+        patch: StateT | None,
+        projection_factory: Callable[..., StateT],
+        fields: Mapping[str, object],
+        /,
+    ) -> ApplyReceipt:
+        if patch is not None and fields:
+            raise TypeError("apply accepts either a patch or keyword fields")
+        projected = projection_factory(**fields) if patch is None else patch
+        return self._apply_declared(projected)
+
 
 def _concrete_assignments(state: object) -> dict[PropertyRef, StateLiteral]:
     try:

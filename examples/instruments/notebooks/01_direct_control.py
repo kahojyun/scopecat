@@ -8,7 +8,6 @@ import scopecat as sc
 from scopecat_instruments import (
     DCSourcePatch,
     DCSourceVoltagePatch,
-    NetworkSweepPatch,
     dc_source,
     network_sweep,
     temperature_readout,
@@ -45,11 +44,9 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         try:
             temperature = chamber.sample()
             vna.apply(
-                NetworkSweepPatch(
-                    start_frequency=sc.Quantity(4.8, "GHz"),
-                    stop_frequency=sc.Quantity(5.2, "GHz"),
-                    points=201,
-                )
+                start_frequency=sc.Quantity(4.8, "GHz"),
+                stop_frequency=sc.Quantity(5.2, "GHz"),
+                points=201,
             )
             trace = vna.sweep()
             trace_results = {

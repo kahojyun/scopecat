@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, cast, overload
+from typing import Literal, cast, overload, override
 
 from scopecat.api._instruments import InstrumentRef, instrument
 from scopecat.authoring import (
@@ -14,9 +14,11 @@ from scopecat.authoring import (
     OneEntity,
     PerEntity,
     ProductRef,
+    ValueRef,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementValue
-from scopecat.sdk.instruments import CollectReceipt
+from scopecat.sdk.instruments import ApplyReceipt, CollectReceipt
 from scopecat.sdk.instruments.declarations import (
     DeclaredObservedState,
     compile_interface,
@@ -197,7 +199,33 @@ temperature_readout: InstrumentFamily[
 
 
 class RFOutputClient(DeclaredStateClientBase[RFOutputPatch]):
-    pass
+    @overload
+    def apply(
+        self,
+        patch: RFOutputPatch,
+    ) -> ApplyReceipt: ...
+
+    @overload
+    def apply(
+        self,
+        *,
+        frequency: Quantity = ...,
+        power: Quantity = ...,
+        output_enabled: bool = ...,
+        reference_source: Literal["internal", "external"] = ...,
+    ) -> ApplyReceipt: ...
+
+    @override
+    def apply(
+        self,
+        patch: RFOutputPatch | None = None,
+        **fields: object,
+    ) -> ApplyReceipt:
+        return self._apply_projected(
+            patch,
+            RFOutputPatch,
+            fields,
+        )
 
 
 class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputTarget]):
@@ -215,6 +243,34 @@ class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputTarget]):
             resource_id,
             requires=(_RF_OUTPUT_REF,),
             for_=for_,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: RFOutputTarget,
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        frequency: Quantity | ValueRef = ...,
+        power: Quantity | ValueRef = ...,
+        output_enabled: bool | ValueRef = ...,
+        reference_source: Literal["internal", "external"] | ValueRef = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: RFOutputTarget | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            RFOutputTarget,
+            fields,
         )
 
 
@@ -237,6 +293,38 @@ class SymbolicRFOutputGroup(
             resource_id,
             for_=for_,
             client_factory=SymbolicRFOutputClient,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: RFOutputGroupTarget | PerEntity[RFOutputTarget],
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        frequency: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
+        power: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
+        output_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = ...,
+        reference_source: (
+            Literal["internal", "external"]
+            | ValueRef
+            | PerEntity[Literal["internal", "external"] | ValueRef]
+        ) = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: RFOutputGroupTarget | PerEntity[RFOutputTarget] | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            RFOutputGroupTarget,
+            fields,
         )
 
 
@@ -422,6 +510,36 @@ class NetworkSweepProducts(NetworkSweepResults[ProductRef, ProductRef]):
 
 
 class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
+    @overload
+    def apply(
+        self,
+        patch: NetworkSweepPatch,
+    ) -> ApplyReceipt: ...
+
+    @overload
+    def apply(
+        self,
+        *,
+        start_frequency: Quantity = ...,
+        stop_frequency: Quantity = ...,
+        points: int = ...,
+        if_bandwidth: Quantity = ...,
+        source_power: Quantity = ...,
+        s_parameter: Literal["S11", "S21", "S12", "S22"] = ...,
+    ) -> ApplyReceipt: ...
+
+    @override
+    def apply(
+        self,
+        patch: NetworkSweepPatch | None = None,
+        **fields: object,
+    ) -> ApplyReceipt:
+        return self._apply_projected(
+            patch,
+            NetworkSweepPatch,
+            fields,
+        )
+
     def sweep(self) -> NetworkSweepReadback:
         return self._collect_declared(
             _NETWORK_SWEEP_SWEEP_DECLARATION,
@@ -444,6 +562,36 @@ class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepTar
             resource_id,
             requires=(_NETWORK_SWEEP_REF,),
             for_=for_,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: NetworkSweepTarget,
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        start_frequency: Quantity | ValueRef = ...,
+        stop_frequency: Quantity | ValueRef = ...,
+        points: int | ValueRef = ...,
+        if_bandwidth: Quantity | ValueRef = ...,
+        source_power: Quantity | ValueRef = ...,
+        s_parameter: Literal["S11", "S21", "S12", "S22"] | ValueRef = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: NetworkSweepTarget | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            NetworkSweepTarget,
+            fields,
         )
 
     def sweep(
@@ -477,6 +625,40 @@ class SymbolicNetworkSweepGroup(
             resource_id,
             for_=for_,
             client_factory=SymbolicNetworkSweepClient,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: NetworkSweepGroupTarget | PerEntity[NetworkSweepTarget],
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        start_frequency: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
+        stop_frequency: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
+        points: int | ValueRef | PerEntity[int | ValueRef] = ...,
+        if_bandwidth: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
+        source_power: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
+        s_parameter: (
+            Literal["S11", "S21", "S12", "S22"]
+            | ValueRef
+            | PerEntity[Literal["S11", "S21", "S12", "S22"] | ValueRef]
+        ) = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: NetworkSweepGroupTarget | PerEntity[NetworkSweepTarget] | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            NetworkSweepGroupTarget,
+            fields,
         )
 
     def sweep(

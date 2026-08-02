@@ -196,11 +196,9 @@ def test_generated_rf_live_client_lowers_declared_state() -> None:
 
     receipt = assert_type(
         client.apply(
-            RFOutputPatch(
-                frequency=Quantity(5.0, "GHz"),
-                power=Quantity(-20.0, "dBm"),
-                output_enabled=True,
-            )
+            frequency=Quantity(5.0, "GHz"),
+            power=Quantity(-20.0, "dBm"),
+            output_enabled=True,
         ),
         ApplyReceipt,
     )

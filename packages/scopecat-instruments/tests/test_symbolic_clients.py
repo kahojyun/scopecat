@@ -32,7 +32,6 @@ from scopecat_instruments import (
     DCSourceTarget,
     DCSourceVoltageGroupTarget,
     DCSourceVoltageTarget,
-    NetworkSweepGroupTarget,
     NetworkSweepProducts,
     NetworkSweepTarget,
     RFOutputGroupTarget,
@@ -162,7 +161,7 @@ def test_each_expands_into_single_entity_resources_and_unique_acquisitions() -> 
     assert_type(analyzers, SymbolicNetworkSweepGroup)
     assert analyzers.entities == (q0, q1)
     assert analyzers[q0] is analyzers.clients[q0]
-    analyzers.ensure(NetworkSweepGroupTarget(points=11))
+    analyzers.ensure(points=11)
     traces = analyzers.sweep()
 
     assert_type(traces, PerEntity[NetworkSweepProducts])
@@ -199,17 +198,14 @@ def test_group_sweep_uses_entity_aligned_output_shape_state() -> None:
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
     analyzers = network_sweep(context, "readout", for_=each(q0, q1))
-    states = assert_type(
-        PerEntity(
-            (
-                (q1, NetworkSweepTarget(points=17)),
-                (q0, NetworkSweepTarget(points=5)),
-            )
-        ),
-        PerEntity[NetworkSweepTarget],
+    points_by_entity: PerEntity[int] = PerEntity(
+        (
+            (q1, 17),
+            (q0, 5),
+        )
     )
 
-    analyzers.ensure(states)
+    analyzers.ensure(points=points_by_entity)
     traces = analyzers.sweep()
 
     definition = context.close_definition_internal(id="test.symbolic.each-shape")
@@ -377,7 +373,7 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
     @template(id="test.symbolic.root", kind="symbolic_root")
     def experiment(context: ExperimentContext) -> None:
         vna = network_sweep(context, "readout")
-        vna.ensure(NetworkSweepTarget(points=11))
+        vna.ensure(points=11)
         trace = vna.sweep()
         context.record(trace.frequency, trace.s_parameter)
 
@@ -667,7 +663,7 @@ def test_network_sweep_rejects_point_varying_output_shape() -> None:
     context = ModuleContext()
     points = coordinate("points", ScalarType(IntType()))
     vna = network_sweep(context, "readout")
-    vna.ensure(NetworkSweepTarget(points=points))
+    vna.ensure(points=points)
 
     with pytest.raises(
         ValueError,

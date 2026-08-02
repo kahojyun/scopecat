@@ -102,6 +102,36 @@ def test_codegen_imports_state_projections_from_the_configured_module() -> None:
     assert "CatalogProjectionTarget" in completed.stdout
 
 
+def test_codegen_adds_keyword_convenience_for_one_flat_state_schema() -> None:
+    completed = _render_surface("CatalogProjectionInterface")
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-flat-state>", "exec")
+    assert "patch: CatalogProjectionPatch," in completed.stdout
+    assert "enabled: bool = ...," in completed.stdout
+    assert "state: CatalogProjectionTarget," in completed.stdout
+    assert "enabled: bool | ValueRef = ...," in completed.stdout
+    assert (
+        "enabled: bool | ValueRef | PerEntity[bool | ValueRef] = ...,"
+        in completed.stdout
+    )
+
+
+def test_codegen_keeps_discriminated_state_on_carrier_only_surface() -> None:
+    completed = _render_surface(
+        "DCSourceInterface",
+        module="scopecat_instruments.interface_declarations",
+        import_root=None,
+        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    live_client = completed.stdout.split("class DCSourceClient", maxsplit=1)[1].split(
+        "class SymbolicDCSourceClient", maxsplit=1
+    )[0]
+    assert "def apply(" not in live_client
+
+
 def test_codegen_accepts_a_projection_module_for_a_stateless_surface() -> None:
     completed = _render_surface("ComponentOperationInterface")
 

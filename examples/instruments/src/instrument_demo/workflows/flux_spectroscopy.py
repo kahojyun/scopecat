@@ -6,7 +6,6 @@ import scopecat as sc
 from scopecat_instruments import (
     DCSourceTarget,
     DCSourceVoltageTarget,
-    NetworkSweepTarget,
     dc_source,
     network_sweep,
     temperature_readout,
@@ -60,14 +59,12 @@ def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
         )
     )
     readout.ensure(
-        NetworkSweepTarget(
-            start_frequency=SWEEP_START,
-            stop_frequency=SWEEP_STOP,
-            points=TRACE_POINTS,
-            if_bandwidth=sc.Quantity(1.0, "kHz"),
-            source_power=sc.Quantity(-35.0, "dBm"),
-            s_parameter="S21",
-        )
+        start_frequency=SWEEP_START,
+        stop_frequency=SWEEP_STOP,
+        points=TRACE_POINTS,
+        if_bandwidth=sc.Quantity(1.0, "kHz"),
+        source_power=sc.Quantity(-35.0, "dBm"),
+        s_parameter="S21",
     )
     trace = readout.sweep()
     sample = temperature.sample()
