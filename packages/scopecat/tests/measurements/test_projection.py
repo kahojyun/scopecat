@@ -112,6 +112,29 @@ def test_dimension_identity_changes_catalog_and_projection_contracts() -> None:
     )
 
 
+def test_recording_group_is_part_of_the_projection_contract_and_schema() -> None:
+    scenario = measurement_assembly_scenario(use_count=2)
+    ungrouped = select_measurement_projection(scenario.catalog, scenario.records)
+    grouped_records = tuple(
+        replace(record, recording_group_id="readout/sweep")
+        for record in scenario.records
+    )
+    grouped = select_measurement_projection(scenario.catalog, grouped_records)
+
+    assert grouped.contract_fingerprint != ungrouped.contract_fingerprint
+    schema = grouped.schema_for(scenario.points)
+    assert schema is not None
+    assert {variable.recording_group_id for variable in schema.variables} == {
+        None,
+        "readout/sweep",
+    }
+    assert {
+        variable.recording_group_id
+        for variable in schema.variables
+        if variable.id in {record.id for record in grouped_records}
+    } == {"readout/sweep"}
+
+
 def test_record_aliases_project_one_value_twice_without_expanding_assembly() -> None:
     scenario, assembled = assembled_measurement_values_for_all_uses()
     projection = select_measurement_projection(scenario.catalog, scenario.records)

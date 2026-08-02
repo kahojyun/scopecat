@@ -20,6 +20,7 @@ class ExperimentPreviewPoint:
 class ExperimentPreviewRecord:
     id: str
     role: MeasurementVariableRole
+    recording_group_id: str | None
     unit: str | None
     dtype: str
     dims: tuple[str, ...]

@@ -49,6 +49,7 @@ from scopecat.program.operations import (
 )
 from scopecat.program.products import (
     ModuleProductDecl,
+    ProductRecording,
     ProductRef,
 )
 from scopecat.program.value_refs import (
@@ -110,6 +111,7 @@ class ModuleProductExport:
     symbol_id: ProductId
     target_id: ProductId
     target_origin: tuple[object, ...] = field(repr=False, compare=False)
+    recording: ProductRecording | None = None
 
     @classmethod
     def from_declaration(cls, product: ModuleProductDecl) -> ModuleProductExport:
@@ -118,6 +120,7 @@ class ModuleProductExport:
             symbol_id=symbol_id,
             target_id=symbol_id,
             target_origin=product.origin,
+            recording=product.recording,
         )
 
     def projected_by(self, instance: ModuleInstanceLookup) -> ModuleProductExport:
@@ -125,6 +128,11 @@ class ModuleProductExport:
             symbol_id=self.symbol_id.prefixed(instance.instance_id),
             target_id=self.target_id.prefixed(instance.instance_id),
             target_origin=(instance.invocation_key, *self.target_origin),
+            recording=(
+                None
+                if self.recording is None
+                else self.recording.prefixed(instance.instance_id)
+            ),
         )
 
     @property

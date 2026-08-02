@@ -58,6 +58,7 @@ from scopecat.program.products import (
     ModuleProductDecl,
     ProductAxis,
     ProductOutputs,
+    ProductRecording,
     ProductRef,
 )
 from scopecat.program.state import DesiredState, StateBinding
@@ -340,6 +341,7 @@ class ModuleContext:
         unit: str | None = "ratio",
         dtype: MeasurementDType = "float64",
         axes: Sequence[ProductAxis] = (),
+        recording: ProductRecording | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ProductRef:
         """Declare and return one module-owned logical product."""
@@ -351,12 +353,14 @@ class ModuleContext:
             unit=unit,
             dtype=dtype,
             axes=tuple(axes),
+            recording=recording,
             metadata=freeze_json_mapping(metadata or {}),
         )
         self._product_declarations.append(declaration)
         return ProductRef(
             product_id=declaration.product_id,
             origin=declaration.origin,
+            recording=declaration.recording,
         )
 
     def acquire(
@@ -419,13 +423,22 @@ class ModuleContext:
                 ProductRef(
                     product_id=product.symbol_id.prefixed(instance.instance_id),
                     origin=(instance.invocation_key, *product.target_origin),
+                    recording=(
+                        None
+                        if product.recording is None
+                        else product.recording.prefixed(instance.instance_id)
+                    ),
                 )
                 for instance in self._effects
                 if isinstance(instance, ModuleInstance)
                 for product in instance.module.products
             ),
             *(
-                ProductRef(product_id=product.product_id, origin=product.origin)
+                ProductRef(
+                    product_id=product.product_id,
+                    origin=product.origin,
+                    recording=product.recording,
+                )
                 for product in self._product_declarations
             ),
         )

@@ -105,6 +105,11 @@ class ModuleInvocation:
                 port.qualified_id: ProductRef(
                     product_id=port.symbol_id.prefixed(self.instance_id),
                     origin=(self._key, *port.target_origin),
+                    recording=(
+                        None
+                        if port.recording is None
+                        else port.recording.prefixed(self.instance_id)
+                    ),
                 )
                 for port in relative_ports
             }

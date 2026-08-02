@@ -1888,10 +1888,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v4
+             * @default scopecat.measurement_dataset_schema.v5
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v4";
+            format_version: "scopecat.measurement_dataset_schema.v5";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
@@ -1998,6 +1998,7 @@ export interface components {
             /** Label */
             label?: string | null;
             metadata?: components["schemas"]["JsonMetadata-Output"];
+            recording_group_id?: components["schemas"]["_NonEmptyText"] | null;
             /**
              * Role
              * @enum {string}

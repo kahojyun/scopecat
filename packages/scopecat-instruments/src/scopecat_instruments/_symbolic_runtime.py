@@ -15,6 +15,7 @@ from scopecat.authoring import (
     OneEntity,
     PerEntity,
     ProductAxis,
+    ProductRecording,
     ProductRef,
     ScalarType,
     StateBinding,
@@ -23,6 +24,7 @@ from scopecat.authoring import (
 )
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef, entity_identity
+from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.results import MeasurementDType
 from scopecat.program.value_refs import (
     internal_literal_value_ref,
@@ -82,6 +84,7 @@ class SymbolicInstrumentRecorder(Protocol):
         unit: str | None,
         dtype: MeasurementDType,
         axes: Sequence[ProductAxis],
+        recording: ProductRecording | None,
     ) -> ProductRef: ...
 
     def acquire(
@@ -158,8 +161,9 @@ class SymbolicInstrumentClientBase:
         if not occurrence_id:
             raise ValueError("symbolic acquisition id must be non-empty")
         effect_id = f"{self.id}.{occurrence_id}"
-        products = {
-            field.python_name: self._recorder.product(
+        products: dict[str, ProductRef] = {}
+        for field in acquisition.result_fields:
+            products[field.python_name] = self._recorder.product(
                 _join_id(id, field.result_id),
                 scope=(self.id,),
                 unit=field.unit,
@@ -169,9 +173,15 @@ class SymbolicInstrumentClientBase:
                     state_assignments=self._state_assignments,
                     namespace=id,
                 ),
+                recording=ProductRecording(
+                    occurrence=SymbolId(
+                        scope=(self.id,),
+                        local_id=occurrence_id,
+                    ),
+                    result_id=field.result_id,
+                    role=field.role,
+                ),
             )
-            for field in acquisition.result_fields
-        }
         self._recorder.acquire(
             effect_id,
             resource=self._resource,

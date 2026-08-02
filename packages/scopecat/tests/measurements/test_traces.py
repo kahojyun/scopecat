@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from scopecat.measurements.results import measurement_traces
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
@@ -13,6 +14,7 @@ from scopecat.records.measurement import (
     MeasurementUnavailable,
     MeasurementVariable,
 )
+from scopecat.runs.data import RunMeasurementDatasetResult
 
 
 def test_trace_view_selects_one_shared_point_local_dimension() -> None:
@@ -39,6 +41,75 @@ def test_trace_view_infers_the_coordinate_for_one_selected_observable() -> None:
 
     assert trace.coordinate_id == "frequency"
     assert trace.observable_id == "s_parameter"
+
+
+def test_trace_view_selects_one_recording_group_without_cross_pairing() -> None:
+    dataset = _trace_dataset()
+    frequency, s_parameter = dataset.dataset_schema.variables
+    frequency.recording_group_id = "readout/first"
+    s_parameter.recording_group_id = "readout/first"
+    dataset.dataset_schema.variables.extend(
+        (
+            MeasurementVariable(
+                id="second_frequency",
+                role="coordinate",
+                dtype="float64",
+                unit="Hz",
+                dims=["point", "frequency_sample"],
+                recording_group_id="readout/second",
+            ),
+            MeasurementVariable(
+                id="second_s_parameter",
+                role="observable",
+                dtype="complex128",
+                unit="ratio",
+                dims=["point", "frequency_sample"],
+                recording_group_id="readout/second",
+            ),
+        )
+    )
+    for record in dataset.records:
+        record.coordinates["second_frequency"] = record.coordinates["frequency"]
+        record.observables["second_s_parameter"] = record.observables["s_parameter"]
+
+    with pytest.raises(ValueError, match="ambiguous trace variables"):
+        measurement_traces(dataset)
+
+    [trace, *_] = measurement_traces(dataset, group="readout/second")
+
+    assert trace.recording_group_id == "readout/second"
+    assert trace.coordinate_id == "second_frequency"
+    assert trace.observable_id == "second_s_parameter"
+    [selected_trace, *_] = measurement_traces(dataset, "second_s_parameter")
+    assert selected_trace.coordinate_id == "second_frequency"
+
+    result = RunMeasurementDatasetResult(
+        dataset_entry=RunContentEntry(
+            role="dataset",
+            id="raw-measurements",
+            kind="measurement_dataset",
+            content_hash="unused",
+        ),
+        dataset=dataset,
+    )
+    [run_trace, *_] = result.traces(group="readout/second")
+    assert run_trace.recording_group_id == "readout/second"
+
+
+def test_trace_view_rejects_unknown_and_mixed_recording_groups() -> None:
+    dataset = _trace_dataset()
+    frequency, s_parameter = dataset.dataset_schema.variables
+    frequency.recording_group_id = "readout/first"
+    s_parameter.recording_group_id = "readout/second"
+
+    with pytest.raises(ValueError, match="no recording group 'missing'"):
+        measurement_traces(dataset, group="missing")
+    with pytest.raises(ValueError, match="must belong to one recording group"):
+        measurement_traces(
+            dataset,
+            coordinate="frequency",
+            observable="s_parameter",
+        )
 
 
 def test_trace_view_requires_a_selection_when_multiple_pairs_are_compatible() -> None:

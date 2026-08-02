@@ -170,6 +170,7 @@ def create_domain_call_internal(
         results[port.id] = ProductRef(
             product_id=declaration.product_id,
             origin=declaration.origin,
+            recording=declaration.recording,
         )
     outputs = ProductOutputs(results)
     execution = domain_execution(

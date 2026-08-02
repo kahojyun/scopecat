@@ -103,6 +103,7 @@ def lower_products(
                 id=selection.record_id or product.qualified_id,
                 product_use_id=use.id,
                 role=selection.role,
+                recording_group_id=selection.recording_group_id,
                 metadata=_durable_metadata(selection.metadata),
             )
         )

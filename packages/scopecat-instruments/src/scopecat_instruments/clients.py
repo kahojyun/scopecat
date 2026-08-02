@@ -7,14 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, overload, override
 
-from scopecat.authoring import (
-    EachEntity,
-    OneEntity,
-    PerEntity,
-    ProductRef,
-    RecordingTarget,
-    ValueRef,
-)
+from scopecat.authoring import EachEntity, OneEntity, PerEntity, ProductRef, ValueRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import (
@@ -102,6 +95,7 @@ _TEMPERATURE_READOUT_SAMPLE_DECLARATION = ClientAcquisition(
             _TEMPERATURE_READOUT_REF.acquisition("sample").result("temperature"),
             dtype="float64",
             unit="K",
+            role="observable",
             axes=(),
         ),
         ClientAcquisitionResult(
@@ -109,6 +103,7 @@ _TEMPERATURE_READOUT_SAMPLE_DECLARATION = ClientAcquisition(
             _TEMPERATURE_READOUT_REF.acquisition("sample").result("resistance"),
             dtype="float64",
             unit="Ohm",
+            role="observable",
             axes=(),
         ),
     ),
@@ -225,6 +220,7 @@ _DC_MONITOR_MEASURE_CURRENT_DECLARATION = ClientAcquisition(
             _DC_MONITOR_REF.acquisition("measure_current").result("monitored_current"),
             dtype="float64",
             unit="A",
+            role="observable",
             axes=(),
         ),
     ),
@@ -238,6 +234,7 @@ _DC_MONITOR_MEASURE_VOLTAGE_DECLARATION = ClientAcquisition(
             _DC_MONITOR_REF.acquisition("measure_voltage").result("monitored_voltage"),
             dtype="float64",
             unit="V",
+            role="observable",
             axes=(),
         ),
     ),
@@ -307,6 +304,7 @@ _NETWORK_SWEEP_SWEEP_DECLARATION = ClientAcquisition(
             _NETWORK_SWEEP_REF.acquisition("sweep").result("frequency"),
             dtype="float64",
             unit="Hz",
+            role="coordinate",
             axes=(
                 ClientAcquisitionAxis(
                     id="frequency",
@@ -321,6 +319,7 @@ _NETWORK_SWEEP_SWEEP_DECLARATION = ClientAcquisition(
             _NETWORK_SWEEP_REF.acquisition("sweep").result("s_parameter"),
             dtype="complex128",
             unit="ratio",
+            role="observable",
             axes=(
                 ClientAcquisitionAxis(
                     id="frequency",
@@ -350,10 +349,10 @@ class TemperatureSampleProducts:
     temperature: ProductRef
     resistance: ProductRef
 
-    def recording_targets(self) -> tuple[RecordingTarget, ...]:
+    def recording_products(self) -> tuple[ProductRef, ...]:
         return (
-            RecordingTarget(self.temperature, role="observable"),
-            RecordingTarget(self.resistance, role="observable"),
+            self.temperature,
+            self.resistance,
         )
 
 
@@ -840,8 +839,8 @@ class DCMonitorCurrentProducts:
 
     current: ProductRef
 
-    def recording_targets(self) -> tuple[RecordingTarget, ...]:
-        return (RecordingTarget(self.current, role="observable"),)
+    def recording_products(self) -> tuple[ProductRef, ...]:
+        return (self.current,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -858,8 +857,8 @@ class DCMonitorVoltageProducts:
 
     voltage: ProductRef
 
-    def recording_targets(self) -> tuple[RecordingTarget, ...]:
-        return (RecordingTarget(self.voltage, role="observable"),)
+    def recording_products(self) -> tuple[ProductRef, ...]:
+        return (self.voltage,)
 
 
 class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
@@ -1296,10 +1295,10 @@ class NetworkSweepProducts:
     frequency: ProductRef
     s_parameter: ProductRef
 
-    def recording_targets(self) -> tuple[RecordingTarget, ...]:
+    def recording_products(self) -> tuple[ProductRef, ...]:
         return (
-            RecordingTarget(self.frequency, role="coordinate"),
-            RecordingTarget(self.s_parameter, role="observable"),
+            self.frequency,
+            self.s_parameter,
         )
 
 

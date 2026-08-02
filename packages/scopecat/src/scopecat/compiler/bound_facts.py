@@ -149,6 +149,7 @@ def record_product(
     *,
     record_id: str | None = None,
     role: MeasurementVariableRole = "observable",
+    recording_group_id: str | None = None,
     metadata: Mapping[str, JsonValue] | None = None,
 ) -> tuple[ProductUse, RecordUse]:
     """Create one product-use occurrence and one durable record consumer."""
@@ -159,5 +160,6 @@ def record_product(
         id=record_id or selected_id.qualified_name,
         product_use_id=use.id,
         role=role,
+        recording_group_id=recording_group_id,
         metadata=metadata or {},
     )

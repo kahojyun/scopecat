@@ -28,6 +28,25 @@ type AxisSizeInput = ValueRef | Quantity | int | float | tuple[EntityRef | str, 
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
 
 
+@dataclass(frozen=True, slots=True)
+class ProductRecording:
+    """Acquisition-result provenance and its default dataset role."""
+
+    occurrence: SymbolId
+    result_id: str
+    role: MeasurementVariableRole = "observable"
+
+    def __post_init__(self) -> None:
+        if not self.result_id:
+            msg = "recording result id must be non-empty"
+            raise ValueError(msg)
+
+    def prefixed(self, *scope: str) -> ProductRecording:
+        if not scope:
+            return self
+        return replace(self, occurrence=self.occurrence.prefixed(*scope))
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class ProductAxis:
     id: str
@@ -51,6 +70,8 @@ class ModuleProductDecl:
     module boundary. ``ModuleAcquireEffect`` decides how and when an
     instrument realizes it; ``RecordSelection`` decides whether a particular
     use becomes durable.
+    ``recording`` may retain typed acquisition-result provenance, but it does
+    not itself select the product for persistence.
     Keeping the three decisions separate lets modules compose without silently
     imposing experiment-level persistence policy.
     """
@@ -61,6 +82,7 @@ class ModuleProductDecl:
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     axes: tuple[ProductAxis, ...] = ()
+    recording: ProductRecording | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
@@ -87,6 +109,11 @@ class ProductRef:
 
     product_id: ProductId
     origin: tuple[object, ...] = field(repr=False, compare=False)
+    recording: ProductRecording | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def id(self) -> str:
@@ -97,6 +124,12 @@ class ProductRef:
     @property
     def local_id(self) -> str:
         return self.product_id.local_id
+
+    @property
+    def recording_role(self) -> MeasurementVariableRole:
+        """Use acquisition semantics when ordinary recording selects this ref."""
+
+        return "observable" if self.recording is None else self.recording.role
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -148,11 +181,15 @@ class RecordSelection:
     )
     record_id: str | None = None
     role: MeasurementVariableRole = "observable"
+    recording_group_id: str | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
         if self.record_id is not None and not self.record_id:
             msg = "record id must be non-empty when provided"
+            raise ValueError(msg)
+        if self.recording_group_id is not None and not self.recording_group_id:
+            msg = "recording group id must be non-empty when provided"
             raise ValueError(msg)
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
 
@@ -239,6 +276,7 @@ def record_product(
     product_id: str | ProductRef,
     *,
     record_id: str | None = None,
+    recording_group_id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> RecordSelection:
     """Select an observable product for durable experiment output."""
@@ -247,6 +285,7 @@ def record_product(
         product_id,
         role="observable",
         record_id=record_id,
+        recording_group_id=recording_group_id,
         metadata=metadata,
     )
 
@@ -255,6 +294,7 @@ def record_coordinate(
     product_id: str | ProductRef,
     *,
     record_id: str | None = None,
+    recording_group_id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> RecordSelection:
     """Select a product as a coordinate for durable experiment output."""
@@ -263,6 +303,7 @@ def record_coordinate(
         product_id,
         role="coordinate",
         record_id=record_id,
+        recording_group_id=recording_group_id,
         metadata=metadata,
     )
 
@@ -272,6 +313,7 @@ def _record_selection(
     *,
     role: MeasurementVariableRole,
     record_id: str | None,
+    recording_group_id: str | None,
     metadata: Mapping[str, MetadataValue] | None,
 ) -> RecordSelection:
     """Build one selection while preserving hygienic product identity."""
@@ -284,6 +326,13 @@ def _record_selection(
     selected_product_origin = (
         product_id.origin if isinstance(product_id, ProductRef) else None
     )
+    selected_recording_group_id = recording_group_id
+    if (
+        selected_recording_group_id is None
+        and isinstance(product_id, ProductRef)
+        and product_id.recording is not None
+    ):
+        selected_recording_group_id = product_id.recording.occurrence.qualified_name
     return RecordSelection(
         product_use=product_use(selected_product_id),
         product_origin=selected_product_origin,
@@ -291,6 +340,7 @@ def _record_selection(
             record_id if record_id is not None else selected_product_id.qualified_name
         ),
         role=role,
+        recording_group_id=selected_recording_group_id,
         metadata=freeze_json_mapping(metadata or {}),
     )
 
@@ -301,7 +351,12 @@ def record_alias(
     record_id: str,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> RecordSelection:
-    """Add another durable projection without creating another product use."""
+    """Add an ungrouped projection without creating another product use.
+
+    The alias intentionally does not join the source selection's recording
+    group, where a duplicate coordinate or observable would make trace
+    selection ambiguous.
+    """
 
     if not record_id:
         msg = "record alias id must be non-empty"
@@ -311,6 +366,7 @@ def record_alias(
         product_origin=selection.product_origin,
         record_id=record_id,
         role=selection.role,
+        recording_group_id=None,
         metadata=freeze_json_mapping(metadata or {}),
     )
 
@@ -328,6 +384,9 @@ def prefix_product_decl(
         product,
         scope=(*scope, *product.scope),
         origin=(*origin, *product.origin),
+        recording=(
+            None if product.recording is None else product.recording.prefixed(*scope)
+        ),
     )
 
 

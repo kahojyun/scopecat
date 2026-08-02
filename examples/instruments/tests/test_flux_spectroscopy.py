@@ -87,24 +87,35 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert variables["dc_bias"].role == "coordinate"
     assert variables["dc_bias"].dims == ["point"]
     assert variables[FREQUENCY_RECORD_ID].role == "coordinate"
+    assert variables[FREQUENCY_RECORD_ID].recording_group_id == "readout-vna/sweep"
     assert variables[FREQUENCY_RECORD_ID].dims == [
         "point",
         "shared/readout-vna/frequency",
     ]
     assert variables[S_PARAMETER_RECORD_ID].role == "observable"
+    assert variables[S_PARAMETER_RECORD_ID].recording_group_id == "readout-vna/sweep"
     assert variables[S_PARAMETER_RECORD_ID].dims == [
         "point",
         "shared/readout-vna/frequency",
     ]
     assert variables[TEMPERATURE_RECORD_ID].role == "observable"
+    assert (
+        variables[TEMPERATURE_RECORD_ID].recording_group_id == "mixing-chamber/sample"
+    )
     assert variables[TEMPERATURE_RECORD_ID].dims == ["point"]
     preview_records = {record.id: record for record in preview.records}
     assert preview_records[FREQUENCY_RECORD_ID].role == "coordinate"
+    assert (
+        preview_records[FREQUENCY_RECORD_ID].recording_group_id == "readout-vna/sweep"
+    )
     assert preview_records[FREQUENCY_RECORD_ID].dims == (
         "point",
         "shared/readout-vna/frequency",
     )
     assert preview_records[S_PARAMETER_RECORD_ID].role == "observable"
+    assert (
+        preview_records[S_PARAMETER_RECORD_ID].recording_group_id == "readout-vna/sweep"
+    )
     assert preview_records[S_PARAMETER_RECORD_ID].dims == (
         "point",
         "shared/readout-vna/frequency",
@@ -151,8 +162,9 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert first_evidence[TEMPERATURE_RECORD_ID].result_id == "temperature"
     assert not provider.world.dc_source(FLUX_SOURCE_ID).output_enabled
 
-    traces = run.data().traces()
+    traces = run.data().traces(group="readout-vna/sweep")
     assert len(traces) == BIAS_POINTS
+    assert traces[0].recording_group_id == "readout-vna/sweep"
     assert traces[0].coordinate_unit == "Hz"
     assert traces[0].observable_unit == "ratio"
     assert len(traces[0].x) == TRACE_POINTS

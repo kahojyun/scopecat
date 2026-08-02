@@ -42,11 +42,15 @@ class RecordUse:
     id: str
     product_use_id: ProductUseId
     role: MeasurementVariableRole = "observable"
+    recording_group_id: str | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
         if not self.id:
             msg = "record use id must be non-empty"
+            raise ValueError(msg)
+        if self.recording_group_id is not None and not self.recording_group_id:
+            msg = "recording group id must be non-empty when provided"
             raise ValueError(msg)
         object.__setattr__(
             self,
@@ -81,11 +85,15 @@ class RecordPlan:
     product_id: ProductId
     dtype: MeasurementDType
     role: MeasurementVariableRole = "observable"
+    recording_group_id: str | None = None
     unit: str | None = None
     axes: tuple[RecordAxisPlan, ...] = ()
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
+        if self.recording_group_id is not None and not self.recording_group_id:
+            msg = "recording group id must be non-empty when provided"
+            raise ValueError(msg)
         object.__setattr__(self, "axes", tuple(self.axes))
         object.__setattr__(
             self,
@@ -122,6 +130,7 @@ def plan_records(
                 product_use_id=use.id,
                 product_id=product.id,
                 role=record.role,
+                recording_group_id=record.recording_group_id,
                 unit=product.unit,
                 dtype=product.dtype,
                 axes=tuple(_plan_axis(axis) for axis in product.axes),
@@ -305,6 +314,7 @@ def _record_variable(record: RecordPlan) -> MeasurementVariable:
         unit=record.unit,
         dims=["point", *(axis.id for axis in record.axes)],
         source_product_id=record.product_id.qualified_name,
+        recording_group_id=record.recording_group_id,
         metadata=_wire_metadata(record.metadata),
     )
 

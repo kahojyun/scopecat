@@ -656,6 +656,31 @@ def test_record_coordinate_aliases_share_one_public_product_use(tmp_path: Path) 
     assert resolved.bindings.record_uses[1].metadata == {"projection": "secondary"}
 
 
+def test_recording_group_lowers_with_the_record_use() -> None:
+    source = _product_module()
+    call = source()
+    selection = sc.record_product(
+        call.products.signal,
+        recording_group_id="source/sample",
+    )
+    alias = sc.record_alias(selection, record_id="signal-alias")
+
+    assert alias.recording_group_id is None
+
+    @sc.template(id="test.products.recording-group", kind="module_products")
+    def template_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.run(call)
+        experiment.records(selection)
+
+    resolved = bind_invocation(
+        template_definition(),
+        config_profile=load_config(),
+    )
+
+    [record] = resolved.bindings.record_uses
+    assert record.recording_group_id == "source/sample"
+
+
 def test_authoring_compile_rejects_one_use_identity_for_two_products() -> None:
     @sc.module(id="test.products.conflicting-use")
     def module(context: sc.ModuleContext) -> None:

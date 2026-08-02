@@ -283,3 +283,28 @@ def test_per_entity_record_rejects_an_explicit_empty_record_id() -> None:
 
     with pytest.raises(ValueError, match="record id must be non-empty"):
         context.record(products, record_id="")
+
+
+def test_record_namespace_is_non_empty_and_exclusive_with_record_id() -> None:
+    context = sc.ExperimentContext()
+    product = context.product("signal", scope=("readout",))
+
+    with pytest.raises(ValueError, match="record namespace must be non-empty"):
+        context.record(product, namespace="")
+    with pytest.raises(
+        ValueError,
+        match="record_id and namespace cannot be used together",
+    ):
+        context.record(product, record_id="signal", namespace="calibration")
+
+    context.record(product, namespace="calibration/first")
+    definition = context.close_definition_internal(
+        id="test.record-namespace",
+        kind="test",
+        metadata=None,
+        input_defaults={},
+        required_inputs=(),
+    )
+    assert [selection.record_id for selection in definition.record_selections] == [
+        "calibration/first/readout/signal"
+    ]

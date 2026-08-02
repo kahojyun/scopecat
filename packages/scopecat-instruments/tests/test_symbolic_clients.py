@@ -14,11 +14,13 @@ from scopecat.authoring import (
     ScalarType,
     coordinate,
     each,
+    module,
     one,
     template,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.symbols import SymbolId
 from scopecat.program.bindings import EnsureStateIntent, InvocationIntent
 from scopecat.program.expressions import LiteralScalarExpr
 from scopecat.program.module import ModuleAcquireEffect
@@ -383,6 +385,93 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
         "coordinate",
         "observable",
     ]
+    assert {
+        selection.recording_group_id for selection in definition.record_selections
+    } == {"readout/sweep"}
+
+
+def test_record_namespace_prefixes_typed_variables_and_their_group() -> None:
+    context = ExperimentContext()
+    vna = network_sweep(context, "readout")
+    vna.ensure(points=11)
+
+    context.record(vna.sweep(), namespace="calibration")
+
+    definition = context.close_definition_internal(
+        id="test.symbolic.record-namespace",
+        kind="test",
+        metadata=None,
+        input_defaults={},
+        required_inputs=(),
+    )
+    assert [selection.record_id for selection in definition.record_selections] == [
+        "calibration/readout/frequency",
+        "calibration/readout/s_parameter",
+    ]
+    assert {
+        selection.recording_group_id for selection in definition.record_selections
+    } == {"calibration/readout/sweep"}
+
+
+def test_typed_result_members_keep_their_declared_recording_roles() -> None:
+    context = ExperimentContext()
+    vna = network_sweep(context, "readout")
+    vna.ensure(points=11)
+
+    trace = vna.sweep()
+    context.record(trace.frequency, trace.s_parameter)
+
+    assert trace.frequency.recording is not None
+    assert trace.frequency.recording.occurrence == SymbolId(
+        scope=("readout",),
+        local_id="sweep",
+    )
+    assert trace.frequency.recording.result_id == "frequency"
+    assert trace.frequency.recording.role == "coordinate"
+    definition = context.close_definition_internal(
+        id="test.symbolic.record-members",
+        kind="test",
+        metadata=None,
+        input_defaults={},
+        required_inputs=(),
+    )
+    assert [selection.role for selection in definition.record_selections] == [
+        "coordinate",
+        "observable",
+    ]
+
+
+def test_typed_result_recording_semantics_survive_a_module_boundary() -> None:
+    @module(id="test.symbolic.sweep-module")
+    def sweep_module(context: ModuleContext) -> None:
+        vna = network_sweep(context, "readout")
+        vna.ensure(points=11)
+        vna.sweep()
+
+    call = sweep_module.instantiate("segment")
+    frequency = call.products["readout/frequency"]
+
+    assert frequency.recording is not None
+    assert frequency.recording.occurrence == SymbolId(
+        scope=("segment", "readout"),
+        local_id="sweep",
+    )
+    context = ExperimentContext()
+    context.run(call)
+    context.record(frequency)
+    definition = context.close_definition_internal(
+        id="test.symbolic.record-module-member",
+        kind="test",
+        metadata=None,
+        input_defaults={},
+        required_inputs=(),
+    )
+    assert [selection.role for selection in definition.record_selections] == [
+        "coordinate"
+    ]
+    assert [
+        selection.recording_group_id for selection in definition.record_selections
+    ] == ["segment/readout/sweep"]
 
 
 def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
@@ -394,7 +483,7 @@ def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
 
     traces = analyzers.sweep()
     assert_type(traces, PerEntity[NetworkSweepProducts])
-    context.record(traces)
+    context.record(traces, namespace="calibration")
 
     definition = context.close_definition_internal(
         id="test.symbolic.record-each",
@@ -411,10 +500,24 @@ def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
     ]
     record_ids = [selection.record_id for selection in definition.record_selections]
     assert len(set(record_ids)) == 4
+    assert all(
+        record_id is not None and record_id.startswith("calibration/readout.")
+        for record_id in record_ids
+    )
     assert record_ids[0] is not None and record_ids[0].endswith("/frequency")
     assert record_ids[1] is not None and record_ids[1].endswith("/s_parameter")
     assert record_ids[2] is not None and record_ids[2].endswith("/frequency")
     assert record_ids[3] is not None and record_ids[3].endswith("/s_parameter")
+    recording_group_ids = [
+        selection.recording_group_id for selection in definition.record_selections
+    ]
+    assert len(set(recording_group_ids)) == 2
+    assert recording_group_ids[0] == recording_group_ids[1]
+    assert recording_group_ids[2] == recording_group_ids[3]
+    assert all(
+        group_id is not None and group_id.startswith("calibration/readout.")
+        for group_id in recording_group_ids
+    )
 
 
 def test_root_finalization_accepts_a_typed_symbolic_client_and_declared_state() -> None:

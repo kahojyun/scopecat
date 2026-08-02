@@ -40,10 +40,7 @@ from scopecat.authoring.finalization import (
     Finalizable,
     FinalizationTarget,
 )
-from scopecat.authoring.recording import (
-    RecordableProducts,
-    RecordingTarget,
-)
+from scopecat.authoring.recording import RecordableProducts
 from scopecat.authoring.templates import (
     ExperimentInvocation,
     ExperimentTemplate,
@@ -55,6 +52,7 @@ from scopecat.program.measurements import (
 from scopecat.program.products import (
     ProductAxis,
     ProductOutputs,
+    ProductRecording,
     ProductRef,
     RecordSelection,
     entity_axis,
@@ -150,11 +148,11 @@ __all__ = [
     "PerEntity",
     "ProductAxis",
     "ProductOutputs",
+    "ProductRecording",
     "ProductRef",
     "QuantityType",
     "RecordSelection",
     "RecordableProducts",
-    "RecordingTarget",
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",

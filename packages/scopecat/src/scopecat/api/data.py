@@ -118,11 +118,13 @@ class Data:
         observable: str | None = None,
         *,
         coordinate: str | None = None,
+        group: str | None = None,
         selector: str = "raw-measurements",
     ) -> tuple[Trace, ...]:
         return self.measurements(selector).traces(
             observable,
             coordinate=coordinate,
+            group=group,
         )
 
     def metadata(self, selector: str = "raw-measurements") -> dict[str, object]:

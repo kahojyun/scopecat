@@ -239,7 +239,7 @@ def _projection_contract_fingerprint(
     return stable_content_hash(
         content_fingerprint(
             {
-                "schema": "scopecat.measurements.projection_contract.v4",
+                "schema": "scopecat.measurements.projection_contract.v5",
                 "catalog_fingerprint": catalog_fingerprint,
                 "records": tuple(records),
                 "coordinate_ids": tuple(coordinate_ids),

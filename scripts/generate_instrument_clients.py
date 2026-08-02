@@ -2949,7 +2949,7 @@ def _render_header(
         imports["scopecat.authoring"].add("ValueRef")
     if has_acquisitions:
         imports["dataclasses"] = {"dataclass", "field"}
-        imports["scopecat.authoring"].update({"ProductRef", "RecordingTarget"})
+        imports["scopecat.authoring"].add("ProductRef")
         imports["scopecat.records.measurement"] = {"MeasurementValue"}
         imports["scopecat.sdk.instruments"].add("CollectReceipt")
         imports.setdefault("scopecat_instruments._client_runtime", set()).update(
@@ -3251,6 +3251,7 @@ def _render_client_acquisition_result(
         f"{_render_client_ref_argument(result_ref, indent=12)}"
         f"            dtype={_string_literal(field.spec.dtype)},\n"
         f"            unit={_optional_string_literal(field.spec.unit)},\n"
+        f"            role={_string_literal(field.spec.role)},\n"
         f"            axes={axes_expression},\n"
         "        ),\n"
     )
@@ -3350,18 +3351,13 @@ def _render_result_types(
         )
         if len(item.result_fields) == 1:
             [result_field] = item.result_fields
-            recording_return = (
-                "        return (RecordingTarget("
-                f"self.{result_field.python_name}, "
-                f"role={_string_literal(result_field.role)}),)\n"
-            )
+            recording_return = f"        return (self.{result_field.python_name},)\n"
         else:
-            recording_targets = "".join(
-                "            RecordingTarget("
-                f"self.{field.python_name}, role={_string_literal(field.role)}),\n"
+            recording_products = "".join(
+                f"            self.{field.python_name},\n"
                 for field in item.result_fields
             )
-            recording_return = f"        return (\n{recording_targets}        )\n"
+            recording_return = f"        return (\n{recording_products}        )\n"
         sections.append(
             "\n\n"
             "@dataclass(frozen=True, slots=True)\n"
@@ -3379,7 +3375,7 @@ def _render_result_types(
             "\n"
             f"{product_fields}"
             "\n"
-            "    def recording_targets(self) -> tuple[RecordingTarget, ...]:\n"
+            "    def recording_products(self) -> tuple[ProductRef, ...]:\n"
             f"{recording_return}"
         )
     return "".join(sections)

@@ -49,8 +49,9 @@ from scopecat.kernel.instrument_members import (
     OperationRef,
     PropertyRef,
 )
+from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
+from scopecat.measurements.results import MeasurementDType
 from scopecat.program.bindings import BindingIntent
 from scopecat.program.definitions import (
     ExperimentDef,
@@ -66,6 +67,7 @@ from scopecat.program.module import ModuleInstance
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
     ProductAxis,
+    ProductRecording,
     ProductRef,
     RecordSelection,
     record_coordinate,
@@ -105,12 +107,6 @@ type RecordProductInput = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class _ExpandedRecordingTarget:
-    product: str | ProductRef
-    role: MeasurementVariableRole
-
-
 def input_ref[T](value: Input[T]) -> ValueRef:
     """View a decorator function input as its symbolic authoring reference.
 
@@ -125,8 +121,8 @@ def input_ref[T](value: Input[T]) -> ValueRef:
 
 def _expand_record_products(
     products: Sequence[RecordProductInput],
-) -> tuple[_ExpandedRecordingTarget, ...]:
-    selected: list[_ExpandedRecordingTarget] = []
+) -> tuple[str | ProductRef, ...]:
+    selected: list[str | ProductRef] = []
     for product in products:
         if isinstance(product, PerEntity):
             for value in product.values():
@@ -137,24 +133,45 @@ def _expand_record_products(
 
 
 def _append_record_product(
-    selected: list[_ExpandedRecordingTarget],
+    selected: list[str | ProductRef],
     product: str | ProductRef | RecordableProducts,
 ) -> None:
     if isinstance(product, str | ProductRef):
-        selected.append(
-            _ExpandedRecordingTarget(
-                product=product,
-                role="observable",
-            )
-        )
+        selected.append(product)
         return
-    selected.extend(
-        _ExpandedRecordingTarget(
-            product=target.product,
-            role=target.role,
-        )
-        for target in product.recording_targets()
+    selected.extend(product.recording_products())
+
+
+def _recording_role_is_coordinate(product: str | ProductRef) -> bool:
+    return isinstance(product, ProductRef) and product.recording_role == "coordinate"
+
+
+def _record_namespace_segments(namespace: str) -> tuple[str, ...]:
+    if not namespace:
+        raise ValueError("record namespace must be non-empty")
+    namespace_id = parse_product_id(namespace)
+    return (*namespace_id.scope, namespace_id.local_id)
+
+
+def _namespaced_record_id(
+    product: str | ProductRef,
+    namespace: tuple[str, ...],
+) -> str:
+    product_id = (
+        product.product_id
+        if isinstance(product, ProductRef)
+        else parse_product_id(product)
     )
+    return product_id.prefixed(*namespace).qualified_name
+
+
+def _recording_group_id(
+    product: str | ProductRef,
+    namespace: tuple[str, ...],
+) -> str | None:
+    if not isinstance(product, ProductRef) or product.recording is None:
+        return None
+    return product.recording.occurrence.prefixed(*namespace).qualified_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,6 +322,7 @@ class ExperimentContext:
         unit: str | None = "ratio",
         dtype: MeasurementDType = "float64",
         axes: Sequence[ProductAxis] = (),
+        recording: ProductRecording | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ProductRef:
         """Declare and return one experiment-owned logical product."""
@@ -315,6 +333,7 @@ class ExperimentContext:
             unit=unit,
             dtype=dtype,
             axes=axes,
+            recording=recording,
             metadata=metadata,
         )
 
@@ -369,30 +388,55 @@ class ExperimentContext:
         self,
         *products: RecordProductInput,
         record_id: str | None = None,
+        namespace: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
-        """Select logical products for durable recording."""
+        """Select products, optionally under one structural output prefix."""
 
+        if record_id is not None and namespace is not None:
+            raise ValueError("record_id and namespace cannot be used together")
+        namespace_segments = (
+            () if namespace is None else _record_namespace_segments(namespace)
+        )
         selected_products = _expand_record_products(products)
         if record_id is not None and len(selected_products) != 1:
             raise ValueError("record_id can only be used with one product")
         self._record_selections.extend(
-            (record_coordinate if target.role == "coordinate" else record_product)(
-                target.product,
-                record_id=record_id,
+            (
+                record_coordinate
+                if _recording_role_is_coordinate(product)
+                else record_product
+            )(
+                product,
+                record_id=(
+                    _namespaced_record_id(product, namespace_segments)
+                    if namespace_segments
+                    else record_id
+                ),
+                recording_group_id=(
+                    _recording_group_id(product, namespace_segments)
+                    if namespace_segments
+                    else None
+                ),
                 metadata=metadata,
             )
-            for target in selected_products
+            for product in selected_products
         )
 
     def record_coordinate(
         self,
         *products: ScalarRecordProductInput,
         record_id: str | None = None,
+        namespace: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
-        """Select coordinate-like products for durable recording."""
+        """Select custom coordinate products under an optional output prefix."""
 
+        if record_id is not None and namespace is not None:
+            raise ValueError("record_id and namespace cannot be used together")
+        namespace_segments = (
+            () if namespace is None else _record_namespace_segments(namespace)
+        )
         selected_products = _expand_record_products(
             cast("Sequence[RecordProductInput]", products)
         )
@@ -400,11 +444,20 @@ class ExperimentContext:
             raise ValueError("record_id can only be used with one product")
         self._record_selections.extend(
             record_coordinate(
-                target.product,
-                record_id=record_id,
+                product,
+                record_id=(
+                    _namespaced_record_id(product, namespace_segments)
+                    if namespace_segments
+                    else record_id
+                ),
+                recording_group_id=(
+                    _recording_group_id(product, namespace_segments)
+                    if namespace_segments
+                    else None
+                ),
                 metadata=metadata,
             )
-            for target in selected_products
+            for product in selected_products
         )
 
     def records(self, *selections: RecordSelection) -> None:

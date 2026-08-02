@@ -232,7 +232,7 @@ def capture(experiment: sc.ExperimentContext) -> None:
     )
     trace = vna.sweep()  # NetworkSweepProducts, declared for every point
 
-    experiment.record(trace)
+    experiment.record(trace, namespace="calibration")
     experiment.finalize(
         flux,
         DCSourceTarget(output_enabled=False),
@@ -244,22 +244,49 @@ acquisition contract: `frequency` is a coordinate, `s_parameter` is an
 observable, and both share the declared frequency axis. Recording the typed
 result therefore projects one trace into the dataset without making the user
 repeat its fields or roles. The ordinary typed path also does not repeat that
-schema with `experiment.product(...)` and `experiment.acquire(...)`. An
-acquisition id can still be supplied when the same acquisition occurs more
-than once and needs a distinct product namespace.
+schema with `experiment.product(...)` and `experiment.acquire(...)`.
+
+Every typed acquisition member retains its declared result id, role, and
+acquisition-occurrence group. That provenance belongs to the product rather
+than to the immediate Python result carrier, so it survives export from a
+reusable `@module` and is prefixed hygienically when that module is instantiated.
+Selecting one member directly therefore retains its intrinsic role as well:
+
+```python
+# If only the sampled coordinate is wanted, this is still a coordinate record.
+experiment.record(trace.frequency)
+```
+
+`namespace=` applies one uniform outer prefix to the bundle's existing variable
+and group identities; it does not replace or reconstruct their internal
+relationship. In the example, the default occurrence group is `readout/sweep`,
+with variables `readout/frequency` and `readout/s_parameter`. Recording with
+`namespace="calibration"` produces group `calibration/readout/sweep` and
+variables `calibration/readout/frequency` and
+`calibration/readout/s_parameter`. An acquisition id can still be supplied when
+the same acquisition occurs more than once and needs a distinct identity before
+that recording prefix is applied.
 
 The dataset remains columnar: it contains separate qualified `frequency` and
-`s_parameter` variables rather than an opaque nested trace value. Their roles
-and shared dimension preserve the relationship, so `run.data().traces()` can
-recover the unique trace without repeating either variable name. When a
-dataset contains several compatible traces, pass the selected observable id;
-its coordinate is inferred from the shared dimension.
+`s_parameter` variables rather than an opaque nested trace value. Their roles,
+recording group, and shared dimension preserve the relationship, so
+`run.data().traces()` can recover the unique trace without repeating either
+variable name. When a dataset contains several compatible traces, select the
+acquisition group directly:
+
+```python
+traces = run.data().traces(group="calibration/readout/sweep")
+```
+
+The group selector chooses the complete coordinate/observable pair rather than
+requiring analysis code to reconstruct the pair from two variable names.
 
 Reusable `@module` definitions remain available when work is genuinely shared
 or composed. They are an extraction step, not a prerequisite for using typed
 instrument clients. A reusable module passes symbolic dependencies through its
-typed parameters; a root template or scratch definition may author the simple
-workflow directly as above.
+typed parameters and preserves acquisition recording provenance on exported
+products; a root template or scratch definition may author the simple workflow
+directly as above.
 
 A target is a coherent state intention, not an instruction to write every
 field unconditionally. Omitted fields remain unspecified. After point values
@@ -524,7 +551,11 @@ unique ids; different kinds do not disambiguate the same id there. Root
 recording accepts both one typed acquisition result and a
 `PerEntity[Products]` result directly. It preserves entity and result
 declaration order, keeps each field's declared coordinate/observable role, and
-gives every scoped product a stable qualified record id.
+gives every scoped product a stable qualified record id. Recording an
+individual acquisition member, such as `record(trace.frequency)`, inherits that
+member's declared role and group provenance just like recording the complete
+bundle.
+
 `record_coordinate(...)` remains a low-level escape hatch for custom products
 whose role is not declared by an instrument result.
 

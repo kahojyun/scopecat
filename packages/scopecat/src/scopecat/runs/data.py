@@ -52,9 +52,11 @@ class RunMeasurementDatasetResult(_RunDataResult):
         observable: str | None = None,
         *,
         coordinate: str | None = None,
+        group: str | None = None,
     ) -> tuple[Trace, ...]:
         return measurement_traces(
             self.dataset,
             observable,
             coordinate=coordinate,
+            group=group,
         )
