@@ -15,8 +15,9 @@ from scopecat_quantum import authoring
 from scopecat_quantum.gates import GateCall, GateParameterKind
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
+    BinaryIqProbabilityProducts,
     IqCentroid,
-    binary_iq_probability_postprocessor,
+    binary_iq_probabilities,
 )
 
 _REPO_ROOT = Path(__file__).parents[3]
@@ -418,19 +419,17 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
     def discriminate(module: sc.ModuleContext) -> None:
         call = declaration("q0").with_shots(16)
         placed = assert_type(module.call(call), authoring.QuantumProgramCall)
-        probability_0 = module.product("probability_0")
-        probability_1 = module.product("probability_1")
-        module.measurement_postprocessor(
-            binary_iq_probability_postprocessor(
-                "discriminate",
-                iq_shots=placed.results.iq_shots,
-                probability_0=probability_0,
-                probability_1=probability_1,
+        assert_type(
+            binary_iq_probabilities(
+                module,
+                placed.results.iq_shots,
                 discriminator=BinaryIqDiscriminator(
                     state_0_centroid=IqCentroid(real=-1, imag=0),
                     state_1_centroid=IqCentroid(real=1, imag=0),
                 ),
-            )
+                id="discriminate",
+            ),
+            BinaryIqProbabilityProducts,
         )
 
     [lowered] = discriminate.definition.body.measurement_postprocessors

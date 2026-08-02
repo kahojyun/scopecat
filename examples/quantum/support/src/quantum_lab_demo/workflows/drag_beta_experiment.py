@@ -9,7 +9,7 @@ from scopecat import Quantity
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
     IqCentroid,
-    binary_iq_probability_postprocessor,
+    binary_iq_probabilities,
 )
 
 from quantum_lab_demo.virtual_lab.parameters import (
@@ -70,16 +70,11 @@ def drag_beta_capture(
         .with_shots(DRAG_BETA_SHOTS)
     )
     module.call(call)
-    probability_0 = module.product("probability_0", unit="ratio")
-    probability_1 = module.product("probability_1", unit="ratio")
-    postprocessor = binary_iq_probability_postprocessor(
-        "binary-iq-probability",
-        iq_shots=call.results.iq_shots,
-        probability_0=probability_0,
-        probability_1=probability_1,
+    binary_iq_probabilities(
+        module,
+        call.results.iq_shots,
         discriminator=_DRAG_BETA_DISCRIMINATOR,
     )
-    module.measurement_postprocessor(postprocessor)
 
 
 def _drag_beta_experiment_body(

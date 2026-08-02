@@ -964,8 +964,11 @@ the current whole-result contract.
 Recorded variables identify their logical source product in the dataset schema.
 Each directly collected point value also retains the instrument, interface,
 component, acquisition, result, and daemon-observed driver-call interval.
-Single-input measurement postprocessors retain that physical source evidence;
-scan coordinates and values produced without an instrument do not invent it.
+Single-input measurement producers own their output product declarations and
+return typed bundles, just as acquisitions do; module authors do not predeclare
+output refs and then register a separate postprocessor IR object. Their derived
+products retain the input's physical source evidence. Scan coordinates and
+values produced without an instrument do not invent it.
 
 An abandoned idle interactive owner expires automatically. If its lease expires
 during a recorded hardware operation, the daemon faults the connection and

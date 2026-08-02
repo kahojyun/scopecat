@@ -10,7 +10,7 @@ from scopecat_quantum import authoring as quantum
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
     IqCentroid,
-    binary_iq_probability_postprocessor,
+    binary_iq_probabilities,
 )
 from scopecat_quantum.standard_gates import X90, XM90
 
@@ -88,16 +88,11 @@ def production_drag_capture(
         .with_shots(PRODUCTION_DRAG_GATE_SHOTS)
     )
     module.call(call)
-    probability_0 = module.product("probability_0", unit="ratio")
-    probability_1 = module.product("probability_1", unit="ratio")
-    postprocessor = binary_iq_probability_postprocessor(
-        "binary-iq-probability",
-        iq_shots=call.results.iq_shots,
-        probability_0=probability_0,
-        probability_1=probability_1,
+    binary_iq_probabilities(
+        module,
+        call.results.iq_shots,
         discriminator=_DISCRIMINATOR,
     )
-    module.measurement_postprocessor(postprocessor)
 
 
 @sc.template(
