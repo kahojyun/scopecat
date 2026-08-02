@@ -12,7 +12,6 @@ from scopecat.sdk.instruments.declarations import (
     axis,
     component,
     discriminated_state,
-    instrument_bundle,
     instrument_interface,
     instrument_observed_state,
     instrument_result,
@@ -79,59 +78,26 @@ class ComponentOperationInterface(Protocol):
     ]
 
 
-@instrument_interface("test.generated_bundle_peer/v1")
-class BundlePeerInterface(Protocol): ...
+@instrument_interface("test.generated_composite_peer/v1")
+class CompositePeerInterface(Protocol): ...
 
 
-@instrument_bundle
-class ComponentBundleInterface(
-    ComponentOperationInterface,
-    BundlePeerInterface,
-    Protocol,
-): ...
-
-
-@instrument_interface("test.generated_bundle_method_left/v1")
-class BundleMethodLeftInterface(Protocol):
+@instrument_interface("test.generated_composite_method_left/v1")
+class CompositeMethodLeftInterface(Protocol):
     @operation(id="left_fire")
     def fire(self) -> None: ...
 
 
-@instrument_interface("test.generated_bundle_method_right/v1")
-class BundleMethodRightInterface(Protocol):
+@instrument_interface("test.generated_composite_method_right/v1")
+class CompositeMethodRightInterface(Protocol):
     @operation(id="right_fire")
     def fire(self) -> None: ...
 
 
-@instrument_interface("test.generated_bundle_method_peer/v1")
-class BundleMethodPeerInterface(Protocol):
+@instrument_interface("test.generated_composite_method_peer/v1")
+class CompositeMethodPeerInterface(Protocol):
     @operation(id="peer_arm")
     def arm(self) -> None: ...
-
-
-@instrument_bundle
-class MethodMergeBundleInterface(
-    BundleMethodLeftInterface,
-    BundleMethodPeerInterface,
-    Protocol,
-): ...
-
-
-@instrument_bundle
-class ThreePartBundleInterface(
-    BundleMethodLeftInterface,
-    BundleMethodPeerInterface,
-    BundlePeerInterface,
-    Protocol,
-): ...
-
-
-@instrument_bundle
-class MethodCollisionBundleInterface(
-    BundleMethodLeftInterface,
-    BundleMethodRightInterface,
-    Protocol,
-): ...
 
 
 @instrument_interface("test.generated_payload_operation/v1")
@@ -234,14 +200,6 @@ class DriverMonitorInterface(Protocol):
     def monitor(self) -> DriverMonitorResults[float]: ...
 
 
-@instrument_bundle
-class DriverMonitorBundle(
-    DriverSourceInterface,
-    DriverMonitorInterface,
-    Protocol,
-): ...
-
-
 @instrument_interface("test.generated_literal_operation/v1")
 class LiteralOperationInterface(Protocol):
     @operation()
@@ -293,18 +251,16 @@ class SymbolCollisionInterface(Protocol):
 
 
 __all__ = [
-    "BundleMethodLeftInterface",
-    "BundleMethodPeerInterface",
-    "BundleMethodRightInterface",
-    "BundlePeerInterface",
     "CatalogProjectionInterface",
     "CatalogProjectionObservation",
     "CatalogProjectionState",
-    "ComponentBundleInterface",
     "ComponentOperationInterface",
+    "CompositeMethodLeftInterface",
+    "CompositeMethodPeerInterface",
+    "CompositeMethodRightInterface",
+    "CompositePeerInterface",
     "DriverFixedAcquisitionInterface",
     "DriverFixedResults",
-    "DriverMonitorBundle",
     "DriverMonitorInterface",
     "DriverMonitorResults",
     "DriverMonitorState",
@@ -315,13 +271,10 @@ __all__ = [
     "EffectIdCollisionInterface",
     "FlatFooBarCapability",
     "LiteralOperationInterface",
-    "MethodCollisionBundleInterface",
-    "MethodMergeBundleInterface",
     "NestedBarCapability",
     "NestedFooCapability",
     "OutputCapability",
     "PayloadOperationInterface",
     "SymbolCollisionInterface",
-    "ThreePartBundleInterface",
     "TriggerCapability",
 ]

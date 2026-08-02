@@ -18,28 +18,29 @@ if sys.argv[4] != "-":
     sys.path.insert(0, sys.argv[4])
 from generate_instrument_clients import (
     clients_for,
-    clients_for_bundle,
+    clients_for_composite,
     render_client_module,
 )
-from scopecat.sdk.instruments.declarations import declared_bundle_interfaces
 
 declarations = import_module(sys.argv[2])
-declaration = getattr(declarations, sys.argv[3])
-if sys.argv[5] == "facade":
-    base, *_ = declared_bundle_interfaces(declaration)
-    surfaces = (clients_for_bundle(declaration, facade_flag=sys.argv[6]),)
-    if sys.argv[7] == "include-base":
-        surfaces = (clients_for(base), *surfaces)
+interface_types = tuple(
+    getattr(declarations, name)
+    for name in sys.argv[3].split(",")
+)
+if sys.argv[5] == "-":
+    surfaces = (clients_for(interface_types[0]),)
 else:
     surfaces = (
-        clients_for_bundle(declaration)
-        if sys.argv[5] == "bundle"
-        else clients_for(declaration),
+        clients_for_composite(
+            sys.argv[5],
+            *interface_types,
+            driver_optional_flag=None if sys.argv[6] == "-" else sys.argv[6],
+        ),
     )
 print(
     render_client_module(
         surfaces,
-        state_projection_module=sys.argv[8],
+        state_projection_module=sys.argv[7],
     ),
     end="",
 )
@@ -80,15 +81,12 @@ for factory in (
 
 
 def _render_surface(
-    interface_name: str,
-    *,
+    *interface_names: str,
     state_projection_module: str = FIXTURE_STATE_PROJECTION_MODULE,
     module: str = "client_codegen_fixture_declarations",
     import_root: Path | None = FIXTURE_IMPORT_ROOT,
-    bundle: bool = False,
-    facade: bool = False,
-    flag: str = "monitor",
-    include_base: bool = True,
+    composite_name: str | None = None,
+    driver_optional_flag: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed interpreter and repository code
         [
@@ -97,11 +95,10 @@ def _render_surface(
             _RENDER_SURFACE,
             str(GENERATOR.parent),
             module,
-            interface_name,
+            ",".join(interface_names),
             "-" if import_root is None else str(import_root),
-            "facade" if facade else "bundle" if bundle else "interface",
-            flag,
-            "include-base" if include_base else "omit-base",
+            "-" if composite_name is None else composite_name,
+            "-" if driver_optional_flag is None else driver_optional_flag,
             state_projection_module,
         ],
         cwd=REPOSITORY_ROOT,
@@ -241,46 +238,15 @@ def test_codegen_rejects_every_colliding_generated_symbol() -> None:
     assert "_SYMBOL_COLLISION_FOO_BAR_FIRE_DECLARATION" in completed.stderr
 
 
-def test_codegen_derives_base_family_suppression_from_a_facade_bundle() -> None:
+def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     completed = _render_surface(
-        "DCSourceMonitorInterface",
+        "DCSourceInterface",
+        "DCMonitorInterface",
         module="scopecat_instruments.interface_declarations",
         import_root=None,
         state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
-        facade=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    compile(completed.stdout, "<generated-dc-source>", "exec")
-    assert "type _DCSourcePatch" not in completed.stdout
-    assert "class DCSourceClient(DeclaredStateClientBase[DCSourcePatch]):" in (
-        completed.stdout
-    )
-    assert (
-        "class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[DCSourceTarget]):"
-    ) in completed.stdout
-    assert "DeclaredStateSymbolicGroupBase[" in completed.stdout
-    assert "DCSourceTarget, DCSourceGroupTarget, SymbolicDCSourceClient" in (
-        completed.stdout
-    )
-    assert "DC_SOURCE_DECLARATION" not in completed.stdout
-    assert '_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v3")' in (
-        completed.stdout
-    )
-    assert "def source_voltage(" in completed.stdout
-    assert "def source_current(" in completed.stdout
-    assert "compile_interface" not in completed.stdout
-    assert "InstrumentFamily" not in completed.stdout
-    assert '"dc_source"' in completed.stdout
-
-
-def test_codegen_composes_a_root_only_interface_bundle() -> None:
-    completed = _render_surface(
-        "DCSourceMonitorInterface",
-        module="scopecat_instruments.interface_declarations",
-        import_root=None,
-        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
-        bundle=True,
+        composite_name="DCSourceMonitor",
+        driver_optional_flag="monitor",
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -297,72 +263,32 @@ def test_codegen_composes_a_root_only_interface_bundle() -> None:
     assert "class DCMonitorVoltageReadback(" in completed.stdout
     assert "class DCMonitorVoltageProducts(" in completed.stdout
     assert "class DCSourceMonitorClient(" in completed.stdout
-    assert "class SymbolicDCSourceMonitorClient(" in completed.stdout
+    assert (
+        "class SymbolicDCSourceMonitorClient("
+        "\n    DeclaredStateSymbolicClientBase[_DCSourceMonitorTarget]"
+    ) in completed.stdout
     assert "class SymbolicDCSourceMonitorGroup(" in completed.stdout
+    assert '_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v3")' in (
+        completed.stdout
+    )
+    assert '_DC_MONITOR_REF = InterfaceRef("scopecat.dc_monitor/v4")' in (
+        completed.stdout
+    )
+    assert "def source_voltage(" in completed.stdout
+    assert "def source_current(" in completed.stdout
+    assert "def measure_current(" in completed.stdout
+    assert "def measure_voltage(" in completed.stdout
+    assert "dc_source_monitor: InstrumentFamily[" in completed.stdout
     assert "requires=(_DC_SOURCE_REF, _DC_MONITOR_REF)," in completed.stdout
-    assert "compile_interface(DCSourceMonitorInterface)" not in completed.stdout
+    assert "compile_interface" not in completed.stdout
 
 
-def test_codegen_renders_a_two_interface_boolean_facade() -> None:
+def test_codegen_rejects_composite_components() -> None:
     completed = _render_surface(
-        "DCSourceMonitorInterface",
-        module="scopecat_instruments.interface_declarations",
-        import_root=None,
-        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
-        facade=True,
+        "ComponentOperationInterface",
+        "CompositePeerInterface",
+        composite_name="ComponentComposite",
     )
-
-    assert completed.returncode == 0, completed.stderr
-    compile(completed.stdout, "<generated-dc-source-facade>", "exec")
-    assert completed.stdout.count("@overload") == 15
-    assert "monitor: Literal[False] = False" in completed.stdout
-    assert "monitor: Literal[True]" in completed.stdout
-    assert completed.stdout.count("monitor: bool,") == 3
-    assert "PerEntity[bool]" not in completed.stdout
-    assert "def dc_source(" in completed.stdout
-    assert '"dc_source"' in completed.stdout
-    assert "requires=(_DC_SOURCE_REF,)" in completed.stdout
-    assert "requires=(_DC_SOURCE_REF, _DC_MONITOR_REF)" in completed.stdout
-
-
-def test_codegen_rejects_a_facade_without_its_base_surface() -> None:
-    completed = _render_surface(
-        "DCSourceMonitorInterface",
-        module="scopecat_instruments.interface_declarations",
-        import_root=None,
-        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
-        facade=True,
-        include_base=False,
-    )
-
-    assert completed.returncode != 0
-    assert "requires its first constituent" in completed.stderr
-    assert "as a generated base surface" in completed.stderr
-
-
-def test_codegen_rejects_a_facade_for_more_than_two_interfaces() -> None:
-    completed = _render_surface("ThreePartBundleInterface", facade=True)
-
-    assert completed.returncode != 0
-    assert "requires exactly two interfaces" in completed.stderr
-
-
-def test_codegen_reserves_fixed_facade_parameters() -> None:
-    completed = _render_surface(
-        "DCSourceMonitorInterface",
-        module="scopecat_instruments.interface_declarations",
-        import_root=None,
-        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
-        facade=True,
-        flag="for_",
-    )
-
-    assert completed.returncode != 0
-    assert "bundle facade flag reserves factory parameter 'for_'" in completed.stderr
-
-
-def test_codegen_rejects_bundle_components() -> None:
-    completed = _render_surface("ComponentBundleInterface", bundle=True)
 
     assert completed.returncode != 0
     assert "only supports root members" in completed.stderr
@@ -370,25 +296,33 @@ def test_codegen_rejects_bundle_components() -> None:
 
 
 def test_codegen_composes_distinct_root_operations_from_each_constituent() -> None:
-    completed = _render_surface("MethodMergeBundleInterface", bundle=True)
+    completed = _render_surface(
+        "CompositeMethodLeftInterface",
+        "CompositeMethodPeerInterface",
+        composite_name="MethodComposite",
+    )
 
     assert completed.returncode == 0, completed.stderr
-    compile(completed.stdout, "<generated-method-bundle>", "exec")
+    compile(completed.stdout, "<generated-method-composite>", "exec")
     assert completed.stdout.count("    def fire(") == 3
     assert completed.stdout.count("    def arm(") == 3
-    assert "_BUNDLE_METHOD_LEFT_FIRE_DECLARATION" in completed.stdout
-    assert "_BUNDLE_METHOD_PEER_ARM_DECLARATION" in completed.stdout
+    assert "_COMPOSITE_METHOD_LEFT_FIRE_DECLARATION" in completed.stdout
+    assert "_COMPOSITE_METHOD_PEER_ARM_DECLARATION" in completed.stdout
     assert (
-        "requires=(_BUNDLE_METHOD_LEFT_REF, _BUNDLE_METHOD_PEER_REF),"
+        "requires=(_COMPOSITE_METHOD_LEFT_REF, _COMPOSITE_METHOD_PEER_REF),"
         in completed.stdout
     )
 
 
-def test_codegen_rejects_bundle_method_collisions() -> None:
-    completed = _render_surface("MethodCollisionBundleInterface", bundle=True)
+def test_codegen_rejects_composite_method_collisions() -> None:
+    completed = _render_surface(
+        "CompositeMethodLeftInterface",
+        "CompositeMethodRightInterface",
+        composite_name="MethodCollisionComposite",
+    )
 
     assert completed.returncode != 0
-    assert "generated bundle method collisions" in completed.stderr
+    assert "generated composite method collisions" in completed.stderr
     assert "fire:" in completed.stderr
-    assert "BundleMethodLeftInterface" in completed.stderr
-    assert "BundleMethodRightInterface" in completed.stderr
+    assert "CompositeMethodLeftInterface" in completed.stderr
+    assert "CompositeMethodRightInterface" in completed.stderr

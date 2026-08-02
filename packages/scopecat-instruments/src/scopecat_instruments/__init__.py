@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from scopecat_instruments.clients import (
+        DCMonitorClient,
         DCMonitorCurrentProducts,
         DCMonitorCurrentReadback,
         DCMonitorVoltageProducts,
@@ -21,6 +22,8 @@ if TYPE_CHECKING:
         NetworkSweepProducts,
         NetworkSweepReadback,
         RFOutputClient,
+        SymbolicDCMonitorClient,
+        SymbolicDCMonitorGroup,
         SymbolicDCSourceClient,
         SymbolicDCSourceGroup,
         SymbolicDCSourceMonitorClient,
@@ -35,7 +38,9 @@ if TYPE_CHECKING:
         TemperatureReadback,
         TemperatureReadoutClient,
         TemperatureSampleProducts,
+        dc_monitor,
         dc_source,
+        dc_source_monitor,
         network_sweep,
         rf_output,
         temperature_readout,
@@ -63,6 +68,7 @@ if TYPE_CHECKING:
 
 _PUBLIC_EXPORT_MODULES: dict[str, str] = {
     "ConfiguredInstrumentProvider": "scopecat_instruments.provider",
+    "DCMonitorClient": "scopecat_instruments.clients",
     "DCMonitorCurrentProducts": "scopecat_instruments.clients",
     "DCMonitorCurrentReadback": "scopecat_instruments.clients",
     "DCMonitorGroupTarget": "scopecat_instruments.states",
@@ -88,6 +94,8 @@ _PUBLIC_EXPORT_MODULES: dict[str, str] = {
     "RFOutputTarget": "scopecat_instruments.states",
     "ReferenceSource": "scopecat_instruments.states",
     "SParameter": "scopecat_instruments.states",
+    "SymbolicDCMonitorClient": "scopecat_instruments.clients",
+    "SymbolicDCMonitorGroup": "scopecat_instruments.clients",
     "SymbolicDCSourceClient": "scopecat_instruments.clients",
     "SymbolicDCSourceGroup": "scopecat_instruments.clients",
     "SymbolicDCSourceMonitorClient": "scopecat_instruments.clients",
@@ -103,7 +111,9 @@ _PUBLIC_EXPORT_MODULES: dict[str, str] = {
     "TemperatureReadoutClient": "scopecat_instruments.clients",
     "TemperatureReadoutObservation": "scopecat_instruments.states",
     "TemperatureSampleProducts": "scopecat_instruments.clients",
+    "dc_monitor": "scopecat_instruments.clients",
     "dc_source": "scopecat_instruments.clients",
+    "dc_source_monitor": "scopecat_instruments.clients",
     "network_sweep": "scopecat_instruments.clients",
     "rf_output": "scopecat_instruments.clients",
     "temperature_readout": "scopecat_instruments.clients",

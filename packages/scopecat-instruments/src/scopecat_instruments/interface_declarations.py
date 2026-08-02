@@ -9,7 +9,6 @@ from scopecat.sdk.instruments.declarations import (
     acquisition,
     argument,
     axis,
-    instrument_bundle,
     instrument_interface,
     instrument_observed_state,
     instrument_result,
@@ -151,14 +150,6 @@ class DCMonitorInterface(Protocol):
         description="Measure voltage while the source is operating in current mode.",
     )
     def measure_voltage(self) -> DCMonitorVoltageResults[float]: ...
-
-
-@instrument_bundle
-class DCSourceMonitorInterface(
-    DCSourceInterface,
-    DCMonitorInterface,
-    Protocol,
-): ...
 
 
 @instrument_observed_state
@@ -329,7 +320,6 @@ __all__ = [
     "DCMonitorState",
     "DCMonitorVoltageResults",
     "DCSourceInterface",
-    "DCSourceMonitorInterface",
     "DCSourceObservation",
     "DCSourceState",
     "NetworkSweepInterface",

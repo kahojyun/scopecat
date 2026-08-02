@@ -26,15 +26,15 @@ from generated_driver_handler_fixture import (
     DriverFixedAcquisitionAcquireDriverReadback,
     DriverFixedAcquisitionAcquireDriverResultName,
     DriverFixedAcquisitionDriverAdapter,
-    DriverMonitorBundleDriverAdapter,
-    DriverMonitorBundleDriverPatch,
-    DriverMonitorBundleDriverSnapshot,
     DriverMonitorMonitorDriverReadback,
     DriverMonitorMonitorDriverResultName,
     DriverMonitorMonitorDriverValues,
     DriverSourceDriverAdapter,
     DriverSourceDriverSnapshot,
     LiteralOperationDriverAdapter,
+    MonitorCompositeDriverAdapter,
+    MonitorCompositeDriverPatch,
+    MonitorCompositeDriverSnapshot,
     PayloadOperationDriverAdapter,
 )
 from generated_driver_state_catalog_fixture import DriverSourceDriverPatch
@@ -160,34 +160,34 @@ class _SourceDriver(DriverSourceDriverAdapter):
         return DriverSuccess(None, metadata={"handler": "source"})
 
 
-class _BundleDriver(DriverMonitorBundleDriverAdapter):
-    implementation_id = "test.bundle"
+class _CompositeDriver(MonitorCompositeDriverAdapter):
+    implementation_id = "test.composite"
     implementation_version = "v1"
-    instrument_id = "bundle"
+    instrument_id = "composite"
 
     def __init__(self, *, monitor: bool) -> None:
         super().__init__(monitor=monitor)
-        self.apply_calls: list[DriverMonitorBundleDriverPatch] = []
+        self.apply_calls: list[MonitorCompositeDriverPatch] = []
         self.monitor_calls: list[frozenset[DriverMonitorMonitorDriverResultName]] = []
 
     @override
-    def read_driver_monitor_bundle_state(self) -> DriverMonitorBundleDriverSnapshot:
-        return DriverMonitorBundleDriverSnapshot(
+    def read_monitor_composite_state(self) -> MonitorCompositeDriverSnapshot:
+        return MonitorCompositeDriverSnapshot(
             driver_source=DriverSourceLeftState(enabled=True, level=8),
-            # Deliberately populated even when the facade is disabled: the adapter
-            # owns the dynamic interface gate.
+            # Deliberately populated even when the optional interface is disabled:
+            # the adapter owns the dynamic interface gate.
             driver_monitor=DriverMonitorState(enabled=True),
-            metadata={"snapshot": "bundle"},
+            metadata={"snapshot": "composite"},
         )
 
     @override
-    def apply_driver_monitor_bundle_state(
+    def apply_monitor_composite_state(
         self,
-        patch: DriverMonitorBundleDriverPatch,
+        patch: MonitorCompositeDriverPatch,
         /,
     ) -> DriverOutcome[None]:
         self.apply_calls.append(patch)
-        return DriverSuccess(None, metadata={"handler": "bundle_apply"})
+        return DriverSuccess(None, metadata={"handler": "composite_apply"})
 
     @override
     def handle_monitor(
@@ -205,9 +205,9 @@ class _BundleDriver(DriverMonitorBundleDriverAdapter):
         return DriverSuccess(
             DriverMonitorMonitorDriverReadback(
                 values=values,
-                metadata={"readback": "bundle"},
+                metadata={"readback": "composite"},
             ),
-            metadata={"handler": "bundle_collect"},
+            metadata={"handler": "composite_collect"},
         )
 
     def describe(self) -> InstrumentDescription:
@@ -348,8 +348,8 @@ def test_single_interface_state_snapshot_and_patch_are_typed() -> None:
     }
 
 
-def test_bundle_apply_calls_one_typed_hook_and_dynamic_gate_owns_monitor() -> None:
-    enabled = _BundleDriver(monitor=True)
+def test_composite_apply_calls_one_typed_hook_and_dynamic_gate_owns_monitor() -> None:
+    enabled = _CompositeDriver(monitor=True)
 
     outcome = enabled.apply_state(
         DriverStatePatch(
@@ -362,13 +362,13 @@ def test_bundle_apply_calls_one_typed_hook_and_dynamic_gate_owns_monitor() -> No
 
     assert isinstance(outcome, DriverSuccess)
     assert outcome.value is None
-    assert outcome.metadata == {"handler": "bundle_apply"}
+    assert outcome.metadata == {"handler": "composite_apply"}
     assert len(enabled.apply_calls) == 1
     assert enabled.apply_calls[0].driver_source == {"enabled": False}
     assert enabled.apply_calls[0].driver_monitor == {"enabled": True}
     assert DRIVER_MONITOR_ENABLED in enabled.read_state().values
 
-    disabled = _BundleDriver(monitor=False)
+    disabled = _CompositeDriver(monitor=False)
     assert DRIVER_MONITOR_ENABLED not in disabled.read_state().values
     rejected = disabled.apply_state(
         DriverStatePatch(values={DRIVER_MONITOR_ENABLED: True})
@@ -379,7 +379,7 @@ def test_bundle_apply_calls_one_typed_hook_and_dynamic_gate_owns_monitor() -> No
 
 
 def test_discriminated_acquisition_mapping_and_dynamic_gate() -> None:
-    enabled = _BundleDriver(monitor=True)
+    enabled = _CompositeDriver(monitor=True)
     outcome = enabled.collect(
         DriverAcquisition(
             target=DRIVER_MONITOR_ACQUISITION,
@@ -393,10 +393,10 @@ def test_discriminated_acquisition_mapping_and_dynamic_gate() -> None:
         DRIVER_MONITOR_LEFT_RESULT,
         DRIVER_MONITOR_RIGHT_RESULT,
     }
-    assert outcome.value.metadata == {"readback": "bundle"}
-    assert outcome.metadata == {"handler": "bundle_collect"}
+    assert outcome.value.metadata == {"readback": "composite"}
+    assert outcome.metadata == {"handler": "composite_collect"}
 
-    disabled = _BundleDriver(monitor=False)
+    disabled = _CompositeDriver(monitor=False)
     rejected = disabled.collect(
         DriverAcquisition(
             target=DRIVER_MONITOR_ACQUISITION,
@@ -408,7 +408,7 @@ def test_discriminated_acquisition_mapping_and_dynamic_gate() -> None:
     assert disabled.monitor_calls == []
 
 
-def test_generated_bundle_adapter_structurally_satisfies_instrument_driver() -> None:
-    driver = _BundleDriver(monitor=True)
+def test_generated_composite_adapter_structurally_satisfies_instrument_driver() -> None:
+    driver = _CompositeDriver(monitor=True)
 
     assert _as_instrument_driver(driver) is driver

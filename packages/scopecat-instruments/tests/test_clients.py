@@ -44,6 +44,7 @@ from scopecat_instruments import (
     TemperatureReadoutClient,
     TemperatureReadoutObservation,
     dc_source,
+    dc_source_monitor,
     network_sweep,
     rf_output,
     temperature_readout,
@@ -188,21 +189,6 @@ def test_first_party_factories_retain_static_client_types() -> None:
     assert rf.requires == (RF_OUTPUT,)
     assert vna.requires == (NETWORK_SWEEP,)
     assert thermometer.requires == (TEMPERATURE_READOUT,)
-
-
-@pytest.mark.parametrize("monitor", [False, True])
-def test_live_dc_source_dynamic_monitor_dispatch(monitor: bool) -> None:
-    source = assert_type(
-        dc_source("dynamic-flux-source", monitor=monitor),
-        InstrumentRef[DCSourceClient] | InstrumentRef[DCSourceMonitorClient],
-    )
-
-    if monitor:
-        assert source.client_factory is DCSourceMonitorClient
-        assert source.requires == (DC_SOURCE, DC_MONITOR)
-    else:
-        assert source.client_factory is DCSourceClient
-        assert source.requires == (DC_SOURCE,)
 
 
 def test_generated_dc_source_live_client_applies_flat_state() -> None:
@@ -386,12 +372,14 @@ def test_client_module_exports_only_client_owned_types() -> None:
     assert "TemperatureReadoutObservation" not in client_module.__all__
 
 
-def test_live_dc_monitor_selection_requires_the_combined_capability() -> None:
-    source_only = dc_source("source-only", monitor=False)
-    source = dc_source("flux-source", monitor=True)
+def test_live_dc_source_factories_expose_explicit_capabilities() -> None:
+    source_only = dc_source("source-only")
+    source = dc_source_monitor("flux-source")
 
     assert_type(source_only, InstrumentRef[DCSourceClient])
     assert_type(source, InstrumentRef[DCSourceMonitorClient])
+    assert source_only.client_factory is DCSourceClient
+    assert source.client_factory is DCSourceMonitorClient
     assert source_only.requires == (DC_SOURCE,)
     assert source.requires == (DC_SOURCE, DC_MONITOR)
 

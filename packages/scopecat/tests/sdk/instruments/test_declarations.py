@@ -78,7 +78,6 @@ from scopecat.sdk.instruments.declarations import (
     declared_acquisition,
     declared_acquisition_ref,
     declared_argument_ref,
-    declared_bundle_interfaces,
     declared_component_ref,
     declared_discriminator_ref,
     declared_interface_layout,
@@ -89,7 +88,6 @@ from scopecat.sdk.instruments.declarations import (
     declared_property_ref,
     declared_result_ref,
     discriminated_state,
-    instrument_bundle,
     instrument_interface,
     instrument_observed_state,
     instrument_result,
@@ -303,10 +301,6 @@ class MonitorContract(Protocol):
         ),
     )
     def monitor(self) -> MonitorResults: ...
-
-
-@instrument_bundle
-class SourceMonitorBundle(SourceContract, MonitorContract, Protocol): ...
 
 
 @instrument_result
@@ -572,56 +566,6 @@ def test_field_specifiers_support_factories_and_override_annotated_metadata() ->
     assert compiled.spec.properties == [int_property("native", minimum=2)]
 
 
-def test_instrument_bundle_preserves_direct_interface_order() -> None:
-    constituents = assert_type(
-        declared_bundle_interfaces(SourceMonitorBundle),
-        tuple[type[object], ...],
-    )
-
-    assert constituents == (SourceContract, MonitorContract)
-    assert Protocol in SourceMonitorBundle.__bases__
-
-
-def test_instrument_bundle_is_not_a_third_wire_interface() -> None:
-    with pytest.raises(
-        TypeError,
-        match=r"instrument bundle .* cannot be used as a wire interface",
-    ):
-        compile_interface(SourceMonitorBundle)
-
-
-@pytest.mark.parametrize(
-    "resolve",
-    [
-        lambda: declared_interface_ref(SourceMonitorBundle),
-        lambda: declared_discriminator_ref(SourceMonitorBundle),
-        lambda: declared_acquisition_ref(SourceMonitorBundle, "monitor"),
-    ],
-)
-def test_instrument_bundle_cannot_masquerade_as_a_constituent_interface(
-    resolve: Callable[[], object],
-) -> None:
-    with pytest.raises(
-        TypeError,
-        match=r"instrument bundle .* cannot be used as a wire interface",
-    ):
-        resolve()
-
-
-def test_bundle_descendants_remain_outside_the_wire_interface_model() -> None:
-    class DerivedBundle(SourceMonitorBundle, Protocol): ...
-
-    with pytest.raises(TypeError, match="cannot be used as a wire interface"):
-        compile_interface(DerivedBundle)
-    with pytest.raises(TypeError, match="cannot be used as a wire interface"):
-        declared_interface_ref(DerivedBundle)
-    with pytest.raises(
-        TypeError,
-        match="bundle or descendant cannot also be an instrument interface",
-    ):
-        instrument_interface("test.invalid_derived_bundle/v1")(DerivedBundle)
-
-
 def test_ordinary_interface_metadata_inheritance_is_preserved() -> None:
     class DerivedSource(SourceContract, Protocol): ...
 
@@ -634,58 +578,6 @@ def test_ordinary_interface_metadata_inheritance_is_preserved() -> None:
     assert (
         compile_interface(DerivedSource).spec == compile_interface(SourceContract).spec
     )
-
-
-def test_instrument_bundle_rejects_unsupported_composition_shapes() -> None:
-    class InheritedOnlySource(SourceContract, Protocol): ...
-
-    with pytest.raises(TypeError, match="directly decorated instrument interfaces"):
-
-        @instrument_bundle
-        class _UndecoratedBaseBundle(
-            InheritedOnlySource,
-            MonitorContract,
-            Protocol,
-        ): ...
-
-        _ = _UndecoratedBaseBundle
-
-    with pytest.raises(TypeError, match="cannot contain another bundle"):
-
-        @instrument_bundle
-        class _NestedBundle(SourceMonitorBundle, SweepContract, Protocol): ...
-
-        _ = _NestedBundle
-
-    with pytest.raises(TypeError, match="cannot declare members: 'reset'"):
-
-        @instrument_bundle
-        class _BundleWithMember(SourceContract, MonitorContract, Protocol):
-            @operation()
-            def reset(self) -> None: ...
-
-        _ = _BundleWithMember
-
-    with pytest.raises(TypeError, match="cannot also be an instrument interface"):
-
-        @instrument_bundle
-        @instrument_interface("test.invalid_bundle_interface/v1")
-        class _InterfaceBundle(SourceContract, MonitorContract, Protocol): ...
-
-        _ = _InterfaceBundle
-
-    with pytest.raises(TypeError, match="cannot also be an instrument interface"):
-
-        @instrument_interface("test.invalid_interface_bundle/v1")
-        @instrument_bundle
-        class _BundleInterface(SourceContract, MonitorContract, Protocol): ...
-
-        _ = _BundleInterface
-
-
-def test_declared_bundle_interfaces_requires_the_bundle_decorator() -> None:
-    with pytest.raises(TypeError, match="instrument bundle is missing its decorator"):
-        declared_bundle_interfaces(SourceContract)
 
 
 def test_decorated_protocol_compiles_to_the_existing_contract_ir() -> None:

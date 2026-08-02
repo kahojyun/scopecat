@@ -16,7 +16,6 @@ from types import GenericAlias, NoneType, UnionType
 from typing import (
     Annotated,
     Literal,
-    Protocol,
     TypeAliasType,
     TypeVar,
     cast,
@@ -98,7 +97,6 @@ _STATE_METADATA = "__scopecat_instrument_state__"
 _OBSERVED_STATE_METADATA = "__scopecat_instrument_observed_state__"
 _RESULT_METADATA = "__scopecat_instrument_result__"
 _INTERFACE_METADATA = "__scopecat_instrument_interface__"
-_BUNDLE_METADATA = "__scopecat_instrument_bundle__"
 _ACQUISITION_METADATA = "__scopecat_instrument_acquisition__"
 _OPERATION_METADATA = "__scopecat_instrument_operation__"
 _STATE_INTERFACES_METADATA = "__scopecat_instrument_state_interfaces__"
@@ -239,11 +237,6 @@ class InterfaceMetadata:
     observed_state: type[object] | None
     label: str | None
     description: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class _InstrumentBundleMetadata:
-    constituents: tuple[type[object], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -838,10 +831,6 @@ def instrument_interface[ClassT: type[object]](
     )
 
     def decorate(cls: ClassT) -> ClassT:
-        if _instrument_bundle_in_mro(cls) is not None:
-            raise TypeError(
-                "instrument bundle or descendant cannot also be an instrument interface"
-            )
         setattr(cls, _INTERFACE_METADATA, declaration)
         if isinstance(state, DiscriminatedStateMetadata):
             _bind_discriminated_state(id, state)
@@ -852,63 +841,6 @@ def instrument_interface[ClassT: type[object]](
         return cls
 
     return decorate
-
-
-def instrument_bundle[ClassT: type[object]](cls: ClassT, /) -> ClassT:
-    """Declare an ordered composition of directly inherited interfaces."""
-
-    if Protocol not in cls.__bases__:
-        raise TypeError("instrument bundle must directly inherit Protocol")
-    if _own_class_metadata(cls, _INTERFACE_METADATA, InterfaceMetadata) is not None:
-        raise TypeError("instrument bundle cannot also be an instrument interface")
-
-    own_annotations = cast(
-        "Mapping[str, object]",
-        vars(cls).get("__annotations__", {}),
-    )
-    own_members = {
-        *own_annotations,
-        *(name for name in vars(cls) if not name.startswith("_")),
-    }
-    if own_members:
-        rendered = ", ".join(repr(name) for name in sorted(own_members))
-        raise TypeError(f"instrument bundle cannot declare members: {rendered}")
-
-    constituents = tuple(base for base in cls.__bases__ if base is not Protocol)
-    if len(constituents) < 2:
-        raise TypeError(
-            "instrument bundle requires at least two directly inherited interfaces"
-        )
-    for base in constituents:
-        if (
-            _own_class_metadata(base, _BUNDLE_METADATA, _InstrumentBundleMetadata)
-            is not None
-        ):
-            raise TypeError("instrument bundle cannot contain another bundle")
-        if _own_class_metadata(base, _INTERFACE_METADATA, InterfaceMetadata) is None:
-            raise TypeError(
-                "instrument bundle bases must be directly decorated "
-                f"instrument interfaces; {base.__qualname__!r} is not"
-            )
-
-    setattr(cls, _BUNDLE_METADATA, _InstrumentBundleMetadata(constituents))
-    return cls
-
-
-def declared_bundle_interfaces(
-    bundle_type: type[object],
-    /,
-) -> tuple[type[object], ...]:
-    """Return a bundle's directly declared interfaces in authored base order."""
-
-    declaration = _own_class_metadata(
-        bundle_type,
-        _BUNDLE_METADATA,
-        _InstrumentBundleMetadata,
-    )
-    if declaration is None:
-        raise TypeError("instrument bundle is missing its decorator")
-    return declaration.constituents
 
 
 def operation[**P, ReturnT](
@@ -2700,39 +2632,9 @@ def _declared_field_metadata[MetadataT: MemberMetadata | ResultMetadata](
     return metadata if isinstance(metadata, metadata_type) else None
 
 
-def _own_class_metadata[MetadataT](
-    target: type[object],
-    attribute: str,
-    metadata_type: type[MetadataT],
-) -> MetadataT | None:
-    metadata = vars(target).get(attribute)
-    return metadata if isinstance(metadata, metadata_type) else None
-
-
-def _instrument_bundle_in_mro(
-    target: type[object],
-) -> tuple[type[object], _InstrumentBundleMetadata] | None:
-    for candidate in target.__mro__:
-        declaration = _own_class_metadata(
-            candidate,
-            _BUNDLE_METADATA,
-            _InstrumentBundleMetadata,
-        )
-        if declaration is not None:
-            return candidate, declaration
-    return None
-
-
 def _required_interface_metadata(
     interface_type: type[object],
 ) -> InterfaceMetadata:
-    bundle = _instrument_bundle_in_mro(interface_type)
-    if bundle is not None:
-        bundle_type, _ = bundle
-        raise TypeError(
-            f"instrument bundle {bundle_type.__qualname__!r} cannot be used as "
-            "a wire interface; use its constituent interfaces instead"
-        )
     return _required_metadata(
         interface_type,
         _INTERFACE_METADATA,
@@ -2796,7 +2698,6 @@ __all__ = [
     "declared_acquisition",
     "declared_acquisition_ref",
     "declared_argument_ref",
-    "declared_bundle_interfaces",
     "declared_component_ref",
     "declared_discriminator_ref",
     "declared_interface_layout",
@@ -2807,7 +2708,6 @@ __all__ = [
     "declared_property_ref",
     "declared_result_ref",
     "discriminated_state",
-    "instrument_bundle",
     "instrument_interface",
     "instrument_observed_state",
     "instrument_result",

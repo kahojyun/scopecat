@@ -47,6 +47,7 @@ from scopecat_instruments import (
     SymbolicTemperatureReadoutGroup,
     TemperatureSampleProducts,
     dc_source,
+    dc_source_monitor,
     network_sweep,
     rf_output,
     temperature_readout,
@@ -89,19 +90,18 @@ def test_factories_bind_typed_symbolic_clients_and_declare_resources() -> None:
     assert interface.resources[0].selector.entity_inputs == (qubit,)
 
 
-def test_dc_source_literal_monitor_overloads_cover_scalar_and_group() -> None:
+def test_explicit_dc_source_factories_cover_scalar_and_group() -> None:
     context = ModuleContext()
     q0 = EntityRef(id="q0", kind="logical_device")
     selection = each(q0)
 
-    scalar = dc_source(context, "scalar", monitor=False)
-    scalar_monitor = dc_source(context, "scalar-monitor", monitor=True)
-    group = dc_source(context, "group", for_=selection, monitor=False)
-    group_monitor = dc_source(
+    scalar = dc_source(context, "scalar")
+    scalar_monitor = dc_source_monitor(context, "scalar-monitor")
+    group = dc_source(context, "group", for_=selection)
+    group_monitor = dc_source_monitor(
         context,
         "group-monitor",
         for_=selection,
-        monitor=True,
     )
 
     assert_type(scalar, SymbolicDCSourceClient)
@@ -109,32 +109,13 @@ def test_dc_source_literal_monitor_overloads_cover_scalar_and_group() -> None:
     assert_type(group, SymbolicDCSourceGroup)
     assert_type(group_monitor, SymbolicDCSourceMonitorGroup)
 
-
-@pytest.mark.parametrize("monitor", [False, True])
-def test_dc_source_dynamic_symbolic_monitor_dispatch(monitor: bool) -> None:
-    context = ModuleContext()
-    q0 = EntityRef(id="q0", kind="logical_device")
-    scalar = assert_type(
-        dc_source(context, "scalar", monitor=monitor),
-        SymbolicDCSourceClient | SymbolicDCSourceMonitorClient,
-    )
-    group = assert_type(
-        dc_source(context, "group", for_=each(q0), monitor=monitor),
-        SymbolicDCSourceGroup | SymbolicDCSourceMonitorGroup,
-    )
-
-    if monitor:
-        assert type(scalar) is SymbolicDCSourceMonitorClient
-        assert type(group) is SymbolicDCSourceMonitorGroup
-        required = (DC_SOURCE.interface_id, DC_MONITOR.interface_id)
-    else:
-        assert type(scalar) is SymbolicDCSourceClient
-        assert type(group) is SymbolicDCSourceGroup
-        required = (DC_SOURCE.interface_id,)
     interface, _, _ = context.close_experiment_parts_internal()
-    assert all(
-        resource.selector.interfaces == required for resource in interface.resources
-    )
+    assert [resource.selector.interfaces for resource in interface.resources] == [
+        (DC_SOURCE.interface_id,),
+        (DC_SOURCE.interface_id, DC_MONITOR.interface_id),
+        (DC_SOURCE.interface_id,),
+        (DC_SOURCE.interface_id, DC_MONITOR.interface_id),
+    ]
 
 
 def test_one_concrete_entity_lowers_to_one_literal_entity_input() -> None:
@@ -510,7 +491,7 @@ def test_state_clients_record_typed_state_and_operation_effects() -> None:
 
 def test_dc_monitor_exposes_independent_fixed_result_acquisitions() -> None:
     context = ModuleContext()
-    source = dc_source(context, "flux", monitor=True)
+    source = dc_source_monitor(context, "flux")
     assert_type(source, SymbolicDCSourceMonitorClient)
     source.ensure(DCSourceTarget(output_enabled=True))
     source.source_voltage(
@@ -541,7 +522,7 @@ def test_dc_monitor_exposes_independent_fixed_result_acquisitions() -> None:
 
 
 def test_dc_monitor_acquisition_does_not_require_symbolic_source_state() -> None:
-    source = dc_source(ModuleContext(), "flux", monitor=True)
+    source = dc_source_monitor(ModuleContext(), "flux")
 
     assert_type(source.measure_current(), DCMonitorCurrentProducts)
     assert_type(source.measure_voltage(), DCMonitorVoltageProducts)
@@ -550,7 +531,7 @@ def test_dc_monitor_acquisition_does_not_require_symbolic_source_state() -> None
 def test_dc_monitor_selection_is_a_static_symbolic_capability_boundary() -> None:
     context = ModuleContext()
     source = dc_source(context, "flux")
-    monitor = dc_source(context, "meter", monitor=True)
+    monitor = dc_source_monitor(context, "meter")
 
     assert_type(source, SymbolicDCSourceClient)
     assert_type(monitor, SymbolicDCSourceMonitorClient)
@@ -571,11 +552,10 @@ def test_dc_monitor_group_selection_retains_monitor_verbs() -> None:
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
 
-    sources = dc_source(
+    sources = dc_source_monitor(
         ModuleContext(),
         "flux",
         for_=each(q0, q1),
-        monitor=True,
     )
 
     assert_type(sources, SymbolicDCSourceMonitorGroup)
@@ -588,11 +568,10 @@ def test_dc_monitor_group_maps_each_fixed_acquisition_per_entity() -> None:
     context = ModuleContext()
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
-    sources = dc_source(
+    sources = dc_source_monitor(
         context,
         "flux",
         for_=each(q0, q1),
-        monitor=True,
     )
     sources.source_voltage(
         range=PerEntity(

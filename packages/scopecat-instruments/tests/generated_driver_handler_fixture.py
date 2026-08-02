@@ -379,31 +379,31 @@ class DriverSourceDriverAdapter(ABC):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class DriverMonitorBundleDriverSnapshot:
+class MonitorCompositeDriverSnapshot:
     driver_source: DriverSourceState
     driver_monitor: DriverMonitorState | None
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
-class DriverMonitorBundleDriverPatch:
+class MonitorCompositeDriverPatch:
     driver_source: DriverSourceDriverPatch
     driver_monitor: DriverMonitorDriverPatch
 
 
-class DriverMonitorBundleDriverAdapter(ABC):
+class MonitorCompositeDriverAdapter(ABC):
     instrument_id: str
 
     def __init__(self, *, monitor: bool) -> None:
         self._driver_monitor_enabled = monitor
 
     @abstractmethod
-    def read_driver_monitor_bundle_state(self) -> DriverMonitorBundleDriverSnapshot: ...
+    def read_monitor_composite_state(self) -> MonitorCompositeDriverSnapshot: ...
 
     @abstractmethod
-    def apply_driver_monitor_bundle_state(
+    def apply_monitor_composite_state(
         self,
-        patch: DriverMonitorBundleDriverPatch,
+        patch: MonitorCompositeDriverPatch,
         /,
     ) -> DriverOutcome[None]: ...
 
@@ -415,7 +415,7 @@ class DriverMonitorBundleDriverAdapter(ABC):
     ) -> DriverOutcome[DriverMonitorMonitorDriverReadback]: ...
 
     def read_state(self) -> DriverState:
-        snapshot = self.read_driver_monitor_bundle_state()
+        snapshot = self.read_monitor_composite_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
         if isinstance(snapshot.driver_source, DriverSourceLeftState):
             encoded.append(encode_driver_source_left_state(snapshot.driver_source))
@@ -435,8 +435,8 @@ class DriverMonitorBundleDriverAdapter(ABC):
             return _unsupported_driver_request(
                 self.instrument_id, "state", "test.generated_driver_monitor/v1"
             )
-        outcome = self.apply_driver_monitor_bundle_state(
-            DriverMonitorBundleDriverPatch(
+        outcome = self.apply_monitor_composite_state(
+            MonitorCompositeDriverPatch(
                 driver_source=driver_source_patch,
                 driver_monitor=driver_monitor_patch,
             )
@@ -508,14 +508,14 @@ __all__ = [
     "DriverFixedAcquisitionAcquireDriverResultName",
     "DriverFixedAcquisitionAcquireDriverValues",
     "DriverFixedAcquisitionDriverAdapter",
-    "DriverMonitorBundleDriverAdapter",
-    "DriverMonitorBundleDriverPatch",
-    "DriverMonitorBundleDriverSnapshot",
     "DriverMonitorMonitorDriverReadback",
     "DriverMonitorMonitorDriverResultName",
     "DriverMonitorMonitorDriverValues",
     "DriverSourceDriverAdapter",
     "DriverSourceDriverSnapshot",
     "LiteralOperationDriverAdapter",
+    "MonitorCompositeDriverAdapter",
+    "MonitorCompositeDriverPatch",
+    "MonitorCompositeDriverSnapshot",
     "PayloadOperationDriverAdapter",
 ]

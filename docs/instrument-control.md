@@ -283,11 +283,10 @@ neither `ensure(...)` nor the acquisition against hardware.
 
 DC monitoring is an optional capability in both live and symbolic use.
 `dc_source(...)` returns a source-only typed client and requires only the source
-interface by default. `dc_source(..., monitor=True)` instead returns the
-monitor-capable client type, requires both interfaces, and enables
-the generated `DCMonitorPatch`/`DCMonitorTarget` surfaces and `monitor()`. This
-keeps ordinary source-only control and
-experiments routable to hardware without the monitor option. State fields that
+interface. `dc_source_monitor(...)` explicitly requests the composite client
+and both interfaces, enabling generated monitor state plus
+`measure_current()`/`measure_voltage()`. This keeps ordinary source-only control
+and experiments routable to hardware without the monitor option. State fields that
 determine output shape, such as network-sweep `points`, must resolve during
 configuration binding, before point execution; scan coordinates and point-local
 compute results cannot size an acquisition product.
@@ -310,7 +309,6 @@ import scopecat as sc
 from scopecat.sdk.instruments.declarations import (
     acquisition,
     axis,
-    instrument_bundle,
     instrument_interface,
     instrument_result,
     instrument_state,
@@ -400,9 +398,9 @@ Carrier objects remain the positional form for reuse and composition.
 
 The same Python declaration also generates the typed driver boundary. Each
 writable interface has a flat, sparse, concrete `TypedDict` patch, while a
-generated adapter owns the generic worker ABI and its ref dispatch. A bundle
+generated adapter owns the generic worker ABI and its ref dispatch. A composite
 adapter takes one validated batch, lowers it at that boundary, and calls the
-driver once with one typed bundle patch containing its constituent interface
+driver once with one typed composite patch containing its constituent interface
 patches. Exact snapshot encoders perform the reverse projection from complete
 canonical state records. Read-only observed-state declarations generate only
 the snapshot and acquisition hooks: they do not invent a writable patch or
@@ -411,11 +409,10 @@ target.
 This declaration layer generates the stable contract and refs, but it does not
 invent session behavior. A typed factory still defines whether an action is
 live or symbolic. The package's `PACKAGE_MANIFEST` is the authoritative list of
-generated interface/bundle surfaces, public types, provider identity, and lazy
-driver registrations; the generator and provider both derive their catalogs
-from it. `@instrument_bundle` marks an ordered,
-member-free Protocol intersection; it composes existing interfaces without
-creating a third wire interface, and `compile_interface(...)` rejects it. The
+generated interface and explicit composite surfaces, public types, provider
+identity, and lazy driver registrations; the generator and provider both derive
+their catalogs from it. A composite is package presentation metadata over
+existing interfaces, not a third wire interface or a decorated Python type. The
 factory also defines how `each(...)` fans one logical operation out to
 independently routable resources. The compiler covers persistent flat and
 discriminated scalar state, read-only observed state, typed atomic operations,
@@ -435,8 +432,9 @@ member refs, or interface factories does not compile declarations. Interface
 factories parse generated JSON into a fresh `InterfaceSpec`. The production
 target generates complete `TemperatureReadout`, `RFOutput`, and `NetworkSweep`
 families, plus source-only and source-with-monitor `DCSource` live, symbolic
-single-entity, and group clients. The generated `dc_source(..., monitor=...)`
-facade selects those two typed surfaces. Generated source also includes
+single-entity, and group clients. The generated `dc_source(...)` and
+`dc_source_monitor(...)` factories make those requirements explicit. Generated
+source also includes
 applicable observation accessors and acquisition result carriers. Root-level
 flat and discriminated schemas both produce typed `apply(...)`, `ensure(...)`,
 and field-wise group target surfaces.
@@ -465,24 +463,20 @@ aligns every argument before recording any invocation, then
 emits one ordinary scalar effect per child resource. Alignment is an exact join
 by entity identity, not by input order.
 
-The optional DC monitor is declared using ordinary Protocol inheritance:
+The optional DC monitor composition is declared in the package manifest:
 
 ```python
-@instrument_bundle
-class DCSourceMonitorInterface(
-    DCSourceInterface,
-    DCMonitorInterface,
-    Protocol,
-): ...
+CompositeSurfaceRegistration(
+    name="DCSourceMonitor",
+    interface_types=(DCSourceInterface, DCMonitorInterface),
+    driver_optional_flag="monitor",
+)
 ```
 
-The generator treats the first constituent as the base surface and emits the
-boolean `monitor` facade policy. Literal `False` and `True` calls retain exact
-return types; a runtime `bool` returns the corresponding union. The flag chooses
-one capability set for the whole group rather than becoming
-`PerEntity[bool]`. Each child still has its own resource and discriminator state,
-so one group can map complete voltage/current states per entity and produce the
-mode-appropriate monitor result for each.
+The generator emits `dc_source_monitor(...)` with the exact two-interface
+requirement. `driver_optional_flag` is confined to the generated driver adapter
+so a GS200 connection profile without `/MON` rejects monitor requests; it does
+not leak a boolean capability switch or union return type into user code.
 
 The client source generator intentionally supports concrete declaration shapes
 rather than claiming every compiled interface shape. It currently rejects
@@ -625,7 +619,7 @@ provenance fields, then lowers it to the worker's process-safe generic
 `DriverState`, `DriverStatePatch`, `DriverOperation`, `DriverAcquisition`, and
 `DriverReadback` ABI. Generated adapters own that ABI, map refs, unwrap already
 decoded payloads, and expose concrete driver hooks in Python field names: typed
-patches or bundle patches, decoded operation arguments, and typed acquisition
+patches or composite patches, decoded operation arguments, and typed acquisition
 result-name sets.
 
 Drivers do not receive run, resource, entity, channel, point, product, codec,

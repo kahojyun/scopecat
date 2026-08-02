@@ -13,8 +13,8 @@ from scopecat_instruments.connection_options import (
     NoConnectionOptions,
 )
 from scopecat_instruments.interface_declarations import (
+    DCMonitorInterface,
     DCSourceInterface,
-    DCSourceMonitorInterface,
     NetworkSweepInterface,
     ReferenceSource,
     RFOutputInterface,
@@ -44,12 +44,13 @@ class InterfaceSurfaceRegistration:
 
 
 @dataclass(frozen=True, slots=True)
-class BundleSurfaceRegistration:
-    bundle_type: type[object]
-    facade_flag: str | None = None
+class CompositeSurfaceRegistration:
+    name: str
+    interface_types: tuple[type[object], ...]
+    driver_optional_flag: str | None = None
 
 
-type SurfaceRegistration = InterfaceSurfaceRegistration | BundleSurfaceRegistration
+type SurfaceRegistration = InterfaceSurfaceRegistration | CompositeSurfaceRegistration
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,9 +188,11 @@ PACKAGE_MANIFEST = InstrumentPackageManifest(
         ),
         InterfaceSurfaceRegistration(RFOutputInterface),
         InterfaceSurfaceRegistration(DCSourceInterface),
-        BundleSurfaceRegistration(
-            DCSourceMonitorInterface,
-            facade_flag="monitor",
+        InterfaceSurfaceRegistration(DCMonitorInterface),
+        CompositeSurfaceRegistration(
+            name="DCSourceMonitor",
+            interface_types=(DCSourceInterface, DCMonitorInterface),
+            driver_optional_flag="monitor",
         ),
         InterfaceSurfaceRegistration(NetworkSweepInterface),
     ),
@@ -225,7 +228,7 @@ __all__ = [
     "VIRTUAL_VNA_DRIVER",
     "YOKOGAWA_GS200",
     "YOKOGAWA_GS200_DRIVER",
-    "BundleSurfaceRegistration",
+    "CompositeSurfaceRegistration",
     "DriverRegistration",
     "InstrumentPackageManifest",
     "InterfaceSurfaceRegistration",

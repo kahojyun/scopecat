@@ -103,7 +103,7 @@ transient transport failure.
 
 Decorated Python interface declarations are the shared source for the wire
 contract and typed Python surfaces. `PACKAGE_MANIFEST` is the authoritative list
-of generated interfaces/bundles, public types, provider identity, and lazy driver
+of generated interfaces/composites, public types, provider identity, and lazy driver
 registrations; both the generator and provider derive their catalogs from it.
 The committed output covers complete `TemperatureReadout`, `RFOutput`, and
 `NetworkSweep` families plus source-only and source-with-monitor `DCSource` live,
@@ -119,8 +119,8 @@ declarations. Interface factories parse generated JSON into a fresh
 
 Writable interfaces receive sparse concrete `TypedDict` patches and exact
 canonical snapshot encoders. Generated adapters own the worker's generic
-request/ref ABI; a bundle adapter accepts one validated batch and calls the
-concrete driver once with one typed bundle patch. Observed-only state generates
+request/ref ABI; a composite adapter accepts one validated batch and calls the
+concrete driver once with one typed composite patch. Observed-only state generates
 snapshot and acquisition hooks but no artificial writable patch. DC source
 protection and output form one flat persistent state; the reported source mode
 is read-only observation, while typed `source_voltage(...)` and
@@ -144,13 +144,11 @@ identity joins for all mappings before recording any effect, and then records
 one scalar invocation per entity. Mapping order is therefore irrelevant, while
 missing or extra entity identities fail before partial effects are created.
 
-The optional `DCSource`/`DCMonitor` surface is an ordered, member-free Protocol
-bundle over the two existing wire interfaces. The generator merges their root
-state and acquisition surfaces and emits `dc_source(..., monitor=...)`; the flag
-selects one capability set for the whole group. Group `ensure(...)` accepts one
-broadcast target or a `PerEntity[Target]`; a `GroupTarget` may also map each field
-independently. Voltage/current carriers can therefore select different cases per
-entity without writing a discriminator.
+The optional `DCSource`/`DCMonitor` composition is package presentation metadata
+over two existing wire interfaces. The generator emits the explicit
+`dc_source_monitor(...)` family instead of a boolean facade with union return
+types. Group state and operation arguments still accept broadcasts or
+`PerEntity` mappings with exact identity joins.
 
 Payload-bearing operations are currently rejected only by the client source
 generator, until their schema-specific live and symbolic carriers are defined.
@@ -315,7 +313,7 @@ sessions.
 
 The worker exchanges generic `DriverState`, `DriverStatePatch`,
 `DriverOperation`, `DriverAcquisition`, and `DriverReadback` values with generated
-adapters. A concrete driver receives typed patches or bundle patches, decoded
+adapters. A concrete driver receives typed patches or composite patches, decoded
 operation arguments, and typed acquisition result-name sets, and returns typed
 snapshots or readbacks inside `DriverSuccess`, `DriverRejected`, or
 `DriverUnknown`. Adapters own generic envelopes and ref mapping; SCPI sequencing,

@@ -7,15 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, overload, override
 
-from scopecat.api._instruments import InstrumentRef, instrument
-from scopecat.authoring import (
-    EachEntity,
-    EntitySelection,
-    OneEntity,
-    PerEntity,
-    ProductRef,
-    ValueRef,
-)
+from scopecat.authoring import EachEntity, OneEntity, PerEntity, ProductRef, ValueRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import (
@@ -692,13 +684,16 @@ class SymbolicDCSourceGroup(
             )
 
 
-type _DCSourceMonitorPatch = DCSourcePatch | DCMonitorPatch
-
-
-type _DCSourceMonitorTarget = DCSourceTarget | DCMonitorTarget
-
-
-type _DCSourceMonitorGroupTarget = DCSourceGroupTarget | DCMonitorGroupTarget
+dc_source: InstrumentFamily[
+    DCSourceClient,
+    SymbolicDCSourceClient,
+    SymbolicDCSourceGroup,
+] = InstrumentFamily(
+    DCSourceClient,
+    SymbolicDCSourceClient,
+    SymbolicDCSourceGroup,
+    requires=(_DC_SOURCE_REF,),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -723,6 +718,198 @@ class DCMonitorVoltageReadback(DCMonitorVoltageResults[MeasurementValue | None])
 @dataclass(frozen=True, slots=True)
 class DCMonitorVoltageProducts(DCMonitorVoltageResults[ProductRef]):
     """Typed logical products produced by measure_voltage."""
+
+
+class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
+    @overload
+    def apply(
+        self,
+        patch: DCMonitorPatch,
+    ) -> ApplyReceipt: ...
+
+    @overload
+    def apply(
+        self,
+        *,
+        measurement_enabled: bool = ...,
+        integration_cycles: int = ...,
+        measurement_delay: Quantity = ...,
+    ) -> ApplyReceipt: ...
+
+    @override
+    def apply(
+        self,
+        patch: DCMonitorPatch | None = None,
+        **fields: object,
+    ) -> ApplyReceipt:
+        return self._apply_projected(
+            patch,
+            DCMonitorPatch,
+            fields,
+        )
+
+    def measure_current(self) -> DCMonitorCurrentReadback:
+        return self._collect(
+            _DC_MONITOR_MEASURE_CURRENT_DECLARATION,
+            DCMonitorCurrentReadback,
+        )
+
+    def measure_voltage(self) -> DCMonitorVoltageReadback:
+        return self._collect(
+            _DC_MONITOR_MEASURE_VOLTAGE_DECLARATION,
+            DCMonitorVoltageReadback,
+        )
+
+
+class SymbolicDCMonitorClient(DeclaredStateSymbolicClientBase[DCMonitorTarget]):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: OneEntity | None = None,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            requires=(_DC_MONITOR_REF,),
+            for_=for_,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: DCMonitorTarget,
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        measurement_enabled: bool | ValueRef = ...,
+        integration_cycles: int | ValueRef = ...,
+        measurement_delay: Quantity | ValueRef = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: DCMonitorTarget | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            DCMonitorTarget,
+            fields,
+        )
+
+    def measure_current(
+        self,
+        *,
+        id: str | None = None,
+    ) -> DCMonitorCurrentProducts:
+        return self._acquire(
+            _DC_MONITOR_MEASURE_CURRENT_DECLARATION,
+            DCMonitorCurrentProducts,
+            id=id,
+        )
+
+    def measure_voltage(
+        self,
+        *,
+        id: str | None = None,
+    ) -> DCMonitorVoltageProducts:
+        return self._acquire(
+            _DC_MONITOR_MEASURE_VOLTAGE_DECLARATION,
+            DCMonitorVoltageProducts,
+            id=id,
+        )
+
+
+class SymbolicDCMonitorGroup(
+    DeclaredStateSymbolicGroupBase[
+        DCMonitorTarget, DCMonitorGroupTarget, SymbolicDCMonitorClient
+    ]
+):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: EachEntity,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            for_=for_,
+            client_factory=SymbolicDCMonitorClient,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: DCMonitorGroupTarget | PerEntity[DCMonitorTarget],
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        measurement_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = ...,
+        integration_cycles: int | ValueRef | PerEntity[int | ValueRef] = ...,
+        measurement_delay: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: DCMonitorGroupTarget | PerEntity[DCMonitorTarget] | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            DCMonitorGroupTarget,
+            fields,
+        )
+
+    def measure_current(
+        self,
+        *,
+        id: str | None = None,
+    ) -> PerEntity[DCMonitorCurrentProducts]:
+        return self._clients.map(lambda client: client.measure_current(id=id))
+
+    def measure_voltage(
+        self,
+        *,
+        id: str | None = None,
+    ) -> PerEntity[DCMonitorVoltageProducts]:
+        return self._clients.map(lambda client: client.measure_voltage(id=id))
+
+
+dc_monitor: InstrumentFamily[
+    DCMonitorClient,
+    SymbolicDCMonitorClient,
+    SymbolicDCMonitorGroup,
+] = InstrumentFamily(
+    DCMonitorClient,
+    SymbolicDCMonitorClient,
+    SymbolicDCMonitorGroup,
+    requires=(_DC_MONITOR_REF,),
+)
+
+
+type _DCSourceMonitorPatch = DCSourcePatch | DCMonitorPatch
+
+
+type _DCSourceMonitorTarget = DCSourceTarget | DCMonitorTarget
+
+
+type _DCSourceMonitorGroupTarget = DCSourceGroupTarget | DCMonitorGroupTarget
 
 
 class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
@@ -921,6 +1108,18 @@ class SymbolicDCSourceMonitorGroup(
         return self._clients.map(lambda client: client.measure_voltage(id=id))
 
 
+dc_source_monitor: InstrumentFamily[
+    DCSourceMonitorClient,
+    SymbolicDCSourceMonitorClient,
+    SymbolicDCSourceMonitorGroup,
+] = InstrumentFamily(
+    DCSourceMonitorClient,
+    SymbolicDCSourceMonitorClient,
+    SymbolicDCSourceMonitorGroup,
+    requires=(_DC_SOURCE_REF, _DC_MONITOR_REF),
+)
+
+
 @dataclass(frozen=True, slots=True)
 class NetworkSweepReadback(
     NetworkSweepResults[MeasurementValue | None, MeasurementValue | None]
@@ -1106,147 +1305,8 @@ network_sweep: InstrumentFamily[
     requires=(_NETWORK_SWEEP_REF,),
 )
 
-
-@overload
-def dc_source(
-    instrument_id: str,
-    *,
-    monitor: Literal[False] = False,
-) -> InstrumentRef[DCSourceClient]: ...
-
-
-@overload
-def dc_source(
-    instrument_id: str,
-    *,
-    monitor: Literal[True],
-) -> InstrumentRef[DCSourceMonitorClient]: ...
-
-
-@overload
-def dc_source(
-    instrument_id: str,
-    *,
-    monitor: bool,
-) -> InstrumentRef[DCSourceClient] | InstrumentRef[DCSourceMonitorClient]: ...
-
-
-@overload
-def dc_source(
-    instrument_id: SymbolicInstrumentRecorder,
-    resource_id: str,
-    *,
-    for_: EachEntity,
-    monitor: Literal[False] = False,
-) -> SymbolicDCSourceGroup: ...
-
-
-@overload
-def dc_source(
-    instrument_id: SymbolicInstrumentRecorder,
-    resource_id: str,
-    *,
-    for_: EachEntity,
-    monitor: Literal[True],
-) -> SymbolicDCSourceMonitorGroup: ...
-
-
-@overload
-def dc_source(
-    instrument_id: SymbolicInstrumentRecorder,
-    resource_id: str,
-    *,
-    for_: EachEntity,
-    monitor: bool,
-) -> SymbolicDCSourceGroup | SymbolicDCSourceMonitorGroup: ...
-
-
-@overload
-def dc_source(
-    instrument_id: SymbolicInstrumentRecorder,
-    resource_id: str,
-    *,
-    for_: OneEntity | None = None,
-    monitor: Literal[False] = False,
-) -> SymbolicDCSourceClient: ...
-
-
-@overload
-def dc_source(
-    instrument_id: SymbolicInstrumentRecorder,
-    resource_id: str,
-    *,
-    for_: OneEntity | None = None,
-    monitor: Literal[True],
-) -> SymbolicDCSourceMonitorClient: ...
-
-
-@overload
-def dc_source(
-    instrument_id: SymbolicInstrumentRecorder,
-    resource_id: str,
-    *,
-    for_: OneEntity | None = None,
-    monitor: bool,
-) -> SymbolicDCSourceClient | SymbolicDCSourceMonitorClient: ...
-
-
-def dc_source(
-    instrument_id: str | SymbolicInstrumentRecorder,
-    resource_id: str | None = None,
-    *,
-    for_: EntitySelection | None = None,
-    monitor: bool = False,
-) -> (
-    InstrumentRef[DCSourceClient]
-    | InstrumentRef[DCSourceMonitorClient]
-    | SymbolicDCSourceClient
-    | SymbolicDCSourceGroup
-    | SymbolicDCSourceMonitorClient
-    | SymbolicDCSourceMonitorGroup
-):
-    if isinstance(instrument_id, str):
-        if resource_id is not None or for_ is not None:
-            raise TypeError("live instrument clients only accept an instrument id")
-        if monitor:
-            return instrument(
-                instrument_id,
-                DCSourceMonitorClient,
-                requires=(_DC_SOURCE_REF, _DC_MONITOR_REF),
-            )
-        return instrument(
-            instrument_id,
-            DCSourceClient,
-            requires=(_DC_SOURCE_REF,),
-        )
-    if resource_id is None:
-        raise TypeError("symbolic instrument clients require a logical resource id")
-    if isinstance(for_, EachEntity):
-        if monitor:
-            return SymbolicDCSourceMonitorGroup(
-                instrument_id,
-                resource_id,
-                for_=for_,
-            )
-        return SymbolicDCSourceGroup(
-            instrument_id,
-            resource_id,
-            for_=for_,
-        )
-    if monitor:
-        return SymbolicDCSourceMonitorClient(
-            instrument_id,
-            resource_id,
-            for_=for_,
-        )
-    return SymbolicDCSourceClient(
-        instrument_id,
-        resource_id,
-        for_=for_,
-    )
-
-
 __all__ = [
+    "DCMonitorClient",
     "DCMonitorCurrentProducts",
     "DCMonitorCurrentReadback",
     "DCMonitorVoltageProducts",
@@ -1257,6 +1317,8 @@ __all__ = [
     "NetworkSweepProducts",
     "NetworkSweepReadback",
     "RFOutputClient",
+    "SymbolicDCMonitorClient",
+    "SymbolicDCMonitorGroup",
     "SymbolicDCSourceClient",
     "SymbolicDCSourceGroup",
     "SymbolicDCSourceMonitorClient",
@@ -1271,7 +1333,9 @@ __all__ = [
     "TemperatureReadback",
     "TemperatureReadoutClient",
     "TemperatureSampleProducts",
+    "dc_monitor",
     "dc_source",
+    "dc_source_monitor",
     "network_sweep",
     "rf_output",
     "temperature_readout",
