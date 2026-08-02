@@ -5,12 +5,12 @@ from typing import Literal
 
 import pytest
 from pydantic import ValidationError
-from scopecat import MeasurementPostprocessor
 from scopecat.measurements.results import (
     ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
 )
+from scopecat.program.measurements import MeasurementPostprocessor
 
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,

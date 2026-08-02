@@ -428,14 +428,15 @@ carriers. `NetworkSweepPatch` contains only concrete `T` values for live
 `PerEntity[T | ValueRef]` independently for each field. Field presence is
 tracked by a private sentinel, not by `None`, so omission is orthogonal to the
 domain value. A group also accepts `PerEntity[NetworkSweepTarget]` when complete
-targets differ by entity. The lower-level
-`resource + DesiredState` path remains available as an escape hatch.
+targets differ by entity.
 
 For an unambiguous flat schema, generated overloads also accept those same
 fields directly: `vna.apply(points=401)`, `vna.ensure(points=TRACE_POINTS)`,
 and `vnas.ensure(points=per_entity_points)`. The scalar overload remains narrow
 and never accepts `PerEntity`; only its group counterpart performs that lift.
-Carrier objects remain the positional form for reuse and composition.
+Carrier objects remain the positional form for reuse and composition. The
+generated client is the experiment-authoring boundary; its internal
+`resource + DesiredState` recorder operations are not an alternate user route.
 
 The same Python declaration also generates the typed driver boundary. Each
 writable interface has a flat, sparse, concrete `TypedDict` patch, while a
@@ -556,8 +557,8 @@ individual acquisition member, such as `record(trace.frequency)`, inherits that
 member's declared role and group provenance just like recording the complete
 bundle.
 
-`record_coordinate(...)` remains a low-level escape hatch for custom products
-whose role is not declared by an instrument result.
+Custom product producers should declare result roles at their own typed
+boundary so ordinary experiment code still uses only `record(...)`.
 
 `EachEntity` expansion happens while authoring: every selected entity owns an
 independently routable scalar resource. It is not a vector operation added to
@@ -609,11 +610,9 @@ remain narrow.
 
 `for_=sc.each(...)` is explicit authoring-time fan-out: it creates independently
 routable per-entity resources and effects rather than asking a driver to
-broadcast one command. The low-level
-`context.resource(..., for_entities=(left, right))` API retains a different,
-intentional meaning: all listed symbolic entities form one co-located aggregate
-resource requirement that must route together. Typed factories use `for_` and
-do not treat that aggregate API as a compatibility spelling for fan-out.
+broadcast one command. Co-located aggregate resource requirements belong to
+typed factory or domain-extension implementations; they are not another
+experiment-level spelling for fan-out.
 
 ## Interface boundaries
 

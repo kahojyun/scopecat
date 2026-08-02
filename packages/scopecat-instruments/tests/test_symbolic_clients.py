@@ -20,7 +20,6 @@ from scopecat.authoring import (
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.symbols import SymbolId
 from scopecat.program.bindings import EnsureStateIntent, InvocationIntent
 from scopecat.program.expressions import LiteralScalarExpr
 from scopecat.program.module import ModuleAcquireEffect
@@ -421,13 +420,6 @@ def test_typed_result_members_keep_their_declared_recording_roles() -> None:
     trace = vna.sweep()
     context.record(trace.frequency, trace.s_parameter)
 
-    assert trace.frequency.recording is not None
-    assert trace.frequency.recording.occurrence == SymbolId(
-        scope=("readout",),
-        local_id="sweep",
-    )
-    assert trace.frequency.recording.result_id == "frequency"
-    assert trace.frequency.recording.role == "coordinate"
     definition = context.close_definition_internal(
         id="test.symbolic.record-members",
         kind="test",
@@ -439,6 +431,9 @@ def test_typed_result_members_keep_their_declared_recording_roles() -> None:
         "coordinate",
         "observable",
     ]
+    assert {
+        selection.recording_group_id for selection in definition.record_selections
+    } == {"readout/sweep"}
 
 
 def test_typed_result_recording_semantics_survive_a_module_boundary() -> None:
@@ -451,11 +446,6 @@ def test_typed_result_recording_semantics_survive_a_module_boundary() -> None:
     call = sweep_module.instantiate("segment")
     frequency = call.products["readout/frequency"]
 
-    assert frequency.recording is not None
-    assert frequency.recording.occurrence == SymbolId(
-        scope=("segment", "readout"),
-        local_id="sweep",
-    )
     context = ExperimentContext()
     context.run(call)
     context.record(frequency)

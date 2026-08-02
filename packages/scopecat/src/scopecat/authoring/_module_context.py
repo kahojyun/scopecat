@@ -341,10 +341,31 @@ class ModuleContext:
         unit: str | None = "ratio",
         dtype: MeasurementDType = "float64",
         axes: Sequence[ProductAxis] = (),
-        recording: ProductRecording | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ProductRef:
         """Declare and return one module-owned logical product."""
+
+        return self._product(
+            id,
+            scope=scope,
+            unit=unit,
+            dtype=dtype,
+            axes=axes,
+            metadata=metadata,
+        )
+
+    def _product(
+        self,
+        id: str,
+        *,
+        scope: Sequence[str] = (),
+        unit: str | None = "ratio",
+        dtype: MeasurementDType = "float64",
+        axes: Sequence[ProductAxis] = (),
+        recording: ProductRecording | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> ProductRef:
+        """Declare a product carrying generated-client recording provenance."""
 
         declaration = ModuleProductDecl(
             id,
@@ -360,7 +381,7 @@ class ModuleContext:
         return ProductRef(
             product_id=declaration.product_id,
             origin=declaration.origin,
-            recording=declaration.recording,
+            _recording=declaration.recording,
         )
 
     def acquire(
@@ -423,7 +444,7 @@ class ModuleContext:
                 ProductRef(
                     product_id=product.symbol_id.prefixed(instance.instance_id),
                     origin=(instance.invocation_key, *product.target_origin),
-                    recording=(
+                    _recording=(
                         None
                         if product.recording is None
                         else product.recording.prefixed(instance.instance_id)
@@ -437,7 +458,7 @@ class ModuleContext:
                 ProductRef(
                     product_id=product.product_id,
                     origin=product.origin,
-                    recording=product.recording,
+                    _recording=product.recording,
                 )
                 for product in self._product_declarations
             ),

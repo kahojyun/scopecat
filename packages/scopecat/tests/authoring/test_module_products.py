@@ -21,9 +21,13 @@ from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.products import (
     ModuleProductDecl,
+    ProductOutputs,
     RecordSelection,
     product_axis,
     product_axis_dimension_id,
+    record_alias,
+    record_coordinate,
+    record_product,
 )
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
@@ -93,12 +97,12 @@ def test_product_axes_use_product_local_dimensions_by_default() -> None:
     def module(context: sc.ModuleContext) -> None:
         context.product(
             "i",
-            axes=(sc.product_axis("sample", size=2),),
+            axes=(product_axis("sample", size=2),),
         )
         context.product(
             "q",
             axes=(
-                sc.product_axis(
+                product_axis(
                     "sample",
                     size=3,
                     kind="independent_sample",
@@ -130,7 +134,7 @@ def test_product_axes_share_dimensions_only_when_explicit() -> None:
         context.product(
             "i",
             axes=(
-                sc.product_axis(
+                product_axis(
                     "i_sample",
                     size=2,
                     kind="sample",
@@ -141,7 +145,7 @@ def test_product_axes_share_dimensions_only_when_explicit() -> None:
         context.product(
             "q",
             axes=(
-                sc.product_axis(
+                product_axis(
                     "q_sample",
                     size=2,
                     kind="sample",
@@ -189,7 +193,7 @@ def test_conflicting_explicitly_shared_product_axes_are_rejected() -> None:
         context.product(
             "i",
             axes=(
-                sc.product_axis(
+                product_axis(
                     "sample",
                     size=2,
                     shared_as="sample",
@@ -199,7 +203,7 @@ def test_conflicting_explicitly_shared_product_axes_are_rejected() -> None:
         context.product(
             "q",
             axes=(
-                sc.product_axis(
+                product_axis(
                     "sample",
                     size=3,
                     shared_as="sample",
@@ -400,7 +404,7 @@ def test_explicit_instances_select_same_named_products_independently(
         context.call(left)
         context.call(right)
 
-    assert isinstance(left.products, sc.ProductOutputs)
+    assert isinstance(left.products, ProductOutputs)
     assert isinstance(left.products.signal, sc.ProductRef)
     assert left.products.signal.id == "left/signal"
     assert right.products["signal"].id == "right/signal"
@@ -621,11 +625,11 @@ def test_record_coordinate_aliases_share_one_public_product_use(tmp_path: Path) 
         context.call(selected)
 
     call = root()
-    primary = sc.record_coordinate(
+    primary = record_coordinate(
         call.products["selected/signal"],
         record_id="primary",
     )
-    secondary = sc.record_alias(
+    secondary = record_alias(
         primary,
         record_id="secondary",
         metadata={"projection": "secondary"},
@@ -659,11 +663,11 @@ def test_record_coordinate_aliases_share_one_public_product_use(tmp_path: Path) 
 def test_recording_group_lowers_with_the_record_use() -> None:
     source = _product_module()
     call = source()
-    selection = sc.record_product(
+    selection = record_product(
         call.products.signal,
         recording_group_id="source/sample",
     )
-    alias = sc.record_alias(selection, record_id="signal-alias")
+    alias = record_alias(selection, record_id="signal-alias")
 
     assert alias.recording_group_id is None
 

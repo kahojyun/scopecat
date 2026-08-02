@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 """Shared symbolic-client runtime used by generated instrument families."""
 
 from __future__ import annotations
@@ -7,25 +8,22 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Protocol, cast
 
 from scopecat.authoring import (
-    DefinitionResource,
-    DesiredState,
     EachEntity,
     EntityType,
     FinalizationTarget,
     OneEntity,
     PerEntity,
-    ProductAxis,
-    ProductRecording,
-    ProductRef,
     ScalarType,
-    StateBinding,
     ValueRef,
     one,
 )
+from scopecat.authoring._module_context import DefinitionResource
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef, entity_identity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.results import MeasurementDType
+from scopecat.program.products import ProductAxis, ProductRecording, ProductRef
+from scopecat.program.state import DesiredState, StateBinding
 from scopecat.program.value_refs import (
     internal_literal_value_ref,
     internal_value_ref_point_dependencies,
@@ -76,7 +74,7 @@ class SymbolicInstrumentRecorder(Protocol):
         arguments: Mapping[OperationArgumentRef, StateBinding] | None = None,
     ) -> None: ...
 
-    def product(
+    def _product(
         self,
         id: str,
         *,
@@ -163,7 +161,7 @@ class SymbolicInstrumentClientBase:
         effect_id = f"{self.id}.{occurrence_id}"
         products: dict[str, ProductRef] = {}
         for field in acquisition.result_fields:
-            products[field.python_name] = self._recorder.product(
+            products[field.python_name] = self._recorder._product(
                 _join_id(id, field.result_id),
                 scope=(self.id,),
                 unit=field.unit,
@@ -321,9 +319,7 @@ class DeclaredStateSymbolicGroupBase[
         /,
     ) -> None:
         for entity, target in self._aligned_targets(state):
-            self._state_client(entity)._ensure(  # pyright: ignore[reportPrivateUsage]
-                target
-            )
+            self._state_client(entity)._ensure(target)
 
     def finalization_targets(
         self,

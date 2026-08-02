@@ -25,7 +25,12 @@ from scopecat.program.logical import (
     ValueDef,
 )
 from scopecat.program.point_domain import point_axis_values
-from scopecat.program.products import ModuleProductDecl, record_product
+from scopecat.program.products import (
+    ModuleProductDecl,
+    entity_axis,
+    product_axis,
+    record_product,
+)
 from scopecat.program.value_graph import ValueId
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
@@ -158,9 +163,9 @@ def test_product_axes_reject_table_values_at_authoring_boundary() -> None:
     )
 
     with pytest.raises(TypeError, match="axis values must be scalar"):
-        sc.product_axis("sample", size=rows)
+        product_axis("sample", size=rows)
     with pytest.raises(TypeError, match="axis values must be scalar"):
-        sc.entity_axis("entity", rows)
+        entity_axis("entity", rows)
 
 
 def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
@@ -169,7 +174,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
         "missing-record-parameter",
         value_type,
     )
-    duplicate_axis = sc.product_axis("sample", size=2)
+    duplicate_axis = product_axis("sample", size=2)
 
     @sc.module(id="test.graph.record-schema")
     def module(context: sc.ModuleContext) -> None:
@@ -208,8 +213,8 @@ def test_product_rejects_duplicate_effective_dimensions() -> None:
         context.product(
             "signal",
             axes=(
-                sc.product_axis("i", size=2, shared_as="sample"),
-                sc.product_axis("q", size=2, shared_as="sample"),
+                product_axis("i", size=2, shared_as="sample"),
+                product_axis("q", size=2, shared_as="sample"),
             ),
         )
 
@@ -271,7 +276,7 @@ def test_product_axis_rejects_external_operation_value() -> None:
         )
         context.product(
             "signal",
-            axes=(sc.product_axis("sample", size=size),),
+            axes=(product_axis("sample", size=size),),
         )
 
     with pytest.raises(CheckFailed) as error:
@@ -294,7 +299,7 @@ def test_product_axis_rejects_point_dependent_value() -> None:
     ) -> None:
         context.product(
             "signal",
-            axes=(sc.product_axis("sample", size=sc.input_ref(size)),),
+            axes=(product_axis("sample", size=sc.input_ref(size)),),
         )
 
     @sc.template(id="test.stage.record-point", kind="graph")

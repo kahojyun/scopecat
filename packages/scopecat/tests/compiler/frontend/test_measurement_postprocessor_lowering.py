@@ -7,6 +7,10 @@ import pytest
 import scopecat as sc
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
+from scopecat.program.measurements import (
+    MeasurementPostprocessor,
+    measurement_postprocessor,
+)
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
 
@@ -23,8 +27,8 @@ def _postprocessor(
     *,
     source: str,
     output: str,
-) -> sc.MeasurementPostprocessor:
-    return sc.measurement_postprocessor(
+) -> MeasurementPostprocessor:
+    return measurement_postprocessor(
         id,
         input=source,
         outputs={"result": output},

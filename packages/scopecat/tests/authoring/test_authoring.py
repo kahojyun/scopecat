@@ -31,6 +31,7 @@ from scopecat.program.expressions import (
 from scopecat.program.logical import (
     LogicalProgram,
 )
+from scopecat.program.products import product_axis, shot_axis
 from scopecat.program.value_graph import (
     OperationId,
     ValueId,
@@ -641,12 +642,12 @@ def test_literal_string_values_define_categorical_product_axis() -> None:
             "iq",
             dtype="complex128",
             axes=(
-                authoring.product_axis(
+                product_axis(
                     "component",
                     size=("I", "Q"),
                     kind="component",
                 ),
-                authoring.product_axis(
+                product_axis(
                     "entity_role",
                     size=2,
                     kind="entity",
@@ -1129,8 +1130,8 @@ def test_product_declaration_uses_axes() -> None:
             "signal",
             unit="ratio",
             axes=(
-                authoring.shot_axis(2),
-                authoring.product_axis("repetition", size=3, kind="repetition"),
+                shot_axis(2),
+                product_axis("repetition", size=3, kind="repetition"),
             ),
         )
         context.acquire(

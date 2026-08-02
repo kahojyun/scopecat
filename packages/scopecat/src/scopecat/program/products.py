@@ -24,6 +24,9 @@ from scopecat.program.value_refs import (
 )
 from scopecat.program.values import MetadataValue
 
+# ProductRef provenance is private to the recorder implementation in this module.
+# pyright: reportPrivateUsage=false
+
 type AxisSizeInput = ValueRef | Quantity | int | float | tuple[EntityRef | str, ...]
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
 
@@ -109,7 +112,7 @@ class ProductRef:
 
     product_id: ProductId
     origin: tuple[object, ...] = field(repr=False, compare=False)
-    recording: ProductRecording | None = field(
+    _recording: ProductRecording | None = field(
         default=None,
         repr=False,
         compare=False,
@@ -126,10 +129,10 @@ class ProductRef:
         return self.product_id.local_id
 
     @property
-    def recording_role(self) -> MeasurementVariableRole:
-        """Use acquisition semantics when ordinary recording selects this ref."""
+    def _recording_role(self) -> MeasurementVariableRole:
+        """Return generated acquisition semantics for experiment recording."""
 
-        return "observable" if self.recording is None else self.recording.role
+        return "observable" if self._recording is None else self._recording.role
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -330,9 +333,9 @@ def _record_selection(
     if (
         selected_recording_group_id is None
         and isinstance(product_id, ProductRef)
-        and product_id.recording is not None
+        and product_id._recording is not None
     ):
-        selected_recording_group_id = product_id.recording.occurrence.qualified_name
+        selected_recording_group_id = product_id._recording.occurrence.qualified_name
     return RecordSelection(
         product_use=product_use(selected_product_id),
         product_origin=selected_product_origin,

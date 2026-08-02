@@ -241,7 +241,7 @@ class ExperimentModule[**P]:
                 port.qualified_id: ProductRef(
                     product_id=port.symbol_id,
                     origin=port.target_origin,
-                    recording=port.recording,
+                    _recording=port.recording,
                 )
                 for port in ports
             }

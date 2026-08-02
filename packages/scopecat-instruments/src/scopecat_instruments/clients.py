@@ -349,7 +349,7 @@ class TemperatureSampleProducts:
     temperature: ProductRef
     resistance: ProductRef
 
-    def recording_products(self) -> tuple[ProductRef, ...]:
+    def _recording_products(self) -> tuple[ProductRef, ...]:
         return (
             self.temperature,
             self.resistance,
@@ -839,7 +839,7 @@ class DCMonitorCurrentProducts:
 
     current: ProductRef
 
-    def recording_products(self) -> tuple[ProductRef, ...]:
+    def _recording_products(self) -> tuple[ProductRef, ...]:
         return (self.current,)
 
 
@@ -857,7 +857,7 @@ class DCMonitorVoltageProducts:
 
     voltage: ProductRef
 
-    def recording_products(self) -> tuple[ProductRef, ...]:
+    def _recording_products(self) -> tuple[ProductRef, ...]:
         return (self.voltage,)
 
 
@@ -1295,7 +1295,7 @@ class NetworkSweepProducts:
     frequency: ProductRef
     s_parameter: ProductRef
 
-    def recording_products(self) -> tuple[ProductRef, ...]:
+    def _recording_products(self) -> tuple[ProductRef, ...]:
         return (
             self.frequency,
             self.s_parameter,

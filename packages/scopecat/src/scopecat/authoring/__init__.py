@@ -1,15 +1,14 @@
-"""User-facing experiment authoring API."""
+"""High-level experiment authoring API.
+
+This facade exposes the objects used to describe experiments. Domain and
+generated-client implementations import lower-level schema and recorder types
+from their owning modules.
+"""
 
 from scopecat.authoring._experiment_module import ExperimentModule
-from scopecat.authoring._module_context import (
-    DefinitionResource,
-    ModuleContext,
-)
+from scopecat.authoring._module_context import ModuleContext
 from scopecat.authoring._module_invocation import (
     ModuleInvocation,
-    ModuleOutputs,
-    ModuleResource,
-    ModuleResources,
 )
 from scopecat.authoring.definitions import (
     ExperimentContext,
@@ -40,31 +39,12 @@ from scopecat.authoring.finalization import (
     Finalizable,
     FinalizationTarget,
 )
-from scopecat.authoring.recording import RecordableProducts
 from scopecat.authoring.templates import (
     ExperimentInvocation,
     ExperimentTemplate,
 )
-from scopecat.program.measurements import (
-    MeasurementPostprocessor,
-    measurement_postprocessor,
-)
 from scopecat.program.products import (
-    ProductAxis,
-    ProductOutputs,
-    ProductRecording,
     ProductRef,
-    RecordSelection,
-    entity_axis,
-    product_axis,
-    record_alias,
-    record_coordinate,
-    record_product,
-    shot_axis,
-)
-from scopecat.program.state import (
-    DesiredState,
-    StateBinding,
 )
 from scopecat.program.value_types import (
     Bool as BoolType,
@@ -115,8 +95,6 @@ __all__ = [
     "BoolType",
     "ComputeInput",
     "ConcreteEntityInput",
-    "DefinitionResource",
-    "DesiredState",
     "EachEntity",
     "EntityInput",
     "EntityKey",
@@ -131,14 +109,10 @@ __all__ = [
     "FloatType",
     "Input",
     "IntType",
-    "MeasurementPostprocessor",
     "MetadataValue",
     "ModuleContext",
     "ModuleInput",
     "ModuleInvocation",
-    "ModuleOutputs",
-    "ModuleResource",
-    "ModuleResources",
     "OneEntity",
     "ParameterColumn",
     "ParameterKeyInput",
@@ -146,18 +120,12 @@ __all__ = [
     "ParameterTable",
     "PayloadType",
     "PerEntity",
-    "ProductAxis",
-    "ProductOutputs",
-    "ProductRecording",
     "ProductRef",
     "QuantityType",
-    "RecordSelection",
-    "RecordableProducts",
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",
     "ScratchDefinition",
-    "StateBinding",
     "StringType",
     "TableColumn",
     "TableType",
@@ -166,20 +134,13 @@ __all__ = [
     "ValueValidationError",
     "coordinate",
     "each",
-    "entity_axis",
     "entity_key",
     "input_ref",
-    "measurement_postprocessor",
     "module",
     "one",
     "parameter",
     "parameter_column",
     "parameter_lookup",
-    "product_axis",
-    "record_alias",
-    "record_coordinate",
-    "record_product",
     "scratch",
-    "shot_axis",
     "template",
 ]

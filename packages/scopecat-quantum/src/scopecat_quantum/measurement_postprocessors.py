@@ -6,16 +6,16 @@ import math
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
-from scopecat import (
-    MeasurementPostprocessor,
-    ProductRef,
-    measurement_postprocessor,
-)
+from scopecat import ProductRef
 from scopecat.measurements.results import (
     ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
     MeasurementValue,
+)
+from scopecat.program.measurements import (
+    MeasurementPostprocessor,
+    measurement_postprocessor,
 )
 
 _PROBABILITY_0_ROLE = "probability_0"

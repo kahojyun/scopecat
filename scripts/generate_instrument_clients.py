@@ -3375,7 +3375,7 @@ def _render_result_types(
             "\n"
             f"{product_fields}"
             "\n"
-            "    def recording_products(self) -> tuple[ProductRef, ...]:\n"
+            "    def _recording_products(self) -> tuple[ProductRef, ...]:\n"
             f"{recording_return}"
         )
     return "".join(sections)

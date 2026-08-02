@@ -15,6 +15,8 @@ from scopecat.program.logical import (
     LogicalInvocation,
     LogicalStateAssignment,
 )
+from scopecat.program.measurements import measurement_postprocessor
+from scopecat.program.state import StateBinding
 from scopecat.sdk.instruments import InterfaceRef, PropertyRef
 
 _DEVICE = InterfaceRef("test.experiment_context_device/v1")
@@ -29,10 +31,10 @@ _LEVEL_TYPE = sc.FloatType()
 
 @dataclass(frozen=True)
 class _DeviceTarget:
-    level: sc.StateBinding
-    enabled: sc.StateBinding
+    level: StateBinding
+    enabled: StateBinding
 
-    def target_assignments(self) -> Mapping[PropertyRef, sc.StateBinding]:
+    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
         return {
             _DEVICE_LEVEL: self.level,
             _DEVICE_ENABLED: self.enabled,
@@ -80,7 +82,7 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
             metadata={"mode": "fast"},
         )
         experiment.measurement_postprocessor(
-            sc.measurement_postprocessor(
+            measurement_postprocessor(
                 "derive",
                 input=raw,
                 outputs={"derived": derived},

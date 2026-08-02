@@ -10,6 +10,10 @@ from scopecat.compiler.frontend.logical_verification import verify_logical_progr
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
 from scopecat.program.domain import domain_program
+from scopecat.program.measurements import (
+    MeasurementPostprocessor,
+    measurement_postprocessor,
+)
 from tests.testkit.domain import domain_call
 
 
@@ -22,8 +26,8 @@ def _postprocessor(
     *,
     source: str | sc.ProductRef,
     output: str | sc.ProductRef,
-) -> sc.MeasurementPostprocessor:
-    return sc.measurement_postprocessor(
+) -> MeasurementPostprocessor:
+    return measurement_postprocessor(
         id,
         input=source,
         outputs={"result": output},
@@ -32,7 +36,7 @@ def _postprocessor(
 
 
 def test_measurement_postprocessor_captures_one_input_outputs_and_kernel() -> None:
-    postprocessor = sc.measurement_postprocessor(
+    postprocessor = measurement_postprocessor(
         "derive",
         input="raw",
         outputs={"first": "a", "second": "b"},
@@ -49,21 +53,21 @@ def test_measurement_postprocessor_captures_one_input_outputs_and_kernel() -> No
 
 def test_measurement_postprocessor_validates_authoring_ingress() -> None:
     with pytest.raises(ValueError, match="input product id"):
-        sc.measurement_postprocessor(
+        measurement_postprocessor(
             "derive",
             input="",
             outputs={"result": "derived"},
             kernel=_identity,
         )
     with pytest.raises(ValueError, match="at least one output"):
-        sc.measurement_postprocessor(
+        measurement_postprocessor(
             "derive",
             input="raw",
             outputs={},
             kernel=_identity,
         )
     with pytest.raises(ValueError, match="input and outputs must be distinct"):
-        sc.measurement_postprocessor(
+        measurement_postprocessor(
             "derive",
             input="raw",
             outputs={"result": "raw"},
@@ -106,7 +110,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
         context.call(nested)
         derived = context.product("derived")
         context.measurement_postprocessor(
-            sc.measurement_postprocessor(
+            measurement_postprocessor(
                 "derive",
                 input=nested.products.raw,
                 outputs={"result": derived},

@@ -15,6 +15,7 @@ from scopecat.planning.point_materialization import (
     materialize_bound_points,
 )
 from scopecat.program.domain import domain_program
+from scopecat.program.measurements import measurement_postprocessor
 from scopecat.program.products import ModuleProductDecl
 from scopecat.sdk.domain import (
     DomainBatchRequest,
@@ -72,7 +73,7 @@ def _domain_scenario(
             },
         )
         module.measurement_postprocessor(
-            sc.measurement_postprocessor(
+            measurement_postprocessor(
                 "summarize",
                 input=call.results.raw,
                 outputs={"summary": summary},

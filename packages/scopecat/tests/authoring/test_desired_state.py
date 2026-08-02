@@ -9,6 +9,7 @@ from typing import Annotated, cast
 import pytest
 
 import scopecat as sc
+from scopecat.authoring._module_context import DefinitionResource
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.planning.local_materialization import (
     materialize_local_final_state,
@@ -16,6 +17,7 @@ from scopecat.planning.local_materialization import (
 )
 from scopecat.program.bindings import EnsureStateIntent
 from scopecat.program.logical import LogicalEnsureState
+from scopecat.program.state import StateBinding
 from scopecat.sdk.instruments import InterfaceRef, PropertyRef
 from tests.testkit.authoring import bind_invocation
 from tests.testkit.local_materialization import materialize_local_execution
@@ -28,10 +30,10 @@ _SOURCE_ENABLED = _SOURCE.property("enabled")
 
 @dataclass(frozen=True)
 class _SourceTarget:
-    level: sc.StateBinding
-    enabled: sc.StateBinding
+    level: StateBinding
+    enabled: StateBinding
 
-    def target_assignments(self) -> Mapping[PropertyRef, sc.StateBinding]:
+    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
         return {
             _SOURCE_LEVEL: self.level,
             _SOURCE_ENABLED: self.enabled,
@@ -40,25 +42,25 @@ class _SourceTarget:
 
 @dataclass(frozen=True)
 class _EmptyTarget:
-    def target_assignments(self) -> Mapping[PropertyRef, sc.StateBinding]:
+    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
         return {}
 
 
 @dataclass(frozen=True)
 class _NullTarget:
-    def target_assignments(self) -> Mapping[PropertyRef, sc.StateBinding]:
-        return {_SOURCE_ENABLED: cast("sc.StateBinding", cast("object", None))}
+    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
+        return {_SOURCE_ENABLED: cast("StateBinding", cast("object", None))}
 
 
 @dataclass(frozen=True)
 class _DeclaredSourceState:
-    level: sc.StateBinding
-    enabled: sc.StateBinding
+    level: StateBinding
+    enabled: StateBinding
 
 
 @dataclass(frozen=True)
 class _TypedSource:
-    resource: sc.DefinitionResource
+    resource: DefinitionResource
 
     def finalization_targets(
         self,
@@ -129,7 +131,7 @@ def test_bind_property_rejects_none_at_the_authoring_boundary() -> None:
             module.bind_property(
                 source,
                 _SOURCE_ENABLED,
-                value=cast("sc.StateBinding", cast("object", None)),
+                value=cast("StateBinding", cast("object", None)),
             )
 
 

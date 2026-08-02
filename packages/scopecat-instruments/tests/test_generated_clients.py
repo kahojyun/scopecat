@@ -274,10 +274,6 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "    current: MeasurementValue" in completed.stdout
     assert "class DCMonitorCurrentProducts:" in completed.stdout
     assert "    current: ProductRef" in completed.stdout
-    assert "def recording_products(self) -> tuple[ProductRef, ...]:" in (
-        completed.stdout
-    )
-    assert "return (self.current,)" in completed.stdout
     assert "class DCMonitorVoltageReadback:" in completed.stdout
     assert "    voltage: MeasurementValue" in completed.stdout
     assert "class DCMonitorVoltageProducts:" in completed.stdout

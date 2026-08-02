@@ -9,6 +9,7 @@ from types import UnionType
 from typing import (
     Annotated,
     Concatenate,
+    Protocol,
     TypeAliasType,
     cast,
     get_args,
@@ -35,7 +36,6 @@ from scopecat.authoring._module_invocation import (
 )
 from scopecat.authoring.entity_parameters import PerEntity
 from scopecat.authoring.finalization import Finalizable
-from scopecat.authoring.recording import RecordableProducts
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import (
     ExperimentTemplate,
@@ -99,11 +99,21 @@ from scopecat.program.values import (
 )
 from scopecat.program.values import input as authoring_input
 
+# pyright: reportPrivateUsage=false
+
 type DefinitionFunction = Callable[..., object]
 type Input[T] = T | ValueRef
+
+
+class _RecordableProducts(Protocol):
+    """Internal structural hook implemented by generated result bundles."""
+
+    def _recording_products(self) -> tuple[ProductRef, ...]: ...
+
+
 type ScalarRecordProductInput = str | ProductRef | PerEntity[ProductRef]
 type RecordProductInput = (
-    str | ProductRef | RecordableProducts | PerEntity[ProductRef | RecordableProducts]
+    str | ProductRef | _RecordableProducts | PerEntity[ProductRef | _RecordableProducts]
 )
 
 
@@ -134,16 +144,16 @@ def _expand_record_products(
 
 def _append_record_product(
     selected: list[str | ProductRef],
-    product: str | ProductRef | RecordableProducts,
+    product: str | ProductRef | _RecordableProducts,
 ) -> None:
     if isinstance(product, str | ProductRef):
         selected.append(product)
         return
-    selected.extend(product.recording_products())
+    selected.extend(product._recording_products())
 
 
 def _recording_role_is_coordinate(product: str | ProductRef) -> bool:
-    return isinstance(product, ProductRef) and product.recording_role == "coordinate"
+    return isinstance(product, ProductRef) and product._recording_role == "coordinate"
 
 
 def _record_namespace_segments(namespace: str) -> tuple[str, ...]:
@@ -169,9 +179,9 @@ def _recording_group_id(
     product: str | ProductRef,
     namespace: tuple[str, ...],
 ) -> str | None:
-    if not isinstance(product, ProductRef) or product.recording is None:
+    if not isinstance(product, ProductRef) or product._recording is None:
         return None
-    return product.recording.occurrence.prefixed(*namespace).qualified_name
+    return product._recording.occurrence.prefixed(*namespace).qualified_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,12 +332,33 @@ class ExperimentContext:
         unit: str | None = "ratio",
         dtype: MeasurementDType = "float64",
         axes: Sequence[ProductAxis] = (),
-        recording: ProductRecording | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ProductRef:
         """Declare and return one experiment-owned logical product."""
 
         return self._program.product(
+            id,
+            scope=scope,
+            unit=unit,
+            dtype=dtype,
+            axes=axes,
+            metadata=metadata,
+        )
+
+    def _product(
+        self,
+        id: str,
+        *,
+        scope: Sequence[str] = (),
+        unit: str | None = "ratio",
+        dtype: MeasurementDType = "float64",
+        axes: Sequence[ProductAxis] = (),
+        recording: ProductRecording | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> ProductRef:
+        """Declare a product carrying generated-client recording provenance."""
+
+        return self._program._product(
             id,
             scope=scope,
             unit=unit,
