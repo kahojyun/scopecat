@@ -411,12 +411,14 @@ Those methods remain real Python source so type checkers can preserve
 positional-only and keyword-only parameters, narrow live argument carriers, add
 symbolic effect ids, and lift each parameter independently for entity groups.
 The repository's committed static generator consumes the public declared
-interface layout and writes that source deterministically. `TemperatureReadout`
-is the first production slice: its typed observation accessors, sample
-readback/product carriers, live client, symbolic single-entity client, symbolic
-group, and family factory are generated into `_generated_clients.py` rather
-than maintained as parallel hand-written wrappers. Regenerate it from the
-repository root, or verify that the committed output is current, with:
+interface layout and writes that source deterministically. The production
+target generates complete `TemperatureReadout`, `RFOutput`, and `NetworkSweep`
+families, plus the source-only `DCSource` live, symbolic single-entity, and group
+client classes. Generated source also includes applicable observation accessors
+and acquisition result carriers. Root-level flat and discriminated declared
+states both produce typed `apply(...)`, `ensure(...)`, and group state surfaces.
+Regenerate the committed `_generated_clients.py`, or verify that it is current,
+with:
 
 ```console
 uv run --locked python scripts/generate_instrument_clients.py
@@ -433,14 +435,17 @@ argument. The group aligns every argument before recording any invocation, then
 emits one ordinary scalar effect per child resource. Alignment is an exact join
 by entity identity, not by input order.
 
+The optional `DCSource`/`DCMonitor` two-interface composition remains
+hand-written. Its public `dc_source(..., monitor=...)` facade selects different
+required capabilities and return types; this policy is not implied by either
+interface declaration alone.
+
 This source generator intentionally supports concrete declaration shapes rather
 than claiming every compiled interface shape. Payload-bearing operations are
 currently rejected explicitly because their concrete and symbolic carriers need
-a schema-specific policy. The remaining persistent-state, discriminated-state,
-and optional-capability first-party clients are still hand-written and are the
-next migration and cleanup work. Component-owned state and component
-acquisitions are also outside the current generated surface; explicit contract
-builders and existing clients remain their escape hatch.
+a schema-specific policy. Component-owned state and component acquisitions are
+also outside the current generated surface; explicit contract builders and
+hand-written clients remain their escape hatch.
 
 ### Entity selection and parameter mapping
 

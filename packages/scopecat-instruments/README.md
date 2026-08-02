@@ -107,11 +107,13 @@ transient transport failure.
 ## Typed client source generation
 
 Decorated Python interface declarations are the shared source for the wire
-contract and supported typed clients. `TemperatureReadout` is the first
-production client family emitted by the committed static generator: its typed
-observation accessors, sample readback/product carriers, live client, symbolic
-single-entity client, symbolic group, and family factory live in generated
-Python source so editors and type checkers see their exact signatures.
+contract and supported typed clients. The committed production output covers
+complete `TemperatureReadout`, `RFOutput`, and `NetworkSweep` families, plus the
+source-only `DCSource` live, symbolic single-entity, and group client classes in
+generated Python source. Applicable observation accessors and acquisition result
+carriers are generated as well, so editors and type checkers see exact
+signatures. Root-level flat and discriminated declared states both generate
+typed live, symbolic, and grouped state surfaces.
 
 Run the generator from the repository root after changing a supported
 declaration, and use its check mode in validation or CI:
@@ -130,11 +132,12 @@ identity joins for all mappings before recording any effect, and then records
 one scalar invocation per entity. Mapping order is therefore irrelevant, while
 missing or extra entity identities fail before partial effects are created.
 
-Payload-bearing operations are rejected by code generation until their
-schema-specific live and symbolic carriers are defined. Persistent-state,
-discriminated-state, and optional-capability client families remain hand-written
-and are the next migration and cleanup work. The current generator likewise
-does not claim component-owned state or component acquisition clients.
+The optional `DCSource`/`DCMonitor` two-interface composition and its public
+`dc_source(..., monitor=...)` flag-dispatching facade remain hand-written because
+the required capabilities and return types are policy beyond one declaration.
+Payload-bearing operations are rejected until their schema-specific live and
+symbolic carriers are defined. Component-owned state and component acquisitions
+also remain outside the current generated surface.
 
 ## Configuration
 
