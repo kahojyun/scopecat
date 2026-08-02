@@ -320,6 +320,8 @@ class DeclaredOperationArgument:
     ref: OperationArgumentRef
     spec: OperationArgumentSpec
     parameter: Parameter
+    declared_annotation: object
+    concrete_annotation: object
 
     @property
     def argument_id(self) -> str:
@@ -368,6 +370,7 @@ class DeclaredResultLayout:
     """The result fields active for one fixed or discriminated acquisition case."""
 
     case_value: str | None
+    result_type: object
     fields: tuple[DeclaredResultField, ...]
 
 
@@ -422,6 +425,29 @@ class DeclaredAcquisition[ResultT]:
         """Return the Python-to-wire fields active for one acquisition."""
 
         return self.active_layout(case_value).fields
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredScopeLayout:
+    """One root or component capability and its typed declared members."""
+
+    python_path: tuple[str, ...]
+    capability_type: type[object]
+    ref: InterfaceRef | ComponentRef
+    spec: InterfaceSpec | ComponentSpec
+    operations: tuple[DeclaredOperation[...], ...]
+    acquisitions: tuple[DeclaredAcquisition[object], ...]
+    components: tuple[DeclaredScopeLayout, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredInterfaceLayout[InterfaceT]:
+    """The complete Python authoring layout of one compiled interface."""
+
+    compiled: CompiledInterface[InterfaceT]
+    root: DeclaredScopeLayout
+    observed_state: DeclaredObservedState[object] | None
+    state_types: tuple[type[object], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1038,6 +1064,114 @@ def declared_state_target(state: object) -> DesiredState:
     return _DeclaredStateTarget(declared_state_assignments(state))
 
 
+def declared_interface_layout[InterfaceT](
+    compiled: CompiledInterface[InterfaceT],
+    /,
+) -> DeclaredInterfaceLayout[InterfaceT]:
+    """Project a compiled interface into its complete typed Python member tree."""
+
+    declaration = _required_metadata(
+        compiled.interface_type,
+        _INTERFACE_METADATA,
+        InterfaceMetadata,
+        "instrument interface",
+    )
+    observed_state: DeclaredObservedState[object] | None = None
+    if declaration.observed_state is not None:
+        observed_state = declared_observed_state(
+            compiled,
+            declaration.observed_state,
+        )
+    if isinstance(declaration.state, DiscriminatedStateMetadata):
+        state_types = (
+            declaration.state.common_state,
+            *(case.state_type for case in declaration.state.cases),
+        )
+    elif declaration.state is None:
+        state_types = ()
+    else:
+        state_types = (declaration.state,)
+    return DeclaredInterfaceLayout(
+        compiled=compiled,
+        root=_declared_scope_layout(
+            compiled,
+            python_path=(),
+            capability_type=compiled.interface_type,
+            scope=compiled.ref,
+            scope_spec=compiled.spec,
+        ),
+        observed_state=observed_state,
+        state_types=state_types,
+    )
+
+
+def _declared_scope_layout[InterfaceT](
+    compiled: CompiledInterface[InterfaceT],
+    *,
+    python_path: tuple[str, ...],
+    capability_type: type[object],
+    scope: InterfaceRef | ComponentRef,
+    scope_spec: InterfaceSpec | ComponentSpec,
+) -> DeclaredScopeLayout:
+    operations: list[DeclaredOperation[...]] = []
+    acquisitions: list[DeclaredAcquisition[object]] = []
+    for method in _declared_members(capability_type).values():
+        operation_declaration = getattr(method, _OPERATION_METADATA, None)
+        acquisition_declaration = getattr(method, _ACQUISITION_METADATA, None)
+        if isinstance(operation_declaration, OperationMetadata):
+            operation_method = cast("Callable[..., None]", method)
+            operations.append(
+                declared_operation(
+                    compiled,
+                    operation_method,
+                    component=python_path,
+                )
+            )
+        if isinstance(acquisition_declaration, AcquisitionMetadata):
+            acquisition_method = cast("Callable[..., object]", method)
+            acquisitions.append(
+                declared_acquisition(
+                    compiled,
+                    acquisition_method,
+                    component=python_path,
+                )
+            )
+
+    components: list[DeclaredScopeLayout] = []
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(capability_type, include_extras=True),
+    )
+    for attribute_name, annotation in hints.items():
+        _, component_declaration = _split_annotation(annotation, ComponentMetadata)
+        if component_declaration is None:
+            continue
+        component_path = (*python_path, attribute_name)
+        nested_type, component_scope = _resolve_declared_scope(
+            compiled.interface_type,
+            component_path,
+        )
+        nested_spec = _resolve_compiled_scope_spec(compiled.spec, component_scope)
+        components.append(
+            _declared_scope_layout(
+                compiled,
+                python_path=component_path,
+                capability_type=nested_type,
+                scope=component_scope,
+                scope_spec=nested_spec,
+            )
+        )
+    return DeclaredScopeLayout(
+        python_path=python_path,
+        capability_type=capability_type,
+        ref=scope,
+        spec=scope_spec,
+        operations=tuple(operations),
+        acquisitions=tuple(acquisitions),
+        components=tuple(components),
+    )
+
+
 def declared_operation[InterfaceT, MethodSelfT, **P](
     compiled: CompiledInterface[InterfaceT],
     method: Callable[Concatenate[MethodSelfT, P], None],
@@ -1083,6 +1217,10 @@ def declared_operation[InterfaceT, MethodSelfT, **P](
     specs_by_id = {item.id: item for item in operation_spec.arguments}
     arguments: list[DeclaredOperationArgument] = []
     for parameter in parameters:
+        declared_annotation, _ = _split_annotation(
+            hints[parameter.name],
+            ArgumentMetadata,
+        )
         argument_id = _declared_operation_argument_id(
             parameter.name,
             hints[parameter.name],
@@ -1093,6 +1231,8 @@ def declared_operation[InterfaceT, MethodSelfT, **P](
                 ref=operation_ref.argument(argument_id),
                 spec=specs_by_id[argument_id],
                 parameter=parameter,
+                declared_annotation=declared_annotation,
+                concrete_annotation=_strip_operation_wrappers(declared_annotation),
             )
         )
     return DeclaredOperation(
@@ -1304,7 +1444,11 @@ def _declared_result_layout(
         )
         in specs_by_id
     )
-    return DeclaredResultLayout(case_value=case_value, fields=declared_fields)
+    return DeclaredResultLayout(
+        case_value=case_value,
+        result_type=result_type,
+        fields=declared_fields,
+    )
 
 
 def _bind_flat_state(interface_id: str, state_type: type[object]) -> None:
@@ -2282,6 +2426,7 @@ __all__ = [
     "CompiledInterface",
     "ComponentMetadata",
     "DeclaredAcquisition",
+    "DeclaredInterfaceLayout",
     "DeclaredObservedField",
     "DeclaredObservedState",
     "DeclaredOperation",
@@ -2289,6 +2434,7 @@ __all__ = [
     "DeclaredPropertyTarget",
     "DeclaredResultField",
     "DeclaredResultLayout",
+    "DeclaredScopeLayout",
     "DiscriminatedStateMetadata",
     "DiscriminatorReference",
     "InterfaceMetadata",
@@ -2312,6 +2458,7 @@ __all__ = [
     "declared_argument_ref",
     "declared_component_ref",
     "declared_discriminator_ref",
+    "declared_interface_layout",
     "declared_interface_ref",
     "declared_observed_state",
     "declared_operation",

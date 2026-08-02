@@ -7,7 +7,7 @@ from typing import Annotated, Literal, Protocol, assert_type, cast
 
 import pytest
 
-from scopecat.kernel.instrument_members import OperationArgumentRef
+from scopecat.kernel.instrument_members import ComponentRef, OperationArgumentRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Int as IntType
@@ -24,6 +24,14 @@ from scopecat.records.instrument import (
     InstrumentStateSnapshot,
 )
 from scopecat.sdk.instruments import (
+    FixedAcquisitionSpec,
+    acquisition_results,
+    bool_property,
+    enum_property,
+    int_property,
+    quantity_property,
+)
+from scopecat.sdk.instruments import (
     acquisition as expected_acquisition,
 )
 from scopecat.sdk.instruments import (
@@ -37,13 +45,6 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.instruments import (
     acquisition_result as expected_result,
-)
-from scopecat.sdk.instruments import (
-    acquisition_results,
-    bool_property,
-    enum_property,
-    int_property,
-    quantity_property,
 )
 from scopecat.sdk.instruments import component as expected_component
 from scopecat.sdk.instruments import (
@@ -63,6 +64,7 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments.declarations import (
     CompiledInterface,
     DeclaredAcquisition,
+    DeclaredInterfaceLayout,
     DeclaredObservedState,
     DeclaredOperation,
     acquisition,
@@ -76,6 +78,7 @@ from scopecat.sdk.instruments.declarations import (
     declared_argument_ref,
     declared_component_ref,
     declared_discriminator_ref,
+    declared_interface_layout,
     declared_interface_ref,
     declared_observed_state,
     declared_operation,
@@ -796,6 +799,135 @@ def test_operations_observed_state_and_nested_components_compile_together() -> N
     assert compiled.spec == expected
 
 
+def test_declared_interface_layout_preserves_authored_tree_and_spec_identity() -> None:
+    compiled = compile_interface(TypedControlContract)
+
+    layout = assert_type(
+        declared_interface_layout(compiled),
+        DeclaredInterfaceLayout[TypedControlContract],
+    )
+
+    assert layout.compiled is compiled
+    assert layout.state_types == ()
+    assert layout.observed_state is not None
+    assert layout.observed_state.state_type is ScannerObservation
+    assert [field.python_name for field in layout.observed_state.fields] == [
+        "channel",
+        "autoscan",
+    ]
+    assert all(
+        field.spec is spec
+        for field, spec in zip(
+            layout.observed_state.fields,
+            compiled.spec.properties,
+            strict=True,
+        )
+    )
+
+    root = layout.root
+    assert root.python_path == ()
+    assert root.capability_type is TypedControlContract
+    assert root.ref is compiled.ref
+    assert root.spec is compiled.spec
+    [select] = root.operations
+    assert select.method_name == "select"
+    assert select.ref.operation_id == "select_input"
+    assert select.spec is compiled.spec.operations[0]
+    assert [argument.python_name for argument in select.arguments] == [
+        "channel",
+        "range",
+        "mode",
+    ]
+    assert [argument.argument_id for argument in select.arguments] == [
+        "input",
+        "range",
+        "mode",
+    ]
+    assert all(
+        argument.spec is spec
+        for argument, spec in zip(
+            select.arguments,
+            select.spec.arguments,
+            strict=True,
+        )
+    )
+    assert [argument.declared_annotation for argument in select.arguments] == [
+        int,
+        Quantity,
+        Literal["normal", "fast"],
+    ]
+    assert [argument.concrete_annotation for argument in select.arguments] == [
+        int,
+        Quantity,
+        Literal["normal", "fast"],
+    ]
+    assert root.acquisitions == ()
+
+    [output] = root.components
+    assert output.python_path == ("output",)
+    assert output.capability_type is OutputCapability
+    assert isinstance(output.ref, ComponentRef)
+    assert output.ref.component_path == ("output-a",)
+    assert output.spec is compiled.spec.components[0]
+    [arm] = output.operations
+    assert arm.method_name == "arm"
+    assert arm.ref.operation_id == "arm_output"
+    assert arm.spec is output.spec.operations[0]
+    assert output.acquisitions == ()
+
+    [trigger] = output.components
+    assert trigger.python_path == ("output", "trigger")
+    assert trigger.capability_type is TriggerCapability
+    assert isinstance(trigger.ref, ComponentRef)
+    assert trigger.ref.component_path == ("output-a", "trigger-input")
+    assert trigger.spec is output.spec.components[0]
+    [reset] = trigger.operations
+    assert reset.method_name == "reset"
+    assert reset.ref.operation_id == "reset_trigger"
+    assert reset.spec is trigger.spec.operations[0]
+    [cycles] = reset.arguments
+    assert cycles.python_name == "cycles"
+    assert cycles.argument_id == "wait_cycles"
+    assert cycles.declared_annotation is int
+    assert cycles.concrete_annotation is int
+    assert cycles.spec is reset.spec.arguments[0]
+    [sample] = trigger.acquisitions
+    assert sample.method_name == "sample"
+    assert sample.ref.acquisition_id == "sample_trigger"
+    assert sample.spec is trigger.spec.acquisitions[0]
+    [sample_layout] = sample.layouts
+    assert sample_layout.result_type is TriggerSampleResults
+    assert isinstance(sample.spec, FixedAcquisitionSpec)
+    assert sample_layout.fields[0].spec is sample.spec.results[0]
+    assert trigger.components == ()
+
+
+def test_declared_interface_layout_covers_inherited_and_state_declarations() -> None:
+    inherited = declared_interface_layout(compile_interface(InheritedProtocolContract))
+    [sample] = inherited.root.acquisitions
+
+    assert sample.method_name == "sample"
+    assert sample.spec is inherited.compiled.spec.acquisitions[0]
+    assert sample.layouts[0].result_type is ScalarResults
+
+    flat = declared_interface_layout(compile_interface(SweepContract))
+    discriminated = declared_interface_layout(compile_interface(SourceContract))
+    monitor = declared_interface_layout(compile_interface(MonitorContract))
+
+    assert flat.state_types == (SweepState,)
+    assert discriminated.state_types == (
+        SourceCommonState,
+        VoltageState,
+        CurrentState,
+    )
+    assert monitor.state_types == (MonitorState,)
+    [monitor_acquisition] = monitor.root.acquisitions
+    assert [item.result_type for item in monitor_acquisition.layouts] == [
+        MonitorResults,
+        MonitorResults,
+    ]
+
+
 def test_operation_and_component_refs_use_python_member_names() -> None:
     select = declared_operation_ref(TypedControlContract, "select")
     output = declared_component_ref(TypedControlContract, "output")
@@ -859,6 +991,18 @@ def test_declared_operation_preserves_signature_and_argument_layout() -> None:
         "level",
         "mode",
         "waveform",
+    ]
+    assert [argument.declared_annotation for argument in declared.arguments] == [
+        int,
+        Desired[Quantity],
+        Literal["once", "loop"] | ValueRef,
+        bytes,
+    ]
+    assert [argument.concrete_annotation for argument in declared.arguments] == [
+        int,
+        Quantity,
+        Literal["once", "loop"],
+        bytes,
     ]
     assert declared.arguments[1].spec.value_type == Scalar(
         QuantityType(unit="V", minimum=0.0)
@@ -1027,6 +1171,7 @@ def test_declared_acquisition_resolves_nested_component_result_layout() -> None:
     assert declared.spec is trigger_spec.acquisitions[0]
     assert declared.discriminator is None
     assert [layout.case_value for layout in declared.layouts] == [None]
+    assert declared.layouts[0].result_type is TriggerSampleResults
     assert [
         (field.python_name, field.result_id, field.spec.id)
         for field in declared.active_result_fields()
