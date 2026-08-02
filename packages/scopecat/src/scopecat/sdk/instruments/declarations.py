@@ -10,10 +10,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
-from inspect import Parameter, signature
+from inspect import Parameter, Signature, signature
 from types import NoneType, UnionType
 from typing import (
     Annotated,
+    Concatenate,
     Literal,
     TypeAliasType,
     cast,
@@ -256,6 +257,44 @@ class CompiledInterface[InterfaceT]:
         """Return a deep copy safe for consumers that normalize Pydantic models."""
 
         return self.spec.model_copy(deep=True)
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredOperationArgument:
+    """One Python parameter paired with its compiled operation argument."""
+
+    python_name: str
+    ref: OperationArgumentRef
+    spec: OperationArgumentSpec
+    parameter: Parameter
+
+    @property
+    def argument_id(self) -> str:
+        return self.ref.argument_id
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredOperation[**P]:
+    """Typed operation method paired with its Python-to-wire argument layout."""
+
+    method_name: str
+    ref: OperationRef
+    spec: OperationSpec
+    arguments: tuple[DeclaredOperationArgument, ...]
+    call_signature: Signature
+
+    def lower_arguments(
+        self,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> dict[OperationArgumentRef, object]:
+        """Bind one valid Python call and key its values by compiled identities."""
+
+        bound = self.call_signature.bind(*args, **kwargs)
+        return {
+            argument.ref: bound.arguments[argument.python_name]
+            for argument in self.arguments
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -851,14 +890,19 @@ def declared_argument_ref(
             f"operation method {method_name!r} has no annotated parameter "
             f"{parameter_name!r}"
         )
-    _, metadata = _split_annotation(annotation, ArgumentMetadata)
     return declared_operation_ref(
         interface_type,
         method_name,
         component=component,
-    ).argument(
-        parameter_name if metadata is None or metadata.id is None else metadata.id
-    )
+    ).argument(_declared_operation_argument_id(parameter_name, annotation))
+
+
+def _declared_operation_argument_id(
+    parameter_name: str,
+    annotation: object,
+) -> str:
+    _, metadata = _split_annotation(annotation, ArgumentMetadata)
+    return parameter_name if metadata is None or metadata.id is None else metadata.id
 
 
 def declared_state_assignments(state: object) -> dict[PropertyRef, StateBinding]:
@@ -894,6 +938,72 @@ def declared_state_target(state: object) -> DesiredState:
     """Adapt a declared dataclass to the existing ``DesiredState`` protocol."""
 
     return _DeclaredStateTarget(declared_state_assignments(state))
+
+
+def declared_operation[InterfaceT, MethodSelfT, **P](
+    compiled: CompiledInterface[InterfaceT],
+    method: Callable[Concatenate[MethodSelfT, P], None],
+    /,
+    *,
+    component: tuple[str, ...] = (),
+) -> DeclaredOperation[P]:
+    """Bind a decorated method to its exact call and compiled argument layouts."""
+
+    capability_type, scope = _resolve_declared_scope(
+        compiled.interface_type,
+        component,
+    )
+    method_name = next(
+        (
+            name
+            for name, declared_method in _declared_members(capability_type).items()
+            if declared_method is method
+        ),
+        None,
+    )
+    if method_name is None:
+        raise ValueError("operation method does not belong to the compiled interface")
+    declaration = _required_metadata(
+        method,
+        _OPERATION_METADATA,
+        OperationMetadata,
+        f"interface method {method_name!r}",
+    )
+    operation_id = declaration.id or method_name
+    scope_spec = _resolve_compiled_scope_spec(compiled.spec, scope)
+    operation_spec = next(
+        item for item in scope_spec.operations if item.id == operation_id
+    )
+    operation_ref = scope.operation(operation_id)
+    method_signature = signature(method)
+    parameters = tuple(method_signature.parameters.values())[1:]
+    call_signature = method_signature.replace(parameters=parameters)
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(method, include_extras=True),
+    )
+    specs_by_id = {item.id: item for item in operation_spec.arguments}
+    arguments: list[DeclaredOperationArgument] = []
+    for parameter in parameters:
+        argument_id = _declared_operation_argument_id(
+            parameter.name,
+            hints[parameter.name],
+        )
+        arguments.append(
+            DeclaredOperationArgument(
+                python_name=parameter.name,
+                ref=operation_ref.argument(argument_id),
+                spec=specs_by_id[argument_id],
+                parameter=parameter,
+            )
+        )
+    return DeclaredOperation(
+        method_name=method_name,
+        ref=operation_ref,
+        spec=operation_spec,
+        arguments=tuple(arguments),
+        call_signature=call_signature,
+    )
 
 
 def declared_acquisition[InterfaceT, ResultT](
@@ -1579,6 +1689,7 @@ def _compile_operation_argument(
     metadata: ArgumentMetadata,
 ) -> OperationArgumentSpec:
     argument_id = metadata.id or parameter_name
+    annotation = _strip_operation_wrappers(annotation)
     origin = get_origin(annotation)
     if metadata.payload_schema_id is not None:
         unsupported = any(
@@ -1874,19 +1985,50 @@ def _strip_optional(annotation: object) -> object:
 def _strip_state_wrappers(annotation: object) -> object:
     """Remove sparse ``None`` and the known symbolic ``ValueRef`` branch."""
 
+    return _strip_declared_value_wrappers(
+        annotation,
+        allow_none=True,
+        label="state",
+    )
+
+
+def _strip_operation_wrappers(annotation: object) -> object:
+    """Remove the symbolic ``ValueRef`` branch without accepting ``None``."""
+
+    return _strip_declared_value_wrappers(
+        annotation,
+        allow_none=False,
+        label="operation argument",
+    )
+
+
+def _strip_declared_value_wrappers(
+    annotation: object,
+    *,
+    allow_none: bool,
+    label: str,
+) -> object:
+    """Select one concrete value type from shared live/symbolic annotations."""
+
     arguments = (
         cast("tuple[object, ...]", get_args(annotation))
         if get_origin(annotation) is UnionType
         else (annotation,)
     )
     remaining = tuple(
-        item for item in arguments if item is not NoneType and item is not ValueRef
+        item
+        for item in arguments
+        if item is not ValueRef and (not allow_none or item is not NoneType)
     )
     if len(remaining) != 1:
-        raise TypeError(f"unsupported state union annotation {annotation!r}")
+        raise TypeError(f"unsupported {label} union annotation {annotation!r}")
     selected = remaining[0]
     if isinstance(selected, TypeAliasType):
-        return _strip_state_wrappers(getattr(selected, "__value__", None))
+        return _strip_declared_value_wrappers(
+            getattr(selected, "__value__", None),
+            allow_none=allow_none,
+            label=label,
+        )
     alias = get_origin(selected)
     if not isinstance(alias, TypeAliasType):
         return selected
@@ -1904,8 +2046,12 @@ def _strip_state_wrappers(annotation: object) -> object:
         and alias_parameters[0] in value_arguments
         and ValueRef in value_arguments
     ):
-        return _strip_state_wrappers(alias_arguments[0])
-    raise TypeError(f"unsupported state type alias {selected!r}")
+        return _strip_declared_value_wrappers(
+            alias_arguments[0],
+            allow_none=allow_none,
+            label=label,
+        )
+    raise TypeError(f"unsupported {label} type alias {selected!r}")
 
 
 def _declared_members(interface_type: type[object]) -> Mapping[str, object]:
@@ -2038,6 +2184,8 @@ __all__ = [
     "CompiledInterface",
     "ComponentMetadata",
     "DeclaredAcquisition",
+    "DeclaredOperation",
+    "DeclaredOperationArgument",
     "DeclaredPropertyTarget",
     "DeclaredResultField",
     "DeclaredResultLayout",
@@ -2065,6 +2213,7 @@ __all__ = [
     "declared_component_ref",
     "declared_discriminator_ref",
     "declared_interface_ref",
+    "declared_operation",
     "declared_operation_ref",
     "declared_property_ref",
     "declared_result_ref",

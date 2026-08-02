@@ -3,17 +3,20 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Literal, Protocol, assert_type
+from typing import Annotated, Literal, Protocol, assert_type, cast
 
 import pytest
 
+from scopecat.kernel.instrument_members import OperationArgumentRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Int as IntType
+from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
 from scopecat.program.state import DesiredState
 from scopecat.program.value_refs import ValueRef
+from scopecat.program.values import input as program_input
 from scopecat.sdk.instruments import (
     acquisition as expected_acquisition,
 )
@@ -54,6 +57,7 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments.declarations import (
     CompiledInterface,
     DeclaredAcquisition,
+    DeclaredOperation,
     acquisition,
     acquisition_case,
     argument,
@@ -66,6 +70,7 @@ from scopecat.sdk.instruments.declarations import (
     declared_component_ref,
     declared_discriminator_ref,
     declared_interface_ref,
+    declared_operation,
     declared_operation_ref,
     declared_property_ref,
     declared_result_ref,
@@ -461,6 +466,39 @@ class TypedControlContract(Protocol):
     ) -> None: ...
 
 
+@instrument_interface("test.operation_binding/v1")
+class OperationBindingContract(Protocol):
+    @operation(id="upload_program")
+    def upload(
+        self,
+        channel: Annotated[int, argument(id="input", minimum=1)],
+        /,
+        level: Annotated[Desired[Quantity], argument(unit="V", minimum=0.0)],
+        *,
+        mode: Literal["once", "loop"] | ValueRef,
+        program: Annotated[
+            bytes,
+            argument(
+                id="waveform",
+                payload_schema_id="test.waveform/v1",
+                label="Waveform",
+            ),
+        ],
+    ) -> None: ...
+
+
+class OperationLowerer(Protocol):
+    def __call__(
+        self,
+        channel: int,
+        /,
+        level: Desired[Quantity],
+        *,
+        mode: Literal["once", "loop"] | ValueRef,
+        program: bytes,
+    ) -> dict[OperationArgumentRef, object]: ...
+
+
 def test_decorated_protocol_compiles_to_the_existing_contract_ir() -> None:
     compiled = assert_type(
         compile_interface(SweepContract),
@@ -745,6 +783,161 @@ def test_operation_and_component_refs_use_python_member_names() -> None:
         "output",
         "trigger",
     ).component_path == ("output-a", "trigger-input")
+
+
+def test_declared_operation_preserves_signature_and_argument_layout() -> None:
+    compiled = compile_interface(OperationBindingContract)
+
+    def require_operation_lowerer(value: OperationLowerer) -> OperationLowerer:
+        return value
+
+    declared = declared_operation(compiled, OperationBindingContract.upload)
+    lowerer = assert_type(
+        require_operation_lowerer(declared.lower_arguments),
+        OperationLowerer,
+    )
+    payload = b"compiled waveform"
+    lowered = assert_type(
+        lowerer(
+            3,
+            level=Quantity(0.5, "V"),
+            mode="loop",
+            program=payload,
+        ),
+        dict[OperationArgumentRef, object],
+    )
+
+    assert isinstance(declared, DeclaredOperation)
+    assert declared.method_name == "upload"
+    assert declared.ref == declared_operation_ref(
+        OperationBindingContract,
+        "upload",
+    )
+    assert declared.spec is compiled.spec.operations[0]
+    assert [argument.python_name for argument in declared.arguments] == [
+        "channel",
+        "level",
+        "mode",
+        "program",
+    ]
+    assert [argument.argument_id for argument in declared.arguments] == [
+        "input",
+        "level",
+        "mode",
+        "waveform",
+    ]
+    assert declared.arguments[1].spec.value_type == Scalar(
+        QuantityType(unit="V", minimum=0.0)
+    )
+    assert declared.arguments[2].spec.value_type == Scalar(
+        StringType(choices=("once", "loop"))
+    )
+    assert all(
+        argument.spec is spec
+        for argument, spec in zip(
+            declared.arguments,
+            compiled.spec.operations[0].arguments,
+            strict=True,
+        )
+    )
+    assert list(lowered) == [argument.ref for argument in declared.arguments]
+    assert list(lowered.values()) == [
+        3,
+        Quantity(0.5, "V"),
+        "loop",
+        payload,
+    ]
+    payload_argument = declared.arguments[-1]
+    assert payload_argument.spec.value_type == Scalar(
+        PayloadType(schema_id="test.waveform/v1")
+    )
+    assert lowered[payload_argument.ref] is payload
+
+    symbolic_level = program_input("level", Scalar(QuantityType(unit="V")))
+    symbolic_lowered = assert_type(
+        declared.lower_arguments(
+            3,
+            level=symbolic_level,
+            mode="once",
+            program=payload,
+        ),
+        dict[OperationArgumentRef, object],
+    )
+    assert symbolic_lowered[declared.arguments[1].ref] is symbolic_level
+
+
+def test_declared_operation_uses_signature_bind_errors() -> None:
+    declared = declared_operation(
+        compile_interface(OperationBindingContract),
+        OperationBindingContract.upload,
+    )
+    lower = cast("Callable[..., object]", declared.lower_arguments)
+
+    with pytest.raises(TypeError, match="missing a required argument: 'program'"):
+        lower(3, Quantity(0.5, "V"), mode="once")
+    with pytest.raises(TypeError, match="positional-only"):
+        lower(
+            channel=3,
+            level=Quantity(0.5, "V"),
+            mode="once",
+            program=b"waveform",
+        )
+    with pytest.raises(TypeError, match="too many positional arguments"):
+        lower(3, Quantity(0.5, "V"), "once", b"waveform")
+    with pytest.raises(TypeError, match="unexpected keyword argument 'extra'"):
+        lower(
+            3,
+            Quantity(0.5, "V"),
+            mode="once",
+            program=b"waveform",
+            extra=True,
+        )
+
+
+def test_declared_operation_resolves_nested_component_arguments() -> None:
+    compiled = compile_interface(TypedControlContract)
+    component_path = ("output", "trigger")
+
+    declared = declared_operation(
+        compiled,
+        TriggerCapability.reset,
+        component=component_path,
+    )
+    [argument] = declared.arguments
+
+    assert declared.ref == declared_operation_ref(
+        TypedControlContract,
+        "reset",
+        component=component_path,
+    )
+    assert declared.spec is compiled.spec.components[0].components[0].operations[0]
+    assert argument.ref == declared_argument_ref(
+        TypedControlContract,
+        "reset",
+        "cycles",
+        component=component_path,
+    )
+    assert assert_type(
+        declared.lower_arguments(cycles=2),
+        dict[OperationArgumentRef, object],
+    ) == {argument.ref: 2}
+
+
+def test_declared_operation_rejects_a_method_from_another_interface() -> None:
+    compiled = compile_interface(TypedControlContract)
+
+    with pytest.raises(ValueError, match="does not belong to the compiled interface"):
+        declared_operation(compiled, OperationBindingContract.upload)
+
+
+def test_operation_symbolic_values_do_not_make_none_a_valid_argument() -> None:
+    @instrument_interface("test.invalid_optional_operation/v1")
+    class InvalidOptionalOperation(Protocol):
+        @operation()
+        def invoke(self, value: int | ValueRef | None) -> None: ...
+
+    with pytest.raises(TypeError, match="unsupported operation argument union"):
+        compile_interface(InvalidOptionalOperation)
 
 
 def test_nested_component_member_refs_use_python_paths() -> None:
