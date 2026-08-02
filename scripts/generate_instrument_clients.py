@@ -69,6 +69,10 @@ PRODUCTION_TARGET = GenerationTarget(
             declaration_module="scopecat_instruments.interface_declarations",
             declaration_symbol="RF_OUTPUT_DECLARATION",
         ),
+        ClientGenerationPolicy(
+            declaration_module="scopecat_instruments.interface_declarations",
+            declaration_symbol="NETWORK_SWEEP_DECLARATION",
+        ),
     ),
 )
 FIXTURE_TARGET = GenerationTarget(
@@ -721,23 +725,36 @@ def _render_result_types(model: _InterfaceModel) -> str:
                 "ProductRef",
                 count=item.result_type_arguments,
             )
+            readback_declaration = _render_inherited_class_declaration(
+                item.readback_name,
+                f"{item.result_type_name}{live_arguments}",
+            )
+            products_declaration = _render_inherited_class_declaration(
+                item.products_name,
+                f"{item.result_type_name}{product_arguments}",
+            )
             sections.append(
                 "\n\n"
                 "@dataclass(frozen=True, slots=True)\n"
-                f"class {item.readback_name}("
-                f"{item.result_type_name}{live_arguments}):\n"
+                f"{readback_declaration}"
                 f'    """Named {item.method_name} results plus their effect '
                 'receipt."""\n'
                 "\n"
                 "    receipt: CollectReceipt = field(repr=False)\n"
                 "\n\n"
                 "@dataclass(frozen=True, slots=True)\n"
-                f"class {item.products_name}("
-                f"{item.result_type_name}{product_arguments}):\n"
+                f"{products_declaration}"
                 f'    """Typed logical products produced by '
                 f'{item.method_name}."""\n'
             )
     return "".join(sections)
+
+
+def _render_inherited_class_declaration(name: str, base: str) -> str:
+    compact = f"class {name}({base}):\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    return f"class {name}(\n    {base}\n):\n"
 
 
 def _render_live_scopes(model: _InterfaceModel) -> str:

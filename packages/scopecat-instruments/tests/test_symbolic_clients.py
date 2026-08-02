@@ -140,6 +140,32 @@ def test_each_expands_into_single_entity_resources_and_unique_acquisitions() -> 
         assert trace.s_parameter.id.startswith(analyzers[entity].id)
 
 
+def test_group_sweep_uses_entity_aligned_output_shape_state() -> None:
+    context = ModuleContext()
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+    analyzers = network_sweep(context, "readout", for_=each(q0, q1))
+    states = assert_type(
+        PerEntity(
+            (
+                (q1, NetworkSweepState(points=17)),
+                (q0, NetworkSweepState(points=5)),
+            )
+        ),
+        PerEntity[NetworkSweepState],
+    )
+
+    analyzers.ensure(states)
+    traces = analyzers.sweep()
+
+    definition = context.close_definition_internal(id="test.symbolic.each-shape")
+    products = {product.qualified_id: product for product in definition.body.products}
+    for entity, points in ((q0, 5), (q1, 17)):
+        trace = traces[entity]
+        assert products[trace.frequency.id].axes[0].size == points
+        assert products[trace.s_parameter.id].axes[0].size == points
+
+
 def test_each_factories_keep_the_typed_interface_specific_group_verbs() -> None:
     context = ModuleContext()
     q0 = EntityRef(id="q0", kind="logical_device")

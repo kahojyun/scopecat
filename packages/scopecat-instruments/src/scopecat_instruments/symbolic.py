@@ -12,6 +12,9 @@ from scopecat.authoring import (
 )
 
 from scopecat_instruments._generated_clients import (
+    NetworkSweepProducts,
+    SymbolicNetworkSweepClient,
+    SymbolicNetworkSweepGroup,
     SymbolicRFOutputClient,
     SymbolicRFOutputGroup,
     SymbolicTemperatureReadoutClient,
@@ -25,30 +28,21 @@ from scopecat_instruments._symbolic_runtime import (
 )
 from scopecat_instruments.interface_declarations import (
     DC_MONITOR_ACQUISITION_DECLARATION,
-    NETWORK_SWEEP_ACQUISITION_DECLARATION,
     DCMonitorResults,
-    NetworkSweepResults,
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
-    NETWORK_SWEEP,
 )
 from scopecat_instruments.states import (
     DCMonitorState,
     DCSourceCurrent,
     DCSourceState,
     DCSourceVoltage,
-    NetworkSweepState,
 )
 
 type _DCSourceState = DCSourceState | DCSourceVoltage | DCSourceCurrent
 type _DCSourceMonitorState = _DCSourceState | DCMonitorState
-
-
-@dataclass(frozen=True, slots=True)
-class NetworkSweepProducts(NetworkSweepResults[ProductRef, ProductRef]):
-    """Typed logical products produced by one declarative network sweep."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,35 +101,6 @@ class SymbolicDCSourceMonitorClient(
         )
 
 
-class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepState]):
-    """Declarative network-analyzer state and acquisition client."""
-
-    __slots__ = ()
-
-    def __init__(
-        self,
-        recorder: SymbolicInstrumentRecorder,
-        resource_id: str,
-        *,
-        for_: OneEntity | None = None,
-    ) -> None:
-        super().__init__(
-            recorder,
-            resource_id,
-            requires=(NETWORK_SWEEP,),
-            for_=for_,
-        )
-
-    def sweep(self, *, id: str | None = None) -> NetworkSweepProducts:
-        """Declare a sweep and derive its product schemas from the interface."""
-
-        return self._acquire_declared(
-            NETWORK_SWEEP_ACQUISITION_DECLARATION,
-            NetworkSweepProducts,
-            id=id,
-        )
-
-
 class SymbolicDCSourceGroup(
     DeclaredStateSymbolicGroupBase[_DCSourceState, SymbolicDCSourceClient]
 ):
@@ -184,31 +149,6 @@ class SymbolicDCSourceMonitorGroup(
 
     def monitor(self, *, id: str | None = None) -> PerEntity[DCMonitorProducts]:
         return self._clients.map(lambda client: client.monitor(id=id))
-
-
-class SymbolicNetworkSweepGroup(
-    DeclaredStateSymbolicGroupBase[NetworkSweepState, SymbolicNetworkSweepClient]
-):
-    """Entity-keyed declarative network sweeps with broadcast state."""
-
-    __slots__ = ()
-
-    def __init__(
-        self,
-        recorder: SymbolicInstrumentRecorder,
-        resource_id: str,
-        *,
-        for_: EachEntity,
-    ) -> None:
-        super().__init__(
-            recorder,
-            resource_id,
-            for_=for_,
-            client_factory=SymbolicNetworkSweepClient,
-        )
-
-    def sweep(self, *, id: str | None = None) -> PerEntity[NetworkSweepProducts]:
-        return self._clients.map(lambda client: client.sweep(id=id))
 
 
 __all__ = [

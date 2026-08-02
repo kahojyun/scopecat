@@ -19,9 +19,13 @@ from scopecat.sdk.instruments import (
 from scopecat_instruments._client_runtime import (
     DeclaredStateClientBase,
 )
-from scopecat_instruments._family_runtime import InstrumentFamily
 from scopecat_instruments._generated_clients import (
+    NetworkSweepClient,
+    NetworkSweepProducts,
+    NetworkSweepReadback,
     RFOutputClient,
+    SymbolicNetworkSweepClient,
+    SymbolicNetworkSweepGroup,
     SymbolicRFOutputClient,
     SymbolicRFOutputGroup,
     SymbolicTemperatureReadoutClient,
@@ -30,47 +34,32 @@ from scopecat_instruments._generated_clients import (
     TemperatureReadoutClient,
     TemperatureReadoutObservation,
     TemperatureSampleProducts,
+    network_sweep,
     rf_output,
     temperature_readout,
 )
 from scopecat_instruments.interface_declarations import (
     DC_MONITOR_ACQUISITION_DECLARATION,
-    NETWORK_SWEEP_ACQUISITION_DECLARATION,
     DCMonitorResults,
-    NetworkSweepResults,
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
-    NETWORK_SWEEP,
 )
 from scopecat_instruments.states import (
     DCMonitorState,
     DCSourceCurrent,
     DCSourceState,
     DCSourceVoltage,
-    NetworkSweepState,
 )
 from scopecat_instruments.symbolic import (
     DCMonitorProducts,
-    NetworkSweepProducts,
     SymbolicDCSourceClient,
     SymbolicDCSourceGroup,
     SymbolicDCSourceMonitorClient,
     SymbolicDCSourceMonitorGroup,
     SymbolicInstrumentRecorder,
-    SymbolicNetworkSweepClient,
-    SymbolicNetworkSweepGroup,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class NetworkSweepReadback(
-    NetworkSweepResults[MeasurementValue | None, MeasurementValue | None]
-):
-    """Named network-sweep results plus their explicit effect receipt."""
-
-    receipt: CollectReceipt = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,14 +87,6 @@ class DCSourceMonitorClient(DCSourceClient):
         return self._collect_declared(
             DC_MONITOR_ACQUISITION_DECLARATION,
             DCMonitorReadback,
-        )
-
-
-class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepState]):
-    def sweep(self) -> NetworkSweepReadback:
-        return self._collect_declared(
-            NETWORK_SWEEP_ACQUISITION_DECLARATION,
-            NetworkSweepReadback,
         )
 
 
@@ -207,17 +188,6 @@ def dc_source(
         )
     return SymbolicDCSourceClient(instrument_id, resource_id, for_=for_)
 
-
-network_sweep: InstrumentFamily[
-    NetworkSweepClient,
-    SymbolicNetworkSweepClient,
-    SymbolicNetworkSweepGroup,
-] = InstrumentFamily(
-    NetworkSweepClient,
-    SymbolicNetworkSweepClient,
-    SymbolicNetworkSweepGroup,
-    requires=(NETWORK_SWEEP,),
-)
 
 __all__ = [
     "DCMonitorProducts",

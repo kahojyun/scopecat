@@ -491,19 +491,12 @@ class NetworkSweepInterface(Protocol):
 NETWORK_SWEEP_DECLARATION: CompiledInterface[NetworkSweepInterface] = compile_interface(
     NetworkSweepInterface
 )
-NETWORK_SWEEP_ACQUISITION_DECLARATION: DeclaredAcquisition[
-    NetworkSweepResults[list[float], list[complex]]
-] = declared_acquisition(
-    NETWORK_SWEEP_DECLARATION,
-    NetworkSweepInterface.sweep,
-)
 
 
 __all__ = [
     "DC_MONITOR_ACQUISITION_DECLARATION",
     "DC_MONITOR_DECLARATION",
     "DC_SOURCE_DECLARATION",
-    "NETWORK_SWEEP_ACQUISITION_DECLARATION",
     "NETWORK_SWEEP_DECLARATION",
     "RF_OUTPUT_DECLARATION",
     "TEMPERATURE_READOUT_DECLARATION",

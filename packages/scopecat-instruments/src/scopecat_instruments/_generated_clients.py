@@ -28,8 +28,11 @@ from scopecat_instruments._symbolic_runtime import (
     SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
+    NETWORK_SWEEP_DECLARATION,
     RF_OUTPUT_DECLARATION,
     TEMPERATURE_READOUT_DECLARATION,
+    NetworkSweepResults,
+    NetworkSweepState,
     RFOutputState,
     TemperatureReadoutObservation,
     TemperatureSampleResults,
@@ -196,8 +199,106 @@ rf_output: InstrumentFamily[
     requires=(RF_OUTPUT_DECLARATION.ref,),
 )
 
+_NETWORK_SWEEP_LAYOUT = declared_interface_layout(NETWORK_SWEEP_DECLARATION)
+_NETWORK_SWEEP_SWEEP_DECLARATION = _NETWORK_SWEEP_LAYOUT.root.acquisitions[0]
+
+
+@dataclass(frozen=True, slots=True)
+class NetworkSweepReadback(
+    NetworkSweepResults[MeasurementValue | None, MeasurementValue | None]
+):
+    """Named sweep results plus their effect receipt."""
+
+    receipt: CollectReceipt = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class NetworkSweepProducts(NetworkSweepResults[ProductRef, ProductRef]):
+    """Typed logical products produced by sweep."""
+
+
+class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepState]):
+    def sweep(self) -> NetworkSweepReadback:
+        return self._collect_declared(
+            _NETWORK_SWEEP_SWEEP_DECLARATION,
+            NetworkSweepReadback,
+        )
+
+
+class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepState]):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: OneEntity | None = None,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            requires=(NETWORK_SWEEP_DECLARATION.ref,),
+            for_=for_,
+        )
+
+    def sweep(
+        self,
+        *,
+        id: str | None = None,
+    ) -> NetworkSweepProducts:
+        return self._acquire_declared(
+            _NETWORK_SWEEP_SWEEP_DECLARATION,
+            NetworkSweepProducts,
+            id=id,
+        )
+
+
+class SymbolicNetworkSweepGroup(
+    DeclaredStateSymbolicGroupBase[NetworkSweepState, SymbolicNetworkSweepClient]
+):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: EachEntity,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            for_=for_,
+            client_factory=SymbolicNetworkSweepClient,
+        )
+
+    def sweep(
+        self,
+        *,
+        id: str | None = None,
+    ) -> PerEntity[NetworkSweepProducts]:
+        return self._clients.map(lambda client: client.sweep(id=id))
+
+
+network_sweep: InstrumentFamily[
+    NetworkSweepClient,
+    SymbolicNetworkSweepClient,
+    SymbolicNetworkSweepGroup,
+] = InstrumentFamily(
+    NetworkSweepClient,
+    SymbolicNetworkSweepClient,
+    SymbolicNetworkSweepGroup,
+    requires=(NETWORK_SWEEP_DECLARATION.ref,),
+)
+
 __all__ = [
+    "NetworkSweepClient",
+    "NetworkSweepProducts",
+    "NetworkSweepReadback",
     "RFOutputClient",
+    "SymbolicNetworkSweepClient",
+    "SymbolicNetworkSweepGroup",
     "SymbolicRFOutputClient",
     "SymbolicRFOutputGroup",
     "SymbolicTemperatureReadoutClient",
@@ -206,6 +307,7 @@ __all__ = [
     "TemperatureReadoutClient",
     "TemperatureReadoutObservation",
     "TemperatureSampleProducts",
+    "network_sweep",
     "rf_output",
     "temperature_readout",
 ]
