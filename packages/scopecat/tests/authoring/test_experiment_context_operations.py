@@ -16,7 +16,6 @@ from scopecat.program.logical import (
     LogicalInvocation,
     LogicalStateAssignment,
 )
-from scopecat.program.measurements import measurement_postprocessor
 from scopecat.program.state import StateBinding
 from scopecat.sdk.instruments import InterfaceRef, PropertyRef
 
@@ -86,21 +85,19 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
             operation=_DEVICE_TRIGGER,
             arguments={_DEVICE_TRIGGER_LEVEL: trigger_payload},
         )
-        raw = experiment.product("raw", metadata={"stage": "capture"})
-        derived = experiment.product("derived")
+        raw = experiment._product("raw", metadata={"stage": "capture"})
+        derived = experiment._product("derived")
         experiment._acquire(
             "read-signal",
             resource=device,
             results={_DEVICE_SIGNAL: raw},
             metadata={"mode": "fast"},
         )
-        experiment.measurement_postprocessor(
-            measurement_postprocessor(
-                "derive",
-                input=raw,
-                outputs={"derived": derived},
-                kernel=_derive_signal,
-            )
+        experiment._postprocess(
+            "derive",
+            input=raw,
+            outputs={"derived": derived},
+            kernel=_derive_signal,
         )
         experiment.record(raw, derived)
         experiment.finalize(
@@ -151,7 +148,7 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
 def test_template_and_scratch_share_direct_root_authoring() -> None:
     def body(experiment: sc.ExperimentContext) -> None:
         device = experiment._resource("device", requires=(_DEVICE,))
-        signal = experiment.product("signal")
+        signal = experiment._product("signal")
         experiment._acquire(
             "read-signal",
             resource=device,

@@ -29,6 +29,7 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
 )
 from scopecat.kernel.value_types import Payload
+from scopecat.measurements.postprocessor_contract import MeasurementPostprocessorKernel
 from scopecat.measurements.results import MeasurementDType
 from scopecat.program.bindings import (
     BindingIntent,
@@ -41,7 +42,10 @@ from scopecat.program.bindings import (
 from scopecat.program.bindings import bind_property as binding_property
 from scopecat.program.domain import DomainCall
 from scopecat.program.input_capture import capture_runtime_input
-from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.measurements import (
+    MeasurementPostprocessor,
+    create_measurement_postprocessor_internal,
+)
 from scopecat.program.module import (
     ModuleAcquireEffect,
     ModuleAcquireResult,
@@ -333,27 +337,6 @@ class ModuleContext:
             )
         )
 
-    def product(
-        self,
-        id: str,
-        *,
-        scope: Sequence[str] = (),
-        unit: str | None = "ratio",
-        dtype: MeasurementDType = "float64",
-        axes: Sequence[ProductAxis] = (),
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ProductRef:
-        """Declare and return one module-owned logical product."""
-
-        return self._product(
-            id,
-            scope=scope,
-            unit=unit,
-            dtype=dtype,
-            axes=axes,
-            metadata=metadata,
-        )
-
     def _product(
         self,
         id: str,
@@ -365,7 +348,7 @@ class ModuleContext:
         recording: ProductRecording | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ProductRef:
-        """Declare a product carrying generated-client recording provenance."""
+        """Declare a logical product for a generated acquisition or producer."""
 
         declaration = ModuleProductDecl(
             id,
@@ -510,13 +493,24 @@ class ModuleContext:
         )
         return definition.output
 
-    def measurement_postprocessor(
+    def _postprocess(
         self,
-        postprocessor: MeasurementPostprocessor,
+        id: str,
+        *,
+        input: ProductRef,
+        outputs: Mapping[str, ProductRef],
+        kernel: MeasurementPostprocessorKernel,
     ) -> None:
-        """Register one point-local measurement calculation."""
+        """Register a typed producer's point-local measurement calculation."""
 
-        self._measurement_postprocessors.append(postprocessor)
+        self._measurement_postprocessors.append(
+            create_measurement_postprocessor_internal(
+                id,
+                input=input,
+                outputs=outputs,
+                kernel=kernel,
+            )
+        )
 
 
 def build_ensure_state_intent(

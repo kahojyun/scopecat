@@ -50,6 +50,7 @@ from scopecat.kernel.instrument_members import (
 )
 from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.measurements.postprocessor_contract import MeasurementPostprocessorKernel
 from scopecat.measurements.results import MeasurementDType
 from scopecat.program.bindings import BindingIntent
 from scopecat.program.definitions import (
@@ -59,9 +60,6 @@ from scopecat.program.definitions import (
 )
 from scopecat.program.domain import DomainCall
 from scopecat.program.input_capture import empty_program_mapping
-from scopecat.program.measurements import (
-    MeasurementPostprocessor,
-)
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
     ProductAxis,
@@ -316,27 +314,6 @@ class ExperimentContext:
             arguments=arguments,
         )
 
-    def product(
-        self,
-        id: str,
-        *,
-        scope: Sequence[str] = (),
-        unit: str | None = "ratio",
-        dtype: MeasurementDType = "float64",
-        axes: Sequence[ProductAxis] = (),
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ProductRef:
-        """Declare and return one experiment-owned logical product."""
-
-        return self._program.product(
-            id,
-            scope=scope,
-            unit=unit,
-            dtype=dtype,
-            axes=axes,
-            metadata=metadata,
-        )
-
     def _product(
         self,
         id: str,
@@ -348,7 +325,7 @@ class ExperimentContext:
         recording: ProductRecording | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ProductRef:
-        """Declare a product carrying generated-client recording provenance."""
+        """Declare a logical product for a generated acquisition or producer."""
 
         return self._program._product(
             id,
@@ -394,13 +371,22 @@ class ExperimentContext:
             output_type=output_type,
         )
 
-    def measurement_postprocessor(
+    def _postprocess(
         self,
-        postprocessor: MeasurementPostprocessor,
+        id: str,
+        *,
+        input: ProductRef,
+        outputs: Mapping[str, ProductRef],
+        kernel: MeasurementPostprocessorKernel,
     ) -> None:
-        """Register one root point-local measurement calculation."""
+        """Register a typed producer's point-local measurement calculation."""
 
-        self._program.measurement_postprocessor(postprocessor)
+        self._program._postprocess(
+            id,
+            input=input,
+            outputs=outputs,
+            kernel=kernel,
+        )
 
     def scan(self, *scans: Scan) -> None:
         """Declare the experiment's default point-domain scans."""

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from scopecat.kernel.product_identity import ProductId, product_id
+from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
@@ -61,36 +61,25 @@ class MeasurementPostprocessor:
         return SymbolId(scope=self.scope, local_id=self.id)
 
 
-def measurement_postprocessor(
+def create_measurement_postprocessor_internal(
     id: str,
     *,
-    input: str | ProductRef,
-    outputs: Mapping[str, str | ProductRef],
+    input: ProductRef,
+    outputs: Mapping[str, ProductRef],
     kernel: MeasurementPostprocessorKernel,
 ) -> MeasurementPostprocessor:
-    """Declare a point-local calculation from one measured value."""
+    """Build the program IR recorded by a typed measurement producer."""
 
-    if isinstance(input, str) and not input:
-        raise ValueError("measurement postprocessor input product id must be non-empty")
-    if any(
-        not role or (isinstance(product, str) and not product)
-        for role, product in outputs.items()
-    ):
-        raise ValueError(
-            "measurement postprocessor outputs require non-empty role and product ids"
-        )
     return MeasurementPostprocessor(
         id=id,
-        input_binding=_binding_product_id(input),
+        input_binding=input.product_id,
         output_bindings=tuple(
-            (role, _binding_product_id(product)) for role, product in outputs.items()
+            (role, product.product_id) for role, product in outputs.items()
         ),
         kernel=kernel,
-        input_product_origin=(input.origin if isinstance(input, ProductRef) else None),
+        input_product_origin=input.origin,
         output_product_origins=tuple(
-            (role, product.origin)
-            for role, product in outputs.items()
-            if isinstance(product, ProductRef)
+            (role, product.origin) for role, product in outputs.items()
         ),
     )
 
@@ -98,9 +87,3 @@ def measurement_postprocessor(
 def _require_unique(label: str, values: tuple[str, ...]) -> None:
     if len(values) != len(set(values)):
         raise ValueError(f"{label} roles must be unique")
-
-
-def _binding_product_id(product: str | ProductRef) -> ProductId:
-    return (
-        product.product_id if isinstance(product, ProductRef) else product_id(product)
-    )

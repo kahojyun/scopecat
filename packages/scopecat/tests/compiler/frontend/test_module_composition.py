@@ -64,7 +64,7 @@ def _composable_module() -> sc.ExperimentModule[...]:
             output_type=payload_type,
         )
         context.export(payload=consumed)
-        signal = context.product("signal", unit="ratio")
+        signal = context._product("signal", unit="ratio")
         context._acquire(
             "read-signal",
             resource=source,

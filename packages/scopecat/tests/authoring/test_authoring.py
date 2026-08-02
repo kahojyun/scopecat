@@ -198,7 +198,7 @@ def test_template_selects_module_products_as_records() -> None:
             "source",
             requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
         )
-        signal = context.product("signal", unit="ratio")
+        signal = context._product("signal", unit="ratio")
         context._acquire(
             "read-signal",
             resource=source,
@@ -470,7 +470,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
         )
-        signal = context.product("signal", unit="ratio")
+        signal = context._product("signal", unit="ratio")
         context._acquire(
             "read-signal",
             resource=drive,
@@ -587,7 +587,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
     ) -> None:
         del qubit
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
-        signal = context.product("signal", unit="ratio")
+        signal = context._product("signal", unit="ratio")
         context._acquire(
             "read-signal",
             resource=source,
@@ -638,7 +638,7 @@ def test_literal_string_values_define_categorical_product_axis() -> None:
     @sc.module(id="test.categorical_axis")
     def module(context: sc.ModuleContext) -> None:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
-        iq = context.product(
+        iq = context._product(
             "iq",
             dtype="complex128",
             axes=(
@@ -1073,7 +1073,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
         )
-        signal = context.product("signal", unit="ratio")
+        signal = context._product("signal", unit="ratio")
         context._acquire(
             "read-products",
             resource=source,
@@ -1126,7 +1126,7 @@ def test_product_declaration_uses_axes() -> None:
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
         )
-        signal = context.product(
+        signal = context._product(
             "signal",
             unit="ratio",
             axes=(

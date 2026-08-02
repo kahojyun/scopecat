@@ -457,7 +457,7 @@ def test_invocation_validates_typed_and_literal_inputs_immediately() -> None:
 def test_module_products_remain_reusable_across_instances() -> None:
     @sc.module(id="test.outputs.product")
     def module(context: sc.ModuleContext) -> None:
-        context.product("signal")
+        context._product("signal")
 
     child = module.instantiate("child")
 

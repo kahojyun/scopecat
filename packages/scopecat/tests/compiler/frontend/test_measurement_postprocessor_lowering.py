@@ -7,10 +7,6 @@ import pytest
 import scopecat as sc
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
-from scopecat.program.measurements import (
-    MeasurementPostprocessor,
-    measurement_postprocessor,
-)
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
 
@@ -22,34 +18,26 @@ def _kernel(value: MeasurementValue) -> dict[str, MeasurementValue]:
     return {"result": value}
 
 
-def _postprocessor(
-    id: str,
-    *,
-    source: str,
-    output: str,
-) -> MeasurementPostprocessor:
-    return measurement_postprocessor(
-        id,
-        input=source,
-        outputs={"result": output},
-        kernel=_kernel,
-    )
-
-
 def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     tmp_path: Path,
 ) -> None:
     @sc.module(id="test.postprocessor.lowering")
     def module(context: sc.ModuleContext) -> None:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
-        raw = context.product("raw")
-        context.product("derived")
-        context.product("dead")
-        context.measurement_postprocessor(
-            _postprocessor("dead", source="raw", output="dead")
+        raw = context._product("raw")
+        derived = context._product("derived")
+        dead = context._product("dead")
+        context._postprocess(
+            "dead",
+            input=raw,
+            outputs={"result": dead},
+            kernel=_kernel,
         )
-        context.measurement_postprocessor(
-            _postprocessor("derive", source="raw", output="derived")
+        context._postprocess(
+            "derive",
+            input=raw,
+            outputs={"result": derived},
+            kernel=_kernel,
         )
         context._acquire(
             "read-raw",
@@ -91,10 +79,13 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
     @sc.module(id="test.postprocessor.hidden-id.child")
     def child(context: sc.ModuleContext) -> None:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
-        raw = context.product("raw")
-        context.product("derived")
-        context.measurement_postprocessor(
-            _postprocessor("derive", source="raw", output="derived")
+        raw = context._product("raw")
+        derived = context._product("derived")
+        context._postprocess(
+            "derive",
+            input=raw,
+            outputs={"result": derived},
+            kernel=_kernel,
         )
         context._acquire(
             "read-raw",
@@ -143,7 +134,7 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
 def test_recorded_product_requires_a_producer() -> None:
     @sc.module(id="test.product.owner")
     def module(context: sc.ModuleContext) -> None:
-        context.product("orphan")
+        context._product("orphan")
 
     @sc.template(id="test.product.owner", kind="product-owner")
     def template(experiment: sc.ExperimentContext) -> None:

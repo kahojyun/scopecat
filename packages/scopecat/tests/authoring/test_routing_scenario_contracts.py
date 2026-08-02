@@ -262,7 +262,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
             requires=(_READOUT_ACQUIRE,),
             for_entities=(authoring.input_ref(qubit),),
         )
-        iq = context.product("iq", dtype="complex128")
+        iq = context._product("iq", dtype="complex128")
         context._acquire(
             "capture-iq",
             resource=digitizer,
@@ -353,7 +353,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
             _READOUT_EMIT_FREQUENCY,
             value=Quantity(value=6.5, unit="GHz"),
         )
-        iq = context.product(
+        iq = context._product(
             "iq",
             dtype="complex128",
         )

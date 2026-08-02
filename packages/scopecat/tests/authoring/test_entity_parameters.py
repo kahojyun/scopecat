@@ -227,8 +227,8 @@ def test_experiment_record_expands_per_entity_products_in_declaration_order() ->
     context = sc.ExperimentContext()
     q1 = sc.EntityRef(id="q1", kind="logical_device")
     q0 = sc.EntityRef(id="q0", kind="logical_device")
-    first = context.product("first")
-    second = context.product("second")
+    first = context._product("first")
+    second = context._product("second")
     products = sc.PerEntity(((q1, first), (q0, second)))
 
     context.record(products)
@@ -255,7 +255,7 @@ def test_per_entity_record_id_still_requires_one_expanded_product() -> None:
     q0 = sc.EntityRef(id="q0", kind="logical_device")
     q1 = sc.EntityRef(id="q1", kind="logical_device")
     products = sc.PerEntity(
-        ((q0, context.product("first")), (q1, context.product("second")))
+        ((q0, context._product("first")), (q1, context._product("second")))
     )
 
     with pytest.raises(ValueError, match="record_id can only be used with one product"):
@@ -265,7 +265,7 @@ def test_per_entity_record_id_still_requires_one_expanded_product() -> None:
 def test_per_entity_record_rejects_an_explicit_empty_record_id() -> None:
     context = sc.ExperimentContext()
     q0 = sc.EntityRef(id="q0", kind="logical_device")
-    products = sc.PerEntity(((q0, context.product("signal")),))
+    products = sc.PerEntity(((q0, context._product("signal")),))
 
     with pytest.raises(ValueError, match="record id must be non-empty"):
         context.record(products, record_id="")
@@ -273,7 +273,7 @@ def test_per_entity_record_rejects_an_explicit_empty_record_id() -> None:
 
 def test_record_namespace_is_non_empty_and_exclusive_with_record_id() -> None:
     context = sc.ExperimentContext()
-    product = context.product("signal", scope=("readout",))
+    product = context._product("signal", scope=("readout",))
 
     with pytest.raises(ValueError, match="record namespace must be non-empty"):
         context.record(product, namespace="")

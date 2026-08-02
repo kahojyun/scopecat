@@ -180,7 +180,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
 
     @sc.module(id="test.graph.record-schema")
     def module(context: sc.ModuleContext) -> None:
-        context.product("signal", axes=(duplicate_axis, duplicate_axis))
+        context._product("signal", axes=(duplicate_axis, duplicate_axis))
 
     program = domain_program(
         "consume-parameter",
@@ -212,7 +212,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
 def test_product_rejects_duplicate_effective_dimensions() -> None:
     @sc.module(id="test.graph.duplicate-dimension")
     def module(context: sc.ModuleContext) -> None:
-        context.product(
+        context._product(
             "signal",
             axes=(
                 product_axis("i", size=2, shared_as="sample"),
@@ -276,7 +276,7 @@ def test_product_axis_rejects_external_operation_value() -> None:
             fn=lambda: 2,
             output_type=sc.ScalarType(sc.IntType()),
         )
-        context.product(
+        context._product(
             "signal",
             axes=(product_axis("sample", size=size),),
         )
@@ -299,7 +299,7 @@ def test_product_axis_rejects_point_dependent_value() -> None:
         context: sc.ModuleContext,
         size: Annotated[sc.Input[int], sc.IntType(minimum=1)],
     ) -> None:
-        context.product(
+        context._product(
             "signal",
             axes=(product_axis("sample", size=sc.input_ref(size)),),
         )

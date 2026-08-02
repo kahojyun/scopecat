@@ -42,7 +42,7 @@ def SIMPLE_FREQUENCY_SCAN(
         _SET_FREQUENCY_VALUE,
         value=frequency,
     )
-    signal = module.product("signal", unit="ratio")
+    signal = module._product("signal", unit="ratio")
     module._acquire(
         "read-signal",
         resource=source,

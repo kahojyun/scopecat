@@ -33,7 +33,7 @@ def _product_module() -> sc.ExperimentModule[...]:
     @sc.module(id="test.products.source")
     def module(context: sc.ModuleContext) -> None:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
-        signal = context.product(
+        signal = context._product(
             "signal",
             unit="ratio",
         )
@@ -53,7 +53,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
     @sc.module(id="test.products.metadata")
     def module(context: sc.ModuleContext) -> None:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
-        signal = context.product(
+        signal = context._product(
             "signal",
             metadata={"schema_owner": "analysis"},
         )
@@ -88,11 +88,11 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
 def test_product_axes_use_product_local_dimensions_by_default() -> None:
     @sc.module(id="test.products.local-axis")
     def module(context: sc.ModuleContext) -> None:
-        context.product(
+        context._product(
             "i",
             axes=(product_axis("sample", size=2),),
         )
-        context.product(
+        context._product(
             "q",
             axes=(
                 product_axis(
@@ -124,7 +124,7 @@ def test_product_axes_use_product_local_dimensions_by_default() -> None:
 def test_product_axes_share_dimensions_only_when_explicit() -> None:
     @sc.module(id="test.products.shared-axis")
     def module(context: sc.ModuleContext) -> None:
-        context.product(
+        context._product(
             "i",
             axes=(
                 product_axis(
@@ -135,7 +135,7 @@ def test_product_axes_share_dimensions_only_when_explicit() -> None:
                 ),
             ),
         )
-        context.product(
+        context._product(
             "q",
             axes=(
                 product_axis(
@@ -183,7 +183,7 @@ def test_local_and_shared_axis_namespaces_cannot_collide() -> None:
 def test_conflicting_explicitly_shared_product_axes_are_rejected() -> None:
     @sc.module(id="test.products.shared-axis-conflict")
     def module(context: sc.ModuleContext) -> None:
-        context.product(
+        context._product(
             "i",
             axes=(
                 product_axis(
@@ -193,7 +193,7 @@ def test_conflicting_explicitly_shared_product_axes_are_rejected() -> None:
                 ),
             ),
         )
-        context.product(
+        context._product(
             "q",
             axes=(
                 product_axis(
@@ -222,7 +222,7 @@ def test_acquire_is_an_ordered_effect() -> None:
     @sc.module(id="test.products.acquire")
     def module(context: sc.ModuleContext) -> None:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
-        signal = context.product("signal")
+        signal = context._product("signal")
         context._acquire(
             "read-signal",
             resource=source,
@@ -249,7 +249,7 @@ def test_component_scoped_members_lower_complete_targets() -> None:
             resource=source,
             operation=channel.operation("zero"),
         )
-        signal = context.product("signal")
+        signal = context._product("signal")
         context._acquire(
             "read-signal",
             resource=source,
@@ -279,9 +279,9 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
     @sc.module(id="test.products.result-mapping")
     def module(context: sc.ModuleContext) -> None:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
-        first = context.product("first")
-        second = context.product("second")
-        default = context.product("default")
+        first = context._product("first")
+        second = context._product("second")
+        default = context._product("default")
         context._acquire(
             "read-all",
             resource=source,
@@ -339,8 +339,8 @@ def test_acquire_rejects_invalid_result_mappings() -> None:
         @sc.module(id="test.products.invalid-result-mapping.acquisition")
         def mismatched_acquisition(context: sc.ModuleContext) -> None:
             source = context._resource("source", requires=(_SCALAR_SIGNAL,))
-            first = context.product("first")
-            second = context.product("second")
+            first = context._product("first")
+            second = context._product("second")
             context._acquire(
                 "read-both",
                 resource=source,
@@ -359,7 +359,7 @@ def test_acquire_rejects_invalid_result_mappings() -> None:
         @sc.module(id="test.products.invalid-result-mapping.duplicate")
         def duplicate_product(context: sc.ModuleContext) -> None:
             source = context._resource("source", requires=(_SCALAR_SIGNAL,))
-            first = context.product("first")
+            first = context._product("first")
             context._acquire(
                 "read-both",
                 resource=source,
@@ -371,7 +371,7 @@ def test_acquire_rejects_invalid_result_mappings() -> None:
 
     @sc.module(id="test.products.foreign")
     def foreign(context: sc.ModuleContext) -> None:
-        context.product("first")
+        context._product("first")
 
     with pytest.raises(ValueError, match="outside this module"):
 

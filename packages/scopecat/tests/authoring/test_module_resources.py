@@ -66,7 +66,7 @@ def _resource_module() -> sc.ExperimentModule[...]:
             _SET_FREQUENCY_VALUE_PATH,
             value=frequency,
         )
-        signal = context.product("signal")
+        signal = context._product("signal")
         context._acquire(
             "read-signal",
             resource=drive,
@@ -201,7 +201,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
             value=value,
         )
         context.call(domain_call(program, id="call"))
-        signal = context.product("signal")
+        signal = context._product("signal")
         context._acquire(
             "read-signal",
             resource=drive,
@@ -228,7 +228,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
             value=value,
         )
         context.call(domain_call(program, id="root-call"))
-        root_signal = context.product("root-signal")
+        root_signal = context._product("root-signal")
         context._acquire(
             "root-read",
             resource=drive,
@@ -339,8 +339,8 @@ def test_acquire_resource_interfaces_are_checked_before_binding() -> None:
     @sc.module(id="test.resources.missing-record-interface")
     def module(context: sc.ModuleContext) -> None:
         readout = context._resource("readout", requires=(_MEASURE_IQ,))
-        fixed = context.product("fixed")
-        exported = context.product("exported")
+        fixed = context._product("fixed")
+        exported = context._product("exported")
         context._acquire(
             "read-fixed",
             resource=readout,

@@ -76,7 +76,7 @@ def test_domain_execution_rejects_unknown_or_missing_bindings() -> None:
 
     @sc.module(id="test.domain.products")
     def product_module(context: sc.ModuleContext) -> None:
-        context.product("result")
+        context._product("result")
 
     program = domain_program(
         "program",
