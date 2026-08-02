@@ -50,6 +50,12 @@ property names and Python value types correlated, while acquisition clients
 return named readback fields. The lower-level member catalog continues to carry
 interface, component, and member identity for drivers and experiment lowering.
 
+Read-only declarations also return named state instead of forcing callers to
+decode property ids. A temperature client exposes `observation()` for the
+session-opening cached `TemperatureReadoutObservation` and
+`refresh_observation()` for an explicit device read; `observed_state()` and
+`refresh()` remain the raw snapshot escape hatch.
+
 Experiment modules reuse the same state dataclasses. Their fields accept either
 fixed values or typed Scopecat value references:
 

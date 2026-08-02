@@ -181,6 +181,13 @@ with sc.open_project(".").connect(operator="alice") as lab:
         trace = vna.sweep()  # NetworkSweepReadback, produced now
 ```
 
+Read-only typed observations use the same split between the cached state from
+session opening and an explicit hardware refresh. For example,
+`TemperatureReadoutClient.observation()` decodes the cached snapshot into
+`TemperatureReadoutObservation`, while `refresh_observation()` first reads the
+instrument. The lower-level `observed_state()` and `refresh()` snapshot methods
+remain available for diagnostics.
+
 The declarative form uses the same factory, state, and `sweep()` verb directly
 inside a root experiment. A one-off experiment does not need an intermediate
 module, manual interface refs, product declarations, or acquisition-result
@@ -368,6 +375,15 @@ metadata, and nested typed capability attributes marked as components. Component
 capabilities may contain operations and acquisitions and may nest further, while
 the Python annotations remain visible to static type checkers.
 
+Compiled declarations expose typed member descriptors in addition to the wire
+contract. `declared_operation(...)` binds the original Python call signature and
+maps its arguments to stable operation refs, `declared_acquisition(...)` binds
+result layouts, and `declared_observed_state(...)` decodes complete snapshots
+back into the declared dataclass. Operation annotations may include `ValueRef`
+through `Desired[T]`; the compiled hardware argument remains `T`. A live client
+narrows its public method to concrete values, while its symbolic counterpart
+retains the point-resolved type and records the same operation ref.
+
 Declared state dataclasses are intentionally plain data. Both time models use
 the same declaration codec: live clients encode resolved values, while symbolic
 clients retain `ValueRef` bindings. Users normally call the typed client's
@@ -389,6 +405,16 @@ state-discriminated acquisitions, axes, results, preconditions, and nested
 method capabilities. Explicit contract builders remain the escape hatch for
 component-owned state or properties, combining observed and discriminated state,
 and other unusual contract shapes.
+
+The descriptor boundary also does not dynamically inject public client methods.
+Those methods must remain real Python source so type checkers can preserve
+positional-only and keyword-only parameters, narrow live argument carriers, add
+symbolic effect ids, and lift each parameter independently for entity groups.
+The current first-party clients still contain hand-written thin wrappers; the
+next consolidation is static source generation from the decorated interfaces.
+Nested component refs already resolve recursively, but a typed component proxy
+tree is part of that generation step. Payload-bearing operations additionally
+need a schema-specific policy for their concrete live and symbolic carriers.
 
 ### Entity selection and parameter mapping
 
@@ -413,6 +439,15 @@ the concrete entities in one `each(...)` selection must also have globally
 unique ids; different kinds do not disambiguate the same id there. Root
 recording accepts a `PerEntity[ProductRef]` projection directly, preserves
 declaration order, and gives each scoped product a stable qualified record id.
+
+`EachEntity` expansion happens while authoring: every selected entity owns an
+independently routable scalar resource. It is not a vector operation added to
+the planner. Generated group operation methods will apply the same identity
+rule independently to every argument: a scalar value broadcasts, a
+`PerEntity[value]` must be an exact join, and all arguments are aligned before
+any child invocation is recorded. The result is one ordinary invocation per
+child resource, so component paths and symbolic state-cache invalidation retain
+their scalar semantics.
 
 Parameter tables use the same cardinality shape. The schema is declared once
 and supplies both named authoring accessors and the exact catalog `TableType`:
