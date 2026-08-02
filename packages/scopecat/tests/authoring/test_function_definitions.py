@@ -36,8 +36,8 @@ def test_module_decorator_injects_one_explicit_context() -> None:
         nonlocal elaborations
         elaborations += 1
         count_ref = assert_type(sc.input_ref(count), sc.ValueRef)
-        counter = module.resource("test.counter/v1", requires=(_COUNTER,))
-        module.bind_property(counter, _COUNTER_COUNT, value=count_ref)
+        counter = module._resource("test.counter/v1", requires=(_COUNTER,))
+        module._bind_property(counter, _COUNTER_COUNT, value=count_ref)
 
     assert elaborations == 1
     assert count_source.id.endswith(".count_source")
@@ -88,8 +88,8 @@ def test_template_infers_identity_description_and_defaults() -> None:
         module: sc.ModuleContext,
         count: Annotated[sc.Input[int], _COUNT_TYPE],
     ) -> None:
-        counter = module.resource("test.counter/v1", requires=(_COUNTER,))
-        module.bind_property(counter, _COUNTER_COUNT, value=count)
+        counter = module._resource("test.counter/v1", requires=(_COUNTER,))
+        module._bind_property(counter, _COUNTER_COUNT, value=count)
 
     @sc.template
     def count_experiment(
@@ -158,8 +158,8 @@ def test_template_and_scratch_share_the_context_protocol() -> None:
         module: sc.ModuleContext,
         value: Annotated[sc.Input[int], _COUNT_TYPE],
     ) -> None:
-        counter = module.resource("test.counter/v1", requires=(_COUNTER,))
-        module.bind_property(counter, _COUNTER_COUNT, value=value)
+        counter = module._resource("test.counter/v1", requires=(_COUNTER,))
+        module._bind_property(counter, _COUNTER_COUNT, value=value)
 
     def body(experiment: sc.ExperimentContext) -> None:
         experiment.run(count_source(value=count))

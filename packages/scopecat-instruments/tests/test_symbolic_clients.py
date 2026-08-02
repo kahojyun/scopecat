@@ -39,7 +39,6 @@ from scopecat_instruments import (
     SymbolicDCSourceGroup,
     SymbolicDCSourceMonitorClient,
     SymbolicDCSourceMonitorGroup,
-    SymbolicInstrumentRecorder,
     SymbolicNetworkSweepClient,
     SymbolicNetworkSweepGroup,
     SymbolicRFOutputClient,
@@ -148,7 +147,6 @@ def test_each_expands_into_single_entity_resources_and_unique_acquisitions() -> 
     definition = context.close_definition_internal(id="test.symbolic.each")
     resources = definition.interface.resources
     assert len(resources) == 2
-    assert tuple(analyzers.resources) == (q0, q1)
     assert all(
         resource.id.startswith("readout.logical-device-q") for resource in resources
     )
@@ -347,16 +345,6 @@ def test_group_per_entity_operation_argument_requires_exact_identity_join() -> N
         ),
     ):
         biases.source_voltage(range=Quantity(1, "V"), level=levels)
-
-
-def test_experiment_context_satisfies_the_symbolic_recorder_protocol() -> None:
-    context = ExperimentContext()
-    recorder: SymbolicInstrumentRecorder = context
-
-    vna = network_sweep(recorder, "readout")
-
-    assert_type(vna, SymbolicNetworkSweepClient)
-    assert vna.resource.id == "readout"
 
 
 def test_symbolic_products_record_directly_from_a_root_experiment() -> None:

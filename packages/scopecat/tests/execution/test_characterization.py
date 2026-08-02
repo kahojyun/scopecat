@@ -189,8 +189,8 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
             inputs={"program": sc.input_ref(program)},
             output_type=pulse_program_type,
         )
-        source = context.resource("source", requires=(_PLAY_PROGRAM,))
-        context.invoke(
+        source = context._resource("source", requires=(_PLAY_PROGRAM,))
+        context._invoke(
             "play-program",
             resource=source,
             operation=_PLAY_PROGRAM_PLAY,

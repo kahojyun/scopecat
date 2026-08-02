@@ -43,8 +43,8 @@ def _composable_module() -> sc.ExperimentModule[...]:
 
     @sc.module(id="test.composition-invariant.source")
     def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_MEASURE,))
-        context.bind_property(
+        source = context._resource("source", requires=(_MEASURE,))
+        context._bind_property(
             source,
             _MEASURE_MODE,
             value="fast",
@@ -65,7 +65,7 @@ def _composable_module() -> sc.ExperimentModule[...]:
         )
         context.export(payload=consumed)
         signal = context.product("signal", unit="ratio")
-        context.acquire(
+        context._acquire(
             "read-signal",
             resource=source,
             results={_MEASURE_SAMPLE_SIGNAL: signal},

@@ -48,14 +48,14 @@ from scopecat_instruments._client_runtime import (
 )
 
 
-class SymbolicInstrumentRecorder(Protocol):
+class _SymbolicInstrumentRecorder(Protocol):
     """The authoring operations needed by symbolic instrument clients.
 
     ``ModuleContext`` and ``ExperimentContext`` satisfy this protocol without
     making this package depend on either concrete context type.
     """
 
-    def resource(
+    def _resource(
         self,
         id: str,
         *,
@@ -63,9 +63,9 @@ class SymbolicInstrumentRecorder(Protocol):
         for_entities: Sequence[ValueRef],
     ) -> DefinitionResource: ...
 
-    def ensure(self, resource: DefinitionResource, target: DesiredState) -> None: ...
+    def _ensure(self, resource: DefinitionResource, target: DesiredState) -> None: ...
 
-    def invoke(
+    def _invoke(
         self,
         id: str,
         *,
@@ -85,7 +85,7 @@ class SymbolicInstrumentRecorder(Protocol):
         recording: ProductRecording | None,
     ) -> ProductRef: ...
 
-    def acquire(
+    def _acquire(
         self,
         id: str,
         *,
@@ -99,14 +99,14 @@ class SymbolicInstrumentClientBase:
 
     def __init__(
         self,
-        recorder: SymbolicInstrumentRecorder,
+        recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
         requires: Sequence[InterfaceRef],
         for_: OneEntity | None = None,
     ) -> None:
         self._recorder = recorder
-        self._resource = recorder.resource(
+        self._resource = recorder._resource(
             resource_id,
             requires=requires,
             for_entities=(
@@ -116,18 +116,12 @@ class SymbolicInstrumentClientBase:
         self._state_assignments: dict[PropertyRef, StateBinding] = {}
 
     @property
-    def resource(self) -> DefinitionResource:
-        """The logical resource declared for this typed client."""
-
-        return self._resource
-
-    @property
     def id(self) -> str:
         return self._resource.id
 
     def _ensure(self, target: DesiredState) -> None:
         assignments = target.target_assignments()
-        self._recorder.ensure(self._resource, target)
+        self._recorder._ensure(self._resource, target)
         self._state_assignments.update(assignments)
 
     def _invoke(
@@ -140,7 +134,7 @@ class SymbolicInstrumentClientBase:
         occurrence_id = operation.operation_id if effect_id is None else effect_id
         if not occurrence_id:
             raise ValueError("symbolic operation effect id must be non-empty")
-        self._recorder.invoke(
+        self._recorder._invoke(
             f"{self.id}.{occurrence_id}",
             resource=self._resource,
             operation=operation,
@@ -180,7 +174,7 @@ class SymbolicInstrumentClientBase:
                     role=field.role,
                 ),
             )
-        self._recorder.acquire(
+        self._recorder._acquire(
             effect_id,
             resource=self._resource,
             results={
@@ -215,7 +209,7 @@ class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
         state: StateT,
         /,
     ) -> tuple[FinalizationTarget, ...]:
-        return ((self.resource, self._desired_state_target(state)),)
+        return ((self._resource, self._desired_state_target(state)),)
 
     def _desired_state_target(self, state: StateT) -> DesiredState:
         return state_projection_target(state)
@@ -224,7 +218,7 @@ class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
 class _SymbolicClientFactory[ClientT: SymbolicInstrumentClientBase](Protocol):
     def __call__(
         self,
-        recorder: SymbolicInstrumentRecorder,
+        recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
         for_: OneEntity | None = None,
@@ -236,7 +230,7 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
 
     def __init__(
         self,
-        recorder: SymbolicInstrumentRecorder,
+        recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
         for_: EachEntity,
@@ -278,12 +272,6 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
         """Select one scalar client by complete entity identity."""
 
         return self._clients[entity]
-
-    @property
-    def resources(self) -> PerEntity[DefinitionResource]:
-        """The independently routable logical resource for each entity."""
-
-        return self._clients.map(lambda client: client.resource)
 
     def _align[ValueT](
         self,
@@ -327,7 +315,7 @@ class DeclaredStateSymbolicGroupBase[
         /,
     ) -> tuple[FinalizationTarget, ...]:
         return tuple(
-            (self._state_client(entity).resource, target)
+            (self._state_client(entity)._resource, target)
             for entity, target in self._aligned_targets(state)
         )
 
@@ -451,5 +439,4 @@ __all__ = [
     "DeclaredStateSymbolicGroupBase",
     "SymbolicInstrumentClientBase",
     "SymbolicInstrumentGroupBase",
-    "SymbolicInstrumentRecorder",
 ]

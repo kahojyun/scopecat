@@ -68,19 +68,19 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
         experiment: sc.ExperimentContext,
         level: Annotated[sc.Input[float], _LEVEL_TYPE] = 1.5,
     ) -> None:
-        device = experiment.resource("device", requires=(_DEVICE,))
+        device = experiment._resource("device", requires=(_DEVICE,))
         trigger_payload = experiment.compute(
             "build-trigger",
             fn=_build_trigger,
             inputs={"level": level},
             output_type=sc.ScalarType(sc.PayloadType("trigger")),
         )
-        experiment.ensure(
+        experiment._ensure(
             device,
             _DeviceTarget(level=level, enabled=True),
         )
-        experiment.bind_property(device, _DEVICE_MODE, value="measurement")
-        experiment.invoke(
+        experiment._bind_property(device, _DEVICE_MODE, value="measurement")
+        experiment._invoke(
             "trigger",
             resource=device,
             operation=_DEVICE_TRIGGER,
@@ -88,7 +88,7 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
         )
         raw = experiment.product("raw", metadata={"stage": "capture"})
         derived = experiment.product("derived")
-        experiment.acquire(
+        experiment._acquire(
             "read-signal",
             resource=device,
             results={_DEVICE_SIGNAL: raw},
@@ -150,9 +150,9 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
 
 def test_template_and_scratch_share_direct_root_authoring() -> None:
     def body(experiment: sc.ExperimentContext) -> None:
-        device = experiment.resource("device", requires=(_DEVICE,))
+        device = experiment._resource("device", requires=(_DEVICE,))
         signal = experiment.product("signal")
-        experiment.acquire(
+        experiment._acquire(
             "read-signal",
             resource=device,
             results={_DEVICE_SIGNAL: signal},

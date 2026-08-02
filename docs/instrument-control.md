@@ -243,8 +243,8 @@ The symbolic client derives the complete recording layout from the interface
 acquisition contract: `frequency` is a coordinate, `s_parameter` is an
 observable, and both share the declared frequency axis. Recording the typed
 result therefore projects one trace into the dataset without making the user
-repeat its fields or roles. The ordinary typed path also does not repeat that
-schema with `experiment.product(...)` and `experiment.acquire(...)`.
+repeat its fields or roles. The ordinary typed path also does not manually
+declare products and then wire acquisition-result mappings back to them.
 
 Every typed acquisition member retains its declared result id, role, and
 acquisition-occurrence group. That provenance belongs to the product rather

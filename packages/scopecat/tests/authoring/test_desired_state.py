@@ -84,8 +84,8 @@ def test_ensure_binds_one_declarative_target_with_point_resolved_values() -> Non
             sc.ScalarType(sc.QuantityType(unit="V")),
         ],
     ) -> None:
-        source = module.resource("source", requires=(_SOURCE,))
-        module.ensure(
+        source = module._resource("source", requires=(_SOURCE,))
+        module._ensure(
             source,
             _SourceTarget(level=level, enabled=True),
         )
@@ -109,8 +109,8 @@ def test_ensure_rejects_an_empty_target() -> None:
 
         @sc.module(id="test.empty-target")
         def empty_target(module: sc.ModuleContext) -> None:
-            source = module.resource("source")
-            module.ensure(source, _EmptyTarget())
+            source = module._resource("source")
+            module._ensure(source, _EmptyTarget())
 
 
 def test_ensure_rejects_none_at_the_authoring_boundary() -> None:
@@ -118,8 +118,8 @@ def test_ensure_rejects_none_at_the_authoring_boundary() -> None:
 
         @sc.module(id="test.none-target")
         def none_target(module: sc.ModuleContext) -> None:
-            source = module.resource("source", requires=(_SOURCE,))
-            module.ensure(source, _NullTarget())
+            source = module._resource("source", requires=(_SOURCE,))
+            module._ensure(source, _NullTarget())
 
 
 def test_bind_property_rejects_none_at_the_authoring_boundary() -> None:
@@ -127,8 +127,8 @@ def test_bind_property_rejects_none_at_the_authoring_boundary() -> None:
 
         @sc.module(id="test.none-binding")
         def none_binding(module: sc.ModuleContext) -> None:
-            source = module.resource("source", requires=(_SOURCE,))
-            module.bind_property(
+            source = module._resource("source", requires=(_SOURCE,))
+            module._bind_property(
                 source,
                 _SOURCE_ENABLED,
                 value=cast("StateBinding", cast("object", None)),
@@ -138,8 +138,8 @@ def test_bind_property_rejects_none_at_the_authoring_boundary() -> None:
 def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
     @sc.module(id="test.coherent-target")
     def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SOURCE,))
-        context.ensure(source, _SourceTarget(level=1.5, enabled=True))
+        source = context._resource("source", requires=(_SOURCE,))
+        context._ensure(source, _SourceTarget(level=1.5, enabled=True))
 
     @sc.template(id="test.coherent-target", kind="desired-state")
     def template(experiment: sc.ExperimentContext) -> None:
@@ -175,9 +175,9 @@ def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
 def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
     @sc.module(id="test.sequential-targets")
     def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SOURCE,))
-        context.ensure(source, _SourceTarget(level=1.0, enabled=True))
-        context.ensure(source, _SourceTarget(level=2.0, enabled=False))
+        source = context._resource("source", requires=(_SOURCE,))
+        context._ensure(source, _SourceTarget(level=1.0, enabled=True))
+        context._ensure(source, _SourceTarget(level=2.0, enabled=False))
 
     @sc.template(id="test.sequential-targets", kind="desired-state")
     def template(experiment: sc.ExperimentContext) -> None:
@@ -210,7 +210,7 @@ def test_root_final_state_is_materialized_outside_point_effects() -> None:
         experiment: sc.ExperimentContext,
         level: float = 0.0,
     ) -> None:
-        source = experiment.resource("source", requires=(_SOURCE,))
+        source = experiment._resource("source", requires=(_SOURCE,))
         experiment.finalize(
             _TypedSource(source),
             _DeclaredSourceState(level=level, enabled=False),
@@ -247,7 +247,7 @@ def test_root_final_state_is_materialized_outside_point_effects() -> None:
 def test_root_final_state_accepts_a_typed_finalization_adapter() -> None:
     @sc.template(id="test.typed-final-state", kind="desired-state")
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
-        source = experiment.resource("source", requires=(_SOURCE,))
+        source = experiment._resource("source", requires=(_SOURCE,))
         typed_source: sc.Finalizable[_DeclaredSourceState] = _TypedSource(source)
         experiment.finalize(
             typed_source,
@@ -272,7 +272,7 @@ def test_root_final_state_rejects_scan_coordinates() -> None:
 
         @sc.template(id="test.final_state-coordinate", kind="desired-state")
         def experiment_definition(experiment: sc.ExperimentContext) -> None:
-            source = experiment.resource("source", requires=(_SOURCE,))
+            source = experiment._resource("source", requires=(_SOURCE,))
             experiment.finalize(
                 _TypedSource(source),
                 _DeclaredSourceState(level=level, enabled=False),

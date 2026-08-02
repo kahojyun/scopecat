@@ -32,12 +32,12 @@ _SAMPLE = _SCALAR_SIGNAL.acquisition("sample")
 def _product_module() -> sc.ExperimentModule[...]:
     @sc.module(id="test.products.source")
     def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SCALAR_SIGNAL,))
+        source = context._resource("source", requires=(_SCALAR_SIGNAL,))
         signal = context.product(
             "signal",
             unit="ratio",
         )
-        context.acquire(
+        context._acquire(
             "read-signal",
             resource=source,
             results={_SAMPLE.result("signal"): signal},
@@ -52,12 +52,12 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
 ) -> None:
     @sc.module(id="test.products.metadata")
     def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SCALAR_SIGNAL,))
+        source = context._resource("source", requires=(_SCALAR_SIGNAL,))
         signal = context.product(
             "signal",
             metadata={"schema_owner": "analysis"},
         )
-        context.acquire(
+        context._acquire(
             "read-signal",
             resource=source,
             results={_SAMPLE.result("signal"): signal},
@@ -221,9 +221,9 @@ def test_conflicting_explicitly_shared_product_axes_are_rejected() -> None:
 def test_acquire_is_an_ordered_effect() -> None:
     @sc.module(id="test.products.acquire")
     def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SCALAR_SIGNAL,))
+        source = context._resource("source", requires=(_SCALAR_SIGNAL,))
         signal = context.product("signal")
-        context.acquire(
+        context._acquire(
             "read-signal",
             resource=source,
             results={_SAMPLE.result("signal"): signal},
@@ -242,15 +242,15 @@ def test_component_scoped_members_lower_complete_targets() -> None:
 
     @sc.module(id="test.products.component-targets")
     def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(interface,))
-        context.bind_property(source, channel.property("gain"), value=1.0)
-        context.invoke(
+        source = context._resource("source", requires=(interface,))
+        context._bind_property(source, channel.property("gain"), value=1.0)
+        context._invoke(
             "zero-channel",
             resource=source,
             operation=channel.operation("zero"),
         )
         signal = context.product("signal")
-        context.acquire(
+        context._acquire(
             "read-signal",
             resource=source,
             results={channel.acquisition("sample").result("signal"): signal},
@@ -278,11 +278,11 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
 ) -> None:
     @sc.module(id="test.products.result-mapping")
     def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SCALAR_SIGNAL,))
+        source = context._resource("source", requires=(_SCALAR_SIGNAL,))
         first = context.product("first")
         second = context.product("second")
         default = context.product("default")
-        context.acquire(
+        context._acquire(
             "read-all",
             resource=source,
             results={
@@ -324,8 +324,8 @@ def test_acquire_rejects_invalid_result_mappings() -> None:
 
         @sc.module(id="test.products.invalid-result-mapping.empty")
         def empty_results(context: sc.ModuleContext) -> None:
-            source = context.resource("source", requires=(_SCALAR_SIGNAL,))
-            context.acquire("read-both", resource=source, results={})
+            source = context._resource("source", requires=(_SCALAR_SIGNAL,))
+            context._acquire("read-both", resource=source, results={})
 
     mismatched_results = (
         _SCALAR_SIGNAL.acquisition("other").result("raw-second"),
@@ -338,10 +338,10 @@ def test_acquire_rejects_invalid_result_mappings() -> None:
     ) -> None:
         @sc.module(id="test.products.invalid-result-mapping.acquisition")
         def mismatched_acquisition(context: sc.ModuleContext) -> None:
-            source = context.resource("source", requires=(_SCALAR_SIGNAL,))
+            source = context._resource("source", requires=(_SCALAR_SIGNAL,))
             first = context.product("first")
             second = context.product("second")
-            context.acquire(
+            context._acquire(
                 "read-both",
                 resource=source,
                 results={
@@ -358,9 +358,9 @@ def test_acquire_rejects_invalid_result_mappings() -> None:
 
         @sc.module(id="test.products.invalid-result-mapping.duplicate")
         def duplicate_product(context: sc.ModuleContext) -> None:
-            source = context.resource("source", requires=(_SCALAR_SIGNAL,))
+            source = context._resource("source", requires=(_SCALAR_SIGNAL,))
             first = context.product("first")
-            context.acquire(
+            context._acquire(
                 "read-both",
                 resource=source,
                 results={
@@ -377,8 +377,8 @@ def test_acquire_rejects_invalid_result_mappings() -> None:
 
         @sc.module(id="test.products.invalid-result-mapping.foreign")
         def foreign_product(context: sc.ModuleContext) -> None:
-            source = context.resource("source", requires=(_SCALAR_SIGNAL,))
-            context.acquire(
+            source = context._resource("source", requires=(_SCALAR_SIGNAL,))
+            context._acquire(
                 "read-foreign",
                 resource=source,
                 results={_SAMPLE.result("raw-first"): foreign.products.first},

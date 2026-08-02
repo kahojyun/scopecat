@@ -41,7 +41,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
 ) -> None:
     @sc.module(id="test.postprocessor.lowering")
     def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SCALAR_SIGNAL,))
+        source = context._resource("source", requires=(_SCALAR_SIGNAL,))
         raw = context.product("raw")
         context.product("derived")
         context.product("dead")
@@ -51,7 +51,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         context.measurement_postprocessor(
             _postprocessor("derive", source="raw", output="derived")
         )
-        context.acquire(
+        context._acquire(
             "read-raw",
             resource=source,
             results={_SCALAR_SIGNAL_SAMPLE_RAW: raw},
@@ -90,13 +90,13 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
     @sc.module(id="test.postprocessor.hidden-id.child")
     def child(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SCALAR_SIGNAL,))
+        source = context._resource("source", requires=(_SCALAR_SIGNAL,))
         raw = context.product("raw")
         context.product("derived")
         context.measurement_postprocessor(
             _postprocessor("derive", source="raw", output="derived")
         )
-        context.acquire(
+        context._acquire(
             "read-raw",
             resource=source,
             results={_SCALAR_SIGNAL_SAMPLE_RAW: raw},

@@ -64,17 +64,17 @@ def SIMPLE_MODULE(
         authoring.ScalarType(authoring.QuantityType(unit="GHz")),
     ],
 ) -> None:
-    source = module.resource(
+    source = module._resource(
         "source",
         requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
     )
-    module.bind_property(
+    module._bind_property(
         source,
         _SET_FREQUENCY_VALUE,
         value=drive_frequency,
     )
     signal = module.product("signal", unit="ratio")
-    module.acquire(
+    module._acquire(
         "read-signal",
         resource=source,
         results={_SCALAR_SIGNAL_VALUE: signal},

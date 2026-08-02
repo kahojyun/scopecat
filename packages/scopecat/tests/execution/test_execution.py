@@ -895,8 +895,8 @@ def test_downstream_compute_receives_result_in_its_declared_type(
             inputs={"frequency": frequency},
             output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
         )
-        source = context.resource("source", requires=(play_interface,))
-        context.invoke(
+        source = context._resource("source", requires=(play_interface,))
+        context._invoke(
             "play-program",
             resource=source,
             operation=play,

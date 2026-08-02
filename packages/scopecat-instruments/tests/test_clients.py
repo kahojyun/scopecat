@@ -32,7 +32,6 @@ from scopecat.sdk.instruments.declarations import (
     state_projection_assignments,
 )
 
-import scopecat_instruments.clients as client_module
 from scopecat_instruments import (
     DCMonitorPatch,
     DCMonitorState,
@@ -485,11 +484,6 @@ def test_temperature_state_schema_and_top_level_export_are_shared() -> None:
         TEMPERATURE_READOUT_SCAN_CHANNEL,
         TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     ]
-
-
-def test_client_module_exports_only_client_owned_types() -> None:
-    assert "SymbolicInstrumentRecorder" in client_module.__all__
-    assert "TemperatureReadoutState" not in client_module.__all__
 
 
 def test_live_dc_source_factories_expose_explicit_capabilities() -> None:

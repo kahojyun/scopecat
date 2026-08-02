@@ -243,14 +243,14 @@ class ModuleContext:
                 raise ValueError("module output ids must be non-empty")
             self._output_ports.append(ModuleValueExport(id=output_id, source=value))
 
-    def resource(
+    def _resource(
         self,
         id: str,
         *,
         requires: Sequence[InterfaceRef] = (),
         for_entities: Sequence[ValueRef] = (),
     ) -> DefinitionResource:
-        """Declare and return one logical resource owned by this module."""
+        """Declare a generated client's logical resource."""
 
         interfaces = _resource_interfaces(requires)
         for value in for_entities:
@@ -269,14 +269,14 @@ class ModuleContext:
         )
         return DefinitionResource(logical_resource_port_id(id), self._owner)
 
-    def bind_property(
+    def _bind_property(
         self,
         resource: DefinitionResource,
         property: PropertyRef,
         *,
         value: BindingInput,
     ) -> None:
-        """Bind one typed persistent property on a logical resource."""
+        """Record a generated client's persistent property binding."""
 
         self._require_owned_resource(resource)
         _require_public_state_binding(value)
@@ -290,13 +290,13 @@ class ModuleContext:
             )
         )
 
-    def ensure(self, resource: DefinitionResource, target: DesiredState) -> None:
-        """Declare one coherent target state for a logical resource."""
+    def _ensure(self, resource: DefinitionResource, target: DesiredState) -> None:
+        """Record a generated client's coherent resource target state."""
 
         self._require_owned_resource(resource)
         self._effects.append(build_ensure_state_intent(resource.port_id, target))
 
-    def invoke(
+    def _invoke(
         self,
         id: str,
         *,
@@ -304,7 +304,7 @@ class ModuleContext:
         operation: OperationRef,
         arguments: Mapping[OperationArgumentRef, InvocationInput] | None = None,
     ) -> None:
-        """Append one ordered atomic hardware operation."""
+        """Record a generated client's ordered atomic hardware operation."""
 
         self._require_owned_resource(resource)
         selected_arguments = arguments or {}
@@ -384,7 +384,7 @@ class ModuleContext:
             _recording=declaration.recording,
         )
 
-    def acquire(
+    def _acquire(
         self,
         id: str,
         *,
@@ -392,7 +392,7 @@ class ModuleContext:
         results: Mapping[AcquisitionResultRef, ProductRef],
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
-        """Map one acquisition's typed results to declared products."""
+        """Map a generated client's acquisition results to declared products."""
 
         self._require_owned_resource(resource)
         if not id or not results:

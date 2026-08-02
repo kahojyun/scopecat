@@ -103,8 +103,8 @@ def test_invocation_rejects_an_unregistered_compute_output() -> None:
 
         @sc.module(id="test.graph.invocation-missing")
         def module(context: sc.ModuleContext) -> None:
-            drive = context.resource("drive", requires=(_PLAY_WAVEFORMS,))
-            context.invoke(
+            drive = context._resource("drive", requires=(_PLAY_WAVEFORMS,))
+            context._invoke(
                 "play",
                 resource=drive,
                 operation=_PLAY_WAVEFORMS_PLAY,
@@ -117,13 +117,13 @@ def test_invocation_rejects_an_unregistered_compute_output() -> None:
 def test_state_rejects_a_non_payload_compute_output() -> None:
     @sc.module(id="test.graph.state-type")
     def module(context: sc.ModuleContext) -> None:
-        drive = context.resource("drive", requires=(_SET_GAIN,))
+        drive = context._resource("drive", requires=(_SET_GAIN,))
         compute_value = context.compute(
             "numeric-value",
             fn=lambda: 1.0,
             output_type=sc.ScalarType(sc.FloatType()),
         )
-        context.bind_property(
+        context._bind_property(
             drive,
             _SET_GAIN_VALUE,
             value=compute_value,
@@ -150,8 +150,8 @@ def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
                 ),
             ],
         ) -> None:
-            drive = context.resource("drive", requires=(_SET_GAIN,))
-            context.bind_property(
+            drive = context._resource("drive", requires=(_SET_GAIN,))
+            context._bind_property(
                 drive,
                 _SET_GAIN_VALUE,
                 value=sc.input_ref(rows),
@@ -234,7 +234,7 @@ def test_resource_selector_rejects_external_operation_value() -> None:
         context: sc.ModuleContext,
         subject: Annotated[sc.Input[sc.EntityRef | str], sc.EntityType()],
     ) -> None:
-        context.resource("drive", for_entities=(sc.input_ref(subject),))
+        context._resource("drive", for_entities=(sc.input_ref(subject),))
 
     @sc.module(id="test.stage.resource-parent")
     def parent(context: sc.ModuleContext) -> None:

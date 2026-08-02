@@ -449,8 +449,8 @@ def test_composed_module_input_keeps_its_declared_compute_input_type() -> None:
             inputs={"value": frequency_input},
             output_type=sc.ScalarType(sc.PayloadType("test.compute_input_type")),
         )
-        drive = context.resource("drive", requires=(play_interface,))
-        context.invoke(
+        drive = context._resource("drive", requires=(play_interface,))
+        context._invoke(
             "play-program",
             resource=drive,
             operation=play,
@@ -486,8 +486,8 @@ def test_composed_state_expression_keeps_its_declared_value_type() -> None:
             sc.QuantityType(unit="GHz"),
         ],
     ) -> None:
-        drive = context.resource("drive", requires=(set_frequency,))
-        context.bind_property(
+        drive = context._resource("drive", requires=(set_frequency,))
+        context._bind_property(
             drive,
             set_frequency.property("value"),
             value=sc.input_ref(frequency_input) + Quantity(0.0, "GHz"),

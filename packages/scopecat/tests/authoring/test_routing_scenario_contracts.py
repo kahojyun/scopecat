@@ -167,12 +167,12 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
             authoring.EntityType(entity_kind="logical_device"),
         ],
     ) -> None:
-        drive = context.resource(
+        drive = context._resource(
             "drive",
             requires=(_DRIVE_FREQUENCY,),
             for_entities=(authoring.input_ref(qubit),),
         )
-        context.bind_property(
+        context._bind_property(
             drive,
             _DRIVE_FREQUENCY_VALUE,
             value=Quantity(value=5.0, unit="GHz"),
@@ -257,13 +257,13 @@ def test_acquisition_selects_point_local_instruments_and_channels(
             authoring.EntityType(entity_kind="logical_device"),
         ],
     ) -> None:
-        digitizer = context.resource(
+        digitizer = context._resource(
             "digitizer",
             requires=(_READOUT_ACQUIRE,),
             for_entities=(authoring.input_ref(qubit),),
         )
         iq = context.product("iq", dtype="complex128")
-        context.acquire(
+        context._acquire(
             "capture-iq",
             resource=digitizer,
             results={_READOUT_SAMPLE_IQ: iq},
@@ -338,17 +338,17 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
             authoring.EntityType(entity_kind="logical_device"),
         ],
     ) -> None:
-        readout_source = context.resource(
+        readout_source = context._resource(
             "readout_source",
             requires=(_READOUT_EMIT,),
             for_entities=(authoring.input_ref(qubit),),
         )
-        digitizer = context.resource(
+        digitizer = context._resource(
             "digitizer",
             requires=(_READOUT_ACQUIRE,),
             for_entities=(authoring.input_ref(qubit),),
         )
-        context.bind_property(
+        context._bind_property(
             readout_source,
             _READOUT_EMIT_FREQUENCY,
             value=Quantity(value=6.5, unit="GHz"),
@@ -357,7 +357,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
             "iq",
             dtype="complex128",
         )
-        context.acquire(
+        context._acquire(
             "capture-iq",
             resource=digitizer,
             results={_READOUT_SAMPLE_IQ: iq},

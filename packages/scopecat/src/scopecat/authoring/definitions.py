@@ -264,42 +264,42 @@ class ExperimentContext:
         self._program.append_invocation_internal(invocation)
         return invocation
 
-    def resource(
+    def _resource(
         self,
         id: str,
         *,
         requires: Sequence[InterfaceRef] = (),
         for_entities: Sequence[ValueRef] = (),
     ) -> DefinitionResource:
-        """Declare a logical resource directly on this experiment."""
+        """Declare a logical resource for a generated symbolic client."""
 
-        return self._program.resource(
+        return self._program._resource(
             id,
             requires=requires,
             for_entities=for_entities,
         )
 
-    def bind_property(
+    def _bind_property(
         self,
         resource: DefinitionResource,
         property: PropertyRef,
         *,
         value: StateBinding,
     ) -> None:
-        """Bind one persistent property directly in this experiment."""
+        """Bind a property for an internal authoring extension."""
 
-        self._program.bind_property(resource, property, value=value)
+        self._program._bind_property(resource, property, value=value)
 
-    def ensure(
+    def _ensure(
         self,
         resource: DefinitionResource,
         target: DesiredState,
     ) -> None:
-        """Declare one coherent target state directly in this experiment."""
+        """Declare a target state for a generated symbolic client."""
 
-        self._program.ensure(resource, target)
+        self._program._ensure(resource, target)
 
-    def invoke(
+    def _invoke(
         self,
         id: str,
         *,
@@ -307,9 +307,9 @@ class ExperimentContext:
         operation: OperationRef,
         arguments: Mapping[OperationArgumentRef, StateBinding | None] | None = None,
     ) -> None:
-        """Append one ordered atomic hardware operation to this experiment."""
+        """Append an operation for a generated symbolic client."""
 
-        self._program.invoke(
+        self._program._invoke(
             id,
             resource=resource,
             operation=operation,
@@ -360,7 +360,7 @@ class ExperimentContext:
             metadata=metadata,
         )
 
-    def acquire(
+    def _acquire(
         self,
         id: str,
         *,
@@ -368,9 +368,9 @@ class ExperimentContext:
         results: Mapping[AcquisitionResultRef, ProductRef],
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
-        """Map one root acquisition's typed results to declared products."""
+        """Map acquisition results for a generated symbolic client."""
 
-        self._program.acquire(
+        self._program._acquire(
             id,
             resource=resource,
             results=results,
