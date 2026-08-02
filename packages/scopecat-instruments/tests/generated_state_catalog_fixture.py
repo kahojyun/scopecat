@@ -12,7 +12,11 @@ from scopecat.sdk.instruments.declarations import (
     state_projection_field,
 )
 
-from client_codegen_fixture_declarations import CatalogProjectionInterface
+from client_codegen_fixture_declarations import (
+    CatalogProjectionInterface,
+    DriverMonitorInterface,
+    DriverSourceInterface,
+)
 from client_codegen_fixture_declarations import (
     CatalogProjectionObservation as CatalogProjectionObservation,
 )
@@ -37,9 +41,97 @@ class CatalogProjectionGroupTarget:
     enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
 
 
+_DRIVER_SOURCE_STATE_LAYOUTS = declared_interface_layout(
+    compile_interface(DriverSourceInterface)
+).states
+
+
+@instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUTS[0])
+class DriverSourcePatch:
+    enabled: bool = state_projection_field()
+
+
+@instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUTS[0])
+class DriverSourceTarget:
+    enabled: bool | ValueRef = state_projection_field()
+
+
+@instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUTS[0])
+class DriverSourceGroupTarget:
+    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
+
+
+@instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUTS[1])
+class DriverSourceLeftPatch:
+    enabled: bool = state_projection_field()
+    level: int
+
+
+@instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUTS[1])
+class DriverSourceLeftTarget:
+    enabled: bool | ValueRef = state_projection_field()
+    level: int | ValueRef
+
+
+@instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUTS[1])
+class DriverSourceLeftGroupTarget:
+    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
+    level: int | ValueRef | PerEntity[int | ValueRef]
+
+
+@instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUTS[2])
+class DriverSourceRightPatch:
+    enabled: bool = state_projection_field()
+    level: int
+
+
+@instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUTS[2])
+class DriverSourceRightTarget:
+    enabled: bool | ValueRef = state_projection_field()
+    level: int | ValueRef
+
+
+@instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUTS[2])
+class DriverSourceRightGroupTarget:
+    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
+    level: int | ValueRef | PerEntity[int | ValueRef]
+
+
+_DRIVER_MONITOR_STATE_LAYOUTS = declared_interface_layout(
+    compile_interface(DriverMonitorInterface)
+).states
+
+
+@instrument_state_projection(_DRIVER_MONITOR_STATE_LAYOUTS[0])
+class DriverMonitorPatch:
+    enabled: bool = state_projection_field()
+
+
+@instrument_state_projection(_DRIVER_MONITOR_STATE_LAYOUTS[0])
+class DriverMonitorTarget:
+    enabled: bool | ValueRef = state_projection_field()
+
+
+@instrument_state_projection(_DRIVER_MONITOR_STATE_LAYOUTS[0])
+class DriverMonitorGroupTarget:
+    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
+
+
 __all__ = [
     "CatalogProjectionGroupTarget",
     "CatalogProjectionObservation",
     "CatalogProjectionPatch",
     "CatalogProjectionTarget",
+    "DriverMonitorGroupTarget",
+    "DriverMonitorPatch",
+    "DriverMonitorTarget",
+    "DriverSourceGroupTarget",
+    "DriverSourceLeftGroupTarget",
+    "DriverSourceLeftPatch",
+    "DriverSourceLeftTarget",
+    "DriverSourcePatch",
+    "DriverSourceRightGroupTarget",
+    "DriverSourceRightPatch",
+    "DriverSourceRightTarget",
+    "DriverSourceTarget",
 ]

@@ -7,13 +7,51 @@ from __future__ import annotations
 from scopecat.sdk.instruments import InterfaceSpec
 from scopecat.sdk.instruments.declarations import compile_interface
 
-from client_codegen_fixture_declarations import CatalogProjectionInterface
+from client_codegen_fixture_declarations import (
+    CatalogProjectionInterface,
+    ComponentOperationInterface,
+    DriverFixedAcquisitionInterface,
+    DriverMonitorInterface,
+    DriverSourceInterface,
+    LiteralOperationInterface,
+    PayloadOperationInterface,
+)
 
 
 def catalog_projection_interface() -> InterfaceSpec:
     return compile_interface(CatalogProjectionInterface).fresh_spec()
 
 
+def component_operation_interface() -> InterfaceSpec:
+    return compile_interface(ComponentOperationInterface).fresh_spec()
+
+
+def literal_operation_interface() -> InterfaceSpec:
+    return compile_interface(LiteralOperationInterface).fresh_spec()
+
+
+def payload_operation_interface() -> InterfaceSpec:
+    return compile_interface(PayloadOperationInterface).fresh_spec()
+
+
+def driver_fixed_acquisition_interface() -> InterfaceSpec:
+    return compile_interface(DriverFixedAcquisitionInterface).fresh_spec()
+
+
+def driver_source_interface() -> InterfaceSpec:
+    return compile_interface(DriverSourceInterface).fresh_spec()
+
+
+def driver_monitor_interface() -> InterfaceSpec:
+    return compile_interface(DriverMonitorInterface).fresh_spec()
+
+
 __all__ = [
     "catalog_projection_interface",
+    "component_operation_interface",
+    "driver_fixed_acquisition_interface",
+    "driver_monitor_interface",
+    "driver_source_interface",
+    "literal_operation_interface",
+    "payload_operation_interface",
 ]

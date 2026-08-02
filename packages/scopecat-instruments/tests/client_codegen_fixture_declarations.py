@@ -6,14 +6,24 @@ from typing import Annotated, Literal, Protocol
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
+    acquisition,
+    acquisition_case,
     argument,
+    axis,
     component,
+    discriminated_state,
     instrument_bundle,
     instrument_interface,
     instrument_observed_state,
+    instrument_result,
     instrument_state,
+    interface_discriminator,
+    member,
     member_field,
     operation,
+    result_field,
+    state_case,
+    state_discriminated_acquisition,
 )
 
 
@@ -136,6 +146,102 @@ class PayloadOperationInterface(Protocol):
     ) -> None: ...
 
 
+@instrument_result
+class DriverFixedResults:
+    response: list[complex] = result_field(
+        id="signal",
+        dtype="complex128",
+        unit="ratio",
+        axes=("sample",),
+    )
+
+
+@instrument_interface("test.generated_driver_fixed_acquisition/v1")
+class DriverFixedAcquisitionInterface(Protocol):
+    @acquisition(
+        axes={"sample": axis(size=2, kind="sample")},
+    )
+    def acquire(self) -> DriverFixedResults: ...
+
+
+@instrument_state
+class _DriverSourceCommon:
+    enabled: bool = member_field()
+
+
+@instrument_state
+class DriverSourceLeftState(_DriverSourceCommon):
+    level: int = member_field(id="left_level")
+
+
+@instrument_state
+class DriverSourceRightState(_DriverSourceCommon):
+    level: int = member_field(id="right_level")
+
+
+type DriverSourceState = DriverSourceLeftState | DriverSourceRightState
+
+
+@instrument_interface(
+    "test.generated_driver_source/v1",
+    state=discriminated_state(
+        member(id="mode", choices=("left", "right")),
+        common=_DriverSourceCommon,
+        cases=(
+            state_case("left", DriverSourceLeftState, required_on_entry=("level",)),
+            state_case(
+                "right",
+                DriverSourceRightState,
+                required_on_entry=("level",),
+            ),
+        ),
+    ),
+)
+class DriverSourceInterface(Protocol): ...
+
+
+@instrument_state
+class DriverMonitorState:
+    enabled: bool = member_field()
+
+
+@instrument_result
+class DriverMonitorResults[ValueT]:
+    left: ValueT | None = result_field(id="left_value", dtype="float64")
+    right: ValueT | None = result_field(id="right_value", dtype="float64")
+
+
+@instrument_interface(
+    "test.generated_driver_monitor/v1",
+    state=DriverMonitorState,
+)
+class DriverMonitorInterface(Protocol):
+    @state_discriminated_acquisition(
+        interface_discriminator(DriverSourceInterface),
+        cases=(
+            acquisition_case(
+                "left",
+                DriverMonitorResults[float],
+                fields=("left",),
+            ),
+            acquisition_case(
+                "right",
+                DriverMonitorResults[float],
+                fields=("right",),
+            ),
+        ),
+    )
+    def monitor(self) -> DriverMonitorResults[float]: ...
+
+
+@instrument_bundle
+class DriverMonitorBundle(
+    DriverSourceInterface,
+    DriverMonitorInterface,
+    Protocol,
+): ...
+
+
 @instrument_interface("test.generated_literal_operation/v1")
 class LiteralOperationInterface(Protocol):
     @operation()
@@ -196,6 +302,16 @@ __all__ = [
     "CatalogProjectionState",
     "ComponentBundleInterface",
     "ComponentOperationInterface",
+    "DriverFixedAcquisitionInterface",
+    "DriverFixedResults",
+    "DriverMonitorBundle",
+    "DriverMonitorInterface",
+    "DriverMonitorResults",
+    "DriverMonitorState",
+    "DriverSourceInterface",
+    "DriverSourceLeftState",
+    "DriverSourceRightState",
+    "DriverSourceState",
     "EffectIdCollisionInterface",
     "FlatFooBarCapability",
     "LiteralOperationInterface",

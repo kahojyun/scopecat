@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Protocol, TypeAliasType, TypeVar, cast, get_args, get_origin
 
 from scopecat.kernel.value_types import Payload as PayloadType
-from scopecat.sdk.instruments import PropertyRef
+from scopecat.sdk.instruments import ComponentRef, PropertyRef
 from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
     DeclaredInterfaceLayout,
@@ -51,6 +51,9 @@ STATES_OUTPUT = INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "sta
 DRIVER_STATES_OUTPUT = (
     INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "driver_states.py"
 )
+DRIVER_HANDLERS_OUTPUT = (
+    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "driver_handlers.py"
+)
 FIXTURE_IMPORT_ROOT = INSTRUMENTS_PACKAGE_ROOT / "tests"
 FIXTURE_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_client_fixture.py"
 FIXTURE_MEMBERS_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_member_catalog_fixture.py"
@@ -60,6 +63,9 @@ FIXTURE_INTERFACES_OUTPUT = (
 FIXTURE_STATES_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_state_catalog_fixture.py"
 FIXTURE_DRIVER_STATES_OUTPUT = (
     FIXTURE_IMPORT_ROOT / "generated_driver_state_catalog_fixture.py"
+)
+FIXTURE_DRIVER_HANDLERS_OUTPUT = (
+    FIXTURE_IMPORT_ROOT / "generated_driver_handler_fixture.py"
 )
 PRODUCTION_STATE_PROJECTION_MODULE = "scopecat_instruments.states"
 FIXTURE_STATE_PROJECTION_MODULE = "generated_state_catalog_fixture"
@@ -165,6 +171,16 @@ class CatalogTarget:
     public_types: tuple[object, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class DriverHandlerTarget:
+    """One generated typed driver-adapter module."""
+
+    output: Path
+    surfaces: tuple[GenerationSurface, ...]
+    members_module: str
+    driver_states_module: str
+
+
 class _Options(argparse.Namespace):
     check: bool = False
 
@@ -172,6 +188,12 @@ class _Options(argparse.Namespace):
 class _FixtureDeclarations(Protocol):
     CatalogProjectionInterface: type[object]
     ComponentOperationInterface: type[object]
+    DriverFixedAcquisitionInterface: type[object]
+    DriverMonitorInterface: type[object]
+    DriverMonitorBundle: type[object]
+    DriverSourceInterface: type[object]
+    LiteralOperationInterface: type[object]
+    PayloadOperationInterface: type[object]
 
 
 _PRODUCTION_SURFACES: tuple[GenerationSurface, ...] = (
@@ -201,6 +223,13 @@ PRODUCTION_CATALOG_TARGET = CatalogTarget(
     public_types=(ReferenceSource, SParameter),
 )
 
+PRODUCTION_DRIVER_HANDLER_TARGET = DriverHandlerTarget(
+    output=DRIVER_HANDLERS_OUTPUT,
+    surfaces=_PRODUCTION_SURFACES,
+    members_module="scopecat_instruments.members",
+    driver_states_module="scopecat_instruments.driver_states",
+)
+
 
 def _fixture_target() -> GenerationTarget:
     declarations = _fixture_declarations()
@@ -213,13 +242,40 @@ def _fixture_target() -> GenerationTarget:
 
 def _fixture_catalog_target() -> CatalogTarget:
     declarations = _fixture_declarations()
+    handler_surfaces = _fixture_driver_handler_surfaces(declarations)
     return CatalogTarget(
         members_output=FIXTURE_MEMBERS_OUTPUT,
         interfaces_output=FIXTURE_INTERFACES_OUTPUT,
         states_output=FIXTURE_STATES_OUTPUT,
         driver_states_output=FIXTURE_DRIVER_STATES_OUTPUT,
         members_module="generated_member_catalog_fixture",
-        interface_types=(declarations.CatalogProjectionInterface,),
+        interface_types=(
+            declarations.CatalogProjectionInterface,
+            *_surface_interface_types(handler_surfaces),
+        ),
+    )
+
+
+def _fixture_driver_handler_surfaces(
+    declarations: _FixtureDeclarations,
+) -> tuple[GenerationSurface, ...]:
+    return (
+        clients_for(declarations.ComponentOperationInterface),
+        clients_for(declarations.LiteralOperationInterface),
+        clients_for(declarations.PayloadOperationInterface),
+        clients_for(declarations.DriverFixedAcquisitionInterface),
+        clients_for(declarations.DriverSourceInterface),
+        clients_for_bundle(declarations.DriverMonitorBundle, facade_flag="monitor"),
+    )
+
+
+def _fixture_driver_handler_target() -> DriverHandlerTarget:
+    declarations = _fixture_declarations()
+    return DriverHandlerTarget(
+        output=FIXTURE_DRIVER_HANDLERS_OUTPUT,
+        surfaces=_fixture_driver_handler_surfaces(declarations),
+        members_module="generated_member_catalog_fixture",
+        driver_states_module="generated_driver_state_catalog_fixture",
     )
 
 
@@ -239,6 +295,10 @@ def _generation_targets() -> tuple[GenerationTarget, ...]:
 
 def _catalog_targets() -> tuple[CatalogTarget, ...]:
     return (PRODUCTION_CATALOG_TARGET, _fixture_catalog_target())
+
+
+def _driver_handler_targets() -> tuple[DriverHandlerTarget, ...]:
+    return (PRODUCTION_DRIVER_HANDLER_TARGET, _fixture_driver_handler_target())
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,6 +524,46 @@ class _StateProjectionNames:
 class _DriverPatchField:
     property_id: str
     annotation: object
+
+
+@dataclass(frozen=True, slots=True)
+class _DriverHandlerConstituent:
+    interface_type: type[object]
+    stem: str
+    constant_prefix: str
+    field_name: str
+    layout: DeclaredInterfaceLayout[object]
+    optional: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _DriverHandlerSurface:
+    stem: str
+    flag_name: str | None
+    constituents: tuple[_DriverHandlerConstituent, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _DriverAcquisitionField:
+    python_name: str
+    member_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class _DriverAcquisitionModel:
+    hook_name: str
+    member_name: str
+    type_stem: str
+    fields: tuple[_DriverAcquisitionField, ...]
+    optional: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _DriverOperationModel:
+    declaration: DeclaredOperation[...]
+    hook_name: str
+    member_name: str
+    optional: bool
 
 
 def _state_projection_names(layout: DeclaredStateLayout) -> _StateProjectionNames:
@@ -1148,6 +1248,843 @@ def _render_driver_states_module(
     )
 
 
+def render_driver_handler_target(target: DriverHandlerTarget) -> str:
+    """Render typed ABC adapters for selected driver-facing surfaces."""
+
+    surfaces = tuple(_driver_handler_surface(item) for item in target.surfaces)
+    if not surfaces:
+        raise ClientGenerationError("a driver handler module requires a surface")
+    return _render_driver_handlers_module(
+        surfaces,
+        members_module=target.members_module,
+        driver_states_module=target.driver_states_module,
+    )
+
+
+def _driver_handler_surface(
+    surface: GenerationSurface,
+) -> _DriverHandlerSurface:
+    if isinstance(surface, BundleClientSurface):
+        interface_types = declared_bundle_interfaces(surface.bundle_type)
+        stem = surface.bundle_type.__name__.removesuffix("Interface")
+        flag_name = surface.facade_flag
+        if flag_name is not None and len(interface_types) != 2:
+            raise ClientGenerationError(
+                "optional driver bundle adapters require exactly two interfaces"
+            )
+    else:
+        interface_types = (surface.interface_type,)
+        stem = surface.interface_type.__name__.removesuffix("Interface")
+        flag_name = None
+    constituents = tuple(
+        _DriverHandlerConstituent(
+            interface_type=interface_type,
+            stem=(interface_stem := interface_type.__name__.removesuffix("Interface")),
+            constant_prefix=_snake_case(interface_stem).upper(),
+            field_name=_snake_case(interface_stem),
+            layout=declared_interface_layout(compile_interface(interface_type)),
+            optional=flag_name is not None and index > 0,
+        )
+        for index, interface_type in enumerate(interface_types)
+    )
+    return _DriverHandlerSurface(
+        stem=stem,
+        flag_name=flag_name,
+        constituents=constituents,
+    )
+
+
+def _render_driver_handlers_module(
+    surfaces: tuple[_DriverHandlerSurface, ...],
+    *,
+    members_module: str,
+    driver_states_module: str,
+) -> str:
+    renderer = _AnnotationRenderer()
+    operations = tuple(
+        operation
+        for surface in surfaces
+        for constituent in surface.constituents
+        for scope in _walk_declared_scopes(constituent.layout.root)
+        for operation in scope.operations
+    )
+    has_operation_arguments = any(operation.arguments for operation in operations)
+    has_payload_arguments = any(
+        isinstance(argument.spec.value_type.atom, PayloadType)
+        for operation in operations
+        for argument in operation.arguments
+    )
+    imports: dict[str, set[str]] = {
+        "abc": {"ABC", "abstractmethod"},
+        "collections.abc": {"Mapping"},
+        "dataclasses": {"dataclass", "field"},
+        "pydantic": {"JsonValue"},
+        "scopecat.records.measurement": {"MeasurementValue"},
+        "scopecat.sdk.instruments": {
+            "AcquisitionResultRef",
+            "DriverAcquisition",
+            "DriverOperation",
+            "DriverOutcome",
+            "DriverReadback",
+            "DriverRejected",
+            "DriverScalar",
+            "DriverState",
+            "DriverStatePatch",
+            "DriverSuccess",
+            "PropertyRef",
+        },
+        "scopecat.sdk.problems": {"ProblemPhase", "model_location", "problem"},
+        "typing": {"Literal", "TypedDict"},
+    }
+    if has_operation_arguments:
+        imports["typing"].add("cast")
+    if has_payload_arguments:
+        imports["scopecat.sdk.instruments"].add("DriverPayload")
+    member_imports: set[str] = set()
+    driver_state_imports: set[str] = {"encode_driver_state"}
+    declarations: list[str] = []
+    exports: list[str] = []
+
+    acquisition_models: dict[object, _DriverAcquisitionModel] = {}
+    for surface in surfaces:
+        for constituent in surface.constituents:
+            for scope in _walk_declared_scopes(constituent.layout.root):
+                for acquisition in scope.acquisitions:
+                    if acquisition.ref in acquisition_models:
+                        continue
+                    model = _driver_acquisition_model(
+                        constituent,
+                        scope,
+                        acquisition,
+                        member_imports=member_imports,
+                    )
+                    acquisition_models[acquisition.ref] = model
+                    declarations.append(_render_driver_acquisition_types(model))
+                    exports.extend(
+                        (
+                            f"{model.type_stem}DriverReadback",
+                            f"{model.type_stem}DriverResultName",
+                            f"{model.type_stem}DriverValues",
+                        )
+                    )
+
+    for surface in surfaces:
+        rendered, surface_exports = _render_driver_adapter(
+            surface,
+            renderer=renderer,
+            member_imports=member_imports,
+            driver_state_imports=driver_state_imports,
+            acquisition_models=acquisition_models,
+            imports=imports,
+        )
+        declarations.append(rendered)
+        exports.extend(surface_exports)
+
+    imports[members_module] = member_imports
+    imports[driver_states_module] = driver_state_imports
+    for module, names in renderer.imports.items():
+        imports.setdefault(module, set()).update(names)
+    return (
+        _generated_module_header(
+            "Typed driver adapters generated from instrument interfaces."
+        )
+        + _render_driver_import_block(imports)
+        + _render_driver_unsupported_helper()
+        + "".join(declarations)
+        + "\n"
+        + _render_all(tuple(dict.fromkeys(exports)))
+    )
+
+
+def _driver_acquisition_model(
+    constituent: _DriverHandlerConstituent,
+    scope: DeclaredScopeLayout,
+    acquisition: DeclaredAcquisition[object],
+    *,
+    member_imports: set[str],
+) -> _DriverAcquisitionModel:
+    scope_name = _driver_scope_constant_name(constituent.constant_prefix, scope)
+    member_name = _join_constant_name(scope_name, acquisition.method_name)
+    if member_name == scope_name:
+        member_name = f"{scope_name}_ACQUISITION"
+    member_imports.add(member_name)
+    fields: list[_DriverAcquisitionField] = []
+    seen_refs: set[object] = set()
+    for declared_field in acquisition.result_fields:
+        if declared_field.ref in seen_refs:
+            continue
+        seen_refs.add(declared_field.ref)
+        result_name = (
+            f"{_join_constant_name(scope_name, declared_field.python_name)}_RESULT"
+        )
+        member_imports.add(result_name)
+        fields.append(
+            _DriverAcquisitionField(
+                python_name=declared_field.python_name,
+                member_name=result_name,
+            )
+        )
+    type_stem = (
+        constituent.stem
+        + "".join(_pascal_case(item) for item in scope.python_path)
+        + _pascal_case(acquisition.method_name)
+    )
+    return _DriverAcquisitionModel(
+        hook_name=_driver_hook_name(scope.python_path, acquisition.method_name),
+        member_name=member_name,
+        type_stem=type_stem,
+        fields=tuple(fields),
+        optional=constituent.optional,
+    )
+
+
+def _render_driver_acquisition_types(model: _DriverAcquisitionModel) -> str:
+    result_type = f"{model.type_stem}DriverResultName"
+    values_type = f"{model.type_stem}DriverValues"
+    readback_type = f"{model.type_stem}DriverReadback"
+    literal = (
+        "Literal["
+        + ", ".join(_string_literal(field.python_name) for field in model.fields)
+        + "]"
+    )
+    values = "".join(
+        f"    {field.python_name}: MeasurementValue\n" for field in model.fields
+    )
+    return (
+        f"\n\ntype {result_type} = {literal}\n"
+        f"\n\nclass {values_type}(TypedDict, total=False):\n"
+        f"{values}"
+        "\n\n@dataclass(frozen=True, slots=True)\n"
+        f"class {readback_type}:\n"
+        f"    values: {values_type}\n"
+        "    metadata: dict[str, JsonValue] = field(default_factory=dict)\n"
+    )
+
+
+def _render_driver_adapter(
+    surface: _DriverHandlerSurface,
+    *,
+    renderer: _AnnotationRenderer,
+    member_imports: set[str],
+    driver_state_imports: set[str],
+    acquisition_models: dict[object, _DriverAcquisitionModel],
+    imports: dict[str, set[str]],
+) -> tuple[str, tuple[str, ...]]:
+    class_name = f"{surface.stem}DriverAdapter"
+    snapshot_name = f"{surface.stem}DriverSnapshot"
+    patch_name = f"{surface.stem}DriverPatch"
+    snapshot_fields = _driver_snapshot_fields(
+        surface,
+        imports=imports,
+        driver_state_imports=driver_state_imports,
+    )
+    state_constituents = tuple(
+        constituent
+        for constituent in surface.constituents
+        if _driver_writable_state_layouts(constituent.layout.states)
+    )
+    operation_models = tuple(
+        _driver_operation_model(
+            constituent,
+            scope,
+            operation,
+            member_imports=member_imports,
+        )
+        for constituent in surface.constituents
+        for scope in _walk_declared_scopes(constituent.layout.root)
+        for operation in scope.operations
+    )
+    selected_acquisitions = tuple(
+        acquisition_models[acquisition.ref]
+        for constituent in surface.constituents
+        for scope in _walk_declared_scopes(constituent.layout.root)
+        for acquisition in scope.acquisitions
+    )
+
+    declarations: list[str] = []
+    exports: list[str] = [class_name]
+    if snapshot_fields:
+        declarations.append(
+            "\n\n@dataclass(frozen=True, slots=True, kw_only=True)\n"
+            f"class {snapshot_name}:\n"
+            + "".join(
+                f"    {name}: {annotation}\n"
+                for name, annotation, _constituent, _kind in snapshot_fields
+            )
+            + "    metadata: dict[str, JsonValue] = field(default_factory=dict)\n"
+        )
+        exports.append(snapshot_name)
+    if len(state_constituents) > 1:
+        declarations.append(
+            "\n\n@dataclass(frozen=True, slots=True)\n"
+            f"class {patch_name}:\n"
+            + "".join(
+                f"    {constituent.field_name}: {constituent.stem}DriverPatch\n"
+                for constituent in state_constituents
+            )
+        )
+        exports.append(patch_name)
+
+    body: list[str] = [f"\n\nclass {class_name}(ABC):\n", "    instrument_id: str\n"]
+    if surface.flag_name is not None:
+        private_flag = f"_driver_{surface.flag_name}_enabled"
+        body.extend(
+            (
+                "\n",
+                f"    def __init__(self, *, {surface.flag_name}: bool) -> None:\n",
+                f"        self.{private_flag} = {surface.flag_name}\n",
+            )
+        )
+
+    if snapshot_fields:
+        read_hook = f"read_{_snake_case(surface.stem)}_state"
+        body.extend(
+            (
+                "\n",
+                "    @abstractmethod\n",
+                f"    def {read_hook}(self) -> {snapshot_name}: ...\n",
+            )
+        )
+    if state_constituents:
+        apply_hook = f"apply_{_snake_case(surface.stem)}_state"
+        hook_patch = (
+            patch_name
+            if len(state_constituents) > 1
+            else f"{state_constituents[0].stem}DriverPatch"
+        )
+        body.extend(
+            (
+                "\n",
+                "    @abstractmethod\n",
+                f"    def {apply_hook}(\n",
+                "        self,\n",
+                f"        patch: {hook_patch},\n",
+                "        /,\n",
+                "    ) -> DriverOutcome[None]: ...\n",
+            )
+        )
+    for operation in operation_models:
+        body.append(_render_driver_operation_hook(operation, renderer=renderer))
+    for acquisition in selected_acquisitions:
+        body.append(_render_driver_acquisition_hook(acquisition))
+
+    body.append(
+        _render_adapter_read_state(
+            surface,
+            snapshot_fields=snapshot_fields,
+        )
+    )
+    body.append(
+        _render_adapter_apply_state(
+            surface,
+            state_constituents=state_constituents,
+            patch_name=patch_name,
+        )
+    )
+    body.append(_render_adapter_invoke(surface, operation_models, renderer=renderer))
+    body.append(_render_adapter_collect(surface, selected_acquisitions))
+    declarations.append("".join(body))
+    return "".join(declarations), tuple(exports)
+
+
+def _driver_snapshot_fields(
+    surface: _DriverHandlerSurface,
+    *,
+    imports: dict[str, set[str]],
+    driver_state_imports: set[str],
+) -> tuple[tuple[str, str, _DriverHandlerConstituent, str], ...]:
+    selected: list[tuple[str, str, _DriverHandlerConstituent, str]] = []
+    is_bundle = len(surface.constituents) > 1
+    for constituent in surface.constituents:
+        state_layouts = _driver_writable_state_layouts(constituent.layout.states)
+        if state_layouts:
+            annotation = _driver_state_annotation(
+                constituent,
+                state_layouts,
+                imports=imports,
+            )
+            if constituent.optional:
+                annotation = f"{annotation} | None"
+            field_name = constituent.field_name if is_bundle else "state"
+            selected.append((field_name, annotation, constituent, "state"))
+            driver_state_imports.add(f"decode_{_snake_case(constituent.stem)}_patch")
+            driver_state_imports.add(f"{constituent.stem}DriverPatch")
+            for layout in state_layouts:
+                driver_state_imports.add(_state_encoder_name(layout.source_type))
+            for layout in state_layouts[:-1]:
+                imports.setdefault(layout.source_type.__module__, set()).add(
+                    layout.source_type.__name__
+                )
+        observation = constituent.layout.observed_state
+        if observation is not None:
+            if is_bundle:
+                field_name = (
+                    f"{constituent.field_name}_observation"
+                    if state_layouts
+                    else constituent.field_name
+                )
+            else:
+                field_name = "observation"
+            annotation = observation.state_type.__name__
+            if constituent.optional:
+                annotation = f"{annotation} | None"
+            selected.append((field_name, annotation, constituent, "observation"))
+            imports.setdefault(observation.state_type.__module__, set()).add(
+                observation.state_type.__name__
+            )
+            driver_state_imports.add(_observation_encoder_name(observation.state_type))
+    return tuple(selected)
+
+
+def _driver_writable_state_layouts(
+    layouts: tuple[DeclaredStateLayout, ...],
+) -> tuple[DeclaredStateLayout, ...]:
+    return tuple(layout for layout in layouts if layout.role != "common")
+
+
+def _driver_state_annotation(
+    constituent: _DriverHandlerConstituent,
+    layouts: tuple[DeclaredStateLayout, ...],
+    *,
+    imports: dict[str, set[str]],
+) -> str:
+    if len(layouts) == 1:
+        state_type = layouts[0].source_type
+        imports.setdefault(state_type.__module__, set()).add(state_type.__name__)
+        return state_type.__name__
+    alias_name = f"{constituent.stem}State"
+    declaration_module = import_module(constituent.interface_type.__module__)
+    if hasattr(declaration_module, alias_name):
+        imports.setdefault(constituent.interface_type.__module__, set()).add(alias_name)
+        return alias_name
+    names: list[str] = []
+    for layout in layouts:
+        state_type = layout.source_type
+        imports.setdefault(state_type.__module__, set()).add(state_type.__name__)
+        names.append(state_type.__name__)
+    return " | ".join(names)
+
+
+def _driver_operation_model(
+    constituent: _DriverHandlerConstituent,
+    scope: DeclaredScopeLayout,
+    operation: DeclaredOperation[...],
+    *,
+    member_imports: set[str],
+) -> _DriverOperationModel:
+    scope_name = _driver_scope_constant_name(constituent.constant_prefix, scope)
+    member_name = _join_constant_name(scope_name, operation.ref.operation_id)
+    member_imports.add(member_name)
+    return _DriverOperationModel(
+        declaration=operation,
+        hook_name=_driver_hook_name(scope.python_path, operation.method_name),
+        member_name=member_name,
+        optional=constituent.optional,
+    )
+
+
+def _driver_scope_constant_name(
+    constant_prefix: str,
+    scope: DeclaredScopeLayout,
+) -> str:
+    selected = constant_prefix
+    component_path = (
+        scope.ref.component_path if isinstance(scope.ref, ComponentRef) else ()
+    )
+    for component_id in component_path:
+        selected = _join_constant_name(selected, component_id)
+    return selected
+
+
+def _driver_hook_name(python_path: tuple[str, ...], method_name: str) -> str:
+    return "handle_" + "_".join((*python_path, method_name))
+
+
+def _render_driver_unsupported_helper() -> str:
+    return (
+        "\n\ndef _unsupported_driver_request(\n"
+        "    instrument_id: str,\n"
+        "    kind: str,\n"
+        "    member_id: str,\n"
+        ") -> DriverRejected:\n"
+        "    return DriverRejected(\n"
+        "        problems=(\n"
+        "            problem(\n"
+        '                f"instrument_{kind}_not_implemented",\n'
+        '                f"{instrument_id} does not implement {member_id}",\n'
+        "                phase=ProblemPhase.EXECUTION,\n"
+        '                location=model_location(f"driver_{kind}", member_id),\n'
+        "            ),\n"
+        "        )\n"
+        "    )\n"
+    )
+
+
+def _render_driver_operation_hook(
+    model: _DriverOperationModel,
+    *,
+    renderer: _AnnotationRenderer,
+) -> str:
+    arguments = model.declaration.arguments
+    lines = [
+        "\n",
+        "    @abstractmethod\n",
+        f"    def {model.hook_name}(\n",
+        "        self,\n",
+    ]
+    previous_kind: str | None = None
+    for index, argument in enumerate(arguments):
+        kind = argument.parameter.kind.name
+        if kind == "KEYWORD_ONLY" and previous_kind != "KEYWORD_ONLY":
+            lines.append("        *,\n")
+        lines.append(
+            f"        {argument.python_name}: {renderer.render(argument.annotation)},\n"
+        )
+        if kind == "POSITIONAL_ONLY" and (
+            index == len(arguments) - 1
+            or arguments[index + 1].parameter.kind.name != "POSITIONAL_ONLY"
+        ):
+            lines.append("        /,\n")
+        previous_kind = kind
+    lines.append("    ) -> DriverOutcome[None]: ...\n")
+    return "".join(lines)
+
+
+def _render_driver_acquisition_hook(model: _DriverAcquisitionModel) -> str:
+    return (
+        "\n"
+        "    @abstractmethod\n"
+        f"    def {model.hook_name}(\n"
+        "        self,\n"
+        f"        requested: frozenset[{model.type_stem}DriverResultName],\n"
+        "        /,\n"
+        f"    ) -> DriverOutcome[{model.type_stem}DriverReadback]: ...\n"
+    )
+
+
+def _render_adapter_read_state(
+    surface: _DriverHandlerSurface,
+    *,
+    snapshot_fields: tuple[tuple[str, str, _DriverHandlerConstituent, str], ...],
+) -> str:
+    lines = ["\n", "    def read_state(self) -> DriverState:\n"]
+    if not snapshot_fields:
+        lines.append("        return encode_driver_state()\n")
+        return "".join(lines)
+
+    read_hook = f"read_{_snake_case(surface.stem)}_state"
+    lines.extend(
+        (
+            f"        snapshot = self.{read_hook}()\n",
+            "        encoded: list[Mapping[PropertyRef, DriverScalar]] = []\n",
+        )
+    )
+    for field_name, _annotation, constituent, kind in snapshot_fields:
+        value = f"snapshot.{field_name}"
+        if kind == "observation":
+            encoder = _observation_encoder_name(
+                cast(
+                    "DeclaredObservedState[object]",
+                    constituent.layout.observed_state,
+                ).state_type
+            )
+            if constituent.optional:
+                flag = cast("str", surface.flag_name)
+                lines.extend(
+                    (
+                        f"        if self._driver_{flag}_enabled and "
+                        f"{value} is not None:\n",
+                        f"            encoded.append({encoder}({value}))\n",
+                    )
+                )
+            else:
+                lines.append(f"        encoded.append({encoder}({value}))\n")
+            continue
+
+        layouts = _driver_writable_state_layouts(constituent.layout.states)
+        indent = "        "
+        if constituent.optional:
+            flag = cast("str", surface.flag_name)
+            lines.append(
+                f"        if self._driver_{flag}_enabled and {value} is not None:\n"
+            )
+            indent = "            "
+        if len(layouts) == 1:
+            lines.append(
+                f"{indent}encoded.append("
+                f"{_state_encoder_name(layouts[0].source_type)}({value}))\n"
+            )
+            continue
+        for index, layout in enumerate(layouts):
+            if index == len(layouts) - 1:
+                lines.extend(
+                    (
+                        f"{indent}else:\n",
+                        f"{indent}    encoded.append("
+                        f"{_state_encoder_name(layout.source_type)}({value}))\n",
+                    )
+                )
+                continue
+            keyword = "if" if index == 0 else "elif"
+            lines.extend(
+                (
+                    f"{indent}{keyword} isinstance({value}, "
+                    f"{layout.source_type.__name__}):\n",
+                    f"{indent}    encoded.append("
+                    f"{_state_encoder_name(layout.source_type)}({value}))\n",
+                )
+            )
+    lines.append(
+        "        return encode_driver_state(*encoded, metadata=snapshot.metadata)\n"
+    )
+    return "".join(lines)
+
+
+def _render_adapter_apply_state(
+    surface: _DriverHandlerSurface,
+    *,
+    state_constituents: tuple[_DriverHandlerConstituent, ...],
+    patch_name: str,
+) -> str:
+    lines = [
+        "\n",
+        "    def apply_state(\n",
+        "        self,\n",
+        "        request: DriverStatePatch,\n",
+        "    ) -> DriverOutcome[DriverState | None]:\n",
+    ]
+    if not state_constituents:
+        lines.extend(
+            (
+                "        del request\n",
+                "        return _unsupported_driver_request("
+                'self.instrument_id, "state", "state")\n',
+            )
+        )
+        return "".join(lines)
+
+    decoded_names: list[str] = []
+    for constituent in state_constituents:
+        decoded_name = f"{constituent.field_name}_patch"
+        decoded_names.append(decoded_name)
+        lines.append(
+            f"        {decoded_name} = "
+            f"decode_{_snake_case(constituent.stem)}_patch(request)\n"
+        )
+        if constituent.optional:
+            flag = cast("str", surface.flag_name)
+            lines.extend(
+                (
+                    f"        if {decoded_name} and not self._driver_{flag}_enabled:\n",
+                    "            return _unsupported_driver_request(\n",
+                    f'                self.instrument_id, "state", '
+                    f"{_string_literal(constituent.layout.compiled.ref.interface_id)}\n",
+                    "            )\n",
+                )
+            )
+
+    apply_hook = f"apply_{_snake_case(surface.stem)}_state"
+    if len(state_constituents) == 1:
+        lines.append(f"        outcome = self.{apply_hook}({decoded_names[0]})\n")
+    else:
+        lines.extend(
+            (
+                f"        outcome = self.{apply_hook}(\n",
+                f"            {patch_name}(\n",
+                *(
+                    f"                {constituent.field_name}={decoded_name},\n"
+                    for constituent, decoded_name in zip(
+                        state_constituents, decoded_names, strict=True
+                    )
+                ),
+                "            )\n",
+                "        )\n",
+            )
+        )
+    lines.extend(
+        (
+            "        if isinstance(outcome, DriverSuccess):\n",
+            "            return DriverSuccess(None, metadata=outcome.metadata)\n",
+            "        return outcome\n",
+        )
+    )
+    return "".join(lines)
+
+
+def _annotation_string_literal(annotation: str) -> str:
+    return repr(annotation) if '"' in annotation else _string_literal(annotation)
+
+
+def _render_adapter_invoke(
+    surface: _DriverHandlerSurface,
+    models: tuple[_DriverOperationModel, ...],
+    *,
+    renderer: _AnnotationRenderer,
+) -> str:
+    lines = [
+        "\n",
+        "    def invoke(\n",
+        "        self,\n",
+        "        request: DriverOperation,\n",
+        "    ) -> DriverOutcome[DriverState | None]:\n",
+    ]
+    for model in models:
+        condition = f"request.target == {model.member_name}"
+        if model.optional:
+            condition += f" and self._driver_{cast('str', surface.flag_name)}_enabled"
+        lines.extend(
+            (
+                f"        if {condition}:\n",
+                "            arguments = request.arguments\n",
+            )
+        )
+        call_arguments: list[str] = []
+        for argument in model.declaration.arguments:
+            annotation = renderer.render(argument.annotation)
+            value = f"arguments[{_string_literal(argument.ref.argument_id)}]"
+            if isinstance(argument.spec.value_type.atom, PayloadType):
+                value = f'cast("DriverPayload", {value}).value'
+            value = f"cast({_annotation_string_literal(annotation)}, {value})"
+            if argument.parameter.kind.name == "KEYWORD_ONLY":
+                call_arguments.append(
+                    f"                {argument.python_name}={value},\n"
+                )
+            else:
+                call_arguments.append(f"                {value},\n")
+        if call_arguments:
+            lines.extend(
+                (
+                    f"            outcome = self.{model.hook_name}(\n",
+                    *call_arguments,
+                    "            )\n",
+                )
+            )
+        else:
+            lines.append(f"            outcome = self.{model.hook_name}()\n")
+        lines.extend(
+            (
+                "            if isinstance(outcome, DriverSuccess):\n",
+                "                return DriverSuccess(None, "
+                "metadata=outcome.metadata)\n",
+                "            return outcome\n",
+            )
+        )
+    lines.extend(
+        (
+            "        return _unsupported_driver_request(\n",
+            "            self.instrument_id,\n",
+            '            "operation",\n',
+            "            request.target.operation_id,\n",
+            "        )\n",
+        )
+    )
+    return "".join(lines)
+
+
+def _render_adapter_collect(
+    surface: _DriverHandlerSurface,
+    models: tuple[_DriverAcquisitionModel, ...],
+) -> str:
+    lines = [
+        "\n",
+        "    def collect(\n",
+        "        self,\n",
+        "        request: DriverAcquisition,\n",
+        "    ) -> DriverOutcome[DriverReadback]:\n",
+    ]
+    for model in models:
+        condition = f"request.target == {model.member_name}"
+        if model.optional:
+            condition += f" and self._driver_{cast('str', surface.flag_name)}_enabled"
+        if len(f"        if {condition}:") <= 88:
+            lines.append(f"        if {condition}:\n")
+        elif model.optional:
+            flag = cast("str", surface.flag_name)
+            lines.extend(
+                (
+                    "        if (\n",
+                    f"            request.target == {model.member_name}\n",
+                    f"            and self._driver_{flag}_enabled\n",
+                    "        ):\n",
+                )
+            )
+        else:
+            lines.extend(
+                ("        if (\n", f"            {condition}\n", "        ):\n")
+            )
+        lines.extend(
+            (
+                "            requested: "
+                f"set[{model.type_stem}DriverResultName] = set()\n",
+                "            for result in request.results:\n",
+            )
+        )
+        for index, field in enumerate(model.fields):
+            keyword = "if" if index == 0 else "elif"
+            lines.extend(
+                (
+                    f"                {keyword} result == {field.member_name}:\n",
+                    f"                    requested.add("
+                    f"{_string_literal(field.python_name)})\n",
+                )
+            )
+        lines.extend(
+            (
+                "                else:\n",
+                "                    return _unsupported_driver_request(\n",
+                "                        self.instrument_id,\n",
+                '                        "acquisition_result",\n',
+                "                        result.result_id,\n",
+                "                    )\n",
+                f"            outcome = self.{model.hook_name}(frozenset(requested))\n",
+                "            if not isinstance(outcome, DriverSuccess):\n",
+                "                return outcome\n",
+                "            readback = outcome.value\n",
+                "            values: dict[AcquisitionResultRef, "
+                "MeasurementValue] = {}\n",
+            )
+        )
+        for field in model.fields:
+            field_literal = _string_literal(field.python_name)
+            lines.append(f"            if {field_literal} in readback.values:\n")
+            assignment = (
+                f"                values[{field.member_name}] = "
+                f"readback.values[{field_literal}]\n"
+            )
+            if len(assignment.rstrip("\n")) <= 88:
+                lines.append(assignment)
+            else:
+                lines.extend(
+                    (
+                        f"                values[{field.member_name}] = "
+                        "readback.values[\n",
+                        f"                    {field_literal}\n",
+                        "                ]\n",
+                    )
+                )
+        lines.extend(
+            (
+                "            return DriverSuccess(\n",
+                "                DriverReadback(\n",
+                "                    values=values,\n",
+                "                    metadata=readback.metadata,\n",
+                "                ),\n",
+                "                metadata=outcome.metadata,\n",
+                "            )\n",
+            )
+        )
+    lines.extend(
+        (
+            "        return _unsupported_driver_request(\n",
+            "            self.instrument_id,\n",
+            '            "acquisition",\n',
+            "            request.target.acquisition_id,\n",
+            "        )\n",
+        )
+    )
+    return "".join(lines)
+
+
 def _driver_patch_fields(
     model: _CatalogInterfaceModel,
 ) -> tuple[_DriverPatchField, ...]:
@@ -1357,7 +2294,7 @@ def _render_driver_function_header(
 
 
 def _render_driver_import_block(imports: dict[str, set[str]]) -> str:
-    standard_modules = {"collections.abc", "typing"}
+    standard_modules = {"abc", "collections.abc", "dataclasses", "typing"}
     local_modules = {
         module
         for module in imports
@@ -3206,6 +4143,10 @@ def main(argv: list[str] | None = None) -> None:
             rendered_source
             for target in _catalog_targets()
             for rendered_source in render_catalog_target(target)
+        ),
+        *(
+            (target.output, render_driver_handler_target(target))
+            for target in _driver_handler_targets()
         ),
     )
     if options.check:
