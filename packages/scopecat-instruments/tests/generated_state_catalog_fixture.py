@@ -19,31 +19,22 @@ from client_codegen_fixture_declarations import (
     DriverMonitorState as DriverMonitorState,
 )
 from client_codegen_fixture_declarations import (
-    DriverSourceLeftState as DriverSourceLeftState,
-)
-from client_codegen_fixture_declarations import (
-    DriverSourceRightState as DriverSourceRightState,
+    DriverSourceState as DriverSourceState,
 )
 from client_codegen_fixture_declarations import (
     SharedFixtureState as SharedFixtureState,
-)
-from client_codegen_fixture_declarations import (
-    _DriverSourceCommon as _DriverSourceCommon,
 )
 from generated_member_catalog_fixture import (
     CATALOG_PROJECTION_ENABLED,
     DRIVER_MONITOR_ENABLED,
     DRIVER_SOURCE_ENABLED,
-    DRIVER_SOURCE_LEFT_LEVEL,
-    DRIVER_SOURCE_MODE,
-    DRIVER_SOURCE_RIGHT_LEVEL,
+    DRIVER_SOURCE_LEVEL,
     SHARED_STATE_FIRST_ENABLED,
     SHARED_STATE_SECOND_ENABLED,
 )
 
 _CATALOG_PROJECTION_STATE_LAYOUT = StateProjectionLayout(
     fields=(StateProjectionField("enabled", CATALOG_PROJECTION_ENABLED),),
-    constants=(),
 )
 
 
@@ -64,7 +55,6 @@ class CatalogProjectionGroupTarget:
 
 _SHARED_STATE_FIRST_STATE_LAYOUT = StateProjectionLayout(
     fields=(StateProjectionField("enabled", SHARED_STATE_FIRST_ENABLED),),
-    constants=(),
 )
 
 
@@ -85,7 +75,6 @@ class SharedStateFirstGroupTarget:
 
 _SHARED_STATE_SECOND_STATE_LAYOUT = StateProjectionLayout(
     fields=(StateProjectionField("enabled", SHARED_STATE_SECOND_ENABLED),),
-    constants=(),
 )
 
 
@@ -105,83 +94,33 @@ class SharedStateSecondGroupTarget:
 
 
 _DRIVER_SOURCE_STATE_LAYOUT = StateProjectionLayout(
-    fields=(StateProjectionField("enabled", DRIVER_SOURCE_ENABLED),),
-    constants=(),
+    fields=(
+        StateProjectionField("enabled", DRIVER_SOURCE_ENABLED),
+        StateProjectionField("level", DRIVER_SOURCE_LEVEL),
+    ),
 )
 
 
 @instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUT)
 class DriverSourcePatch:
     enabled: bool = state_projection_field()
+    level: int = state_projection_field()
 
 
 @instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUT)
 class DriverSourceTarget:
     enabled: bool | ValueRef = state_projection_field()
+    level: int | ValueRef = state_projection_field()
 
 
 @instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUT)
 class DriverSourceGroupTarget:
     enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
-
-
-_DRIVER_SOURCE_LEFT_STATE_LAYOUT = StateProjectionLayout(
-    fields=(
-        StateProjectionField("enabled", DRIVER_SOURCE_ENABLED),
-        StateProjectionField("level", DRIVER_SOURCE_LEFT_LEVEL),
-    ),
-    constants=((DRIVER_SOURCE_MODE, "left"),),
-)
-
-
-@instrument_state_projection(_DRIVER_SOURCE_LEFT_STATE_LAYOUT)
-class DriverSourceLeftPatch:
-    enabled: bool = state_projection_field()
-    level: int
-
-
-@instrument_state_projection(_DRIVER_SOURCE_LEFT_STATE_LAYOUT)
-class DriverSourceLeftTarget:
-    enabled: bool | ValueRef = state_projection_field()
-    level: int | ValueRef
-
-
-@instrument_state_projection(_DRIVER_SOURCE_LEFT_STATE_LAYOUT)
-class DriverSourceLeftGroupTarget:
-    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
-    level: int | ValueRef | PerEntity[int | ValueRef]
-
-
-_DRIVER_SOURCE_RIGHT_STATE_LAYOUT = StateProjectionLayout(
-    fields=(
-        StateProjectionField("enabled", DRIVER_SOURCE_ENABLED),
-        StateProjectionField("level", DRIVER_SOURCE_RIGHT_LEVEL),
-    ),
-    constants=((DRIVER_SOURCE_MODE, "right"),),
-)
-
-
-@instrument_state_projection(_DRIVER_SOURCE_RIGHT_STATE_LAYOUT)
-class DriverSourceRightPatch:
-    enabled: bool = state_projection_field()
-    level: int
-
-
-@instrument_state_projection(_DRIVER_SOURCE_RIGHT_STATE_LAYOUT)
-class DriverSourceRightTarget:
-    enabled: bool | ValueRef = state_projection_field()
-    level: int | ValueRef
-
-
-@instrument_state_projection(_DRIVER_SOURCE_RIGHT_STATE_LAYOUT)
-class DriverSourceRightGroupTarget:
-    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
-    level: int | ValueRef | PerEntity[int | ValueRef]
+    level: int | ValueRef | PerEntity[int | ValueRef] = state_projection_field()
 
 
 _DRIVER_MONITOR_STATE_LAYOUT = StateProjectionLayout(
     fields=(StateProjectionField("enabled", DRIVER_MONITOR_ENABLED),),
-    constants=(),
 )
 
 
@@ -210,15 +149,8 @@ __all__ = [
     "DriverMonitorState",
     "DriverMonitorTarget",
     "DriverSourceGroupTarget",
-    "DriverSourceLeftGroupTarget",
-    "DriverSourceLeftPatch",
-    "DriverSourceLeftState",
-    "DriverSourceLeftTarget",
     "DriverSourcePatch",
-    "DriverSourceRightGroupTarget",
-    "DriverSourceRightPatch",
-    "DriverSourceRightState",
-    "DriverSourceRightTarget",
+    "DriverSourceState",
     "DriverSourceTarget",
     "SharedFixtureState",
     "SharedStateFirstGroupTarget",
@@ -227,5 +159,4 @@ __all__ = [
     "SharedStateSecondGroupTarget",
     "SharedStateSecondPatch",
     "SharedStateSecondTarget",
-    "_DriverSourceCommon",
 ]

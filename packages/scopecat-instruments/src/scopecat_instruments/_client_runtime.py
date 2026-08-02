@@ -98,47 +98,9 @@ class ClientAcquisitionResult:
 
 
 @dataclass(frozen=True, slots=True)
-class ClientAcquisitionLayout:
-    case_value: str | None
-    fields: tuple[ClientAcquisitionResult, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class ClientAcquisition:
     ref: AcquisitionRef
-    discriminator: PropertyRef | None
-    layouts: tuple[ClientAcquisitionLayout, ...]
-
-    @property
-    def result_fields(self) -> tuple[ClientAcquisitionResult, ...]:
-        return tuple(field for layout in self.layouts for field in layout.fields)
-
-    def active_result_fields(
-        self,
-        case_value: str | None = None,
-        /,
-    ) -> tuple[ClientAcquisitionResult, ...]:
-        if self.discriminator is None:
-            if case_value is not None:
-                raise ValueError(
-                    f"fixed acquisition {self.ref.acquisition_id!r} has no cases"
-                )
-            return self.layouts[0].fields
-        if case_value is None:
-            raise ValueError(
-                f"acquisition {self.ref.acquisition_id!r} requires a concrete "
-                "discriminator case"
-            )
-        selected = next(
-            (layout for layout in self.layouts if layout.case_value == case_value),
-            None,
-        )
-        if selected is None:
-            raise ValueError(
-                f"acquisition {self.ref.acquisition_id!r} has no result case "
-                f"{case_value!r}"
-            )
-        return selected.fields
+    result_fields: tuple[ClientAcquisitionResult, ...]
 
 
 def client_property_value_type(value_type_json: str, /) -> ValueType:
@@ -189,11 +151,7 @@ class InstrumentClientBase:
         acquisition: ClientAcquisition,
         output_factory: Callable[..., OutputT],
     ) -> OutputT:
-        requested_results = (
-            ()
-            if acquisition.discriminator is not None
-            else tuple(field.ref for field in acquisition.active_result_fields())
-        )
+        requested_results = tuple(field.ref for field in acquisition.result_fields)
         receipt = self._session.collect(
             acquisition.ref,
             *requested_results,
@@ -270,7 +228,6 @@ def _concrete_assignments(state: object) -> dict[PropertyRef, StateLiteral]:
 __all__ = [
     "ClientAcquisition",
     "ClientAcquisitionAxis",
-    "ClientAcquisitionLayout",
     "ClientAcquisitionResult",
     "ClientStateField",
     "ClientStateSchema",

@@ -9,15 +9,12 @@ from scopecat.sdk.instruments.declarations import (
     acquisition,
     argument,
     axis,
-    discriminated_state,
     instrument_interface,
     instrument_result,
     instrument_state,
-    member,
     member_field,
     operation,
     result_field,
-    state_case,
 )
 
 
@@ -116,37 +113,14 @@ class DriverFixedAcquisitionInterface(Protocol):
 
 
 @instrument_state
-class _DriverSourceCommon:
+class DriverSourceState:
     enabled: bool = member_field()
-
-
-@instrument_state
-class DriverSourceLeftState(_DriverSourceCommon):
-    level: int = member_field(id="left_level")
-
-
-@instrument_state
-class DriverSourceRightState(_DriverSourceCommon):
-    level: int = member_field(id="right_level")
-
-
-type DriverSourceState = DriverSourceLeftState | DriverSourceRightState
+    level: int = member_field()
 
 
 @instrument_interface(
     "test.generated_driver_source/v1",
-    state=discriminated_state(
-        member(id="mode", choices=("left", "right")),
-        common=_DriverSourceCommon,
-        cases=(
-            state_case("left", DriverSourceLeftState, required_on_entry=("level",)),
-            state_case(
-                "right",
-                DriverSourceRightState,
-                required_on_entry=("level",),
-            ),
-        ),
-    ),
+    state=DriverSourceState,
 )
 class DriverSourceInterface(Protocol): ...
 
@@ -205,8 +179,6 @@ __all__ = [
     "DriverMonitorResults",
     "DriverMonitorState",
     "DriverSourceInterface",
-    "DriverSourceLeftState",
-    "DriverSourceRightState",
     "DriverSourceState",
     "EffectIdCollisionInterface",
     "LiteralOperationInterface",

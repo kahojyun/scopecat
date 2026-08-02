@@ -14,9 +14,8 @@ _CATALOG_PROJECTION_SPEC_JSON = (
     ',"value_type":{"type":"bool"}},{"id":"st'
     'atus","label":null,"description":null,"a'
     'ccess":"read_only","value_type":{"type":'
-    '"string","choices":null}}],"state":null,'
-    '"operations":[],"acquisitions":[],"compo'
-    'nents":[]}'
+    '"string","choices":null}}],"operations":'
+    '[],"acquisitions":[],"components":[]}'
 )
 
 
@@ -29,9 +28,9 @@ _SHARED_STATE_FIRST_SPEC_JSON = (
     '/v1","label":null,"description":null,"pr'
     'operties":[{"id":"enabled","label":null,'
     '"description":null,"access":"read_write"'
-    ',"value_type":{"type":"bool"}}],"state":'
-    'null,"operations":[],"acquisitions":[],"'
-    'components":[]}'
+    ',"value_type":{"type":"bool"}}],"operati'
+    'ons":[],"acquisitions":[],"components":['
+    "]}"
 )
 
 
@@ -44,9 +43,9 @@ _SHARED_STATE_SECOND_SPEC_JSON = (
     'd/v1","label":null,"description":null,"p'
     'roperties":[{"id":"enabled","label":null'
     ',"description":null,"access":"read_write'
-    '","value_type":{"type":"bool"}}],"state"'
-    ':null,"operations":[],"acquisitions":[],'
-    '"components":[]}'
+    '","value_type":{"type":"bool"}}],"operat'
+    'ions":[],"acquisitions":[],"components":'
+    "[]}"
 )
 
 
@@ -57,20 +56,19 @@ def shared_state_second_interface() -> InterfaceSpec:
 _SCALAR_OPERATION_SPEC_JSON = (
     '{"id":"test.generated_scalar_operation/v'
     '1","label":null,"description":null,"prop'
-    'erties":[],"state":null,"operations":[{"'
-    'id":"emit_pulse","label":null,"descripti'
-    'on":null,"arguments":[{"id":"pulse_count'
-    '","label":null,"description":null,"value'
-    '_type":{"type":"int","minimum":-90071992'
-    '54740991,"maximum":9007199254740991}},{"'
-    'id":"pulse_width","label":null,"descript'
-    'ion":null,"value_type":{"type":"quantity'
-    '","dimension":null,"unit":"s","minimum":'
-    'null,"maximum":null,"finite":true}},{"id'
-    '":"pulse_label","label":null,"descriptio'
-    'n":null,"value_type":{"type":"string","c'
-    'hoices":null}}]}],"acquisitions":[],"com'
-    'ponents":[]}'
+    'erties":[],"operations":[{"id":"emit_pul'
+    'se","label":null,"description":null,"arg'
+    'uments":[{"id":"pulse_count","label":nul'
+    'l,"description":null,"value_type":{"type'
+    '":"int","minimum":-9007199254740991,"max'
+    'imum":9007199254740991}},{"id":"pulse_wi'
+    'dth","label":null,"description":null,"va'
+    'lue_type":{"type":"quantity","dimension"'
+    ':null,"unit":"s","minimum":null,"maximum'
+    '":null,"finite":true}},{"id":"pulse_labe'
+    'l","label":null,"description":null,"valu'
+    'e_type":{"type":"string","choices":null}'
+    '}]}],"acquisitions":[],"components":[]}'
 )
 
 
@@ -81,12 +79,12 @@ def scalar_operation_interface() -> InterfaceSpec:
 _LITERAL_OPERATION_SPEC_JSON = (
     '{"id":"test.generated_literal_operation/'
     'v1","label":null,"description":null,"pro'
-    'perties":[],"state":null,"operations":[{'
-    '"id":"select","label":null,"description"'
-    ':null,"arguments":[{"id":"mode","label":'
-    'null,"description":null,"value_type":{"t'
-    'ype":"string","choices":["left","right"]'
-    '}}]}],"acquisitions":[],"components":[]}'
+    'perties":[],"operations":[{"id":"select"'
+    ',"label":null,"description":null,"argume'
+    'nts":[{"id":"mode","label":null,"descrip'
+    'tion":null,"value_type":{"type":"string"'
+    ',"choices":["left","right"]}}]}],"acquis'
+    'itions":[],"components":[]}'
 )
 
 
@@ -97,13 +95,12 @@ def literal_operation_interface() -> InterfaceSpec:
 _PAYLOAD_OPERATION_SPEC_JSON = (
     '{"id":"test.generated_payload_operation/'
     'v1","label":null,"description":null,"pro'
-    'perties":[],"state":null,"operations":[{'
-    '"id":"upload","label":null,"description"'
-    ':null,"arguments":[{"id":"payload","labe'
-    'l":null,"description":null,"value_type":'
-    '{"type":"payload","schema_id":"test.payl'
-    'oad/v1"}}]}],"acquisitions":[],"componen'
-    'ts":[]}'
+    'perties":[],"operations":[{"id":"upload"'
+    ',"label":null,"description":null,"argume'
+    'nts":[{"id":"payload","label":null,"desc'
+    'ription":null,"value_type":{"type":"payl'
+    'oad","schema_id":"test.payload/v1"}}]}],'
+    '"acquisitions":[],"components":[]}'
 )
 
 
@@ -114,15 +111,15 @@ def payload_operation_interface() -> InterfaceSpec:
 _DRIVER_FIXED_ACQUISITION_SPEC_JSON = (
     '{"id":"test.generated_driver_fixed_acqui'
     'sition/v1","label":null,"description":nu'
-    'll,"properties":[],"state":null,"operati'
-    'ons":[],"acquisitions":[{"id":"acquire",'
-    '"label":null,"description":null,"precond'
-    'itions":[],"kind":"fixed","results":[{"i'
-    'd":"signal","label":null,"description":n'
-    'ull,"dtype":"complex128","unit":"ratio",'
-    '"axes":[{"id":"sample","label":null,"des'
-    'cription":null,"kind":"sample","size":2,'
-    '"unit":null}]}]}],"components":[]}'
+    'll,"properties":[],"operations":[],"acqu'
+    'isitions":[{"id":"acquire","label":null,'
+    '"description":null,"preconditions":[],"r'
+    'esults":[{"id":"signal","label":null,"de'
+    'scription":null,"dtype":"complex128","un'
+    'it":"ratio","axes":[{"id":"sample","labe'
+    'l":null,"description":null,"kind":"sampl'
+    'e","size":2,"unit":null}]}]}],"component'
+    's":[]}'
 )
 
 
@@ -133,28 +130,14 @@ def driver_fixed_acquisition_interface() -> InterfaceSpec:
 _DRIVER_SOURCE_SPEC_JSON = (
     '{"id":"test.generated_driver_source/v1",'
     '"label":null,"description":null,"propert'
-    'ies":[{"id":"mode","label":null,"descrip'
-    'tion":null,"access":"read_write","value_'
-    'type":{"type":"string","choices":["left"'
-    ',"right"]}},{"id":"enabled","label":null'
-    ',"description":null,"access":"read_write'
-    '","value_type":{"type":"bool"}},{"id":"l'
-    'eft_level","label":null,"description":nu'
-    'll,"access":"read_write","value_type":{"'
-    'type":"int","minimum":-9007199254740991,'
-    '"maximum":9007199254740991}},{"id":"righ'
-    't_level","label":null,"description":null'
-    ',"access":"read_write","value_type":{"ty'
-    'pe":"int","minimum":-9007199254740991,"m'
-    'aximum":9007199254740991}}],"state":{"di'
-    'scriminator_property_id":"mode","common_'
-    'property_ids":["enabled"],"cases":[{"val'
-    'ue":"left","property_ids":["left_level"]'
-    ',"required_on_entry_property_ids":["left'
-    '_level"]},{"value":"right","property_ids'
-    '":["right_level"],"required_on_entry_pro'
-    'perty_ids":["right_level"]}]},"operation'
-    's":[],"acquisitions":[],"components":[]}'
+    'ies":[{"id":"enabled","label":null,"desc'
+    'ription":null,"access":"read_write","val'
+    'ue_type":{"type":"bool"}},{"id":"level",'
+    '"label":null,"description":null,"access"'
+    ':"read_write","value_type":{"type":"int"'
+    ',"minimum":-9007199254740991,"maximum":9'
+    '007199254740991}}],"operations":[],"acqu'
+    'isitions":[],"components":[]}'
 )
 
 
@@ -167,16 +150,15 @@ _DRIVER_MONITOR_SPEC_JSON = (
     ',"label":null,"description":null,"proper'
     'ties":[{"id":"enabled","label":null,"des'
     'cription":null,"access":"read_write","va'
-    'lue_type":{"type":"bool"}}],"state":null'
-    ',"operations":[],"acquisitions":[{"id":"'
-    'monitor","label":null,"description":null'
-    ',"preconditions":[],"kind":"fixed","resu'
-    'lts":[{"id":"left_value","label":null,"d'
-    'escription":null,"dtype":"float64","unit'
-    '":null,"axes":[]},{"id":"right_value","l'
-    'abel":null,"description":null,"dtype":"f'
-    'loat64","unit":null,"axes":[]}]}],"compo'
-    'nents":[]}'
+    'lue_type":{"type":"bool"}}],"operations"'
+    ':[],"acquisitions":[{"id":"monitor","lab'
+    'el":null,"description":null,"preconditio'
+    'ns":[],"results":[{"id":"left_value","la'
+    'bel":null,"description":null,"dtype":"fl'
+    'oat64","unit":null,"axes":[]},{"id":"rig'
+    'ht_value","label":null,"description":nul'
+    'l,"dtype":"float64","unit":null,"axes":['
+    ']}]}],"components":[]}'
 )
 
 

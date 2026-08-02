@@ -28,7 +28,6 @@ from scopecat.sdk.instruments.declarations import (
     DeclaredInterfaceLayout,
     DeclaredOperation,
     DeclaredResultField,
-    DeclaredResultLayout,
     DeclaredScopeLayout,
     DeclaredStateField,
     DeclaredStateLayout,
@@ -540,7 +539,7 @@ class _CatalogInterfaceModel:
     factory_name: str
     spec: InterfaceSpec
     root: DeclaredScopeLayout
-    states: tuple[DeclaredStateLayout, ...]
+    state: DeclaredStateLayout | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -598,34 +597,25 @@ class _DriverOperationModel:
 
 def _state_projection_names(
     interface_stem: str,
-    layout: DeclaredStateLayout,
 ) -> _StateProjectionNames:
-    stem = interface_stem
-    if layout.role == "case":
-        case_stem = layout.projection_stem
-        stem = (
-            case_stem
-            if case_stem.startswith(interface_stem)
-            else f"{interface_stem}{case_stem}"
-        )
     return _StateProjectionNames(
-        patch=f"{stem}Patch",
-        target=f"{stem}Target",
-        group_target=f"{stem}GroupTarget",
+        patch=f"{interface_stem}Patch",
+        target=f"{interface_stem}Target",
+        group_target=f"{interface_stem}GroupTarget",
     )
 
 
 def _register_state_projection_types(
     renderer: _AnnotationRenderer,
-    layouts: tuple[DeclaredStateLayout, ...],
+    state: DeclaredStateLayout | None,
     *,
     interface_stem: str,
     state_projection_module: str,
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-    names = tuple(
-        _state_projection_names(interface_stem, layout)
-        for layout in layouts
-        if _layout_has_writable_state(layout)
+    names = (
+        (_state_projection_names(interface_stem),)
+        if state is not None and _layout_has_writable_state(state)
+        else ()
     )
     if names:
         imported = renderer.imports.setdefault(
@@ -649,22 +639,19 @@ def _register_state_projection_types(
 
 
 def _state_keyword_model(
-    layouts: tuple[DeclaredStateLayout, ...],
+    state: DeclaredStateLayout | None,
     *,
     interface_stem: str,
     renderer: _AnnotationRenderer,
 ) -> _StateKeywordModel | None:
     """Describe the unambiguous keyword surface for one flat state schema."""
 
-    if len(layouts) != 1:
+    if state is None:
         return None
-    layout = layouts[0]
-    if layout.required_fields or layout.constants:
-        return None
-    writable_fields = _writable_state_fields(layout)
+    writable_fields = _writable_state_fields(state)
     if not writable_fields:
         return None
-    names = _state_projection_names(interface_stem, layout)
+    names = _state_projection_names(interface_stem)
     fields: list[_StateKeywordFieldModel] = []
     for field in writable_fields:
         concrete = renderer.render(field.annotation)
@@ -692,7 +679,7 @@ def _writable_state_fields(
 
 
 def _layout_has_writable_state(layout: DeclaredStateLayout) -> bool:
-    return bool(_writable_state_fields(layout) or layout.constants)
+    return bool(_writable_state_fields(layout))
 
 
 @dataclass(frozen=True, slots=True)
@@ -843,7 +830,7 @@ def _catalog_models(
                 factory_name=f"{_snake_case(stem)}_interface",
                 spec=layout.compiled.spec,
                 root=layout.root,
-                states=layout.states,
+                state=layout.state,
             )
         )
     return tuple(models)
@@ -1071,10 +1058,10 @@ def _unique_state_layouts(
     models: tuple[_CatalogInterfaceModel, ...],
 ) -> tuple[tuple[_CatalogInterfaceModel, DeclaredStateLayout], ...]:
     return tuple(
-        (model, layout)
+        (model, state)
         for model in models
-        for layout in model.states
-        if _layout_has_writable_state(layout)
+        if (state := model.state) is not None
+        if _layout_has_writable_state(state)
     )
 
 
@@ -1086,7 +1073,7 @@ def _state_export_owners(
 ) -> dict[str, str]:
     exports_by_name: dict[str, str] = {}
     for candidate in (
-        *(layout.source_type for model in models for layout in model.states),
+        *(model.state.source_type for model in models if model.state is not None),
         *public_types,
     ):
         module, name = _public_type_location(candidate)
@@ -1102,7 +1089,6 @@ def _state_export_owners(
         owner = f"{layout.source_type.__module__}.{layout.source_type.__qualname__}"
         names = _state_projection_names(
             model.interface_type_name.removesuffix("Interface"),
-            layout,
         )
         for name in (names.patch, names.target, names.group_target):
             existing = exports_by_name.get(name)
@@ -1132,7 +1118,7 @@ def _render_states_module(
     )
 
     for candidate in (
-        *(layout.source_type for model in models for layout in model.states),
+        *(model.state.source_type for model in models if model.state is not None),
         *public_types,
     ):
         module, name = _public_type_location(candidate)
@@ -1150,7 +1136,6 @@ def _render_states_module(
     for model, layout in state_layouts:
         names = _state_projection_names(
             model.interface_type_name.removesuffix("Interface"),
-            layout,
         )
         layout_expression = _state_projection_layout_name(names)
         declarations.append(
@@ -1249,14 +1234,13 @@ def _render_driver_states_module(
                 )
             )
 
-        for layout in model.states:
-            if layout.role == "common":
-                continue
+        if model.state is not None:
             encoder_name = _state_encoder_name(
                 model.interface_type_name.removesuffix("Interface"),
-                layout,
             )
-            owner = f"{model.interface_identity}:{_type_identity(layout.source_type)}"
+            owner = (
+                f"{model.interface_identity}:{_type_identity(model.state.source_type)}"
+            )
             existing_owner = encoder_owners.get(encoder_name)
             if existing_owner is not None:
                 if existing_owner != owner:
@@ -1264,19 +1248,19 @@ def _render_driver_states_module(
                         f"generated driver state encoder collision {encoder_name}: "
                         f"{existing_owner} vs {owner}"
                     )
-                continue
-            encoder_owners[encoder_name] = owner
-            exports.append(encoder_name)
-            source_type_name = renderer.reference(layout.source_type)
-            declarations.append(
-                _render_exact_state_encoder(
-                    layout,
-                    constant_prefix=model.constant_prefix,
-                    encoder_name=encoder_name,
-                    source_type_name=source_type_name,
-                    member_imports=member_imports,
+            else:
+                encoder_owners[encoder_name] = owner
+                exports.append(encoder_name)
+                source_type_name = renderer.reference(model.state.source_type)
+                declarations.append(
+                    _render_exact_state_encoder(
+                        model.state,
+                        constant_prefix=model.constant_prefix,
+                        encoder_name=encoder_name,
+                        source_type_name=source_type_name,
+                        member_imports=member_imports,
+                    )
                 )
-            )
 
     imports[members_module] = member_imports
     for module, names in renderer.imports.items():
@@ -1511,7 +1495,8 @@ def _render_driver_adapter(
     state_constituents = tuple(
         constituent
         for constituent in surface.constituents
-        if _driver_writable_state_layouts(constituent.layout.states)
+        if constituent.layout.state is not None
+        if _layout_has_writable_state(constituent.layout.state)
     )
     operation_models = tuple(
         _driver_operation_model(
@@ -1623,68 +1608,22 @@ def _driver_snapshot_fields(
     selected: list[tuple[str, str, _DriverHandlerConstituent]] = []
     is_composite = len(surface.constituents) > 1
     for constituent in surface.constituents:
-        state_layouts = _driver_state_layouts(constituent.layout.states)
-        if state_layouts:
-            annotation = _driver_state_annotation(
-                constituent,
-                state_layouts,
-                imports=imports,
-            )
+        state = constituent.layout.state
+        if state is not None:
+            state_type = state.source_type
+            imports.setdefault(state_type.__module__, set()).add(state_type.__name__)
+            annotation = state_type.__name__
             if constituent.optional:
                 annotation = f"{annotation} | None"
             field_name = constituent.field_name if is_composite else "state"
             selected.append((field_name, annotation, constituent))
-            if _driver_writable_state_layouts(constituent.layout.states):
+            if _layout_has_writable_state(state):
                 driver_state_imports.add(
                     f"decode_{_snake_case(constituent.stem)}_patch"
                 )
                 driver_state_imports.add(f"{constituent.stem}DriverPatch")
-            for layout in state_layouts:
-                driver_state_imports.add(_state_encoder_name(constituent.stem, layout))
-            for layout in state_layouts[:-1]:
-                imports.setdefault(layout.source_type.__module__, set()).add(
-                    layout.source_type.__name__
-                )
+            driver_state_imports.add(_state_encoder_name(constituent.stem))
     return tuple(selected)
-
-
-def _driver_state_layouts(
-    layouts: tuple[DeclaredStateLayout, ...],
-) -> tuple[DeclaredStateLayout, ...]:
-    return tuple(layout for layout in layouts if layout.role != "common")
-
-
-def _driver_writable_state_layouts(
-    layouts: tuple[DeclaredStateLayout, ...],
-) -> tuple[DeclaredStateLayout, ...]:
-    return tuple(
-        layout
-        for layout in _driver_state_layouts(layouts)
-        if _layout_has_writable_state(layout)
-    )
-
-
-def _driver_state_annotation(
-    constituent: _DriverHandlerConstituent,
-    layouts: tuple[DeclaredStateLayout, ...],
-    *,
-    imports: dict[str, set[str]],
-) -> str:
-    if len(layouts) == 1:
-        state_type = layouts[0].source_type
-        imports.setdefault(state_type.__module__, set()).add(state_type.__name__)
-        return state_type.__name__
-    alias_name = f"{constituent.stem}State"
-    declaration_module = import_module(constituent.interface_type.__module__)
-    if hasattr(declaration_module, alias_name):
-        imports.setdefault(constituent.interface_type.__module__, set()).add(alias_name)
-        return alias_name
-    names: list[str] = []
-    for layout in layouts:
-        state_type = layout.source_type
-        imports.setdefault(state_type.__module__, set()).add(state_type.__name__)
-        names.append(state_type.__name__)
-    return " | ".join(names)
 
 
 def _driver_operation_model(
@@ -1783,7 +1722,6 @@ def _render_adapter_read_state(
     )
     for field_name, _annotation, constituent in snapshot_fields:
         value = f"snapshot.{field_name}"
-        layouts = _driver_state_layouts(constituent.layout.states)
         indent = "        "
         if constituent.optional:
             flag = cast("str", surface.flag_name)
@@ -1791,31 +1729,10 @@ def _render_adapter_read_state(
                 f"        if self._driver_{flag}_enabled and {value} is not None:\n"
             )
             indent = "            "
-        if len(layouts) == 1:
-            lines.append(
-                f"{indent}encoded.append("
-                f"{_state_encoder_name(constituent.stem, layouts[0])}({value}))\n"
-            )
-            continue
-        for index, layout in enumerate(layouts):
-            if index == len(layouts) - 1:
-                lines.extend(
-                    (
-                        f"{indent}else:\n",
-                        f"{indent}    encoded.append("
-                        f"{_state_encoder_name(constituent.stem, layout)}({value}))\n",
-                    )
-                )
-                continue
-            keyword = "if" if index == 0 else "elif"
-            lines.extend(
-                (
-                    f"{indent}{keyword} isinstance({value}, "
-                    f"{layout.source_type.__name__}):\n",
-                    f"{indent}    encoded.append("
-                    f"{_state_encoder_name(constituent.stem, layout)}({value}))\n",
-                )
-            )
+        lines.append(
+            f"{indent}encoded.append("
+            f"{_state_encoder_name(constituent.stem)}({value}))\n"
+        )
     lines.append(
         "        return encode_driver_state(*encoded, metadata=snapshot.metadata)\n"
     )
@@ -2076,9 +1993,8 @@ def _driver_patch_fields(
     model: _CatalogInterfaceModel,
 ) -> tuple[_DriverPatchField, ...]:
     annotations_by_id: dict[str, object] = {}
-    constant_values_by_id: dict[str, list[object]] = {}
-    for layout in model.states:
-        for declared_field in layout.fields:
+    if model.state is not None:
+        for declared_field in model.state.fields:
             property_id = declared_field.property_id
             existing = annotations_by_id.get(property_id)
             if existing is not None and existing != declared_field.annotation:
@@ -2087,18 +2003,6 @@ def _driver_patch_fields(
                     "has inconsistent concrete annotations"
                 )
             annotations_by_id[property_id] = declared_field.annotation
-        for ref, value in layout.constants:
-            selected = constant_values_by_id.setdefault(ref.property_id, [])
-            if value not in selected:
-                selected.append(value)
-
-    for property_id, values in constant_values_by_id.items():
-        if property_id in annotations_by_id:
-            raise ClientGenerationError(
-                f"driver patch property {model.interface_identity}.{property_id} "
-                "is both a concrete field and a state constant"
-            )
-        annotations_by_id[property_id] = typing.Literal[*tuple(values)]
 
     return tuple(
         _DriverPatchField(property_id=property_spec.id, annotation=annotation)
@@ -2185,9 +2089,8 @@ def _render_driver_patch_decoder(
 
 def _state_encoder_name(
     interface_stem: str,
-    layout: DeclaredStateLayout,
 ) -> str:
-    projection = _state_projection_names(interface_stem, layout)
+    projection = _state_projection_names(interface_stem)
     stem = _snake_case(projection.patch.removesuffix("Patch"))
     if not stem.endswith("_state"):
         stem = f"{stem}_state"
@@ -2214,11 +2117,6 @@ def _render_exact_state_encoder(
         if declared_field.python_name in source_fields
     )
     entries: list[str] = []
-    for ref, value in layout.constants:
-        member_name = _member_constant_name(constant_prefix, ref)
-        member_imports.add(member_name)
-        literal = _string_literal(value) if isinstance(value, str) else repr(value)
-        entries.append(f"        {member_name}: {literal},\n")
     for declared_field in selected_fields:
         member_name = _member_constant_name(constant_prefix, declared_field.ref)
         member_imports.add(member_name)
@@ -2311,20 +2209,9 @@ def _render_state_projection_layout(
             f"StateProjectionField({_string_literal(field.python_name)}, {member_name})"
         )
 
-    constants: list[str] = []
-    for ref, value in layout.constants:
-        if not isinstance(value, str):
-            raise ClientGenerationError(
-                "generated state case discriminator must be a string"
-            )
-        member_name = _member_constant_name(constant_prefix, ref)
-        member_imports.add(member_name)
-        constants.append(f"({member_name}, {_string_literal(value)})")
-
     return (
         f"\n\n{name} = StateProjectionLayout(\n"
         + _render_state_layout_argument("fields", fields)
-        + _render_state_layout_argument("constants", constants)
         + ")\n"
     )
 
@@ -2349,7 +2236,6 @@ def _render_state_projection(
     renderer: _AnnotationRenderer,
     projection: str,
 ) -> str:
-    required = frozenset(layout.required_fields)
     fields: list[str] = []
     for declared_field in _writable_state_fields(layout):
         concrete = renderer.render(declared_field.annotation)
@@ -2365,7 +2251,7 @@ def _render_state_projection(
             _render_state_projection_field(
                 declared_field.python_name,
                 annotation,
-                required=declared_field.python_name in required,
+                required=False,
             )
         )
     body = "".join(fields) or "    pass\n"
@@ -2673,7 +2559,7 @@ def _interface_model(
     )
     live_states, symbolic_states, group_states = _register_state_projection_types(
         renderer,
-        layout.states,
+        layout.state,
         interface_stem=stem,
         state_projection_module=state_projection_module,
     )
@@ -2688,7 +2574,7 @@ def _interface_model(
         symbolic_state_type_names=symbolic_states,
         group_state_type_names=group_states,
         keyword_state=_state_keyword_model(
-            layout.states,
+            layout.state,
             interface_stem=stem,
             renderer=renderer,
         ),
@@ -2755,16 +2641,13 @@ def _composite_model(
             acquisition for scope in scopes for acquisition in scope.acquisitions
         ),
     )
-    state_layouts: list[DeclaredStateLayout] = []
     live_states: list[str] = []
     symbolic_states: list[str] = []
     group_states: list[str] = []
     for constituent in constituents:
-        new_layouts = constituent.layout.states
-        state_layouts.extend(new_layouts)
         registered = _register_state_projection_types(
             renderer,
-            new_layouts,
+            constituent.layout.state,
             interface_stem=constituent.interface_stem,
             state_projection_module=state_projection_module,
         )
@@ -2779,11 +2662,7 @@ def _composite_model(
         live_state_type_names=tuple(live_states),
         symbolic_state_type_names=tuple(symbolic_states),
         group_state_type_names=tuple(group_states),
-        keyword_state=_state_keyword_model(
-            tuple(state_layouts),
-            interface_stem=stem,
-            renderer=renderer,
-        ),
+        keyword_state=None,
         constituents=constituents,
         root=root,
     )
@@ -2799,8 +2678,8 @@ def _constituent_model(
     interface_name = interface_type.__name__
     interface_stem = interface_name.removesuffix("Interface")
     state_type_name = (
-        renderer.reference(layout.states[0].source_type)
-        if len(layout.states) == 1 and layout.states[0].role == "flat"
+        renderer.reference(layout.state.source_type)
+        if layout.state is not None
         else None
     )
     return _InterfaceConstituentModel(
@@ -2980,7 +2859,7 @@ def _acquisition_model(
     constant_prefix: str,
     overrides: dict[str, str],
 ) -> _AcquisitionModel:
-    result_alias = acquisition.layouts[0].result_type
+    result_alias = acquisition.result.result_type
     result_type = cast("type[object]", get_origin(result_alias) or result_alias)
     result_type_name = result_type.__name__
     result_stem = result_type_name.removesuffix("Results")
@@ -3062,7 +2941,6 @@ def _render_header(
             {
                 "ClientAcquisition",
                 "ClientAcquisitionAxis",
-                "ClientAcquisitionLayout",
                 "ClientAcquisitionResult",
             }
         )
@@ -3234,13 +3112,14 @@ def _render_constituent_descriptors(
     sections: list[str] = []
     if constituent.state_type_name is not None:
         schema_name = constituent.state_schema_name
-        if schema_name is None or len(constituent.layout.states) != 1:
+        state = constituent.layout.state
+        if schema_name is None or state is None:
             raise AssertionError("client state requires one flat schema")
         sections.append(
             _render_client_state_schema(
                 schema_name,
                 constituent.state_type_name,
-                constituent.layout.states[0],
+                state,
             )
         )
     _append_client_scope_descriptors(
@@ -3326,48 +3205,20 @@ def _render_client_acquisition(
     root_ref_name: str,
 ) -> str:
     acquisition_ref = _acquisition_ref_expression(root_ref_name, acquisition.ref)
-    layouts = "".join(
-        _render_client_acquisition_layout(
-            layout,
+    fields = "".join(
+        _render_client_acquisition_result(
+            field,
             acquisition_ref=acquisition_ref,
         )
-        for layout in acquisition.layouts
-    )
-    discriminator = (
-        "None"
-        if acquisition.discriminator is None
-        else _property_ref_expression(acquisition.discriminator)
+        for field in acquisition.result.fields
     )
     return (
         f"\n{name} = ClientAcquisition(\n"
         f"    ref={acquisition_ref},\n"
-        f"    discriminator={discriminator},\n"
-        "    layouts=(\n"
-        f"{layouts}"
+        "    result_fields=(\n"
+        f"{fields}"
         "    ),\n"
         ")\n"
-    )
-
-
-def _render_client_acquisition_layout(
-    layout: DeclaredResultLayout,
-    *,
-    acquisition_ref: str,
-) -> str:
-    fields = "".join(
-        _render_client_acquisition_result(field, acquisition_ref=acquisition_ref)
-        for field in layout.fields
-    )
-    case_value = (
-        "None" if layout.case_value is None else _string_literal(layout.case_value)
-    )
-    return (
-        "        ClientAcquisitionLayout(\n"
-        f"            case_value={case_value},\n"
-        "            fields=(\n"
-        f"{fields}"
-        "            ),\n"
-        "        ),\n"
     )
 
 
@@ -3377,23 +3228,23 @@ def _render_client_acquisition_result(
     acquisition_ref: str,
 ) -> str:
     axes = tuple(_render_client_acquisition_axis(axis) for axis in field.spec.axes)
-    axes_expression = "(\n" + "".join(axes) + "                    )" if axes else "()"
+    axes_expression = "(\n" + "".join(axes) + "            )" if axes else "()"
     result_ref = f"{acquisition_ref}.result({_string_literal(field.result_id)})"
     return (
-        "                ClientAcquisitionResult(\n"
-        f"                    {_string_literal(field.python_name)},\n"
-        f"{_render_client_ref_argument(result_ref, indent=20)}"
-        f"                    dtype={_string_literal(field.spec.dtype)},\n"
-        f"                    unit={_optional_string_literal(field.spec.unit)},\n"
-        f"                    axes={axes_expression},\n"
-        "                ),\n"
+        "        ClientAcquisitionResult(\n"
+        f"            {_string_literal(field.python_name)},\n"
+        f"{_render_client_ref_argument(result_ref, indent=12)}"
+        f"            dtype={_string_literal(field.spec.dtype)},\n"
+        f"            unit={_optional_string_literal(field.spec.unit)},\n"
+        f"            axes={axes_expression},\n"
+        "        ),\n"
     )
 
 
 def _render_client_acquisition_axis(axis: AcquisitionAxisSpec) -> str:
     size = axis.size
     if isinstance(size, int):
-        size_argument = f"                            size={size},\n"
+        size_argument = f"                    size={size},\n"
     else:
         size_expression = _property_ref_expression(
             PropertyRef(
@@ -3405,15 +3256,15 @@ def _render_client_acquisition_axis(axis: AcquisitionAxisSpec) -> str:
         size_argument = _render_client_ref_keyword(
             "size",
             size_expression,
-            indent=28,
+            indent=20,
         )
     return (
-        "                        ClientAcquisitionAxis(\n"
-        f"                            id={_string_literal(axis.id)},\n"
+        "                ClientAcquisitionAxis(\n"
+        f"                    id={_string_literal(axis.id)},\n"
         f"{size_argument}"
-        f"                            kind={_string_literal(axis.kind)},\n"
-        f"                            unit={_optional_string_literal(axis.unit)},\n"
-        "                        ),\n"
+        f"                    kind={_string_literal(axis.kind)},\n"
+        f"                    unit={_optional_string_literal(axis.unit)},\n"
+        "                ),\n"
     )
 
 

@@ -364,7 +364,7 @@ Consumers that need that lower-level boundary can call
 the decorated interface type directly, so declarations do not need a parallel
 public compiled constant.
 
-Device mode changes need not become a discriminated desired-state schema.
+Device mode changes are not alternate desired-state schemas.
 `DCSourceState` contains persistent protection and output fields together with
 the `read_only` current mode. Required range and level values belong to the typed
 `source_voltage(...)` and `source_current(...)` operations, which map directly
@@ -380,8 +380,9 @@ that need it, rather than a second recursive Python declaration and proxy model.
 Compiled declarations expose typed member descriptors in addition to the wire
 contract. `declared_operation(...)` binds the concrete Python call signature and
 maps its arguments to stable operation refs, while `declared_acquisition(...)`
-binds result layouts. Generated state schemas decode complete snapshots back
-into the declared dataclass. Operations are also authored with concrete `T`
+binds one concrete result layout. Generated state schemas decode complete
+snapshots back into the declared dataclass. Operations are also authored with
+concrete `T`
 parameters; generation projects them to `T | ValueRef` only on symbolic clients
 and lifts those values per entity on group clients.
 
@@ -392,7 +393,7 @@ carriers. `NetworkSweepPatch` contains only concrete `T` values for live
 `PerEntity[T | ValueRef]` independently for each field. Field presence is
 tracked by a private sentinel, not by `None`, so omission is orthogonal to the
 domain value. A group also accepts `PerEntity[NetworkSweepTarget]` when complete
-targets or discriminated cases differ by entity. The lower-level
+targets differ by entity. The lower-level
 `resource + DesiredState` path remains available as an escape hatch.
 
 For an unambiguous flat schema, generated overloads also accept those same
@@ -419,11 +420,11 @@ identity, and lazy driver registrations; the generator and provider both derive
 their catalogs from it. A composite is package presentation metadata over
 existing interfaces, not a third wire interface or a decorated Python type. The
 factory also defines how `each(...)` fans one logical operation out to
-independently routable resources. The compiler covers persistent flat and
-discriminated scalar state, read-only fields, typed atomic operations,
-fixed and state-discriminated acquisitions, axes, results, and preconditions.
-Explicit contract builders remain the escape hatch for
-component-owned state or properties and other unusual contract shapes.
+independently routable resources. The compiler covers persistent flat scalar
+state, read-only fields, typed atomic operations, acquisitions, axes,
+results, and preconditions.
+Explicit contract builders remain the escape hatch for component-owned members
+and other unusual contract shapes.
 
 The descriptor boundary does not dynamically inject public client methods.
 Those methods remain real Python source so type checkers can preserve
@@ -440,7 +441,7 @@ single-entity, and group clients. The generated `dc_source(...)` and
 `dc_source_monitor(...)` factories make those requirements explicit. Generated
 source also includes typed `state()` / `refresh_state()` accessors and acquisition
 result carriers. Composite clients return state grouped by constituent interface.
-Writable root-level flat and discriminated schemas produce typed `apply(...)`,
+Writable root-level schemas produce typed `apply(...)`,
 `ensure(...)`, and field-wise group target surfaces.
 The same pass writes the six public runtime modules—`clients.py`, `members.py`,
 `interfaces.py`, `states.py`, `driver_states.py`, and `driver_handlers.py`—plus
@@ -589,13 +590,13 @@ numbers remain positive and measurement delay remains non-negative, while
 model-specific upper limits are enforced by the concrete driver that knows the
 connected hardware.
 
-A fixed acquisition always exposes the same results. A state-discriminated
-acquisition references one physical state discriminator and declares a result
-set for every mode. Acquisition- and case-level preconditions declare the
-observable public state required before a trigger. The daemon resolves an
+An acquisition always exposes one declared result set. Its preconditions name
+observable public state required before the trigger. The daemon resolves an
 interactive collect intent from a fresh hardware snapshot, while batch
 preflight uses projected state to reject an incoherent plan before its first
-side effect.
+side effect. When operating mode changes the meaning of a trigger, interfaces
+use separate typed acquisitions and let the concrete driver reject a call that
+the connected hardware cannot perform in its current configuration.
 
 Every array axis has either a fixed size or an observable integer state
 property as its size source. Executable collect commands always freeze concrete
@@ -604,8 +605,8 @@ the driver request. Truly ragged or event-shaped results require a distinct
 result contract rather than an omitted axis size.
 
 Interactive replay is checked before touching hardware. On the first attempt,
-the daemon synchronizes state, selects the active results, resolves every axis,
-and freezes the resulting concrete command. A rejection is also replayed
+the daemon synchronizes state, resolves the declared result selection and every
+axis, and freezes the resulting concrete command. A rejection is also replayed
 without another state read. The driver still rechecks live mode and
 preconditions before the trigger because the front panel can change after the
 snapshot; implementation-specific constraints remain driver guards.
@@ -643,16 +644,14 @@ validation remain explicit driver responsibilities. All four real and four
 virtual first-party drivers inherit their generated adapter and implement only
 these typed hooks plus normal description and lifecycle methods.
 
-Operating-mode-dependent property sets use discriminated state. The private
-common declaration base exists only for field reuse; public snapshots are a
-closed union of complete cases. A patch within the observed case may remain
-sparse. At the low-level wire boundary, changing case requires the discriminator
-and the target case's entry properties so hidden state cannot become active.
-Typed users instead choose the generated voltage or current carrier, which
-inserts that discriminator and requires range and level. Common-field
-`DCSourcePatch` remains a sparse update and does not select a case. Configured
-startup defaults resolve to property assignments; omitted experiment properties
-preserve freshly observed device state unless the run applies those defaults.
+Operating-mode transitions are typed operations rather than alternate state
+record shapes. For example, `source_voltage(...)` and `source_current(...)`
+carry the range and level required for one atomic transition, while the reported
+mode remains a read-only field in the complete `DCSourceState` snapshot.
+`DCSourcePatch` therefore stays a plain sparse update for persistent protection
+and output settings. Configured startup defaults resolve to property
+assignments; omitted experiment properties preserve freshly observed device
+state unless the run applies those defaults.
 
 ## Connection configuration
 
@@ -703,10 +702,8 @@ explicitly.
 
 Applying default state is not a factory reset. Settings outside the public
 interface remain driver-owned connection or profile configuration; experiments
-neither guess nor overwrite them. A discriminated state case explicitly lists
-the properties required when entering it. Defaults that select a new case must
-provide those values, so startup does not activate safety-relevant settings left
-by an earlier use of that mode.
+neither guess nor overwrite them. Atomic mode transitions are operations and
+therefore cannot be implied by a sparse default-state profile.
 
 `failure_action` is also required and has deliberately few choices:
 
@@ -789,8 +786,8 @@ operator explicitly selects **Connect**, after which the detail view:
 6. submits all staged properties in one **Apply** operation;
 7. offers one-shot controls for declared operations whose arguments the GUI can
    encode;
-8. offers **Collect** for declared acquisitions; the daemon resolves the active
-   result case and validates its preconditions;
+8. offers **Collect** for declared acquisitions; the daemon resolves the
+   declared results and validates their preconditions;
 9. releases session ownership on explicit disconnect or workspace teardown.
 
 **Refresh state** performs a new read when the operator wants to synchronize
@@ -880,12 +877,11 @@ with lab.instruments.open(FLUX_SOURCE, READOUT_VNA) as devices:
 The handle is synchronous to match the existing notebook API and releases
 ownership when its context exits. Calls are replay-safe across a transient
 transport failure without requiring users to manage daemon command identities.
-Omitting result refs asks the daemon to select every active result from the
-fresh synchronized state.
+Omitting result refs asks the daemon to select every declared result.
 
 The Notebook API does not read state or resolve acquisition schema locally.
 The daemon performs one fresh synchronization after a replay miss, chooses
-default results, rejects an inactive explicit result or unmet precondition, and
+default results, rejects an unknown explicit result or unmet precondition, and
 freezes concrete dimensions before calling the driver.
 
 Opaque values such as compiled pulse programs are operation arguments, never

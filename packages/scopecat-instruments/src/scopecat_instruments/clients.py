@@ -20,7 +20,6 @@ from scopecat.sdk.instruments import (
 from scopecat_instruments._client_runtime import (
     ClientAcquisition,
     ClientAcquisitionAxis,
-    ClientAcquisitionLayout,
     ClientAcquisitionResult,
     ClientStateField,
     ClientStateSchema,
@@ -90,28 +89,20 @@ _TEMPERATURE_READOUT_STATE_SCHEMA = ClientStateSchema(
 
 _TEMPERATURE_READOUT_SAMPLE_DECLARATION = ClientAcquisition(
     ref=_TEMPERATURE_READOUT_REF.acquisition("sample"),
-    discriminator=None,
-    layouts=(
-        ClientAcquisitionLayout(
-            case_value=None,
-            fields=(
-                ClientAcquisitionResult(
-                    "temperature",
-                    _TEMPERATURE_READOUT_REF.acquisition("sample").result(
-                        "temperature"
-                    ),
-                    dtype="float64",
-                    unit="K",
-                    axes=(),
-                ),
-                ClientAcquisitionResult(
-                    "resistance",
-                    _TEMPERATURE_READOUT_REF.acquisition("sample").result("resistance"),
-                    dtype="float64",
-                    unit="Ohm",
-                    axes=(),
-                ),
-            ),
+    result_fields=(
+        ClientAcquisitionResult(
+            "temperature",
+            _TEMPERATURE_READOUT_REF.acquisition("sample").result("temperature"),
+            dtype="float64",
+            unit="K",
+            axes=(),
+        ),
+        ClientAcquisitionResult(
+            "resistance",
+            _TEMPERATURE_READOUT_REF.acquisition("sample").result("resistance"),
+            dtype="float64",
+            unit="Ohm",
+            axes=(),
         ),
     ),
 )
@@ -221,42 +212,26 @@ _DC_MONITOR_STATE_SCHEMA = ClientStateSchema(
 
 _DC_MONITOR_MEASURE_CURRENT_DECLARATION = ClientAcquisition(
     ref=_DC_MONITOR_REF.acquisition("measure_current"),
-    discriminator=None,
-    layouts=(
-        ClientAcquisitionLayout(
-            case_value=None,
-            fields=(
-                ClientAcquisitionResult(
-                    "current",
-                    _DC_MONITOR_REF.acquisition("measure_current").result(
-                        "monitored_current"
-                    ),
-                    dtype="float64",
-                    unit="A",
-                    axes=(),
-                ),
-            ),
+    result_fields=(
+        ClientAcquisitionResult(
+            "current",
+            _DC_MONITOR_REF.acquisition("measure_current").result("monitored_current"),
+            dtype="float64",
+            unit="A",
+            axes=(),
         ),
     ),
 )
 
 _DC_MONITOR_MEASURE_VOLTAGE_DECLARATION = ClientAcquisition(
     ref=_DC_MONITOR_REF.acquisition("measure_voltage"),
-    discriminator=None,
-    layouts=(
-        ClientAcquisitionLayout(
-            case_value=None,
-            fields=(
-                ClientAcquisitionResult(
-                    "voltage",
-                    _DC_MONITOR_REF.acquisition("measure_voltage").result(
-                        "monitored_voltage"
-                    ),
-                    dtype="float64",
-                    unit="V",
-                    axes=(),
-                ),
-            ),
+    result_fields=(
+        ClientAcquisitionResult(
+            "voltage",
+            _DC_MONITOR_REF.acquisition("measure_voltage").result("monitored_voltage"),
+            dtype="float64",
+            unit="V",
+            axes=(),
         ),
     ),
 )
@@ -319,42 +294,32 @@ _NETWORK_SWEEP_STATE_SCHEMA = ClientStateSchema(
 
 _NETWORK_SWEEP_SWEEP_DECLARATION = ClientAcquisition(
     ref=_NETWORK_SWEEP_REF.acquisition("sweep"),
-    discriminator=None,
-    layouts=(
-        ClientAcquisitionLayout(
-            case_value=None,
-            fields=(
-                ClientAcquisitionResult(
-                    "frequency",
-                    _NETWORK_SWEEP_REF.acquisition("sweep").result("frequency"),
-                    dtype="float64",
+    result_fields=(
+        ClientAcquisitionResult(
+            "frequency",
+            _NETWORK_SWEEP_REF.acquisition("sweep").result("frequency"),
+            dtype="float64",
+            unit="Hz",
+            axes=(
+                ClientAcquisitionAxis(
+                    id="frequency",
+                    size=InterfaceRef("scopecat.network_sweep/v1").property("points"),
+                    kind="frequency",
                     unit="Hz",
-                    axes=(
-                        ClientAcquisitionAxis(
-                            id="frequency",
-                            size=InterfaceRef("scopecat.network_sweep/v1").property(
-                                "points"
-                            ),
-                            kind="frequency",
-                            unit="Hz",
-                        ),
-                    ),
                 ),
-                ClientAcquisitionResult(
-                    "s_parameter",
-                    _NETWORK_SWEEP_REF.acquisition("sweep").result("s_parameter"),
-                    dtype="complex128",
-                    unit="ratio",
-                    axes=(
-                        ClientAcquisitionAxis(
-                            id="frequency",
-                            size=InterfaceRef("scopecat.network_sweep/v1").property(
-                                "points"
-                            ),
-                            kind="frequency",
-                            unit="Hz",
-                        ),
-                    ),
+            ),
+        ),
+        ClientAcquisitionResult(
+            "s_parameter",
+            _NETWORK_SWEEP_REF.acquisition("sweep").result("s_parameter"),
+            dtype="complex128",
+            unit="ratio",
+            axes=(
+                ClientAcquisitionAxis(
+                    id="frequency",
+                    size=InterfaceRef("scopecat.network_sweep/v1").property("points"),
+                    kind="frequency",
+                    unit="Hz",
                 ),
             ),
         ),

@@ -27,11 +27,10 @@ from scopecat.records.measurement import (
     MeasurementUnavailable,
 )
 from scopecat.sdk.instruments import (
-    AcquisitionCaseSpec,
     AcquisitionPreconditionSpec,
+    AcquisitionSpec,
     CollectReceipt,
     DriverSuccess,
-    FixedAcquisitionSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentProviderContext,
@@ -41,17 +40,13 @@ from scopecat.sdk.instruments import (
     OperationArgumentSpec,
     PropertyRef,
     PropertySpec,
-    StateDiscriminatedAcquisitionSpec,
     StatePropertyRef,
     acquisition,
     acquisition_axis,
-    acquisition_case,
     acquisition_precondition,
     acquisition_result,
-    acquisition_results,
     bool_property,
     component,
-    discriminated_state,
     enum_property,
     float_property,
     int_property,
@@ -59,8 +54,6 @@ from scopecat.sdk.instruments import (
     operation,
     operation_argument,
     quantity_property,
-    state_case,
-    state_discriminated_acquisition,
     string_property,
 )
 from scopecat.sdk.instruments._driver_adapter import (
@@ -827,98 +820,36 @@ def test_instrument_description_rejects_duplicate_interface_members() -> None:
         )
 
 
-def test_acquisition_schema_uses_an_explicit_discriminated_union() -> None:
-    fixed = acquisition(
+def test_acquisition_schema_is_one_flat_contract() -> None:
+    acquisition_spec = acquisition(
         "sample",
         results=[acquisition_result("signal")],
     )
-    description = _state_discriminated_collect_description()
-    restored = InstrumentDescription.model_validate(description.model_dump(mode="json"))
-    state_discriminated = restored.interfaces[1].acquisitions[0]
-
-    assert isinstance(fixed, FixedAcquisitionSpec)
-    assert fixed.model_dump(mode="json")["kind"] == "fixed"
-    assert [result.id for result in acquisition_results(fixed)] == ["signal"]
-    assert isinstance(state_discriminated, StateDiscriminatedAcquisitionSpec)
-    assert state_discriminated.kind == "state_discriminated"
-    assert isinstance(state_discriminated.discriminator, StatePropertyRef)
-    assert all(
-        isinstance(case, AcquisitionCaseSpec) for case in state_discriminated.cases
-    )
-    assert [result.id for result in acquisition_results(state_discriminated)] == [
-        "monitored_current",
-        "monitored_voltage",
-    ]
-
-
-def test_acquisition_schema_rejects_a_missing_discriminator_tag() -> None:
-    description = _collect_description()
-    serialized = description.model_dump(mode="json")
-    del serialized["interfaces"][0]["acquisitions"][0]["kind"]
-
-    with pytest.raises(ValidationError, match="Unable to extract tag"):
-        InstrumentDescription.model_validate(serialized)
-
-
-def test_state_discriminated_acquisition_requires_unique_result_ids() -> None:
-    with pytest.raises(
-        ValidationError,
-        match="state-discriminated acquisition result ids must be unique",
-    ):
-        state_discriminated_acquisition(
-            "monitor",
-            discriminator=InterfaceRef("test.source/v1")
-            .component("output")
-            .property("mode"),
-            cases=(
-                acquisition_case(
-                    "voltage",
-                    results=(acquisition_result("reading"),),
-                ),
-                acquisition_case(
-                    "current",
-                    results=(acquisition_result("reading"),),
-                ),
-            ),
-        )
-
-
-def test_acquisition_discriminator_must_reference_declared_physical_state() -> None:
-    with pytest.raises(
-        ValidationError,
-        match="discriminator must reference a declared discriminated state",
-    ):
-        _state_discriminated_collect_description(
-            discriminator=InterfaceRef("test.source/v1")
-            .component("output")
-            .property("missing")
-        )
-
-
-def test_acquisition_cases_must_match_discriminator_state_cases() -> None:
-    with pytest.raises(
-        ValidationError,
-        match="case values must exactly match",
-    ):
-        _state_discriminated_collect_description(
-            cases=(
-                acquisition_case(
-                    "voltage",
-                    results=(acquisition_result("monitored_current", unit="A"),),
-                ),
-                acquisition_case(
-                    "power",
-                    results=(acquisition_result("monitored_power", unit="W"),),
-                ),
+    description = InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.flat_acquisition",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                "test.monitor/v1",
+                acquisitions=[acquisition_spec],
             )
-        )
+        ],
+    )
+    restored = InstrumentDescription.model_validate(description.model_dump(mode="json"))
+    restored_acquisition = restored.interfaces[0].acquisitions[0]
+
+    assert isinstance(acquisition_spec, AcquisitionSpec)
+    assert "kind" not in acquisition_spec.model_dump(mode="json")
+    assert isinstance(restored_acquisition, AcquisitionSpec)
+    assert [result.id for result in restored_acquisition.results] == ["signal"]
 
 
 def test_acquisition_readiness_uses_public_state_preconditions() -> None:
     output_enabled = (
         InterfaceRef("test.source/v1").component("output").property("output_enabled")
     )
-    description = _state_discriminated_collect_description(
+    description = _monitor_collect_description(
         preconditions=(
             acquisition_precondition(
                 output_enabled,
@@ -937,29 +868,23 @@ def test_acquisition_readiness_uses_public_state_preconditions() -> None:
     blocked = evaluate_acquisition_readiness(
         description=description,
         acquisition=acquisition_spec,
-        state=_state_discriminated_collect_snapshot("voltage"),
+        state=_monitor_collect_snapshot(),
     )
     ready = evaluate_acquisition_readiness(
         description=description,
         acquisition=acquisition_spec,
-        state=_state_discriminated_collect_snapshot(
-            "voltage",
-            output_enabled=True,
-        ),
+        state=_monitor_collect_snapshot(output_enabled=True),
     )
 
     assert unknown.status == "unknown"
-    assert unknown.results == ()
     assert blocked.status == "blocked"
-    assert blocked.active_case == "voltage"
-    assert [result.id for result in blocked.results] == ["monitored_current"]
     assert [issue.reason for issue in blocked.issues] == ["Source output is disabled."]
     assert ready.status == "ready"
     assert ready.issues == ()
 
 
 def test_collect_plan_checks_preconditions_but_structural_validation_does_not() -> None:
-    description = _state_discriminated_collect_description(
+    description = _monitor_collect_description(
         preconditions=(
             acquisition_precondition(
                 InterfaceRef("test.source/v1")
@@ -970,7 +895,7 @@ def test_collect_plan_checks_preconditions_but_structural_validation_does_not() 
             ),
         )
     )
-    command = _state_discriminated_collect_command(
+    command = _monitor_collect_command(
         "monitored_current",
         unit="A",
     )
@@ -982,7 +907,7 @@ def test_collect_plan_checks_preconditions_but_structural_validation_does_not() 
     planned = validate_collect_plan(
         command=command,
         description=description,
-        baseline=_state_discriminated_collect_snapshot("voltage"),
+        baseline=_monitor_collect_snapshot(),
     )
 
     assert structural == []
@@ -1002,8 +927,8 @@ def test_collect_plan_checks_preconditions_but_structural_validation_does_not() 
     assert problem.details["observed_value"] is False
 
 
-def test_known_common_precondition_blocks_with_an_unknown_result_case() -> None:
-    description = _state_discriminated_collect_description(
+def test_known_precondition_blocks_with_projected_state() -> None:
+    description = _monitor_collect_description(
         preconditions=(
             acquisition_precondition(
                 InterfaceRef("test.source/v1")
@@ -1027,7 +952,7 @@ def test_known_common_precondition_blocks_with_an_unknown_result_case() -> None:
     )
 
     planned = validate_collect_plan(
-        command=_state_discriminated_collect_command(
+        command=_monitor_collect_command(
             "monitored_current",
             unit="A",
         ),
@@ -1040,47 +965,52 @@ def test_known_common_precondition_blocks_with_an_unknown_result_case() -> None:
     ]
 
 
-def test_acquisition_preconditions_validate_type_and_state_visibility() -> None:
-    voltage_level = (
-        InterfaceRef("test.source/v1").component("output").property("voltage_level")
-    )
-
+def test_acquisition_preconditions_require_a_declared_observable_property() -> None:
     with pytest.raises(
         ValidationError,
-        match="state that is not always observable",
+        match="precondition must reference a declared property",
     ):
-        _state_discriminated_collect_description(
+        _monitor_collect_description(
             preconditions=(
                 acquisition_precondition(
-                    voltage_level,
-                    value=0.1,
-                    unavailable_reason="Voltage level is not configured.",
+                    InterfaceRef("test.source/v1")
+                    .component("output")
+                    .property("missing"),
+                    value=True,
+                    unavailable_reason="Missing state.",
                 ),
             )
         )
 
-    description = _state_discriminated_collect_description(
-        cases=(
-            acquisition_case(
-                "voltage",
-                results=(acquisition_result("monitored_current", unit="A"),),
-                preconditions=(
-                    acquisition_precondition(
-                        voltage_level,
-                        value=0.1,
-                        unavailable_reason="Voltage level is not configured.",
-                    ),
-                ),
-            ),
-            acquisition_case(
-                "current",
-                results=(acquisition_result("monitored_voltage", unit="V"),),
-            ),
+    source = InterfaceRef("test.source/v1")
+    with pytest.raises(
+        ValidationError,
+        match="precondition property must be observable",
+    ):
+        InstrumentDescription(
+            instrument_id="source-0",
+            implementation_id="tests.write_only_precondition",
+            implementation_version="v1",
+            interfaces=[
+                interface(
+                    source.interface_id,
+                    properties=[bool_property("enabled", access="write_only")],
+                    acquisitions=[
+                        acquisition(
+                            "sample",
+                            results=[acquisition_result("reading")],
+                            preconditions=[
+                                acquisition_precondition(
+                                    source.property("enabled"),
+                                    value=True,
+                                    unavailable_reason="Output disabled.",
+                                )
+                            ],
+                        )
+                    ],
+                )
+            ],
         )
-    )
-    acquisition_spec = description.interfaces[1].acquisitions[0]
-    assert isinstance(acquisition_spec, StateDiscriminatedAcquisitionSpec)
-    assert acquisition_spec.cases[0].preconditions
 
 
 def test_quantity_preconditions_require_a_canonical_property_unit() -> None:
@@ -1393,268 +1323,6 @@ def test_numeric_property_bounds_have_canonical_interface_wire() -> None:
     validate_instrument_description_collection((negative_zero, positive_zero))
 
 
-def test_discriminated_state_builder_owns_its_property_partition() -> None:
-    with pytest.raises(
-        ValueError,
-        match="properties must be declared by the state",
-    ):
-        interface(
-            "test.dc/v1",
-            properties=[float_property("level")],
-            state=discriminated_state(
-                enum_property("mode", choices=("voltage", "current")),
-                cases=(
-                    state_case("voltage"),
-                    state_case("current"),
-                ),
-            ),
-        )
-
-    with pytest.raises(ValidationError, match="choices exactly match case values"):
-        interface(
-            "test.dc/v1",
-            state=discriminated_state(
-                enum_property("mode", choices=("voltage", "current")),
-                cases=(
-                    state_case("current"),
-                    state_case("voltage"),
-                ),
-            ),
-        )
-
-
-def test_state_case_entry_requirements_are_declared_members_and_writable() -> None:
-    with pytest.raises(
-        ValidationError,
-        match="entry requirements reference unknown properties",
-    ):
-        interface(
-            "test.dc/v1",
-            state=discriminated_state(
-                enum_property("mode", choices=("voltage", "current")),
-                cases=(
-                    state_case(
-                        "voltage",
-                        properties=(float_property("voltage_level"),),
-                        required_on_entry_property_ids=("missing",),
-                    ),
-                    state_case("current"),
-                ),
-            ),
-        )
-
-    with pytest.raises(
-        ValidationError,
-        match="entry requirements must be writable",
-    ):
-        interface(
-            "test.dc/v1",
-            state=discriminated_state(
-                enum_property("mode", choices=("voltage", "current")),
-                cases=(
-                    state_case(
-                        "voltage",
-                        properties=(
-                            float_property("voltage_level", access="read_only"),
-                        ),
-                        required_on_entry_property_ids=("voltage_level",),
-                    ),
-                    state_case("current"),
-                ),
-            ),
-        )
-
-
-def test_state_command_uses_observed_discriminator_for_partial_patches() -> None:
-    description = _variant_description()
-    voltage = _variant_snapshot("voltage", "voltage_level", 0.1)
-    current = _variant_snapshot("current", "current_level", 0.01)
-    voltage_patch = _variant_command(("voltage_level", 0.2))
-
-    assert (
-        validate_state_command(
-            command=voltage_patch,
-            description=description,
-            baseline=voltage,
-        )
-        == []
-    )
-    assert [
-        item.code
-        for item in validate_state_command(
-            command=voltage_patch,
-            description=description,
-            baseline=current,
-        )
-    ] == ["instrument_driver_state_case_mismatch"]
-
-
-def test_state_command_requires_a_complete_case_without_a_matching_baseline() -> None:
-    description = _variant_description()
-    voltage = _variant_snapshot("voltage", "voltage_level", 0.1)
-    incomplete_switch = _variant_command(("mode", "current"))
-    incomplete_without_baseline = _variant_command(("current_level", 0.02))
-
-    without_baseline = validate_state_command(
-        command=incomplete_without_baseline,
-        description=description,
-    )
-    switching_case = validate_state_command(
-        command=incomplete_switch,
-        description=description,
-        baseline=voltage,
-    )
-
-    assert [item.code for item in without_baseline] == [
-        "instrument_driver_state_case_incomplete"
-    ]
-    assert [item.code for item in switching_case] == [
-        "instrument_driver_state_case_incomplete"
-    ]
-    assert "current_range" in without_baseline[0].message
-    assert "current_level" in switching_case[0].message
-
-
-def test_state_command_allows_complete_switches_and_sparse_same_case_patches() -> None:
-    description = _variant_description()
-    voltage = _variant_snapshot("voltage", "voltage_level", 0.1)
-    current = _variant_snapshot("current", "current_level", 0.01)
-    complete_switch = _variant_command(
-        ("mode", "current"),
-        ("current_range", 0.1),
-        ("current_level", 0.02),
-    )
-
-    assert (
-        validate_state_command(
-            command=complete_switch,
-            description=description,
-        )
-        == []
-    )
-    assert (
-        validate_state_command(
-            command=complete_switch,
-            description=description,
-            baseline=voltage,
-        )
-        == []
-    )
-    assert (
-        validate_state_command(
-            command=_variant_command(("mode", "current")),
-            description=description,
-            baseline=current,
-        )
-        == []
-    )
-
-
-def test_state_command_only_requires_properties_declared_for_case_entry() -> None:
-    description = InstrumentDescription(
-        instrument_id="source-0",
-        implementation_id="tests.explicit_case_entry",
-        implementation_version="v1",
-        interfaces=[
-            interface(
-                "test.dc/v1",
-                state=discriminated_state(
-                    enum_property("mode", choices=("voltage", "current")),
-                    cases=(
-                        state_case(
-                            "voltage",
-                            properties=(
-                                float_property("voltage_range"),
-                                float_property("voltage_level"),
-                            ),
-                            required_on_entry_property_ids=("voltage_level",),
-                        ),
-                        state_case(
-                            "current",
-                            properties=(
-                                float_property("current_range"),
-                                float_property("current_level"),
-                            ),
-                            required_on_entry_property_ids=("current_level",),
-                        ),
-                    ),
-                ),
-            )
-        ],
-    )
-    switch = _variant_command(
-        ("mode", "current"),
-        ("current_level", 0.02),
-    )
-
-    assert validate_state_command(command=switch, description=description) == []
-
-
-def test_state_command_uses_physical_discriminator_across_logical_targets() -> None:
-    description = _variant_description()
-    baseline = InstrumentStateSnapshot(
-        instrument_id="source-0",
-        properties=[
-            RecordInstrumentPropertyState(
-                interface_id="test.dc/v1",
-                property_id="mode",
-                value=StateValue("current"),
-            ),
-            RecordInstrumentPropertyState(
-                interface_id="test.dc/v1",
-                property_id="current_range",
-                value=StateValue(0.1),
-            ),
-            RecordInstrumentPropertyState(
-                interface_id="test.dc/v1",
-                property_id="current_level",
-                value=StateValue(0.01),
-            ),
-            RecordInstrumentPropertyState(
-                interface_id="test.dc/v1",
-                property_id="output_enabled",
-                value=StateValue(False),
-            ),
-        ],
-    )
-    patch = InstrumentStateCommand(
-        command_id="scoped-patch",
-        instrument_id="source-0",
-        assignments=[
-            InstrumentStateAssignment(
-                resource_id="source-0",
-                interface_id="test.dc/v1",
-                property_id="current_level",
-                value=StateValue(0.02),
-                entity_ids=["channel-b"],
-            )
-        ],
-    )
-
-    assert (
-        validate_state_command(
-            command=patch,
-            description=description,
-            baseline=baseline,
-        )
-        == []
-    )
-
-
-def test_state_command_can_require_an_explicit_discriminator() -> None:
-    patch = _variant_command(("current_level", 0.02))
-
-    [problem] = validate_state_command(
-        command=patch,
-        description=_variant_description(),
-        require_explicit_state_case=True,
-    )
-
-    assert problem.code == "instrument_driver_state_case_unknown"
-    assert isinstance(problem.related_locations[0], ModelLocation)
-    assert problem.related_locations[0].path == ("test.dc/v1", "mode")
-
-
 def test_state_command_rejects_duplicate_physical_targets() -> None:
     with pytest.raises(
         ValidationError,
@@ -1680,30 +1348,6 @@ def test_state_command_rejects_duplicate_physical_targets() -> None:
                 ),
             ],
         )
-
-
-def test_state_command_rejects_mixed_or_explicitly_mismatched_cases() -> None:
-    description = _variant_description()
-
-    mixed = validate_state_command(
-        command=_variant_command(
-            ("voltage_level", 0.2),
-            ("current_level", 0.01),
-        ),
-        description=description,
-    )
-    explicit_mismatch = validate_state_command(
-        command=_variant_command(
-            ("mode", "current"),
-            ("voltage_level", 0.2),
-        ),
-        description=description,
-    )
-
-    assert [item.code for item in mixed] == ["instrument_driver_mixed_state_cases"]
-    assert [item.code for item in explicit_mismatch] == [
-        "instrument_driver_state_case_mismatch"
-    ]
 
 
 def test_instrument_property_state_contains_only_a_physical_target() -> None:
@@ -1831,83 +1475,61 @@ def test_state_snapshot_requires_declared_quantity_units() -> None:
     assert problem.location.path == ("properties", 0, "value", "unit")
 
 
-def test_discriminated_snapshot_requires_common_and_active_case_state() -> None:
-    incomplete = InstrumentStateSnapshot(
+def test_state_projection_overlays_flat_observable_properties() -> None:
+    description = InstrumentDescription(
         instrument_id="source-0",
-        properties=[
-            RecordInstrumentPropertyState(
-                interface_id="test.dc/v1",
-                property_id="mode",
-                value=StateValue("voltage"),
+        implementation_id="tests.flat_projection",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                "test.control/v1",
+                properties=[
+                    float_property("gain"),
+                    string_property("secret", access="write_only"),
+                ],
             )
         ],
     )
-
-    [missing] = validate_state_snapshot(
-        snapshot=incomplete,
-        description=_variant_description(),
-    )
-
-    assert missing.code == "instrument_driver_snapshot_missing_properties"
-    assert "output_enabled" in missing.message
-    assert "voltage_level" in missing.message
-    assert {
-        location.path
-        for location in missing.related_locations
-        if isinstance(location, ModelLocation)
-    } == {
-        ("test.dc/v1", "output_enabled"),
-        ("test.dc/v1", "voltage_level"),
-        ("test.dc/v1", "voltage_range"),
-    }
-
-
-def test_state_snapshot_and_projection_preserve_one_active_case() -> None:
-    description = _variant_description()
-    voltage = _variant_snapshot("voltage", "voltage_level", 0.1)
-    invalid = voltage.model_copy(
-        update={
-            "properties": [
-                *voltage.properties,
-                RecordInstrumentPropertyState(
-                    interface_id="test.dc/v1",
-                    property_id="current_level",
-                    value=StateValue(0.01),
-                ),
-            ]
-        }
-    )
-
-    [inactive] = validate_state_snapshot(
-        snapshot=invalid,
-        description=description,
-    )
-    assert inactive.code == "instrument_driver_snapshot_inactive_state_property"
-    assert isinstance(inactive.related_locations[0], ModelLocation)
-    assert inactive.related_locations[0].path == (
-        "test.dc/v1",
-        "current_level",
-    )
-
-    switched = project_instrument_state(
-        voltage,
-        _variant_command(
-            ("mode", "current"),
-            ("current_range", 0.1),
-            ("current_level", 0.02),
-        ),
-        description=description,
-    )
-    properties = {item.property_id: item.value.root for item in switched.properties}
-    assert properties == {
-        "current_level": 0.02,
-        "current_range": 0.1,
-        "mode": "current",
-        "output_enabled": False,
-    }
     observed = InstrumentStateSnapshot(
-        instrument_id=switched.instrument_id,
-        properties=list(switched.properties),
+        instrument_id="source-0",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id="test.control/v1",
+                property_id="gain",
+                value=StateValue(1.0),
+            )
+        ],
+    )
+    command = InstrumentStateCommand(
+        command_id="set-control",
+        instrument_id="source-0",
+        assignments=[
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id="test.control/v1",
+                property_id="gain",
+                value=StateValue(2.0),
+            ),
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id="test.control/v1",
+                property_id="secret",
+                value=StateValue("updated"),
+            ),
+        ],
+    )
+
+    projected = project_instrument_state(
+        observed,
+        command,
+        description=description,
+    )
+    assert [(item.property_id, item.value.root) for item in projected.properties] == [
+        ("gain", 2.0)
+    ]
+    observed = InstrumentStateSnapshot(
+        instrument_id=projected.instrument_id,
+        properties=list(projected.properties),
     )
     assert validate_state_snapshot(snapshot=observed, description=description) == []
 
@@ -2082,40 +1704,8 @@ def test_interactive_collect_rejects_unsupported_targets(
     )
 
 
-def test_interactive_collect_selects_the_fresh_discriminated_results() -> None:
-    description = _state_discriminated_collect_description()
-    voltage = resolve_interactive_collect(
-        intent=_interactive_monitor_intent(command_id="collect-voltage"),
-        description=description,
-        state=_state_discriminated_collect_snapshot("voltage"),
-    )
-    current = resolve_interactive_collect(
-        intent=_interactive_monitor_intent(command_id="collect-current"),
-        description=description,
-        state=_state_discriminated_collect_snapshot("current"),
-    )
-
-    assert isinstance(voltage, ResolvedInteractiveCollect)
-    assert isinstance(current, ResolvedInteractiveCollect)
-    assert [request.result_id for request in voltage.command.requests] == [
-        "monitored_current"
-    ]
-    assert [request.result_id for request in current.command.requests] == [
-        "monitored_voltage"
-    ]
-
-
-def test_interactive_collect_reports_inactive_results_and_blocked_state() -> None:
-    description = _state_discriminated_collect_description()
-    inactive = resolve_interactive_collect(
-        intent=_interactive_monitor_intent(
-            command_id="collect-inactive",
-            result_ids=("monitored_voltage",),
-        ),
-        description=description,
-        state=_state_discriminated_collect_snapshot("voltage"),
-    )
-    blocked_description = _state_discriminated_collect_description(
+def test_interactive_collect_reports_blocked_preconditions() -> None:
+    blocked_description = _monitor_collect_description(
         preconditions=(
             acquisition_precondition(
                 InterfaceRef("test.source/v1")
@@ -2129,20 +1719,9 @@ def test_interactive_collect_reports_inactive_results_and_blocked_state() -> Non
     blocked = resolve_interactive_collect(
         intent=_interactive_monitor_intent(command_id="collect-blocked"),
         description=blocked_description,
-        state=_state_discriminated_collect_snapshot("voltage"),
+        state=_monitor_collect_snapshot(),
     )
 
-    assert isinstance(inactive, RejectedInteractiveCollect)
-    [inactive_problem] = inactive.problems
-    assert inactive_problem.code == "instrument_driver_inactive_acquisition_result"
-    assert inactive_problem.location == ModelLocation(
-        root="interactive_collect_intent",
-        path=("result_ids", 0),
-    )
-    assert inactive_problem.details == {
-        "result_id": "monitored_voltage",
-        "active_case": "voltage",
-    }
     assert isinstance(blocked, RejectedInteractiveCollect)
     assert [problem.code for problem in blocked.problems] == [
         "instrument_driver_acquisition_precondition_not_met"
@@ -2151,28 +1730,6 @@ def test_interactive_collect_reports_inactive_results_and_blocked_state() -> Non
         ModelLocation(
             root="instrument_state",
             path=("test.source/v1", "output", "output_enabled"),
-        ),
-    )
-
-
-def test_interactive_collect_reports_unknown_discriminator_state() -> None:
-    resolution = resolve_interactive_collect(
-        intent=_interactive_monitor_intent(command_id="collect-unknown"),
-        description=_state_discriminated_collect_description(),
-        state=InstrumentStateSnapshot(instrument_id="source-0"),
-    )
-
-    assert isinstance(resolution, RejectedInteractiveCollect)
-    [problem] = resolution.problems
-    assert problem.code == "instrument_driver_acquisition_state_unknown"
-    assert problem.location == ModelLocation(
-        root="interactive_collect_intent",
-        path=("acquisition_id",),
-    )
-    assert problem.related_locations == (
-        ModelLocation(
-            root="instrument_state",
-            path=("test.source/v1", "output", "mode"),
         ),
     )
 
@@ -2235,7 +1792,7 @@ def test_acquisition_axis_requires_an_explicit_size_contract() -> None:
 
 def test_state_sized_axis_has_canonical_wire_and_fingerprint() -> None:
     description = _state_sized_collect_description()
-    result = acquisition_results(description.interfaces[1].acquisitions[0])[0]
+    result = description.interfaces[1].acquisitions[0].results[0]
     axis = result.axes[1]
     serialized = description.model_dump(mode="json")
     restored = InstrumentDescription.model_validate(serialized)
@@ -2292,79 +1849,9 @@ def test_state_sized_axis_rejects_invalid_property_references(
         )
 
 
-def test_state_sized_axis_must_be_visible_in_its_acquisition_case() -> None:
-    trace = InterfaceRef("test.trace/v1")
-
-    with pytest.raises(
-        ValidationError,
-        match=r"case 'voltage'.*size references state that is not always observable",
-    ):
-        InstrumentDescription(
-            instrument_id="source-0",
-            implementation_id="tests.case_sized_axis",
-            implementation_version="v1",
-            interfaces=[
-                interface(
-                    trace.interface_id,
-                    state=discriminated_state(
-                        enum_property("mode", choices=("voltage", "current")),
-                        cases=(
-                            state_case(
-                                "voltage",
-                                properties=(int_property("voltage_points", minimum=1),),
-                            ),
-                            state_case(
-                                "current",
-                                properties=(int_property("current_points", minimum=1),),
-                            ),
-                        ),
-                    ),
-                    acquisitions=[
-                        state_discriminated_acquisition(
-                            "sample",
-                            discriminator=trace.property("mode"),
-                            cases=(
-                                acquisition_case(
-                                    "voltage",
-                                    results=(
-                                        acquisition_result(
-                                            "voltage_signal",
-                                            axes=(
-                                                acquisition_axis(
-                                                    "frequency",
-                                                    size=trace.property(
-                                                        "current_points"
-                                                    ),
-                                                ),
-                                            ),
-                                        ),
-                                    ),
-                                ),
-                                acquisition_case(
-                                    "current",
-                                    results=(
-                                        acquisition_result(
-                                            "current_signal",
-                                            axes=(
-                                                acquisition_axis(
-                                                    "frequency",
-                                                    size=1,
-                                                ),
-                                            ),
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        )
-                    ],
-                )
-            ],
-        )
-
-
 def test_mixed_fixed_and_state_sized_axes_resolve_from_one_snapshot() -> None:
     description = _state_sized_collect_description()
-    result = acquisition_results(description.interfaces[1].acquisitions[0])[0]
+    result = description.interfaces[1].acquisitions[0].results[0]
     command = _state_sized_collect_command(17)
 
     assert (
@@ -2509,144 +1996,6 @@ def test_collect_validator_checks_dtype_unit_and_axis_contracts() -> None:
         "instrument_driver_acquisition_axis_mismatch",
         "instrument_driver_acquisition_axis_unit_mismatch",
     }
-
-
-def test_state_discriminated_collect_requires_a_complete_observed_state() -> None:
-    description = _state_discriminated_collect_description()
-    command = _state_discriminated_collect_command(
-        "monitored_current",
-        unit="A",
-    )
-
-    missing = validate_collect_plan(
-        command=command,
-        description=description,
-        baseline=None,
-    )
-    incomplete = validate_collect_plan(
-        command=command,
-        description=description,
-        baseline=InstrumentStateSnapshot(
-            instrument_id="source-0",
-            properties=[
-                RecordInstrumentPropertyState(
-                    interface_id="test.source/v1",
-                    component_path=["output"],
-                    property_id="mode",
-                    value=StateValue("voltage"),
-                )
-            ],
-        ),
-    )
-
-    assert [problem.code for problem in missing] == [
-        "instrument_driver_acquisition_state_unknown"
-    ]
-    assert [problem.code for problem in incomplete] == [
-        "instrument_driver_acquisition_state_unknown"
-    ]
-    assert isinstance(missing[0].related_locations[0], ModelLocation)
-    assert missing[0].related_locations[0].path == (
-        "test.source/v1",
-        "output",
-        "mode",
-    )
-
-
-def test_state_discriminated_collect_allows_only_the_active_case_results() -> None:
-    description = _state_discriminated_collect_description()
-    baseline = _state_discriminated_collect_snapshot("voltage")
-
-    active = validate_collect_plan(
-        command=_state_discriminated_collect_command(
-            "monitored_current",
-            unit="A",
-        ),
-        description=description,
-        baseline=baseline,
-    )
-    inactive = validate_collect_plan(
-        command=_state_discriminated_collect_command(
-            "monitored_voltage",
-            unit="V",
-        ),
-        description=description,
-        baseline=baseline,
-    )
-
-    assert active == []
-    assert [problem.code for problem in inactive] == [
-        "instrument_driver_inactive_acquisition_result"
-    ]
-
-
-def test_partial_projection_drives_conditional_state_and_collect_preflight() -> None:
-    description = _state_discriminated_collect_description()
-    select_voltage = InstrumentStateCommand(
-        command_id="select-voltage",
-        instrument_id="source-0",
-        assignments=[
-            InstrumentStateAssignment(
-                resource_id="source-0",
-                interface_id="test.source/v1",
-                component_path=["output"],
-                property_id="mode",
-                value=StateValue("voltage"),
-            )
-        ],
-    )
-    projection = project_instrument_state(
-        ProjectedInstrumentState(instrument_id="source-0"),
-        select_voltage,
-        description=description,
-    )
-    observed = InstrumentStateSnapshot(
-        instrument_id=projection.instrument_id,
-        properties=list(projection.properties),
-    )
-    set_voltage = InstrumentStateCommand(
-        command_id="set-voltage",
-        instrument_id="source-0",
-        assignments=[
-            InstrumentStateAssignment(
-                resource_id="source-0",
-                interface_id="test.source/v1",
-                component_path=["output"],
-                property_id="voltage_level",
-                value=StateValue(0.2),
-            )
-        ],
-    )
-
-    assert isinstance(projection.properties, tuple)
-    assert [item.property_id for item in projection.properties] == ["mode"]
-    assert [
-        problem.code
-        for problem in validate_state_snapshot(
-            snapshot=observed,
-            description=description,
-        )
-    ] == ["instrument_driver_snapshot_missing_properties"]
-    assert (
-        validate_state_command(
-            command=set_voltage,
-            description=description,
-            baseline=projection,
-            require_explicit_state_case=True,
-        )
-        == []
-    )
-    assert (
-        validate_collect_plan(
-            command=_state_discriminated_collect_command(
-                "monitored_current",
-                unit="A",
-            ),
-            description=description,
-            baseline=projection,
-        )
-        == []
-    )
 
 
 def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
@@ -2801,98 +2150,6 @@ def _state_command(
     )
 
 
-def _variant_description() -> InstrumentDescription:
-    return InstrumentDescription(
-        instrument_id="source-0",
-        implementation_id="tests.variant",
-        implementation_version="v1",
-        interfaces=[
-            interface(
-                "test.dc/v1",
-                state=discriminated_state(
-                    enum_property("mode", choices=("voltage", "current")),
-                    common_properties=(bool_property("output_enabled"),),
-                    cases=(
-                        state_case(
-                            "voltage",
-                            properties=(
-                                float_property("voltage_range"),
-                                float_property("voltage_level"),
-                            ),
-                            required_on_entry_property_ids=(
-                                "voltage_range",
-                                "voltage_level",
-                            ),
-                        ),
-                        state_case(
-                            "current",
-                            properties=(
-                                float_property("current_range"),
-                                float_property("current_level"),
-                            ),
-                            required_on_entry_property_ids=(
-                                "current_range",
-                                "current_level",
-                            ),
-                        ),
-                    ),
-                ),
-            )
-        ],
-    )
-
-
-def _variant_snapshot(
-    mode: str,
-    property_id: str,
-    value: float,
-) -> InstrumentStateSnapshot:
-    range_property_id = "voltage_range" if mode == "voltage" else "current_range"
-    return InstrumentStateSnapshot(
-        instrument_id="source-0",
-        properties=[
-            RecordInstrumentPropertyState(
-                interface_id="test.dc/v1",
-                property_id="mode",
-                value=StateValue(mode),
-            ),
-            RecordInstrumentPropertyState(
-                interface_id="test.dc/v1",
-                property_id=range_property_id,
-                value=StateValue(1.0),
-            ),
-            RecordInstrumentPropertyState(
-                interface_id="test.dc/v1",
-                property_id=property_id,
-                value=StateValue(value),
-            ),
-            RecordInstrumentPropertyState(
-                interface_id="test.dc/v1",
-                property_id="output_enabled",
-                value=StateValue(False),
-            ),
-        ],
-    )
-
-
-def _variant_command(
-    *assignments: tuple[str, str | float],
-) -> InstrumentStateCommand:
-    return InstrumentStateCommand(
-        command_id="variant-command",
-        instrument_id="source-0",
-        assignments=[
-            InstrumentStateAssignment(
-                resource_id="source-0",
-                interface_id="test.dc/v1",
-                property_id=property_id,
-                value=StateValue(value),
-            )
-            for property_id, value in assignments
-        ],
-    )
-
-
 def _collect_description() -> InstrumentDescription:
     return InstrumentDescription(
         instrument_id="source-0",
@@ -3004,15 +2261,13 @@ def _state_sized_collect_command(points: int) -> CollectCommand:
     )
 
 
-def _state_discriminated_collect_description(
+def _monitor_collect_description(
     *,
-    discriminator: PropertyRef | None = None,
-    cases: tuple[AcquisitionCaseSpec, ...] | None = None,
     preconditions: tuple[AcquisitionPreconditionSpec, ...] = (),
 ) -> InstrumentDescription:
     return InstrumentDescription(
         instrument_id="source-0",
-        implementation_id="tests.state_discriminated_collect",
+        implementation_id="tests.monitor_collect",
         implementation_version="v1",
         interfaces=[
             interface(
@@ -3020,56 +2275,21 @@ def _state_discriminated_collect_description(
                 components=[
                     component(
                         "output",
-                        state=discriminated_state(
-                            enum_property(
-                                "mode",
-                                choices=("voltage", "current"),
-                            ),
-                            common_properties=(bool_property("output_enabled"),),
-                            cases=(
-                                state_case(
-                                    "voltage",
-                                    properties=(float_property("voltage_level"),),
-                                ),
-                                state_case(
-                                    "current",
-                                    properties=(float_property("current_level"),),
-                                ),
-                            ),
-                        ),
+                        properties=[bool_property("output_enabled")],
                     )
                 ],
             ),
             interface(
                 "test.monitor/v1",
                 acquisitions=[
-                    state_discriminated_acquisition(
+                    acquisition(
                         "monitor",
-                        discriminator=discriminator
-                        or InterfaceRef("test.source/v1")
-                        .component("output")
-                        .property("mode"),
-                        cases=cases
-                        or (
-                            acquisition_case(
-                                "voltage",
-                                results=(
-                                    acquisition_result(
-                                        "monitored_current",
-                                        unit="A",
-                                    ),
-                                ),
-                            ),
-                            acquisition_case(
-                                "current",
-                                results=(
-                                    acquisition_result(
-                                        "monitored_voltage",
-                                        unit="V",
-                                    ),
-                                ),
-                            ),
-                        ),
+                        results=[
+                            acquisition_result(
+                                "monitored_current",
+                                unit="A",
+                            )
+                        ],
                         preconditions=preconditions,
                     )
                 ],
@@ -3078,39 +2298,24 @@ def _state_discriminated_collect_description(
     )
 
 
-def _state_discriminated_collect_snapshot(
-    mode: str,
-    *,
-    output_enabled: bool = False,
+def _monitor_collect_snapshot(
+    *, output_enabled: bool = False
 ) -> InstrumentStateSnapshot:
-    level_property_id = "voltage_level" if mode == "voltage" else "current_level"
     return InstrumentStateSnapshot(
         instrument_id="source-0",
         properties=[
             RecordInstrumentPropertyState(
                 interface_id="test.source/v1",
                 component_path=["output"],
-                property_id="mode",
-                value=StateValue(mode),
-            ),
-            RecordInstrumentPropertyState(
-                interface_id="test.source/v1",
-                component_path=["output"],
                 property_id="output_enabled",
                 value=StateValue(output_enabled),
-            ),
-            RecordInstrumentPropertyState(
-                interface_id="test.source/v1",
-                component_path=["output"],
-                property_id=level_property_id,
-                value=StateValue(0.1),
             ),
         ],
     )
 
 
-def _state_discriminated_collect_command(
-    result_id: str,
+def _monitor_collect_command(
+    result_id: str = "monitored_current",
     *,
     unit: str,
 ) -> CollectCommand:

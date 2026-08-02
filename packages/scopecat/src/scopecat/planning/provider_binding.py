@@ -286,7 +286,6 @@ def _validate_configured_state(
         instrument_id=instrument.id,
         assignments=assignments,
         description=description,
-        require_explicit_state_case=True,
     )
     location = model_location(
         "config",

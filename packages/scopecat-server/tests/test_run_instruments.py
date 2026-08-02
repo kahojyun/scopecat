@@ -81,18 +81,13 @@ from scopecat.sdk.instruments import (
     InterfaceRef,
     acquisition,
     acquisition_axis,
-    acquisition_case,
     acquisition_precondition,
     acquisition_result,
     bool_property,
-    discriminated_state,
     enum_property,
     float_property,
     int_property,
     interface,
-    operation,
-    state_case,
-    state_discriminated_acquisition,
 )
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
@@ -122,6 +117,8 @@ type _FailAction = (
 
 _DC_MODE = InterfaceRef("test.dc/v1").property("mode")
 _DC_OUTPUT_ENABLED = InterfaceRef("test.dc/v1").property("output_enabled")
+_DC_VOLTAGE_LEVEL = InterfaceRef("test.dc/v1").property("voltage_level")
+_DC_CURRENT_LEVEL = InterfaceRef("test.dc/v1").property("current_level")
 _SWEEP_POINTS = InterfaceRef("test.sweep/v1").property("points")
 
 
@@ -237,27 +234,15 @@ class _VariantDriver(_Driver):
             interfaces=[
                 interface(
                     "test.dc/v1",
-                    state=discriminated_state(
+                    properties=[
                         enum_property("mode", choices=("voltage", "current")),
-                        common_properties=(bool_property("output_enabled"),),
-                        cases=(
-                            state_case(
-                                "voltage",
-                                properties=(float_property("voltage_level"),),
-                                required_on_entry_property_ids=("voltage_level",),
-                            ),
-                            state_case(
-                                "current",
-                                properties=(float_property("current_level"),),
-                                required_on_entry_property_ids=("current_level",),
-                            ),
-                        ),
-                    ),
-                    operations=[operation("select_current")],
+                        bool_property("output_enabled"),
+                        float_property("voltage_level"),
+                        float_property("current_level"),
+                    ],
                     acquisitions=[
-                        state_discriminated_acquisition(
+                        acquisition(
                             "measure",
-                            discriminator=_DC_MODE,
                             preconditions=(
                                 (
                                     acquisition_precondition(
@@ -269,24 +254,14 @@ class _VariantDriver(_Driver):
                                 if self.require_output_for_collect
                                 else ()
                             ),
-                            cases=(
-                                acquisition_case(
-                                    "voltage",
-                                    results=(
-                                        acquisition_result(
-                                            "monitored_voltage",
-                                            unit="V",
-                                        ),
-                                    ),
+                            results=(
+                                acquisition_result(
+                                    "monitored_voltage",
+                                    unit="V",
                                 ),
-                                acquisition_case(
-                                    "current",
-                                    results=(
-                                        acquisition_result(
-                                            "monitored_current",
-                                            unit="A",
-                                        ),
-                                    ),
+                                acquisition_result(
+                                    "monitored_current",
+                                    unit="A",
                                 ),
                             ),
                         )
@@ -298,12 +273,11 @@ class _VariantDriver(_Driver):
     @override
     def read_state(self) -> DriverState:
         self.read_count += 1
-        level_property = "voltage_level" if self.mode == "voltage" else "current_level"
-        level = self.voltage_level if self.mode == "voltage" else self.current_level
         return DriverState(
             values={
                 _DC_MODE: self.mode,
-                InterfaceRef("test.dc/v1").property(level_property): level,
+                _DC_VOLTAGE_LEVEL: self.voltage_level,
+                _DC_CURRENT_LEVEL: self.current_level,
                 _DC_OUTPUT_ENABLED: self.output_enabled,
             },
         )
@@ -327,15 +301,6 @@ class _VariantDriver(_Driver):
             elif target.property_id == "output_enabled":
                 assert isinstance(value, bool)
                 self.output_enabled = value
-        return DriverSuccess(None)
-
-    @override
-    def invoke(
-        self,
-        request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
-        self.invoked.append(request)
-        self.mode = "current"
         return DriverSuccess(None)
 
     @override
@@ -938,7 +903,9 @@ def test_run_start_skips_unit_equivalent_default_state(tmp_path: Path) -> None:
         assert driver.applied == []
 
 
-def test_batch_retry_replays_before_state_dependent_preflight(tmp_path: Path) -> None:
+def test_batch_retry_replays_before_reexecuting_after_state_change(
+    tmp_path: Path,
+) -> None:
     provider = _Provider(driver_type=_VariantDriver)
     with _runtime(tmp_path, provider) as runtime:
         run_id, lease_id = _start_run(
@@ -977,183 +944,6 @@ def test_batch_retry_replays_before_state_dependent_preflight(tmp_path: Path) ->
         assert not switched.problems
         assert replay == first
         assert len(driver.applied) == 2
-
-
-def test_invoke_makes_later_case_specific_preflight_require_discriminator(
-    tmp_path: Path,
-) -> None:
-    provider = _Provider(driver_type=_VariantDriver)
-    with _runtime(tmp_path, provider) as runtime:
-        run_id, lease_id = _start_run(
-            runtime,
-            load_config(),
-            driver_type=_VariantDriver,
-        )
-        instruments = runtime.application.instruments
-        instruments.provision_run(run_id, _provision(lease_id))
-        [driver] = provider.drivers
-
-        rejected = instruments.execute_run_hardware(
-            run_id,
-            _batch_command(
-                lease_id,
-                "implicit-after-invoke",
-                _variant_invoke_action(effect_id="select-current"),
-                _variant_apply_action(
-                    effect_id="implicit-current-level",
-                    current_level=0.02,
-                ),
-            ),
-        )
-
-        assert [item.code for item in rejected.problems] == [
-            "instrument_driver_state_case_unknown"
-        ]
-        assert driver.invoked == []
-        accepted = instruments.execute_run_hardware(
-            run_id,
-            _batch_command(
-                lease_id,
-                "explicit-after-invoke",
-                _variant_invoke_action(effect_id="select-current-explicit"),
-                _variant_apply_action(
-                    effect_id="explicit-current-level",
-                    mode="current",
-                    current_level=0.02,
-                ),
-                _variant_collect_action(
-                    effect_id="collect-explicit-current",
-                    result_id="monitored_current",
-                ),
-            ),
-        )
-        assert not accepted.problems
-        assert len(driver.invoked) == 1
-        assert len(driver.applied) == 1
-        assert len(driver.collect_requests) == 1
-
-
-def test_batch_collect_requires_the_active_acquisition_state(
-    tmp_path: Path,
-) -> None:
-    provider = _Provider(driver_type=_VariantDriver)
-    with _runtime(tmp_path, provider) as runtime:
-        run_id, lease_id = _start_run(
-            runtime,
-            load_config(),
-            driver_type=_VariantDriver,
-        )
-        instruments = runtime.application.instruments
-        instruments.provision_run(run_id, _provision(lease_id))
-        [driver] = provider.drivers
-
-        active = instruments.execute_run_hardware(
-            run_id,
-            _batch_command(
-                lease_id,
-                "collect-active-voltage",
-                _variant_collect_action(
-                    effect_id="active-voltage",
-                    result_id="monitored_voltage",
-                ),
-            ),
-        )
-
-        assert active.problems == ()
-        assert len(driver.collect_requests) == 1
-        inactive = instruments.execute_run_hardware(
-            run_id,
-            _batch_command(
-                lease_id,
-                "collect-inactive-current",
-                _variant_collect_action(
-                    effect_id="inactive-current",
-                    result_id="monitored_current",
-                ),
-            ),
-        )
-        assert [item.code for item in inactive.problems] == [
-            "instrument_driver_inactive_acquisition_result"
-        ]
-        assert len(driver.collect_requests) == 1
-
-        unknown = instruments.execute_run_hardware(
-            run_id,
-            _batch_command(
-                lease_id,
-                "collect-after-invoke",
-                _variant_invoke_action(effect_id="select-current-first"),
-                _variant_collect_action(
-                    effect_id="unknown-voltage",
-                    result_id="monitored_voltage",
-                ),
-            ),
-        )
-        assert [item.code for item in unknown.problems] == [
-            "instrument_driver_acquisition_state_unknown"
-        ]
-        assert driver.invoked == []
-        assert len(driver.collect_requests) == 1
-
-
-def test_batch_projects_complete_mode_change_for_conditional_collect(
-    tmp_path: Path,
-) -> None:
-    provider = _Provider(driver_type=_VariantDriver)
-    with _runtime(tmp_path, provider) as runtime:
-        run_id, lease_id = _start_run(
-            runtime,
-            load_config(),
-            driver_type=_VariantDriver,
-        )
-        instruments = runtime.application.instruments
-        instruments.provision_run(run_id, _provision(lease_id))
-        [driver] = provider.drivers
-
-        inactive = instruments.execute_run_hardware(
-            run_id,
-            _batch_command(
-                lease_id,
-                "project-current-reject-voltage",
-                _variant_apply_action(
-                    effect_id="select-current-for-voltage",
-                    mode="current",
-                    current_level=0.02,
-                ),
-                _variant_collect_action(
-                    effect_id="collect-projected-voltage",
-                    result_id="monitored_voltage",
-                ),
-            ),
-        )
-
-        assert [item.code for item in inactive.problems] == [
-            "instrument_driver_inactive_acquisition_result"
-        ]
-        assert driver.applied == []
-        assert driver.collect_requests == []
-
-        active = instruments.execute_run_hardware(
-            run_id,
-            _batch_command(
-                lease_id,
-                "project-current-collect-current",
-                _variant_apply_action(
-                    effect_id="select-current-for-current",
-                    mode="current",
-                    current_level=0.02,
-                ),
-                _variant_collect_action(
-                    effect_id="collect-projected-current",
-                    result_id="monitored_current",
-                ),
-            ),
-        )
-
-        assert active.problems == ()
-        assert len(driver.applied) == 1
-        assert driver.read_count == 2
-        assert len(driver.collect_requests) == 1
 
 
 def test_batch_preflights_state_sized_axes_from_opening_and_projected_state(
@@ -2228,17 +2018,6 @@ def _variant_apply_action(
             for property_id, value in values.items()
             if value is not None
         ),
-    )
-
-
-def _variant_invoke_action(*, effect_id: str) -> RunHardwareInvoke:
-    return RunHardwareInvoke(
-        effect_id=effect_id,
-        point_index=0,
-        instrument_id="source-0",
-        resource_id="source-0",
-        interface_id="test.dc/v1",
-        operation_id="select_current",
     )
 
 

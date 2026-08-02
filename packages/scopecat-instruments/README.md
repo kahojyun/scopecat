@@ -263,7 +263,7 @@ Driver snapshots contain complete public physical state. Experiment entity and
 channel bindings are routing provenance, not fields a driver reads back.
 
 The DC monitor exposes `measure_current()` and `measure_voltage()` as separate
-fixed acquisitions. A concrete driver rejects the call at runtime when its
+acquisitions. A concrete driver rejects the call at runtime when its
 source mode or hardware configuration is incompatible.
 
 Each registered driver declares its connection kind and a strict options model.
@@ -320,7 +320,7 @@ sessions.
 The worker exchanges generic `DriverState`, `DriverStatePatch`,
 `DriverOperation`, `DriverAcquisition`, and `DriverReadback` values with generated
 adapters. A concrete driver receives typed patches or composite patches, decoded
-operation arguments, and one fixed hook per acquisition, and returns complete
+operation arguments, and one typed hook per acquisition, and returns complete
 typed snapshots or readbacks inside `DriverSuccess`, `DriverRejected`, or
 `DriverUnknown`. Adapters own generic envelopes and ref mapping; SCPI sequencing,
 temporary output or measurement changes, hardware-profile checks, and

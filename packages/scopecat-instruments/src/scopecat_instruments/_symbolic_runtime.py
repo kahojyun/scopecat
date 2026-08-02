@@ -154,18 +154,6 @@ class SymbolicInstrumentClientBase:
         *,
         id: str | None,
     ) -> OutputT:
-        case_value: str | None = None
-        if acquisition.discriminator is not None:
-            selected_case = self._state_assignments.get(acquisition.discriminator)
-            if not isinstance(selected_case, str):
-                raise ValueError(
-                    f"acquisition {acquisition.ref.acquisition_id!r} has "
-                    "state-dependent "
-                    "results; ensure a concrete discriminator state before "
-                    "declaring it"
-                )
-            case_value = selected_case
-        active_fields = acquisition.active_result_fields(case_value)
         occurrence_id = acquisition.ref.acquisition_id if id is None else id
         if not occurrence_id:
             raise ValueError("symbolic acquisition id must be non-empty")
@@ -182,20 +170,17 @@ class SymbolicInstrumentClientBase:
                     namespace=id,
                 ),
             )
-            for field in active_fields
+            for field in acquisition.result_fields
         }
         self._recorder.acquire(
             effect_id,
             resource=self._resource,
-            results={field.ref: products[field.python_name] for field in active_fields},
+            results={
+                field.ref: products[field.python_name]
+                for field in acquisition.result_fields
+            },
         )
-        if acquisition.discriminator is None:
-            return output_factory(**products)
-        values: dict[str, ProductRef | None] = {
-            field.python_name: None for field in acquisition.result_fields
-        }
-        values.update(products)
-        return output_factory(**values)
+        return output_factory(**products)
 
 
 class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):

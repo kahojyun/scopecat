@@ -545,17 +545,17 @@ describe("instrument workspace", () => {
     expect(await screen.findByText("Apply receipt: Applied")).toBeVisible();
   });
 
-  it("renders a discriminator first with common and active-case properties", async () => {
-    const variantInstrument = instrumentWithDiscriminatedState();
+  it("renders every flat interface property in declaration order", async () => {
+    const flatInstrument = instrumentWithFlatDcState();
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
       problems: [],
-      items: [variantInstrument],
+      items: [flatInstrument],
     });
     vi.mocked(openInstrumentSession).mockResolvedValue(
       session({
-        descriptions: [variantInstrument.description!],
-        observed_state: [discriminatedInstrumentState("voltage")],
+        descriptions: [flatInstrument.description!],
+        observed_state: [flatDcInstrumentState()],
       }),
     );
     renderWorkspace();
@@ -563,12 +563,12 @@ describe("instrument workspace", () => {
     await screen.findByText("DC source");
     expect(screen.getByRole("combobox", { name: /Source mode/ })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: /DC output/ })).toBeDisabled();
-    expect(screen.queryByRole("spinbutton", { name: /Voltage range/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("spinbutton", { name: /Current range/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: /Voltage range/ })).toBeDisabled();
+    expect(screen.getByRole("spinbutton", { name: /Current range/ })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(await screen.findByRole("spinbutton", { name: /Voltage range/ })).toHaveValue(5);
-    expect(screen.queryByRole("spinbutton", { name: /Current range/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: /Current range/ })).toHaveValue(0.1);
     expect(screen.getByRole("combobox", { name: /Source mode/ })).toHaveValue("voltage");
 
     const card = screen
@@ -579,59 +579,23 @@ describe("instrument workspace", () => {
       within(card as HTMLElement)
         .getAllByTestId("property-label")
         .map((element) => element.textContent),
-    ).toEqual(["Source mode", "DC output", "Voltage range"]);
+    ).toEqual(["Source mode", "DC output", "Voltage range", "Current range"]);
   });
 
-  it("blocks an incomplete transition without sending an apply command", async () => {
-    const variantInstrument = instrumentWithDiscriminatedState();
+  it("applies only explicitly staged flat properties", async () => {
+    const flatInstrument = instrumentWithFlatDcState();
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
       problems: [],
-      items: [variantInstrument],
+      items: [flatInstrument],
     });
     vi.mocked(openInstrumentSession).mockResolvedValue(
       session({
-        descriptions: [variantInstrument.description!],
-        observed_state: [discriminatedInstrumentState("voltage")],
+        descriptions: [flatInstrument.description!],
+        observed_state: [flatDcInstrumentState()],
       }),
     );
-    renderWorkspace();
-
-    await screen.findByText("DC source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    fireEvent.change(await screen.findByRole("combobox", { name: /Source mode/ }), {
-      target: { value: "current" },
-    });
-
-    const apply = screen.getByRole("button", { name: "Apply staged" });
-    expect(apply).toBeDisabled();
-    expect(apply).toHaveAttribute(
-      "title",
-      "Set target-mode property before applying: Current range.",
-    );
-    expect(
-      screen.getByText("Set target-mode property before applying: Current range."),
-    ).toBeVisible();
-    fireEvent.click(apply);
-    expect(applyInstrumentState).not.toHaveBeenCalled();
-  });
-
-  it("applies a complete transition with only the explicit assignments", async () => {
-    const variantInstrument = instrumentWithDiscriminatedState();
-    vi.mocked(getInstruments).mockResolvedValue({
-      config_entry_id: "lab-default",
-      problems: [],
-      items: [variantInstrument],
-    });
-    vi.mocked(openInstrumentSession).mockResolvedValue(
-      session({
-        descriptions: [variantInstrument.description!],
-        observed_state: [discriminatedInstrumentState("voltage")],
-      }),
-    );
-    vi.mocked(applyInstrumentState).mockResolvedValueOnce(
-      discriminatedApplyReceipt("current", 5_000_000_000),
-    );
+    vi.mocked(applyInstrumentState).mockResolvedValueOnce(flatDcApplyReceipt("current", 0.2));
     renderWorkspace();
 
     await screen.findByText("DC source");
@@ -640,7 +604,7 @@ describe("instrument workspace", () => {
       target: { value: "current" },
     });
     fireEvent.change(screen.getByRole("spinbutton", { name: /Current range/ }), {
-      target: { value: "0.1" },
+      target: { value: "0.2" },
     });
 
     const apply = screen.getByRole("button", { name: "Apply staged" });
@@ -661,7 +625,7 @@ describe("instrument workspace", () => {
             interfaceId: "scopecat.dc_source/v2",
             componentPath: [],
             propertyId: "current_range",
-            value: { value: 0.1, unit: "A" },
+            value: { value: 0.2, unit: "A" },
           },
         ],
         expect.stringMatching(/^ui-apply-/),
@@ -669,190 +633,42 @@ describe("instrument workspace", () => {
     );
   });
 
-  it("allows a same-case sparse patch without restaging case properties", async () => {
-    const variantInstrument = instrumentWithDiscriminatedState();
+  it("keeps flat property drafts independent when one is reset", async () => {
+    const flatInstrument = instrumentWithFlatDcState();
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
       problems: [],
-      items: [variantInstrument],
+      items: [flatInstrument],
     });
     vi.mocked(openInstrumentSession).mockResolvedValue(
       session({
-        descriptions: [variantInstrument.description!],
-        observed_state: [discriminatedInstrumentState("voltage")],
+        descriptions: [flatInstrument.description!],
+        observed_state: [flatDcInstrumentState()],
       }),
-    );
-    vi.mocked(applyInstrumentState).mockResolvedValueOnce(
-      discriminatedApplyReceipt("voltage", 5_000_000_000),
     );
     renderWorkspace();
 
     await screen.findByText("DC source");
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    fireEvent.change(await screen.findByRole("combobox", { name: /Source mode/ }), {
-      target: { value: "voltage" },
-    });
-    fireEvent.click(screen.getByRole("checkbox", { name: /DC output/ }));
-
-    const apply = screen.getByRole("button", { name: "Apply staged" });
-    expect(apply).toBeEnabled();
-    fireEvent.click(apply);
-    await waitFor(() =>
-      expect(applyInstrumentState).toHaveBeenCalledWith(
-        expect.objectContaining({ session_id: "session-1" }),
-        "drive-source",
-        [
-          {
-            interfaceId: "scopecat.dc_source/v2",
-            componentPath: [],
-            propertyId: "source_mode",
-            value: "voltage",
-          },
-          {
-            interfaceId: "scopecat.dc_source/v2",
-            componentPath: [],
-            propertyId: "output_enabled",
-            value: true,
-          },
-        ],
-        expect.stringMatching(/^ui-apply-/),
-      ),
-    );
-  });
-
-  it("drops inactive-case drafts while preserving common and other endpoint drafts", async () => {
-    const variantInstrument = instrumentWithDiscriminatedState();
-    vi.mocked(getInstruments).mockResolvedValue({
-      config_entry_id: "lab-default",
-      problems: [],
-      items: [variantInstrument],
-    });
-    vi.mocked(openInstrumentSession).mockResolvedValue(
-      session({
-        descriptions: [variantInstrument.description!],
-        observed_state: [discriminatedInstrumentState("voltage")],
-      }),
-    );
-    vi.mocked(applyInstrumentState).mockResolvedValueOnce(
-      discriminatedApplyReceipt("current", 6_000_000_000),
-    );
-    renderWorkspace();
-
-    await screen.findByText("DC source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    fireEvent.change(await screen.findByRole("spinbutton", { name: /Voltage range/ }), {
+    const voltageRange = await screen.findByRole("spinbutton", { name: /Voltage range/ });
+    fireEvent.change(voltageRange, {
       target: { value: "8" },
-    });
-    fireEvent.click(screen.getByRole("checkbox", { name: /DC output/ }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: /CW frequency/ }), {
-      target: { value: "6000000000" },
-    });
-    fireEvent.change(screen.getByRole("spinbutton", { name: /RF voltage limit/ }), {
-      target: { value: "2" },
-    });
-    fireEvent.change(screen.getByRole("combobox", { name: /Source mode/ }), {
-      target: { value: "current" },
-    });
-
-    expect(screen.queryByRole("spinbutton", { name: /Voltage range/ })).not.toBeInTheDocument();
-    const currentRange = screen.getByRole("spinbutton", { name: /Current range/ });
-    expect(currentRange).toHaveValue(null);
-    expect(screen.getByText("4 staged properties")).toBeVisible();
-    expect(applyInstrumentState).not.toHaveBeenCalled();
-
-    fireEvent.change(currentRange, { target: { value: "0.1" } });
-    expect(screen.getByText("5 staged properties")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Apply staged" }));
-
-    await waitFor(() => expect(applyInstrumentState).toHaveBeenCalledOnce());
-    const assignments = vi.mocked(applyInstrumentState).mock.calls[0]![2];
-    expect(assignments).toHaveLength(5);
-    expect(assignments).toEqual(
-      expect.arrayContaining([
-        {
-          interfaceId: "scopecat.dc_source/v2",
-          componentPath: [],
-          propertyId: "source_mode",
-          value: "current",
-        },
-        {
-          interfaceId: "scopecat.dc_source/v2",
-          componentPath: [],
-          propertyId: "output_enabled",
-          value: true,
-        },
-        {
-          interfaceId: "scopecat.dc_source/v2",
-          componentPath: [],
-          propertyId: "current_range",
-          value: { value: 0.1, unit: "A" },
-        },
-        {
-          interfaceId: "scopecat.rf_output/v1",
-          componentPath: [],
-          propertyId: "frequency",
-          value: { value: 6_000_000_000, unit: "Hz" },
-        },
-        {
-          interfaceId: "scopecat.rf_output/v1",
-          componentPath: [],
-          propertyId: "voltage_range",
-          value: { value: 2, unit: "V" },
-        },
-      ]),
-    );
-    expect(assignments).not.toContainEqual(
-      expect.objectContaining({
-        interfaceId: "scopecat.dc_source/v2",
-        propertyId: "voltage_range",
-      }),
-    );
-    expect(await screen.findByText("Apply receipt: Applied")).toBeVisible();
-    expect(screen.getByRole("combobox", { name: /Source mode/ })).toHaveValue("current");
-    expect(screen.getByRole("spinbutton", { name: /Current range/ })).toHaveValue(0.1);
-    expect(screen.queryByRole("spinbutton", { name: /Voltage range/ })).not.toBeInTheDocument();
-    expect(screen.queryByText(/staged propert/)).not.toBeInTheDocument();
-  });
-
-  it("does not revive case drafts when the discriminator draft is reset", async () => {
-    const variantInstrument = instrumentWithDiscriminatedState();
-    vi.mocked(getInstruments).mockResolvedValue({
-      config_entry_id: "lab-default",
-      problems: [],
-      items: [variantInstrument],
-    });
-    vi.mocked(openInstrumentSession).mockResolvedValue(
-      session({
-        descriptions: [variantInstrument.description!],
-        observed_state: [discriminatedInstrumentState("voltage")],
-      }),
-    );
-    renderWorkspace();
-
-    await screen.findByText("DC source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    fireEvent.change(await screen.findByRole("spinbutton", { name: /Voltage range/ }), {
-      target: { value: "8" },
-    });
-    fireEvent.change(screen.getByRole("combobox", { name: /Source mode/ }), {
-      target: { value: "current" },
     });
     fireEvent.change(screen.getByRole("spinbutton", { name: /Current range/ }), {
-      target: { value: "0.1" },
+      target: { value: "0.2" },
     });
 
-    const discriminator = screen.getByRole("combobox", { name: /Source mode/ });
-    const discriminatorEditor = discriminator.closest('[data-testid^="interface-property-"]');
-    expect(discriminatorEditor).not.toBeNull();
+    const voltageEditor = voltageRange.closest('[data-testid^="interface-property-"]');
+    expect(voltageEditor).not.toBeNull();
     fireEvent.click(
-      within(discriminatorEditor as HTMLElement).getByRole("button", {
+      within(voltageEditor as HTMLElement).getByRole("button", {
         name: "Reset staged value",
       }),
     );
 
     expect(screen.getByRole("spinbutton", { name: /Voltage range/ })).toHaveValue(5);
-    expect(screen.queryByRole("spinbutton", { name: /Current range/ })).not.toBeInTheDocument();
-    expect(screen.queryByText(/staged propert/)).not.toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: /Current range/ })).toHaveValue(0.2);
+    expect(screen.getByText("1 staged property")).toBeVisible();
     expect(applyInstrumentState).not.toHaveBeenCalled();
   });
 
@@ -1062,7 +878,7 @@ describe("instrument workspace", () => {
     );
   });
 
-  it("delegates acquisition planning while showing every declared result", async () => {
+  it("delegates fixed acquisition planning while showing every declared result", async () => {
     const delegatedInstrument = instrument();
     const description = delegatedInstrument.description!;
     const instrumentInterface = description.interfaces![0]!;
@@ -1073,14 +889,8 @@ describe("instrument workspace", () => {
           ...instrumentInterface,
           acquisitions: [
             {
-              kind: "state_discriminated",
               id: "monitor",
               label: "Monitor",
-              discriminator: {
-                interface_id: instrumentInterface.id,
-                component_path: [],
-                property_id: "mode",
-              },
               preconditions: [
                 {
                   property: {
@@ -1092,40 +902,30 @@ describe("instrument workspace", () => {
                   unavailable_reason: "Enable RF output before collecting.",
                 },
               ],
-              cases: [
+              results: [
                 {
-                  value: "voltage",
-                  results: [
+                  id: "current",
+                  label: "Current sample",
+                  dtype: "float64",
+                  unit: "A",
+                  axes: [
                     {
-                      id: "current",
-                      label: "Current sample",
-                      dtype: "float64",
-                      unit: "A",
-                      axes: [
-                        {
-                          id: "sample",
-                          kind: "sample",
-                          size: {
-                            interface_id: instrumentInterface.id,
-                            component_path: [],
-                            property_id: "points",
-                          },
-                        },
-                      ],
+                      id: "sample",
+                      kind: "sample",
+                      size: {
+                        interface_id: instrumentInterface.id,
+                        component_path: [],
+                        property_id: "points",
+                      },
                     },
                   ],
                 },
                 {
-                  value: "current",
-                  results: [
-                    {
-                      id: "voltage",
-                      label: "Voltage sample",
-                      dtype: "float64",
-                      unit: "V",
-                      axes: [],
-                    },
-                  ],
+                  id: "voltage",
+                  label: "Voltage sample",
+                  dtype: "float64",
+                  unit: "V",
+                  axes: [],
                 },
               ],
             },
@@ -1408,73 +1208,6 @@ describe("instrument workspace", () => {
     );
   });
 
-  it("requires an explicit discriminated mode and its entry defaults", async () => {
-    vi.mocked(getInstruments).mockResolvedValue({
-      config_entry_id: "lab-default",
-      problems: [],
-      items: [instrumentWithDiscriminatedState()],
-    });
-    renderWorkspace();
-
-    await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Configure device" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(
-      within(dialog).queryByRole("checkbox", { name: "Configure default for Voltage range" }),
-    ).not.toBeInTheDocument();
-    const configureMode = within(dialog).getByRole("checkbox", {
-      name: "Configure default for Source mode",
-    });
-    fireEvent.click(configureMode);
-    const modeRow = configureMode.closest('[data-testid^="instrument-default-property-"]');
-    if (!modeRow) throw new Error("Expected the source mode default row.");
-    fireEvent.change(within(modeRow as HTMLElement).getByRole("combobox"), {
-      target: { value: "voltage" },
-    });
-
-    const configureRange = await within(dialog).findByRole("checkbox", {
-      name: "Configure default for Voltage range",
-    });
-    expect(within(dialog).getByText("The selected mode requires: Voltage Range.")).toBeVisible();
-    expect(
-      within(dialog).queryByRole("checkbox", { name: "Configure default for Current range" }),
-    ).not.toBeInTheDocument();
-    fireEvent.click(configureRange);
-    const rangeRow = configureRange.closest('[data-testid^="instrument-default-property-"]');
-    if (!rangeRow) throw new Error("Expected the voltage range default row.");
-    fireEvent.change(within(rangeRow as HTMLElement).getByRole("spinbutton"), {
-      target: { value: "10" },
-    });
-    fireEvent.change(within(dialog).getByRole("combobox", { name: "Start policy" }), {
-      target: { value: "apply_default_state" },
-    });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Publish default" }));
-
-    await waitFor(() =>
-      expect(publishInstrumentSpec).toHaveBeenCalledWith(
-        expect.objectContaining({
-          spec: expect.objectContaining({
-            default_state: [
-              {
-                interface_id: "scopecat.dc_source/v2",
-                component_path: [],
-                property_id: "source_mode",
-                value: "voltage",
-              },
-              {
-                interface_id: "scopecat.dc_source/v2",
-                component_path: [],
-                property_id: "voltage_range",
-                value: { value: 10, unit: "V" },
-              },
-            ],
-            run_start: "apply_default_state",
-          }),
-        }),
-      ),
-    );
-  });
-
   it("adds and probes a registered device before publishing it", async () => {
     renderWorkspace();
 
@@ -1618,7 +1351,6 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
           components: [],
           acquisitions: [
             {
-              kind: "fixed",
               id: "sample",
               label: "Sample",
               results: [
@@ -1644,7 +1376,7 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
   };
 }
 
-function instrumentWithDiscriminatedState(): InstrumentView {
+function instrumentWithFlatDcState(): InstrumentView {
   const view = instrument();
   const description = view.description!;
   const originalRfOutput = description.interfaces![0]!;
@@ -1689,22 +1421,6 @@ function instrumentWithDiscriminatedState(): InstrumentView {
         value_type: { type: "quantity", finite: true, unit: "A" },
       },
     ],
-    state: {
-      discriminator_property_id: "source_mode",
-      common_property_ids: ["output_enabled"],
-      cases: [
-        {
-          value: "voltage",
-          property_ids: ["voltage_range"],
-          required_on_entry_property_ids: ["voltage_range"],
-        },
-        {
-          value: "current",
-          property_ids: ["current_range"],
-          required_on_entry_property_ids: ["current_range"],
-        },
-      ],
-    },
     operations: [],
     components: [],
     acquisitions: [],
@@ -1848,8 +1564,9 @@ function instrumentState(frequency = 5_000_000_000): InstrumentState {
   };
 }
 
-function discriminatedInstrumentState(
-  mode: "current" | "voltage",
+function flatDcInstrumentState(
+  mode: "current" | "voltage" = "voltage",
+  currentRange = 0.1,
   frequency = 5_000_000_000,
 ): InstrumentState {
   return {
@@ -1865,27 +1582,33 @@ function discriminatedInstrumentState(
         interface_id: "scopecat.dc_source/v2",
         component_path: [],
         property_id: "output_enabled",
-        value: mode === "current",
+        value: false,
       },
       {
         interface_id: "scopecat.dc_source/v2",
         component_path: [],
-        property_id: mode === "voltage" ? "voltage_range" : "current_range",
-        value: { value: mode === "voltage" ? 5 : 0.1, unit: mode === "voltage" ? "V" : "A" },
+        property_id: "voltage_range",
+        value: { value: 5, unit: "V" },
+      },
+      {
+        interface_id: "scopecat.dc_source/v2",
+        component_path: [],
+        property_id: "current_range",
+        value: { value: currentRange, unit: "A" },
       },
       ...(instrumentState(frequency).properties ?? []),
     ],
   };
 }
 
-function discriminatedApplyReceipt(
+function flatDcApplyReceipt(
   mode: "current" | "voltage",
-  frequency: number,
+  currentRange: number,
 ): Awaited<ReturnType<typeof applyInstrumentState>> {
   return {
     status: "applied",
     problems: [],
-    state: discriminatedInstrumentState(mode, frequency),
+    state: flatDcInstrumentState(mode, currentRange),
   };
 }
 

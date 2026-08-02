@@ -28,19 +28,14 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.problems import ProblemPhase, model_location, problem
 
-from client_codegen_fixture_declarations import (
-    DriverMonitorState,
-    DriverSourceLeftState,
-    DriverSourceState,
-)
+from client_codegen_fixture_declarations import DriverMonitorState, DriverSourceState
 from generated_driver_state_catalog_fixture import (
     DriverMonitorDriverPatch,
     DriverSourceDriverPatch,
     decode_driver_monitor_patch,
     decode_driver_source_patch,
     encode_driver_monitor_state,
-    encode_driver_source_left_state,
-    encode_driver_source_right_state,
+    encode_driver_source_state,
     encode_driver_state,
 )
 from generated_member_catalog_fixture import (
@@ -320,10 +315,7 @@ class DriverSourceDriverAdapter(ABC):
     def read_state(self) -> DriverState:
         snapshot = self.read_driver_source_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
-        if isinstance(snapshot.state, DriverSourceLeftState):
-            encoded.append(encode_driver_source_left_state(snapshot.state))
-        else:
-            encoded.append(encode_driver_source_right_state(snapshot.state))
+        encoded.append(encode_driver_source_state(snapshot.state))
         return encode_driver_state(*encoded, metadata=snapshot.metadata)
 
     def apply_state(
@@ -394,10 +386,7 @@ class MonitorCompositeDriverAdapter(ABC):
     def read_state(self) -> DriverState:
         snapshot = self.read_monitor_composite_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
-        if isinstance(snapshot.driver_source, DriverSourceLeftState):
-            encoded.append(encode_driver_source_left_state(snapshot.driver_source))
-        else:
-            encoded.append(encode_driver_source_right_state(snapshot.driver_source))
+        encoded.append(encode_driver_source_state(snapshot.driver_source))
         if self._driver_monitor_enabled and snapshot.driver_monitor is not None:
             encoded.append(encode_driver_monitor_state(snapshot.driver_monitor))
         return encode_driver_state(*encoded, metadata=snapshot.metadata)

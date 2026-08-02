@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal, TypedDict, cast
+from typing import TypedDict, cast
 
 from pydantic import JsonValue
 from scopecat.sdk.instruments import (
@@ -18,8 +18,7 @@ from scopecat.sdk.instruments import (
 from client_codegen_fixture_declarations import (
     CatalogProjectionState,
     DriverMonitorState,
-    DriverSourceLeftState,
-    DriverSourceRightState,
+    DriverSourceState,
     SharedFixtureState,
 )
 from generated_member_catalog_fixture import (
@@ -27,9 +26,7 @@ from generated_member_catalog_fixture import (
     CATALOG_PROJECTION_STATUS,
     DRIVER_MONITOR_ENABLED,
     DRIVER_SOURCE_ENABLED,
-    DRIVER_SOURCE_LEFT_LEVEL,
-    DRIVER_SOURCE_MODE,
-    DRIVER_SOURCE_RIGHT_LEVEL,
+    DRIVER_SOURCE_LEVEL,
     SHARED_STATE_FIRST_ENABLED,
     SHARED_STATE_SECOND_ENABLED,
 )
@@ -112,55 +109,32 @@ def encode_shared_state_second_state(
 
 
 class DriverSourceDriverPatch(TypedDict, total=False):
-    mode: Literal["left", "right"]
     enabled: bool
-    left_level: int
-    right_level: int
+    level: int
 
 
 def decode_driver_source_patch(request: DriverStatePatch, /) -> DriverSourceDriverPatch:
     decoded: DriverSourceDriverPatch = {}
     values = request.values
-    if DRIVER_SOURCE_MODE in values:
-        decoded["mode"] = cast(
-            'Literal["left", "right"]',
-            values[DRIVER_SOURCE_MODE],
-        )
     if DRIVER_SOURCE_ENABLED in values:
         decoded["enabled"] = cast(
             "bool",
             values[DRIVER_SOURCE_ENABLED],
         )
-    if DRIVER_SOURCE_LEFT_LEVEL in values:
-        decoded["left_level"] = cast(
+    if DRIVER_SOURCE_LEVEL in values:
+        decoded["level"] = cast(
             "int",
-            values[DRIVER_SOURCE_LEFT_LEVEL],
-        )
-    if DRIVER_SOURCE_RIGHT_LEVEL in values:
-        decoded["right_level"] = cast(
-            "int",
-            values[DRIVER_SOURCE_RIGHT_LEVEL],
+            values[DRIVER_SOURCE_LEVEL],
         )
     return decoded
 
 
-def encode_driver_source_left_state(
-    state: DriverSourceLeftState, /
+def encode_driver_source_state(
+    state: DriverSourceState, /
 ) -> dict[PropertyRef, DriverScalar]:
     return {
-        DRIVER_SOURCE_MODE: "left",
         DRIVER_SOURCE_ENABLED: state.enabled,
-        DRIVER_SOURCE_LEFT_LEVEL: state.level,
-    }
-
-
-def encode_driver_source_right_state(
-    state: DriverSourceRightState, /
-) -> dict[PropertyRef, DriverScalar]:
-    return {
-        DRIVER_SOURCE_MODE: "right",
-        DRIVER_SOURCE_ENABLED: state.enabled,
-        DRIVER_SOURCE_RIGHT_LEVEL: state.level,
+        DRIVER_SOURCE_LEVEL: state.level,
     }
 
 
@@ -215,8 +189,7 @@ __all__ = [
     "decode_shared_state_second_patch",
     "encode_catalog_projection_state",
     "encode_driver_monitor_state",
-    "encode_driver_source_left_state",
-    "encode_driver_source_right_state",
+    "encode_driver_source_state",
     "encode_driver_state",
     "encode_shared_state_first_state",
     "encode_shared_state_second_state",

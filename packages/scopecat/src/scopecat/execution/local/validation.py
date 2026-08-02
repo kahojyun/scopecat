@@ -30,7 +30,6 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
     InterfaceSpec,
     OperationSpec,
-    acquisition_results,
     validate_state_assignments,
 )
 
@@ -208,11 +207,7 @@ def _matching_result(
     if selected_acquisition is None:
         return None
     return next(
-        (
-            result
-            for result in acquisition_results(selected_acquisition)
-            if result.id == result_id
-        ),
+        (result for result in selected_acquisition.results if result.id == result_id),
         None,
     )
 

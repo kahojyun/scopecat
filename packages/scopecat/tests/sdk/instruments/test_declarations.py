@@ -17,8 +17,7 @@ from scopecat.kernel.value_types import String as StringType
 from scopecat.program.state import DesiredState
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments import (
-    FixedAcquisitionSpec,
-    acquisition_results,
+    AcquisitionSpec,
     bool_property,
     enum_property,
     int_property,
@@ -31,16 +30,10 @@ from scopecat.sdk.instruments import (
     acquisition_axis as expected_axis,
 )
 from scopecat.sdk.instruments import (
-    acquisition_case as expected_acquisition_case,
-)
-from scopecat.sdk.instruments import (
     acquisition_precondition as expected_precondition,
 )
 from scopecat.sdk.instruments import (
     acquisition_result as expected_result,
-)
-from scopecat.sdk.instruments import (
-    discriminated_state as expected_discriminated_state,
 )
 from scopecat.sdk.instruments import (
     interface as expected_interface,
@@ -48,10 +41,6 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments import operation as expected_operation
 from scopecat.sdk.instruments import (
     operation_argument as expected_operation_argument,
-)
-from scopecat.sdk.instruments import state_case as expected_state_case
-from scopecat.sdk.instruments import (
-    state_discriminated_acquisition as expected_discriminated_acquisition,
 )
 from scopecat.sdk.instruments.declarations import (
     CompiledInterface,
@@ -62,34 +51,28 @@ from scopecat.sdk.instruments.declarations import (
     StateProjectionField,
     StateProjectionLayout,
     acquisition,
-    acquisition_case,
     argument,
     axis,
     compile_interface,
     declared_acquisition,
     declared_acquisition_ref,
     declared_argument_ref,
-    declared_discriminator_ref,
     declared_interface_layout,
     declared_interface_ref,
     declared_operation,
     declared_operation_ref,
     declared_property_ref,
     declared_result_ref,
-    discriminated_state,
     instrument_interface,
     instrument_result,
     instrument_state,
     instrument_state_projection,
-    interface_discriminator,
     member,
     member_field,
     operation,
     precondition,
     result,
     result_field,
-    state_case,
-    state_discriminated_acquisition,
     state_field,
     state_projection_assignments,
     state_projection_field,
@@ -210,30 +193,30 @@ class SourceCommonState:
 
 
 @instrument_state
-class VoltageState(SourceCommonState):
-    range: Quantity = member_field(
+class SourceState(SourceCommonState):
+    mode: Literal["voltage", "current"] = member_field(
+        label="Mode",
+        description="Selected source mode.",
+    )
+    voltage_range: Quantity = member_field(
         id="voltage_range",
         unit="V",
         label="Voltage range",
         description="Selected voltage range.",
     )
-    level: Quantity = member_field(
+    voltage_level: Quantity = member_field(
         id="voltage_level",
         unit="V",
         label="Voltage level",
         description="Selected voltage level.",
     )
-
-
-@instrument_state
-class CurrentState(SourceCommonState):
-    range: Quantity = member_field(
+    current_range: Quantity = member_field(
         id="current_range",
         unit="A",
         label="Current range",
         description="Selected current range.",
     )
-    level: Quantity = member_field(
+    current_level: Quantity = member_field(
         id="current_level",
         unit="A",
         label="Current level",
@@ -243,27 +226,7 @@ class CurrentState(SourceCommonState):
 
 @instrument_interface(
     "test.dc_source/v1",
-    state=discriminated_state(
-        member(
-            id="mode",
-            choices=("voltage", "current"),
-            label="Mode",
-            description="Selected source mode.",
-        ),
-        common=SourceCommonState,
-        cases=(
-            state_case(
-                "voltage",
-                VoltageState,
-                required_on_entry=("range", "level"),
-            ),
-            state_case(
-                "current",
-                CurrentState,
-                required_on_entry=("range", "level"),
-            ),
-        ),
-    ),
+    state=SourceState,
     label="DC source",
 )
 class SourceContract(Protocol): ...
@@ -299,12 +262,11 @@ class MonitorResults:
     label="DC monitor",
 )
 class MonitorContract(Protocol):
-    @state_discriminated_acquisition(
-        interface_discriminator(SourceContract),
+    @acquisition(
         label="Monitor",
         preconditions=(
             precondition(
-                state_field(SourceContract, SourceCommonState, "output_enabled"),
+                state_field(SourceContract, SourceState, "output_enabled"),
                 value=True,
                 unavailable_reason="Source output is disabled.",
             ),
@@ -313,10 +275,6 @@ class MonitorContract(Protocol):
                 value=True,
                 unavailable_reason="Measurement is disabled.",
             ),
-        ),
-        cases=(
-            acquisition_case("voltage", MonitorResults, fields=("current",)),
-            acquisition_case("current", MonitorResults, fields=("voltage",)),
         ),
     )
     def monitor(self) -> MonitorResults: ...
@@ -473,26 +431,35 @@ def test_declaration_decorators_build_typed_python_dataclasses() -> None:
     with pytest.raises(TypeError):
         positional_constructor(11)
 
-    voltage = assert_type(
-        VoltageState(
+    source = assert_type(
+        SourceState(
             output_enabled=False,
-            range=Quantity(1.0, "V"),
-            level=Quantity(0.1, "V"),
+            mode="voltage",
+            voltage_range=Quantity(1.0, "V"),
+            voltage_level=Quantity(0.1, "V"),
+            current_range=Quantity(1.0, "A"),
+            current_level=Quantity(0.1, "A"),
         ),
-        VoltageState,
+        SourceState,
     )
-    assert isinstance(voltage, SourceCommonState)
-    assert tuple(item.name for item in fields(VoltageState)) == (
+    assert isinstance(source, SourceCommonState)
+    assert tuple(item.name for item in fields(SourceState)) == (
         "output_enabled",
-        "range",
-        "level",
+        "mode",
+        "voltage_range",
+        "voltage_level",
+        "current_range",
+        "current_level",
     )
-    assert not hasattr(voltage, "__dict__")
-    incomplete_voltage = cast("Callable[..., VoltageState]", VoltageState)
+    assert not hasattr(source, "__dict__")
+    incomplete_source = cast("Callable[..., SourceState]", SourceState)
     with pytest.raises(TypeError, match="output_enabled"):
-        incomplete_voltage(
-            range=Quantity(1.0, "V"),
-            level=Quantity(0.1, "V"),
+        incomplete_source(
+            mode="voltage",
+            voltage_range=Quantity(1.0, "V"),
+            voltage_level=Quantity(0.1, "V"),
+            current_range=Quantity(1.0, "A"),
+            current_level=Quantity(0.1, "A"),
         )
 
 
@@ -524,9 +491,6 @@ def test_ordinary_interface_metadata_inheritance_is_preserved() -> None:
     class DerivedSource(SourceContract, Protocol): ...
 
     assert declared_interface_ref(DerivedSource) == declared_interface_ref(
-        SourceContract
-    )
-    assert declared_discriminator_ref(DerivedSource) == declared_discriminator_ref(
         SourceContract
     )
     assert (
@@ -634,9 +598,7 @@ def test_protocol_inheritance_and_abstract_interfaces_preserve_members(
     compiled = compile_interface(contract)
 
     assert [item.id for item in compiled.spec.acquisitions] == ["sample"]
-    assert [item.id for item in acquisition_results(compiled.spec.acquisitions[0])] == [
-        "value"
-    ]
+    assert [item.id for item in compiled.spec.acquisitions[0].results] == ["value"]
 
 
 def test_declared_acquisition_preserves_fixed_result_type_and_field_mapping() -> None:
@@ -650,11 +612,9 @@ def test_declared_acquisition_preserves_fixed_result_type_and_field_mapping() ->
     assert declared.method_name == "sweep"
     assert declared.ref == declared_acquisition_ref(SweepContract, "sweep")
     assert declared.spec is compiled.spec.acquisitions[0]
-    assert declared.discriminator is None
-    assert [layout.case_value for layout in declared.layouts] == [None]
+    assert declared.result.result_type is SweepResults
     assert [
-        (field.python_name, field.result_id)
-        for field in declared.active_result_fields()
+        (field.python_name, field.result_id) for field in declared.result_fields
     ] == [
         ("frequency", "frequency"),
         ("response", "s_parameter"),
@@ -663,8 +623,6 @@ def test_declared_acquisition_preserves_fixed_result_type_and_field_mapping() ->
         "frequency",
         "s_parameter",
     ]
-    with pytest.raises(ValueError, match=r"fixed acquisition.*no result cases"):
-        declared.active_result_fields("unexpected")
 
 
 def test_declared_acquisition_rejects_a_method_from_another_interface() -> None:
@@ -683,7 +641,7 @@ def test_declared_acquisition_resolves_an_inherited_protocol_method() -> None:
     )
 
     assert declared.method_name == "sample"
-    assert [field.python_name for field in declared.active_result_fields()] == ["value"]
+    assert [field.python_name for field in declared.result_fields] == ["value"]
 
 
 def test_operations_and_read_only_state_compile_together() -> None:
@@ -760,7 +718,8 @@ def test_declared_interface_layout_preserves_root_members_and_spec_identity() ->
     )
 
     assert layout.compiled is compiled
-    [state] = layout.states
+    state = layout.state
+    assert state is not None
     assert state.source_type is ScannerState
     assert [field.python_name for field in state.fields] == [
         "channel",
@@ -816,14 +775,15 @@ def test_declared_interface_layout_covers_inherited_and_state_declarations() -> 
 
     assert sample.method_name == "sample"
     assert sample.spec is inherited.compiled.spec.acquisitions[0]
-    assert sample.layouts[0].result_type is ScalarResults
+    assert sample.result.result_type is ScalarResults
 
     flat = declared_interface_layout(compile_interface(SweepContract))
-    discriminated = declared_interface_layout(compile_interface(SourceContract))
+    source = declared_interface_layout(compile_interface(SourceContract))
     monitor = declared_interface_layout(compile_interface(MonitorContract))
 
-    assert [state.source_type for state in flat.states] == [SweepState]
-    [flat_state] = flat.states
+    flat_state = flat.state
+    assert flat_state is not None
+    assert flat_state.source_type is SweepState
     assert [field.python_name for field in flat_state.fields] == [
         "start_frequency",
         "points",
@@ -836,51 +796,23 @@ def test_declared_interface_layout_covers_inherited_and_state_declarations() -> 
         Literal["S11", "S21"],
         bool,
     ]
-    assert flat_state.required_fields == ()
-    assert flat_state.constants == ()
-    assert flat_state.role == "flat"
-    assert flat_state.projection_stem == "Sweep"
-
-    assert [state.source_type for state in discriminated.states] == [
-        SourceCommonState,
-        VoltageState,
-        CurrentState,
-    ]
-    common, voltage, current = discriminated.states
-    assert [field.python_name for field in common.fields] == ["output_enabled"]
-    assert common.role == "common"
-    assert common.projection_stem == "SourceContract"
-    assert [field.python_name for field in voltage.fields] == [
+    source_state = source.state
+    assert source_state is not None
+    assert source_state.source_type is SourceState
+    assert [field.python_name for field in source_state.fields] == [
         "output_enabled",
-        "range",
-        "level",
+        "mode",
+        "voltage_range",
+        "voltage_level",
+        "current_range",
+        "current_level",
     ]
-    assert voltage.role == "case"
-    assert voltage.projection_stem == "Voltage"
-    assert voltage.required_fields == ("range", "level")
-    assert voltage.constants == (
-        (declared_discriminator_ref(SourceContract), "voltage"),
-    )
-    assert [field.python_name for field in current.fields] == [
-        "output_enabled",
-        "range",
-        "level",
-    ]
-    assert current.role == "case"
-    assert current.projection_stem == "Current"
-    assert current.required_fields == ("range", "level")
-    assert current.constants == (
-        (declared_discriminator_ref(SourceContract), "current"),
-    )
 
-    assert [state.source_type for state in monitor.states] == [MonitorState]
-    assert monitor.states[0].role == "flat"
-    assert monitor.states[0].projection_stem == "Monitor"
+    monitor_state = monitor.state
+    assert monitor_state is not None
+    assert monitor_state.source_type is MonitorState
     [monitor_acquisition] = monitor.root.acquisitions
-    assert [item.result_type for item in monitor_acquisition.layouts] == [
-        MonitorResults,
-        MonitorResults,
-    ]
+    assert monitor_acquisition.result.result_type is MonitorResults
 
 
 def test_operation_refs_use_python_member_names() -> None:
@@ -984,11 +916,8 @@ def test_acquisition_rejects_parameterized_generic_result_types() -> None:
 def test_acquisition_rejects_bare_generic_result_classes() -> None:
     @instrument_interface("test.invalid_generic_result/v1")
     class InvalidGenericResult(Protocol):
-        @state_discriminated_acquisition(
-            interface_discriminator(SourceContract),
-            cases=(acquisition_case("voltage", GenericScalarResults),),
-        )
-        def sample(self) -> ScalarResults: ...
+        @acquisition()
+        def sample(self) -> GenericScalarResults: ...  # pyright: ignore[reportMissingTypeArgument, reportUnknownParameterType]
 
     with pytest.raises(TypeError, match=r"instrument result .* must not be generic"):
         compile_interface(InvalidGenericResult)
@@ -1009,61 +938,6 @@ def test_acquisition_rejects_optional_result_fields() -> None:
         match="result field 'value' cannot be optional",
     ):
         compile_interface(TypingOptionalResultContract)
-
-
-def test_discriminated_cases_must_inherit_their_common_state() -> None:
-    @instrument_state
-    class CommonState:
-        enabled: bool = member_field()
-
-    @instrument_state
-    class IndependentCase:
-        level: int = member_field()
-
-    @instrument_interface(
-        "test.invalid_discriminated_inheritance/v1",
-        state=discriminated_state(
-            member(id="mode", choices=("active",)),
-            common=CommonState,
-            cases=(state_case("active", IndependentCase),),
-        ),
-    )
-    class InvalidDiscriminatedInheritance(Protocol): ...
-
-    with pytest.raises(TypeError, match="must inherit CommonState"):
-        compile_interface(InvalidDiscriminatedInheritance)
-
-
-def test_state_case_entry_requirements_are_case_owned() -> None:
-    @instrument_state
-    class CommonState:
-        enabled: bool = member_field()
-
-    @instrument_state
-    class ActiveState(CommonState):
-        level: int = member_field()
-
-    @instrument_interface(
-        "test.invalid_inherited_entry_requirement/v1",
-        state=discriminated_state(
-            member(id="mode", choices=("active",)),
-            common=CommonState,
-            cases=(
-                state_case(
-                    "active",
-                    ActiveState,
-                    required_on_entry=("enabled",),
-                ),
-            ),
-        ),
-    )
-    class InvalidInheritedEntryRequirement(Protocol): ...
-
-    with pytest.raises(
-        ValueError,
-        match=r"entry requirements reference unknown fields: \['enabled'\]",
-    ):
-        compile_interface(InvalidInheritedEntryRequirement)
 
 
 def test_concrete_type_aliases_compile_without_authoring_wrapper_semantics() -> None:
@@ -1098,7 +972,7 @@ def test_concrete_type_aliases_compile_without_authoring_wrapper_semantics() -> 
         QuantityType(unit="V")
     )
     acquisition_spec = compiled.spec.acquisitions[0]
-    assert isinstance(acquisition_spec, FixedAcquisitionSpec)
+    assert isinstance(acquisition_spec, AcquisitionSpec)
     assert acquisition_spec.results[0].dtype == "float64"
 
 
@@ -1140,79 +1014,57 @@ def test_declaration_ref_helpers_use_python_member_names() -> None:
     )
 
 
-def test_discriminated_state_compiles_and_encodes_implicit_mode() -> None:
+def test_flat_inherited_state_compiles_to_properties() -> None:
     compiled = compile_interface(SourceContract)
     expected = expected_interface(
         "test.dc_source/v1",
         label="DC source",
-        state=expected_discriminated_state(
+        properties=(
+            bool_property(
+                "output_enabled",
+                label="Output",
+                description="Whether output is enabled.",
+            ),
             enum_property(
                 "mode",
                 choices=("voltage", "current"),
                 label="Mode",
                 description="Selected source mode.",
             ),
-            common_properties=(
-                bool_property(
-                    "output_enabled",
-                    label="Output",
-                    description="Whether output is enabled.",
-                ),
+            quantity_property(
+                "voltage_range",
+                unit="V",
+                label="Voltage range",
+                description="Selected voltage range.",
             ),
-            cases=(
-                expected_state_case(
-                    "voltage",
-                    properties=(
-                        quantity_property(
-                            "voltage_range",
-                            unit="V",
-                            label="Voltage range",
-                            description="Selected voltage range.",
-                        ),
-                        quantity_property(
-                            "voltage_level",
-                            unit="V",
-                            label="Voltage level",
-                            description="Selected voltage level.",
-                        ),
-                    ),
-                    required_on_entry_property_ids=(
-                        "voltage_range",
-                        "voltage_level",
-                    ),
-                ),
-                expected_state_case(
-                    "current",
-                    properties=(
-                        quantity_property(
-                            "current_range",
-                            unit="A",
-                            label="Current range",
-                            description="Selected current range.",
-                        ),
-                        quantity_property(
-                            "current_level",
-                            unit="A",
-                            label="Current level",
-                            description="Selected current level.",
-                        ),
-                    ),
-                    required_on_entry_property_ids=(
-                        "current_range",
-                        "current_level",
-                    ),
-                ),
+            quantity_property(
+                "voltage_level",
+                unit="V",
+                label="Voltage level",
+                description="Selected voltage level.",
+            ),
+            quantity_property(
+                "current_range",
+                unit="A",
+                label="Current range",
+                description="Selected current range.",
+            ),
+            quantity_property(
+                "current_level",
+                unit="A",
+                label="Current level",
+                description="Selected current level.",
             ),
         ),
     )
     assert compiled.spec == expected
 
 
-def test_state_discriminated_acquisition_supports_cross_interface_members() -> None:
+def test_fixed_acquisition_supports_cross_interface_preconditions() -> None:
     compiled = compile_interface(MonitorContract)
     source_output = declared_property_ref(
         SourceContract,
-        SourceCommonState,
+        SourceState,
         "output_enabled",
     )
     measurement_enabled = declared_property_ref(
@@ -1231,10 +1083,9 @@ def test_state_discriminated_acquisition_supports_cross_interface_members() -> N
             )
         ],
         acquisitions=[
-            expected_discriminated_acquisition(
+            expected_acquisition(
                 "monitor",
                 label="Monitor",
-                discriminator=declared_discriminator_ref(SourceContract),
                 preconditions=(
                     expected_precondition(
                         source_output,
@@ -1247,28 +1098,18 @@ def test_state_discriminated_acquisition_supports_cross_interface_members() -> N
                         unavailable_reason="Measurement is disabled.",
                     ),
                 ),
-                cases=(
-                    expected_acquisition_case(
-                        "voltage",
-                        results=(
-                            expected_result(
-                                "monitored_current",
-                                unit="A",
-                                label="Current",
-                                description="Measured current.",
-                            ),
-                        ),
+                results=(
+                    expected_result(
+                        "monitored_current",
+                        unit="A",
+                        label="Current",
+                        description="Measured current.",
                     ),
-                    expected_acquisition_case(
-                        "current",
-                        results=(
-                            expected_result(
-                                "monitored_voltage",
-                                unit="V",
-                                label="Voltage",
-                                description="Measured voltage.",
-                            ),
-                        ),
+                    expected_result(
+                        "monitored_voltage",
+                        unit="V",
+                        label="Voltage",
+                        description="Measured voltage.",
                     ),
                 ),
             )
@@ -1288,28 +1129,19 @@ def test_state_discriminated_acquisition_supports_cross_interface_members() -> N
         declared_acquisition(compiled, MonitorContract.monitor),
         DeclaredAcquisition[MonitorResults],
     )
-    assert declared.discriminator == declared_discriminator_ref(SourceContract)
-    assert [layout.case_value for layout in declared.layouts] == [
-        "voltage",
-        "current",
+    assert [
+        (field.python_name, field.result_id) for field in declared.result_fields
+    ] == [
+        ("current", "monitored_current"),
+        ("voltage", "monitored_voltage"),
     ]
-    assert [
-        (field.python_name, field.result_id)
-        for field in declared.active_result_fields("voltage")
-    ] == [("current", "monitored_current")]
-    assert [
-        (field.python_name, field.result_id)
-        for field in declared.active_result_fields("current")
-    ] == [("voltage", "monitored_voltage")]
-    with pytest.raises(ValueError, match="requires a concrete discriminator case"):
-        declared.active_result_fields()
-    with pytest.raises(ValueError, match="has no result case 'resistance'"):
-        declared.active_result_fields("resistance")
 
 
 def test_generated_state_projection_distinguishes_omission_from_falsy_values() -> None:
-    [layout] = declared_interface_layout(compile_interface(SweepContract)).states
-    assert_type(layout, DeclaredStateLayout)
+    declared_layout = declared_interface_layout(compile_interface(SweepContract)).state
+    assert declared_layout is not None
+    assert_type(declared_layout, DeclaredStateLayout)
+    layout = StateProjectionLayout(fields=declared_layout.fields)
 
     @instrument_state_projection(layout)
     class SweepProjection:
@@ -1347,16 +1179,14 @@ def test_generated_state_projection_distinguishes_omission_from_falsy_values() -
 
 
 def test_state_projection_accepts_a_compile_free_runtime_layout() -> None:
-    compiled_layout = declared_interface_layout(
-        compile_interface(SweepContract)
-    ).states[0]
+    compiled_layout = declared_interface_layout(compile_interface(SweepContract)).state
+    assert compiled_layout is not None
     layout = StateProjectionLayout(
         fields=tuple(
             StateProjectionField(field.python_name, field.ref)
             for field in compiled_layout.fields
             if field.python_name == "points"
         ),
-        constants=compiled_layout.constants,
     )
 
     @instrument_state_projection(layout)
@@ -1369,43 +1199,6 @@ def test_state_projection_accepts_a_compile_free_runtime_layout() -> None:
         declared_property_ref(SweepContract, SweepState, "points"): 3,
     }
     assert repr(projection) == f"{type(projection).__qualname__}(points=3)"
-
-
-def test_discriminated_projection_includes_required_fields_and_constants() -> None:
-    _, voltage_layout, _ = declared_interface_layout(
-        compile_interface(SourceContract)
-    ).states
-
-    @instrument_state_projection(voltage_layout)
-    class VoltageProjection:
-        range: Quantity
-        level: Quantity
-        output_enabled: bool = state_projection_field()
-
-    projection = VoltageProjection(
-        range=Quantity(1, "V"),
-        level=Quantity(0.1, "V"),
-        output_enabled=True,
-    )
-
-    assert state_projection_assignments(projection) == {
-        declared_discriminator_ref(SourceContract): "voltage",
-        declared_property_ref(SourceContract, VoltageState, "range"): Quantity(1, "V"),
-        declared_property_ref(SourceContract, VoltageState, "level"): Quantity(
-            0.1,
-            "V",
-        ),
-        declared_property_ref(
-            SourceContract,
-            SourceCommonState,
-            "output_enabled",
-        ): True,
-    }
-    assert repr(projection) == (
-        f"{type(projection).__qualname__}("
-        "output_enabled=True, "
-        f"range={projection.range!r}, level={projection.level!r})"
-    )
 
 
 def test_separate_compilations_do_not_share_mutable_models() -> None:
@@ -1424,28 +1217,4 @@ def test_fixed_acquisition_rejects_runtime_arguments() -> None:
         def sample(self, channel: int) -> SweepResults: ...
 
     with pytest.raises(TypeError, match="must accept only self"):
-        compile_interface(InvalidAcquisition)
-
-
-def test_acquisition_case_rejects_an_unknown_selected_result_field() -> None:
-    @instrument_interface("test.invalid_result_selection/v1")
-    class InvalidAcquisition(Protocol):
-        @state_discriminated_acquisition(
-            interface_discriminator(SourceContract),
-            cases=(
-                acquisition_case(
-                    "voltage",
-                    MonitorResults,
-                    fields=("missing",),
-                ),
-                acquisition_case(
-                    "current",
-                    MonitorResults,
-                    fields=("voltage",),
-                ),
-            ),
-        )
-        def monitor(self) -> MonitorResults: ...
-
-    with pytest.raises(ValueError, match=r"references unknown fields: \['missing'\]"):
         compile_interface(InvalidAcquisition)

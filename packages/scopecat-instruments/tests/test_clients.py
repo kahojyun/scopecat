@@ -479,7 +479,8 @@ def test_temperature_state_uses_cached_and_fresh_snapshot_paths() -> None:
 def test_temperature_state_schema_and_top_level_export_are_shared() -> None:
     assert TemperatureReadoutState is CatalogTemperatureReadoutState
     layout = declared_interface_layout(compile_interface(TemperatureReadoutInterface))
-    [state] = layout.states
+    state = layout.state
+    assert state is not None
     assert [field.ref for field in state.fields] == [
         TEMPERATURE_READOUT_SCAN_CHANNEL,
         TEMPERATURE_READOUT_AUTOSCAN_ENABLED,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   InstrumentComponent,
   InstrumentDescription,
@@ -6,14 +6,13 @@ import type {
   InstrumentProperty,
   InstrumentPropertyState,
   InstrumentSpec,
-  InstrumentStateValue,
 } from "../../api-contract";
 import { titleCase } from "../../lib/presentation";
 import { classes } from "../../ui/styles";
 import { InstrumentPropertyInput, type InstrumentPropertyDraft } from "./InstrumentPropertyInput";
 
 type RunStartPolicy = InstrumentSpec["run_start"];
-type InterfaceMember = Pick<InstrumentInterface, "label" | "properties" | "state" | "components">;
+type InterfaceMember = Pick<InstrumentInterface, "label" | "properties" | "components">;
 
 export function InstrumentDefaultsEditor({
   description,
@@ -31,29 +30,20 @@ export function InstrumentDefaultsEditor({
   onValidityChange: (valid: boolean) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, InstrumentPropertyDraft>>({});
-  const requiredMissing = useMemo(
-    () => missingRequiredDefaults(description, defaultState),
-    [defaultState, description],
-  );
-  const invalid =
-    Object.values(drafts).some((draft) => draft.value === undefined) || requiredMissing.length > 0;
+  const invalid = Object.values(drafts).some((draft) => draft.value === undefined);
 
   useEffect(() => onValidityChange(!invalid), [invalid, onValidityChange]);
 
   const toggle = (
     interfaceId: string,
     componentPath: string[],
-    member: InterfaceMember,
     property: InstrumentProperty,
     enabled: boolean,
   ) => {
     const key = propertyKey(interfaceId, componentPath, property.id);
     if (!enabled) {
-      const removedKeys = keysRemovedWithProperty(interfaceId, componentPath, member, property.id);
-      setDrafts((current) => withoutDrafts(current, removedKeys));
-      onDefaultStateChange(
-        defaultState.filter((item) => !removedKeys.has(defaultPropertyKey(item))),
-      );
+      setDrafts((current) => withoutDraft(current, key));
+      onDefaultStateChange(defaultState.filter((item) => defaultPropertyKey(item) !== key));
       return;
     }
     const initial = initialDraft(property);
@@ -73,30 +63,20 @@ export function InstrumentDefaultsEditor({
   const edit = (
     interfaceId: string,
     componentPath: string[],
-    member: InterfaceMember,
     property: InstrumentProperty,
     draft: InstrumentPropertyDraft,
   ) => {
     const key = propertyKey(interfaceId, componentPath, property.id);
     setDrafts((current) => ({ ...current, [key]: draft }));
     if (draft.value === undefined) return;
-    let next = replaceDefault(defaultState, {
-      interface_id: interfaceId,
-      component_path: componentPath,
-      property_id: property.id,
-      value: draft.value,
-    });
-    if (member.state?.discriminator_property_id === property.id) {
-      const keep = keysForSelectedCase(interfaceId, componentPath, member, draft.value);
-      next = next.filter(
-        (item) =>
-          !sameScope(item, interfaceId, componentPath) ||
-          !casePropertyIds(member).has(item.property_id) ||
-          keep.has(defaultPropertyKey(item)),
-      );
-      setDrafts((current) => filterCaseDrafts(current, interfaceId, componentPath, member, keep));
-    }
-    onDefaultStateChange(next);
+    onDefaultStateChange(
+      replaceDefault(defaultState, {
+        interface_id: interfaceId,
+        component_path: componentPath,
+        property_id: property.id,
+        value: draft.value,
+      }),
+    );
   };
 
   return (
@@ -133,7 +113,6 @@ export function InstrumentDefaultsEditor({
               member={instrumentInterface}
               defaultState={defaultState}
               drafts={drafts}
-              requiredMissing={new Set(requiredMissing)}
               onToggle={toggle}
               onEdit={edit}
             />
@@ -154,11 +133,6 @@ export function InstrumentDefaultsEditor({
           Select at least one default value before enabling automatic apply.
         </p>
       )}
-      {requiredMissing.length > 0 && (
-        <p className={configNote} role="status">
-          The selected mode requires: {requiredMissing.map(propertyLabelFromKey).join(", ")}.
-        </p>
-      )}
     </section>
   );
 }
@@ -169,7 +143,6 @@ function DefaultScope({
   member,
   defaultState,
   drafts,
-  requiredMissing,
   onToggle,
   onEdit,
 }: {
@@ -178,23 +151,20 @@ function DefaultScope({
   member: InterfaceMember;
   defaultState: InstrumentPropertyState[];
   drafts: Record<string, InstrumentPropertyDraft>;
-  requiredMissing: Set<string>;
   onToggle: (
     interfaceId: string,
     componentPath: string[],
-    member: InterfaceMember,
     property: InstrumentProperty,
     enabled: boolean,
   ) => void;
   onEdit: (
     interfaceId: string,
     componentPath: string[],
-    member: InterfaceMember,
     property: InstrumentProperty,
     draft: InstrumentPropertyDraft,
   ) => void;
 }) {
-  const properties = visibleDefaultProperties(interfaceId, componentPath, member, defaultState);
+  const properties = visibleDefaultProperties(member);
   const children = member.components ?? [];
   if (properties.length === 0 && children.length === 0) return null;
   const label =
@@ -233,18 +203,13 @@ function DefaultScope({
                         property.label ?? titleCase(property.id)
                       }`}
                       onChange={(event) =>
-                        onToggle(interfaceId, componentPath, member, property, event.target.checked)
+                        onToggle(interfaceId, componentPath, property, event.target.checked)
                       }
                     />
                     <span className="grid min-w-0 gap-0.5">
                       <strong className="overflow-hidden text-[0.61rem] text-ellipsis whitespace-nowrap text-text-soft">
                         {property.label ?? titleCase(property.id)}
                       </strong>
-                      {requiredMissing.has(key) && (
-                        <small className="text-[0.51rem] text-yellow">
-                          Required for selected mode
-                        </small>
-                      )}
                     </span>
                   </label>
                   <InstrumentPropertyInput
@@ -253,9 +218,7 @@ function DefaultScope({
                     draft={drafts[key]}
                     editable={enabled}
                     ariaLabel={`${property.label ?? titleCase(property.id)} default value`}
-                    onChange={(draft) =>
-                      onEdit(interfaceId, componentPath, member, property, draft)
-                    }
+                    onChange={(draft) => onEdit(interfaceId, componentPath, property, draft)}
                   />
                 </div>
               );
@@ -271,7 +234,6 @@ function DefaultScope({
           member={child}
           defaultState={defaultState}
           drafts={drafts}
-          requiredMissing={requiredMissing}
           onToggle={onToggle}
           onEdit={onEdit}
         />
@@ -285,68 +247,8 @@ const configNote =
 const defaultsUnavailable =
   "m-0 rounded-sm border border-dashed border-line px-2.5 py-[9px] text-[0.56rem] leading-normal text-text-dim";
 
-function visibleDefaultProperties(
-  interfaceId: string,
-  componentPath: string[],
-  member: InterfaceMember,
-  defaultState: InstrumentPropertyState[],
-): InstrumentProperty[] {
-  const writable = new Map(
-    (member.properties ?? [])
-      .filter((property) => property.access === "read_write")
-      .map((property) => [property.id, property]),
-  );
-  if (!member.state) return [...writable.values()];
-  const discriminatorId = member.state.discriminator_property_id;
-  const discriminator = defaultValue(defaultState, interfaceId, componentPath, discriminatorId);
-  const selectedCase =
-    typeof discriminator === "string"
-      ? member.state.cases.find((candidate) => candidate.value === discriminator)
-      : undefined;
-  const ids = [
-    discriminatorId,
-    ...(member.state.common_property_ids ?? []),
-    ...(selectedCase?.property_ids ?? []),
-  ];
-  return ids.flatMap((id) => {
-    const property = writable.get(id);
-    return property ? [property] : [];
-  });
-}
-
-function missingRequiredDefaults(
-  description: InstrumentDescription | undefined,
-  defaultState: InstrumentPropertyState[],
-): string[] {
-  if (!description) return [];
-  const missing: string[] = [];
-  const walk = (interfaceId: string, componentPath: string[], member: InterfaceMember) => {
-    const state = member.state;
-    if (state) {
-      const discriminator = defaultValue(
-        defaultState,
-        interfaceId,
-        componentPath,
-        state.discriminator_property_id,
-      );
-      const selectedCase =
-        typeof discriminator === "string"
-          ? state.cases.find((candidate) => candidate.value === discriminator)
-          : undefined;
-      for (const propertyId of selectedCase?.required_on_entry_property_ids ?? []) {
-        if (defaultValue(defaultState, interfaceId, componentPath, propertyId) === undefined) {
-          missing.push(propertyKey(interfaceId, componentPath, propertyId));
-        }
-      }
-    }
-    for (const child of member.components ?? []) {
-      walk(interfaceId, [...componentPath, child.id], child);
-    }
-  };
-  for (const instrumentInterface of description.interfaces ?? []) {
-    walk(instrumentInterface.id, [], instrumentInterface);
-  }
-  return missing;
+function visibleDefaultProperties(member: InterfaceMember): InstrumentProperty[] {
+  return (member.properties ?? []).filter((property) => property.access === "read_write");
 }
 
 function initialDraft(property: InstrumentProperty): InstrumentPropertyDraft {
@@ -366,96 +268,11 @@ function replaceDefault(
   return defaultState.map((item, itemIndex) => (itemIndex === index ? replacement : item));
 }
 
-function keysRemovedWithProperty(
-  interfaceId: string,
-  componentPath: string[],
-  member: InterfaceMember,
-  propertyId: string,
-): Set<string> {
-  const keys = new Set([propertyKey(interfaceId, componentPath, propertyId)]);
-  if (member.state?.discriminator_property_id === propertyId) {
-    for (const casePropertyId of casePropertyIds(member)) {
-      keys.add(propertyKey(interfaceId, componentPath, casePropertyId));
-    }
-  }
-  return keys;
-}
-
-function keysForSelectedCase(
-  interfaceId: string,
-  componentPath: string[],
-  member: InterfaceMember,
-  value: InstrumentStateValue,
-): Set<string> {
-  if (typeof value !== "string" || !member.state) return new Set();
-  const selectedCase = member.state.cases.find((candidate) => candidate.value === value);
-  return new Set(
-    (selectedCase?.property_ids ?? []).map((propertyId) =>
-      propertyKey(interfaceId, componentPath, propertyId),
-    ),
-  );
-}
-
-function casePropertyIds(member: InterfaceMember): Set<string> {
-  return new Set((member.state?.cases ?? []).flatMap((stateCase) => stateCase.property_ids ?? []));
-}
-
-function caseKeys(
-  interfaceId: string,
-  componentPath: string[],
-  member: InterfaceMember,
-): Set<string> {
-  return new Set(
-    [...casePropertyIds(member)].map((propertyId) =>
-      propertyKey(interfaceId, componentPath, propertyId),
-    ),
-  );
-}
-
-function filterCaseDrafts(
-  drafts: Record<string, InstrumentPropertyDraft>,
-  interfaceId: string,
-  componentPath: string[],
-  member: InterfaceMember,
-  keep: Set<string>,
-): Record<string, InstrumentPropertyDraft> {
-  const scopedCaseKeys = caseKeys(interfaceId, componentPath, member);
-  return Object.fromEntries(
-    Object.entries(drafts).filter(([key]) => !scopedCaseKeys.has(key) || keep.has(key)),
-  );
-}
-
-function withoutDrafts(
+function withoutDraft(
   current: Record<string, InstrumentPropertyDraft>,
-  removed: Set<string>,
+  removed: string,
 ): Record<string, InstrumentPropertyDraft> {
-  return Object.fromEntries(Object.entries(current).filter(([key]) => !removed.has(key)));
-}
-
-function defaultValue(
-  defaultState: InstrumentPropertyState[],
-  interfaceId: string,
-  componentPath: string[],
-  propertyId: string,
-): InstrumentStateValue | undefined {
-  return defaultState.find(
-    (item) =>
-      item.interface_id === interfaceId &&
-      samePath(item.component_path ?? [], componentPath) &&
-      item.property_id === propertyId,
-  )?.value;
-}
-
-function sameScope(
-  item: InstrumentPropertyState,
-  interfaceId: string,
-  componentPath: string[],
-): boolean {
-  return item.interface_id === interfaceId && samePath(item.component_path ?? [], componentPath);
-}
-
-function samePath(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
+  return Object.fromEntries(Object.entries(current).filter(([key]) => key !== removed));
 }
 
 function defaultPropertyKey(item: InstrumentPropertyState): string {
@@ -464,8 +281,4 @@ function defaultPropertyKey(item: InstrumentPropertyState): string {
 
 function propertyKey(interfaceId: string, componentPath: string[], propertyId: string): string {
   return [interfaceId, ...componentPath, propertyId].join("\u0000");
-}
-
-function propertyLabelFromKey(key: string): string {
-  return titleCase(key.split("\u0000").at(-1) ?? key);
 }

@@ -19,7 +19,7 @@ from scopecat.sdk.instruments import (
 
 from client_codegen_fixture_declarations import (
     DriverMonitorState,
-    DriverSourceLeftState,
+    DriverSourceState,
 )
 from generated_driver_handler_fixture import (
     DriverFixedAcquisitionAcquireDriverReadback,
@@ -42,9 +42,7 @@ from generated_member_catalog_fixture import (
     DRIVER_MONITOR_ENABLED,
     DRIVER_MONITOR_RIGHT_RESULT,
     DRIVER_SOURCE_ENABLED,
-    DRIVER_SOURCE_LEFT_LEVEL,
-    DRIVER_SOURCE_MODE,
-    DRIVER_SOURCE_RIGHT_LEVEL,
+    DRIVER_SOURCE_LEVEL,
     LITERAL_OPERATION_SELECT,
     PAYLOAD_OPERATION_UPLOAD,
     SCALAR_OPERATION_EMIT_PULSE,
@@ -138,7 +136,7 @@ class _SourceDriver(DriverSourceDriverAdapter):
     @override
     def read_driver_source_state(self) -> DriverSourceDriverSnapshot:
         return DriverSourceDriverSnapshot(
-            state=DriverSourceLeftState(enabled=True, level=4),
+            state=DriverSourceState(enabled=True, level=4),
             metadata={"snapshot": "source"},
         )
 
@@ -165,7 +163,7 @@ class _CompositeDriver(MonitorCompositeDriverAdapter):
     @override
     def read_monitor_composite_state(self) -> MonitorCompositeDriverSnapshot:
         return MonitorCompositeDriverSnapshot(
-            driver_source=DriverSourceLeftState(enabled=True, level=8),
+            driver_source=DriverSourceState(enabled=True, level=8),
             # Deliberately populated even when the optional interface is disabled:
             # the adapter owns the dynamic interface gate.
             driver_monitor=DriverMonitorState(enabled=True),
@@ -306,18 +304,16 @@ def test_single_interface_state_snapshot_and_patch_are_typed() -> None:
 
     state = driver.read_state()
     assert state.values == {
-        DRIVER_SOURCE_MODE: "left",
         DRIVER_SOURCE_ENABLED: True,
-        DRIVER_SOURCE_LEFT_LEVEL: 4,
+        DRIVER_SOURCE_LEVEL: 4,
     }
     assert state.metadata == {"snapshot": "source"}
 
     outcome = driver.apply_state(
         DriverStatePatch(
             values={
-                DRIVER_SOURCE_MODE: "right",
                 DRIVER_SOURCE_ENABLED: False,
-                DRIVER_SOURCE_RIGHT_LEVEL: 9,
+                DRIVER_SOURCE_LEVEL: 9,
             }
         )
     )
@@ -325,9 +321,8 @@ def test_single_interface_state_snapshot_and_patch_are_typed() -> None:
     assert outcome.value is None
     assert outcome.metadata == {"handler": "source"}
     assert driver.patch == {
-        "mode": "right",
         "enabled": False,
-        "right_level": 9,
+        "level": 9,
     }
 
 

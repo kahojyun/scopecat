@@ -599,7 +599,7 @@ def test_dc_monitor_group_maps_each_fixed_acquisition_per_entity() -> None:
     assert isinstance(voltage_samples[q0].voltage, ProductRef)
     assert isinstance(voltage_samples[q1].voltage, ProductRef)
     definition = context.close_definition_internal(
-        id="test.symbolic.dc-monitor-each-discriminator"
+        id="test.symbolic.dc-monitor-each-acquisitions"
     )
     assert [product.id for product in definition.body.products] == [
         "monitored_current",

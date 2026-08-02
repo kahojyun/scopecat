@@ -16,7 +16,6 @@ from scopecat.sdk.instruments import (
     OperationRef,
     PropertyRef,
     StatePropertyRef,
-    acquisition_results,
 )
 
 import scopecat_instruments.members as member_catalog
@@ -119,9 +118,7 @@ def test_member_catalog_resolves_against_the_interface_contracts() -> None:
         if isinstance(member, AcquisitionRef):
             continue
         assert isinstance(member, AcquisitionResultRef)
-        assert member.result_id in {
-            result.id for result in acquisition_results(acquisition)
-        }
+        assert member.result_id in {result.id for result in acquisition.results}
 
 
 def test_network_sweep_axis_size_tracks_the_points_state() -> None:
@@ -132,38 +129,38 @@ def test_network_sweep_axis_size_tracks_the_points_state() -> None:
         property_id=NETWORK_SWEEP_POINTS.property_id,
     )
 
-    for result in acquisition_results(sweep):
+    for result in sweep.results:
         [frequency] = result.axes
         assert frequency.size == expected
 
 
 def test_declared_network_sweep_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(network_sweep_interface()) == (
-        "ac4b820390cec2c1fd6478499cf097f715aac5a6f4b3bfaafe1d919cede99abe"
+        "683da06aee2e82d7d3723951c907c6129d0383d7c3c2f7d62403845186328a13"
     )
 
 
 def test_declared_rf_output_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(rf_output_interface()) == (
-        "c46f28a0fa23c3e98976a46d52d9e95b1c2f62cfa269022963131e9182acf532"
+        "2bda603a084e8dbb487b6dea5cecb8be4037e2753eb9a6bd0fcbfabfcbff2dbc"
     )
 
 
 def test_declared_dc_source_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_source_interface()) == (
-        "9cadec39606ef26d5381044d2702fd970b24d3f4207c166d6955d9b83c2f0332"
+        "0bd8e9c89a327e53af4c682b71ff8b4f0867faf53850b9260c6f48034e4d2d5b"
     )
 
 
 def test_declared_dc_monitor_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_monitor_interface()) == (
-        "2ca3e14369a9940ced183fbc79c3adb03cb0823b2ff28f2e574235753a11f55c"
+        "afd3a5957125aab23ae254924a1c0b7805c081aa7ec80ce6cf164e55c0ad680c"
     )
 
 
 def test_declared_temperature_readout_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(temperature_readout_interface()) == (
-        "ab4210fcfc8abd40a4d998300560a8f138518e7762690d25dd7a0ba18a36cbdf"
+        "d9d0999bd16bb480ad15dfe2506cbaf21fb367d2e7b84a58fd49cfeb1df90e1f"
     )
 
 
@@ -220,7 +217,7 @@ def test_interface_contract_has_complete_ui_metadata(
     for acquisition_spec in interface.acquisitions:
         assert acquisition_spec.label
         assert acquisition_spec.description
-        for result in acquisition_results(acquisition_spec):
+        for result in acquisition_spec.results:
             assert result.label
             assert result.description
             for axis in result.axes:
@@ -266,7 +263,7 @@ def test_temperature_readout_separates_scanner_state_from_samples() -> None:
         TEMPERATURE_READOUT_SCAN_CHANNEL.property_id
     ].value_type == Scalar(Int(minimum=1, maximum=9007199254740991))
     assert len(interface.acquisitions) == 1
-    assert {item.id for item in acquisition_results(interface.acquisitions[0])} == {
+    assert {item.id for item in interface.acquisitions[0].results} == {
         TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id,
         TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id,
     }
@@ -276,7 +273,6 @@ def test_dc_source_separates_state_observation_and_mode_transitions() -> None:
     interface = dc_source_interface()
 
     assert interface.id == "scopecat.dc_source/v3"
-    assert interface.state is None
     assert [item.id for item in interface.properties] == [
         DC_SOURCE_VOLTAGE_PROTECTION.property_id,
         DC_SOURCE_CURRENT_PROTECTION.property_id,
@@ -315,7 +311,7 @@ def test_dc_source_separates_state_observation_and_mode_transitions() -> None:
     ]
 
 
-def test_dc_monitor_declares_independent_fixed_results() -> None:
+def test_dc_monitor_declares_independent_results() -> None:
     monitor_interface = dc_monitor_interface()
     current, voltage = monitor_interface.acquisitions
 
@@ -338,19 +334,16 @@ def test_dc_monitor_declares_independent_fixed_results() -> None:
     assert {item.access for item in properties.values()} == {"read_write"}
     assert [
         (
-            acquisition.kind,
             acquisition.id,
-            [result.id for result in acquisition_results(acquisition)],
+            [result.id for result in acquisition.results],
         )
         for acquisition in (current, voltage)
     ] == [
         (
-            "fixed",
             DC_MONITOR_MEASURE_CURRENT.acquisition_id,
             [DC_MONITOR_CURRENT_RESULT.result_id],
         ),
         (
-            "fixed",
             DC_MONITOR_MEASURE_VOLTAGE.acquisition_id,
             [DC_MONITOR_VOLTAGE_RESULT.result_id],
         ),

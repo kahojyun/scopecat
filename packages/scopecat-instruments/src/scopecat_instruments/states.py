@@ -62,7 +62,6 @@ _RF_OUTPUT_STATE_LAYOUT = StateProjectionLayout(
         StateProjectionField("output_enabled", RF_OUTPUT_ENABLED),
         StateProjectionField("reference_source", RF_OUTPUT_REFERENCE_SOURCE),
     ),
-    constants=(),
 )
 
 
@@ -108,7 +107,6 @@ _DC_SOURCE_STATE_LAYOUT = StateProjectionLayout(
         StateProjectionField("current_protection", DC_SOURCE_CURRENT_PROTECTION),
         StateProjectionField("output_enabled", DC_SOURCE_OUTPUT_ENABLED),
     ),
-    constants=(),
 )
 
 
@@ -145,7 +143,6 @@ _DC_MONITOR_STATE_LAYOUT = StateProjectionLayout(
         StateProjectionField("integration_cycles", DC_MONITOR_INTEGRATION_CYCLES),
         StateProjectionField("measurement_delay", DC_MONITOR_MEASUREMENT_DELAY),
     ),
-    constants=(),
 )
 
 
@@ -185,7 +182,6 @@ _NETWORK_SWEEP_STATE_LAYOUT = StateProjectionLayout(
         StateProjectionField("source_power", NETWORK_SWEEP_SOURCE_POWER),
         StateProjectionField("s_parameter", NETWORK_SWEEP_S_PARAMETER),
     ),
-    constants=(),
 )
 
 
