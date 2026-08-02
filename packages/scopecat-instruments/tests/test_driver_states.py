@@ -14,11 +14,13 @@ from scopecat_instruments.driver_states import (
     encode_dc_source_voltage_state,
     encode_driver_state,
     encode_rf_output_state,
+    encode_temperature_readout_observation,
 )
 from scopecat_instruments.interface_declarations import (
     DCSourceState,
     DCSourceVoltage,
     RFOutputState,
+    TemperatureReadoutObservation,
 )
 from scopecat_instruments.members import (
     DC_SOURCE_CURRENT_PROTECTION,
@@ -32,6 +34,8 @@ from scopecat_instruments.members import (
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
     RF_OUTPUT_REFERENCE_SOURCE,
+    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
+    TEMPERATURE_READOUT_SCAN_CHANNEL,
 )
 
 
@@ -65,6 +69,18 @@ def test_exact_rf_state_encoder_uses_declared_member_refs() -> None:
         RF_OUTPUT_POWER: Quantity(-30.0, "dBm"),
         RF_OUTPUT_ENABLED: False,
         RF_OUTPUT_REFERENCE_SOURCE: "internal",
+    }
+
+
+def test_exact_temperature_observation_encoder_uses_declared_member_refs() -> None:
+    observation = TemperatureReadoutObservation(
+        scan_channel=5,
+        autoscan_enabled=False,
+    )
+
+    assert encode_temperature_readout_observation(observation) == {
+        TEMPERATURE_READOUT_SCAN_CHANNEL: 5,
+        TEMPERATURE_READOUT_AUTOSCAN_ENABLED: False,
     }
 
 

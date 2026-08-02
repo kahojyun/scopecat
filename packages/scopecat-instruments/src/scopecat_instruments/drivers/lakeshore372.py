@@ -40,11 +40,14 @@ from scopecat_instruments._support import (
     unsupported_invoke,
 )
 from scopecat_instruments.driver_ids import LAKESHORE_372
+from scopecat_instruments.driver_states import (
+    encode_driver_state,
+    encode_temperature_readout_observation,
+)
+from scopecat_instruments.interface_declarations import TemperatureReadoutObservation
 from scopecat_instruments.interfaces import temperature_readout_interface
 from scopecat_instruments.members import (
-    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     TEMPERATURE_READOUT_RESISTANCE_RESULT,
-    TEMPERATURE_READOUT_SCAN_CHANNEL,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 
@@ -94,11 +97,13 @@ class LakeShore372:
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return DriverState(
-            values={
-                TEMPERATURE_READOUT_SCAN_CHANNEL: scan_channel,
-                TEMPERATURE_READOUT_AUTOSCAN_ENABLED: autoscan_enabled,
-            },
+        return encode_driver_state(
+            encode_temperature_readout_observation(
+                TemperatureReadoutObservation(
+                    scan_channel=scan_channel,
+                    autoscan_enabled=autoscan_enabled,
+                )
+            ),
             metadata=metadata,
         )
 

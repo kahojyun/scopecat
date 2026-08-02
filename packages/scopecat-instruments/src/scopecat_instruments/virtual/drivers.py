@@ -47,11 +47,13 @@ from scopecat_instruments.driver_states import (
     encode_driver_state,
     encode_network_sweep_state,
     encode_rf_output_state,
+    encode_temperature_readout_observation,
 )
 from scopecat_instruments.interface_declarations import (
     NetworkSweepState,
     ReferenceSource,
     RFOutputState,
+    TemperatureReadoutObservation,
 )
 from scopecat_instruments.interfaces import (
     dc_monitor_interface,
@@ -75,8 +77,6 @@ from scopecat_instruments.members import (
     DC_SOURCE_VOLTAGE_PROTECTION,
     DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP_FREQUENCY_RESULT,
-    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
-    TEMPERATURE_READOUT_SCAN_CHANNEL,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.virtual.world import VirtualLabWorld
@@ -496,11 +496,12 @@ class VirtualTemperatureMonitor:
     def read_state(self) -> DriverState:
         with self.world.lock:
             state = self.world.temperature_monitor(self.instrument_id)
-            return DriverState(
-                values={
-                    TEMPERATURE_READOUT_SCAN_CHANNEL: state.scan_channel,
-                    TEMPERATURE_READOUT_AUTOSCAN_ENABLED: state.autoscan_enabled,
-                },
+            observation = TemperatureReadoutObservation(
+                scan_channel=state.scan_channel,
+                autoscan_enabled=state.autoscan_enabled,
+            )
+            return encode_driver_state(
+                encode_temperature_readout_observation(observation),
                 metadata={"mode": "virtual", "world_seed": self.world.seed},
             )
 
