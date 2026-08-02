@@ -7,7 +7,6 @@ from pathlib import Path
 import scopecat as sc
 from scopecat_instruments import (
     DCSourcePatch,
-    DCSourceVoltagePatch,
     dc_source,
     network_sweep,
     temperature_readout,
@@ -34,13 +33,11 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         chamber = devices[MIXING_CHAMBER]
         vna = devices[READOUT_VNA]
 
-        source.apply(
-            DCSourceVoltagePatch(
-                range=sc.Quantity(1.0, "V"),
-                level=sc.Quantity(0.05, "V"),
-                output_enabled=True,
-            )
+        source.source_voltage(
+            range=sc.Quantity(1.0, "V"),
+            level=sc.Quantity(0.05, "V"),
         )
+        source.apply(output_enabled=True)
         try:
             temperature = chamber.sample()
             vna.apply(

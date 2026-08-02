@@ -162,7 +162,7 @@ def test_codegen_adds_keyword_convenience_for_one_flat_state_schema() -> None:
     )
 
 
-def test_codegen_keeps_discriminated_state_on_carrier_only_surface() -> None:
+def test_codegen_renders_flat_dc_source_state_and_typed_transitions() -> None:
     completed = _render_surface(
         "DCSourceInterface",
         module="scopecat_instruments.interface_declarations",
@@ -174,7 +174,28 @@ def test_codegen_keeps_discriminated_state_on_carrier_only_surface() -> None:
     live_client = completed.stdout.split("class DCSourceClient", maxsplit=1)[1].split(
         "class SymbolicDCSourceClient", maxsplit=1
     )[0]
-    assert "def apply(" not in live_client
+    assert "patch: DCSourcePatch," in live_client
+    assert "voltage_protection: Quantity = ...," in live_client
+    assert "current_protection: Quantity = ...," in live_client
+    assert "output_enabled: bool = ...," in live_client
+    assert "def source_voltage(" in live_client
+    assert "def source_current(" in live_client
+    assert live_client.count("range: Quantity,") == 2
+    assert live_client.count("level: Quantity,") == 2
+    assert completed.stdout.count("range: Quantity | ValueRef,") == 2
+    assert completed.stdout.count("level: Quantity | ValueRef,") == 2
+    assert (
+        completed.stdout.count(
+            "range: Quantity | ValueRef | PerEntity[Quantity | ValueRef],"
+        )
+        == 2
+    )
+    assert (
+        completed.stdout.count(
+            "level: Quantity | ValueRef | PerEntity[Quantity | ValueRef],"
+        )
+        == 2
+    )
 
 
 def test_codegen_accepts_a_projection_module_for_a_stateless_surface() -> None:
@@ -231,25 +252,23 @@ def test_codegen_derives_base_family_suppression_from_a_facade_bundle() -> None:
 
     assert completed.returncode == 0, completed.stderr
     compile(completed.stdout, "<generated-dc-source>", "exec")
-    assert (
-        "type _DCSourcePatch = DCSourcePatch | DCSourceVoltagePatch | "
-        "DCSourceCurrentPatch"
-    ) in completed.stdout
-    assert "class DCSourceClient(DeclaredStateClientBase[_DCSourcePatch]):" in (
+    assert "type _DCSourcePatch" not in completed.stdout
+    assert "class DCSourceClient(DeclaredStateClientBase[DCSourcePatch]):" in (
         completed.stdout
     )
     assert (
-        "class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase["
-        "_DCSourceTarget]):"
+        "class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[DCSourceTarget]):"
     ) in completed.stdout
     assert "DeclaredStateSymbolicGroupBase[" in completed.stdout
-    assert "_DCSourceTarget, _DCSourceGroupTarget, SymbolicDCSourceClient" in (
+    assert "DCSourceTarget, DCSourceGroupTarget, SymbolicDCSourceClient" in (
         completed.stdout
     )
     assert "DC_SOURCE_DECLARATION" not in completed.stdout
-    assert '_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v2")' in (
+    assert '_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v3")' in (
         completed.stdout
     )
+    assert "def source_voltage(" in completed.stdout
+    assert "def source_current(" in completed.stdout
     assert "compile_interface" not in completed.stdout
     assert "InstrumentFamily" not in completed.stdout
     assert '"dc_source"' in completed.stdout
@@ -266,10 +285,12 @@ def test_codegen_composes_a_root_only_interface_bundle() -> None:
 
     assert completed.returncode == 0, completed.stderr
     compile(completed.stdout, "<generated-dc-source-monitor>", "exec")
-    assert "type _DCSourceMonitorPatch = (" in completed.stdout
+    assert "type _DCSourceMonitorPatch = DCSourcePatch | DCMonitorPatch" in (
+        completed.stdout
+    )
     assert "DCSourcePatch" in completed.stdout
-    assert "DCSourceVoltageTarget" in completed.stdout
-    assert "DCSourceCurrentGroupTarget" in completed.stdout
+    assert "DCSourceTarget" in completed.stdout
+    assert "DCSourceGroupTarget" in completed.stdout
     assert "DCMonitorPatch" in completed.stdout
     assert "class DCMonitorCurrentReadback(" in completed.stdout
     assert "class DCMonitorCurrentProducts(" in completed.stdout
@@ -293,7 +314,7 @@ def test_codegen_renders_a_two_interface_boolean_facade() -> None:
 
     assert completed.returncode == 0, completed.stderr
     compile(completed.stdout, "<generated-dc-source-facade>", "exec")
-    assert completed.stdout.count("@overload") == 9
+    assert completed.stdout.count("@overload") == 15
     assert "monitor: Literal[False] = False" in completed.stdout
     assert "monitor: Literal[True]" in completed.stdout
     assert completed.stdout.count("monitor: bool,") == 3

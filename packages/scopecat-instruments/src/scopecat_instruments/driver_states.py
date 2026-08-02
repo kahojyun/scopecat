@@ -18,8 +18,8 @@ from scopecat.sdk.instruments import (
 
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
-    DCSourceCurrentState,
-    DCSourceVoltageState,
+    DCSourceObservation,
+    DCSourceState,
     NetworkSweepState,
     RFOutputState,
     TemperatureReadoutObservation,
@@ -28,14 +28,10 @@ from scopecat_instruments.members import (
     DC_MONITOR_INTEGRATION_CYCLES,
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
-    DC_SOURCE_CURRENT_LEVEL,
     DC_SOURCE_CURRENT_PROTECTION,
-    DC_SOURCE_CURRENT_RANGE,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_PROTECTION,
-    DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP_IF_BANDWIDTH,
     NETWORK_SWEEP_POINTS,
     NETWORK_SWEEP_S_PARAMETER,
@@ -103,24 +99,14 @@ def encode_rf_output_state(state: RFOutputState, /) -> dict[PropertyRef, DriverS
 
 
 class DCSourceDriverPatch(TypedDict, total=False):
-    source_mode: Literal["voltage", "current"]
     voltage_protection: Quantity
     current_protection: Quantity
     output_enabled: bool
-    voltage_range: Quantity
-    voltage_level: Quantity
-    current_range: Quantity
-    current_level: Quantity
 
 
 def decode_dc_source_patch(request: DriverStatePatch, /) -> DCSourceDriverPatch:
     decoded: DCSourceDriverPatch = {}
     values = request.values
-    if DC_SOURCE_MODE in values:
-        decoded["source_mode"] = cast(
-            'Literal["voltage", "current"]',
-            values[DC_SOURCE_MODE],
-        )
     if DC_SOURCE_VOLTAGE_PROTECTION in values:
         decoded["voltage_protection"] = cast(
             "Quantity",
@@ -136,52 +122,22 @@ def decode_dc_source_patch(request: DriverStatePatch, /) -> DCSourceDriverPatch:
             "bool",
             values[DC_SOURCE_OUTPUT_ENABLED],
         )
-    if DC_SOURCE_VOLTAGE_RANGE in values:
-        decoded["voltage_range"] = cast(
-            "Quantity",
-            values[DC_SOURCE_VOLTAGE_RANGE],
-        )
-    if DC_SOURCE_VOLTAGE_LEVEL in values:
-        decoded["voltage_level"] = cast(
-            "Quantity",
-            values[DC_SOURCE_VOLTAGE_LEVEL],
-        )
-    if DC_SOURCE_CURRENT_RANGE in values:
-        decoded["current_range"] = cast(
-            "Quantity",
-            values[DC_SOURCE_CURRENT_RANGE],
-        )
-    if DC_SOURCE_CURRENT_LEVEL in values:
-        decoded["current_level"] = cast(
-            "Quantity",
-            values[DC_SOURCE_CURRENT_LEVEL],
-        )
     return decoded
 
 
-def encode_dc_source_voltage_state(
-    state: DCSourceVoltageState, /
-) -> dict[PropertyRef, DriverScalar]:
+def encode_dc_source_state(state: DCSourceState, /) -> dict[PropertyRef, DriverScalar]:
     return {
-        DC_SOURCE_MODE: "voltage",
         DC_SOURCE_VOLTAGE_PROTECTION: state.voltage_protection,
         DC_SOURCE_CURRENT_PROTECTION: state.current_protection,
         DC_SOURCE_OUTPUT_ENABLED: state.output_enabled,
-        DC_SOURCE_VOLTAGE_RANGE: state.range,
-        DC_SOURCE_VOLTAGE_LEVEL: state.level,
     }
 
 
-def encode_dc_source_current_state(
-    state: DCSourceCurrentState, /
+def encode_dc_source_observation(
+    state: DCSourceObservation, /
 ) -> dict[PropertyRef, DriverScalar]:
     return {
-        DC_SOURCE_MODE: "current",
-        DC_SOURCE_VOLTAGE_PROTECTION: state.voltage_protection,
-        DC_SOURCE_CURRENT_PROTECTION: state.current_protection,
-        DC_SOURCE_OUTPUT_ENABLED: state.output_enabled,
-        DC_SOURCE_CURRENT_RANGE: state.range,
-        DC_SOURCE_CURRENT_LEVEL: state.level,
+        DC_SOURCE_MODE: state.source_mode,
     }
 
 
@@ -303,8 +259,8 @@ __all__ = [
     "decode_network_sweep_patch",
     "decode_rf_output_patch",
     "encode_dc_monitor_state",
-    "encode_dc_source_current_state",
-    "encode_dc_source_voltage_state",
+    "encode_dc_source_observation",
+    "encode_dc_source_state",
     "encode_driver_state",
     "encode_network_sweep_state",
     "encode_rf_output_state",

@@ -68,6 +68,20 @@ def apply_unknown(instrument_id: str, error: Exception) -> DriverUnknown:
     )
 
 
+def invoke_unknown(instrument_id: str, error: Exception) -> DriverUnknown:
+    return DriverUnknown(
+        problems=(
+            execution_problem(
+                "instrument_invoke_outcome_unknown",
+                f"lost confirmation while invoking an operation on {instrument_id} "
+                f"({type(error).__name__})",
+                "driver_operation",
+                details={"exception_type": _exception_type(error)},
+            ),
+        ),
+    )
+
+
 def collect_unknown(instrument_id: str, error: Exception) -> DriverUnknown:
     return DriverUnknown(
         problems=(

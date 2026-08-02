@@ -9,6 +9,7 @@ from scopecat.sdk.instruments import (
     AcquisitionRef,
     AcquisitionResultRef,
     DriverAcquisition,
+    DriverOperation,
     DriverOutcome,
     DriverReadback,
     DriverRejected,
@@ -36,13 +37,12 @@ from scopecat_instruments.members import (
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
     DC_MONITOR_VOLTAGE_RESULT,
-    DC_SOURCE_CURRENT_LEVEL,
+    DC_SOURCE_CURRENT,
     DC_SOURCE_CURRENT_PROTECTION,
-    DC_SOURCE_CURRENT_RANGE,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
-    DC_SOURCE_VOLTAGE_RANGE,
+    DC_SOURCE_VOLTAGE,
+    DC_SOURCE_VOLTAGE_PROTECTION,
     NETWORK_SWEEP_ACQUISITION,
     NETWORK_SWEEP_IF_BANDWIDTH,
     NETWORK_SWEEP_POINTS,
@@ -88,8 +88,6 @@ def _readback(outcome: DriverOutcome[DriverReadback]) -> DriverReadback:
 def _gs200_state_readback(
     *,
     mode: str,
-    source_range: str,
-    source_level: str,
     output_enabled: bool,
     voltage_protection: str = "10",
     current_protection: str = "0.01",
@@ -103,8 +101,6 @@ def _gs200_state_readback(
         ScriptedExchange.query(":SENS:REM?", "1" if remote_sense else "0"),
         ScriptedExchange.query(":SENS:GUAR?", "1" if guard_enabled else "0"),
         ScriptedExchange.query(":SOUR:FUNC?", mode),
-        ScriptedExchange.query(":SOUR:RANG?", source_range),
-        ScriptedExchange.query(":SOUR:LEV?", source_level),
         ScriptedExchange.query(":SOUR:PROT:VOLT?", voltage_protection),
         ScriptedExchange.query(":SOUR:PROT:CURR?", current_protection),
         ScriptedExchange.query(":OUTP?", "1" if output_enabled else "0"),
@@ -153,6 +149,7 @@ def test_gs200_source_and_monitor_transcript() -> None:
             ScriptedExchange.query("*OPT?", "/MON"),
             ScriptedExchange.query(":SENS:REM?", "0"),
             ScriptedExchange.query(":SENS:GUAR?", "0"),
+            ScriptedExchange.query(":OUTP?", "0"),
             ScriptedExchange.write(":SOUR:FUNC VOLT"),
             ScriptedExchange.write(":SOUR:RANG 1"),
             ScriptedExchange.write(":SOUR:LEV 0.125"),
@@ -161,8 +158,6 @@ def test_gs200_source_and_monitor_transcript() -> None:
             ScriptedExchange.write(":OUTP ON"),
             *_gs200_state_readback(
                 mode="VOLT",
-                source_range="+1.000000E+00",
-                source_level="+1.250000E-01",
                 voltage_protection="+1.200000E+01",
                 current_protection="+1.000000E-02",
                 output_enabled=True,
@@ -183,9 +178,15 @@ def test_gs200_source_and_monitor_transcript() -> None:
     driver = YokogawaGS200("bias", transport, monitor_option=True)
 
     identity = driver.identify()
-    driver.set_source_mode("voltage")
-    driver.set_source_range(1.0)
-    driver.set_source_level(0.125)
+    transitioned = driver.invoke(
+        DriverOperation(
+            target=DC_SOURCE_VOLTAGE,
+            arguments={
+                "range": Quantity(1.0, "V"),
+                "level": Quantity(0.125, "V"),
+            },
+        )
+    )
     driver.set_voltage_protection(12.0)
     driver.set_current_protection(0.01)
     driver.set_output(True)
@@ -198,6 +199,7 @@ def test_gs200_source_and_monitor_transcript() -> None:
     )
 
     assert identity.model == "GS210"
+    assert isinstance(transitioned, DriverSuccess)
     assert state.metadata["identity"] == identity.raw
     assert set(state.metadata) == {"manufacturer", "model", "identity"}
     assert state.values[DC_MONITOR_MEASUREMENT_ENABLED] is True
@@ -213,48 +215,43 @@ def test_gs200_source_and_monitor_transcript() -> None:
 
 
 @pytest.mark.parametrize(
-    "target_output",
+    "output_enabled",
     [False, True],
-    ids=["leave-disabled", "restore-enabled"],
+    ids=["disabled", "enabled"],
 )
-def test_gs200_apply_disables_live_output_while_switching_state(
-    target_output: bool,
+def test_gs200_source_operation_restores_output_after_safe_transition(
+    output_enabled: bool,
 ) -> None:
-    writes = [
-        ScriptedExchange.write(":OUTP OFF"),
-        ScriptedExchange.write(":SOUR:FUNC VOLT"),
-        ScriptedExchange.write(":SOUR:RANG 1"),
-        ScriptedExchange.write(":SOUR:LEV 0.125"),
-    ]
-    if target_output:
-        writes.append(ScriptedExchange.write(":OUTP ON"))
+    transition = [ScriptedExchange.query(":OUTP?", "1" if output_enabled else "0")]
+    if output_enabled:
+        transition.append(ScriptedExchange.write(":OUTP OFF"))
+    transition.extend(
+        [
+            ScriptedExchange.write(":SOUR:FUNC VOLT"),
+            ScriptedExchange.write(":SOUR:RANG 1"),
+            ScriptedExchange.write(":SOUR:LEV 0.125"),
+        ]
+    )
+    if output_enabled:
+        transition.append(ScriptedExchange.write(":OUTP ON"))
     transport = ScriptedTransport(
         [
-            *_gs200_state_readback(
-                mode="CURR",
-                source_range="0.01",
-                source_level="0.001",
-                output_enabled=True,
-            ),
-            *writes,
+            *transition,
             *_gs200_state_readback(
                 mode="VOLT",
-                source_range="1",
-                source_level="0.125",
-                output_enabled=target_output,
+                output_enabled=output_enabled,
             ),
         ]
     )
     driver = YokogawaGS200("bias", transport)
 
-    receipt = driver.apply_state(
-        _apply_request(
-            [
-                (DC_SOURCE_MODE, "voltage"),
-                (DC_SOURCE_VOLTAGE_RANGE, Quantity(1.0, "V")),
-                (DC_SOURCE_VOLTAGE_LEVEL, Quantity(0.125, "V")),
-                (DC_SOURCE_OUTPUT_ENABLED, target_output),
-            ],
+    receipt = driver.invoke(
+        DriverOperation(
+            target=DC_SOURCE_VOLTAGE,
+            arguments={
+                "range": Quantity(1.0, "V"),
+                "level": Quantity(0.125, "V"),
+            },
         )
     )
 
@@ -262,30 +259,31 @@ def test_gs200_apply_disables_live_output_while_switching_state(
     assert receipt.value is None
     state = driver.read_state()
     assert state.values[DC_SOURCE_MODE] == "voltage"
-    assert state.values[DC_SOURCE_VOLTAGE_RANGE] == Quantity(1.0, "V")
-    assert state.values[DC_SOURCE_VOLTAGE_LEVEL] == Quantity(0.125, "V")
-    assert state.values[DC_SOURCE_OUTPUT_ENABLED] is target_output
+    assert state.values[DC_SOURCE_OUTPUT_ENABLED] is output_enabled
+    assert set(state.values) == {
+        DC_SOURCE_MODE,
+        DC_SOURCE_VOLTAGE_PROTECTION,
+        DC_SOURCE_CURRENT_PROTECTION,
+        DC_SOURCE_OUTPUT_ENABLED,
+    }
     transport.assert_complete()
 
 
 def test_gs200_applies_and_monitors_current_source_case() -> None:
     transport = ScriptedTransport(
         [
-            *_gs200_state_readback(
-                mode="VOLT",
-                source_range="1",
-                source_level="0",
-                output_enabled=False,
-                monitor_enabled=True,
-            ),
+            ScriptedExchange.query(":OUTP?", "0"),
             ScriptedExchange.write(":SOUR:FUNC CURR"),
             ScriptedExchange.write(":SOUR:RANG 0.01"),
             ScriptedExchange.write(":SOUR:LEV 0.001"),
+            *_gs200_state_readback(
+                mode="CURR",
+                output_enabled=False,
+                monitor_enabled=True,
+            ),
             ScriptedExchange.write(":OUTP ON"),
             *_gs200_state_readback(
                 mode="CURR",
-                source_range="0.01",
-                source_level="0.001",
                 output_enabled=True,
                 monitor_enabled=True,
             ),
@@ -300,14 +298,18 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
     )
     driver = YokogawaGS200("bias", transport, monitor_option=True)
 
+    transitioned = driver.invoke(
+        DriverOperation(
+            target=DC_SOURCE_CURRENT,
+            arguments={
+                "range": Quantity(0.01, "A"),
+                "level": Quantity(0.001, "A"),
+            },
+        )
+    )
     applied = driver.apply_state(
         _apply_request(
-            [
-                (DC_SOURCE_MODE, "current"),
-                (DC_SOURCE_CURRENT_RANGE, Quantity(0.01, "A")),
-                (DC_SOURCE_CURRENT_LEVEL, Quantity(0.001, "A")),
-                (DC_SOURCE_OUTPUT_ENABLED, True),
-            ],
+            [(DC_SOURCE_OUTPUT_ENABLED, True)],
         )
     )
     state = driver.read_state()
@@ -318,11 +320,10 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
         )
     )
 
+    assert isinstance(transitioned, DriverSuccess)
     assert isinstance(applied, DriverSuccess)
     assert applied.value is None
     assert state.values[DC_SOURCE_MODE] == "current"
-    assert state.values[DC_SOURCE_CURRENT_RANGE] == Quantity(0.01, "A")
-    assert state.values[DC_SOURCE_CURRENT_LEVEL] == Quantity(0.001, "A")
     assert state.values[DC_SOURCE_OUTPUT_ENABLED] is True
     assert _readback(monitored).values[
         DC_MONITOR_VOLTAGE_RESULT
@@ -339,15 +340,11 @@ def test_gs200_adjusts_compliance_without_interrupting_live_output() -> None:
         [
             *_gs200_state_readback(
                 mode="VOLT",
-                source_range="1",
-                source_level="0.125",
                 output_enabled=True,
             ),
             ScriptedExchange.write(":SOUR:PROT:CURR 0.005"),
             *_gs200_state_readback(
                 mode="VOLT",
-                source_range="1",
-                source_level="0.125",
                 output_enabled=True,
                 current_protection="0.005",
             ),
@@ -483,24 +480,16 @@ def test_gs200_read_state_rejects_remote_sense_on_a_millivolt_range() -> None:
 
 
 def test_gs200_rejects_a_millivolt_range_before_mutating_remote_sense_source() -> None:
-    transport = ScriptedTransport(
-        _gs200_state_readback(
-            mode="CURR",
-            source_range="0.01",
-            source_level="0.001",
-            output_enabled=True,
-            remote_sense=True,
-        )
-    )
+    transport = ScriptedTransport([])
     driver = YokogawaGS200("bias", transport, remote_sense=True)
 
-    receipt = driver.apply_state(
-        _apply_request(
-            [
-                (DC_SOURCE_MODE, "voltage"),
-                (DC_SOURCE_VOLTAGE_RANGE, Quantity(0.1, "V")),
-                (DC_SOURCE_VOLTAGE_LEVEL, Quantity(0.0, "V")),
-            ]
+    receipt = driver.invoke(
+        DriverOperation(
+            target=DC_SOURCE_VOLTAGE,
+            arguments={
+                "range": Quantity(0.1, "V"),
+                "level": Quantity(0.0, "V"),
+            },
         )
     )
 
@@ -515,8 +504,6 @@ def test_gs200_applies_monitor_settings_while_measurement_is_disabled() -> None:
         [
             *_gs200_state_readback(
                 mode="VOLT",
-                source_range="1",
-                source_level="0.125",
                 output_enabled=True,
                 monitor_enabled=True,
                 integration_cycles="1",
@@ -528,8 +515,6 @@ def test_gs200_applies_monitor_settings_while_measurement_is_disabled() -> None:
             ScriptedExchange.write(":SENS ON"),
             *_gs200_state_readback(
                 mode="VOLT",
-                source_range="1",
-                source_level="0.125",
                 output_enabled=True,
                 monitor_enabled=True,
                 integration_cycles="10",

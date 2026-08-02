@@ -3,6 +3,7 @@ from __future__ import annotations
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import (
     DriverAcquisition,
+    DriverOperation,
     DriverRejected,
     DriverStatePatch,
     DriverSuccess,
@@ -21,12 +22,10 @@ from scopecat_instruments.members import (
     DC_MONITOR_MEASURE_CURRENT,
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
-    DC_SOURCE_CURRENT_LEVEL,
-    DC_SOURCE_CURRENT_RANGE,
+    DC_SOURCE_CURRENT,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
-    DC_SOURCE_VOLTAGE_RANGE,
+    DC_SOURCE_VOLTAGE,
     NETWORK_SWEEP_POINTS,
     NETWORK_SWEEP_S_PARAMETER,
     RF_OUTPUT_ENABLED,
@@ -62,17 +61,24 @@ def test_virtual_drivers_use_generated_adapters() -> None:
 def test_virtual_state_survives_driver_disconnect() -> None:
     world = VirtualLabWorld(seed=11)
     first = VirtualDcSource("flux", world)
-    first.set_voltage_level(0.125)
+    transitioned = first.invoke(
+        DriverOperation(
+            target=DC_SOURCE_VOLTAGE,
+            arguments={
+                "range": Quantity(1.0, "V"),
+                "level": Quantity(0.125, "V"),
+            },
+        )
+    )
     first.set_output(True)
     first.disconnect()
 
     second = VirtualDcSource("flux", world)
 
+    assert isinstance(transitioned, DriverSuccess)
     assert second.output_enabled() is True
     assert world.flux_bias() == 0.5
-    level = second.read_state().values[DC_SOURCE_VOLTAGE_LEVEL]
-    assert isinstance(level, Quantity)
-    assert level.value == 0.125
+    assert second.read_state().values[DC_SOURCE_MODE] == "voltage"
 
 
 def test_virtual_rf_driver_applies_typed_sparse_patch() -> None:
@@ -100,41 +106,64 @@ def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
     driver = VirtualDcSource("flux", world)
     driver.set_output(True)
 
-    receipt = driver.apply_state(
+    transitioned = driver.invoke(
+        DriverOperation(
+            target=DC_SOURCE_CURRENT,
+            arguments={
+                "range": Quantity(0.01, "A"),
+                "level": Quantity(0.001, "A"),
+            },
+        )
+    )
+    configured = driver.apply_state(
         DriverStatePatch(
             values={
-                DC_SOURCE_MODE: "current",
-                DC_SOURCE_CURRENT_RANGE: Quantity(0.01, "A"),
-                DC_SOURCE_CURRENT_LEVEL: Quantity(0.001, "A"),
                 DC_MONITOR_INTEGRATION_CYCLES: 5,
                 RF_OUTPUT_FREQUENCY: Quantity(6.0e9, "Hz"),
             },
         )
     )
 
-    assert isinstance(receipt, DriverSuccess)
-    assert receipt.value is None
+    assert isinstance(transitioned, DriverSuccess)
+    assert transitioned.value is None
+    assert isinstance(configured, DriverSuccess)
     property_targets = driver.read_state().values
-    assert {
-        DC_SOURCE_CURRENT_RANGE,
-        DC_SOURCE_CURRENT_LEVEL,
-    } <= property_targets.keys()
-    assert {
-        DC_SOURCE_VOLTAGE_RANGE,
-        DC_SOURCE_VOLTAGE_LEVEL,
-    }.isdisjoint(property_targets)
+    assert property_targets[DC_SOURCE_MODE] == "current"
     assert property_targets[DC_SOURCE_OUTPUT_ENABLED] is True
     assert property_targets[DC_MONITOR_INTEGRATION_CYCLES] == 5
     assert RF_OUTPUT_FREQUENCY not in property_targets
+    source = world.dc_source("flux")
+    assert source.current_range_a == 0.01
+    assert source.current_level_a == 0.001
     assert world.flux_bias() == 0.5
 
 
-def test_virtual_dc_case_local_setters_do_not_switch_mode() -> None:
+def test_virtual_dc_source_operations_select_mode() -> None:
     driver = VirtualDcSource("flux", VirtualLabWorld(seed=13))
 
-    driver.set_current_range(0.01)
-    driver.set_current_level(0.001)
+    current = driver.invoke(
+        DriverOperation(
+            target=DC_SOURCE_CURRENT,
+            arguments={
+                "range": Quantity(0.01, "A"),
+                "level": Quantity(0.001, "A"),
+            },
+        )
+    )
+    assert isinstance(current, DriverSuccess)
+    assert driver.source_mode() == "current"
 
+    voltage = driver.invoke(
+        DriverOperation(
+            target=DC_SOURCE_VOLTAGE,
+            arguments={
+                "range": Quantity(1.0, "V"),
+                "level": Quantity(0.125, "V"),
+            },
+        )
+    )
+
+    assert isinstance(voltage, DriverSuccess)
     assert driver.source_mode() == "voltage"
 
 
@@ -269,10 +298,19 @@ def test_flux_moves_notch_and_temperature_broadens_response() -> None:
     baseline = vna.acquire_trace()
 
     dc = VirtualDcSource("flux", world)
-    dc.set_voltage_level(0.125)
+    transitioned = dc.invoke(
+        DriverOperation(
+            target=DC_SOURCE_VOLTAGE,
+            arguments={
+                "range": Quantity(1.0, "V"),
+                "level": Quantity(0.125, "V"),
+            },
+        )
+    )
     dc.set_output(True)
     flux_shifted = vna.acquire_trace()
 
+    assert isinstance(transitioned, DriverSuccess)
     baseline_notch = _notch_frequency(
         baseline.frequencies_hz,
         baseline.values,

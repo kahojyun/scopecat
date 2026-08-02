@@ -5,7 +5,11 @@ from collections.abc import Mapping
 from typing import assert_type, cast
 
 import pytest
-from scopecat.api._instruments import InstrumentClientChannel, InstrumentRef
+from scopecat.api._instruments import (
+    InstrumentClientChannel,
+    InstrumentRef,
+    OperationArgumentValue,
+)
 from scopecat.authoring import QuantityType, ScalarType, coordinate
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateLiteral, StateValue
@@ -13,7 +17,13 @@ from scopecat.records.instrument import (
     InstrumentPropertyState,
     InstrumentStateSnapshot,
 )
-from scopecat.sdk.instruments import ApplyReceipt, PropertyRef
+from scopecat.sdk.instruments import (
+    ApplyReceipt,
+    InvokeReceipt,
+    OperationArgumentRef,
+    OperationRef,
+    PropertyRef,
+)
 from scopecat.sdk.instruments.declarations import (
     compile_interface,
     declared_interface_layout,
@@ -25,8 +35,8 @@ from scopecat_instruments import (
     DCMonitorPatch,
     DCSourceClient,
     DCSourceMonitorClient,
+    DCSourceObservation,
     DCSourcePatch,
-    DCSourceVoltagePatch,
     NetworkSweepClient,
     NetworkSweepPatch,
     RFOutputClient,
@@ -45,9 +55,15 @@ from scopecat_instruments.members import (
     DC_MONITOR,
     DC_MONITOR_MEASUREMENT_ENABLED,
     DC_SOURCE,
+    DC_SOURCE_CURRENT,
+    DC_SOURCE_CURRENT_LEVEL,
+    DC_SOURCE_CURRENT_PROTECTION,
+    DC_SOURCE_CURRENT_RANGE,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE,
     DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_PROTECTION,
     DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP,
     NETWORK_SWEEP_POINTS,
@@ -89,7 +105,12 @@ class _ObservationChannel:
 class _ApplyChannel:
     def __init__(self) -> None:
         self.receipt = ApplyReceipt(metadata={"generated": "state-client"})
+        self.invoke_receipt = InvokeReceipt(metadata={"generated": "operation-client"})
         self.values: Mapping[PropertyRef, StateLiteral | StateValue] | None = None
+        self.operation: OperationRef | None = None
+        self.arguments: Mapping[OperationArgumentRef, OperationArgumentValue] | None = (
+            None
+        )
         self.instrument_id: str | None = None
 
     def apply(
@@ -101,6 +122,31 @@ class _ApplyChannel:
         self.values = values
         self.instrument_id = instrument_id
         return self.receipt
+
+    def invoke(
+        self,
+        operation: OperationRef,
+        arguments: Mapping[OperationArgumentRef, OperationArgumentValue] | None = None,
+        *,
+        instrument_id: str,
+    ) -> InvokeReceipt:
+        self.operation = operation
+        self.arguments = arguments
+        self.instrument_id = instrument_id
+        return self.invoke_receipt
+
+
+def _dc_source_snapshot(*, source_mode: str) -> InstrumentStateSnapshot:
+    return InstrumentStateSnapshot(
+        instrument_id="flux-source",
+        properties=[
+            InstrumentPropertyState(
+                interface_id=DC_SOURCE.interface_id,
+                property_id=DC_SOURCE_MODE.property_id,
+                value=StateValue(source_mode),
+            )
+        ],
+    )
 
 
 def _temperature_snapshot(
@@ -159,7 +205,7 @@ def test_live_dc_source_dynamic_monitor_dispatch(monitor: bool) -> None:
         assert source.requires == (DC_SOURCE,)
 
 
-def test_generated_dc_source_live_client_applies_discriminated_state() -> None:
+def test_generated_dc_source_live_client_applies_flat_state() -> None:
     channel = _ApplyChannel()
     client = DCSourceClient(
         cast("InstrumentClientChannel", cast("object", channel)),
@@ -168,9 +214,9 @@ def test_generated_dc_source_live_client_applies_discriminated_state() -> None:
 
     receipt = assert_type(
         client.apply(
-            DCSourceVoltagePatch(
-                range=Quantity(1.0, "V"),
-                level=Quantity(0.05, "V"),
+            DCSourcePatch(
+                voltage_protection=Quantity(2.0, "V"),
+                current_protection=Quantity(10.0, "mA"),
                 output_enabled=True,
             )
         ),
@@ -180,10 +226,44 @@ def test_generated_dc_source_live_client_applies_discriminated_state() -> None:
     assert receipt is channel.receipt
     assert channel.instrument_id == "flux-source"
     assert channel.values == {
-        DC_SOURCE_MODE: "voltage",
+        DC_SOURCE_VOLTAGE_PROTECTION: Quantity(2.0, "V"),
+        DC_SOURCE_CURRENT_PROTECTION: Quantity(10.0, "mA"),
+        DC_SOURCE_OUTPUT_ENABLED: True,
+    }
+
+
+def test_generated_dc_source_live_client_invokes_typed_mode_transitions() -> None:
+    channel = _ApplyChannel()
+    client = DCSourceClient(
+        cast("InstrumentClientChannel", cast("object", channel)),
+        "flux-source",
+    )
+
+    receipt = assert_type(
+        client.source_voltage(
+            range=Quantity(1.0, "V"),
+            level=Quantity(0.05, "V"),
+        ),
+        InvokeReceipt,
+    )
+
+    assert receipt is channel.invoke_receipt
+    assert channel.instrument_id == "flux-source"
+    assert channel.operation == DC_SOURCE_VOLTAGE
+    assert channel.arguments == {
         DC_SOURCE_VOLTAGE_RANGE: Quantity(1.0, "V"),
         DC_SOURCE_VOLTAGE_LEVEL: Quantity(0.05, "V"),
-        DC_SOURCE_OUTPUT_ENABLED: True,
+    }
+
+    client.source_current(
+        range=Quantity(10.0, "mA"),
+        level=Quantity(2.0, "mA"),
+    )
+
+    assert channel.operation == DC_SOURCE_CURRENT
+    assert channel.arguments == {
+        DC_SOURCE_CURRENT_RANGE: Quantity(10.0, "mA"),
+        DC_SOURCE_CURRENT_LEVEL: Quantity(2.0, "mA"),
     }
 
 
@@ -233,6 +313,24 @@ def test_generated_rf_live_client_rejects_symbolic_state_before_io() -> None:
 
     assert channel.values is None
     assert channel.instrument_id is None
+
+
+def test_dc_source_observation_decodes_the_read_only_mode() -> None:
+    channel = _ObservationChannel(
+        _dc_source_snapshot(source_mode="voltage"),
+        _dc_source_snapshot(source_mode="current"),
+    )
+    client = DCSourceClient(
+        cast("InstrumentClientChannel", cast("object", channel)),
+        "flux-source",
+    )
+
+    assert assert_type(client.observation(), DCSourceObservation) == (
+        DCSourceObservation(source_mode="voltage")
+    )
+    assert assert_type(client.refresh_observation(), DCSourceObservation) == (
+        DCSourceObservation(source_mode="current")
+    )
 
 
 def test_temperature_observation_uses_cached_and_fresh_snapshot_paths() -> None:
@@ -314,17 +412,16 @@ def test_generated_live_dc_monitor_applies_monitor_state() -> None:
     assert channel.values == {DC_MONITOR_MEASUREMENT_ENABLED: True}
 
 
-def test_voltage_state_is_one_complete_mode_transition() -> None:
-    state = DCSourceVoltagePatch(
-        range=Quantity(1.0, "V"),
-        level=Quantity(0.05, "V"),
+def test_dc_source_patch_only_projects_persistent_controls() -> None:
+    state = DCSourcePatch(
+        voltage_protection=Quantity(2.0, "V"),
+        current_protection=Quantity(10.0, "mA"),
         output_enabled=True,
     )
 
     assert state_projection_assignments(state) == {
-        DC_SOURCE_MODE: "voltage",
-        DC_SOURCE_VOLTAGE_RANGE: Quantity(1.0, "V"),
-        DC_SOURCE_VOLTAGE_LEVEL: Quantity(0.05, "V"),
+        DC_SOURCE_VOLTAGE_PROTECTION: Quantity(2.0, "V"),
+        DC_SOURCE_CURRENT_PROTECTION: Quantity(10.0, "mA"),
         DC_SOURCE_OUTPUT_ENABLED: True,
     }
 

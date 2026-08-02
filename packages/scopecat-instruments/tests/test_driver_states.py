@@ -10,14 +10,15 @@ from scopecat_instruments.driver_states import (
     RFOutputDriverPatch,
     decode_dc_source_patch,
     decode_rf_output_patch,
-    encode_dc_source_voltage_state,
+    encode_dc_source_observation,
+    encode_dc_source_state,
     encode_driver_state,
     encode_rf_output_state,
     encode_temperature_readout_observation,
 )
 from scopecat_instruments.interface_declarations import (
+    DCSourceObservation,
     DCSourceState,
-    DCSourceVoltageState,
     RFOutputState,
     TemperatureReadoutObservation,
 )
@@ -25,9 +26,7 @@ from scopecat_instruments.members import (
     DC_SOURCE_CURRENT_PROTECTION,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_PROTECTION,
-    DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP_POINTS,
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
@@ -83,40 +82,33 @@ def test_exact_temperature_observation_encoder_uses_declared_member_refs() -> No
     }
 
 
-def test_discriminated_case_encoder_uses_one_complete_canonical_state() -> None:
+def test_flat_dc_source_codec_separates_writable_state_from_observation() -> None:
     patch = decode_dc_source_patch(
         DriverStatePatch(
             values={
                 DC_SOURCE_MODE: "voltage",
-                DC_SOURCE_VOLTAGE_RANGE: Quantity(1.0, "V"),
+                DC_SOURCE_OUTPUT_ENABLED: False,
             }
         )
     )
-    voltage = DCSourceVoltageState(
+    state = DCSourceState(
         voltage_protection=Quantity(10.0, "V"),
         current_protection=Quantity(0.01, "A"),
         output_enabled=False,
-        range=Quantity(1.0, "V"),
-        level=Quantity(0.25, "V"),
     )
-    canonical: DCSourceState = voltage
-    assert canonical is voltage
+    observation = DCSourceObservation(source_mode="voltage")
 
     assert_type(patch, DCSourceDriverPatch)
-    assert patch == {
-        "source_mode": "voltage",
-        "voltage_range": Quantity(1.0, "V"),
-    }
-    state = encode_driver_state(
-        encode_dc_source_voltage_state(voltage),
+    assert patch == {"output_enabled": False}
+    encoded = encode_driver_state(
+        encode_dc_source_state(state),
+        encode_dc_source_observation(observation),
         metadata={"source": "test"},
     )
-    assert state.values == {
+    assert encoded.values == {
         DC_SOURCE_MODE: "voltage",
         DC_SOURCE_VOLTAGE_PROTECTION: Quantity(10.0, "V"),
         DC_SOURCE_CURRENT_PROTECTION: Quantity(0.01, "A"),
         DC_SOURCE_OUTPUT_ENABLED: False,
-        DC_SOURCE_VOLTAGE_RANGE: Quantity(1.0, "V"),
-        DC_SOURCE_VOLTAGE_LEVEL: Quantity(0.25, "V"),
     }
-    assert state.metadata == {"source": "test"}
+    assert encoded.metadata == {"source": "test"}

@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol
+from typing import Annotated, Literal, Protocol
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
     acquisition,
+    argument,
     axis,
-    discriminated_state,
     instrument_bundle,
     instrument_interface,
     instrument_observed_state,
     instrument_result,
     instrument_state,
-    member,
     member_field,
+    operation,
     result_field,
-    state_case,
 )
 
 type ReferenceSource = Literal["internal", "external"]
@@ -25,8 +24,8 @@ type SParameter = Literal["S11", "S21", "S12", "S22"]
 
 
 @instrument_state
-class _DCSourceCommonState:
-    """Concrete common-field base for complete DC-source case states."""
+class DCSourceState:
+    """Persistent DC-source settings independent of the selected source mode."""
 
     voltage_protection: Quantity = member_field(
         unit="V",
@@ -44,74 +43,47 @@ class _DCSourceCommonState:
     )
 
 
-@instrument_state
-class DCSourceVoltageState(_DCSourceCommonState):
-    """Complete concrete voltage-source mode state."""
+@instrument_observed_state
+class DCSourceObservation:
+    """Source mode currently reported by the instrument."""
 
-    range: Quantity = member_field(
-        id="voltage_range",
-        unit="V",
-        label="Voltage range",
-        description="Voltage-source range, available in voltage mode.",
+    source_mode: Literal["voltage", "current"] = member_field(
+        label="Source mode",
+        description="Whether the instrument is currently sourcing voltage or current.",
     )
-    level: Quantity = member_field(
-        id="voltage_level",
-        unit="V",
-        label="Voltage level",
-        description="Voltage-source level, available in voltage mode.",
-    )
-
-
-@instrument_state
-class DCSourceCurrentState(_DCSourceCommonState):
-    """Complete concrete current-source mode state."""
-
-    range: Quantity = member_field(
-        id="current_range",
-        unit="A",
-        label="Current range",
-        description="Current-source range, available in current mode.",
-    )
-    level: Quantity = member_field(
-        id="current_level",
-        unit="A",
-        label="Current level",
-        description="Current-source level, available in current mode.",
-    )
-
-
-type DCSourceState = DCSourceVoltageState | DCSourceCurrentState
 
 
 @instrument_interface(
-    "scopecat.dc_source/v2",
-    state=discriminated_state(
-        member(
-            id="source_mode",
-            choices=("voltage", "current"),
-            label="Source mode",
-            description="Discriminator selecting voltage or current source state.",
-        ),
-        common=_DCSourceCommonState,
-        cases=(
-            state_case(
-                "voltage",
-                DCSourceVoltageState,
-                required_on_entry=("range", "level"),
-            ),
-            state_case(
-                "current",
-                DCSourceCurrentState,
-                required_on_entry=("range", "level"),
-            ),
-        ),
-    ),
+    "scopecat.dc_source/v3",
+    state=DCSourceState,
+    observed_state=DCSourceObservation,
     label="DC source",
     description=(
-        "DC voltage/current source controls with mode-specific level and range state."
+        "DC voltage/current source transitions, protection, and output control."
     ),
 )
-class DCSourceInterface(Protocol): ...
+class DCSourceInterface(Protocol):
+    @operation(
+        label="Source voltage",
+        description="Select voltage-source mode and set its range and level.",
+    )
+    def source_voltage(
+        self,
+        *,
+        range: Annotated[Quantity, argument(unit="V")],
+        level: Annotated[Quantity, argument(unit="V")],
+    ) -> None: ...
+
+    @operation(
+        label="Source current",
+        description="Select current-source mode and set its range and level.",
+    )
+    def source_current(
+        self,
+        *,
+        range: Annotated[Quantity, argument(unit="A")],
+        level: Annotated[Quantity, argument(unit="A")],
+    ) -> None: ...
 
 
 @instrument_state
@@ -356,11 +328,10 @@ __all__ = [
     "DCMonitorInterface",
     "DCMonitorState",
     "DCMonitorVoltageResults",
-    "DCSourceCurrentState",
     "DCSourceInterface",
     "DCSourceMonitorInterface",
+    "DCSourceObservation",
     "DCSourceState",
-    "DCSourceVoltageState",
     "NetworkSweepInterface",
     "NetworkSweepResults",
     "NetworkSweepState",

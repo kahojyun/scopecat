@@ -16,6 +16,9 @@ from scopecat.sdk.instruments.declarations import (
 )
 
 from scopecat_instruments.interface_declarations import (
+    DCSourceObservation as DCSourceObservation,
+)
+from scopecat_instruments.interface_declarations import (
     ReferenceSource as ReferenceSource,
 )
 from scopecat_instruments.interface_declarations import (
@@ -28,14 +31,9 @@ from scopecat_instruments.members import (
     DC_MONITOR_INTEGRATION_CYCLES,
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
-    DC_SOURCE_CURRENT_LEVEL,
     DC_SOURCE_CURRENT_PROTECTION,
-    DC_SOURCE_CURRENT_RANGE,
-    DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_PROTECTION,
-    DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP_IF_BANDWIDTH,
     NETWORK_SWEEP_POINTS,
     NETWORK_SWEEP_S_PARAMETER,
@@ -130,96 +128,6 @@ class DCSourceGroupTarget:
     output_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = (
         state_projection_field()
     )
-
-
-_DC_SOURCE_VOLTAGE_STATE_LAYOUT = StateProjectionLayout(
-    fields=(
-        StateProjectionField("voltage_protection", DC_SOURCE_VOLTAGE_PROTECTION),
-        StateProjectionField("current_protection", DC_SOURCE_CURRENT_PROTECTION),
-        StateProjectionField("output_enabled", DC_SOURCE_OUTPUT_ENABLED),
-        StateProjectionField("range", DC_SOURCE_VOLTAGE_RANGE),
-        StateProjectionField("level", DC_SOURCE_VOLTAGE_LEVEL),
-    ),
-    constants=((DC_SOURCE_MODE, "voltage"),),
-)
-
-
-@instrument_state_projection(_DC_SOURCE_VOLTAGE_STATE_LAYOUT)
-class DCSourceVoltagePatch:
-    voltage_protection: Quantity = state_projection_field()
-    current_protection: Quantity = state_projection_field()
-    output_enabled: bool = state_projection_field()
-    range: Quantity
-    level: Quantity
-
-
-@instrument_state_projection(_DC_SOURCE_VOLTAGE_STATE_LAYOUT)
-class DCSourceVoltageTarget:
-    voltage_protection: Quantity | ValueRef = state_projection_field()
-    current_protection: Quantity | ValueRef = state_projection_field()
-    output_enabled: bool | ValueRef = state_projection_field()
-    range: Quantity | ValueRef
-    level: Quantity | ValueRef
-
-
-@instrument_state_projection(_DC_SOURCE_VOLTAGE_STATE_LAYOUT)
-class DCSourceVoltageGroupTarget:
-    voltage_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
-        state_projection_field()
-    )
-    current_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
-        state_projection_field()
-    )
-    output_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = (
-        state_projection_field()
-    )
-    range: Quantity | ValueRef | PerEntity[Quantity | ValueRef]
-    level: Quantity | ValueRef | PerEntity[Quantity | ValueRef]
-
-
-_DC_SOURCE_CURRENT_STATE_LAYOUT = StateProjectionLayout(
-    fields=(
-        StateProjectionField("voltage_protection", DC_SOURCE_VOLTAGE_PROTECTION),
-        StateProjectionField("current_protection", DC_SOURCE_CURRENT_PROTECTION),
-        StateProjectionField("output_enabled", DC_SOURCE_OUTPUT_ENABLED),
-        StateProjectionField("range", DC_SOURCE_CURRENT_RANGE),
-        StateProjectionField("level", DC_SOURCE_CURRENT_LEVEL),
-    ),
-    constants=((DC_SOURCE_MODE, "current"),),
-)
-
-
-@instrument_state_projection(_DC_SOURCE_CURRENT_STATE_LAYOUT)
-class DCSourceCurrentPatch:
-    voltage_protection: Quantity = state_projection_field()
-    current_protection: Quantity = state_projection_field()
-    output_enabled: bool = state_projection_field()
-    range: Quantity
-    level: Quantity
-
-
-@instrument_state_projection(_DC_SOURCE_CURRENT_STATE_LAYOUT)
-class DCSourceCurrentTarget:
-    voltage_protection: Quantity | ValueRef = state_projection_field()
-    current_protection: Quantity | ValueRef = state_projection_field()
-    output_enabled: bool | ValueRef = state_projection_field()
-    range: Quantity | ValueRef
-    level: Quantity | ValueRef
-
-
-@instrument_state_projection(_DC_SOURCE_CURRENT_STATE_LAYOUT)
-class DCSourceCurrentGroupTarget:
-    voltage_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
-        state_projection_field()
-    )
-    current_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
-        state_projection_field()
-    )
-    output_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = (
-        state_projection_field()
-    )
-    range: Quantity | ValueRef | PerEntity[Quantity | ValueRef]
-    level: Quantity | ValueRef | PerEntity[Quantity | ValueRef]
 
 
 _DC_MONITOR_STATE_LAYOUT = StateProjectionLayout(
@@ -320,15 +228,10 @@ __all__ = [
     "DCMonitorGroupTarget",
     "DCMonitorPatch",
     "DCMonitorTarget",
-    "DCSourceCurrentGroupTarget",
-    "DCSourceCurrentPatch",
-    "DCSourceCurrentTarget",
     "DCSourceGroupTarget",
+    "DCSourceObservation",
     "DCSourcePatch",
     "DCSourceTarget",
-    "DCSourceVoltageGroupTarget",
-    "DCSourceVoltagePatch",
-    "DCSourceVoltageTarget",
     "NetworkSweepGroupTarget",
     "NetworkSweepPatch",
     "NetworkSweepTarget",

@@ -4346,11 +4346,18 @@ def _render_operation_call(
         return "".join(lines)
     lines.append("            {\n")
     for argument in operation.arguments:
-        lines.append(
-            f"                {operation.descriptor_name}.argument(\n"
-            f"                    {_string_literal(argument.argument_id)}\n"
-            f"                ): {argument.python_name},\n"
+        compact = (
+            f"                {operation.descriptor_name}.argument("
+            f"{_string_literal(argument.argument_id)}): {argument.python_name},\n"
         )
+        if len(compact.rstrip("\n")) <= 88:
+            lines.append(compact)
+        else:
+            lines.append(
+                f"                {operation.descriptor_name}.argument(\n"
+                f"                    {_string_literal(argument.argument_id)}\n"
+                f"                ): {argument.python_name},\n"
+            )
     lines.append("            },\n")
     lines.append("        )\n")
     return "".join(lines)
@@ -4630,8 +4637,11 @@ def _json_model_field(model_json: str, field_name: str) -> str:
 
 
 def _render_string_literal_lines(value: str, *, indent: int) -> str:
-    chunk_size = max(1, (84 - indent) // 2)
     prefix = " " * indent
+    literal = _formatted_string_literal(value)
+    if len(prefix + literal) <= 88:
+        return f"{prefix}{literal}\n"
+    chunk_size = max(1, (84 - indent) // 2)
     return "".join(
         f"{prefix}{_formatted_string_literal(value[index : index + chunk_size])}\n"
         for index in range(0, len(value), chunk_size)

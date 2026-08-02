@@ -18,7 +18,12 @@ from scopecat.authoring import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementValue
-from scopecat.sdk.instruments import ApplyReceipt, CollectReceipt, InterfaceRef
+from scopecat.sdk.instruments import (
+    ApplyReceipt,
+    CollectReceipt,
+    InterfaceRef,
+    InvokeReceipt,
+)
 
 from scopecat_instruments._client_runtime import (
     ClientAcquisition,
@@ -42,6 +47,7 @@ from scopecat_instruments._symbolic_runtime import (
 from scopecat_instruments.interface_declarations import (
     DCMonitorCurrentResults,
     DCMonitorVoltageResults,
+    DCSourceObservation,
     NetworkSweepResults,
     TemperatureReadoutObservation,
     TemperatureSampleResults,
@@ -50,15 +56,9 @@ from scopecat_instruments.states import (
     DCMonitorGroupTarget,
     DCMonitorPatch,
     DCMonitorTarget,
-    DCSourceCurrentGroupTarget,
-    DCSourceCurrentPatch,
-    DCSourceCurrentTarget,
     DCSourceGroupTarget,
     DCSourcePatch,
     DCSourceTarget,
-    DCSourceVoltageGroupTarget,
-    DCSourceVoltagePatch,
-    DCSourceVoltageTarget,
     NetworkSweepGroupTarget,
     NetworkSweepPatch,
     NetworkSweepTarget,
@@ -71,7 +71,7 @@ _TEMPERATURE_READOUT_REF = InterfaceRef("scopecat.temperature_readout/v1")
 
 _RF_OUTPUT_REF = InterfaceRef("scopecat.rf_output/v1")
 
-_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v2")
+_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v3")
 
 _DC_MONITOR_REF = InterfaceRef("scopecat.dc_monitor/v4")
 
@@ -122,6 +122,23 @@ _TEMPERATURE_READOUT_SAMPLE_DECLARATION = ClientAcquisition(
         ),
     ),
 )
+
+_DC_SOURCE_OBSERVATION_DECLARATION = ClientObservedState(
+    DCSourceObservation,
+    fields=(
+        ClientObservedField(
+            "source_mode",
+            InterfaceRef("scopecat.dc_source/v3").property("source_mode"),
+            client_property_value_type(
+                '{"type":"string","choices":["voltage","current"]}'
+            ),
+        ),
+    ),
+)
+
+_DC_SOURCE_SOURCE_VOLTAGE_DECLARATION = _DC_SOURCE_REF.operation("source_voltage")
+
+_DC_SOURCE_SOURCE_CURRENT_DECLARATION = _DC_SOURCE_REF.operation("source_current")
 
 _DC_MONITOR_MEASURE_CURRENT_DECLARATION = ClientAcquisition(
     ref=_DC_MONITOR_REF.acquisition("measure_current"),
@@ -450,22 +467,74 @@ rf_output: InstrumentFamily[
 )
 
 
-type _DCSourcePatch = DCSourcePatch | DCSourceVoltagePatch | DCSourceCurrentPatch
+class DCSourceClient(DeclaredStateClientBase[DCSourcePatch]):
+    @overload
+    def apply(
+        self,
+        patch: DCSourcePatch,
+    ) -> ApplyReceipt: ...
+
+    @overload
+    def apply(
+        self,
+        *,
+        voltage_protection: Quantity = ...,
+        current_protection: Quantity = ...,
+        output_enabled: bool = ...,
+    ) -> ApplyReceipt: ...
+
+    @override
+    def apply(
+        self,
+        patch: DCSourcePatch | None = None,
+        **fields: object,
+    ) -> ApplyReceipt:
+        return self._apply_projected(
+            patch,
+            DCSourcePatch,
+            fields,
+        )
+
+    def observation(self) -> DCSourceObservation:
+        return _DC_SOURCE_OBSERVATION_DECLARATION.decode(
+            self._session.observed_state(self.instrument_id)
+        )
+
+    def refresh_observation(self) -> DCSourceObservation:
+        return _DC_SOURCE_OBSERVATION_DECLARATION.decode(
+            self._session.read_state(self.instrument_id)
+        )
+
+    def source_voltage(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> InvokeReceipt:
+        return self._invoke(
+            _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION,
+            {
+                _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION.argument("range"): range,
+                _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION.argument("level"): level,
+            },
+        )
+
+    def source_current(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> InvokeReceipt:
+        return self._invoke(
+            _DC_SOURCE_SOURCE_CURRENT_DECLARATION,
+            {
+                _DC_SOURCE_SOURCE_CURRENT_DECLARATION.argument("range"): range,
+                _DC_SOURCE_SOURCE_CURRENT_DECLARATION.argument("level"): level,
+            },
+        )
 
 
-type _DCSourceTarget = DCSourceTarget | DCSourceVoltageTarget | DCSourceCurrentTarget
-
-
-type _DCSourceGroupTarget = (
-    DCSourceGroupTarget | DCSourceVoltageGroupTarget | DCSourceCurrentGroupTarget
-)
-
-
-class DCSourceClient(DeclaredStateClientBase[_DCSourcePatch]):
-    pass
-
-
-class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[_DCSourceTarget]):
+class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[DCSourceTarget]):
     __slots__ = ()
 
     def __init__(
@@ -482,10 +551,69 @@ class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[_DCSourceTarget]):
             for_=for_,
         )
 
+    @overload
+    def ensure(
+        self,
+        state: DCSourceTarget,
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        voltage_protection: Quantity | ValueRef = ...,
+        current_protection: Quantity | ValueRef = ...,
+        output_enabled: bool | ValueRef = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: DCSourceTarget | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            DCSourceTarget,
+            fields,
+        )
+
+    def source_voltage(
+        self,
+        *,
+        range: Quantity | ValueRef,
+        level: Quantity | ValueRef,
+        effect_id: str | None = None,
+    ) -> None:
+        self._invoke(
+            _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION,
+            effect_id,
+            {
+                _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION.argument("range"): range,
+                _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION.argument("level"): level,
+            },
+        )
+
+    def source_current(
+        self,
+        *,
+        range: Quantity | ValueRef,
+        level: Quantity | ValueRef,
+        effect_id: str | None = None,
+    ) -> None:
+        self._invoke(
+            _DC_SOURCE_SOURCE_CURRENT_DECLARATION,
+            effect_id,
+            {
+                _DC_SOURCE_SOURCE_CURRENT_DECLARATION.argument("range"): range,
+                _DC_SOURCE_SOURCE_CURRENT_DECLARATION.argument("level"): level,
+            },
+        )
+
 
 class SymbolicDCSourceGroup(
     DeclaredStateSymbolicGroupBase[
-        _DCSourceTarget, _DCSourceGroupTarget, SymbolicDCSourceClient
+        DCSourceTarget, DCSourceGroupTarget, SymbolicDCSourceClient
     ]
 ):
     __slots__ = ()
@@ -504,23 +632,73 @@ class SymbolicDCSourceGroup(
             client_factory=SymbolicDCSourceClient,
         )
 
+    @overload
+    def ensure(
+        self,
+        state: DCSourceGroupTarget | PerEntity[DCSourceTarget],
+    ) -> None: ...
 
-type _DCSourceMonitorPatch = (
-    DCSourcePatch | DCSourceVoltagePatch | DCSourceCurrentPatch | DCMonitorPatch
-)
+    @overload
+    def ensure(
+        self,
+        *,
+        voltage_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
+        current_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
+        output_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: DCSourceGroupTarget | PerEntity[DCSourceTarget] | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            DCSourceGroupTarget,
+            fields,
+        )
+
+    def source_voltage(
+        self,
+        *,
+        range: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        level: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        effect_id: str | None = None,
+    ) -> None:
+        _range_by_entity = self._align(range)
+        _level_by_entity = self._align(level)
+        for entity in self._entities:
+            self._clients[entity].source_voltage(
+                range=_range_by_entity[entity],
+                level=_level_by_entity[entity],
+                effect_id=effect_id,
+            )
+
+    def source_current(
+        self,
+        *,
+        range: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        level: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        effect_id: str | None = None,
+    ) -> None:
+        _range_by_entity = self._align(range)
+        _level_by_entity = self._align(level)
+        for entity in self._entities:
+            self._clients[entity].source_current(
+                range=_range_by_entity[entity],
+                level=_level_by_entity[entity],
+                effect_id=effect_id,
+            )
 
 
-type _DCSourceMonitorTarget = (
-    DCSourceTarget | DCSourceVoltageTarget | DCSourceCurrentTarget | DCMonitorTarget
-)
+type _DCSourceMonitorPatch = DCSourcePatch | DCMonitorPatch
 
 
-type _DCSourceMonitorGroupTarget = (
-    DCSourceGroupTarget
-    | DCSourceVoltageGroupTarget
-    | DCSourceCurrentGroupTarget
-    | DCMonitorGroupTarget
-)
+type _DCSourceMonitorTarget = DCSourceTarget | DCMonitorTarget
+
+
+type _DCSourceMonitorGroupTarget = DCSourceGroupTarget | DCMonitorGroupTarget
 
 
 @dataclass(frozen=True, slots=True)
@@ -548,6 +726,44 @@ class DCMonitorVoltageProducts(DCMonitorVoltageResults[ProductRef]):
 
 
 class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
+    def observation(self) -> DCSourceObservation:
+        return _DC_SOURCE_OBSERVATION_DECLARATION.decode(
+            self._session.observed_state(self.instrument_id)
+        )
+
+    def refresh_observation(self) -> DCSourceObservation:
+        return _DC_SOURCE_OBSERVATION_DECLARATION.decode(
+            self._session.read_state(self.instrument_id)
+        )
+
+    def source_voltage(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> InvokeReceipt:
+        return self._invoke(
+            _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION,
+            {
+                _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION.argument("range"): range,
+                _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION.argument("level"): level,
+            },
+        )
+
+    def source_current(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> InvokeReceipt:
+        return self._invoke(
+            _DC_SOURCE_SOURCE_CURRENT_DECLARATION,
+            {
+                _DC_SOURCE_SOURCE_CURRENT_DECLARATION.argument("range"): range,
+                _DC_SOURCE_SOURCE_CURRENT_DECLARATION.argument("level"): level,
+            },
+        )
+
     def measure_current(self) -> DCMonitorCurrentReadback:
         return self._collect(
             _DC_MONITOR_MEASURE_CURRENT_DECLARATION,
@@ -578,6 +794,38 @@ class SymbolicDCSourceMonitorClient(
             resource_id,
             requires=(_DC_SOURCE_REF, _DC_MONITOR_REF),
             for_=for_,
+        )
+
+    def source_voltage(
+        self,
+        *,
+        range: Quantity | ValueRef,
+        level: Quantity | ValueRef,
+        effect_id: str | None = None,
+    ) -> None:
+        self._invoke(
+            _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION,
+            effect_id,
+            {
+                _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION.argument("range"): range,
+                _DC_SOURCE_SOURCE_VOLTAGE_DECLARATION.argument("level"): level,
+            },
+        )
+
+    def source_current(
+        self,
+        *,
+        range: Quantity | ValueRef,
+        level: Quantity | ValueRef,
+        effect_id: str | None = None,
+    ) -> None:
+        self._invoke(
+            _DC_SOURCE_SOURCE_CURRENT_DECLARATION,
+            effect_id,
+            {
+                _DC_SOURCE_SOURCE_CURRENT_DECLARATION.argument("range"): range,
+                _DC_SOURCE_SOURCE_CURRENT_DECLARATION.argument("level"): level,
+            },
         )
 
     def measure_current(
@@ -625,6 +873,38 @@ class SymbolicDCSourceMonitorGroup(
             for_=for_,
             client_factory=SymbolicDCSourceMonitorClient,
         )
+
+    def source_voltage(
+        self,
+        *,
+        range: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        level: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        effect_id: str | None = None,
+    ) -> None:
+        _range_by_entity = self._align(range)
+        _level_by_entity = self._align(level)
+        for entity in self._entities:
+            self._clients[entity].source_voltage(
+                range=_range_by_entity[entity],
+                level=_level_by_entity[entity],
+                effect_id=effect_id,
+            )
+
+    def source_current(
+        self,
+        *,
+        range: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        level: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        effect_id: str | None = None,
+    ) -> None:
+        _range_by_entity = self._align(range)
+        _level_by_entity = self._align(level)
+        for entity in self._entities:
+            self._clients[entity].source_current(
+                range=_range_by_entity[entity],
+                level=_level_by_entity[entity],
+                effect_id=effect_id,
+            )
 
     def measure_current(
         self,

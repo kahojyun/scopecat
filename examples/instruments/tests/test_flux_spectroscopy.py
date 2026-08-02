@@ -58,12 +58,13 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         (assignment.property_id, assignment.value)
         for assignment in final_state.assignments
     ] == [("output_enabled", False)]
-    assert not any(
-        assignment.property_id == "output_enabled" and assignment.value is False
+    assert [
+        assignment.value
         for effect in definition.body.effects
         if isinstance(effect, EnsureStateIntent)
         for assignment in effect.assignments
-    )
+        if assignment.property_id == "output_enabled"
+    ] == [False, True]
 
     prepared = lab.prepare(invocation)
     preview = prepared.preview()

@@ -22,6 +22,7 @@ from scopecat_instruments._support import (
     LinearSweepSettings,
     NetworkTrace,
     execution_problem,
+    invoke_unknown,
     quantity_value,
     state_property_problem,
 )
@@ -54,9 +55,8 @@ from scopecat_instruments.driver_states import (
 )
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
-    DCSourceCurrentState,
+    DCSourceObservation,
     DCSourceState,
-    DCSourceVoltageState,
     NetworkSweepState,
     ReferenceSource,
     RFOutputState,
@@ -174,9 +174,6 @@ class VirtualRfSource(RFOutputDriverAdapter):
         pass
 
 
-type _VirtualDcSourceMode = Literal["voltage", "current"]
-
-
 class VirtualDcSource(DCSourceMonitorDriverAdapter):
     implementation_id = VIRTUAL_DC_SOURCE_DRIVER.id
     implementation_version = VIRTUAL_DC_SOURCE_DRIVER.implementation_version
@@ -204,23 +201,12 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
     def read_dc_source_monitor_state(self) -> DCSourceMonitorDriverSnapshot:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
-            source_state: DCSourceState = (
-                DCSourceVoltageState(
-                    voltage_protection=Quantity(source.voltage_protection_v, "V"),
-                    current_protection=Quantity(source.current_protection_a, "A"),
-                    output_enabled=source.output_enabled,
-                    range=Quantity(source.voltage_range_v, "V"),
-                    level=Quantity(source.voltage_level_v, "V"),
-                )
-                if source.source_mode == "voltage"
-                else DCSourceCurrentState(
-                    voltage_protection=Quantity(source.voltage_protection_v, "V"),
-                    current_protection=Quantity(source.current_protection_a, "A"),
-                    output_enabled=source.output_enabled,
-                    range=Quantity(source.current_range_a, "A"),
-                    level=Quantity(source.current_level_a, "A"),
-                )
+            source_state = DCSourceState(
+                voltage_protection=Quantity(source.voltage_protection_v, "V"),
+                current_protection=Quantity(source.current_protection_a, "A"),
+                output_enabled=source.output_enabled,
             )
+            source_observation = DCSourceObservation(source_mode=source.source_mode)
             monitor = DCMonitorState(
                 measurement_enabled=source.measurement_enabled,
                 integration_cycles=source.integration_cycles,
@@ -228,6 +214,7 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
             )
         return DCSourceMonitorDriverSnapshot(
             dc_source=source_state,
+            dc_source_observation=source_observation,
             dc_monitor=monitor,
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
@@ -240,35 +227,8 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
     ) -> DriverOutcome[None]:
         source_patch = patch.dc_source
         monitor_patch = patch.dc_monitor
-        baseline = self.read_dc_source_monitor_state()
-        current_mode: _VirtualDcSourceMode = (
-            "voltage"
-            if isinstance(baseline.dc_source, DCSourceVoltageState)
-            else "current"
-        )
-        current_output = baseline.dc_source.output_enabled
-        target_mode = source_patch.get("source_mode", current_mode)
+        current_output = self.output_enabled()
         target_output = source_patch.get("output_enabled", current_output)
-        changes_source_state = target_mode != current_mode or bool(
-            {
-                "voltage_range",
-                "current_range",
-                "voltage_level",
-                "current_level",
-            }
-            & source_patch.keys()
-        )
-        disabled_for_update = current_output and (
-            not target_output or changes_source_state
-        )
-        if disabled_for_update:
-            self.set_output(False)
-        if target_mode != current_mode:
-            self.set_source_mode(target_mode)
-        if "voltage_range" in source_patch:
-            self.set_voltage_range(quantity_value(source_patch["voltage_range"], "V"))
-        if "current_range" in source_patch:
-            self.set_current_range(quantity_value(source_patch["current_range"], "A"))
         if "voltage_protection" in source_patch:
             self.set_voltage_protection(
                 quantity_value(source_patch["voltage_protection"], "V")
@@ -277,10 +237,6 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
             self.set_current_protection(
                 quantity_value(source_patch["current_protection"], "A")
             )
-        if "voltage_level" in source_patch:
-            self.set_voltage_level(quantity_value(source_patch["voltage_level"], "V"))
-        if "current_level" in source_patch:
-            self.set_current_level(quantity_value(source_patch["current_level"], "A"))
         if "measurement_enabled" in monitor_patch:
             self.set_measurement_enabled(monitor_patch["measurement_enabled"])
         if "integration_cycles" in monitor_patch:
@@ -289,10 +245,43 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
             self.set_measurement_delay(
                 quantity_value(monitor_patch["measurement_delay"], "s")
             )
-        effective_output = False if disabled_for_update else current_output
-        if target_output != effective_output:
+        if target_output != current_output:
             self.set_output(target_output)
         return DriverSuccess(None)
+
+    @override
+    def handle_source_voltage(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> DriverOutcome[None]:
+        try:
+            with self.world.lock:
+                source = self.world.dc_source(self.instrument_id)
+                source.source_mode = "voltage"
+                source.voltage_range_v = quantity_value(range, "V")
+                source.voltage_level_v = quantity_value(level, "V")
+            return DriverSuccess(None)
+        except Exception as error:
+            return invoke_unknown(self.instrument_id, error)
+
+    @override
+    def handle_source_current(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> DriverOutcome[None]:
+        try:
+            with self.world.lock:
+                source = self.world.dc_source(self.instrument_id)
+                source.source_mode = "current"
+                source.current_range_a = quantity_value(range, "A")
+                source.current_level_a = quantity_value(level, "A")
+            return DriverSuccess(None)
+        except Exception as error:
+            return invoke_unknown(self.instrument_id, error)
 
     @override
     def handle_measure_current(
@@ -407,9 +396,7 @@ class VirtualDcSource(DCSourceMonitorDriverAdapter):
             )
         return DriverSuccess(measured)
 
-    def set_source_mode(self, mode: str) -> None:
-        if mode not in {"voltage", "current"}:
-            raise ValueError("source mode must be voltage or current")
+    def set_source_mode(self, mode: Literal["voltage", "current"]) -> None:
         with self.world.lock:
             self.world.dc_source(self.instrument_id).source_mode = mode
 

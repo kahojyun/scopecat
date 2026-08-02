@@ -19,15 +19,17 @@ RF_OUTPUT_FREQUENCY = RF_OUTPUT.property("frequency")
 RF_OUTPUT_POWER = RF_OUTPUT.property("power")
 RF_OUTPUT_ENABLED = RF_OUTPUT.property("output_enabled")
 RF_OUTPUT_REFERENCE_SOURCE = RF_OUTPUT.property("reference_source")
-DC_SOURCE = InterfaceRef("scopecat.dc_source/v2")
-DC_SOURCE_MODE = DC_SOURCE.property("source_mode")
+DC_SOURCE = InterfaceRef("scopecat.dc_source/v3")
 DC_SOURCE_VOLTAGE_PROTECTION = DC_SOURCE.property("voltage_protection")
 DC_SOURCE_CURRENT_PROTECTION = DC_SOURCE.property("current_protection")
 DC_SOURCE_OUTPUT_ENABLED = DC_SOURCE.property("output_enabled")
-DC_SOURCE_VOLTAGE_RANGE = DC_SOURCE.property("voltage_range")
-DC_SOURCE_VOLTAGE_LEVEL = DC_SOURCE.property("voltage_level")
-DC_SOURCE_CURRENT_RANGE = DC_SOURCE.property("current_range")
-DC_SOURCE_CURRENT_LEVEL = DC_SOURCE.property("current_level")
+DC_SOURCE_MODE = DC_SOURCE.property("source_mode")
+DC_SOURCE_VOLTAGE = DC_SOURCE.operation("source_voltage")
+DC_SOURCE_VOLTAGE_RANGE = DC_SOURCE_VOLTAGE.argument("range")
+DC_SOURCE_VOLTAGE_LEVEL = DC_SOURCE_VOLTAGE.argument("level")
+DC_SOURCE_CURRENT = DC_SOURCE.operation("source_current")
+DC_SOURCE_CURRENT_RANGE = DC_SOURCE_CURRENT.argument("range")
+DC_SOURCE_CURRENT_LEVEL = DC_SOURCE_CURRENT.argument("level")
 DC_MONITOR = InterfaceRef("scopecat.dc_monitor/v4")
 DC_MONITOR_MEASUREMENT_ENABLED = DC_MONITOR.property("measurement_enabled")
 DC_MONITOR_INTEGRATION_CYCLES = DC_MONITOR.property("integration_cycles")
@@ -57,11 +59,13 @@ __all__ = [
     "DC_MONITOR_MEASURE_VOLTAGE",
     "DC_MONITOR_VOLTAGE_RESULT",
     "DC_SOURCE",
+    "DC_SOURCE_CURRENT",
     "DC_SOURCE_CURRENT_LEVEL",
     "DC_SOURCE_CURRENT_PROTECTION",
     "DC_SOURCE_CURRENT_RANGE",
     "DC_SOURCE_MODE",
     "DC_SOURCE_OUTPUT_ENABLED",
+    "DC_SOURCE_VOLTAGE",
     "DC_SOURCE_VOLTAGE_LEVEL",
     "DC_SOURCE_VOLTAGE_PROTECTION",
     "DC_SOURCE_VOLTAGE_RANGE",

@@ -34,6 +34,7 @@ from scopecat_instruments._support import (
     apply_unknown,
     collect_unknown,
     execution_problem,
+    invoke_unknown,
     quantity_value,
     state_property_problem,
     state_sync_failed,
@@ -49,19 +50,16 @@ from scopecat_instruments.driver_handlers import (
     DCSourceMonitorDriverPatch,
     DCSourceMonitorDriverSnapshot,
 )
-from scopecat_instruments.driver_states import DCSourceDriverPatch
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
-    DCSourceCurrentState,
+    DCSourceObservation,
     DCSourceState,
-    DCSourceVoltageState,
 )
 from scopecat_instruments.interfaces import dc_monitor_interface, dc_source_interface
 from scopecat_instruments.members import (
     DC_MONITOR_MEASUREMENT_ENABLED,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_RANGE,
 )
 from scopecat_instruments.package_manifest import YOKOGAWA_GS200_DRIVER
 
@@ -113,30 +111,13 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
     def read_dc_source_monitor_state(self) -> DCSourceMonitorDriverSnapshot:
         self._validate_connection_profile()
         mode = self.source_mode()
-        source_range = self.source_range()
-        self._validate_source_profile(mode, source_range)
-        active_unit = "V" if mode == "voltage" else "A"
-        source_level = self.source_level()
-        voltage_protection = Quantity(self.voltage_protection(), "V")
-        current_protection = Quantity(self.current_protection(), "A")
-        output_enabled = self.output_enabled()
-        source: DCSourceState
-        if mode == "voltage":
-            source = DCSourceVoltageState(
-                voltage_protection=voltage_protection,
-                current_protection=current_protection,
-                output_enabled=output_enabled,
-                range=Quantity(source_range, active_unit),
-                level=Quantity(source_level, active_unit),
-            )
-        else:
-            source = DCSourceCurrentState(
-                voltage_protection=voltage_protection,
-                current_protection=current_protection,
-                output_enabled=output_enabled,
-                range=Quantity(source_range, active_unit),
-                level=Quantity(source_level, active_unit),
-            )
+        if self.remote_sense and mode == "voltage":
+            self._validate_source_profile(mode, self.source_range())
+        source = DCSourceState(
+            voltage_protection=Quantity(self.voltage_protection(), "V"),
+            current_protection=Quantity(self.current_protection(), "A"),
+            output_enabled=self.output_enabled(),
+        )
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Yokogawa",
             "model": "GS200",
@@ -154,6 +135,7 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
         )
         return DCSourceMonitorDriverSnapshot(
             dc_source=source,
+            dc_source_observation=DCSourceObservation(source_mode=mode),
             dc_monitor=monitor,
             metadata=metadata,
         )
@@ -175,30 +157,8 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
         try:
             source_patch = patch.dc_source
             monitor_patch = patch.dc_monitor
-            current_mode: Literal["voltage", "current"] = (
-                "voltage"
-                if isinstance(baseline.dc_source, DCSourceVoltageState)
-                else "current"
-            )
             current_output = baseline.dc_source.output_enabled
-            target_mode = source_patch.get("source_mode", current_mode)
             target_output = source_patch.get("output_enabled", current_output)
-            if not self._remote_sense_target_is_valid(
-                source_patch,
-                baseline,
-                target_mode=target_mode,
-            ):
-                return DriverRejected(
-                    problems=(
-                        execution_problem(
-                            "gs200_remote_sense_voltage_range_incompatible",
-                            "GS200 remote sense requires an explicit voltage range "
-                            "of at least 1 V",
-                            "driver_state_patch",
-                            "values",
-                        ),
-                    )
-                )
             current_measurement = False
             target_measurement = False
             changes_measurement_settings = False
@@ -212,32 +172,6 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
                     "integration_cycles" in monitor_patch
                     or "measurement_delay" in monitor_patch
                 )
-            changes_source_state = target_mode != current_mode or any(
-                key in source_patch
-                for key in (
-                    "voltage_range",
-                    "current_range",
-                    "voltage_level",
-                    "current_level",
-                )
-            )
-            # Protection values are compliance controls designed for live adjustment.
-            disabled_for_update = current_output and (
-                not target_output or changes_source_state
-            )
-
-            if disabled_for_update:
-                self.set_output(False)
-            if target_mode != current_mode:
-                self.set_source_mode(target_mode)
-            if "voltage_range" in source_patch:
-                self.set_source_range(
-                    quantity_value(source_patch["voltage_range"], "V")
-                )
-            if "current_range" in source_patch:
-                self.set_source_range(
-                    quantity_value(source_patch["current_range"], "A")
-                )
             if "voltage_protection" in source_patch:
                 self.set_voltage_protection(
                     quantity_value(source_patch["voltage_protection"], "V")
@@ -245,14 +179,6 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
             if "current_protection" in source_patch:
                 self.set_current_protection(
                     quantity_value(source_patch["current_protection"], "A")
-                )
-            if "voltage_level" in source_patch:
-                self.set_source_level(
-                    quantity_value(source_patch["voltage_level"], "V")
-                )
-            if "current_level" in source_patch:
-                self.set_source_level(
-                    quantity_value(source_patch["current_level"], "A")
                 )
             if baseline.dc_monitor is not None:
                 measurement_disabled_for_update = (
@@ -271,12 +197,70 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
                 )
                 if target_measurement != effective_measurement:
                     self.set_measurement_enabled(target_measurement)
-            effective_output = False if disabled_for_update else current_output
-            if target_output != effective_output:
+            if target_output != current_output:
                 self.set_output(target_output)
             return DriverSuccess(None)
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
+
+    @override
+    def handle_source_voltage(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> DriverOutcome[None]:
+        range_v = quantity_value(range, "V")
+        if not self._source_profile_is_valid("voltage", range_v):
+            return DriverRejected(
+                problems=(
+                    execution_problem(
+                        "gs200_remote_sense_voltage_range_incompatible",
+                        "GS200 remote sense requires a voltage range of at least 1 V",
+                        "driver_operation",
+                        "arguments",
+                        "range",
+                    ),
+                )
+            )
+        return self._source_transition(
+            mode="voltage",
+            range_value=range_v,
+            level_value=quantity_value(level, "V"),
+        )
+
+    @override
+    def handle_source_current(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> DriverOutcome[None]:
+        return self._source_transition(
+            mode="current",
+            range_value=quantity_value(range, "A"),
+            level_value=quantity_value(level, "A"),
+        )
+
+    def _source_transition(
+        self,
+        *,
+        mode: Literal["voltage", "current"],
+        range_value: float,
+        level_value: float,
+    ) -> DriverOutcome[None]:
+        try:
+            output_enabled = self.output_enabled()
+            if output_enabled:
+                self.set_output(False)
+            self.set_source_mode(mode)
+            self.set_source_range(range_value)
+            self.set_source_level(level_value)
+            if output_enabled:
+                self.set_output(True)
+            return DriverSuccess(None)
+        except Exception as error:
+            return invoke_unknown(self.instrument_id, error)
 
     @override
     def handle_measure_current(
@@ -388,10 +372,11 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
             if expected_mode == "voltage" and self.source_range() < 1.0:
                 return DriverRejected(
                     problems=(
-                        state_property_problem(
+                        execution_problem(
                             "gs200_monitor_voltage_range_too_low",
                             "GS200 current monitoring requires at least the 1 V range",
-                            DC_SOURCE_VOLTAGE_RANGE,
+                            "driver_acquisition",
+                            "acquisition_id",
                         ),
                     )
                 )
@@ -553,23 +538,6 @@ class YokogawaGS200(DCSourceMonitorDriverAdapter):
 
     def _source_profile_is_valid(self, mode: str, source_range: float) -> bool:
         return not (self.remote_sense and mode == "voltage" and source_range < 1.0)
-
-    def _remote_sense_target_is_valid(
-        self,
-        patch: DCSourceDriverPatch,
-        baseline: DCSourceMonitorDriverSnapshot,
-        *,
-        target_mode: Literal["voltage", "current"],
-    ) -> bool:
-        if not self.remote_sense or target_mode != "voltage":
-            return True
-        if "voltage_range" in patch:
-            target_range = quantity_value(patch["voltage_range"], "V")
-        elif isinstance(baseline.dc_source, DCSourceVoltageState):
-            target_range = quantity_value(baseline.dc_source.range, "V")
-        else:
-            return False
-        return self._source_profile_is_valid(target_mode, target_range)
 
     def identify(self) -> ScpiIdentity:
         identity = query_identity(self.transport)

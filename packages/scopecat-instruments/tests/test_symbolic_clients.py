@@ -19,7 +19,7 @@ from scopecat.authoring import (
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
-from scopecat.program.bindings import EnsureStateIntent
+from scopecat.program.bindings import EnsureStateIntent, InvocationIntent
 from scopecat.program.expressions import LiteralScalarExpr
 from scopecat.program.module import ModuleAcquireEffect
 
@@ -28,11 +28,8 @@ from scopecat_instruments import (
     DCMonitorGroupTarget,
     DCMonitorTarget,
     DCMonitorVoltageProducts,
-    DCSourceCurrentTarget,
     DCSourceGroupTarget,
     DCSourceTarget,
-    DCSourceVoltageGroupTarget,
-    DCSourceVoltageTarget,
     NetworkSweepProducts,
     NetworkSweepTarget,
     RFOutputGroupTarget,
@@ -234,48 +231,56 @@ def test_each_factories_keep_the_typed_interface_specific_group_verbs() -> None:
     assert tuple(samples) == (q0, q1)
 
 
-def test_dc_group_accepts_broadcast_and_typed_per_entity_state() -> None:
+def test_dc_group_broadcasts_and_aligns_typed_operation_arguments() -> None:
     context = ModuleContext()
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
     biases = dc_source(context, "flux", for_=each(q0, q1))
     assert_type(biases, SymbolicDCSourceGroup)
-    common = DCSourceVoltageGroupTarget(
+    biases.source_voltage(
         range=Quantity(1, "V"),
         level=Quantity(0.01, "V"),
     )
-    biases.ensure(common)
-    states = assert_type(
+    current_ranges = assert_type(
         PerEntity(
             (
-                (
-                    q1,
-                    DCSourceVoltageTarget(
-                        range=Quantity(1, "V"),
-                        level=Quantity(0.02, "V"),
-                    ),
-                ),
-                (
-                    q0,
-                    DCSourceVoltageTarget(
-                        range=Quantity(1, "V"),
-                        level=Quantity(0.03, "V"),
-                    ),
-                ),
+                (q1, Quantity(2, "A")),
+                (q0, Quantity(1, "A")),
             )
         ),
-        PerEntity[DCSourceVoltageTarget],
+        PerEntity[Quantity],
     )
-
-    biases.ensure(states)
+    current_levels = assert_type(
+        PerEntity(
+            (
+                (q1, Quantity(0.03, "A")),
+                (q0, Quantity(0.02, "A")),
+            )
+        ),
+        PerEntity[Quantity],
+    )
+    biases.source_current(range=current_ranges, level=current_levels)
 
     definition = context.close_definition_internal(id="test.symbolic.dc-each")
-    ensures = tuple(
+    invocations = tuple(
         effect
         for effect in definition.body.effects
-        if isinstance(effect, EnsureStateIntent)
+        if isinstance(effect, InvocationIntent)
     )
-    assert len(ensures) == 4
+    assert [effect.operation_id for effect in invocations] == [
+        "source_voltage",
+        "source_voltage",
+        "source_current",
+        "source_current",
+    ]
+    assert [
+        [argument.value for argument in effect.arguments] for effect in invocations
+    ] == [
+        [Quantity(1, "V"), Quantity(0.01, "V")],
+        [Quantity(1, "V"), Quantity(0.01, "V")],
+        [Quantity(1, "A"), Quantity(0.02, "A")],
+        [Quantity(2, "A"), Quantity(0.03, "A")],
+    ]
 
 
 def test_generated_rf_group_aligns_state_and_finalization() -> None:
@@ -340,14 +345,16 @@ def test_group_target_lifts_each_field_independently() -> None:
     ]
 
 
-def test_group_per_entity_state_requires_an_exact_full_identity_join() -> None:
+def test_group_per_entity_operation_argument_requires_exact_identity_join() -> None:
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
     wrong_q1 = EntityRef(id="q1", kind="logical_coupler")
     biases = dc_source(ModuleContext(), "flux", for_=each(q0, q1))
-    state = DCSourceVoltageTarget(
-        range=Quantity(1, "V"),
-        level=Quantity(0.01, "V"),
+    levels = PerEntity(
+        (
+            (q0, Quantity(0.01, "V")),
+            (wrong_q1, Quantity(0.02, "V")),
+        )
     )
 
     with pytest.raises(
@@ -357,7 +364,7 @@ def test_group_per_entity_state_requires_an_exact_full_identity_join() -> None:
             r"extra logical_coupler:q1"
         ),
     ):
-        biases.ensure(PerEntity(((q0, state), (wrong_q1, state))))
+        biases.source_voltage(range=Quantity(1, "V"), level=levels)
 
 
 def test_experiment_context_satisfies_the_symbolic_recorder_protocol() -> None:
@@ -460,17 +467,20 @@ def test_two_scalar_clients_use_distinct_structured_product_scopes() -> None:
     assert right_trace.s_parameter.id == "right/s_parameter"
 
 
-def test_state_clients_record_typed_ensure_effects() -> None:
+def test_state_clients_record_typed_state_and_operation_effects() -> None:
     context = ModuleContext()
     source = dc_source(context, "flux")
     rf = rf_output(context, "drive")
 
     source.ensure(
-        DCSourceVoltageTarget(
-            range=Quantity(1.0, "V"),
-            level=Quantity(0.05, "V"),
+        DCSourceTarget(
+            current_protection=Quantity(100.0, "uA"),
             output_enabled=True,
         )
+    )
+    source.source_voltage(
+        range=Quantity(1.0, "V"),
+        level=Quantity(0.05, "V"),
     )
     rf.ensure(
         RFOutputTarget(
@@ -481,27 +491,31 @@ def test_state_clients_record_typed_ensure_effects() -> None:
     )
 
     definition = context.close_definition_internal(id="test.symbolic.state")
-    assert len(definition.body.effects) == 2
-    assert all(
-        isinstance(effect, EnsureStateIntent) for effect in definition.body.effects
-    )
+    assert len(definition.body.effects) == 3
+    assert isinstance(definition.body.effects[0], EnsureStateIntent)
+    assert isinstance(definition.body.effects[1], InvocationIntent)
+    assert isinstance(definition.body.effects[2], EnsureStateIntent)
     assert [
         len(effect.assignments)
         for effect in definition.body.effects
         if isinstance(effect, EnsureStateIntent)
-    ] == [4, 3]
+    ] == [2, 3]
+    [invocation] = definition.body.invocations
+    assert invocation.operation_id == "source_voltage"
+    assert [argument.value for argument in invocation.arguments] == [
+        Quantity(1.0, "V"),
+        Quantity(0.05, "V"),
+    ]
 
 
 def test_dc_monitor_exposes_independent_fixed_result_acquisitions() -> None:
     context = ModuleContext()
     source = dc_source(context, "flux", monitor=True)
     assert_type(source, SymbolicDCSourceMonitorClient)
-    source.ensure(
-        DCSourceVoltageTarget(
-            range=Quantity(1.0, "V"),
-            level=Quantity(0.05, "V"),
-            output_enabled=True,
-        )
+    source.ensure(DCSourceTarget(output_enabled=True))
+    source.source_voltage(
+        range=Quantity(1.0, "V"),
+        level=Quantity(0.05, "V"),
     )
     source.ensure(DCMonitorTarget(measurement_enabled=True))
 
@@ -580,25 +594,19 @@ def test_dc_monitor_group_maps_each_fixed_acquisition_per_entity() -> None:
         for_=each(q0, q1),
         monitor=True,
     )
-    sources.ensure(
-        PerEntity(
+    sources.source_voltage(
+        range=PerEntity(
             (
-                (
-                    q1,
-                    DCSourceCurrentTarget(
-                        range=Quantity(1.0, "A"),
-                        level=Quantity(0.02, "A"),
-                    ),
-                ),
-                (
-                    q0,
-                    DCSourceVoltageTarget(
-                        range=Quantity(1.0, "V"),
-                        level=Quantity(0.03, "V"),
-                    ),
-                ),
+                (q1, Quantity(2.0, "V")),
+                (q0, Quantity(1.0, "V")),
             )
-        )
+        ),
+        level=PerEntity(
+            (
+                (q1, Quantity(0.02, "V")),
+                (q0, Quantity(0.03, "V")),
+            )
+        ),
     )
     sources.ensure(DCMonitorGroupTarget(measurement_enabled=True))
 

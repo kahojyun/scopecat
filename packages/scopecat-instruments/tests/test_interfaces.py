@@ -43,11 +43,13 @@ from scopecat_instruments.members import (
     DC_MONITOR_MEASUREMENT_ENABLED,
     DC_MONITOR_VOLTAGE_RESULT,
     DC_SOURCE,
+    DC_SOURCE_CURRENT,
     DC_SOURCE_CURRENT_LEVEL,
     DC_SOURCE_CURRENT_PROTECTION,
     DC_SOURCE_CURRENT_RANGE,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE,
     DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_PROTECTION,
     DC_SOURCE_VOLTAGE_RANGE,
@@ -149,7 +151,7 @@ def test_declared_rf_output_preserves_the_contract_fingerprint() -> None:
 
 def test_declared_dc_source_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_source_interface()) == (
-        "881be6b8213205269f3ae29f354fc8bbf92c15611a40ba1e8ea723b97d71fdbd"
+        "9cadec39606ef26d5381044d2702fd970b24d3f4207c166d6955d9b83c2f0332"
     )
 
 
@@ -266,60 +268,46 @@ def test_temperature_readout_separates_scanner_state_from_samples() -> None:
     }
 
 
-def test_dc_source_state_partitions_properties_by_source_mode() -> None:
+def test_dc_source_separates_state_observation_and_mode_transitions() -> None:
     interface = dc_source_interface()
-    state = interface.state
 
-    assert state is not None
+    assert interface.id == "scopecat.dc_source/v3"
+    assert interface.state is None
     assert [item.id for item in interface.properties] == [
+        DC_SOURCE_VOLTAGE_PROTECTION.property_id,
+        DC_SOURCE_CURRENT_PROTECTION.property_id,
+        DC_SOURCE_OUTPUT_ENABLED.property_id,
         DC_SOURCE_MODE.property_id,
-        DC_SOURCE_VOLTAGE_PROTECTION.property_id,
-        DC_SOURCE_CURRENT_PROTECTION.property_id,
-        DC_SOURCE_OUTPUT_ENABLED.property_id,
-        DC_SOURCE_VOLTAGE_RANGE.property_id,
-        DC_SOURCE_VOLTAGE_LEVEL.property_id,
-        DC_SOURCE_CURRENT_RANGE.property_id,
-        DC_SOURCE_CURRENT_LEVEL.property_id,
     ]
-    assert state.discriminator_property_id == DC_SOURCE_MODE.property_id
-    assert state.common_property_ids == [
-        DC_SOURCE_VOLTAGE_PROTECTION.property_id,
-        DC_SOURCE_CURRENT_PROTECTION.property_id,
-        DC_SOURCE_OUTPUT_ENABLED.property_id,
+    properties = {item.id: item for item in interface.properties}
+    assert properties[DC_SOURCE_MODE.property_id].access == "read_only"
+    assert {
+        properties[property.property_id].access
+        for property in (
+            DC_SOURCE_VOLTAGE_PROTECTION,
+            DC_SOURCE_CURRENT_PROTECTION,
+            DC_SOURCE_OUTPUT_ENABLED,
+        )
+    } == {"read_write"}
+
+    voltage, current = interface.operations
+    assert voltage.id == DC_SOURCE_VOLTAGE.operation_id
+    assert [argument.id for argument in voltage.arguments] == [
+        DC_SOURCE_VOLTAGE_RANGE.argument_id,
+        DC_SOURCE_VOLTAGE_LEVEL.argument_id,
     ]
-    assert [(case.value, case.property_ids) for case in state.cases] == [
-        (
-            "voltage",
-            [
-                DC_SOURCE_VOLTAGE_RANGE.property_id,
-                DC_SOURCE_VOLTAGE_LEVEL.property_id,
-            ],
-        ),
-        (
-            "current",
-            [
-                DC_SOURCE_CURRENT_RANGE.property_id,
-                DC_SOURCE_CURRENT_LEVEL.property_id,
-            ],
-        ),
+    assert [argument.value_type for argument in voltage.arguments] == [
+        Scalar(Quantity(unit="V")),
+        Scalar(Quantity(unit="V")),
     ]
-    assert [
-        (case.value, case.required_on_entry_property_ids) for case in state.cases
-    ] == [
-        (
-            "voltage",
-            [
-                DC_SOURCE_VOLTAGE_RANGE.property_id,
-                DC_SOURCE_VOLTAGE_LEVEL.property_id,
-            ],
-        ),
-        (
-            "current",
-            [
-                DC_SOURCE_CURRENT_RANGE.property_id,
-                DC_SOURCE_CURRENT_LEVEL.property_id,
-            ],
-        ),
+    assert current.id == DC_SOURCE_CURRENT.operation_id
+    assert [argument.id for argument in current.arguments] == [
+        DC_SOURCE_CURRENT_RANGE.argument_id,
+        DC_SOURCE_CURRENT_LEVEL.argument_id,
+    ]
+    assert [argument.value_type for argument in current.arguments] == [
+        Scalar(Quantity(unit="A")),
+        Scalar(Quantity(unit="A")),
     ]
 
 

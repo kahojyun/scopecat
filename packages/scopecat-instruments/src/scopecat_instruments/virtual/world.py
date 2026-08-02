@@ -7,6 +7,7 @@ import math
 import random
 from dataclasses import dataclass
 from threading import RLock
+from typing import Literal
 
 from scopecat_instruments._support import NetworkTrace
 from scopecat_instruments.interface_declarations import ReferenceSource, SParameter
@@ -22,7 +23,7 @@ class VirtualRfSourceState:
 
 @dataclass
 class VirtualDcSourceState:
-    source_mode: str = "voltage"
+    source_mode: Literal["voltage", "current"] = "voltage"
     voltage_range_v: float = 1.0
     current_range_a: float = 0.01
     voltage_level_v: float = 0.0

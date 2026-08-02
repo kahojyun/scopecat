@@ -59,7 +59,7 @@ value references:
 from typing import Annotated
 
 import scopecat as sc
-from scopecat_instruments import DCSourceVoltageTarget, dc_source
+from scopecat_instruments import dc_source
 
 DC_BIAS = sc.coordinate(
     "dc_bias",
@@ -75,13 +75,11 @@ def capture(
     ],
 ) -> None:
     flux = dc_source(module, "flux")
-    flux.ensure(
-        DCSourceVoltageTarget(
-            range=sc.Quantity(1, "V"),
-            level=dc_bias,
-            output_enabled=True,
-        ),
+    flux.source_voltage(
+        range=sc.Quantity(1, "V"),
+        level=dc_bias,
     )
+    flux.ensure(output_enabled=True)
 ```
 
 `@module` is an optional extraction boundary for work that is genuinely reused
@@ -90,10 +88,11 @@ directly, as shown in the
 [instrument-control guide](../../docs/instrument-control.md) and the
 [flux-spectroscopy workflow](../../examples/instruments/src/instrument_demo/workflows/flux_spectroscopy.py).
 
-The verb carries the distinction: `apply(...)` performs a concrete transition
-now, while `ensure(...)` makes the supplied fields true at each experiment
-point. Unspecified fields are preserved, while coordinate- and parameter-backed
-fields resolve per point.
+The verb carries the distinction: `source_voltage(...)` records an ordered
+mode/range/level transition, `apply(...)` updates persistent state now, and
+`ensure(...)` makes persistent fields true at each experiment point.
+Unspecified state fields are preserved, while coordinate- and parameter-backed
+arguments resolve per point.
 
 The context manager opens a durable daemon-owned session and closes it on exit.
 Runs and interactive sessions compete for the same exclusive resource claim.
@@ -122,11 +121,10 @@ Writable interfaces receive sparse concrete `TypedDict` patches and exact
 canonical snapshot encoders. Generated adapters own the worker's generic
 request/ref ABI; a bundle adapter accepts one validated batch and calls the
 concrete driver once with one typed bundle patch. Observed-only state generates
-snapshot and acquisition hooks but no artificial writable patch. For
-discriminated DC source state, the private common base is declaration reuse
-only: the public state is the complete voltage/current union. `DCSourcePatch` is
-a common-field sparse update, while voltage/current carriers select a case and
-insert `source_mode` without exposing it as a user argument.
+snapshot and acquisition hooks but no artificial writable patch. DC source
+protection and output form one flat persistent state; the reported source mode
+is read-only observation, while typed `source_voltage(...)` and
+`source_current(...)` operations carry the required range and level.
 
 Run the generator from the repository root after changing a supported
 declaration, and use its check mode in validation or CI:
@@ -227,28 +225,7 @@ Virtual instrument:
   },
   "default_state": [
     {
-      "interface_id": "scopecat.dc_source/v2",
-      "property_id": "source_mode",
-      "value": "voltage"
-    },
-    {
-      "interface_id": "scopecat.dc_source/v2",
-      "property_id": "voltage_range",
-      "value": {
-        "value": 1,
-        "unit": "V"
-      }
-    },
-    {
-      "interface_id": "scopecat.dc_source/v2",
-      "property_id": "voltage_level",
-      "value": {
-        "value": 0,
-        "unit": "V"
-      }
-    },
-    {
-      "interface_id": "scopecat.dc_source/v2",
+      "interface_id": "scopecat.dc_source/v3",
       "property_id": "output_enabled",
       "value": false
     }
@@ -281,8 +258,9 @@ Unspecified and private driver settings remain untouched.
 Driver snapshots contain complete public physical state. Experiment entity and
 channel bindings are routing provenance, not fields a driver reads back.
 
-The DC monitor acquisition is selected by DC source mode: voltage-source mode
-returns monitored current, while current-source mode returns monitored voltage.
+The DC monitor exposes `measure_current()` and `measure_voltage()` as separate
+fixed acquisitions. A concrete driver rejects the call at runtime when its
+source mode or hardware configuration is incompatible.
 
 Each registered driver declares its connection kind and a strict options model.
 Unknown fields and coerced scalar values are rejected during configuration
@@ -301,12 +279,12 @@ The package supports these driver IDs:
 
 | Driver ID | Interface |
 | --- | --- |
-| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v4` |
+| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v3`; optional `scopecat.dc_monitor/v4` |
 | `scopecat.rohde_schwarz.sgs100a` | `scopecat.rf_output/v1` |
 | `scopecat.lakeshore.372` | `scopecat.temperature_readout/v1` |
 | `scopecat.keysight.e5080b` | `scopecat.network_sweep/v1` |
 | `scopecat.virtual.rf_source` | `scopecat.rf_output/v1` |
-| `scopecat.virtual.dc_source` | `scopecat.dc_source/v2`, `scopecat.dc_monitor/v4` |
+| `scopecat.virtual.dc_source` | `scopecat.dc_source/v3`, `scopecat.dc_monitor/v4` |
 | `scopecat.virtual.temperature_monitor` | `scopecat.temperature_readout/v1` |
 | `scopecat.virtual.vna` | `scopecat.network_sweep/v1` |
 

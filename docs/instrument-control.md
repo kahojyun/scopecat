@@ -196,8 +196,6 @@ mapping:
 ```python
 import scopecat as sc
 from scopecat_instruments import (
-    DCSourceTarget,
-    DCSourceVoltageTarget,
     dc_source,
     network_sweep,
 )
@@ -221,13 +219,11 @@ def capture(experiment: sc.ExperimentContext) -> None:
     flux = dc_source(experiment, "flux")
     vna = network_sweep(experiment, "readout")
 
-    flux.ensure(
-        DCSourceVoltageTarget(
-            range=sc.Quantity(1, "V"),  # fixed for every point
-            level=DC_BIAS,  # resolved from the scan point
-            output_enabled=True,
-        )
+    flux.source_voltage(
+        range=sc.Quantity(1, "V"),  # fixed for every point
+        level=DC_BIAS,  # resolved from the scan point
     )
+    flux.ensure(output_enabled=True)
     vna.ensure(
         start_frequency=sc.Quantity(4.9, "GHz"),
         stop_frequency=sc.Quantity(5.1, "GHz"),
@@ -366,14 +362,11 @@ Consumers that need that lower-level boundary can call
 the decorated interface type directly, so declarations do not need a parallel
 public compiled constant.
 
-A discriminated declaration may use a private common base to reuse field
-definitions, but that base is not a public device state. `DCSourceState`, for
-example, is the closed union of complete `DCSourceVoltageState` and
-`DCSourceCurrentState` records; both cases contain the common protection/output
-fields and their required range and level. Generated `DCSourcePatch` represents
-only a sparse update of common fields. The voltage/current patch and target
-carriers are the case-selecting forms and carry their discriminator as a
-generated constant, not as a user-visible optional field.
+Device mode changes need not become a discriminated desired-state schema.
+`DCSourceState` contains only persistent protection and output fields, while
+`DCSourceObservation` reports the current mode. Required range and level values
+belong to the typed `source_voltage(...)` and `source_current(...)` operations,
+which map directly onto live driver calls and ordered experiment effects.
 
 The same declaration surface also covers read-only observed-state dataclasses,
 typed atomic methods whose `Annotated` parameters carry operation-argument
@@ -554,15 +547,11 @@ rows = QUBITS[targets]  # PerEntity[QubitParameters]
 biases = rows.map(lambda row: row.flux_bias)  # PerEntity[ValueRef]
 
 sources = dc_source(experiment, "flux", for_=targets)
-sources.ensure(
-    biases.map(
-        lambda bias: DCSourceVoltageTarget(
-            range=sc.Quantity(1, "V"),
-            level=bias,
-            output_enabled=True,
-        )
-    )
+sources.source_voltage(
+    range=sc.Quantity(1, "V"),
+    level=biases,
 )
+sources.ensure(output_enabled=True)
 
 readouts = network_sweep(experiment, "readout", for_=targets)
 readouts.ensure(points=751)  # one broadcast target
@@ -855,18 +844,16 @@ with another interface or component. Specs, compiler IR, and daemon requests
 lower them to physical ids.
 
 Values with physical units may be passed as Scopecat `Quantity` values. Plain
-numbers remain valid only where the declared property type accepts them. A
-`scopecat.dc_source/v2` state belongs to either its voltage or current case.
-Choose `DCSourceVoltagePatch`/`Target` or `DCSourceCurrentPatch`/`Target` when
-switching cases; the carrier supplies `source_mode`, while range and level remain
-required. Protection and output properties are common sparse updates.
+numbers remain valid only where the declared property or operation argument
+accepts them. `scopecat.dc_source/v3` uses `source_voltage(...)` and
+`source_current(...)` for mode/range/level transitions; protection and output
+remain ordinary sparse state updates.
 
 A multi-instrument session is available when an operation must reserve a
 coherent set:
 
 ```python
 from scopecat_instruments import (
-    DCSourceVoltagePatch,
     dc_source,
     network_sweep,
 )
@@ -878,13 +865,11 @@ with lab.instruments.open(FLUX_SOURCE, READOUT_VNA) as devices:
     source = devices[FLUX_SOURCE]
     vna = devices[READOUT_VNA]
 
-    source.apply(
-        DCSourceVoltagePatch(
-            range=sc.Quantity(1.0, "V"),
-            level=sc.Quantity(0.05, "V"),
-            output_enabled=True,
-        )
+    source.source_voltage(
+        range=sc.Quantity(1.0, "V"),
+        level=sc.Quantity(0.05, "V"),
     )
+    source.apply(output_enabled=True)
     trace = vna.sweep()
 ```
 
@@ -1015,7 +1000,7 @@ The first package deliberately implements narrow, documented subsets:
 
 | Device | Interface | Initial boundary |
 |---|---|---|
-| Yokogawa GS200/GS210 | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v4` | discriminated voltage/current state, protection, output, and independent current/voltage `/MON` acquisitions |
+| Yokogawa GS200/GS210 | `scopecat.dc_source/v3`; optional `scopecat.dc_monitor/v4` | typed voltage/current transitions, protection, output, and independent current/voltage `/MON` acquisitions |
 | R&S SGS100A | `scopecat.rf_output/v1` | CW frequency, power, RF output, internal/external reference |
 | Lake Shore 372 | `scopecat.temperature_readout/v1` | read-only scanner state and settled, status-checked temperature or resistance samples |
 | Keysight E5080B | `scopecat.network_sweep/v1` | one linear two-port S-parameter sweep and complex trace |

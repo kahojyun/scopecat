@@ -7,10 +7,8 @@ from scopecat.sdk.instruments.declarations import state_projection_assignments
 
 from scopecat_instruments import (
     DCMonitorPatch,
-    DCSourceCurrentPatch,
     DCSourcePatch,
-    DCSourceVoltagePatch,
-    DCSourceVoltageTarget,
+    DCSourceTarget,
     NetworkSweepPatch,
     RFOutputPatch,
 )
@@ -24,34 +22,30 @@ from scopecat_instruments.members import (
     DC_MONITOR_INTEGRATION_CYCLES,
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
-    DC_SOURCE_CURRENT_LEVEL,
-    DC_SOURCE_CURRENT_RANGE,
-    DC_SOURCE_MODE,
+    DC_SOURCE_CURRENT_PROTECTION,
     DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
-    DC_SOURCE_VOLTAGE_RANGE,
+    DC_SOURCE_VOLTAGE_PROTECTION,
     NETWORK_SWEEP_POINTS,
     NETWORK_SWEEP_S_PARAMETER,
     NETWORK_SWEEP_START_FREQUENCY,
 )
 
 
-def test_voltage_target_accepts_fixed_and_scanned_values() -> None:
-    level = sc.coordinate(
-        "dc_bias",
-        sc.ScalarType(sc.QuantityType(unit="V")),
+def test_dc_source_target_accepts_fixed_and_scanned_values() -> None:
+    current_protection = sc.coordinate(
+        "current_protection",
+        sc.ScalarType(sc.QuantityType(unit="A")),
     )
-    target = DCSourceVoltageTarget(
-        range=sc.Quantity(1.0, "V"),
-        level=level,
+    target = DCSourceTarget(
+        voltage_protection=sc.Quantity(2.0, "V"),
+        current_protection=current_protection,
         output_enabled=True,
     )
 
-    assert_type(target, DCSourceVoltageTarget)
+    assert_type(target, DCSourceTarget)
     assert state_projection_assignments(target) == {
-        DC_SOURCE_MODE: "voltage",
-        DC_SOURCE_VOLTAGE_RANGE: sc.Quantity(1.0, "V"),
-        DC_SOURCE_VOLTAGE_LEVEL: level,
+        DC_SOURCE_VOLTAGE_PROTECTION: sc.Quantity(2.0, "V"),
+        DC_SOURCE_CURRENT_PROTECTION: current_protection,
         DC_SOURCE_OUTPUT_ENABLED: True,
     }
 
@@ -73,16 +67,15 @@ def test_sparse_patches_omit_unspecified_properties() -> None:
     }
 
 
-def test_current_and_monitor_patches_use_the_shared_declaration_codec() -> None:
+def test_dc_source_and_monitor_patches_use_the_shared_declaration_codec() -> None:
     assert state_projection_assignments(
-        DCSourceCurrentPatch(
-            range=sc.Quantity(10.0, "mA"),
-            level=sc.Quantity(2.0, "mA"),
+        DCSourcePatch(
+            voltage_protection=sc.Quantity(2.0, "V"),
+            current_protection=sc.Quantity(10.0, "mA"),
         )
     ) == {
-        DC_SOURCE_MODE: "current",
-        DC_SOURCE_CURRENT_RANGE: sc.Quantity(10.0, "mA"),
-        DC_SOURCE_CURRENT_LEVEL: sc.Quantity(2.0, "mA"),
+        DC_SOURCE_VOLTAGE_PROTECTION: sc.Quantity(2.0, "V"),
+        DC_SOURCE_CURRENT_PROTECTION: sc.Quantity(10.0, "mA"),
     }
     assert state_projection_assignments(
         DCMonitorPatch(
@@ -100,13 +93,9 @@ def test_current_and_monitor_patches_use_the_shared_declaration_codec() -> None:
 def test_every_first_party_patch_assignment_is_writable() -> None:
     patches = (
         DCSourcePatch(output_enabled=False),
-        DCSourceVoltagePatch(
-            range=sc.Quantity(1.0, "V"),
-            level=sc.Quantity(0.0, "V"),
-        ),
-        DCSourceCurrentPatch(
-            range=sc.Quantity(1.0, "mA"),
-            level=sc.Quantity(0.0, "mA"),
+        DCSourcePatch(
+            voltage_protection=sc.Quantity(1.0, "V"),
+            current_protection=sc.Quantity(1.0, "mA"),
         ),
         DCMonitorPatch(measurement_enabled=True),
         RFOutputPatch(output_enabled=False),

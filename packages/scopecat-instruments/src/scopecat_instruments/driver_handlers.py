@@ -7,9 +7,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, cast
 
 from pydantic import JsonValue
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
@@ -36,8 +37,8 @@ from scopecat_instruments.driver_states import (
     decode_network_sweep_patch,
     decode_rf_output_patch,
     encode_dc_monitor_state,
-    encode_dc_source_current_state,
-    encode_dc_source_voltage_state,
+    encode_dc_source_observation,
+    encode_dc_source_state,
     encode_driver_state,
     encode_network_sweep_state,
     encode_rf_output_state,
@@ -45,8 +46,8 @@ from scopecat_instruments.driver_states import (
 )
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
+    DCSourceObservation,
     DCSourceState,
-    DCSourceVoltageState,
     NetworkSweepState,
     RFOutputState,
     TemperatureReadoutObservation,
@@ -56,6 +57,8 @@ from scopecat_instruments.members import (
     DC_MONITOR_MEASURE_CURRENT,
     DC_MONITOR_MEASURE_VOLTAGE,
     DC_MONITOR_VOLTAGE_RESULT,
+    DC_SOURCE_CURRENT,
+    DC_SOURCE_VOLTAGE,
     NETWORK_SWEEP_ACQUISITION,
     NETWORK_SWEEP_FREQUENCY_RESULT,
     NETWORK_SWEEP_S_PARAMETER_RESULT,
@@ -281,6 +284,7 @@ class RFOutputDriverAdapter(ABC):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DCSourceDriverSnapshot:
     state: DCSourceState
+    observation: DCSourceObservation
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
@@ -297,13 +301,27 @@ class DCSourceDriverAdapter(ABC):
         /,
     ) -> DriverOutcome[None]: ...
 
+    @abstractmethod
+    def handle_source_voltage(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> DriverOutcome[None]: ...
+
+    @abstractmethod
+    def handle_source_current(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> DriverOutcome[None]: ...
+
     def read_state(self) -> DriverState:
         snapshot = self.read_dc_source_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
-        if isinstance(snapshot.state, DCSourceVoltageState):
-            encoded.append(encode_dc_source_voltage_state(snapshot.state))
-        else:
-            encoded.append(encode_dc_source_current_state(snapshot.state))
+        encoded.append(encode_dc_source_state(snapshot.state))
+        encoded.append(encode_dc_source_observation(snapshot.observation))
         return encode_driver_state(*encoded, metadata=snapshot.metadata)
 
     def apply_state(
@@ -320,6 +338,24 @@ class DCSourceDriverAdapter(ABC):
         self,
         request: DriverOperation,
     ) -> DriverOutcome[DriverState | None]:
+        if request.target == DC_SOURCE_VOLTAGE:
+            arguments = request.arguments
+            outcome = self.handle_source_voltage(
+                range=cast("Quantity", arguments["range"]),
+                level=cast("Quantity", arguments["level"]),
+            )
+            if isinstance(outcome, DriverSuccess):
+                return DriverSuccess(None, metadata=outcome.metadata)
+            return outcome
+        if request.target == DC_SOURCE_CURRENT:
+            arguments = request.arguments
+            outcome = self.handle_source_current(
+                range=cast("Quantity", arguments["range"]),
+                level=cast("Quantity", arguments["level"]),
+            )
+            if isinstance(outcome, DriverSuccess):
+                return DriverSuccess(None, metadata=outcome.metadata)
+            return outcome
         return _unsupported_driver_request(
             self.instrument_id,
             "operation",
@@ -340,6 +376,7 @@ class DCSourceDriverAdapter(ABC):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DCSourceMonitorDriverSnapshot:
     dc_source: DCSourceState
+    dc_source_observation: DCSourceObservation
     dc_monitor: DCMonitorState | None
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
@@ -367,6 +404,22 @@ class DCSourceMonitorDriverAdapter(ABC):
     ) -> DriverOutcome[None]: ...
 
     @abstractmethod
+    def handle_source_voltage(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> DriverOutcome[None]: ...
+
+    @abstractmethod
+    def handle_source_current(
+        self,
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> DriverOutcome[None]: ...
+
+    @abstractmethod
     def handle_measure_current(
         self,
         requested: frozenset[DCMonitorMeasureCurrentDriverResultName],
@@ -383,10 +436,8 @@ class DCSourceMonitorDriverAdapter(ABC):
     def read_state(self) -> DriverState:
         snapshot = self.read_dc_source_monitor_state()
         encoded: list[Mapping[PropertyRef, DriverScalar]] = []
-        if isinstance(snapshot.dc_source, DCSourceVoltageState):
-            encoded.append(encode_dc_source_voltage_state(snapshot.dc_source))
-        else:
-            encoded.append(encode_dc_source_current_state(snapshot.dc_source))
+        encoded.append(encode_dc_source_state(snapshot.dc_source))
+        encoded.append(encode_dc_source_observation(snapshot.dc_source_observation))
         if self._driver_monitor_enabled and snapshot.dc_monitor is not None:
             encoded.append(encode_dc_monitor_state(snapshot.dc_monitor))
         return encode_driver_state(*encoded, metadata=snapshot.metadata)
@@ -415,6 +466,24 @@ class DCSourceMonitorDriverAdapter(ABC):
         self,
         request: DriverOperation,
     ) -> DriverOutcome[DriverState | None]:
+        if request.target == DC_SOURCE_VOLTAGE:
+            arguments = request.arguments
+            outcome = self.handle_source_voltage(
+                range=cast("Quantity", arguments["range"]),
+                level=cast("Quantity", arguments["level"]),
+            )
+            if isinstance(outcome, DriverSuccess):
+                return DriverSuccess(None, metadata=outcome.metadata)
+            return outcome
+        if request.target == DC_SOURCE_CURRENT:
+            arguments = request.arguments
+            outcome = self.handle_source_current(
+                range=cast("Quantity", arguments["range"]),
+                level=cast("Quantity", arguments["level"]),
+            )
+            if isinstance(outcome, DriverSuccess):
+                return DriverSuccess(None, metadata=outcome.metadata)
+            return outcome
         return _unsupported_driver_request(
             self.instrument_id,
             "operation",
