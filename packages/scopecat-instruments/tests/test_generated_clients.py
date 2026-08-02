@@ -7,6 +7,8 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 GENERATOR = REPOSITORY_ROOT / "scripts" / "generate_instrument_clients.py"
 FIXTURE_IMPORT_ROOT = REPOSITORY_ROOT / "packages" / "scopecat-instruments" / "tests"
+FIXTURE_STATE_PROJECTION_MODULE = "generated_state_catalog_fixture"
+PRODUCTION_STATE_PROJECTION_MODULE = "scopecat_instruments.states"
 _RENDER_SURFACE = """
 import sys
 from importlib import import_module
@@ -34,13 +36,20 @@ else:
         if sys.argv[5] == "bundle"
         else clients_for(declaration),
     )
-print(render_client_module(surfaces), end="")
+print(
+    render_client_module(
+        surfaces,
+        state_projection_module=sys.argv[8],
+    ),
+    end="",
+)
 """
 
 
 def _render_surface(
     interface_name: str,
     *,
+    state_projection_module: str = FIXTURE_STATE_PROJECTION_MODULE,
     module: str = "client_codegen_fixture_declarations",
     import_root: Path | None = FIXTURE_IMPORT_ROOT,
     bundle: bool = False,
@@ -60,6 +69,7 @@ def _render_surface(
             "facade" if facade else "bundle" if bundle else "interface",
             flag,
             "include-base" if include_base else "omit-base",
+            state_projection_module,
         ],
         cwd=REPOSITORY_ROOT,
         check=False,
@@ -78,6 +88,25 @@ def test_committed_generated_instrument_sources_are_current() -> None:
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_codegen_imports_state_projections_from_the_configured_module() -> None:
+    completed = _render_surface(
+        "CatalogProjectionInterface",
+        state_projection_module="custom.state_projections",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "from custom.state_projections import (" in completed.stdout
+    assert "CatalogProjectionPatch" in completed.stdout
+    assert "CatalogProjectionTarget" in completed.stdout
+
+
+def test_codegen_accepts_a_projection_module_for_a_stateless_surface() -> None:
+    completed = _render_surface("ComponentOperationInterface")
+
+    assert completed.returncode == 0, completed.stderr
+    assert "from generated_state_catalog_fixture import" not in completed.stdout
 
 
 def test_codegen_rejects_payload_operation_arguments_explicitly() -> None:
@@ -121,6 +150,7 @@ def test_codegen_derives_base_family_suppression_from_a_facade_bundle() -> None:
         "DCSourceMonitorInterface",
         module="scopecat_instruments.interface_declarations",
         import_root=None,
+        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
         facade=True,
     )
 
@@ -154,6 +184,7 @@ def test_codegen_composes_a_root_only_interface_bundle() -> None:
         "DCSourceMonitorInterface",
         module="scopecat_instruments.interface_declarations",
         import_root=None,
+        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
         bundle=True,
     )
 
@@ -178,6 +209,7 @@ def test_codegen_renders_a_two_interface_boolean_facade() -> None:
         "DCSourceMonitorInterface",
         module="scopecat_instruments.interface_declarations",
         import_root=None,
+        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
         facade=True,
     )
 
@@ -199,6 +231,7 @@ def test_codegen_rejects_a_facade_without_its_base_surface() -> None:
         "DCSourceMonitorInterface",
         module="scopecat_instruments.interface_declarations",
         import_root=None,
+        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
         facade=True,
         include_base=False,
     )
@@ -220,6 +253,7 @@ def test_codegen_reserves_fixed_facade_parameters() -> None:
         "DCSourceMonitorInterface",
         module="scopecat_instruments.interface_declarations",
         import_root=None,
+        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
         facade=True,
         flag="for_",
     )

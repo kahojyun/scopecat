@@ -61,6 +61,8 @@ FIXTURE_STATES_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_state_catalog_fixture.p
 FIXTURE_DRIVER_STATES_OUTPUT = (
     FIXTURE_IMPORT_ROOT / "generated_driver_state_catalog_fixture.py"
 )
+PRODUCTION_STATE_PROJECTION_MODULE = "scopecat_instruments.states"
+FIXTURE_STATE_PROJECTION_MODULE = "generated_state_catalog_fixture"
 _TYPING_UNION_ORIGIN: object = typing.Union  # pyright: ignore[reportDeprecated]
 _FACADE_PARAMETER_NAMES = frozenset({"instrument_id", "resource_id", "for_"})
 
@@ -147,6 +149,7 @@ class GenerationTarget:
 
     output: Path
     surfaces: tuple[GenerationSurface, ...]
+    state_projection_module: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +188,7 @@ _PRODUCTION_SURFACES: tuple[GenerationSurface, ...] = (
 PRODUCTION_TARGET = GenerationTarget(
     output=OUTPUT,
     surfaces=_PRODUCTION_SURFACES,
+    state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
 )
 
 PRODUCTION_CATALOG_TARGET = CatalogTarget(
@@ -203,6 +207,7 @@ def _fixture_target() -> GenerationTarget:
     return GenerationTarget(
         output=FIXTURE_OUTPUT,
         surfaces=(clients_for(declarations.ComponentOperationInterface),),
+        state_projection_module=FIXTURE_STATE_PROJECTION_MODULE,
     )
 
 
@@ -454,24 +459,16 @@ def _state_projection_names(layout: DeclaredStateLayout) -> _StateProjectionName
     )
 
 
-def _state_projection_module(interface_type: type[object]) -> str:
-    package, separator, _ = interface_type.__module__.rpartition(".")
-    if not separator:
-        raise ClientGenerationError(
-            "generated state clients require interface declarations in a package"
-        )
-    return f"{package}.states"
-
-
 def _register_state_projection_types(
     renderer: _AnnotationRenderer,
-    interface_type: type[object],
     layouts: tuple[DeclaredStateLayout, ...],
+    *,
+    state_projection_module: str,
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     names = tuple(_state_projection_names(layout) for layout in layouts)
     if names:
         imported = renderer.imports.setdefault(
-            _state_projection_module(interface_type),
+            state_projection_module,
             set(),
         )
         imported.update(
@@ -1428,11 +1425,16 @@ def _split_top_level_union(annotation: str) -> tuple[str, ...]:
 def render_generation_target(target: GenerationTarget) -> str:
     """Render one configured generated module."""
 
-    return render_client_module(target.surfaces)
+    return render_client_module(
+        target.surfaces,
+        state_projection_module=target.state_projection_module,
+    )
 
 
 def render_client_module(
     surfaces: tuple[GenerationSurface, ...],
+    *,
+    state_projection_module: str,
 ) -> str:
     """Render an independently importable module for selected declarations."""
 
@@ -1442,6 +1444,7 @@ def render_client_module(
         _generation_model(
             surface,
             renderer=renderer,
+            state_projection_module=state_projection_module,
             suppressed_families=suppressed_families,
         )
         for surface in surfaces
@@ -1476,13 +1479,19 @@ def _generation_model(
     surface: GenerationSurface,
     *,
     renderer: _AnnotationRenderer,
+    state_projection_module: str,
     suppressed_families: frozenset[str],
 ) -> _InterfaceModel:
     if isinstance(surface, BundleClientSurface):
-        return _bundle_model(surface, renderer=renderer)
+        return _bundle_model(
+            surface,
+            renderer=renderer,
+            state_projection_module=state_projection_module,
+        )
     return _interface_model(
         surface,
         renderer=renderer,
+        state_projection_module=state_projection_module,
         generate_family=_type_identity(surface.interface_type)
         not in suppressed_families,
     )
@@ -1492,6 +1501,7 @@ def _interface_model(
     surface: ClientSurface,
     *,
     renderer: _AnnotationRenderer,
+    state_projection_module: str,
     generate_family: bool,
 ) -> _InterfaceModel:
     constituent = _constituent_model(surface.interface_type, renderer=renderer)
@@ -1513,8 +1523,8 @@ def _interface_model(
     )
     live_states, symbolic_states, group_states = _register_state_projection_types(
         renderer,
-        surface.interface_type,
         layout.states,
+        state_projection_module=state_projection_module,
     )
     return _InterfaceModel(
         interface_identity=(
@@ -1536,6 +1546,7 @@ def _bundle_model(
     surface: BundleClientSurface,
     *,
     renderer: _AnnotationRenderer,
+    state_projection_module: str,
 ) -> _InterfaceModel:
     bundle_type = surface.bundle_type
     bundle_identity = f"{bundle_type.__module__}.{bundle_type.__qualname__}"
@@ -1622,8 +1633,8 @@ def _bundle_model(
         state_layouts.extend(new_layouts)
         registered = _register_state_projection_types(
             renderer,
-            constituent.layout.compiled.interface_type,
             new_layouts,
+            state_projection_module=state_projection_module,
         )
         live_states.extend(registered[0])
         symbolic_states.extend(registered[1])
