@@ -7,7 +7,7 @@ from typing import Annotated, Literal, Protocol, assert_type, cast
 
 import pytest
 
-from scopecat.kernel.instrument_members import ComponentRef, OperationArgumentRef
+from scopecat.kernel.instrument_members import ComponentRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Int as IntType
@@ -491,18 +491,6 @@ class OperationBindingContract(Protocol):
             ),
         ],
     ) -> None: ...
-
-
-class OperationLowerer(Protocol):
-    def __call__(
-        self,
-        channel: int,
-        /,
-        level: Quantity,
-        *,
-        mode: Literal["once", "loop"],
-        program: bytes,
-    ) -> dict[OperationArgumentRef, object]: ...
 
 
 def test_declaration_decorators_build_typed_python_dataclasses() -> None:
@@ -1164,27 +1152,10 @@ def test_operation_and_component_refs_use_python_member_names() -> None:
     ).component_path == ("output-a", "trigger-input")
 
 
-def test_declared_operation_preserves_signature_and_argument_layout() -> None:
+def test_declared_operation_preserves_argument_layout() -> None:
     compiled = compile_interface(OperationBindingContract)
 
-    def require_operation_lowerer(value: OperationLowerer) -> OperationLowerer:
-        return value
-
     declared = declared_operation(compiled, OperationBindingContract.upload)
-    lowerer = assert_type(
-        require_operation_lowerer(declared.lower_arguments),
-        OperationLowerer,
-    )
-    payload = b"compiled waveform"
-    lowered = assert_type(
-        lowerer(
-            3,
-            level=Quantity(0.5, "V"),
-            mode="loop",
-            program=payload,
-        ),
-        dict[OperationArgumentRef, object],
-    )
 
     assert isinstance(declared, DeclaredOperation)
     assert declared.method_name == "upload"
@@ -1225,46 +1196,10 @@ def test_declared_operation_preserves_signature_and_argument_layout() -> None:
             strict=True,
         )
     )
-    assert list(lowered) == [argument.ref for argument in declared.arguments]
-    assert list(lowered.values()) == [
-        3,
-        Quantity(0.5, "V"),
-        "loop",
-        payload,
-    ]
     payload_argument = declared.arguments[-1]
     assert payload_argument.spec.value_type == Scalar(
         PayloadType(schema_id="test.waveform/v1")
     )
-    assert lowered[payload_argument.ref] is payload
-
-
-def test_declared_operation_uses_signature_bind_errors() -> None:
-    declared = declared_operation(
-        compile_interface(OperationBindingContract),
-        OperationBindingContract.upload,
-    )
-    lower = cast("Callable[..., object]", declared.lower_arguments)
-
-    with pytest.raises(TypeError, match="missing a required argument: 'program'"):
-        lower(3, Quantity(0.5, "V"), mode="once")
-    with pytest.raises(TypeError, match="positional-only"):
-        lower(
-            channel=3,
-            level=Quantity(0.5, "V"),
-            mode="once",
-            program=b"waveform",
-        )
-    with pytest.raises(TypeError, match="too many positional arguments"):
-        lower(3, Quantity(0.5, "V"), "once", b"waveform")
-    with pytest.raises(TypeError, match="unexpected keyword argument 'extra'"):
-        lower(
-            3,
-            Quantity(0.5, "V"),
-            mode="once",
-            program=b"waveform",
-            extra=True,
-        )
 
 
 def test_declared_operation_resolves_nested_component_arguments() -> None:
@@ -1290,10 +1225,7 @@ def test_declared_operation_resolves_nested_component_arguments() -> None:
         "cycles",
         component=component_path,
     )
-    assert assert_type(
-        declared.lower_arguments(cycles=2),
-        dict[OperationArgumentRef, object],
-    ) == {argument.ref: 2}
+    assert argument.python_name == "cycles"
 
 
 def test_declared_operation_rejects_a_method_from_another_interface() -> None:

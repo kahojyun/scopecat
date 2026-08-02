@@ -16,12 +16,20 @@ from pathlib import Path
 from typing import Protocol, TypeAliasType, TypeVar, cast, get_args, get_origin
 
 from scopecat.kernel.value_types import Payload as PayloadType
-from scopecat.sdk.instruments import ComponentRef, PropertyRef
+from scopecat.sdk.instruments import (
+    AcquisitionAxisSpec,
+    AcquisitionRef,
+    ComponentRef,
+    OperationRef,
+    PropertyRef,
+)
 from scopecat.sdk.instruments.declarations import (
     DeclaredAcquisition,
     DeclaredInterfaceLayout,
     DeclaredObservedState,
     DeclaredOperation,
+    DeclaredResultField,
+    DeclaredResultLayout,
     DeclaredScopeLayout,
     DeclaredStateLayout,
     compile_interface,
@@ -323,6 +331,7 @@ def _driver_handler_targets() -> tuple[DriverHandlerTarget, ...]:
 @dataclass(frozen=True, slots=True)
 class _OperationArgumentModel:
     python_name: str
+    argument_id: str
     kind: str
     concrete_annotation: str
     symbolic_annotation: str
@@ -393,7 +402,7 @@ class _StateKeywordModel:
 @dataclass(frozen=True, slots=True)
 class _InterfaceConstituentModel:
     interface_identity: str
-    interface_type_name: str
+    interface_id: str
     constant_prefix: str
     layout: DeclaredInterfaceLayout[object]
     observation_type_name: str | None
@@ -403,21 +412,10 @@ class _InterfaceConstituentModel:
         return f"_{self.constant_prefix}_REF"
 
     @property
-    def layout_name(self) -> str:
-        return f"_{self.constant_prefix}_LAYOUT"
-
-    @property
     def observation_descriptor_name(self) -> str | None:
         if self.observation_type_name is None:
             return None
         return f"_{self.constant_prefix}_OBSERVATION_DECLARATION"
-
-    @property
-    def needs_layout(self) -> bool:
-        return self.layout.observed_state is not None or any(
-            scope.operations or scope.acquisitions
-            for scope in _walk_declared_scopes(self.layout.root)
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,10 +501,6 @@ class _InterfaceModel:
             raise AssertionError("generated model has multiple observation descriptors")
         return descriptors[0]
 
-    @property
-    def needs_layout(self) -> bool:
-        return any(constituent.needs_layout for constituent in self.constituents)
-
 
 @dataclass(frozen=True, slots=True)
 class _BundleFlagFacadeModel:
@@ -579,7 +573,7 @@ class _DriverAcquisitionModel:
 
 @dataclass(frozen=True, slots=True)
 class _DriverOperationModel:
-    declaration: DeclaredOperation[...]
+    declaration: DeclaredOperation
     hook_name: str
     member_name: str
     optional: bool
@@ -1708,7 +1702,7 @@ def _driver_state_annotation(
 def _driver_operation_model(
     constituent: _DriverHandlerConstituent,
     scope: DeclaredScopeLayout,
-    operation: DeclaredOperation[...],
+    operation: DeclaredOperation,
     *,
     member_imports: set[str],
 ) -> _DriverOperationModel:
@@ -2773,7 +2767,7 @@ def _constituent_model(
     )
     return _InterfaceConstituentModel(
         interface_identity=f"{interface_type.__module__}.{interface_type.__qualname__}",
-        interface_type_name=renderer.reference(interface_type),
+        interface_id=layout.compiled.ref.interface_id,
         constant_prefix=_snake_case(interface_name.removesuffix("Interface")).upper(),
         layout=layout,
         observation_type_name=observation_type_name,
@@ -2868,8 +2862,6 @@ def _validate_generated_symbols(
     for constituent in _unique_constituents(models):
         declaration = constituent.interface_identity
         register(constituent.ref_name, f"{declaration} interface ref")
-        if constituent.needs_layout:
-            register(constituent.layout_name, f"{declaration} layout")
         if constituent.observation_descriptor_name is not None:
             register(
                 constituent.observation_descriptor_name,
@@ -3007,7 +2999,7 @@ def _scope_model(
 
 
 def _operation_model(
-    operation: DeclaredOperation[...],
+    operation: DeclaredOperation,
     *,
     python_path: tuple[str, ...],
     constant_prefix: str,
@@ -3031,6 +3023,7 @@ def _operation_model(
         arguments.append(
             _OperationArgumentModel(
                 python_name=argument.python_name,
+                argument_id=argument.argument_id,
                 kind=argument.parameter.kind.name,
                 concrete_annotation=concrete_annotation,
                 symbolic_annotation=f"{concrete_annotation} | ValueRef",
@@ -3098,6 +3091,7 @@ def _render_header(
 
     imports: dict[str, set[str]] = {
         "scopecat.authoring": {"EachEntity", "OneEntity"},
+        "scopecat.sdk.instruments": {"InterfaceRef"},
         "scopecat_instruments._symbolic_runtime": {"SymbolicInstrumentRecorder"},
     }
     if facades:
@@ -3106,11 +3100,6 @@ def _render_header(
         imports["scopecat.authoring"].add("EntitySelection")
     if any(model.generate_family for model in models):
         imports["scopecat_instruments._family_runtime"] = {"InstrumentFamily"}
-    imports["scopecat.sdk.instruments.declarations"] = {"declared_interface_ref"}
-    if any(model.needs_layout for model in models):
-        imports["scopecat.sdk.instruments.declarations"].update(
-            {"compile_interface", "declared_interface_layout"}
-        )
     if has_plain_root:
         imports["scopecat_instruments._client_runtime"] = {"InstrumentClientBase"}
         imports["scopecat_instruments._symbolic_runtime"].update(
@@ -3141,12 +3130,25 @@ def _render_header(
         imports["dataclasses"] = {"dataclass", "field"}
         imports["scopecat.authoring"].add("ProductRef")
         imports["scopecat.records.measurement"] = {"MeasurementValue"}
-        imports.setdefault("scopecat.sdk.instruments", set()).add("CollectReceipt")
+        imports["scopecat.sdk.instruments"].add("CollectReceipt")
+        imports.setdefault("scopecat_instruments._client_runtime", set()).update(
+            {
+                "ClientAcquisition",
+                "ClientAcquisitionAxis",
+                "ClientAcquisitionLayout",
+                "ClientAcquisitionResult",
+            }
+        )
     if has_operations:
         imports.setdefault("scopecat.sdk.instruments", set()).add("InvokeReceipt")
     if has_observations:
-        imports.setdefault("typing", set()).add("cast")
-        imports["scopecat.sdk.instruments.declarations"].add("DeclaredObservedState")
+        imports.setdefault("scopecat_instruments._client_runtime", set()).update(
+            {
+                "ClientObservedField",
+                "ClientObservedState",
+                "client_property_value_type",
+            }
+        )
     if has_components:
         imports["scopecat_instruments._client_runtime"].add(
             "InstrumentComponentClientBase"
@@ -3291,8 +3293,8 @@ def _render_type_union(alias_name: str, type_names: tuple[str, ...]) -> str:
 
 def _render_interface_refs(models: tuple[_InterfaceModel, ...]) -> str:
     return "".join(
-        f"\n{constituent.ref_name} = declared_interface_ref("
-        f"{constituent.interface_type_name})\n"
+        f"\n{constituent.ref_name} = InterfaceRef("
+        f"{_string_literal(constituent.interface_id)})\n"
         for constituent in _unique_constituents(models)
     )
 
@@ -3307,84 +3309,244 @@ def _render_descriptors(models: tuple[_InterfaceModel, ...]) -> str:
 def _render_constituent_descriptors(
     constituent: _InterfaceConstituentModel,
 ) -> str:
-    if not constituent.needs_layout:
-        return ""
-    compact_layout = (
-        f"{constituent.layout_name} = declared_interface_layout("
-        f"compile_interface({constituent.interface_type_name}))\n"
-    )
-    sections = ["\n"]
-    if len(compact_layout.rstrip("\n")) <= 88:
-        sections.append(compact_layout)
-    else:
-        sections.extend(
-            (
-                f"{constituent.layout_name} = declared_interface_layout(\n",
-                f"    compile_interface({constituent.interface_type_name})\n",
-                ")\n",
-            )
-        )
-    if constituent.observation_type_name is not None:
+    sections: list[str] = []
+    observation = constituent.layout.observed_state
+    if observation is not None:
         observation_name = constituent.observation_descriptor_name
-        if observation_name is None:
+        observation_type_name = constituent.observation_type_name
+        if observation_name is None or observation_type_name is None:
             raise AssertionError("observed constituent requires a descriptor name")
-        sections.extend(
-            (
-                f"{observation_name} = cast(\n",
-                f'    "DeclaredObservedState[{constituent.observation_type_name}]",\n',
-                f"    {constituent.layout_name}.observed_state,\n",
-                ")\n",
+        sections.append(
+            _render_client_observation(
+                observation_name,
+                observation_type_name,
+                observation,
             )
         )
-    _append_declared_scope_descriptors(
+    _append_client_scope_descriptors(
         sections,
         constituent.layout.root,
-        scope_expression=f"{constituent.layout_name}.root",
+        root_ref_name=constituent.ref_name,
         constant_prefix=constituent.constant_prefix,
     )
     return "".join(sections)
 
 
-def _append_declared_scope_descriptors(
+def _render_client_observation(
+    name: str,
+    observation_type_name: str,
+    observation: DeclaredObservedState[object],
+) -> str:
+    fields: list[str] = []
+    for field in observation.fields:
+        value_type_json = _json_model_field(
+            field.spec.model_dump_json(),
+            "value_type",
+        )
+        ref_argument = _render_client_ref_argument(
+            _property_ref_expression(field.ref),
+            indent=12,
+        )
+        value_type_argument = _render_client_value_type_argument(
+            value_type_json,
+            indent=12,
+        )
+        fields.append(
+            "        ClientObservedField(\n"
+            f"            {_string_literal(field.python_name)},\n"
+            f"{ref_argument}"
+            f"{value_type_argument}"
+            "        ),\n"
+        )
+    return (
+        f"\n{name} = ClientObservedState(\n"
+        f"    {observation_type_name},\n"
+        "    fields=(\n"
+        f"{''.join(fields)}"
+        "    ),\n"
+        ")\n"
+    )
+
+
+def _append_client_scope_descriptors(
     sections: list[str],
     scope: DeclaredScopeLayout,
     *,
-    scope_expression: str,
+    root_ref_name: str,
     constant_prefix: str,
 ) -> None:
-    sections.extend(
-        _render_descriptor_assignment(
-            _descriptor_name(
-                constant_prefix,
-                scope.python_path,
-                operation.method_name,
-            ),
-            scope_expression,
-            collection="operations",
-            index=index,
+    for operation in scope.operations:
+        sections.append(
+            "\n"
+            + _render_ref_assignment(
+                _descriptor_name(
+                    constant_prefix,
+                    scope.python_path,
+                    operation.method_name,
+                ),
+                _operation_ref_expression(root_ref_name, operation.ref),
+            )
         )
-        for index, operation in enumerate(scope.operations)
-    )
-    sections.extend(
-        _render_descriptor_assignment(
-            _descriptor_name(
-                constant_prefix,
-                scope.python_path,
-                acquisition.method_name,
-            ),
-            scope_expression,
-            collection="acquisitions",
-            index=index,
+    for acquisition in scope.acquisitions:
+        sections.append(
+            _render_client_acquisition(
+                _descriptor_name(
+                    constant_prefix,
+                    scope.python_path,
+                    acquisition.method_name,
+                ),
+                acquisition,
+                root_ref_name=root_ref_name,
+            )
         )
-        for index, acquisition in enumerate(scope.acquisitions)
-    )
-    for index, component in enumerate(scope.components):
-        _append_declared_scope_descriptors(
+    for component in scope.components:
+        _append_client_scope_descriptors(
             sections,
             component,
-            scope_expression=f"{scope_expression}.components[{index}]",
+            root_ref_name=root_ref_name,
             constant_prefix=constant_prefix,
         )
+
+
+def _render_client_acquisition(
+    name: str,
+    acquisition: DeclaredAcquisition[object],
+    *,
+    root_ref_name: str,
+) -> str:
+    acquisition_ref = _acquisition_ref_expression(root_ref_name, acquisition.ref)
+    layouts = "".join(
+        _render_client_acquisition_layout(
+            layout,
+            acquisition_ref=acquisition_ref,
+        )
+        for layout in acquisition.layouts
+    )
+    discriminator = (
+        "None"
+        if acquisition.discriminator is None
+        else _property_ref_expression(acquisition.discriminator)
+    )
+    return (
+        f"\n{name} = ClientAcquisition(\n"
+        f"    ref={acquisition_ref},\n"
+        f"    discriminator={discriminator},\n"
+        "    layouts=(\n"
+        f"{layouts}"
+        "    ),\n"
+        ")\n"
+    )
+
+
+def _render_client_acquisition_layout(
+    layout: DeclaredResultLayout,
+    *,
+    acquisition_ref: str,
+) -> str:
+    fields = "".join(
+        _render_client_acquisition_result(field, acquisition_ref=acquisition_ref)
+        for field in layout.fields
+    )
+    case_value = (
+        "None" if layout.case_value is None else _string_literal(layout.case_value)
+    )
+    return (
+        "        ClientAcquisitionLayout(\n"
+        f"            case_value={case_value},\n"
+        "            fields=(\n"
+        f"{fields}"
+        "            ),\n"
+        "        ),\n"
+    )
+
+
+def _render_client_acquisition_result(
+    field: DeclaredResultField,
+    *,
+    acquisition_ref: str,
+) -> str:
+    axes = tuple(_render_client_acquisition_axis(axis) for axis in field.spec.axes)
+    axes_expression = "(\n" + "".join(axes) + "                    )" if axes else "()"
+    result_ref = f"{acquisition_ref}.result({_string_literal(field.result_id)})"
+    return (
+        "                ClientAcquisitionResult(\n"
+        f"                    {_string_literal(field.python_name)},\n"
+        f"{_render_client_ref_argument(result_ref, indent=20)}"
+        f"                    dtype={_string_literal(field.spec.dtype)},\n"
+        f"                    unit={_optional_string_literal(field.spec.unit)},\n"
+        f"                    axes={axes_expression},\n"
+        "                ),\n"
+    )
+
+
+def _render_client_acquisition_axis(axis: AcquisitionAxisSpec) -> str:
+    size = axis.size
+    if isinstance(size, int):
+        size_argument = f"                            size={size},\n"
+    else:
+        size_expression = _property_ref_expression(
+            PropertyRef(
+                size.interface_id,
+                tuple(size.component_path),
+                size.property_id,
+            )
+        )
+        size_argument = _render_client_ref_keyword(
+            "size",
+            size_expression,
+            indent=28,
+        )
+    return (
+        "                        ClientAcquisitionAxis(\n"
+        f"                            id={_string_literal(axis.id)},\n"
+        f"{size_argument}"
+        f"                            kind={_string_literal(axis.kind)},\n"
+        f"                            unit={_optional_string_literal(axis.unit)},\n"
+        "                        ),\n"
+    )
+
+
+def _scope_ref_expression(root_ref_name: str, component_path: tuple[str, ...]) -> str:
+    expression = root_ref_name
+    for component_id in component_path:
+        expression += f".component({_string_literal(component_id)})"
+    return expression
+
+
+def _property_ref_expression(ref: PropertyRef) -> str:
+    root = f"InterfaceRef({_string_literal(ref.interface_id)})"
+    scope = _scope_ref_expression(root, ref.component_path)
+    return f"{scope}.property({_string_literal(ref.property_id)})"
+
+
+def _operation_ref_expression(root_ref_name: str, ref: OperationRef) -> str:
+    scope = _scope_ref_expression(root_ref_name, ref.component_path)
+    return f"{scope}.operation({_string_literal(ref.operation_id)})"
+
+
+def _acquisition_ref_expression(root_ref_name: str, ref: AcquisitionRef) -> str:
+    scope = _scope_ref_expression(root_ref_name, ref.component_path)
+    return f"{scope}.acquisition({_string_literal(ref.acquisition_id)})"
+
+
+def _render_ref_assignment(name: str, expression: str) -> str:
+    compact = f"{name} = {expression}\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    chained = expression.replace(").", ")\n    .")
+    return f"{name} = (\n    {chained}\n)\n"
+
+
+def _render_client_ref_argument(expression: str, *, indent: int) -> str:
+    prefix = " " * indent
+    compact = f"{prefix}{expression},\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    receiver, separator, call = expression.rpartition(".")
+    method, open_paren, argument = call.partition("(")
+    if not separator or not open_paren or not argument.endswith(")"):
+        return compact
+    return f"{prefix}{receiver}.{method}(\n{prefix}    {argument[:-1]}\n{prefix}),\n"
 
 
 def _render_result_types(model: _InterfaceModel) -> str:
@@ -3497,6 +3659,35 @@ def _render_keyword_projection_method(
     )
 
 
+def _render_client_ref_keyword(name: str, expression: str, *, indent: int) -> str:
+    prefix = " " * indent
+    compact = f"{prefix}{name}={expression},\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    receiver, separator, call = expression.rpartition(".")
+    method, open_paren, argument = call.partition("(")
+    if not separator or not open_paren or not argument.endswith(")"):
+        return compact
+    return (
+        f"{prefix}{name}={receiver}.{method}(\n"
+        f"{prefix}    {argument[:-1]}\n"
+        f"{prefix}),\n"
+    )
+
+
+def _render_client_value_type_argument(value_type_json: str, *, indent: int) -> str:
+    prefix = " " * indent
+    literal = _formatted_string_literal(value_type_json)
+    compact = f"{prefix}client_property_value_type({literal}),\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return compact
+    return (
+        f"{prefix}client_property_value_type(\n"
+        f"{_render_string_literal_lines(value_type_json, indent=indent + 4)}"
+        f"{prefix}),\n"
+    )
+
+
 def _render_optional_keyword_parameter(
     field: _StateKeywordFieldModel,
     *,
@@ -3591,10 +3782,9 @@ def _render_live_operation(operation: _OperationModel) -> str:
         annotation="concrete_annotation",
         return_annotation="InvokeReceipt",
     )
-    call = _render_declared_call(
+    call = _render_operation_call(
         operation,
-        receiver="self._invoke_declared",
-        leading_arguments=(operation.descriptor_name,),
+        receiver="self._invoke",
         returns=True,
     )
     return signature + call
@@ -3603,7 +3793,7 @@ def _render_live_operation(operation: _OperationModel) -> str:
 def _render_live_acquisition(acquisition: _AcquisitionModel) -> str:
     return (
         f"    def {acquisition.method_name}(self) -> {acquisition.readback_name}:\n"
-        "        return self._collect_declared(\n"
+        "        return self._collect(\n"
         f"            {acquisition.descriptor_name},\n"
         f"            {acquisition.readback_name},\n"
         "        )\n"
@@ -3690,10 +3880,10 @@ def _render_symbolic_operation(operation: _OperationModel) -> str:
         return_annotation="None",
         effect_id=True,
     )
-    call = _render_declared_call(
+    call = _render_operation_call(
         operation,
-        receiver="self._invoke_declared",
-        leading_arguments=(operation.descriptor_name, "effect_id"),
+        receiver="self._invoke",
+        effect_id=True,
         returns=False,
     )
     return signature + call
@@ -3706,7 +3896,7 @@ def _render_symbolic_acquisition(acquisition: _AcquisitionModel) -> str:
         "        *,\n"
         "        id: str | None = None,\n"
         f"    ) -> {acquisition.products_name}:\n"
-        "        return self._acquire_declared(\n"
+        "        return self._acquire(\n"
         f"            {acquisition.descriptor_name},\n"
         f"            {acquisition.products_name},\n"
         "            id=id,\n"
@@ -3910,23 +4100,30 @@ def _render_operation_signature(
     return "".join(lines)
 
 
-def _render_declared_call(
+def _render_operation_call(
     operation: _OperationModel,
     *,
     receiver: str,
-    leading_arguments: tuple[str, ...],
     returns: bool,
+    effect_id: bool = False,
 ) -> str:
     prefix = "return " if returns else ""
     lines = [f"        {prefix}{receiver}(\n"]
-    lines.extend(f"            {argument},\n" for argument in leading_arguments)
+    lines.append(f"            {operation.descriptor_name},\n")
+    if effect_id:
+        lines.append("            effect_id,\n")
+    if not operation.arguments:
+        lines.append("            {},\n")
+        lines.append("        )\n")
+        return "".join(lines)
+    lines.append("            {\n")
     for argument in operation.arguments:
-        if argument.kind == "KEYWORD_ONLY":
-            lines.append(
-                f"            {argument.python_name}={argument.python_name},\n"
-            )
-        else:
-            lines.append(f"            {argument.python_name},\n")
+        lines.append(
+            f"                {operation.descriptor_name}.argument(\n"
+            f"                    {_string_literal(argument.argument_id)}\n"
+            f"                ): {argument.python_name},\n"
+        )
+    lines.append("            },\n")
     lines.append("        )\n")
     return "".join(lines)
 
@@ -4154,7 +4351,7 @@ def _unique_constituents(
             existing = constituents_by_identity.get(constituent.interface_identity)
             if existing is not None:
                 if (
-                    existing.interface_type_name != constituent.interface_type_name
+                    existing.interface_id != constituent.interface_id
                     or existing.constant_prefix != constituent.constant_prefix
                 ):
                     raise ClientGenerationError(
@@ -4173,22 +4370,6 @@ def _render_tuple(values: tuple[str, ...]) -> str:
     return f"({', '.join(values)}{trailing_comma})"
 
 
-def _render_descriptor_assignment(
-    descriptor_name: str,
-    scope_expression: str,
-    *,
-    collection: str,
-    index: int,
-) -> str:
-    expression = f"{scope_expression}.{collection}[{index}]"
-    compact = f"{descriptor_name} = {expression}\n"
-    if len(compact.rstrip("\n")) <= 88:
-        return compact
-    if ".components[" in scope_expression:
-        return f"{descriptor_name} = (\n    {expression}\n)\n"
-    return f"{descriptor_name} = {scope_expression}.{collection}[\n    {index}\n]\n"
-
-
 def _descriptor_name(
     constant_prefix: str,
     python_path: tuple[str, ...],
@@ -4204,6 +4385,31 @@ def _constant_segment(name: str) -> str:
 
 def _string_literal(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+def _optional_string_literal(value: str | None) -> str:
+    return "None" if value is None else _string_literal(value)
+
+
+def _json_model_field(model_json: str, field_name: str) -> str:
+    decoded = cast("dict[str, object]", json.loads(model_json))
+    value = decoded[field_name]
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _render_string_literal_lines(value: str, *, indent: int) -> str:
+    chunk_size = max(1, (84 - indent) // 2)
+    prefix = " " * indent
+    return "".join(
+        f"{prefix}{_formatted_string_literal(value[index : index + chunk_size])}\n"
+        for index in range(0, len(value), chunk_size)
+    )
+
+
+def _formatted_string_literal(value: str) -> str:
+    if '"' in value and "'" not in value:
+        return repr(value)
+    return _string_literal(value)
 
 
 def _join_constant_name(prefix: str, segment: str) -> str:

@@ -30,20 +30,21 @@ from scopecat.program.value_refs import (
     internal_value_ref_requires_execution,
 )
 from scopecat.sdk.instruments import (
-    AcquisitionAxisSpec,
     AcquisitionResultRef,
     InterfaceRef,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
-    StatePropertyRef,
 )
 from scopecat.sdk.instruments.declarations import (
-    DeclaredAcquisition,
-    DeclaredOperation,
     state_projection_assignments,
     state_projection_target,
     target_from_state_projection_assignments,
+)
+
+from scopecat_instruments._client_runtime import (
+    ClientAcquisition,
+    ClientAcquisitionAxis,
 )
 
 
@@ -128,31 +129,27 @@ class SymbolicInstrumentClientBase:
         self._recorder.ensure(self._resource, target)
         self._state_assignments.update(assignments)
 
-    def _invoke_declared(
+    def _invoke(
         self,
-        operation: DeclaredOperation[...],
+        operation: OperationRef,
         effect_id: str | None,
+        arguments: Mapping[OperationArgumentRef, StateBinding],
         /,
-        *args: StateBinding,
-        **kwargs: StateBinding,
     ) -> None:
-        occurrence_id = operation.spec.id if effect_id is None else effect_id
+        occurrence_id = operation.operation_id if effect_id is None else effect_id
         if not occurrence_id:
             raise ValueError("symbolic operation effect id must be non-empty")
         self._recorder.invoke(
             f"{self.id}.{occurrence_id}",
             resource=self._resource,
-            operation=operation.ref,
-            arguments=cast(
-                "Mapping[OperationArgumentRef, StateBinding]",
-                operation.lower_arguments(*args, **kwargs),
-            ),
+            operation=operation,
+            arguments=arguments,
         )
         self._state_assignments.clear()
 
-    def _acquire_declared[DeclaredT, OutputT](
+    def _acquire[OutputT](
         self,
-        acquisition: DeclaredAcquisition[DeclaredT],
+        acquisition: ClientAcquisition,
         output_factory: Callable[..., OutputT],
         *,
         id: str | None,
@@ -162,13 +159,14 @@ class SymbolicInstrumentClientBase:
             selected_case = self._state_assignments.get(acquisition.discriminator)
             if not isinstance(selected_case, str):
                 raise ValueError(
-                    f"acquisition {acquisition.spec.id!r} has state-dependent "
+                    f"acquisition {acquisition.ref.acquisition_id!r} has "
+                    "state-dependent "
                     "results; ensure a concrete discriminator state before "
                     "declaring it"
                 )
             case_value = selected_case
         active_fields = acquisition.active_result_fields(case_value)
-        occurrence_id = acquisition.spec.id if id is None else id
+        occurrence_id = acquisition.ref.acquisition_id if id is None else id
         if not occurrence_id:
             raise ValueError("symbolic acquisition id must be non-empty")
         effect_id = f"{self.id}.{occurrence_id}"
@@ -176,10 +174,10 @@ class SymbolicInstrumentClientBase:
             field.python_name: self._recorder.product(
                 _join_id(id, field.result_id),
                 scope=(self.id,),
-                unit=field.spec.unit,
-                dtype=field.spec.dtype,
+                unit=field.unit,
+                dtype=field.dtype,
                 axes=_product_axes(
-                    field.spec.axes,
+                    field.axes,
                     state_assignments=self._state_assignments,
                     namespace=id,
                 ),
@@ -460,7 +458,7 @@ def _join_id(namespace: str | None, id: str | None) -> str:
 
 
 def _product_axes(
-    axes: Sequence[AcquisitionAxisSpec],
+    axes: Sequence[ClientAcquisitionAxis],
     *,
     state_assignments: Mapping[PropertyRef, StateBinding],
     namespace: str | None,
@@ -478,20 +476,15 @@ def _product_axes(
 
 
 def _product_axis_size(
-    axis: AcquisitionAxisSpec,
+    axis: ClientAcquisitionAxis,
     *,
     state_assignments: Mapping[PropertyRef, StateBinding],
 ) -> int | ValueRef:
     size = axis.size
-    if not isinstance(size, StatePropertyRef):
+    if not isinstance(size, PropertyRef):
         return size
-    property = PropertyRef(
-        size.interface_id,
-        tuple(size.component_path),
-        size.property_id,
-    )
     try:
-        value = state_assignments[property]
+        value = state_assignments[size]
     except KeyError:
         raise ValueError(
             f"acquisition axis {axis.id!r} is sized by {size.property_id!r}; "

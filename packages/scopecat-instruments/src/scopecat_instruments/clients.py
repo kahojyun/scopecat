@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, cast, overload, override
+from typing import Literal, overload, override
 
 from scopecat.api._instruments import InstrumentRef, instrument
 from scopecat.authoring import (
@@ -18,17 +18,18 @@ from scopecat.authoring import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementValue
-from scopecat.sdk.instruments import ApplyReceipt, CollectReceipt
-from scopecat.sdk.instruments.declarations import (
-    DeclaredObservedState,
-    compile_interface,
-    declared_interface_layout,
-    declared_interface_ref,
-)
+from scopecat.sdk.instruments import ApplyReceipt, CollectReceipt, InterfaceRef
 
 from scopecat_instruments._client_runtime import (
+    ClientAcquisition,
+    ClientAcquisitionAxis,
+    ClientAcquisitionLayout,
+    ClientAcquisitionResult,
+    ClientObservedField,
+    ClientObservedState,
     DeclaredStateClientBase,
     InstrumentClientBase,
+    client_property_value_type,
 )
 from scopecat_instruments._family_runtime import InstrumentFamily
 from scopecat_instruments._symbolic_runtime import (
@@ -39,13 +40,8 @@ from scopecat_instruments._symbolic_runtime import (
     SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
-    DCMonitorInterface,
     DCMonitorResults,
-    DCSourceInterface,
-    NetworkSweepInterface,
     NetworkSweepResults,
-    RFOutputInterface,
-    TemperatureReadoutInterface,
     TemperatureReadoutObservation,
     TemperatureSampleResults,
 )
@@ -70,34 +66,136 @@ from scopecat_instruments.states import (
     RFOutputTarget,
 )
 
-_TEMPERATURE_READOUT_REF = declared_interface_ref(TemperatureReadoutInterface)
+_TEMPERATURE_READOUT_REF = InterfaceRef("scopecat.temperature_readout/v1")
 
-_RF_OUTPUT_REF = declared_interface_ref(RFOutputInterface)
+_RF_OUTPUT_REF = InterfaceRef("scopecat.rf_output/v1")
 
-_DC_SOURCE_REF = declared_interface_ref(DCSourceInterface)
+_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v2")
 
-_DC_MONITOR_REF = declared_interface_ref(DCMonitorInterface)
+_DC_MONITOR_REF = InterfaceRef("scopecat.dc_monitor/v3")
 
-_NETWORK_SWEEP_REF = declared_interface_ref(NetworkSweepInterface)
+_NETWORK_SWEEP_REF = InterfaceRef("scopecat.network_sweep/v1")
 
-_TEMPERATURE_READOUT_LAYOUT = declared_interface_layout(
-    compile_interface(TemperatureReadoutInterface)
+_TEMPERATURE_READOUT_OBSERVATION_DECLARATION = ClientObservedState(
+    TemperatureReadoutObservation,
+    fields=(
+        ClientObservedField(
+            "scan_channel",
+            InterfaceRef("scopecat.temperature_readout/v1").property("scan_channel"),
+            client_property_value_type('{"type":"int","minimum":1,"maximum":16}'),
+        ),
+        ClientObservedField(
+            "autoscan_enabled",
+            InterfaceRef("scopecat.temperature_readout/v1").property(
+                "autoscan_enabled"
+            ),
+            client_property_value_type('{"type":"bool"}'),
+        ),
+    ),
 )
-_TEMPERATURE_READOUT_OBSERVATION_DECLARATION = cast(
-    "DeclaredObservedState[TemperatureReadoutObservation]",
-    _TEMPERATURE_READOUT_LAYOUT.observed_state,
-)
-_TEMPERATURE_READOUT_SAMPLE_DECLARATION = _TEMPERATURE_READOUT_LAYOUT.root.acquisitions[
-    0
-]
 
-_DC_MONITOR_LAYOUT = declared_interface_layout(compile_interface(DCMonitorInterface))
-_DC_MONITOR_MONITOR_DECLARATION = _DC_MONITOR_LAYOUT.root.acquisitions[0]
-
-_NETWORK_SWEEP_LAYOUT = declared_interface_layout(
-    compile_interface(NetworkSweepInterface)
+_TEMPERATURE_READOUT_SAMPLE_DECLARATION = ClientAcquisition(
+    ref=_TEMPERATURE_READOUT_REF.acquisition("sample"),
+    discriminator=None,
+    layouts=(
+        ClientAcquisitionLayout(
+            case_value=None,
+            fields=(
+                ClientAcquisitionResult(
+                    "temperature",
+                    _TEMPERATURE_READOUT_REF.acquisition("sample").result(
+                        "temperature"
+                    ),
+                    dtype="float64",
+                    unit="K",
+                    axes=(),
+                ),
+                ClientAcquisitionResult(
+                    "resistance",
+                    _TEMPERATURE_READOUT_REF.acquisition("sample").result("resistance"),
+                    dtype="float64",
+                    unit="Ohm",
+                    axes=(),
+                ),
+            ),
+        ),
+    ),
 )
-_NETWORK_SWEEP_SWEEP_DECLARATION = _NETWORK_SWEEP_LAYOUT.root.acquisitions[0]
+
+_DC_MONITOR_MONITOR_DECLARATION = ClientAcquisition(
+    ref=_DC_MONITOR_REF.acquisition("monitor"),
+    discriminator=InterfaceRef("scopecat.dc_source/v2").property("source_mode"),
+    layouts=(
+        ClientAcquisitionLayout(
+            case_value="voltage",
+            fields=(
+                ClientAcquisitionResult(
+                    "current",
+                    _DC_MONITOR_REF.acquisition("monitor").result("monitored_current"),
+                    dtype="float64",
+                    unit="A",
+                    axes=(),
+                ),
+            ),
+        ),
+        ClientAcquisitionLayout(
+            case_value="current",
+            fields=(
+                ClientAcquisitionResult(
+                    "voltage",
+                    _DC_MONITOR_REF.acquisition("monitor").result("monitored_voltage"),
+                    dtype="float64",
+                    unit="V",
+                    axes=(),
+                ),
+            ),
+        ),
+    ),
+)
+
+_NETWORK_SWEEP_SWEEP_DECLARATION = ClientAcquisition(
+    ref=_NETWORK_SWEEP_REF.acquisition("sweep"),
+    discriminator=None,
+    layouts=(
+        ClientAcquisitionLayout(
+            case_value=None,
+            fields=(
+                ClientAcquisitionResult(
+                    "frequency",
+                    _NETWORK_SWEEP_REF.acquisition("sweep").result("frequency"),
+                    dtype="float64",
+                    unit="Hz",
+                    axes=(
+                        ClientAcquisitionAxis(
+                            id="frequency",
+                            size=InterfaceRef("scopecat.network_sweep/v1").property(
+                                "points"
+                            ),
+                            kind="frequency",
+                            unit="Hz",
+                        ),
+                    ),
+                ),
+                ClientAcquisitionResult(
+                    "s_parameter",
+                    _NETWORK_SWEEP_REF.acquisition("sweep").result("s_parameter"),
+                    dtype="complex128",
+                    unit="ratio",
+                    axes=(
+                        ClientAcquisitionAxis(
+                            id="frequency",
+                            size=InterfaceRef("scopecat.network_sweep/v1").property(
+                                "points"
+                            ),
+                            kind="frequency",
+                            unit="Hz",
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +222,7 @@ class TemperatureReadoutClient(InstrumentClientBase):
         )
 
     def sample(self) -> TemperatureReadback:
-        return self._collect_declared(
+        return self._collect(
             _TEMPERATURE_READOUT_SAMPLE_DECLARATION,
             TemperatureReadback,
         )
@@ -152,7 +250,7 @@ class SymbolicTemperatureReadoutClient(SymbolicInstrumentClientBase):
         *,
         id: str | None = None,
     ) -> TemperatureSampleProducts:
-        return self._acquire_declared(
+        return self._acquire(
             _TEMPERATURE_READOUT_SAMPLE_DECLARATION,
             TemperatureSampleProducts,
             id=id,
@@ -427,7 +525,7 @@ class DCMonitorProducts(DCMonitorResults[ProductRef]):
 
 class DCSourceMonitorClient(DeclaredStateClientBase[_DCSourceMonitorPatch]):
     def monitor(self) -> DCMonitorReadback:
-        return self._collect_declared(
+        return self._collect(
             _DC_MONITOR_MONITOR_DECLARATION,
             DCMonitorReadback,
         )
@@ -457,7 +555,7 @@ class SymbolicDCSourceMonitorClient(
         *,
         id: str | None = None,
     ) -> DCMonitorProducts:
-        return self._acquire_declared(
+        return self._acquire(
             _DC_MONITOR_MONITOR_DECLARATION,
             DCMonitorProducts,
             id=id,
@@ -541,7 +639,7 @@ class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
         )
 
     def sweep(self) -> NetworkSweepReadback:
-        return self._collect_declared(
+        return self._collect(
             _NETWORK_SWEEP_SWEEP_DECLARATION,
             NetworkSweepReadback,
         )
@@ -599,7 +697,7 @@ class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepTar
         *,
         id: str | None = None,
     ) -> NetworkSweepProducts:
-        return self._acquire_declared(
+        return self._acquire(
             _NETWORK_SWEEP_SWEEP_DECLARATION,
             NetworkSweepProducts,
             id=id,

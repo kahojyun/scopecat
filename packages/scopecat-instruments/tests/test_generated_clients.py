@@ -202,9 +202,10 @@ def test_codegen_derives_base_family_suppression_from_a_facade_bundle() -> None:
         completed.stdout
     )
     assert "DC_SOURCE_DECLARATION" not in completed.stdout
-    assert "_DC_SOURCE_REF = declared_interface_ref(DCSourceInterface)" in (
+    assert '_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v2")' in (
         completed.stdout
     )
+    assert "compile_interface" not in completed.stdout
     assert "InstrumentFamily" not in completed.stdout
     assert '"dc_source"' in completed.stdout
 

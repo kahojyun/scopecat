@@ -12,19 +12,136 @@ from scopecat.api._instruments import (
 )
 from scopecat.daemon.wire import InstrumentConfiguredDefaultsApplyReceipt
 from scopecat.kernel.state import StateLiteral, StateValue
+from scopecat.kernel.value_types import ValueType
+from scopecat.kernel.value_validation import coerce_literal
+from scopecat.measurements.results import MeasurementDType
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments import (
+    AcquisitionRef,
+    AcquisitionResultRef,
     ApplyReceipt,
     InstrumentDescription,
     InvokeReceipt,
     OperationArgumentRef,
+    OperationRef,
     PropertyRef,
+    PropertySpec,
 )
 from scopecat.sdk.instruments.declarations import (
-    DeclaredAcquisition,
-    DeclaredOperation,
     state_projection_assignments,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ClientObservedField:
+    python_name: str
+    ref: PropertyRef
+    value_type: ValueType
+
+
+@dataclass(frozen=True, slots=True)
+class ClientObservedState[StateT]:
+    state_type: type[StateT]
+    fields: tuple[ClientObservedField, ...]
+
+    def decode(self, snapshot: InstrumentStateSnapshot, /) -> StateT:
+        properties = {
+            PropertyRef(
+                item.interface_id,
+                tuple(item.component_path),
+                item.property_id,
+            ): item
+            for item in snapshot.properties
+        }
+        missing = tuple(field for field in self.fields if field.ref not in properties)
+        if missing:
+            rendered = ", ".join(
+                f"{field.python_name} ({field.ref!r})" for field in missing
+            )
+            raise ValueError(
+                f"observed-state snapshot is missing generated fields: {rendered}"
+            )
+        values = {
+            field.python_name: coerce_literal(
+                field.value_type,
+                properties[field.ref].value.root,
+                path=("observed_state", field.python_name),
+            )
+            for field in self.fields
+        }
+        constructor = cast("Callable[..., StateT]", self.state_type)
+        return constructor(**values)
+
+
+@dataclass(frozen=True, slots=True)
+class ClientAcquisitionAxis:
+    id: str
+    size: int | PropertyRef
+    kind: str
+    unit: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ClientAcquisitionResult:
+    python_name: str
+    ref: AcquisitionResultRef
+    dtype: MeasurementDType
+    unit: str | None
+    axes: tuple[ClientAcquisitionAxis, ...]
+
+    @property
+    def result_id(self) -> str:
+        return self.ref.result_id
+
+
+@dataclass(frozen=True, slots=True)
+class ClientAcquisitionLayout:
+    case_value: str | None
+    fields: tuple[ClientAcquisitionResult, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ClientAcquisition:
+    ref: AcquisitionRef
+    discriminator: PropertyRef | None
+    layouts: tuple[ClientAcquisitionLayout, ...]
+
+    @property
+    def result_fields(self) -> tuple[ClientAcquisitionResult, ...]:
+        return tuple(field for layout in self.layouts for field in layout.fields)
+
+    def active_result_fields(
+        self,
+        case_value: str | None = None,
+        /,
+    ) -> tuple[ClientAcquisitionResult, ...]:
+        if self.discriminator is None:
+            if case_value is not None:
+                raise ValueError(
+                    f"fixed acquisition {self.ref.acquisition_id!r} has no cases"
+                )
+            return self.layouts[0].fields
+        if case_value is None:
+            raise ValueError(
+                f"acquisition {self.ref.acquisition_id!r} requires a concrete "
+                "discriminator case"
+            )
+        selected = next(
+            (layout for layout in self.layouts if layout.case_value == case_value),
+            None,
+        )
+        if selected is None:
+            raise ValueError(
+                f"acquisition {self.ref.acquisition_id!r} has no result case "
+                f"{case_value!r}"
+            )
+        return selected.fields
+
+
+def client_property_value_type(value_type_json: str, /) -> ValueType:
+    return PropertySpec.model_validate_json(
+        f'{{"id":"generated","value_type":{value_type_json}}}'
+    ).value_type
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,25 +169,21 @@ class InstrumentClientBase:
             instrument_id=self.instrument_id,
         )
 
-    def _invoke_declared[**P](
+    def _invoke(
         self,
-        operation: DeclaredOperation[P],
+        operation: OperationRef,
+        arguments: Mapping[OperationArgumentRef, OperationArgumentValue],
         /,
-        *args: P.args,
-        **kwargs: P.kwargs,
     ) -> InvokeReceipt:
         return self._session.invoke(
-            operation.ref,
-            cast(
-                "Mapping[OperationArgumentRef, OperationArgumentValue]",
-                operation.lower_arguments(*args, **kwargs),
-            ),
+            operation,
+            arguments,
             instrument_id=self.instrument_id,
         )
 
-    def _collect_declared[DeclaredT, OutputT](
+    def _collect[OutputT](
         self,
-        acquisition: DeclaredAcquisition[DeclaredT],
+        acquisition: ClientAcquisition,
         output_factory: Callable[..., OutputT],
     ) -> OutputT:
         requested_results = (
@@ -134,7 +247,14 @@ def _concrete_assignments(state: object) -> dict[PropertyRef, StateLiteral]:
 
 
 __all__ = [
+    "ClientAcquisition",
+    "ClientAcquisitionAxis",
+    "ClientAcquisitionLayout",
+    "ClientAcquisitionResult",
+    "ClientObservedField",
+    "ClientObservedState",
     "DeclaredStateClientBase",
     "InstrumentClientBase",
     "InstrumentComponentClientBase",
+    "client_property_value_type",
 ]

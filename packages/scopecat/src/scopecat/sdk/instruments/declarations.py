@@ -11,11 +11,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import Field, dataclass, field, fields, is_dataclass
 from enum import Enum, auto
-from inspect import Parameter, Signature, get_annotations, signature
+from inspect import Parameter, get_annotations, signature
 from types import GenericAlias, NoneType, UnionType
 from typing import (
     Annotated,
-    Concatenate,
     Literal,
     Protocol,
     TypeAliasType,
@@ -400,27 +399,13 @@ class DeclaredOperationArgument:
 
 
 @dataclass(frozen=True, slots=True)
-class DeclaredOperation[**P]:
-    """Typed operation method paired with its Python-to-wire argument layout."""
+class DeclaredOperation:
+    """One operation method paired with its compiled argument identities."""
 
     method_name: str
     ref: OperationRef
     spec: OperationSpec
     arguments: tuple[DeclaredOperationArgument, ...]
-    call_signature: Signature
-
-    def lower_arguments(
-        self,
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> dict[OperationArgumentRef, object]:
-        """Bind one valid Python call and key its values by compiled identities."""
-
-        bound = self.call_signature.bind(*args, **kwargs)
-        return {
-            argument.ref: bound.arguments[argument.python_name]
-            for argument in self.arguments
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -506,7 +491,7 @@ class DeclaredScopeLayout:
     capability_type: type[object]
     ref: InterfaceRef | ComponentRef
     spec: InterfaceSpec | ComponentSpec
-    operations: tuple[DeclaredOperation[...], ...]
+    operations: tuple[DeclaredOperation, ...]
     acquisitions: tuple[DeclaredAcquisition[object], ...]
     components: tuple[DeclaredScopeLayout, ...]
 
@@ -1401,7 +1386,7 @@ def _declared_scope_layout[InterfaceT](
     scope: InterfaceRef | ComponentRef,
     scope_spec: InterfaceSpec | ComponentSpec,
 ) -> DeclaredScopeLayout:
-    operations: list[DeclaredOperation[...]] = []
+    operations: list[DeclaredOperation] = []
     acquisitions: list[DeclaredAcquisition[object]] = []
     for method in _declared_members(capability_type).values():
         operation_declaration = getattr(method, _OPERATION_METADATA, None)
@@ -1460,14 +1445,14 @@ def _declared_scope_layout[InterfaceT](
     )
 
 
-def declared_operation[InterfaceT, MethodSelfT, **P](
+def declared_operation[InterfaceT](
     compiled: CompiledInterface[InterfaceT],
-    method: Callable[Concatenate[MethodSelfT, P], None],
+    method: Callable[..., None],
     /,
     *,
     component: tuple[str, ...] = (),
-) -> DeclaredOperation[P]:
-    """Bind a decorated method to its exact call and compiled argument layouts."""
+) -> DeclaredOperation:
+    """Bind a decorated method to its compiled argument identities."""
 
     capability_type, scope = _resolve_declared_scope(
         compiled.interface_type,
@@ -1497,7 +1482,6 @@ def declared_operation[InterfaceT, MethodSelfT, **P](
     operation_ref = scope.operation(operation_id)
     method_signature = signature(method)
     parameters = tuple(method_signature.parameters.values())[1:]
-    call_signature = method_signature.replace(parameters=parameters)
     hints = cast(
         "Mapping[str, object]",
         get_type_hints(method, include_extras=True),
@@ -1527,7 +1511,6 @@ def declared_operation[InterfaceT, MethodSelfT, **P](
         ref=operation_ref,
         spec=operation_spec,
         arguments=tuple(arguments),
-        call_signature=call_signature,
     )
 
 
