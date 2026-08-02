@@ -1,15 +1,16 @@
 """Typed Python declarations for instrument interface contracts.
 
-The decorators in this module only attach declaration metadata. They leave the
-decorated dataclasses and methods unchanged so Python type checkers continue to
-see the authored API. :func:`compile_interface` is the explicit boundary that
-lowers those declarations to the existing :class:`InterfaceSpec` contract.
+State and result decorators turn ordinary annotated classes into immutable
+dataclasses while preserving their authored API for Python type checkers.
+:func:`compile_interface` is the explicit boundary that lowers those
+declarations to the existing :class:`InterfaceSpec` contract.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import Field, dataclass, field, fields, is_dataclass
+from enum import Enum, auto
 from inspect import Parameter, Signature, signature
 from types import NoneType, UnionType
 from typing import (
@@ -18,6 +19,7 @@ from typing import (
     Literal,
     TypeAliasType,
     cast,
+    dataclass_transform,
     get_args,
     get_origin,
     get_type_hints,
@@ -100,6 +102,14 @@ _ACQUISITION_METADATA = "__scopecat_instrument_acquisition__"
 _OPERATION_METADATA = "__scopecat_instrument_operation__"
 _STATE_INTERFACES_METADATA = "__scopecat_instrument_state_interfaces__"
 _STATE_BINDINGS_METADATA = "__scopecat_instrument_state_bindings__"
+_FIELD_DECLARATION_METADATA = "scopecat.instrument.declaration"
+
+
+class _NoFieldDefault(Enum):
+    TOKEN = auto()
+
+
+_NO_FIELD_DEFAULT = _NoFieldDefault.TOKEN
 
 
 @dataclass(frozen=True, slots=True)
@@ -485,6 +495,44 @@ def member(
     )
 
 
+def member_field[ValueT](
+    *,
+    default: ValueT | Literal[_NoFieldDefault.TOKEN] = _NO_FIELD_DEFAULT,
+    default_factory: Callable[[], ValueT] | Literal[_NoFieldDefault.TOKEN] = (
+        _NO_FIELD_DEFAULT
+    ),
+    id: str | None = None,
+    label: str | None = None,
+    description: str | None = None,
+    access: PropertyAccess = "read_write",
+    unit: str | None = None,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    choices: Sequence[str] | None = None,
+) -> ValueT:
+    """Declare one dataclass state field and its instrument metadata."""
+
+    metadata = {
+        _FIELD_DECLARATION_METADATA: member(
+            id=id,
+            label=label,
+            description=description,
+            access=access,
+            unit=unit,
+            minimum=minimum,
+            maximum=maximum,
+            choices=choices,
+        )
+    }
+    if default_factory is not _NO_FIELD_DEFAULT:
+        if default is not _NO_FIELD_DEFAULT:
+            raise ValueError("cannot specify both default and default_factory")
+        return field(default_factory=default_factory, metadata=metadata)
+    if default is _NO_FIELD_DEFAULT:
+        return cast("ValueT", field(metadata=metadata))
+    return field(default=default, metadata=metadata)
+
+
 def argument(
     *,
     id: str | None = None,
@@ -625,6 +673,40 @@ def result(
     )
 
 
+def result_field[ValueT](
+    *,
+    default: ValueT | Literal[_NoFieldDefault.TOKEN] = _NO_FIELD_DEFAULT,
+    default_factory: Callable[[], ValueT] | Literal[_NoFieldDefault.TOKEN] = (
+        _NO_FIELD_DEFAULT
+    ),
+    id: str | None = None,
+    dtype: MeasurementDType | None = None,
+    unit: str | None = None,
+    axes: Sequence[str] = (),
+    label: str | None = None,
+    description: str | None = None,
+) -> ValueT:
+    """Declare one dataclass acquisition-result field and its metadata."""
+
+    metadata = {
+        _FIELD_DECLARATION_METADATA: result(
+            id=id,
+            dtype=dtype,
+            unit=unit,
+            axes=axes,
+            label=label,
+            description=description,
+        )
+    }
+    if default_factory is not _NO_FIELD_DEFAULT:
+        if default is not _NO_FIELD_DEFAULT:
+            raise ValueError("cannot specify both default and default_factory")
+        return field(default_factory=default_factory, metadata=metadata)
+    if default is _NO_FIELD_DEFAULT:
+        return cast("ValueT", field(metadata=metadata))
+    return field(default=default, metadata=metadata)
+
+
 def axis(
     *,
     size: AxisSize,
@@ -644,25 +726,43 @@ def axis(
     )
 
 
-def instrument_state[ClassT: type[object]](cls: ClassT) -> ClassT:
-    """Mark an existing dataclass as interface state without replacing it."""
+@dataclass_transform(
+    field_specifiers=(member_field,),
+    frozen_default=True,
+    kw_only_default=True,
+)
+def instrument_state[ClassT](cls: type[ClassT], /) -> type[ClassT]:
+    """Create an immutable, slotted, keyword-only instrument state dataclass."""
 
-    setattr(cls, _STATE_METADATA, True)
-    return cls
+    declared = dataclass(frozen=True, slots=True, kw_only=True)(cls)
+    setattr(declared, _STATE_METADATA, True)
+    return declared
 
 
-def instrument_observed_state[ClassT: type[object]](cls: ClassT) -> ClassT:
-    """Mark a readback dataclass whose fields cannot be used as desired state."""
+@dataclass_transform(
+    field_specifiers=(member_field,),
+    frozen_default=True,
+    kw_only_default=True,
+)
+def instrument_observed_state[ClassT](cls: type[ClassT], /) -> type[ClassT]:
+    """Create an immutable readback dataclass that is not desired state."""
 
-    setattr(cls, _OBSERVED_STATE_METADATA, True)
-    return cls
+    declared = dataclass(frozen=True, slots=True, kw_only=True)(cls)
+    setattr(declared, _OBSERVED_STATE_METADATA, True)
+    return declared
 
 
-def instrument_result[ClassT: type[object]](cls: ClassT) -> ClassT:
-    """Mark an existing dataclass as acquisition results without replacing it."""
+@dataclass_transform(
+    field_specifiers=(result_field,),
+    frozen_default=True,
+    kw_only_default=True,
+)
+def instrument_result[ClassT](cls: type[ClassT], /) -> type[ClassT]:
+    """Create an immutable, slotted, keyword-only acquisition result dataclass."""
 
-    setattr(cls, _RESULT_METADATA, True)
-    return cls
+    declared = dataclass(frozen=True, slots=True, kw_only=True)(cls)
+    setattr(declared, _RESULT_METADATA, True)
+    return declared
 
 
 def instrument_interface[ClassT: type[object]](
@@ -1637,10 +1737,14 @@ def _compile_state_fields(
         )
     properties: list[PropertySpec] = []
     for field_name in field_names:
+        state_field = state_fields[field_name]
         annotation = hints.get(field_name)
         if annotation is None:
             raise TypeError(f"state field {field_name!r} must be annotated")
-        base, metadata = _split_annotation(annotation, MemberMetadata)
+        base, annotated_metadata = _split_annotation(annotation, MemberMetadata)
+        metadata = (
+            _declared_field_metadata(state_field, MemberMetadata) or annotated_metadata
+        )
         properties.append(
             _compile_property(
                 field_name,
@@ -2155,8 +2259,12 @@ def _compile_results(
         annotation = hints.get(result_field.name)
         if annotation is None:
             raise TypeError(f"result field {result_field.name!r} must be annotated")
-        base, metadata = _split_annotation(annotation, ResultMetadata)
-        metadata = metadata or ResultMetadata()
+        base, annotated_metadata = _split_annotation(annotation, ResultMetadata)
+        metadata = (
+            _declared_field_metadata(result_field, ResultMetadata)
+            or annotated_metadata
+            or ResultMetadata()
+        )
         unknown_axes = set(metadata.axes) - axes.keys()
         if unknown_axes:
             raise ValueError(
@@ -2394,15 +2502,28 @@ def _declared_dataclass_field_id[MetadataT: MemberMetadata | ResultMetadata](
 ) -> str:
     if not is_dataclass(dataclass_type):
         raise TypeError(f"declared {label} must be a dataclass")
-    if field_name not in {item.name for item in fields(dataclass_type)}:
+    dataclass_fields = {item.name: item for item in fields(dataclass_type)}
+    if field_name not in dataclass_fields:
         raise ValueError(f"{label} dataclass has no field {field_name!r}")
     hints = cast(
         "Mapping[str, object]",
         get_type_hints(dataclass_type, include_extras=True),
     )
     annotation = hints[field_name]
-    _, metadata = _split_annotation(annotation, metadata_type)
+    _, annotated_metadata = _split_annotation(annotation, metadata_type)
+    metadata = (
+        _declared_field_metadata(dataclass_fields[field_name], metadata_type)
+        or annotated_metadata
+    )
     return field_name if metadata is None or metadata.id is None else metadata.id
+
+
+def _declared_field_metadata[MetadataT: MemberMetadata | ResultMetadata](
+    dataclass_field: Field[object],
+    metadata_type: type[MetadataT],
+) -> MetadataT | None:
+    metadata = dataclass_field.metadata.get(_FIELD_DECLARATION_METADATA)
+    return metadata if isinstance(metadata, metadata_type) else None
 
 
 def _required_metadata[MetadataT](
@@ -2474,9 +2595,11 @@ __all__ = [
     "instrument_state",
     "interface_discriminator",
     "member",
+    "member_field",
     "operation",
     "precondition",
     "result",
+    "result_field",
     "state_case",
     "state_discriminated_acquisition",
     "state_field",

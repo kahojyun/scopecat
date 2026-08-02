@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import FrozenInstanceError, fields, is_dataclass
 from typing import Annotated, Literal, Protocol, assert_type, cast
 
 import pytest
@@ -94,9 +94,11 @@ from scopecat.sdk.instruments.declarations import (
     instrument_state,
     interface_discriminator,
     member,
+    member_field,
     operation,
     precondition,
     result,
+    result_field,
     state_case,
     state_discriminated_acquisition,
     state_field,
@@ -106,56 +108,46 @@ type Desired[T] = T | ValueRef
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True, kw_only=True)
 class SweepState:
-    start_frequency: Annotated[
-        Desired[Quantity] | None,
-        member(
-            unit="Hz",
-            label="Start frequency",
-            description="First stimulus frequency.",
-        ),
-    ] = None
-    points: Annotated[
-        Desired[int] | None,
-        member(
-            minimum=2,
-            label="Sweep points",
-            description="Number of frequency points.",
-        ),
-    ] = None
-    trace: Annotated[
-        Desired[Literal["S11", "S21"]] | None,
-        member(label="Trace", description="Selected response."),
-    ] = None
-    output_enabled: Annotated[
-        Desired[bool] | None,
-        member(label="Output", description="Whether output is enabled."),
-    ] = None
+    start_frequency: Desired[Quantity] | None = member_field(
+        default=None,
+        unit="Hz",
+        label="Start frequency",
+        description="First stimulus frequency.",
+    )
+    points: Desired[int] | None = member_field(
+        default=None,
+        minimum=2,
+        label="Sweep points",
+        description="Number of frequency points.",
+    )
+    trace: Desired[Literal["S11", "S21"]] | None = member_field(
+        default=None,
+        label="Trace",
+        description="Selected response.",
+    )
+    output_enabled: Desired[bool] | None = member_field(
+        default=None,
+        label="Output",
+        description="Whether output is enabled.",
+    )
 
 
 @instrument_result
-@dataclass(frozen=True, slots=True)
 class SweepResults:
-    frequency: Annotated[
-        list[float],
-        result(
-            unit="Hz",
-            axes=("frequency",),
-            label="Frequency",
-            description="Stimulus frequencies.",
-        ),
-    ]
-    response: Annotated[
-        list[complex],
-        result(
-            id="s_parameter",
-            unit="ratio",
-            axes=("frequency",),
-            label="Response",
-            description="Complex response.",
-        ),
-    ]
+    frequency: list[float] = result_field(
+        unit="Hz",
+        axes=("frequency",),
+        label="Frequency",
+        description="Stimulus frequencies.",
+    )
+    response: list[complex] = result_field(
+        id="s_parameter",
+        unit="ratio",
+        axes=("frequency",),
+        label="Response",
+        description="Complex response.",
+    )
 
 
 @instrument_interface(
@@ -182,59 +174,45 @@ class SweepContract(Protocol):
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True)
 class SourceCommonState:
-    output_enabled: Annotated[
-        Desired[bool] | None,
-        member(label="Output", description="Whether output is enabled."),
-    ] = None
+    output_enabled: Desired[bool] | None = member_field(
+        default=None,
+        label="Output",
+        description="Whether output is enabled.",
+    )
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True)
 class VoltageState:
-    range: Annotated[
-        Desired[Quantity],
-        member(
-            id="voltage_range",
-            unit="V",
-            label="Voltage range",
-            description="Selected voltage range.",
-        ),
-    ]
-    level: Annotated[
-        Desired[Quantity],
-        member(
-            id="voltage_level",
-            unit="V",
-            label="Voltage level",
-            description="Selected voltage level.",
-        ),
-    ]
+    range: Desired[Quantity] = member_field(
+        id="voltage_range",
+        unit="V",
+        label="Voltage range",
+        description="Selected voltage range.",
+    )
+    level: Desired[Quantity] = member_field(
+        id="voltage_level",
+        unit="V",
+        label="Voltage level",
+        description="Selected voltage level.",
+    )
     output_enabled: Desired[bool] | None = None
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True)
 class CurrentState:
-    range: Annotated[
-        Desired[Quantity],
-        member(
-            id="current_range",
-            unit="A",
-            label="Current range",
-            description="Selected current range.",
-        ),
-    ]
-    level: Annotated[
-        Desired[Quantity],
-        member(
-            id="current_level",
-            unit="A",
-            label="Current level",
-            description="Selected current level.",
-        ),
-    ]
+    range: Desired[Quantity] = member_field(
+        id="current_range",
+        unit="A",
+        label="Current range",
+        description="Selected current range.",
+    )
+    level: Desired[Quantity] = member_field(
+        id="current_level",
+        unit="A",
+        label="Current level",
+        description="Selected current level.",
+    )
     output_enabled: Desired[bool] | None = None
 
 
@@ -269,35 +247,30 @@ class SourceContract(Protocol): ...
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True)
 class MonitorState:
-    measurement_enabled: Annotated[
-        Desired[bool] | None,
-        member(label="Measurement", description="Whether measurement is enabled."),
-    ] = None
+    measurement_enabled: Desired[bool] | None = member_field(
+        default=None,
+        label="Measurement",
+        description="Whether measurement is enabled.",
+    )
 
 
 @instrument_result
-@dataclass(frozen=True, slots=True)
 class MonitorResults:
-    current: Annotated[
-        float | None,
-        result(
-            id="monitored_current",
-            unit="A",
-            label="Current",
-            description="Measured current.",
-        ),
-    ] = None
-    voltage: Annotated[
-        float | None,
-        result(
-            id="monitored_voltage",
-            unit="V",
-            label="Voltage",
-            description="Measured voltage.",
-        ),
-    ] = None
+    current: float | None = result_field(
+        default=None,
+        id="monitored_current",
+        unit="A",
+        label="Current",
+        description="Measured current.",
+    )
+    voltage: float | None = result_field(
+        default=None,
+        id="monitored_voltage",
+        unit="V",
+        label="Voltage",
+        description="Measured voltage.",
+    )
 
 
 @instrument_interface(
@@ -330,7 +303,6 @@ class MonitorContract(Protocol):
 
 
 @instrument_result
-@dataclass(frozen=True, slots=True)
 class ScalarResults:
     value: float
 
@@ -352,29 +324,21 @@ class AbstractContract(ABC):
 
 
 @instrument_observed_state
-@dataclass(frozen=True, slots=True)
 class ScannerObservation:
-    channel: Annotated[
-        int,
-        member(
-            id="active_channel",
-            minimum=1,
-            maximum=16,
-            label="Active channel",
-            description="Input currently selected by the scanner.",
-        ),
-    ]
-    autoscan: Annotated[
-        bool,
-        member(
-            label="Autoscan",
-            description="Whether the scanner advances automatically.",
-        ),
-    ]
+    channel: int = member_field(
+        id="active_channel",
+        minimum=1,
+        maximum=16,
+        label="Active channel",
+        description="Input currently selected by the scanner.",
+    )
+    autoscan: bool = member_field(
+        label="Autoscan",
+        description="Whether the scanner advances automatically.",
+    )
 
 
 @instrument_observed_state
-@dataclass(frozen=True, slots=True)
 class NumericObservation:
     reading: Annotated[
         float,
@@ -394,13 +358,11 @@ class NumericObservationContract(Protocol): ...
 
 
 @instrument_observed_state
-@dataclass(frozen=True, slots=True)
 class UnrelatedObservation:
     value: int
 
 
 @instrument_result
-@dataclass(frozen=True, slots=True)
 class TriggerSampleResults:
     value: Annotated[
         float,
@@ -534,6 +496,55 @@ class OperationLowerer(Protocol):
         mode: Literal["once", "loop"] | ValueRef,
         program: bytes,
     ) -> dict[OperationArgumentRef, object]: ...
+
+
+def test_declaration_decorators_build_typed_python_dataclasses() -> None:
+    state = assert_type(SweepState(points=11), SweepState)
+    results = assert_type(
+        SweepResults(frequency=[1.0], response=[1.0 + 0.0j]),
+        SweepResults,
+    )
+
+    assert is_dataclass(SweepState)
+    assert is_dataclass(SweepResults)
+    assert tuple(item.name for item in fields(SweepState)) == (
+        "start_frequency",
+        "points",
+        "trace",
+        "output_enabled",
+    )
+    assert not hasattr(state, "__dict__")
+    assert not hasattr(results, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        state.__setattr__("points", 12)
+
+    positional_constructor = cast("Callable[[int], SweepState]", SweepState)
+    with pytest.raises(TypeError):
+        positional_constructor(11)
+
+
+def test_field_specifiers_support_factories_and_override_annotated_metadata() -> None:
+    @instrument_result
+    class BufferedResults:
+        values: list[float] = result_field(default_factory=list)
+
+    first = assert_type(BufferedResults(), BufferedResults)
+    second = BufferedResults()
+    assert first.values == []
+    assert first.values is not second.values
+
+    @instrument_state
+    class PriorityState:
+        value: Annotated[int, member(id="annotated", minimum=1)] = member_field(
+            id="native",
+            minimum=2,
+        )
+
+    @instrument_interface("test.field_metadata_priority/v1", state=PriorityState)
+    class PriorityContract(Protocol): ...
+
+    compiled = compile_interface(PriorityContract)
+    assert compiled.spec.properties == [int_property("native", minimum=2)]
 
 
 def test_decorated_protocol_compiles_to_the_existing_contract_ir() -> None:

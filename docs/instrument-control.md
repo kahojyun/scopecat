@@ -310,8 +310,7 @@ drivers. Decorated state and result dataclasses own the field types; a decorated
 existing `InterfaceSpec` wire contract:
 
 ```python
-from dataclasses import dataclass
-from typing import Annotated, Protocol
+from typing import Protocol
 
 import scopecat as sc
 from scopecat.sdk.instruments.declarations import (
@@ -322,29 +321,28 @@ from scopecat.sdk.instruments.declarations import (
     instrument_interface,
     instrument_result,
     instrument_state,
-    member,
-    result,
+    member_field,
+    result_field,
 )
 
 type Desired[T] = T | sc.ValueRef
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True)
 class NetworkSweepState:
-    points: Annotated[
-        Desired[int] | None,
-        member(minimum=2, label="Sweep points"),
-    ] = None
+    points: Desired[int] | None = member_field(
+        default=None,
+        minimum=2,
+        label="Sweep points",
+    )
 
 
 @instrument_result
-@dataclass(frozen=True, slots=True)
 class SweepResults:
-    response: Annotated[
-        list[complex],
-        result(unit="ratio", axes=("frequency",)),
-    ]
+    response: list[complex] = result_field(
+        unit="ratio",
+        axes=("frequency",),
+    )
 
 
 @instrument_interface(
@@ -361,13 +359,17 @@ class NetworkSweep(Protocol):
 NETWORK_SWEEP: CompiledInterface[NetworkSweep] = compile_interface(NetworkSweep)
 ```
 
-The decorators attach metadata and return the original class or method. They do
-not replace a type with a runtime wrapper or inject methods invisible to a type
-checker. `NetworkSweep` therefore remains usable as a structural `Protocol`;
-an `ABC` works as well when nominal implementation inheritance is useful, and
+The state, observed-state, and result decorators are standard dataclass
+transforms: they create frozen, slotted, keyword-only dataclasses while exposing
+the synthesized constructor to static type checkers. `member_field(...)` and
+`result_field(...)` use namespaced dataclass field metadata; `Annotated` metadata
+remains available when declarations need to compose additional typing metadata.
+Interface and method decorators only attach metadata and preserve the authored
+methods. `NetworkSweep` therefore remains usable as a structural `Protocol`; an
+`ABC` works as well when nominal implementation inheritance is useful, and
 decorated members inherited from base interfaces are preserved. The compiled
-wrapper exposes `.spec`, `.ref`, and `.fresh_spec()` without changing the class
-object.
+wrapper exposes `.spec`, `.ref`, and `.fresh_spec()` without changing the
+interface class.
 
 The same declaration surface also covers read-only observed-state dataclasses,
 typed atomic methods whose `Annotated` parameters carry operation-argument

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Annotated, Literal, Protocol
+from typing import Literal, Protocol
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.value_refs import ValueRef
@@ -22,8 +21,9 @@ from scopecat.sdk.instruments.declarations import (
     instrument_state,
     interface_discriminator,
     member,
+    member_field,
     precondition,
-    result,
+    result_field,
     state_case,
     state_discriminated_acquisition,
     state_field,
@@ -35,86 +35,65 @@ type SParameter = Literal["S11", "S21", "S12", "S22"]
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True)
 class DCSourceState:
     """Sparse common DC-source state, without changing source mode."""
 
-    voltage_protection: Annotated[
-        Desired[Quantity] | None,
-        member(
-            unit="V",
-            label="Voltage protection",
-            description="Absolute voltage limiter level.",
-        ),
-    ] = None
-    current_protection: Annotated[
-        Desired[Quantity] | None,
-        member(
-            unit="A",
-            label="Current protection",
-            description="Absolute current limiter level.",
-        ),
-    ] = None
-    output_enabled: Annotated[
-        Desired[bool] | None,
-        member(
-            label="DC output",
-            description="Whether the source output is enabled.",
-        ),
-    ] = None
+    voltage_protection: Desired[Quantity] | None = member_field(
+        default=None,
+        unit="V",
+        label="Voltage protection",
+        description="Absolute voltage limiter level.",
+    )
+    current_protection: Desired[Quantity] | None = member_field(
+        default=None,
+        unit="A",
+        label="Current protection",
+        description="Absolute current limiter level.",
+    )
+    output_enabled: Desired[bool] | None = member_field(
+        default=None,
+        label="DC output",
+        description="Whether the source output is enabled.",
+    )
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True)
 class DCSourceVoltage:
     """Desired voltage-source mode, with fixed or point-resolved fields."""
 
-    range: Annotated[
-        Desired[Quantity],
-        member(
-            id="voltage_range",
-            unit="V",
-            label="Voltage range",
-            description="Voltage-source range, available in voltage mode.",
-        ),
-    ]
-    level: Annotated[
-        Desired[Quantity],
-        member(
-            id="voltage_level",
-            unit="V",
-            label="Voltage level",
-            description="Voltage-source level, available in voltage mode.",
-        ),
-    ]
+    range: Desired[Quantity] = member_field(
+        id="voltage_range",
+        unit="V",
+        label="Voltage range",
+        description="Voltage-source range, available in voltage mode.",
+    )
+    level: Desired[Quantity] = member_field(
+        id="voltage_level",
+        unit="V",
+        label="Voltage level",
+        description="Voltage-source level, available in voltage mode.",
+    )
     voltage_protection: Desired[Quantity] | None = None
     current_protection: Desired[Quantity] | None = None
     output_enabled: Desired[bool] | None = None
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True)
 class DCSourceCurrent:
     """Desired current-source mode, with fixed or point-resolved fields."""
 
-    range: Annotated[
-        Desired[Quantity],
-        member(
-            id="current_range",
-            unit="A",
-            label="Current range",
-            description="Current-source range, available in current mode.",
-        ),
-    ]
-    level: Annotated[
-        Desired[Quantity],
-        member(
-            id="current_level",
-            unit="A",
-            label="Current level",
-            description="Current-source level, available in current mode.",
-        ),
-    ]
+    range: Desired[Quantity] = member_field(
+        id="current_range",
+        unit="A",
+        label="Current range",
+        description="Current-source range, available in current mode.",
+    )
+    level: Desired[Quantity] = member_field(
+        id="current_level",
+        unit="A",
+        label="Current level",
+        description="Current-source level, available in current mode.",
+    )
     voltage_protection: Desired[Quantity] | None = None
     current_protection: Desired[Quantity] | None = None
     output_enabled: Desired[bool] | None = None
@@ -159,61 +138,47 @@ DC_SOURCE_DECLARATION: CompiledInterface[DCSourceInterface] = compile_interface(
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True)
 class DCMonitorState:
-    measurement_enabled: Annotated[
-        Desired[bool] | None,
-        member(
-            label="Measurement",
-            description="Whether monitor measurements are enabled.",
-        ),
-    ] = None
-    integration_cycles: Annotated[
-        Desired[int] | None,
-        member(
-            minimum=1,
-            maximum=25,
-            label="Integration cycles",
-            description="Power-line cycles integrated for each measurement.",
-        ),
-    ] = None
-    measurement_delay: Annotated[
-        Desired[Quantity] | None,
-        member(
-            unit="s",
-            minimum=0.0,
-            maximum=999.999,
-            label="Measurement delay",
-            description="Delay between measurement trigger and sampling.",
-        ),
-    ] = None
+    measurement_enabled: Desired[bool] | None = member_field(
+        default=None,
+        label="Measurement",
+        description="Whether monitor measurements are enabled.",
+    )
+    integration_cycles: Desired[int] | None = member_field(
+        default=None,
+        minimum=1,
+        maximum=25,
+        label="Integration cycles",
+        description="Power-line cycles integrated for each measurement.",
+    )
+    measurement_delay: Desired[Quantity] | None = member_field(
+        default=None,
+        unit="s",
+        minimum=0.0,
+        maximum=999.999,
+        label="Measurement delay",
+        description="Delay between measurement trigger and sampling.",
+    )
 
 
 @instrument_result
-@dataclass(frozen=True, slots=True)
 class DCMonitorResults[ValueT]:
     """Mode-dependent monitor fields reusable across acquisition runtimes."""
 
-    current: Annotated[
-        ValueT | None,
-        result(
-            id="monitored_current",
-            dtype="float64",
-            unit="A",
-            label="Monitored current",
-            description="One measurement while sourcing voltage.",
-        ),
-    ]
-    voltage: Annotated[
-        ValueT | None,
-        result(
-            id="monitored_voltage",
-            dtype="float64",
-            unit="V",
-            label="Monitored voltage",
-            description="One measurement while sourcing current.",
-        ),
-    ]
+    current: ValueT | None = result_field(
+        id="monitored_current",
+        dtype="float64",
+        unit="A",
+        label="Monitored current",
+        description="One measurement while sourcing voltage.",
+    )
+    voltage: ValueT | None = result_field(
+        id="monitored_voltage",
+        dtype="float64",
+        unit="V",
+        label="Monitored voltage",
+        description="One measurement while sourcing current.",
+    )
 
 
 @instrument_interface(
@@ -264,51 +229,37 @@ DC_MONITOR_ACQUISITION_DECLARATION: DeclaredAcquisition[DCMonitorResults[float]]
 
 
 @instrument_observed_state
-@dataclass(frozen=True, slots=True)
 class TemperatureReadoutObservation:
     """Scanner state reported by a temperature readout."""
 
-    scan_channel: Annotated[
-        int,
-        member(
-            minimum=1,
-            maximum=16,
-            label="Scan channel",
-            description="Sensor input currently selected by the scanner.",
-        ),
-    ]
-    autoscan_enabled: Annotated[
-        bool,
-        member(
-            label="Autoscan",
-            description="Whether the input scanner is advancing automatically.",
-        ),
-    ]
+    scan_channel: int = member_field(
+        minimum=1,
+        maximum=16,
+        label="Scan channel",
+        description="Sensor input currently selected by the scanner.",
+    )
+    autoscan_enabled: bool = member_field(
+        label="Autoscan",
+        description="Whether the input scanner is advancing automatically.",
+    )
 
 
 @instrument_result
-@dataclass(frozen=True, slots=True)
 class TemperatureSampleResults[ValueT]:
     """Temperature sample fields reusable across acquisition runtimes."""
 
-    temperature: Annotated[
-        ValueT,
-        result(
-            dtype="float64",
-            unit="K",
-            label="Temperature",
-            description="Current scan-channel temperature.",
-        ),
-    ]
-    resistance: Annotated[
-        ValueT,
-        result(
-            dtype="float64",
-            unit="Ohm",
-            label="Resistance",
-            description="Current scan-channel sensor resistance.",
-        ),
-    ]
+    temperature: ValueT = result_field(
+        dtype="float64",
+        unit="K",
+        label="Temperature",
+        description="Current scan-channel temperature.",
+    )
+    resistance: ValueT = result_field(
+        dtype="float64",
+        unit="Ohm",
+        label="Resistance",
+        description="Current scan-channel sensor resistance.",
+    )
 
 
 @instrument_interface(
@@ -334,40 +285,31 @@ TEMPERATURE_READOUT_DECLARATION: CompiledInterface[TemperatureReadoutInterface] 
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True)
 class RFOutputState:
     """Sparse continuous-wave RF output state."""
 
-    frequency: Annotated[
-        Desired[Quantity] | None,
-        member(
-            unit="Hz",
-            label="CW frequency",
-            description="Continuous-wave carrier frequency.",
-        ),
-    ] = None
-    power: Annotated[
-        Desired[Quantity] | None,
-        member(
-            unit="dBm",
-            label="Output power",
-            description="Configured RF output level at the source connector.",
-        ),
-    ] = None
-    output_enabled: Annotated[
-        Desired[bool] | None,
-        member(
-            label="RF output",
-            description="Whether the RF output connector is enabled.",
-        ),
-    ] = None
-    reference_source: Annotated[
-        Desired[ReferenceSource] | None,
-        member(
-            label="Reference source",
-            description=("Reference oscillator source; external frequency is not set."),
-        ),
-    ] = None
+    frequency: Desired[Quantity] | None = member_field(
+        default=None,
+        unit="Hz",
+        label="CW frequency",
+        description="Continuous-wave carrier frequency.",
+    )
+    power: Desired[Quantity] | None = member_field(
+        default=None,
+        unit="dBm",
+        label="Output power",
+        description="Configured RF output level at the source connector.",
+    )
+    output_enabled: Desired[bool] | None = member_field(
+        default=None,
+        label="RF output",
+        description="Whether the RF output connector is enabled.",
+    )
+    reference_source: Desired[ReferenceSource] | None = member_field(
+        default=None,
+        label="Reference source",
+        description="Reference oscillator source; external frequency is not set.",
+    )
 
 
 @instrument_interface(
@@ -385,84 +327,64 @@ RF_OUTPUT_DECLARATION: CompiledInterface[RFOutputInterface] = compile_interface(
 
 
 @instrument_state
-@dataclass(frozen=True, slots=True)
 class NetworkSweepState:
     """Sparse network-sweep state shared by live and symbolic clients."""
 
-    start_frequency: Annotated[
-        Desired[Quantity] | None,
-        member(
-            unit="Hz",
-            label="Start frequency",
-            description="First stimulus frequency in the linear sweep.",
-        ),
-    ] = None
-    stop_frequency: Annotated[
-        Desired[Quantity] | None,
-        member(
-            unit="Hz",
-            label="Stop frequency",
-            description="Last stimulus frequency in the linear sweep.",
-        ),
-    ] = None
-    points: Annotated[
-        Desired[int] | None,
-        member(
-            minimum=2,
-            label="Sweep points",
-            description="Number of equally spaced frequency points.",
-        ),
-    ] = None
-    if_bandwidth: Annotated[
-        Desired[Quantity] | None,
-        member(
-            unit="Hz",
-            label="IF bandwidth",
-            description="Receiver intermediate-frequency bandwidth.",
-        ),
-    ] = None
-    source_power: Annotated[
-        Desired[Quantity] | None,
-        member(
-            unit="dBm",
-            label="Source power",
-            description="Stimulus power for the selected analyzer channel.",
-        ),
-    ] = None
-    s_parameter: Annotated[
-        Desired[SParameter] | None,
-        member(
-            label="S-parameter",
-            description="Two-port S-parameter measured by the selected trace.",
-        ),
-    ] = None
+    start_frequency: Desired[Quantity] | None = member_field(
+        default=None,
+        unit="Hz",
+        label="Start frequency",
+        description="First stimulus frequency in the linear sweep.",
+    )
+    stop_frequency: Desired[Quantity] | None = member_field(
+        default=None,
+        unit="Hz",
+        label="Stop frequency",
+        description="Last stimulus frequency in the linear sweep.",
+    )
+    points: Desired[int] | None = member_field(
+        default=None,
+        minimum=2,
+        label="Sweep points",
+        description="Number of equally spaced frequency points.",
+    )
+    if_bandwidth: Desired[Quantity] | None = member_field(
+        default=None,
+        unit="Hz",
+        label="IF bandwidth",
+        description="Receiver intermediate-frequency bandwidth.",
+    )
+    source_power: Desired[Quantity] | None = member_field(
+        default=None,
+        unit="dBm",
+        label="Source power",
+        description="Stimulus power for the selected analyzer channel.",
+    )
+    s_parameter: Desired[SParameter] | None = member_field(
+        default=None,
+        label="S-parameter",
+        description="Two-port S-parameter measured by the selected trace.",
+    )
 
 
 @instrument_result
-@dataclass(frozen=True, slots=True)
 class NetworkSweepResults[FrequencyT, SParameterT]:
     """Network sweep fields reusable across acquisition runtimes."""
 
-    frequency: Annotated[
-        FrequencyT,
-        result(
-            dtype="float64",
-            unit="Hz",
-            axes=("frequency",),
-            label="Frequency",
-            description="Stimulus frequency values for the acquired trace.",
-        ),
-    ]
-    s_parameter: Annotated[
-        SParameterT,
-        result(
-            dtype="complex128",
-            unit="ratio",
-            axes=("frequency",),
-            label="Complex S-parameter",
-            description=("Complex response values for the configured S-parameter."),
-        ),
-    ]
+    frequency: FrequencyT = result_field(
+        dtype="float64",
+        unit="Hz",
+        axes=("frequency",),
+        label="Frequency",
+        description="Stimulus frequency values for the acquired trace.",
+    )
+    s_parameter: SParameterT = result_field(
+        dtype="complex128",
+        unit="ratio",
+        axes=("frequency",),
+        label="Complex S-parameter",
+        description="Complex response values for the configured S-parameter.",
+    )
 
 
 @instrument_interface(
