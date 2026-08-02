@@ -10,15 +10,21 @@ import typing
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import TypeAliasType, TypeVar, cast, get_args, get_origin
+from typing import Protocol, TypeAliasType, TypeVar, cast, get_args, get_origin
 
 from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.sdk.instruments.declarations import (
-    CompiledInterface,
     DeclaredAcquisition,
     DeclaredOperation,
     DeclaredScopeLayout,
+    compile_interface,
     declared_interface_layout,
+)
+from scopecat_instruments.interface_declarations import (
+    DCSourceInterface,
+    NetworkSweepInterface,
+    RFOutputInterface,
+    TemperatureReadoutInterface,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -36,14 +42,28 @@ class ClientGenerationError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class ClientGenerationPolicy:
+class ClientSurface:
     """Non-structural inputs that a Python interface declaration cannot carry."""
 
-    declaration_module: str
-    declaration_symbol: str
+    interface_type: type[object]
     generate_family: bool = True
     public_name_overrides: tuple[tuple[str, str], ...] = ()
-    import_root: Path | None = None
+
+
+def clients_for(
+    interface_type: type[object],
+    /,
+    *,
+    generate_family: bool = True,
+    public_name_overrides: tuple[tuple[str, str], ...] = (),
+) -> ClientSurface:
+    """Select one decorated interface for typed client generation."""
+
+    return ClientSurface(
+        interface_type=interface_type,
+        generate_family=generate_family,
+        public_name_overrides=public_name_overrides,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,47 +71,51 @@ class GenerationTarget:
     """One independently importable generated module and its declarations."""
 
     output: Path
-    policies: tuple[ClientGenerationPolicy, ...]
+    surfaces: tuple[ClientSurface, ...]
 
 
 class _Options(argparse.Namespace):
     check: bool = False
 
 
+class _FixtureDeclarations(Protocol):
+    ComponentOperationInterface: type[object]
+
+
 PRODUCTION_TARGET = GenerationTarget(
     output=OUTPUT,
-    policies=(
-        ClientGenerationPolicy(
-            declaration_module="scopecat_instruments.interface_declarations",
-            declaration_symbol="TEMPERATURE_READOUT_DECLARATION",
+    surfaces=(
+        clients_for(
+            TemperatureReadoutInterface,
             public_name_overrides=(("sample.readback", "TemperatureReadback"),),
         ),
-        ClientGenerationPolicy(
-            declaration_module="scopecat_instruments.interface_declarations",
-            declaration_symbol="RF_OUTPUT_DECLARATION",
-        ),
-        ClientGenerationPolicy(
-            declaration_module="scopecat_instruments.interface_declarations",
-            declaration_symbol="DC_SOURCE_DECLARATION",
+        clients_for(RFOutputInterface),
+        clients_for(
+            DCSourceInterface,
             generate_family=False,
         ),
-        ClientGenerationPolicy(
-            declaration_module="scopecat_instruments.interface_declarations",
-            declaration_symbol="NETWORK_SWEEP_DECLARATION",
-        ),
+        clients_for(NetworkSweepInterface),
     ),
 )
-FIXTURE_TARGET = GenerationTarget(
-    output=FIXTURE_OUTPUT,
-    policies=(
-        ClientGenerationPolicy(
-            declaration_module="client_codegen_fixture_declarations",
-            declaration_symbol="COMPONENT_OPERATION_DECLARATION",
-            import_root=FIXTURE_IMPORT_ROOT,
-        ),
-    ),
-)
-TARGETS = (PRODUCTION_TARGET, FIXTURE_TARGET)
+
+
+def _fixture_target() -> GenerationTarget:
+    import_root = str(FIXTURE_IMPORT_ROOT)
+    if import_root not in sys.path:
+        sys.path.insert(0, import_root)
+    declarations = cast(
+        "_FixtureDeclarations",
+        cast("object", import_module("client_codegen_fixture_declarations")),
+    )
+
+    return GenerationTarget(
+        output=FIXTURE_OUTPUT,
+        surfaces=(clients_for(declarations.ComponentOperationInterface),),
+    )
+
+
+def _generation_targets() -> tuple[GenerationTarget, ...]:
+    return (PRODUCTION_TARGET, _fixture_target())
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,8 +177,8 @@ class _ScopeModel:
 
 @dataclass(frozen=True, slots=True)
 class _InterfaceModel:
-    declaration_module: str
-    declaration_symbol: str
+    interface_identity: str
+    interface_type_name: str
     constant_prefix: str
     interface_name: str
     stem: str
@@ -187,6 +211,10 @@ class _InterfaceModel:
     @property
     def symbolic_group_name(self) -> str:
         return self.root.symbolic_group_name
+
+    @property
+    def ref_name(self) -> str:
+        return f"_{self.constant_prefix}_REF"
 
     @property
     def needs_layout(self) -> bool:
@@ -283,14 +311,14 @@ def render_generated_clients() -> str:
 def render_generation_target(target: GenerationTarget) -> str:
     """Render one configured generated module."""
 
-    return render_client_module(target.policies)
+    return render_client_module(target.surfaces)
 
 
-def render_client_module(policies: tuple[ClientGenerationPolicy, ...]) -> str:
+def render_client_module(surfaces: tuple[ClientSurface, ...]) -> str:
     """Render an independently importable module for selected declarations."""
 
     renderer = _AnnotationRenderer()
-    models = tuple(_interface_model(policy, renderer=renderer) for policy in policies)
+    models = tuple(_interface_model(surface, renderer=renderer) for surface in surfaces)
     if not models:
         raise ClientGenerationError("a generated client module requires a declaration")
     _validate_generated_symbols(models)
@@ -299,6 +327,7 @@ def render_client_module(policies: tuple[ClientGenerationPolicy, ...]) -> str:
     for model in models:
         sections.extend(
             (
+                _render_interface_ref(model),
                 _render_state_alias(model),
                 _render_descriptors(model),
                 _render_result_types(model),
@@ -313,29 +342,22 @@ def render_client_module(policies: tuple[ClientGenerationPolicy, ...]) -> str:
 
 
 def _interface_model(
-    policy: ClientGenerationPolicy,
+    surface: ClientSurface,
     *,
     renderer: _AnnotationRenderer,
 ) -> _InterfaceModel:
-    if policy.import_root is not None:
-        import_root = str(policy.import_root)
-        if import_root not in sys.path:
-            sys.path.insert(0, import_root)
-    module = import_module(policy.declaration_module)
-    compiled = cast(
-        "CompiledInterface[object]",
-        getattr(module, policy.declaration_symbol),
-    )
+    compiled = compile_interface(surface.interface_type)
     layout = declared_interface_layout(compiled)
     interface_name = compiled.interface_type.__name__
+    interface_type_name = renderer.reference(compiled.interface_type)
     stem = interface_name.removesuffix("Interface")
-    overrides = dict(policy.public_name_overrides)
+    overrides = dict(surface.public_name_overrides)
     observation_type_name = (
         None
         if layout.observed_state is None
         else renderer.reference(layout.observed_state.state_type)
     )
-    constant_prefix = policy.declaration_symbol.removesuffix("_DECLARATION")
+    constant_prefix = _snake_case(stem).upper()
     root = _scope_model(
         layout.root,
         component_indexes=(),
@@ -345,13 +367,16 @@ def _interface_model(
         renderer=renderer,
     )
     return _InterfaceModel(
-        declaration_module=policy.declaration_module,
-        declaration_symbol=policy.declaration_symbol,
+        interface_identity=(
+            f"{compiled.interface_type.__module__}."
+            f"{compiled.interface_type.__qualname__}"
+        ),
+        interface_type_name=interface_type_name,
         constant_prefix=constant_prefix,
         interface_name=interface_name,
         stem=stem,
         factory_name=overrides.get("factory", _snake_case(stem)),
-        generate_family=policy.generate_family,
+        generate_family=surface.generate_family,
         observation_type_name=observation_type_name,
         state_type_names=tuple(
             renderer.reference(state_type) for state_type in layout.state_types
@@ -367,7 +392,8 @@ def _validate_generated_symbols(models: tuple[_InterfaceModel, ...]) -> None:
         owners_by_symbol.setdefault(symbol, []).append(owner)
 
     for model in models:
-        declaration = model.declaration_symbol
+        declaration = model.interface_identity
+        register(model.ref_name, f"{declaration} interface ref")
         if model.needs_layout:
             register(f"_{model.constant_prefix}_LAYOUT", f"{declaration} layout")
         if model.observation_type_name is not None:
@@ -567,8 +593,11 @@ def _render_header(
     }
     if any(model.generate_family for model in models):
         imports["scopecat_instruments._family_runtime"] = {"InstrumentFamily"}
+    imports["scopecat.sdk.instruments.declarations"] = {"declared_interface_ref"}
     if any(model.needs_layout for model in models):
-        imports["scopecat.sdk.instruments.declarations"] = {"declared_interface_layout"}
+        imports["scopecat.sdk.instruments.declarations"].update(
+            {"compile_interface", "declared_interface_layout"}
+        )
     if has_plain_root:
         imports["scopecat_instruments._client_runtime"] = {"InstrumentClientBase"}
         imports["scopecat_instruments._symbolic_runtime"].update(
@@ -611,10 +640,6 @@ def _render_header(
         )
     for module, names in renderer.imports.items():
         imports.setdefault(module, set()).update(names)
-    for model in models:
-        imports.setdefault(model.declaration_module, set()).add(
-            model.declaration_symbol
-        )
 
     standard_modules = {"dataclasses", "typing"}
     external_modules = {module for module in imports if module.startswith("scopecat.")}
@@ -682,13 +707,19 @@ def _render_state_alias(model: _InterfaceModel) -> str:
     )
 
 
+def _render_interface_ref(model: _InterfaceModel) -> str:
+    return f"\n{model.ref_name} = declared_interface_ref({model.interface_type_name})\n"
+
+
 def _render_descriptors(model: _InterfaceModel) -> str:
     if not model.needs_layout:
         return ""
     layout_name = f"_{model.constant_prefix}_LAYOUT"
     sections = [
         "\n",
-        f"{layout_name} = declared_interface_layout({model.declaration_symbol})\n",
+        f"{layout_name} = declared_interface_layout(\n",
+        f"    compile_interface({model.interface_type_name})\n",
+        ")\n",
     ]
     if model.observation_type_name is not None:
         observation_name = f"_{model.constant_prefix}_OBSERVATION_DECLARATION"
@@ -878,7 +909,7 @@ def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
                 "        super().__init__(\n",
                 "            recorder,\n",
                 "            resource_id,\n",
-                f"            requires=({model.declaration_symbol}.ref,),\n",
+                f"            requires=({model.ref_name},),\n",
                 "            for_=for_,\n",
                 "        )\n",
             )
@@ -1112,7 +1143,7 @@ def _render_family(model: _InterfaceModel) -> str:
         f"    {model.live_client_name},\n"
         f"    {model.symbolic_client_name},\n"
         f"    {model.symbolic_group_name},\n"
-        f"    requires=({model.declaration_symbol}.ref,),\n"
+        f"    requires=({model.ref_name},),\n"
         ")\n"
     )
 
@@ -1224,7 +1255,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     options = _Options()
     parser.parse_args(argv, namespace=options)
-    rendered = tuple((target, render_generation_target(target)) for target in TARGETS)
+    rendered = tuple(
+        (target, render_generation_target(target)) for target in _generation_targets()
+    )
     if options.check:
         stale = tuple(
             target.output

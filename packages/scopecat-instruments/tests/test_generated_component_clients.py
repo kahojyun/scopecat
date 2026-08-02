@@ -27,8 +27,9 @@ from scopecat.sdk.instruments import (
     OperationArgumentRef,
     OperationRef,
 )
+from scopecat.sdk.instruments.declarations import declared_interface_ref
 
-from client_codegen_fixture_declarations import COMPONENT_OPERATION_DECLARATION
+from client_codegen_fixture_declarations import ComponentOperationInterface
 from generated_client_fixture import (
     ComponentOperationClient,
     ComponentOperationOutputClient,
@@ -41,6 +42,8 @@ from generated_client_fixture import (
     SymbolicComponentOperationOutputTriggerGroup,
     component_operation,
 )
+
+_COMPONENT_OPERATION = declared_interface_ref(ComponentOperationInterface)
 
 
 class _RecordingInvokeChannel:
@@ -90,10 +93,7 @@ def test_generated_live_components_share_root_target_and_lower_wire_names() -> N
     assert receipt is channel.receipt
     assert channel.instrument_id == "pulse-source"
     assert channel.operation is not None
-    assert (
-        channel.operation.interface_id
-        == COMPONENT_OPERATION_DECLARATION.ref.interface_id
-    )
+    assert channel.operation.interface_id == _COMPONENT_OPERATION.interface_id
     assert channel.operation.component_path == ("signal_output", "pulse_trigger")
     assert channel.operation.operation_id == "emit_pulse"
     assert channel.arguments is not None
@@ -150,9 +150,7 @@ def test_generated_symbolic_components_share_and_clear_root_authoring_state() ->
         ValueRef,
     )
     width = Quantity(0.5, "s")
-    root._state_assignments[
-        COMPONENT_OPERATION_DECLARATION.ref.property("remembered")
-    ] = True
+    root._state_assignments[_COMPONENT_OPERATION.property("remembered")] = True
 
     assert output._owner is root
     assert trigger._owner is root

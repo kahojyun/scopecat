@@ -15,6 +15,7 @@ from scopecat.records.instrument import (
 )
 from scopecat.sdk.instruments import ApplyReceipt, PropertyRef
 from scopecat.sdk.instruments.declarations import (
+    compile_interface,
     declared_interface_layout,
     declared_state_assignments,
 )
@@ -40,7 +41,7 @@ from scopecat_instruments._generated_clients import (
     DCSourceClient as GeneratedDCSourceClient,
 )
 from scopecat_instruments.interface_declarations import (
-    TEMPERATURE_READOUT_DECLARATION,
+    TemperatureReadoutInterface,
 )
 from scopecat_instruments.interface_declarations import (
     TemperatureReadoutObservation as DeclaredTemperatureReadoutObservation,
@@ -266,7 +267,7 @@ def test_temperature_observation_uses_cached_and_fresh_snapshot_paths() -> None:
 
 def test_temperature_observation_descriptor_and_top_level_export_are_shared() -> None:
     assert TemperatureReadoutObservation is DeclaredTemperatureReadoutObservation
-    layout = declared_interface_layout(TEMPERATURE_READOUT_DECLARATION)
+    layout = declared_interface_layout(compile_interface(TemperatureReadoutInterface))
     assert layout.observed_state is not None
     assert [field.ref for field in layout.observed_state.fields] == [
         TEMPERATURE_READOUT_SCAN_CHANNEL,

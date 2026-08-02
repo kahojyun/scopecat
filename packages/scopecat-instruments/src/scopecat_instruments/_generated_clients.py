@@ -12,7 +12,9 @@ from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import CollectReceipt
 from scopecat.sdk.instruments.declarations import (
     DeclaredObservedState,
+    compile_interface,
     declared_interface_layout,
+    declared_interface_ref,
 )
 
 from scopecat_instruments._client_runtime import (
@@ -28,21 +30,25 @@ from scopecat_instruments._symbolic_runtime import (
     SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
-    DC_SOURCE_DECLARATION,
-    NETWORK_SWEEP_DECLARATION,
-    RF_OUTPUT_DECLARATION,
-    TEMPERATURE_READOUT_DECLARATION,
     DCSourceCurrent,
+    DCSourceInterface,
     DCSourceState,
     DCSourceVoltage,
+    NetworkSweepInterface,
     NetworkSweepResults,
     NetworkSweepState,
+    RFOutputInterface,
     RFOutputState,
+    TemperatureReadoutInterface,
     TemperatureReadoutObservation,
     TemperatureSampleResults,
 )
 
-_TEMPERATURE_READOUT_LAYOUT = declared_interface_layout(TEMPERATURE_READOUT_DECLARATION)
+_TEMPERATURE_READOUT_REF = declared_interface_ref(TemperatureReadoutInterface)
+
+_TEMPERATURE_READOUT_LAYOUT = declared_interface_layout(
+    compile_interface(TemperatureReadoutInterface)
+)
 _TEMPERATURE_READOUT_OBSERVATION_DECLARATION = cast(
     "DeclaredObservedState[TemperatureReadoutObservation]",
     _TEMPERATURE_READOUT_LAYOUT.observed_state,
@@ -95,7 +101,7 @@ class SymbolicTemperatureReadoutClient(SymbolicInstrumentClientBase):
         super().__init__(
             recorder,
             resource_id,
-            requires=(TEMPERATURE_READOUT_DECLARATION.ref,),
+            requires=(_TEMPERATURE_READOUT_REF,),
             for_=for_,
         )
 
@@ -146,8 +152,10 @@ temperature_readout: InstrumentFamily[
     TemperatureReadoutClient,
     SymbolicTemperatureReadoutClient,
     SymbolicTemperatureReadoutGroup,
-    requires=(TEMPERATURE_READOUT_DECLARATION.ref,),
+    requires=(_TEMPERATURE_READOUT_REF,),
 )
+
+_RF_OUTPUT_REF = declared_interface_ref(RFOutputInterface)
 
 
 class RFOutputClient(DeclaredStateClientBase[RFOutputState]):
@@ -167,7 +175,7 @@ class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputState]):
         super().__init__(
             recorder,
             resource_id,
-            requires=(RF_OUTPUT_DECLARATION.ref,),
+            requires=(_RF_OUTPUT_REF,),
             for_=for_,
         )
 
@@ -200,8 +208,10 @@ rf_output: InstrumentFamily[
     RFOutputClient,
     SymbolicRFOutputClient,
     SymbolicRFOutputGroup,
-    requires=(RF_OUTPUT_DECLARATION.ref,),
+    requires=(_RF_OUTPUT_REF,),
 )
+
+_DC_SOURCE_REF = declared_interface_ref(DCSourceInterface)
 
 type _DCSourceState = DCSourceState | DCSourceVoltage | DCSourceCurrent
 
@@ -223,7 +233,7 @@ class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[_DCSourceState]):
         super().__init__(
             recorder,
             resource_id,
-            requires=(DC_SOURCE_DECLARATION.ref,),
+            requires=(_DC_SOURCE_REF,),
             for_=for_,
         )
 
@@ -248,7 +258,11 @@ class SymbolicDCSourceGroup(
         )
 
 
-_NETWORK_SWEEP_LAYOUT = declared_interface_layout(NETWORK_SWEEP_DECLARATION)
+_NETWORK_SWEEP_REF = declared_interface_ref(NetworkSweepInterface)
+
+_NETWORK_SWEEP_LAYOUT = declared_interface_layout(
+    compile_interface(NetworkSweepInterface)
+)
 _NETWORK_SWEEP_SWEEP_DECLARATION = _NETWORK_SWEEP_LAYOUT.root.acquisitions[0]
 
 
@@ -287,7 +301,7 @@ class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepSta
         super().__init__(
             recorder,
             resource_id,
-            requires=(NETWORK_SWEEP_DECLARATION.ref,),
+            requires=(_NETWORK_SWEEP_REF,),
             for_=for_,
         )
 
@@ -338,7 +352,7 @@ network_sweep: InstrumentFamily[
     NetworkSweepClient,
     SymbolicNetworkSweepClient,
     SymbolicNetworkSweepGroup,
-    requires=(NETWORK_SWEEP_DECLARATION.ref,),
+    requires=(_NETWORK_SWEEP_REF,),
 )
 
 __all__ = [

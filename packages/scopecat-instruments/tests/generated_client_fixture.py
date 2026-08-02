@@ -7,9 +7,13 @@ from __future__ import annotations
 from scopecat.authoring import EachEntity, OneEntity, PerEntity, ValueRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import InvokeReceipt
-from scopecat.sdk.instruments.declarations import declared_interface_layout
+from scopecat.sdk.instruments.declarations import (
+    compile_interface,
+    declared_interface_layout,
+    declared_interface_ref,
+)
 
-from client_codegen_fixture_declarations import COMPONENT_OPERATION_DECLARATION
+from client_codegen_fixture_declarations import ComponentOperationInterface
 from scopecat_instruments._client_runtime import (
     InstrumentClientBase,
     InstrumentComponentClientBase,
@@ -23,7 +27,11 @@ from scopecat_instruments._symbolic_runtime import (
     SymbolicInstrumentRecorder,
 )
 
-_COMPONENT_OPERATION_LAYOUT = declared_interface_layout(COMPONENT_OPERATION_DECLARATION)
+_COMPONENT_OPERATION_REF = declared_interface_ref(ComponentOperationInterface)
+
+_COMPONENT_OPERATION_LAYOUT = declared_interface_layout(
+    compile_interface(ComponentOperationInterface)
+)
 _COMPONENT_OPERATION_OUTPUT_TRIGGER_EMIT_DECLARATION = (
     _COMPONENT_OPERATION_LAYOUT.root.components[0].components[0].operations[0]
 )
@@ -102,7 +110,7 @@ class SymbolicComponentOperationClient(SymbolicInstrumentClientBase):
         super().__init__(
             recorder,
             resource_id,
-            requires=(COMPONENT_OPERATION_DECLARATION.ref,),
+            requires=(_COMPONENT_OPERATION_REF,),
             for_=for_,
         )
 
@@ -185,7 +193,7 @@ component_operation: InstrumentFamily[
     ComponentOperationClient,
     SymbolicComponentOperationClient,
     SymbolicComponentOperationGroup,
-    requires=(COMPONENT_OPERATION_DECLARATION.ref,),
+    requires=(_COMPONENT_OPERATION_REF,),
 )
 
 __all__ = [

@@ -314,10 +314,8 @@ from typing import Protocol
 
 import scopecat as sc
 from scopecat.sdk.instruments.declarations import (
-    CompiledInterface,
     acquisition,
     axis,
-    compile_interface,
     instrument_interface,
     instrument_result,
     instrument_state,
@@ -354,9 +352,6 @@ class NetworkSweep(Protocol):
         axes={"frequency": axis(size="points", unit="Hz")},
     )
     def sweep(self) -> SweepResults: ...
-
-
-NETWORK_SWEEP: CompiledInterface[NetworkSweep] = compile_interface(NetworkSweep)
 ```
 
 The state, observed-state, and result decorators are standard dataclass
@@ -369,7 +364,10 @@ methods. `NetworkSweep` therefore remains usable as a structural `Protocol`; an
 `ABC` works as well when nominal implementation inheritance is useful, and
 decorated members inherited from base interfaces are preserved. The compiled
 wrapper exposes `.spec`, `.ref`, and `.fresh_spec()` without changing the
-interface class.
+interface class. Consumers that need that lower-level wrapper can call
+`compile_interface(NetworkSweep)` locally; normal client generation consumes
+the decorated interface type directly, so declarations do not need a parallel
+public compiled constant.
 
 The same declaration surface also covers read-only observed-state dataclasses,
 typed atomic methods whose `Annotated` parameters carry operation-argument
@@ -412,8 +410,11 @@ The descriptor boundary does not dynamically inject public client methods.
 Those methods remain real Python source so type checkers can preserve
 positional-only and keyword-only parameters, narrow live argument carriers, add
 symbolic effect ids, and lift each parameter independently for entity groups.
-The repository's committed static generator consumes the public declared
-interface layout and writes that source deterministically. The production
+The repository's committed static generator holds a typed manifest of decorated
+interface classes, compiles their layouts while generating, and writes that
+source deterministically. Generated modules derive interface refs directly from
+those classes; interfaces that only declare persistent state therefore do not
+compile a layout again when the generated module is imported. The production
 target generates complete `TemperatureReadout`, `RFOutput`, and `NetworkSweep`
 families, plus the source-only `DCSource` live, symbolic single-entity, and group
 client classes. Generated source also includes applicable observation accessors

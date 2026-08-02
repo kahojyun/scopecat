@@ -7,9 +7,7 @@ from typing import Annotated, Literal, Protocol
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.declarations import (
-    CompiledInterface,
     argument,
-    compile_interface,
     component,
     instrument_interface,
     operation,
@@ -48,11 +46,6 @@ class ComponentOperationInterface(Protocol):
     ]
 
 
-COMPONENT_OPERATION_DECLARATION: CompiledInterface[ComponentOperationInterface] = (
-    compile_interface(ComponentOperationInterface)
-)
-
-
 @instrument_interface("test.generated_payload_operation/v1")
 class PayloadOperationInterface(Protocol):
     @operation()
@@ -63,11 +56,6 @@ class PayloadOperationInterface(Protocol):
             argument(payload_schema_id="test.payload/v1"),
         ],
     ) -> None: ...
-
-
-PAYLOAD_OPERATION_DECLARATION: CompiledInterface[PayloadOperationInterface] = (
-    compile_interface(PayloadOperationInterface)
-)
 
 
 @instrument_interface("test.generated_literal_operation/v1")
@@ -82,11 +70,6 @@ class LiteralOperationInterface(Protocol):
     ) -> None: ...
 
 
-LITERAL_OPERATION_DECLARATION: CompiledInterface[LiteralOperationInterface] = (
-    compile_interface(LiteralOperationInterface)
-)
-
-
 @instrument_interface("test.generated_effect_id_collision/v1")
 class EffectIdCollisionInterface(Protocol):
     @operation()
@@ -94,11 +77,6 @@ class EffectIdCollisionInterface(Protocol):
         self,
         effect_id: Annotated[Desired[str], argument()],
     ) -> None: ...
-
-
-EFFECT_ID_COLLISION_DECLARATION: CompiledInterface[EffectIdCollisionInterface] = (
-    compile_interface(EffectIdCollisionInterface)
-)
 
 
 class FlatFooBarCapability(Protocol):
@@ -130,17 +108,7 @@ class SymbolCollisionInterface(Protocol):
     ]
 
 
-SYMBOL_COLLISION_DECLARATION: CompiledInterface[SymbolCollisionInterface] = (
-    compile_interface(SymbolCollisionInterface)
-)
-
-
 __all__ = [
-    "COMPONENT_OPERATION_DECLARATION",
-    "EFFECT_ID_COLLISION_DECLARATION",
-    "LITERAL_OPERATION_DECLARATION",
-    "PAYLOAD_OPERATION_DECLARATION",
-    "SYMBOL_COLLISION_DECLARATION",
     "ComponentOperationInterface",
     "Desired",
     "EffectIdCollisionInterface",

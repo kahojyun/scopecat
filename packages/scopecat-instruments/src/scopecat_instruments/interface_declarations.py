@@ -7,7 +7,6 @@ from typing import Literal, Protocol
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.declarations import (
-    CompiledInterface,
     DeclaredAcquisition,
     acquisition,
     acquisition_case,
@@ -132,11 +131,6 @@ class DCSourceCurrent:
 class DCSourceInterface(Protocol): ...
 
 
-DC_SOURCE_DECLARATION: CompiledInterface[DCSourceInterface] = compile_interface(
-    DCSourceInterface
-)
-
-
 @instrument_state
 class DCMonitorState:
     measurement_enabled: Desired[bool] | None = member_field(
@@ -220,11 +214,11 @@ class DCMonitorInterface(Protocol):
     def monitor(self) -> DCMonitorResults[float]: ...
 
 
-DC_MONITOR_DECLARATION: CompiledInterface[DCMonitorInterface] = compile_interface(
-    DCMonitorInterface
-)
 DC_MONITOR_ACQUISITION_DECLARATION: DeclaredAcquisition[DCMonitorResults[float]] = (
-    declared_acquisition(DC_MONITOR_DECLARATION, DCMonitorInterface.monitor)
+    declared_acquisition(
+        compile_interface(DCMonitorInterface),
+        DCMonitorInterface.monitor,
+    )
 )
 
 
@@ -279,11 +273,6 @@ class TemperatureReadoutInterface(Protocol):
     def sample(self) -> TemperatureSampleResults[float]: ...
 
 
-TEMPERATURE_READOUT_DECLARATION: CompiledInterface[TemperatureReadoutInterface] = (
-    compile_interface(TemperatureReadoutInterface)
-)
-
-
 @instrument_state
 class RFOutputState:
     """Sparse continuous-wave RF output state."""
@@ -319,11 +308,6 @@ class RFOutputState:
     description="Continuous-wave RF source controls independent of vendor syntax.",
 )
 class RFOutputInterface(Protocol): ...
-
-
-RF_OUTPUT_DECLARATION: CompiledInterface[RFOutputInterface] = compile_interface(
-    RFOutputInterface
-)
 
 
 @instrument_state
@@ -410,18 +394,8 @@ class NetworkSweepInterface(Protocol):
     def sweep(self) -> NetworkSweepResults[list[float], list[complex]]: ...
 
 
-NETWORK_SWEEP_DECLARATION: CompiledInterface[NetworkSweepInterface] = compile_interface(
-    NetworkSweepInterface
-)
-
-
 __all__ = [
     "DC_MONITOR_ACQUISITION_DECLARATION",
-    "DC_MONITOR_DECLARATION",
-    "DC_SOURCE_DECLARATION",
-    "NETWORK_SWEEP_DECLARATION",
-    "RF_OUTPUT_DECLARATION",
-    "TEMPERATURE_READOUT_DECLARATION",
     "DCMonitorInterface",
     "DCMonitorResults",
     "DCMonitorState",

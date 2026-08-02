@@ -3,34 +3,35 @@
 from __future__ import annotations
 
 from scopecat.sdk.instruments import InterfaceSpec
+from scopecat.sdk.instruments.declarations import compile_interface
 
 from scopecat_instruments.interface_declarations import (
-    DC_MONITOR_DECLARATION,
-    DC_SOURCE_DECLARATION,
-    NETWORK_SWEEP_DECLARATION,
-    RF_OUTPUT_DECLARATION,
-    TEMPERATURE_READOUT_DECLARATION,
+    DCMonitorInterface,
+    DCSourceInterface,
+    NetworkSweepInterface,
+    RFOutputInterface,
+    TemperatureReadoutInterface,
 )
 
 
 def rf_output_interface() -> InterfaceSpec:
-    return RF_OUTPUT_DECLARATION.fresh_spec()
+    return compile_interface(RFOutputInterface).fresh_spec()
 
 
 def dc_source_interface() -> InterfaceSpec:
-    return DC_SOURCE_DECLARATION.fresh_spec()
+    return compile_interface(DCSourceInterface).fresh_spec()
 
 
 def dc_monitor_interface() -> InterfaceSpec:
-    return DC_MONITOR_DECLARATION.fresh_spec()
+    return compile_interface(DCMonitorInterface).fresh_spec()
 
 
 def temperature_readout_interface() -> InterfaceSpec:
-    return TEMPERATURE_READOUT_DECLARATION.fresh_spec()
+    return compile_interface(TemperatureReadoutInterface).fresh_spec()
 
 
 def network_sweep_interface() -> InterfaceSpec:
-    return NETWORK_SWEEP_DECLARATION.fresh_spec()
+    return compile_interface(NetworkSweepInterface).fresh_spec()
 
 
 __all__ = [

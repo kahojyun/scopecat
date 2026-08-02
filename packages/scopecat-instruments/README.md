@@ -113,7 +113,10 @@ source-only `DCSource` live, symbolic single-entity, and group client classes in
 generated Python source. Applicable observation accessors and acquisition result
 carriers are generated as well, so editors and type checkers see exact
 signatures. Root-level flat and discriminated declared states both generate
-typed live, symbolic, and grouped state surfaces.
+typed live, symbolic, and grouped state surfaces. The generator manifest refers
+to the decorated interface classes themselves; declaration modules do not need
+parallel compiled constants. Generated state-only clients derive their interface
+refs without compiling a layout at import time.
 
 Run the generator from the repository root after changing a supported
 declaration, and use its check mode in validation or CI:

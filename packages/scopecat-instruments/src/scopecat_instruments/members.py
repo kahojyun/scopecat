@@ -5,16 +5,12 @@ from __future__ import annotations
 from scopecat.sdk.instruments.declarations import (
     declared_acquisition_ref,
     declared_discriminator_ref,
+    declared_interface_ref,
     declared_property_ref,
     declared_result_ref,
 )
 
 from scopecat_instruments.interface_declarations import (
-    DC_MONITOR_DECLARATION,
-    DC_SOURCE_DECLARATION,
-    NETWORK_SWEEP_DECLARATION,
-    RF_OUTPUT_DECLARATION,
-    TEMPERATURE_READOUT_DECLARATION,
     DCMonitorInterface,
     DCMonitorState,
     DCSourceCurrent,
@@ -23,12 +19,13 @@ from scopecat_instruments.interface_declarations import (
     DCSourceVoltage,
     NetworkSweepInterface,
     NetworkSweepState,
+    RFOutputInterface,
     RFOutputState,
     TemperatureReadoutInterface,
     TemperatureReadoutObservation,
 )
 
-RF_OUTPUT = RF_OUTPUT_DECLARATION.ref
+RF_OUTPUT = declared_interface_ref(RFOutputInterface)
 RF_OUTPUT_FREQUENCY = declared_property_ref(RFOutputState, "frequency")
 RF_OUTPUT_POWER = declared_property_ref(RFOutputState, "power")
 RF_OUTPUT_ENABLED = declared_property_ref(RFOutputState, "output_enabled")
@@ -37,7 +34,7 @@ RF_OUTPUT_REFERENCE_SOURCE = declared_property_ref(
     "reference_source",
 )
 
-DC_SOURCE = DC_SOURCE_DECLARATION.ref
+DC_SOURCE = declared_interface_ref(DCSourceInterface)
 DC_SOURCE_MODE = declared_discriminator_ref(DCSourceInterface)
 DC_SOURCE_VOLTAGE_RANGE = declared_property_ref(DCSourceVoltage, "range")
 DC_SOURCE_CURRENT_RANGE = declared_property_ref(DCSourceCurrent, "range")
@@ -53,7 +50,7 @@ DC_SOURCE_CURRENT_PROTECTION = declared_property_ref(
 )
 DC_SOURCE_OUTPUT_ENABLED = declared_property_ref(DCSourceState, "output_enabled")
 
-DC_MONITOR = DC_MONITOR_DECLARATION.ref
+DC_MONITOR = declared_interface_ref(DCMonitorInterface)
 DC_MONITOR_MEASUREMENT_ENABLED = declared_property_ref(
     DCMonitorState,
     "measurement_enabled",
@@ -78,7 +75,7 @@ DC_MONITOR_VOLTAGE_RESULT = declared_result_ref(
     "voltage",
 )
 
-TEMPERATURE_READOUT = TEMPERATURE_READOUT_DECLARATION.ref
+TEMPERATURE_READOUT = declared_interface_ref(TemperatureReadoutInterface)
 TEMPERATURE_READOUT_SCAN_CHANNEL = declared_property_ref(
     TemperatureReadoutObservation,
     "scan_channel",
@@ -102,7 +99,7 @@ TEMPERATURE_READOUT_RESISTANCE_RESULT = declared_result_ref(
     "resistance",
 )
 
-NETWORK_SWEEP = NETWORK_SWEEP_DECLARATION.ref
+NETWORK_SWEEP = declared_interface_ref(NetworkSweepInterface)
 NETWORK_SWEEP_START_FREQUENCY = declared_property_ref(
     NetworkSweepState,
     "start_frequency",
