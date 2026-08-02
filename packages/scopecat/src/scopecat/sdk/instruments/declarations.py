@@ -125,7 +125,7 @@ def _state_projection_repr(self: object) -> str:
     layout = _required_metadata(
         type(self),
         _STATE_PROJECTION_METADATA,
-        DeclaredStateLayout,
+        StateProjectionLayout,
         "instrument state projection",
     )
     arguments: list[str] = []
@@ -295,11 +295,17 @@ class CompiledInterface[InterfaceT]:
 
 
 @dataclass(frozen=True, slots=True)
-class DeclaredStateField:
-    """One concrete state member paired with its compiled property identity."""
+class StateProjectionField:
+    """The runtime identity needed to encode one generated state field."""
 
     python_name: str
     ref: PropertyRef
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredStateField(StateProjectionField):
+    """One concrete state member paired with its compiled property identity."""
+
     spec: PropertySpec
     annotation: object
 
@@ -309,15 +315,22 @@ class DeclaredStateField:
 
 
 @dataclass(frozen=True, slots=True)
-class DeclaredStateLayout:
-    """One flat, common-update, or complete case authoring projection."""
+class StateProjectionLayout:
+    """The minimal runtime layout carried by a generated state projection."""
 
+    fields: tuple[StateProjectionField, ...]
+    constants: tuple[tuple[PropertyRef, StateBinding], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredStateLayout(StateProjectionLayout):
+    """One compiled flat, common-update, or complete case projection."""
+
+    fields: tuple[DeclaredStateField, ...]
     source_type: type[object]
     projection_stem: str
     role: Literal["flat", "common", "case"]
-    fields: tuple[DeclaredStateField, ...]
     required_fields: tuple[str, ...] = ()
-    constants: tuple[tuple[PropertyRef, StateBinding], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -786,7 +799,7 @@ def instrument_state[ClassT](cls: type[ClassT], /) -> type[ClassT]:
     kw_only_default=True,
 )
 def instrument_state_projection[ClassT](
-    layout: DeclaredStateLayout,
+    layout: StateProjectionLayout,
     /,
 ) -> Callable[[type[ClassT]], type[ClassT]]:
     """Create a sparse generated carrier bound to one concrete state layout."""
@@ -1241,7 +1254,7 @@ def state_projection_assignments(
     layout = _required_metadata(
         type(projection),
         _STATE_PROJECTION_METADATA,
-        DeclaredStateLayout,
+        StateProjectionLayout,
         "instrument state projection",
     )
     assignments = dict(layout.constants)
@@ -1305,6 +1318,7 @@ def _declared_state_layouts[InterfaceT](
     if not isinstance(declaration, DiscriminatedStateMetadata):
         return (
             DeclaredStateLayout(
+                constants=(),
                 source_type=declaration,
                 projection_stem=_state_projection_stem(declaration),
                 role="flat",
@@ -1319,6 +1333,7 @@ def _declared_state_layouts[InterfaceT](
     discriminator_ref = compiled.ref.property(discriminator_id)
     return (
         DeclaredStateLayout(
+            constants=(),
             source_type=declaration.common_state,
             projection_stem=_state_projection_stem(compiled.interface_type),
             role="common",
@@ -2792,6 +2807,8 @@ __all__ = [
     "StateCaseMetadata",
     "StateFieldReference",
     "StateMetadata",
+    "StateProjectionField",
+    "StateProjectionLayout",
     "acquisition",
     "acquisition_case",
     "argument",

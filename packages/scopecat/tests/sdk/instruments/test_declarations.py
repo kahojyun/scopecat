@@ -67,6 +67,8 @@ from scopecat.sdk.instruments.declarations import (
     DeclaredObservedState,
     DeclaredOperation,
     DeclaredStateLayout,
+    StateProjectionField,
+    StateProjectionLayout,
     acquisition,
     acquisition_case,
     argument,
@@ -1844,6 +1846,31 @@ def test_generated_state_projection_distinguishes_omission_from_falsy_values() -
     assert target.target_assignments() == assignments
     assert assignments_target.target_assignments() == assignments
     assert type(target) is type(assignments_target)
+
+
+def test_state_projection_accepts_a_compile_free_runtime_layout() -> None:
+    compiled_layout = declared_interface_layout(
+        compile_interface(SweepContract)
+    ).states[0]
+    layout = StateProjectionLayout(
+        fields=tuple(
+            StateProjectionField(field.python_name, field.ref)
+            for field in compiled_layout.fields
+            if field.python_name == "points"
+        ),
+        constants=compiled_layout.constants,
+    )
+
+    @instrument_state_projection(layout)
+    class SweepProjection:
+        points: int = state_projection_field()
+
+    projection = SweepProjection(points=3)
+
+    assert state_projection_assignments(projection) == {
+        declared_property_ref(SweepState, "points"): 3,
+    }
+    assert repr(projection) == f"{type(projection).__qualname__}(points=3)"
 
 
 def test_discriminated_projection_includes_required_fields_and_constants() -> None:
