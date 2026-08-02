@@ -40,9 +40,11 @@ from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
+from scopecat.kernel.value_validation import coerce_literal
 from scopecat.measurements.results import MeasurementDType
 from scopecat.program.state import DesiredState, StateBinding
 from scopecat.program.value_refs import ValueRef
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
     AcquisitionAxisSpec,
     AcquisitionPreconditionSpec,
@@ -257,6 +259,57 @@ class CompiledInterface[InterfaceT]:
         """Return a deep copy safe for consumers that normalize Pydantic models."""
 
         return self.spec.model_copy(deep=True)
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredObservedField:
+    """One Python observation field paired with its compiled property identity."""
+
+    python_name: str
+    ref: PropertyRef
+    spec: PropertySpec
+
+    @property
+    def property_id(self) -> str:
+        return self.ref.property_id
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredObservedState[StateT]:
+    """Typed observed-state dataclass paired with its compiled field layout."""
+
+    state_type: type[StateT]
+    fields: tuple[DeclaredObservedField, ...]
+
+    def decode(self, snapshot: InstrumentStateSnapshot, /) -> StateT:
+        """Project one instrument snapshot into the declared observed state."""
+
+        properties = {
+            PropertyRef(
+                item.interface_id,
+                tuple(item.component_path),
+                item.property_id,
+            ): item
+            for item in snapshot.properties
+        }
+        missing = tuple(field for field in self.fields if field.ref not in properties)
+        if missing:
+            rendered = ", ".join(
+                f"{field.python_name} ({field.ref!r})" for field in missing
+            )
+            raise ValueError(
+                f"observed-state snapshot is missing declared fields: {rendered}"
+            )
+        values = {
+            field.python_name: coerce_literal(
+                field.spec.value_type,
+                properties[field.ref].value.root,
+                path=("observed_state", field.python_name),
+            )
+            for field in self.fields
+        }
+        constructor = cast("Callable[..., StateT]", self.state_type)
+        return constructor(**values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -800,6 +853,51 @@ def declared_property_ref(
             metadata_type=MemberMetadata,
             label="state",
         )
+    )
+
+
+def declared_observed_state[InterfaceT, StateT](
+    compiled: CompiledInterface[InterfaceT],
+    state_type: type[StateT],
+    /,
+) -> DeclaredObservedState[StateT]:
+    """Bind an interface's exact observed-state dataclass to its wire layout."""
+
+    declaration = _required_metadata(
+        compiled.interface_type,
+        _INTERFACE_METADATA,
+        InterfaceMetadata,
+        "instrument interface",
+    )
+    if declaration.observed_state is None:
+        raise ValueError("compiled interface does not declare observed state")
+    if declaration.observed_state is not state_type:
+        raise ValueError(
+            "compiled interface declares observed state "
+            f"{declaration.observed_state.__name__}, not {state_type.__name__}"
+        )
+    if not is_dataclass(state_type):
+        raise TypeError("instrument observed state must be a dataclass")
+    specs_by_id = {item.id: item for item in compiled.spec.properties}
+    declared_fields = tuple(
+        DeclaredObservedField(
+            python_name=observed_field.name,
+            ref=compiled.ref.property(property_id),
+            spec=specs_by_id[property_id],
+        )
+        for observed_field in fields(state_type)
+        if (
+            property_id := _declared_dataclass_field_id(
+                state_type,
+                observed_field.name,
+                metadata_type=MemberMetadata,
+                label="observed state",
+            )
+        )
+    )
+    return DeclaredObservedState(
+        state_type=state_type,
+        fields=declared_fields,
     )
 
 
@@ -2184,6 +2282,8 @@ __all__ = [
     "CompiledInterface",
     "ComponentMetadata",
     "DeclaredAcquisition",
+    "DeclaredObservedField",
+    "DeclaredObservedState",
     "DeclaredOperation",
     "DeclaredOperationArgument",
     "DeclaredPropertyTarget",
@@ -2213,6 +2313,7 @@ __all__ = [
     "declared_component_ref",
     "declared_discriminator_ref",
     "declared_interface_ref",
+    "declared_observed_state",
     "declared_operation",
     "declared_operation_ref",
     "declared_property_ref",

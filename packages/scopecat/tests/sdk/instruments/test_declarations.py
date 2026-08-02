@@ -9,14 +9,20 @@ import pytest
 
 from scopecat.kernel.instrument_members import OperationArgumentRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Int as IntType
 from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
+from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.program.state import DesiredState
 from scopecat.program.value_refs import ValueRef
 from scopecat.program.values import input as program_input
+from scopecat.records.instrument import (
+    InstrumentPropertyState,
+    InstrumentStateSnapshot,
+)
 from scopecat.sdk.instruments import (
     acquisition as expected_acquisition,
 )
@@ -57,6 +63,7 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments.declarations import (
     CompiledInterface,
     DeclaredAcquisition,
+    DeclaredObservedState,
     DeclaredOperation,
     acquisition,
     acquisition_case,
@@ -70,6 +77,7 @@ from scopecat.sdk.instruments.declarations import (
     declared_component_ref,
     declared_discriminator_ref,
     declared_interface_ref,
+    declared_observed_state,
     declared_operation,
     declared_operation_ref,
     declared_property_ref,
@@ -360,6 +368,32 @@ class ScannerObservation:
             description="Whether the scanner advances automatically.",
         ),
     ]
+
+
+@instrument_observed_state
+@dataclass(frozen=True, slots=True)
+class NumericObservation:
+    reading: Annotated[
+        float,
+        member(
+            id="reading_value",
+            minimum=0.0,
+            maximum=5.0,
+        ),
+    ]
+
+
+@instrument_interface(
+    "test.numeric_observation/v1",
+    observed_state=NumericObservation,
+)
+class NumericObservationContract(Protocol): ...
+
+
+@instrument_observed_state
+@dataclass(frozen=True, slots=True)
+class UnrelatedObservation:
+    value: int
 
 
 @instrument_result
@@ -1013,6 +1047,152 @@ def test_observed_state_has_refs_but_cannot_be_encoded_as_desired_state() -> Non
     )
     with pytest.raises(TypeError, match="instrument state is missing its decorator"):
         declared_state_assignments(observation)
+
+
+def test_declared_observed_state_preserves_type_order_and_compiled_identity() -> None:
+    compiled = compile_interface(TypedControlContract)
+
+    declared = assert_type(
+        declared_observed_state(compiled, ScannerObservation),
+        DeclaredObservedState[ScannerObservation],
+    )
+
+    assert declared.state_type is ScannerObservation
+    assert [(field.python_name, field.property_id) for field in declared.fields] == [
+        ("channel", "active_channel"),
+        ("autoscan", "autoscan"),
+    ]
+    assert [field.ref for field in declared.fields] == [
+        declared_property_ref(ScannerObservation, "channel"),
+        declared_property_ref(ScannerObservation, "autoscan"),
+    ]
+    assert all(
+        field.spec is spec
+        for field, spec in zip(
+            declared.fields,
+            compiled.spec.properties,
+            strict=True,
+        )
+    )
+    assert declared.fields[0].spec.value_type == Scalar(IntType(minimum=1, maximum=16))
+
+
+def test_declared_observed_state_decodes_exact_refs_and_ignores_extras() -> None:
+    declared = declared_observed_state(
+        compile_interface(TypedControlContract),
+        ScannerObservation,
+    )
+    channel, autoscan = (field.ref for field in declared.fields)
+    snapshot = InstrumentStateSnapshot(
+        instrument_id="scanner-0",
+        properties=[
+            InstrumentPropertyState(
+                interface_id=channel.interface_id,
+                component_path=list(channel.component_path),
+                property_id=channel.property_id,
+                value=StateValue(3),
+            ),
+            InstrumentPropertyState(
+                interface_id=autoscan.interface_id,
+                component_path=list(autoscan.component_path),
+                property_id=autoscan.property_id,
+                value=StateValue(True),
+            ),
+            InstrumentPropertyState(
+                interface_id=channel.interface_id,
+                component_path=["unrelated-component"],
+                property_id=channel.property_id,
+                value=StateValue(15),
+            ),
+            InstrumentPropertyState(
+                interface_id="test.unrelated_observation/v1",
+                property_id=channel.property_id,
+                value=StateValue(16),
+            ),
+        ],
+    )
+
+    assert assert_type(
+        declared.decode(snapshot),
+        ScannerObservation,
+    ) == ScannerObservation(channel=3, autoscan=True)
+
+
+def test_declared_observed_state_reports_missing_python_and_wire_fields() -> None:
+    declared = declared_observed_state(
+        compile_interface(TypedControlContract),
+        ScannerObservation,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="observed-state snapshot is missing declared fields",
+    ) as captured:
+        declared.decode(InstrumentStateSnapshot(instrument_id="scanner-0"))
+
+    message = str(captured.value)
+    assert "observed-state snapshot is missing declared fields" in message
+    for field in declared.fields:
+        assert field.python_name in message
+        assert repr(field.ref) in message
+
+
+def test_declared_observed_state_coerces_values_and_reports_field_path() -> None:
+    declared = declared_observed_state(
+        compile_interface(NumericObservationContract),
+        NumericObservation,
+    )
+    [field] = declared.fields
+
+    decoded = declared.decode(
+        InstrumentStateSnapshot(
+            instrument_id="meter-0",
+            properties=[
+                InstrumentPropertyState(
+                    interface_id=field.ref.interface_id,
+                    component_path=list(field.ref.component_path),
+                    property_id=field.ref.property_id,
+                    value=StateValue(1),
+                )
+            ],
+        )
+    )
+    assert decoded == NumericObservation(reading=1.0)
+    assert type(decoded.reading) is float
+
+    with pytest.raises(
+        ValueValidationError,
+        match=r"observed_state\.reading: expected float, got 'invalid'",
+    ):
+        declared.decode(
+            InstrumentStateSnapshot(
+                instrument_id="meter-0",
+                properties=[
+                    InstrumentPropertyState(
+                        interface_id=field.ref.interface_id,
+                        component_path=list(field.ref.component_path),
+                        property_id=field.ref.property_id,
+                        value=StateValue("invalid"),
+                    )
+                ],
+            )
+        )
+
+
+def test_declared_observed_state_requires_the_interface_exact_state_type() -> None:
+    compiled = compile_interface(TypedControlContract)
+
+    with pytest.raises(
+        ValueError,
+        match=("declares observed state ScannerObservation, not UnrelatedObservation"),
+    ):
+        declared_observed_state(compiled, UnrelatedObservation)
+
+    with pytest.raises(
+        ValueError,
+        match="compiled interface does not declare observed state",
+    ):
+        declared_observed_state(compile_interface(SweepContract), ScannerObservation)
 
 
 def test_declaration_ref_helpers_use_python_member_names() -> None:
