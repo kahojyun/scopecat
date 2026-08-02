@@ -254,7 +254,7 @@ class ExperimentContext:
         *,
         resource: DefinitionResource,
         operation: OperationRef,
-        arguments: Mapping[OperationArgumentRef, StateBinding] | None = None,
+        arguments: Mapping[OperationArgumentRef, StateBinding | None] | None = None,
     ) -> None:
         """Append one ordered atomic hardware operation to this experiment."""
 

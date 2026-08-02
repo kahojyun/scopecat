@@ -1725,7 +1725,7 @@ def test_state_discriminated_acquisition_supports_cross_interface_members() -> N
         declared.active_result_fields("resistance")
 
 
-def test_generated_state_projection_tracks_presence_without_using_none() -> None:
+def test_generated_state_projection_distinguishes_omission_from_falsy_values() -> None:
     [layout] = declared_interface_layout(compile_interface(SweepContract)).states
     assert_type(layout, DeclaredStateLayout)
 
@@ -1736,21 +1736,15 @@ def test_generated_state_projection_tracks_presence_without_using_none() -> None
         trace: Literal["S11", "S21"] = state_projection_field()
         output_enabled: bool = state_projection_field()
 
-    projection = SweepProjection(points=11, trace="S21")
+    projection = SweepProjection(points=0, output_enabled=False)
 
     assert not hasattr(projection, "target_assignments")
     assert state_projection_assignments(projection) == {
-        declared_property_ref(SweepState, "points"): 11,
-        declared_property_ref(SweepState, "trace"): "S21",
+        declared_property_ref(SweepState, "points"): 0,
+        declared_property_ref(SweepState, "output_enabled"): False,
     }
     target: DesiredState = state_projection_target(projection)
     assert target.target_assignments() == state_projection_assignments(projection)
-
-    unchecked_constructor = cast("Callable[..., SweepProjection]", SweepProjection)
-    explicit_none = unchecked_constructor(output_enabled=None)
-    assert state_projection_assignments(explicit_none) == {
-        declared_property_ref(SweepState, "output_enabled"): None,
-    }
 
 
 def test_discriminated_projection_includes_required_fields_and_constants() -> None:

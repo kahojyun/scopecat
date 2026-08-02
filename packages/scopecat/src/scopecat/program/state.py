@@ -10,7 +10,7 @@ from scopecat.kernel.instrument_members import PropertyRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.value_refs import ValueRef
 
-type StateBinding = Quantity | EntityRef | str | int | float | bool | None | ValueRef
+type StateBinding = Quantity | EntityRef | str | int | float | bool | ValueRef
 
 
 class DesiredState(Protocol):

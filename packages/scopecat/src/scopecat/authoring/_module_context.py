@@ -76,7 +76,7 @@ from scopecat.program.values import (
 from scopecat.program.values import compute as define_compute
 
 type BindingInput = StateBinding
-type InvocationInput = BindingInput
+type InvocationInput = BindingInput | None
 
 
 def _is_entity_input_type(value_type: ValueType) -> bool:
@@ -85,12 +85,27 @@ def _is_entity_input_type(value_type: ValueType) -> bool:
     )
 
 
-def _is_public_binding_input(value: object) -> bool:
+def _is_public_state_binding(value: object) -> bool:
     return (
-        (isinstance(value, ValueRef) and isinstance(value.value_type, ScalarType))
-        or value is None
-        or isinstance(value, Quantity | EntityRef | str | int | float | bool)
-    )
+        isinstance(value, ValueRef) and isinstance(value.value_type, ScalarType)
+    ) or isinstance(value, Quantity | EntityRef | str | int | float | bool)
+
+
+def _is_public_invocation_input(value: object) -> bool:
+    return value is None or _is_public_state_binding(value)
+
+
+def _require_public_state_binding(value: object) -> None:
+    if value is None:
+        raise TypeError(
+            "persistent state bindings cannot be None; omit the property instead"
+        )
+    if _is_payload_binding_input(value):
+        raise TypeError("persistent properties cannot contain opaque payloads")
+    if not _is_public_state_binding(value):
+        raise TypeError(
+            "module bindings require a scalar typed value or scalar literal"
+        )
 
 
 def _resource_interfaces(
@@ -263,12 +278,7 @@ class ModuleContext:
         """Bind one typed persistent property on a logical resource."""
 
         self._require_owned_resource(resource)
-        if _is_payload_binding_input(value):
-            raise TypeError("persistent properties cannot contain opaque payloads")
-        if not _is_public_binding_input(value):
-            raise TypeError(
-                "module bindings require a scalar typed value or scalar literal"
-            )
+        _require_public_state_binding(value)
         self._effects.append(
             binding_property(
                 resource.id,
@@ -302,7 +312,8 @@ class ModuleContext:
                 "module invocation arguments must belong to the selected operation"
             )
         if any(
-            not _is_public_binding_input(value) for value in selected_arguments.values()
+            not _is_public_invocation_input(value)
+            for value in selected_arguments.values()
         ):
             raise TypeError("module invocation arguments require scalar values")
         self._effects.append(
@@ -486,11 +497,7 @@ def build_ensure_state_intent(
 
     bindings: list[BindingIntent] = []
     for property, value in assignments:
-        if _is_payload_binding_input(value):
-            raise TypeError("persistent properties cannot contain opaque payloads")
-        if not _is_public_binding_input(value):
-            msg = "module bindings require a scalar typed value or scalar literal"
-            raise TypeError(msg)
+        _require_public_state_binding(value)
         bindings.append(
             binding_property(
                 resource,

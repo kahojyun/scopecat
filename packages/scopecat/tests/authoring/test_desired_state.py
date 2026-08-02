@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, cast
 
 import pytest
 
@@ -42,6 +42,12 @@ class _SourceTarget:
 class _EmptyTarget:
     def target_assignments(self) -> Mapping[PropertyRef, sc.StateBinding]:
         return {}
+
+
+@dataclass(frozen=True)
+class _NullTarget:
+    def target_assignments(self) -> Mapping[PropertyRef, sc.StateBinding]:
+        return {_SOURCE_ENABLED: cast("sc.StateBinding", cast("object", None))}
 
 
 @dataclass(frozen=True)
@@ -103,6 +109,28 @@ def test_ensure_rejects_an_empty_target() -> None:
         def empty_target(module: sc.ModuleContext) -> None:
             source = module.resource("source")
             module.ensure(source, _EmptyTarget())
+
+
+def test_ensure_rejects_none_at_the_authoring_boundary() -> None:
+    with pytest.raises(TypeError, match="state bindings cannot be None"):
+
+        @sc.module(id="test.none-target")
+        def none_target(module: sc.ModuleContext) -> None:
+            source = module.resource("source", requires=(_SOURCE,))
+            module.ensure(source, _NullTarget())
+
+
+def test_bind_property_rejects_none_at_the_authoring_boundary() -> None:
+    with pytest.raises(TypeError, match="state bindings cannot be None"):
+
+        @sc.module(id="test.none-binding")
+        def none_binding(module: sc.ModuleContext) -> None:
+            source = module.resource("source", requires=(_SOURCE,))
+            module.bind_property(
+                source,
+                _SOURCE_ENABLED,
+                value=cast("sc.StateBinding", cast("object", None)),
+            )
 
 
 def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
