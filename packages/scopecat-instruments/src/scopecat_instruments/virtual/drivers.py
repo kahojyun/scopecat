@@ -3,24 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, override
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
-    MeasurementValue,
 )
 from scopecat.sdk.instruments import (
-    AcquisitionResultRef,
-    DriverAcquisition,
-    DriverOperation,
     DriverOutcome,
-    DriverReadback,
     DriverRejected,
-    DriverState,
-    DriverStatePatch,
     DriverSuccess,
     InstrumentDescription,
 )
@@ -30,20 +23,30 @@ from scopecat_instruments._support import (
     NetworkTrace,
     quantity_value,
     state_property_problem,
-    unsupported_invoke,
+)
+from scopecat_instruments.driver_handlers import (
+    DCMonitorMonitorDriverReadback,
+    DCMonitorMonitorDriverResultName,
+    DCMonitorMonitorDriverValues,
+    DCSourceMonitorDriverAdapter,
+    DCSourceMonitorDriverPatch,
+    DCSourceMonitorDriverSnapshot,
+    NetworkSweepDriverAdapter,
+    NetworkSweepDriverSnapshot,
+    NetworkSweepSweepDriverReadback,
+    NetworkSweepSweepDriverResultName,
+    NetworkSweepSweepDriverValues,
+    RFOutputDriverAdapter,
+    RFOutputDriverSnapshot,
+    TemperatureReadoutDriverAdapter,
+    TemperatureReadoutDriverSnapshot,
+    TemperatureReadoutSampleDriverReadback,
+    TemperatureReadoutSampleDriverResultName,
+    TemperatureReadoutSampleDriverValues,
 )
 from scopecat_instruments.driver_states import (
-    decode_dc_monitor_patch,
-    decode_dc_source_patch,
-    decode_network_sweep_patch,
-    decode_rf_output_patch,
-    encode_dc_monitor_state,
-    encode_dc_source_current_state,
-    encode_dc_source_voltage_state,
-    encode_driver_state,
-    encode_network_sweep_state,
-    encode_rf_output_state,
-    encode_temperature_readout_observation,
+    NetworkSweepDriverPatch,
+    RFOutputDriverPatch,
 )
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
@@ -63,13 +66,9 @@ from scopecat_instruments.interfaces import (
     temperature_readout_interface,
 )
 from scopecat_instruments.members import (
-    DC_MONITOR_CURRENT_RESULT,
     DC_MONITOR_MEASUREMENT_ENABLED,
-    DC_MONITOR_VOLTAGE_RESULT,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
-    NETWORK_SWEEP_FREQUENCY_RESULT,
-    TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.package_manifest import (
     VIRTUAL_DC_SOURCE_DRIVER,
@@ -80,7 +79,7 @@ from scopecat_instruments.package_manifest import (
 from scopecat_instruments.virtual.world import VirtualLabWorld
 
 
-class VirtualRfSource:
+class VirtualRfSource(RFOutputDriverAdapter):
     implementation_id = VIRTUAL_RF_SOURCE_DRIVER.id
     implementation_version = VIRTUAL_RF_SOURCE_DRIVER.implementation_version
 
@@ -99,7 +98,8 @@ class VirtualRfSource:
             interfaces=[rf_output_interface()],
         )
 
-    def read_state(self) -> DriverState:
+    @override
+    def read_rf_output_state(self) -> RFOutputDriverSnapshot:
         with self.world.lock:
             source = self.world.rf_source(self.instrument_id)
             state = RFOutputState(
@@ -108,16 +108,17 @@ class VirtualRfSource:
                 output_enabled=source.output_enabled,
                 reference_source=source.reference_source,
             )
-        return encode_driver_state(
-            encode_rf_output_state(state),
+        return RFOutputDriverSnapshot(
+            state=state,
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
-    def apply_state(
+    @override
+    def apply_rf_output_state(
         self,
-        request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
-        patch = decode_rf_output_patch(request)
+        patch: RFOutputDriverPatch,
+        /,
+    ) -> DriverOutcome[None]:
         if "frequency" in patch:
             self.set_frequency(quantity_value(patch["frequency"], "Hz"))
         if "power" in patch:
@@ -126,20 +127,7 @@ class VirtualRfSource:
             self.set_output(patch["output_enabled"])
         if "reference_source" in patch:
             self.set_reference_source(patch["reference_source"])
-        return DriverSuccess(self.read_state())
-
-    def invoke(
-        self,
-        request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
-        return unsupported_invoke(request, self.instrument_id)
-
-    def collect(
-        self,
-        request: DriverAcquisition,
-    ) -> DriverOutcome[DriverReadback]:
-        del request
-        return DriverSuccess(DriverReadback(values={}))
+        return DriverSuccess(None)
 
     def set_frequency(self, frequency_hz: float) -> None:
         with self.world.lock:
@@ -185,23 +173,12 @@ class VirtualRfSource:
 type _VirtualDcSourceMode = Literal["voltage", "current"]
 
 
-@dataclass(frozen=True)
-class _VirtualDcSnapshot:
-    source: DCSourceState
-    monitor: DCMonitorState
-
-    @property
-    def source_mode(self) -> _VirtualDcSourceMode:
-        if isinstance(self.source, DCSourceVoltageState):
-            return "voltage"
-        return "current"
-
-
-class VirtualDcSource:
+class VirtualDcSource(DCSourceMonitorDriverAdapter):
     implementation_id = VIRTUAL_DC_SOURCE_DRIVER.id
     implementation_version = VIRTUAL_DC_SOURCE_DRIVER.implementation_version
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
+        super().__init__(monitor=True)
         self.instrument_id = instrument_id
         self.world = world
         self.world.dc_source(instrument_id)
@@ -219,20 +196,8 @@ class VirtualDcSource:
             interfaces=[dc_source_interface(), dc_monitor_interface()],
         )
 
-    def read_state(self) -> DriverState:
-        snapshot = self._canonical_snapshot()
-        encoded_source = (
-            encode_dc_source_voltage_state(snapshot.source)
-            if isinstance(snapshot.source, DCSourceVoltageState)
-            else encode_dc_source_current_state(snapshot.source)
-        )
-        return encode_driver_state(
-            encoded_source,
-            encode_dc_monitor_state(snapshot.monitor),
-            metadata={"mode": "virtual", "world_seed": self.world.seed},
-        )
-
-    def _canonical_snapshot(self) -> _VirtualDcSnapshot:
+    @override
+    def read_dc_source_monitor_state(self) -> DCSourceMonitorDriverSnapshot:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
             source_state: DCSourceState = (
@@ -257,20 +222,27 @@ class VirtualDcSource:
                 integration_cycles=source.integration_cycles,
                 measurement_delay=Quantity(source.measurement_delay_s, "s"),
             )
-        return _VirtualDcSnapshot(
-            source=source_state,
-            monitor=monitor,
+        return DCSourceMonitorDriverSnapshot(
+            dc_source=source_state,
+            dc_monitor=monitor,
+            metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
-    def apply_state(
+    @override
+    def apply_dc_source_monitor_state(
         self,
-        request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
-        source_patch = decode_dc_source_patch(request)
-        monitor_patch = decode_dc_monitor_patch(request)
-        baseline = self._canonical_snapshot()
-        current_mode = baseline.source_mode
-        current_output = baseline.source.output_enabled
+        patch: DCSourceMonitorDriverPatch,
+        /,
+    ) -> DriverOutcome[None]:
+        source_patch = patch.dc_source
+        monitor_patch = patch.dc_monitor
+        baseline = self.read_dc_source_monitor_state()
+        current_mode: _VirtualDcSourceMode = (
+            "voltage"
+            if isinstance(baseline.dc_source, DCSourceVoltageState)
+            else "current"
+        )
+        current_output = baseline.dc_source.output_enabled
         target_mode = source_patch.get("source_mode", current_mode)
         target_output = source_patch.get("output_enabled", current_output)
         changes_source_state = target_mode != current_mode or bool(
@@ -316,18 +288,14 @@ class VirtualDcSource:
         effective_output = False if disabled_for_update else current_output
         if target_output != effective_output:
             self.set_output(target_output)
-        return DriverSuccess(self.read_state())
+        return DriverSuccess(None)
 
-    def invoke(
+    @override
+    def handle_monitor(
         self,
-        request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
-        return unsupported_invoke(request, self.instrument_id)
-
-    def collect(
-        self,
-        request: DriverAcquisition,
-    ) -> DriverOutcome[DriverReadback]:
+        requested: frozenset[DCMonitorMonitorDriverResultName],
+        /,
+    ) -> DriverOutcome[DCMonitorMonitorDriverReadback]:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
             if not source.output_enabled:
@@ -350,18 +318,15 @@ class VirtualDcSource:
                         ),
                     )
                 )
-            active_result = (
-                DC_MONITOR_CURRENT_RESULT
-                if source.source_mode == "voltage"
-                else DC_MONITOR_VOLTAGE_RESULT
+            active_result: DCMonitorMonitorDriverResultName = (
+                "current" if source.source_mode == "voltage" else "voltage"
             )
-            if request.results != frozenset({active_result}):
+            if requested != frozenset({active_result}):
                 return DriverRejected(
                     problems=(
                         state_property_problem(
                             "virtual_dc_monitor_result_inactive",
-                            f"{source.source_mode} mode provides only "
-                            f"{active_result.result_id}",
+                            f"{source.source_mode} mode provides only {active_result}",
                             DC_SOURCE_MODE,
                         ),
                     )
@@ -379,9 +344,14 @@ class VirtualDcSource:
                     value=source.current_level_a * 1.0e3,
                 )
             )
+        values: DCMonitorMonitorDriverValues = {}
+        if active_result == "current":
+            values["current"] = measured
+        else:
+            values["voltage"] = measured
         return DriverSuccess(
-            DriverReadback(
-                values=dict.fromkeys(request.results, measured),
+            DCMonitorMonitorDriverReadback(
+                values=values,
                 metadata={"mode": "virtual", "world_seed": self.world.seed},
             ),
         )
@@ -455,7 +425,7 @@ class _VirtualTemperatureSample:
     resistance_ohm: float
 
 
-class VirtualTemperatureMonitor:
+class VirtualTemperatureMonitor(TemperatureReadoutDriverAdapter):
     implementation_id = VIRTUAL_TEMPERATURE_MONITOR_DRIVER.id
     implementation_version = VIRTUAL_TEMPERATURE_MONITOR_DRIVER.implementation_version
 
@@ -474,54 +444,42 @@ class VirtualTemperatureMonitor:
             interfaces=[temperature_readout_interface()],
         )
 
-    def read_state(self) -> DriverState:
+    @override
+    def read_temperature_readout_state(self) -> TemperatureReadoutDriverSnapshot:
         with self.world.lock:
             state = self.world.temperature_monitor(self.instrument_id)
             observation = TemperatureReadoutObservation(
                 scan_channel=state.scan_channel,
                 autoscan_enabled=state.autoscan_enabled,
             )
-            return encode_driver_state(
-                encode_temperature_readout_observation(observation),
-                metadata={"mode": "virtual", "world_seed": self.world.seed},
-            )
+        return TemperatureReadoutDriverSnapshot(
+            observation=observation,
+            metadata={"mode": "virtual", "world_seed": self.world.seed},
+        )
 
-    def apply_state(
+    @override
+    def handle_sample(
         self,
-        request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
-        del request
-        return DriverSuccess(self.read_state())
-
-    def invoke(
-        self,
-        request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
-        return unsupported_invoke(request, self.instrument_id)
-
-    def collect(
-        self,
-        request: DriverAcquisition,
-    ) -> DriverOutcome[DriverReadback]:
+        requested: frozenset[TemperatureReadoutSampleDriverResultName],
+        /,
+    ) -> DriverOutcome[TemperatureReadoutSampleDriverReadback]:
         sample = self.read_sample()
+        values: TemperatureReadoutSampleDriverValues = {}
+        if "temperature" in requested:
+            values["temperature"] = MeasurementScalar.create(
+                dtype="float64",
+                unit="K",
+                value=sample.temperature_k,
+            )
+        if "resistance" in requested:
+            values["resistance"] = MeasurementScalar.create(
+                dtype="float64",
+                unit="Ohm",
+                value=sample.resistance_ohm,
+            )
         return DriverSuccess(
-            DriverReadback(
-                values={
-                    result: (
-                        MeasurementScalar.create(
-                            dtype="float64",
-                            unit="K",
-                            value=sample.temperature_k,
-                        )
-                        if result == TEMPERATURE_READOUT_TEMPERATURE_RESULT
-                        else MeasurementScalar.create(
-                            dtype="float64",
-                            unit="Ohm",
-                            value=sample.resistance_ohm,
-                        )
-                    )
-                    for result in request.results
-                },
+            TemperatureReadoutSampleDriverReadback(
+                values=values,
                 metadata={
                     "mode": "virtual",
                     "world_seed": self.world.seed,
@@ -549,7 +507,7 @@ class VirtualTemperatureMonitor:
         pass
 
 
-class VirtualNetworkAnalyzer:
+class VirtualNetworkAnalyzer(NetworkSweepDriverAdapter):
     implementation_id = VIRTUAL_VNA_DRIVER.id
     implementation_version = VIRTUAL_VNA_DRIVER.implementation_version
 
@@ -571,27 +529,27 @@ class VirtualNetworkAnalyzer:
             interfaces=[network_sweep_interface()],
         )
 
-    def read_state(self) -> DriverState:
+    @override
+    def read_network_sweep_state(self) -> NetworkSweepDriverSnapshot:
         settings = self.sweep_settings()
-        return encode_driver_state(
-            encode_network_sweep_state(
-                NetworkSweepState(
-                    start_frequency=Quantity(settings.start_frequency_hz, "Hz"),
-                    stop_frequency=Quantity(settings.stop_frequency_hz, "Hz"),
-                    points=settings.points,
-                    if_bandwidth=Quantity(settings.if_bandwidth_hz, "Hz"),
-                    source_power=Quantity(settings.source_power_dbm, "dBm"),
-                    s_parameter=settings.s_parameter,
-                )
+        return NetworkSweepDriverSnapshot(
+            state=NetworkSweepState(
+                start_frequency=Quantity(settings.start_frequency_hz, "Hz"),
+                stop_frequency=Quantity(settings.stop_frequency_hz, "Hz"),
+                points=settings.points,
+                if_bandwidth=Quantity(settings.if_bandwidth_hz, "Hz"),
+                source_power=Quantity(settings.source_power_dbm, "dBm"),
+                s_parameter=settings.s_parameter,
             ),
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
-    def apply_state(
+    @override
+    def apply_network_sweep_state(
         self,
-        request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
-        patch = decode_network_sweep_patch(request)
+        patch: NetworkSweepDriverPatch,
+        /,
+    ) -> DriverOutcome[None]:
         with self.world.lock:
             state = self.world.vna(self.instrument_id)
             if "start_frequency" in patch:
@@ -618,43 +576,38 @@ class VirtualNetworkAnalyzer:
                 )
             if "s_parameter" in patch:
                 state.s_parameter = patch["s_parameter"]
-        return DriverSuccess(self.read_state())
+        return DriverSuccess(None)
 
-    def invoke(
+    @override
+    def handle_sweep(
         self,
-        request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
-        return unsupported_invoke(request, self.instrument_id)
-
-    def collect(
-        self,
-        request: DriverAcquisition,
-    ) -> DriverOutcome[DriverReadback]:
+        requested: frozenset[NetworkSweepSweepDriverResultName],
+        /,
+    ) -> DriverOutcome[NetworkSweepSweepDriverReadback]:
         trace = self.acquire_trace()
-        values: dict[AcquisitionResultRef, MeasurementValue] = {}
-        for result in request.results:
-            if result == NETWORK_SWEEP_FREQUENCY_RESULT:
-                values[result] = MeasurementArray.create(
-                    dtype="float64",
-                    unit="Hz",
-                    shape=[len(trace.frequencies_hz)],
-                    values=trace.frequencies_hz,
-                )
-            else:
-                values[result] = MeasurementArray.create(
-                    dtype="complex128",
-                    unit="ratio",
-                    shape=[len(trace.values)],
-                    values=[
-                        ComplexComponents(
-                            real=value.real,
-                            imag=value.imag,
-                        )
-                        for value in trace.values
-                    ],
-                )
+        values: NetworkSweepSweepDriverValues = {}
+        if "frequency" in requested:
+            values["frequency"] = MeasurementArray.create(
+                dtype="float64",
+                unit="Hz",
+                shape=[len(trace.frequencies_hz)],
+                values=trace.frequencies_hz,
+            )
+        if "s_parameter" in requested:
+            values["s_parameter"] = MeasurementArray.create(
+                dtype="complex128",
+                unit="ratio",
+                shape=[len(trace.values)],
+                values=[
+                    ComplexComponents(
+                        real=value.real,
+                        imag=value.imag,
+                    )
+                    for value in trace.values
+                ],
+            )
         return DriverSuccess(
-            DriverReadback(
+            NetworkSweepSweepDriverReadback(
                 values=values,
                 metadata={"mode": "virtual", "world_seed": self.world.seed},
             ),

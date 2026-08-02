@@ -9,6 +9,12 @@ from scopecat.sdk.instruments import (
 )
 
 from scopecat_instruments._support import LinearSweepSettings
+from scopecat_instruments.driver_handlers import (
+    DCSourceMonitorDriverAdapter,
+    NetworkSweepDriverAdapter,
+    RFOutputDriverAdapter,
+    TemperatureReadoutDriverAdapter,
+)
 from scopecat_instruments.members import (
     DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
@@ -25,12 +31,16 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP_S_PARAMETER,
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
+    TEMPERATURE_READOUT_RESISTANCE_RESULT,
+    TEMPERATURE_READOUT_SAMPLE,
+    TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.virtual import (
     VirtualDcSource,
     VirtualLabWorld,
     VirtualNetworkAnalyzer,
     VirtualRfSource,
+    VirtualTemperatureMonitor,
 )
 
 
@@ -40,6 +50,13 @@ def _notch_frequency(
 ) -> float:
     index = min(range(len(values)), key=lambda selected: abs(values[selected]))
     return trace_frequencies[index]
+
+
+def test_virtual_drivers_use_generated_adapters() -> None:
+    assert issubclass(VirtualRfSource, RFOutputDriverAdapter)
+    assert issubclass(VirtualDcSource, DCSourceMonitorDriverAdapter)
+    assert issubclass(VirtualTemperatureMonitor, TemperatureReadoutDriverAdapter)
+    assert issubclass(VirtualNetworkAnalyzer, NetworkSweepDriverAdapter)
 
 
 def test_virtual_state_survives_driver_disconnect() -> None:
@@ -72,9 +89,10 @@ def test_virtual_rf_driver_applies_typed_sparse_patch() -> None:
     )
 
     assert isinstance(receipt, DriverSuccess)
-    assert receipt.value is not None
-    assert receipt.value.values[RF_OUTPUT_FREQUENCY] == Quantity(6.0e9, "Hz")
-    assert receipt.value.values[RF_OUTPUT_ENABLED] is False
+    assert receipt.value is None
+    state = driver.read_state()
+    assert state.values[RF_OUTPUT_FREQUENCY] == Quantity(6.0e9, "Hz")
+    assert state.values[RF_OUTPUT_ENABLED] is False
 
 
 def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
@@ -95,8 +113,8 @@ def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
     )
 
     assert isinstance(receipt, DriverSuccess)
-    assert receipt.value is not None
-    property_targets = receipt.value.values
+    assert receipt.value is None
+    property_targets = driver.read_state().values
     assert {
         DC_SOURCE_CURRENT_RANGE,
         DC_SOURCE_CURRENT_LEVEL,
@@ -134,8 +152,8 @@ def test_virtual_dc_monitor_configuration_round_trips_through_state() -> None:
     )
 
     assert isinstance(receipt, DriverSuccess)
-    assert receipt.value is not None
-    properties = receipt.value.values
+    assert receipt.value is None
+    properties = driver.read_state().values
     assert properties[DC_MONITOR_MEASUREMENT_ENABLED] is False
     assert properties[DC_MONITOR_INTEGRATION_CYCLES] == 5
     delay = properties[DC_MONITOR_MEASUREMENT_DELAY]
@@ -165,6 +183,36 @@ def test_virtual_dc_monitor_requires_source_output_and_measurement_enabled() -> 
 
     assert isinstance(receipt, DriverRejected)
     assert receipt.problems[0].code == "virtual_dc_monitor_disabled"
+
+
+def test_virtual_temperature_adapter_preserves_readback_metadata() -> None:
+    driver = VirtualTemperatureMonitor("mixing-chamber", VirtualLabWorld(seed=19))
+
+    receipt = driver.collect(
+        DriverAcquisition(
+            target=TEMPERATURE_READOUT_SAMPLE,
+            results=frozenset(
+                {
+                    TEMPERATURE_READOUT_TEMPERATURE_RESULT,
+                    TEMPERATURE_READOUT_RESISTANCE_RESULT,
+                }
+            ),
+        )
+    )
+
+    assert isinstance(receipt, DriverSuccess)
+    assert set(receipt.value.values) == {
+        TEMPERATURE_READOUT_TEMPERATURE_RESULT,
+        TEMPERATURE_READOUT_RESISTANCE_RESULT,
+    }
+    assert receipt.value.metadata == {
+        "mode": "virtual",
+        "world_seed": 19,
+        "scan_channel": 1,
+        "autoscan_enabled": False,
+        "reading_status": 0,
+    }
+    assert driver.read_state().metadata == {"mode": "virtual", "world_seed": 19}
 
 
 def test_virtual_network_noise_is_deterministic_for_seed() -> None:
@@ -198,10 +246,11 @@ def test_virtual_network_analyzer_applies_typed_sparse_patch() -> None:
     )
 
     assert isinstance(receipt, DriverSuccess)
-    assert receipt.value is not None
-    assert receipt.value.values[NETWORK_SWEEP_S_PARAMETER] == "S11"
-    assert receipt.value.values[NETWORK_SWEEP_POINTS] == 17
-    assert RF_OUTPUT_FREQUENCY not in receipt.value.values
+    assert receipt.value is None
+    state = driver.read_state()
+    assert state.values[NETWORK_SWEEP_S_PARAMETER] == "S11"
+    assert state.values[NETWORK_SWEEP_POINTS] == 17
+    assert RF_OUTPUT_FREQUENCY not in state.values
 
 
 def test_flux_moves_notch_and_temperature_broadens_response() -> None:

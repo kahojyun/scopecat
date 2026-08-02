@@ -824,6 +824,11 @@ def test_sgs100a_apply_orders_output_around_frequency_and_power(
     )
 
     assert isinstance(receipt, DriverSuccess)
+    assert receipt.value is None
+    state = driver.read_state()
+    assert state.values[RF_OUTPUT_FREQUENCY] == Quantity(5.0e9, "Hz")
+    assert state.values[RF_OUTPUT_POWER] == Quantity(-27.5, "dBm")
+    assert state.values[RF_OUTPUT_ENABLED] is enabled
     transport.assert_complete()
 
 
@@ -878,6 +883,19 @@ def test_lakeshore_372_state_contains_only_persistent_scanner_state() -> None:
     }
     assert properties[TEMPERATURE_READOUT_SCAN_CHANNEL] == 5
     assert properties[TEMPERATURE_READOUT_AUTOSCAN_ENABLED] is True
+    transport.assert_complete()
+
+
+def test_lakeshore_372_rejects_observed_state_apply_without_io() -> None:
+    transport = ScriptedTransport([])
+    driver = LakeShore372("fridge", transport)
+
+    receipt = driver.apply_state(
+        _apply_request([(TEMPERATURE_READOUT_SCAN_CHANNEL, 6)])
+    )
+
+    assert isinstance(receipt, DriverRejected)
+    assert receipt.problems[0].code == "instrument_state_not_implemented"
     transport.assert_complete()
 
 

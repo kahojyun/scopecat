@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
+from typing import override
+
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import (
-    DriverAcquisition,
-    DriverOperation,
     DriverOutcome,
-    DriverReadback,
-    DriverState,
-    DriverStatePatch,
     DriverSuccess,
     InstrumentDescription,
 )
@@ -27,13 +24,12 @@ from scopecat.sdk.instruments.scpi import (
 from scopecat_instruments._support import (
     apply_unknown,
     quantity_value,
-    unsupported_invoke,
 )
-from scopecat_instruments.driver_states import (
-    decode_rf_output_patch,
-    encode_driver_state,
-    encode_rf_output_state,
+from scopecat_instruments.driver_handlers import (
+    RFOutputDriverAdapter,
+    RFOutputDriverSnapshot,
 )
+from scopecat_instruments.driver_states import RFOutputDriverPatch
 from scopecat_instruments.interface_declarations import (
     ReferenceSource,
     RFOutputState,
@@ -42,7 +38,7 @@ from scopecat_instruments.interfaces import rf_output_interface
 from scopecat_instruments.package_manifest import ROHDE_SCHWARZ_SGS100A_DRIVER
 
 
-class RohdeSchwarzSGS100A:
+class RohdeSchwarzSGS100A(RFOutputDriverAdapter):
     """CW frequency, power, RF output, and reference source controls."""
 
     implementation_id = ROHDE_SCHWARZ_SGS100A_DRIVER.id
@@ -66,7 +62,8 @@ class RohdeSchwarzSGS100A:
             interfaces=[rf_output_interface()],
         )
 
-    def read_state(self) -> DriverState:
+    @override
+    def read_rf_output_state(self) -> RFOutputDriverSnapshot:
         self._require_cw_state()
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Rohde & Schwarz",
@@ -74,23 +71,22 @@ class RohdeSchwarzSGS100A:
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return encode_driver_state(
-            encode_rf_output_state(
-                RFOutputState(
-                    frequency=Quantity(self.frequency(), "Hz"),
-                    power=Quantity(self.power(), "dBm"),
-                    output_enabled=self.output_enabled(),
-                    reference_source=self.reference_source(),
-                )
+        return RFOutputDriverSnapshot(
+            state=RFOutputState(
+                frequency=Quantity(self.frequency(), "Hz"),
+                power=Quantity(self.power(), "dBm"),
+                output_enabled=self.output_enabled(),
+                reference_source=self.reference_source(),
             ),
             metadata=metadata,
         )
 
-    def apply_state(
+    @override
+    def apply_rf_output_state(
         self,
-        request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
-        patch = decode_rf_output_patch(request)
+        patch: RFOutputDriverPatch,
+        /,
+    ) -> DriverOutcome[None]:
         target_output = patch.get("output_enabled")
         try:
             observed_output = self.output_enabled()
@@ -106,22 +102,9 @@ class RohdeSchwarzSGS100A:
             final_output = observed_output if target_output is None else target_output
             if final_output:
                 self.set_output(True)
-            return DriverSuccess(self.read_state())
+            return DriverSuccess(None)
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
-
-    def invoke(
-        self,
-        request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
-        return unsupported_invoke(request, self.instrument_id)
-
-    def collect(
-        self,
-        request: DriverAcquisition,
-    ) -> DriverOutcome[DriverReadback]:
-        del request
-        return DriverSuccess(DriverReadback(values={}))
 
     def set_frequency(self, frequency_hz: float) -> None:
         self.transport.write(f":SOUR:FREQ {format_number(frequency_hz)}")

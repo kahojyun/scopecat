@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import (
-    DriverOperation,
     DriverRejected,
     DriverUnknown,
     PropertyRef,
@@ -40,22 +39,6 @@ def quantity_value(value: Quantity, unit: str) -> float:
     if value.unit == unit:
         return value.value
     return value.to(unit).value
-
-
-def unsupported_invoke(
-    request: DriverOperation,
-    instrument_id: str,
-) -> DriverRejected:
-    return DriverRejected(
-        problems=(
-            execution_problem(
-                "instrument_operation_not_implemented",
-                f"{instrument_id} does not implement {request.target.operation_id}",
-                "driver_operation",
-                "operation_id",
-            ),
-        ),
-    )
 
 
 def state_sync_failed(instrument_id: str, error: Exception) -> DriverRejected:
