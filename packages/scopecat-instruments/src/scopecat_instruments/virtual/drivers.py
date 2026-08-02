@@ -32,12 +32,6 @@ from scopecat_instruments._support import (
     state_property_problem,
     unsupported_invoke,
 )
-from scopecat_instruments.driver_ids import (
-    VIRTUAL_DC_SOURCE,
-    VIRTUAL_RF_SOURCE,
-    VIRTUAL_TEMPERATURE_MONITOR,
-    VIRTUAL_VNA,
-)
 from scopecat_instruments.driver_states import (
     decode_dc_monitor_patch,
     decode_dc_source_patch,
@@ -77,12 +71,18 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP_FREQUENCY_RESULT,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
+from scopecat_instruments.package_manifest import (
+    VIRTUAL_DC_SOURCE_DRIVER,
+    VIRTUAL_RF_SOURCE_DRIVER,
+    VIRTUAL_TEMPERATURE_MONITOR_DRIVER,
+    VIRTUAL_VNA_DRIVER,
+)
 from scopecat_instruments.virtual.world import VirtualLabWorld
 
 
 class VirtualRfSource:
-    implementation_id = VIRTUAL_RF_SOURCE
-    implementation_version = "v1"
+    implementation_id = VIRTUAL_RF_SOURCE_DRIVER.id
+    implementation_version = VIRTUAL_RF_SOURCE_DRIVER.implementation_version
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
         self.instrument_id = instrument_id
@@ -198,8 +198,8 @@ class _VirtualDcSnapshot:
 
 
 class VirtualDcSource:
-    implementation_id = VIRTUAL_DC_SOURCE
-    implementation_version = "v1"
+    implementation_id = VIRTUAL_DC_SOURCE_DRIVER.id
+    implementation_version = VIRTUAL_DC_SOURCE_DRIVER.implementation_version
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
         self.instrument_id = instrument_id
@@ -456,8 +456,8 @@ class _VirtualTemperatureSample:
 
 
 class VirtualTemperatureMonitor:
-    implementation_id = VIRTUAL_TEMPERATURE_MONITOR
-    implementation_version = "v1"
+    implementation_id = VIRTUAL_TEMPERATURE_MONITOR_DRIVER.id
+    implementation_version = VIRTUAL_TEMPERATURE_MONITOR_DRIVER.implementation_version
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
         self.instrument_id = instrument_id
@@ -550,8 +550,8 @@ class VirtualTemperatureMonitor:
 
 
 class VirtualNetworkAnalyzer:
-    implementation_id = VIRTUAL_VNA
-    implementation_version = "v1"
+    implementation_id = VIRTUAL_VNA_DRIVER.id
+    implementation_version = VIRTUAL_VNA_DRIVER.implementation_version
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
         self.instrument_id = instrument_id

@@ -28,14 +28,10 @@ from scopecat.sdk.instruments.declarations import (
     declared_bundle_interfaces,
     declared_interface_layout,
 )
-from scopecat_instruments.interface_declarations import (
-    DCSourceInterface,
-    DCSourceMonitorInterface,
-    NetworkSweepInterface,
-    ReferenceSource,
-    RFOutputInterface,
-    SParameter,
-    TemperatureReadoutInterface,
+from scopecat_instruments.package_manifest import (
+    PACKAGE_MANIFEST,
+    BundleSurfaceRegistration,
+    SurfaceRegistration,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -181,6 +177,24 @@ class DriverHandlerTarget:
     driver_states_module: str
 
 
+class _DeclarationCache:
+    """Compile each interface declaration at most once per generator run."""
+
+    def __init__(self) -> None:
+        self._layouts: dict[type[object], DeclaredInterfaceLayout[object]] = {}
+
+    def layout(
+        self,
+        interface_type: type[object],
+        /,
+    ) -> DeclaredInterfaceLayout[object]:
+        selected = self._layouts.get(interface_type)
+        if selected is None:
+            selected = declared_interface_layout(compile_interface(interface_type))
+            self._layouts[interface_type] = selected
+        return selected
+
+
 class _Options(argparse.Namespace):
     check: bool = False
 
@@ -196,15 +210,20 @@ class _FixtureDeclarations(Protocol):
     PayloadOperationInterface: type[object]
 
 
-_PRODUCTION_SURFACES: tuple[GenerationSurface, ...] = (
-    clients_for(
-        TemperatureReadoutInterface,
-        public_name_overrides=(("sample.readback", "TemperatureReadback"),),
-    ),
-    clients_for(RFOutputInterface),
-    clients_for(DCSourceInterface),
-    clients_for_bundle(DCSourceMonitorInterface, facade_flag="monitor"),
-    clients_for(NetworkSweepInterface),
+def _manifest_surface(registration: SurfaceRegistration, /) -> GenerationSurface:
+    if isinstance(registration, BundleSurfaceRegistration):
+        return clients_for_bundle(
+            registration.bundle_type,
+            facade_flag=registration.facade_flag,
+        )
+    return clients_for(
+        registration.interface_type,
+        public_name_overrides=registration.public_name_overrides,
+    )
+
+
+_PRODUCTION_SURFACES = tuple(
+    _manifest_surface(registration) for registration in PACKAGE_MANIFEST.surfaces
 )
 
 PRODUCTION_TARGET = GenerationTarget(
@@ -220,7 +239,7 @@ PRODUCTION_CATALOG_TARGET = CatalogTarget(
     driver_states_output=DRIVER_STATES_OUTPUT,
     members_module="scopecat_instruments.members",
     interface_types=_surface_interface_types(_PRODUCTION_SURFACES),
-    public_types=(ReferenceSource, SParameter),
+    public_types=PACKAGE_MANIFEST.public_types,
 )
 
 PRODUCTION_DRIVER_HANDLER_TARGET = DriverHandlerTarget(
@@ -729,10 +748,15 @@ class _AnnotationRenderer:
         return name
 
 
-def render_catalog_target(target: CatalogTarget) -> tuple[tuple[Path, str], ...]:
+def render_catalog_target(
+    target: CatalogTarget,
+    *,
+    declaration_cache: _DeclarationCache | None = None,
+) -> tuple[tuple[Path, str], ...]:
     """Render every public projection owned by one interface catalog."""
 
-    models = _catalog_models(target.interface_types)
+    cache = declaration_cache or _DeclarationCache()
+    models = _catalog_models(target.interface_types, declaration_cache=cache)
     return (
         (target.members_output, _render_members_module(models)),
         (target.interfaces_output, _render_interfaces_module(models)),
@@ -749,14 +773,15 @@ def render_catalog_target(target: CatalogTarget) -> tuple[tuple[Path, str], ...]
 
 def _catalog_models(
     interface_types: tuple[type[object], ...],
+    *,
+    declaration_cache: _DeclarationCache,
 ) -> tuple[_CatalogInterfaceModel, ...]:
     if not interface_types:
         raise ClientGenerationError("an interface catalog requires a declaration")
     models: list[_CatalogInterfaceModel] = []
     seen_identities: set[str] = set()
     for interface_type in interface_types:
-        compiled = compile_interface(interface_type)
-        layout = declared_interface_layout(compiled)
+        layout = declaration_cache.layout(interface_type)
         identity = f"{interface_type.__module__}.{interface_type.__qualname__}"
         if identity in seen_identities:
             raise ClientGenerationError(
@@ -1248,10 +1273,18 @@ def _render_driver_states_module(
     )
 
 
-def render_driver_handler_target(target: DriverHandlerTarget) -> str:
+def render_driver_handler_target(
+    target: DriverHandlerTarget,
+    *,
+    declaration_cache: _DeclarationCache | None = None,
+) -> str:
     """Render typed ABC adapters for selected driver-facing surfaces."""
 
-    surfaces = tuple(_driver_handler_surface(item) for item in target.surfaces)
+    cache = declaration_cache or _DeclarationCache()
+    surfaces = tuple(
+        _driver_handler_surface(item, declaration_cache=cache)
+        for item in target.surfaces
+    )
     if not surfaces:
         raise ClientGenerationError("a driver handler module requires a surface")
     return _render_driver_handlers_module(
@@ -1263,6 +1296,8 @@ def render_driver_handler_target(target: DriverHandlerTarget) -> str:
 
 def _driver_handler_surface(
     surface: GenerationSurface,
+    *,
+    declaration_cache: _DeclarationCache,
 ) -> _DriverHandlerSurface:
     if isinstance(surface, BundleClientSurface):
         interface_types = declared_bundle_interfaces(surface.bundle_type)
@@ -1282,7 +1317,7 @@ def _driver_handler_surface(
             stem=(interface_stem := interface_type.__name__.removesuffix("Interface")),
             constant_prefix=_snake_case(interface_stem).upper(),
             field_name=_snake_case(interface_stem),
-            layout=declared_interface_layout(compile_interface(interface_type)),
+            layout=declaration_cache.layout(interface_type),
             optional=flag_name is not None and index > 0,
         )
         for index, interface_type in enumerate(interface_types)
@@ -2410,12 +2445,17 @@ def _split_top_level_union(annotation: str) -> tuple[str, ...]:
     return tuple(branches)
 
 
-def render_generation_target(target: GenerationTarget) -> str:
+def render_generation_target(
+    target: GenerationTarget,
+    *,
+    declaration_cache: _DeclarationCache | None = None,
+) -> str:
     """Render one configured generated module."""
 
     return render_client_module(
         target.surfaces,
         state_projection_module=target.state_projection_module,
+        declaration_cache=declaration_cache,
     )
 
 
@@ -2423,10 +2463,12 @@ def render_client_module(
     surfaces: tuple[GenerationSurface, ...],
     *,
     state_projection_module: str,
+    declaration_cache: _DeclarationCache | None = None,
 ) -> str:
     """Render an independently importable module for selected declarations."""
 
     renderer = _AnnotationRenderer()
+    cache = declaration_cache or _DeclarationCache()
     suppressed_families = _facade_base_identities(surfaces)
     models = tuple(
         _generation_model(
@@ -2434,6 +2476,7 @@ def render_client_module(
             renderer=renderer,
             state_projection_module=state_projection_module,
             suppressed_families=suppressed_families,
+            declaration_cache=cache,
         )
         for surface in surfaces
     )
@@ -2469,12 +2512,14 @@ def _generation_model(
     renderer: _AnnotationRenderer,
     state_projection_module: str,
     suppressed_families: frozenset[str],
+    declaration_cache: _DeclarationCache,
 ) -> _InterfaceModel:
     if isinstance(surface, BundleClientSurface):
         return _bundle_model(
             surface,
             renderer=renderer,
             state_projection_module=state_projection_module,
+            declaration_cache=declaration_cache,
         )
     return _interface_model(
         surface,
@@ -2482,6 +2527,7 @@ def _generation_model(
         state_projection_module=state_projection_module,
         generate_family=_type_identity(surface.interface_type)
         not in suppressed_families,
+        declaration_cache=declaration_cache,
     )
 
 
@@ -2491,8 +2537,13 @@ def _interface_model(
     renderer: _AnnotationRenderer,
     state_projection_module: str,
     generate_family: bool,
+    declaration_cache: _DeclarationCache,
 ) -> _InterfaceModel:
-    constituent = _constituent_model(surface.interface_type, renderer=renderer)
+    constituent = _constituent_model(
+        surface.interface_type,
+        renderer=renderer,
+        declaration_cache=declaration_cache,
+    )
     layout = constituent.layout
     interface_name = surface.interface_type.__name__
     stem = interface_name.removesuffix("Interface")
@@ -2536,11 +2587,16 @@ def _bundle_model(
     *,
     renderer: _AnnotationRenderer,
     state_projection_module: str,
+    declaration_cache: _DeclarationCache,
 ) -> _InterfaceModel:
     bundle_type = surface.bundle_type
     bundle_identity = f"{bundle_type.__module__}.{bundle_type.__qualname__}"
     constituents = tuple(
-        _constituent_model(interface_type, renderer=renderer)
+        _constituent_model(
+            interface_type,
+            renderer=renderer,
+            declaration_cache=declaration_cache,
+        )
         for interface_type in declared_bundle_interfaces(bundle_type)
     )
     for constituent in constituents:
@@ -2651,9 +2707,9 @@ def _constituent_model(
     interface_type: type[object],
     *,
     renderer: _AnnotationRenderer,
+    declaration_cache: _DeclarationCache,
 ) -> _InterfaceConstituentModel:
-    compiled = compile_interface(interface_type)
-    layout = declared_interface_layout(compiled)
+    layout = declaration_cache.layout(interface_type)
     interface_name = interface_type.__name__
     observation_type_name = (
         None
@@ -4134,18 +4190,34 @@ def main(argv: list[str] | None = None) -> None:
     )
     options = _Options()
     parser.parse_args(argv, namespace=options)
+    declaration_cache = _DeclarationCache()
     rendered = (
         *(
-            (target.output, render_generation_target(target))
+            (
+                target.output,
+                render_generation_target(
+                    target,
+                    declaration_cache=declaration_cache,
+                ),
+            )
             for target in _generation_targets()
         ),
         *(
             rendered_source
             for target in _catalog_targets()
-            for rendered_source in render_catalog_target(target)
+            for rendered_source in render_catalog_target(
+                target,
+                declaration_cache=declaration_cache,
+            )
         ),
         *(
-            (target.output, render_driver_handler_target(target))
+            (
+                target.output,
+                render_driver_handler_target(
+                    target,
+                    declaration_cache=declaration_cache,
+                ),
+            )
             for target in _driver_handler_targets()
         ),
     )

@@ -29,7 +29,6 @@ from scopecat_instruments._support import (
     quantity_value,
     unsupported_invoke,
 )
-from scopecat_instruments.driver_ids import ROHDE_SCHWARZ_SGS100A
 from scopecat_instruments.driver_states import (
     decode_rf_output_patch,
     encode_driver_state,
@@ -40,13 +39,14 @@ from scopecat_instruments.interface_declarations import (
     RFOutputState,
 )
 from scopecat_instruments.interfaces import rf_output_interface
+from scopecat_instruments.package_manifest import ROHDE_SCHWARZ_SGS100A_DRIVER
 
 
 class RohdeSchwarzSGS100A:
     """CW frequency, power, RF output, and reference source controls."""
 
-    implementation_id = ROHDE_SCHWARZ_SGS100A
-    implementation_version = "v1"
+    implementation_id = ROHDE_SCHWARZ_SGS100A_DRIVER.id
+    implementation_version = ROHDE_SCHWARZ_SGS100A_DRIVER.implementation_version
 
     def __init__(self, instrument_id: str, transport: ScpiTransport) -> None:
         self.instrument_id = instrument_id

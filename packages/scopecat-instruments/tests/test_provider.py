@@ -44,15 +44,20 @@ from scopecat_instruments.provider import (
 from scopecat_instruments.virtual import VirtualDcSource
 
 
-def test_driver_id_catalog_does_not_import_driver_implementations() -> None:
+def test_package_manifest_does_not_import_driver_implementations() -> None:
     subprocess.run(
         [
             sys.executable,
             "-c",
             (
-                "import sys; import scopecat_instruments.driver_ids; "
-                "forbidden = ('scopecat_instruments.provider', "
-                "'scopecat_instruments.drivers', "
+                "import sys; import scopecat_instruments.package_manifest; "
+                "forbidden = ("
+                "'scopecat_instruments.provider', "
+                "'scopecat_instruments.drivers.gs200', "
+                "'scopecat_instruments.drivers.sgs100a', "
+                "'scopecat_instruments.drivers.lakeshore372', "
+                "'scopecat_instruments.drivers.e5080b', "
+                "'scopecat_instruments.virtual.drivers', "
                 "'scopecat_instruments.transport'); "
                 "loaded = [name for name in forbidden if name in sys.modules]; "
                 "assert not loaded, loaded"

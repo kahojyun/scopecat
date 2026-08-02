@@ -39,7 +39,6 @@ from scopecat_instruments._support import (
     collect_unknown,
     unsupported_invoke,
 )
-from scopecat_instruments.driver_ids import LAKESHORE_372
 from scopecat_instruments.driver_states import (
     encode_driver_state,
     encode_temperature_readout_observation,
@@ -50,6 +49,7 @@ from scopecat_instruments.members import (
     TEMPERATURE_READOUT_RESISTANCE_RESULT,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
+from scopecat_instruments.package_manifest import LAKESHORE_372_DRIVER
 
 _SETTLE_TIMEOUT_SECONDS = 10.0
 _SETTLE_POLL_SECONDS = 0.05
@@ -67,8 +67,8 @@ class _LakeShore372Sample:
 class LakeShore372:
     """Observe scanner state and collect settled K/Ω samples without writes."""
 
-    implementation_id = LAKESHORE_372
-    implementation_version = "v1"
+    implementation_id = LAKESHORE_372_DRIVER.id
+    implementation_version = LAKESHORE_372_DRIVER.implementation_version
 
     def __init__(self, instrument_id: str, transport: ScpiTransport) -> None:
         self.instrument_id = instrument_id

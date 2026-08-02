@@ -42,7 +42,6 @@ from scopecat_instruments.driver_handlers import (
     DCSourceMonitorDriverPatch,
     DCSourceMonitorDriverSnapshot,
 )
-from scopecat_instruments.driver_ids import YOKOGAWA_GS200
 from scopecat_instruments.driver_states import DCSourceDriverPatch
 from scopecat_instruments.interface_declarations import (
     DCMonitorState,
@@ -57,6 +56,7 @@ from scopecat_instruments.members import (
     DC_SOURCE_OUTPUT_ENABLED,
     DC_SOURCE_VOLTAGE_RANGE,
 )
+from scopecat_instruments.package_manifest import YOKOGAWA_GS200_DRIVER
 
 _CONDITION_END_OF_MEASURE = 1 << 0
 _CONDITION_OVER_RANGE = 1 << 1
@@ -66,8 +66,8 @@ _CONDITION_NO_TRIGGER_SAMPLING_ERROR = 1 << 4
 class YokogawaGS200(DCSourceMonitorDriverAdapter):
     """GS200 source controls plus optional /MON single-value measurement."""
 
-    implementation_id = YOKOGAWA_GS200
-    implementation_version = "v2"
+    implementation_id = YOKOGAWA_GS200_DRIVER.id
+    implementation_version = YOKOGAWA_GS200_DRIVER.implementation_version
 
     def __init__(
         self,

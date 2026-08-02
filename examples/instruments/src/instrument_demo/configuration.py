@@ -25,12 +25,6 @@ from scopecat.records.parameter import (
     ScalarParameterValue,
 )
 from scopecat.sdk.instruments import PropertyRef
-from scopecat_instruments.driver_ids import (
-    VIRTUAL_DC_SOURCE,
-    VIRTUAL_RF_SOURCE,
-    VIRTUAL_TEMPERATURE_MONITOR,
-    VIRTUAL_VNA,
-)
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_MONITOR_INTEGRATION_CYCLES,
@@ -46,6 +40,12 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
+)
+from scopecat_instruments.package_manifest import (
+    VIRTUAL_DC_SOURCE,
+    VIRTUAL_RF_SOURCE,
+    VIRTUAL_TEMPERATURE_MONITOR,
+    VIRTUAL_VNA,
 )
 
 RESONANCE_FREQUENCY_PARAMETER_ID = "readout_resonance_frequency"

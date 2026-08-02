@@ -42,20 +42,20 @@ from scopecat_instruments.driver_handlers import (
     NetworkSweepSweepDriverResultName,
     NetworkSweepSweepDriverValues,
 )
-from scopecat_instruments.driver_ids import KEYSIGHT_E5080B
 from scopecat_instruments.driver_states import NetworkSweepDriverPatch
 from scopecat_instruments.interface_declarations import (
     NetworkSweepState,
     SParameter,
 )
 from scopecat_instruments.interfaces import network_sweep_interface
+from scopecat_instruments.package_manifest import KEYSIGHT_E5080B_DRIVER
 
 
 class KeysightE5080B(NetworkSweepDriverAdapter):
     """Two-port linear sweep configuration and ASCII complex data retrieval."""
 
-    implementation_id = KEYSIGHT_E5080B
-    implementation_version = "v1"
+    implementation_id = KEYSIGHT_E5080B_DRIVER.id
+    implementation_version = KEYSIGHT_E5080B_DRIVER.implementation_version
 
     def __init__(
         self,
