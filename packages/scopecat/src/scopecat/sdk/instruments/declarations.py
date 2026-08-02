@@ -17,6 +17,7 @@ from typing import (
     Annotated,
     Concatenate,
     Literal,
+    Protocol,
     TypeAliasType,
     cast,
     dataclass_transform,
@@ -98,6 +99,7 @@ _STATE_METADATA = "__scopecat_instrument_state__"
 _OBSERVED_STATE_METADATA = "__scopecat_instrument_observed_state__"
 _RESULT_METADATA = "__scopecat_instrument_result__"
 _INTERFACE_METADATA = "__scopecat_instrument_interface__"
+_BUNDLE_METADATA = "__scopecat_instrument_bundle__"
 _ACQUISITION_METADATA = "__scopecat_instrument_acquisition__"
 _OPERATION_METADATA = "__scopecat_instrument_operation__"
 _STATE_INTERFACES_METADATA = "__scopecat_instrument_state_interfaces__"
@@ -216,6 +218,11 @@ class InterfaceMetadata:
     observed_state: type[object] | None
     label: str | None
     description: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _InstrumentBundleMetadata:
+    constituents: tuple[type[object], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -784,6 +791,10 @@ def instrument_interface[ClassT: type[object]](
     )
 
     def decorate(cls: ClassT) -> ClassT:
+        if _instrument_bundle_in_mro(cls) is not None:
+            raise TypeError(
+                "instrument bundle or descendant cannot also be an instrument interface"
+            )
         setattr(cls, _INTERFACE_METADATA, declaration)
         if isinstance(state, DiscriminatedStateMetadata):
             _bind_discriminated_state(id, state)
@@ -794,6 +805,63 @@ def instrument_interface[ClassT: type[object]](
         return cls
 
     return decorate
+
+
+def instrument_bundle[ClassT: type[object]](cls: ClassT, /) -> ClassT:
+    """Declare an ordered composition of directly inherited interfaces."""
+
+    if Protocol not in cls.__bases__:
+        raise TypeError("instrument bundle must directly inherit Protocol")
+    if _own_class_metadata(cls, _INTERFACE_METADATA, InterfaceMetadata) is not None:
+        raise TypeError("instrument bundle cannot also be an instrument interface")
+
+    own_annotations = cast(
+        "Mapping[str, object]",
+        vars(cls).get("__annotations__", {}),
+    )
+    own_members = {
+        *own_annotations,
+        *(name for name in vars(cls) if not name.startswith("_")),
+    }
+    if own_members:
+        rendered = ", ".join(repr(name) for name in sorted(own_members))
+        raise TypeError(f"instrument bundle cannot declare members: {rendered}")
+
+    constituents = tuple(base for base in cls.__bases__ if base is not Protocol)
+    if len(constituents) < 2:
+        raise TypeError(
+            "instrument bundle requires at least two directly inherited interfaces"
+        )
+    for base in constituents:
+        if (
+            _own_class_metadata(base, _BUNDLE_METADATA, _InstrumentBundleMetadata)
+            is not None
+        ):
+            raise TypeError("instrument bundle cannot contain another bundle")
+        if _own_class_metadata(base, _INTERFACE_METADATA, InterfaceMetadata) is None:
+            raise TypeError(
+                "instrument bundle bases must be directly decorated "
+                f"instrument interfaces; {base.__qualname__!r} is not"
+            )
+
+    setattr(cls, _BUNDLE_METADATA, _InstrumentBundleMetadata(constituents))
+    return cls
+
+
+def declared_bundle_interfaces(
+    bundle_type: type[object],
+    /,
+) -> tuple[type[object], ...]:
+    """Return a bundle's directly declared interfaces in authored base order."""
+
+    declaration = _own_class_metadata(
+        bundle_type,
+        _BUNDLE_METADATA,
+        _InstrumentBundleMetadata,
+    )
+    if declaration is None:
+        raise TypeError("instrument bundle is missing its decorator")
+    return declaration.constituents
 
 
 def operation[**P, ReturnT](
@@ -878,12 +946,7 @@ def compile_interface[InterfaceT](
 ) -> CompiledInterface[InterfaceT]:
     """Lower one decorated Python interface class to a typed, fresh contract."""
 
-    declaration = _required_metadata(
-        interface_type,
-        _INTERFACE_METADATA,
-        InterfaceMetadata,
-        "instrument interface",
-    )
+    declaration = _required_interface_metadata(interface_type)
     properties: list[PropertySpec] = []
     compiled_state: DiscriminatedState | None = None
     if isinstance(declaration.state, DiscriminatedStateMetadata):
@@ -948,12 +1011,7 @@ def compile_interface[InterfaceT](
 def declared_interface_ref(interface_type: type[object]) -> InterfaceRef:
     """Return the stable member-ref root for a declared interface class."""
 
-    declaration = _required_metadata(
-        interface_type,
-        _INTERFACE_METADATA,
-        InterfaceMetadata,
-        "instrument interface",
-    )
+    declaration = _required_interface_metadata(interface_type)
     return InterfaceRef(declaration.id)
 
 
@@ -989,12 +1047,7 @@ def declared_observed_state[InterfaceT, StateT](
 ) -> DeclaredObservedState[StateT]:
     """Bind an interface's exact observed-state dataclass to its wire layout."""
 
-    declaration = _required_metadata(
-        compiled.interface_type,
-        _INTERFACE_METADATA,
-        InterfaceMetadata,
-        "instrument interface",
-    )
+    declaration = _required_interface_metadata(compiled.interface_type)
     if declaration.observed_state is None:
         raise ValueError("compiled interface does not declare observed state")
     if declaration.observed_state is not state_type:
@@ -1030,12 +1083,7 @@ def declared_observed_state[InterfaceT, StateT](
 def declared_discriminator_ref(interface_type: type[object]) -> PropertyRef:
     """Return the persistent discriminator of a declared interface."""
 
-    declaration = _required_metadata(
-        interface_type,
-        _INTERFACE_METADATA,
-        InterfaceMetadata,
-        "instrument interface",
-    )
+    declaration = _required_interface_metadata(interface_type)
     if not isinstance(declaration.state, DiscriminatedStateMetadata):
         raise ValueError("interface does not declare discriminated state")
     discriminator_id = declaration.state.discriminator.id
@@ -1170,12 +1218,7 @@ def declared_interface_layout[InterfaceT](
 ) -> DeclaredInterfaceLayout[InterfaceT]:
     """Project a compiled interface into its complete typed Python member tree."""
 
-    declaration = _required_metadata(
-        compiled.interface_type,
-        _INTERFACE_METADATA,
-        InterfaceMetadata,
-        "instrument interface",
-    )
+    declaration = _required_interface_metadata(compiled.interface_type)
     observed_state: DeclaredObservedState[object] | None = None
     if declaration.observed_state is not None:
         observed_state = declared_observed_state(
@@ -2526,6 +2569,47 @@ def _declared_field_metadata[MetadataT: MemberMetadata | ResultMetadata](
     return metadata if isinstance(metadata, metadata_type) else None
 
 
+def _own_class_metadata[MetadataT](
+    target: type[object],
+    attribute: str,
+    metadata_type: type[MetadataT],
+) -> MetadataT | None:
+    metadata = vars(target).get(attribute)
+    return metadata if isinstance(metadata, metadata_type) else None
+
+
+def _instrument_bundle_in_mro(
+    target: type[object],
+) -> tuple[type[object], _InstrumentBundleMetadata] | None:
+    for candidate in target.__mro__:
+        declaration = _own_class_metadata(
+            candidate,
+            _BUNDLE_METADATA,
+            _InstrumentBundleMetadata,
+        )
+        if declaration is not None:
+            return candidate, declaration
+    return None
+
+
+def _required_interface_metadata(
+    interface_type: type[object],
+) -> InterfaceMetadata:
+    bundle = _instrument_bundle_in_mro(interface_type)
+    if bundle is not None:
+        bundle_type, _ = bundle
+        raise TypeError(
+            f"instrument bundle {bundle_type.__qualname__!r} cannot be used as "
+            "a wire interface; use its constituent interfaces instead"
+        )
+    return _required_metadata(
+        interface_type,
+        _INTERFACE_METADATA,
+        InterfaceMetadata,
+        "instrument interface",
+    )
+
+
 def _required_metadata[MetadataT](
     target: object,
     attribute: str,
@@ -2577,6 +2661,7 @@ __all__ = [
     "declared_acquisition",
     "declared_acquisition_ref",
     "declared_argument_ref",
+    "declared_bundle_interfaces",
     "declared_component_ref",
     "declared_discriminator_ref",
     "declared_interface_layout",
@@ -2589,6 +2674,7 @@ __all__ = [
     "declared_state_assignments",
     "declared_state_target",
     "discriminated_state",
+    "instrument_bundle",
     "instrument_interface",
     "instrument_observed_state",
     "instrument_result",
