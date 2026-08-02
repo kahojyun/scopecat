@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
 from typing import Protocol, cast
 
 from scopecat.authoring import (
@@ -44,6 +43,7 @@ from scopecat.sdk.instruments.declarations import (
     DeclaredOperation,
     state_projection_assignments,
     state_projection_target,
+    target_from_state_projection_assignments,
 )
 
 
@@ -334,14 +334,6 @@ class SymbolicInstrumentComponentGroupBase[ComponentT]:
         return self._entities.align(value)
 
 
-@dataclass(frozen=True, slots=True)
-class _ProjectedStateTarget:
-    assignments: Mapping[PropertyRef, StateBinding]
-
-    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
-        return self.assignments
-
-
 class DeclaredStateSymbolicGroupBase[
     StateT,
     GroupStateT,
@@ -385,7 +377,7 @@ class DeclaredStateSymbolicGroupBase[
         return tuple(
             (
                 entity,
-                _ProjectedStateTarget(
+                target_from_state_projection_assignments(
                     {
                         property_ref: values[entity]
                         for property_ref, values in aligned.items()

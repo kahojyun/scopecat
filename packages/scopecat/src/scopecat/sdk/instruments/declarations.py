@@ -507,8 +507,8 @@ class DeclaredInterfaceLayout[InterfaceT]:
 
 
 @dataclass(frozen=True, slots=True)
-class _StateProjectionTarget:
-    """Internal desired-state adapter produced from a generated projection."""
+class _ProjectedStateAssignmentsTarget:
+    """Internal desired-state adapter for already-projected assignments."""
 
     assignments: Mapping[PropertyRef, StateBinding]
 
@@ -1250,10 +1250,21 @@ def state_projection_assignments(
     return assignments
 
 
-def state_projection_target(projection: object) -> DesiredState:
-    """Adapt a generated projection to the existing ``DesiredState`` protocol."""
+def target_from_state_projection_assignments(
+    assignments: Mapping[PropertyRef, StateBinding],
+    /,
+) -> DesiredState:
+    """Adapt an already-projected property-assignment mapping to ``DesiredState``."""
 
-    return _StateProjectionTarget(state_projection_assignments(projection))
+    return _ProjectedStateAssignmentsTarget(assignments)
+
+
+def state_projection_target(projection: object) -> DesiredState:
+    """Encode a generated projection as a ``DesiredState`` target."""
+
+    return target_from_state_projection_assignments(
+        state_projection_assignments(projection)
+    )
 
 
 def declared_interface_layout[InterfaceT](
@@ -2771,4 +2782,5 @@ __all__ = [
     "state_projection_assignments",
     "state_projection_field",
     "state_projection_target",
+    "target_from_state_projection_assignments",
 ]

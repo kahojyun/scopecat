@@ -106,6 +106,7 @@ from scopecat.sdk.instruments.declarations import (
     state_projection_assignments,
     state_projection_field,
     state_projection_target,
+    target_from_state_projection_assignments,
 )
 
 type ConcreteAlias[ValueT] = ValueT
@@ -1752,8 +1753,12 @@ def test_generated_state_projection_distinguishes_omission_from_falsy_values() -
     assert not hasattr(projection, "__dict__")
     with pytest.raises(FrozenInstanceError):
         projection.__setattr__("points", 1)
+    assignments = state_projection_assignments(projection)
     target: DesiredState = state_projection_target(projection)
-    assert target.target_assignments() == state_projection_assignments(projection)
+    assignments_target = target_from_state_projection_assignments(assignments)
+    assert target.target_assignments() == assignments
+    assert assignments_target.target_assignments() == assignments
+    assert type(target) is type(assignments_target)
 
 
 def test_discriminated_projection_includes_required_fields_and_constants() -> None:
