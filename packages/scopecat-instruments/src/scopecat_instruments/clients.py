@@ -71,7 +71,9 @@ _TEMPERATURE_READOUT_OBSERVATION_DECLARATION = ClientObservedState(
         ClientObservedField(
             "scan_channel",
             InterfaceRef("scopecat.temperature_readout/v1").property("scan_channel"),
-            client_property_value_type('{"type":"int","minimum":1,"maximum":16}'),
+            client_property_value_type(
+                '{"type":"int","minimum":1,"maximum":9007199254740991}'
+            ),
         ),
         ClientObservedField(
             "autoscan_enabled",

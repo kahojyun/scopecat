@@ -583,6 +583,12 @@ roles:
 - `ComponentSpec` gives repeated or nested endpoints, such as channels and
   traces, a stable path beneath the interface.
 
+Generic interface value domains encode capability semantics, not one device
+model's operating envelope. For example, integration cycles and scan-channel
+numbers remain positive and measurement delay remains non-negative, while
+model-specific upper limits are enforced by the concrete driver that knows the
+connected hardware.
+
 A fixed acquisition always exposes the same results. A state-discriminated
 acquisition references one physical state discriminator and declares a result
 set for every mode. Acquisition- and case-level preconditions declare the

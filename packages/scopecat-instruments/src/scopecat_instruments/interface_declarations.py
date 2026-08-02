@@ -93,14 +93,12 @@ class DCMonitorState:
     )
     integration_cycles: int = member_field(
         minimum=1,
-        maximum=25,
         label="Integration cycles",
         description="Power-line cycles integrated for each measurement.",
     )
     measurement_delay: Quantity = member_field(
         unit="s",
         minimum=0.0,
-        maximum=999.999,
         label="Measurement delay",
         description="Delay between measurement trigger and sampling.",
     )
@@ -158,7 +156,6 @@ class TemperatureReadoutObservation:
 
     scan_channel: int = member_field(
         minimum=1,
-        maximum=16,
         label="Scan channel",
         description="Sensor input currently selected by the scanner.",
     )

@@ -157,13 +157,13 @@ def test_declared_dc_source_preserves_the_contract_fingerprint() -> None:
 
 def test_declared_dc_monitor_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_monitor_interface()) == (
-        "cb2e29e5e213825c8d1f023d97ea7b8ebe9d98947e6a95d27324395fd2ad9513"
+        "2ca3e14369a9940ced183fbc79c3adb03cb0823b2ff28f2e574235753a11f55c"
     )
 
 
 def test_declared_temperature_readout_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(temperature_readout_interface()) == (
-        "1c41033c07f023426c0207271f7b1ce785d403633f8febf00f2cdcccefcbe582"
+        "ab4210fcfc8abd40a4d998300560a8f138518e7762690d25dd7a0ba18a36cbdf"
     )
 
 
@@ -257,10 +257,14 @@ def test_virtual_dc_source_exposes_source_and_monitor_interfaces() -> None:
 def test_temperature_readout_separates_scanner_state_from_samples() -> None:
     interface = temperature_readout_interface()
 
-    assert {item.id for item in interface.properties} == {
+    properties = {item.id: item for item in interface.properties}
+    assert set(properties) == {
         TEMPERATURE_READOUT_SCAN_CHANNEL.property_id,
         TEMPERATURE_READOUT_AUTOSCAN_ENABLED.property_id,
     }
+    assert properties[
+        TEMPERATURE_READOUT_SCAN_CHANNEL.property_id
+    ].value_type == Scalar(Int(minimum=1, maximum=9007199254740991))
     assert len(interface.acquisitions) == 1
     assert {item.id for item in acquisition_results(interface.acquisitions[0])} == {
         TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id,
@@ -326,10 +330,10 @@ def test_dc_monitor_declares_independent_fixed_results() -> None:
         Bool()
     )
     assert properties[DC_MONITOR_INTEGRATION_CYCLES.property_id].value_type == Scalar(
-        Int(minimum=1, maximum=25)
+        Int(minimum=1, maximum=9007199254740991)
     )
     assert properties[DC_MONITOR_MEASUREMENT_DELAY.property_id].value_type == Scalar(
-        Quantity(unit="s", minimum=0.0, maximum=999.999)
+        Quantity(unit="s", minimum=0.0)
     )
     assert {item.access for item in properties.values()} == {"read_write"}
     assert [
