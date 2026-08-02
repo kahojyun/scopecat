@@ -10,13 +10,11 @@ from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.declarations import (
     CompiledInterface,
     DeclaredAcquisition,
-    DeclaredObservedState,
     acquisition,
     acquisition_case,
     axis,
     compile_interface,
     declared_acquisition,
-    declared_observed_state,
     discriminated_state,
     instrument_interface,
     instrument_observed_state,
@@ -333,18 +331,6 @@ class TemperatureReadoutInterface(Protocol):
 TEMPERATURE_READOUT_DECLARATION: CompiledInterface[TemperatureReadoutInterface] = (
     compile_interface(TemperatureReadoutInterface)
 )
-TEMPERATURE_OBSERVATION_DECLARATION: DeclaredObservedState[
-    TemperatureReadoutObservation
-] = declared_observed_state(
-    TEMPERATURE_READOUT_DECLARATION,
-    TemperatureReadoutObservation,
-)
-TEMPERATURE_SAMPLE_DECLARATION: DeclaredAcquisition[TemperatureSampleResults[float]] = (
-    declared_acquisition(
-        TEMPERATURE_READOUT_DECLARATION,
-        TemperatureReadoutInterface.sample,
-    )
-)
 
 
 @instrument_state
@@ -520,9 +506,7 @@ __all__ = [
     "NETWORK_SWEEP_ACQUISITION_DECLARATION",
     "NETWORK_SWEEP_DECLARATION",
     "RF_OUTPUT_DECLARATION",
-    "TEMPERATURE_OBSERVATION_DECLARATION",
     "TEMPERATURE_READOUT_DECLARATION",
-    "TEMPERATURE_SAMPLE_DECLARATION",
     "DCMonitorInterface",
     "DCMonitorResults",
     "DCMonitorState",

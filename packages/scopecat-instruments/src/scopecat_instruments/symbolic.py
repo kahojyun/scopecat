@@ -11,27 +11,27 @@ from scopecat.authoring import (
     ProductRef,
 )
 
+from scopecat_instruments._generated_clients import (
+    SymbolicTemperatureReadoutClient,
+    SymbolicTemperatureReadoutGroup,
+    TemperatureSampleProducts,
+)
 from scopecat_instruments._symbolic_runtime import (
     DeclaredStateSymbolicClientBase,
     DeclaredStateSymbolicGroupBase,
-    SymbolicInstrumentClientBase,
-    SymbolicInstrumentGroupBase,
     SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
     DC_MONITOR_ACQUISITION_DECLARATION,
     NETWORK_SWEEP_ACQUISITION_DECLARATION,
-    TEMPERATURE_SAMPLE_DECLARATION,
     DCMonitorResults,
     NetworkSweepResults,
-    TemperatureSampleResults,
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
     NETWORK_SWEEP,
     RF_OUTPUT,
-    TEMPERATURE_READOUT,
 )
 from scopecat_instruments.states import (
     DCMonitorState,
@@ -54,11 +54,6 @@ class NetworkSweepProducts(NetworkSweepResults[ProductRef, ProductRef]):
 @dataclass(frozen=True, slots=True)
 class DCMonitorProducts(DCMonitorResults[ProductRef]):
     """Mode-dependent logical products produced by one DC monitor sample."""
-
-
-@dataclass(frozen=True, slots=True)
-class TemperatureSampleProducts(TemperatureSampleResults[ProductRef]):
-    """Typed logical products produced by one temperature sample."""
 
 
 class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[_DCSourceState]):
@@ -161,35 +156,6 @@ class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepSta
         )
 
 
-class SymbolicTemperatureReadoutClient(SymbolicInstrumentClientBase):
-    """Declarative temperature acquisition client."""
-
-    __slots__ = ()
-
-    def __init__(
-        self,
-        recorder: SymbolicInstrumentRecorder,
-        resource_id: str,
-        *,
-        for_: OneEntity | None = None,
-    ) -> None:
-        super().__init__(
-            recorder,
-            resource_id,
-            requires=(TEMPERATURE_READOUT,),
-            for_=for_,
-        )
-
-    def sample(self, *, id: str | None = None) -> TemperatureSampleProducts:
-        """Declare a sample and derive its products from the interface."""
-
-        return self._acquire_declared(
-            TEMPERATURE_SAMPLE_DECLARATION,
-            TemperatureSampleProducts,
-            id=id,
-        )
-
-
 class SymbolicDCSourceGroup(
     DeclaredStateSymbolicGroupBase[_DCSourceState, SymbolicDCSourceClient]
 ):
@@ -285,35 +251,6 @@ class SymbolicNetworkSweepGroup(
 
     def sweep(self, *, id: str | None = None) -> PerEntity[NetworkSweepProducts]:
         return self._clients.map(lambda client: client.sweep(id=id))
-
-
-class SymbolicTemperatureReadoutGroup(
-    SymbolicInstrumentGroupBase[SymbolicTemperatureReadoutClient]
-):
-    """Entity-keyed declarative temperature samples."""
-
-    __slots__ = ()
-
-    def __init__(
-        self,
-        recorder: SymbolicInstrumentRecorder,
-        resource_id: str,
-        *,
-        for_: EachEntity,
-    ) -> None:
-        super().__init__(
-            recorder,
-            resource_id,
-            for_=for_,
-            client_factory=SymbolicTemperatureReadoutClient,
-        )
-
-    def sample(
-        self,
-        *,
-        id: str | None = None,
-    ) -> PerEntity[TemperatureSampleProducts]:
-        return self._clients.map(lambda client: client.sample(id=id))
 
 
 __all__ = [

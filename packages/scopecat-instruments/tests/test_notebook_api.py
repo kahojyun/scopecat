@@ -29,6 +29,7 @@ from scopecat.records.instrument import (
     InstrumentReadback,
     InstrumentStateSnapshot,
 )
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     CollectReceipt,
     InstrumentDescription,
@@ -37,14 +38,25 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.instruments.commands import InteractiveCollectIntent
 
-from scopecat_instruments import NetworkSweepReadback, network_sweep
-from scopecat_instruments.interfaces import network_sweep_interface
+from scopecat_instruments import (
+    NetworkSweepReadback,
+    TemperatureReadback,
+    network_sweep,
+    temperature_readout,
+)
+from scopecat_instruments.interfaces import (
+    network_sweep_interface,
+    temperature_readout_interface,
+)
 from scopecat_instruments.members import (
     DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
     NETWORK_SWEEP_ACQUISITION,
     NETWORK_SWEEP_FREQUENCY_RESULT,
     NETWORK_SWEEP_S_PARAMETER_RESULT,
+    TEMPERATURE_READOUT_RESISTANCE_RESULT,
+    TEMPERATURE_READOUT_SAMPLE,
+    TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 
 _DEFAULT_LEASE_DURATION = timedelta(seconds=30)
@@ -65,12 +77,14 @@ class _CollectingDaemon(DaemonClient):
         *,
         lease_duration: timedelta = _DEFAULT_LEASE_DURATION,
         initial_renewed_at: datetime | None = None,
+        readback: InstrumentReadback | None = None,
     ) -> None:
         super().__init__("http://unused.test")
         self.description = description
         self.state = state
         self.lease_duration = lease_duration
         self.initial_renewed_at = initial_renewed_at
+        self.readback = InstrumentReadback() if readback is None else readback
         self.state_reads = 0
         self.collect_intent: InteractiveCollectIntent | None = None
 
@@ -115,7 +129,7 @@ class _CollectingDaemon(DaemonClient):
         assert session_id == "session-1"
         assert instrument_id == self.description.instrument_id
         self.collect_intent = intent
-        return CollectReceipt(readback=InstrumentReadback())
+        return CollectReceipt(readback=self.readback)
 
     @override
     def close_instrument_session(
@@ -633,6 +647,52 @@ def test_declared_live_client_maps_named_results_and_requests_the_layout() -> No
     assert daemon.collect_intent.result_ids == [
         NETWORK_SWEEP_FREQUENCY_RESULT.result_id,
         NETWORK_SWEEP_S_PARAMETER_RESULT.result_id,
+    ]
+
+
+def test_generated_temperature_client_collects_and_maps_named_results() -> None:
+    temperature = MeasurementScalar.create(value=0.12, unit="K")
+    resistance = MeasurementScalar.create(value=842.0, unit="Ohm")
+    description = InstrumentDescription(
+        instrument_id="thermometer",
+        implementation_id="tests.temperature_readout",
+        implementation_version="1",
+        interfaces=[temperature_readout_interface()],
+    )
+    daemon = _CollectingDaemon(
+        description,
+        InstrumentStateSnapshot(instrument_id="thermometer"),
+        readback=InstrumentReadback(
+            values={
+                TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id: temperature,
+                TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id: resistance,
+            }
+        ),
+    )
+    target = temperature_readout("thermometer")
+    handle = LabInstrumentOperations(daemon, operator="test").open(target)
+
+    try:
+        readback = assert_type(handle[target].sample(), TemperatureReadback)
+    finally:
+        handle.close()
+        daemon.close()
+
+    assert readback.receipt.status == "collected"
+    assert readback.temperature == temperature
+    assert readback.resistance == resistance
+    assert daemon.collect_intent is not None
+    assert daemon.collect_intent.interface_id == TEMPERATURE_READOUT_SAMPLE.interface_id
+    assert daemon.collect_intent.component_path == list(
+        TEMPERATURE_READOUT_SAMPLE.component_path
+    )
+    assert (
+        daemon.collect_intent.acquisition_id
+        == TEMPERATURE_READOUT_SAMPLE.acquisition_id
+    )
+    assert daemon.collect_intent.result_ids == [
+        TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id,
+        TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id,
     ]
 
 

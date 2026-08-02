@@ -18,25 +18,28 @@ from scopecat.sdk.instruments import (
 
 from scopecat_instruments._client_runtime import (
     DeclaredStateClientBase,
-    InstrumentClientBase,
 )
 from scopecat_instruments._family_runtime import InstrumentFamily
+from scopecat_instruments._generated_clients import (
+    SymbolicTemperatureReadoutClient,
+    SymbolicTemperatureReadoutGroup,
+    TemperatureReadback,
+    TemperatureReadoutClient,
+    TemperatureReadoutObservation,
+    TemperatureSampleProducts,
+    temperature_readout,
+)
 from scopecat_instruments.interface_declarations import (
     DC_MONITOR_ACQUISITION_DECLARATION,
     NETWORK_SWEEP_ACQUISITION_DECLARATION,
-    TEMPERATURE_OBSERVATION_DECLARATION,
-    TEMPERATURE_SAMPLE_DECLARATION,
     DCMonitorResults,
     NetworkSweepResults,
-    TemperatureReadoutObservation,
-    TemperatureSampleResults,
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
     NETWORK_SWEEP,
     RF_OUTPUT,
-    TEMPERATURE_READOUT,
 )
 from scopecat_instruments.states import (
     DCMonitorState,
@@ -58,9 +61,6 @@ from scopecat_instruments.symbolic import (
     SymbolicNetworkSweepGroup,
     SymbolicRFOutputClient,
     SymbolicRFOutputGroup,
-    SymbolicTemperatureReadoutClient,
-    SymbolicTemperatureReadoutGroup,
-    TemperatureSampleProducts,
 )
 
 
@@ -69,13 +69,6 @@ class NetworkSweepReadback(
     NetworkSweepResults[MeasurementValue | None, MeasurementValue | None]
 ):
     """Named network-sweep results plus their explicit effect receipt."""
-
-    receipt: CollectReceipt = field(repr=False)
-
-
-@dataclass(frozen=True, slots=True)
-class TemperatureReadback(TemperatureSampleResults[MeasurementValue | None]):
-    """Named temperature-readout results plus their explicit effect receipt."""
 
     receipt: CollectReceipt = field(repr=False)
 
@@ -117,24 +110,6 @@ class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepState]):
         return self._collect_declared(
             NETWORK_SWEEP_ACQUISITION_DECLARATION,
             NetworkSweepReadback,
-        )
-
-
-class TemperatureReadoutClient(InstrumentClientBase):
-    def observation(self) -> TemperatureReadoutObservation:
-        return TEMPERATURE_OBSERVATION_DECLARATION.decode(
-            self._session.observed_state(self.instrument_id)
-        )
-
-    def refresh_observation(self) -> TemperatureReadoutObservation:
-        return TEMPERATURE_OBSERVATION_DECLARATION.decode(
-            self._session.read_state(self.instrument_id)
-        )
-
-    def sample(self) -> TemperatureReadback:
-        return self._collect_declared(
-            TEMPERATURE_SAMPLE_DECLARATION,
-            TemperatureReadback,
         )
 
 
@@ -259,16 +234,6 @@ network_sweep: InstrumentFamily[
     requires=(NETWORK_SWEEP,),
 )
 
-temperature_readout: InstrumentFamily[
-    TemperatureReadoutClient,
-    SymbolicTemperatureReadoutClient,
-    SymbolicTemperatureReadoutGroup,
-] = InstrumentFamily(
-    TemperatureReadoutClient,
-    SymbolicTemperatureReadoutClient,
-    SymbolicTemperatureReadoutGroup,
-    requires=(TEMPERATURE_READOUT,),
-)
 __all__ = [
     "DCMonitorProducts",
     "DCMonitorReadback",

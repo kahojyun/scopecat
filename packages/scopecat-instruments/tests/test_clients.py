@@ -23,6 +23,7 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments.declarations import (
     argument,
     compile_interface,
+    declared_interface_layout,
     declared_operation,
     declared_state_assignments,
     instrument_interface,
@@ -44,7 +45,7 @@ from scopecat_instruments import (
 )
 from scopecat_instruments._client_runtime import InstrumentClientBase
 from scopecat_instruments.interface_declarations import (
-    TEMPERATURE_OBSERVATION_DECLARATION,
+    TEMPERATURE_READOUT_DECLARATION,
 )
 from scopecat_instruments.interface_declarations import (
     TemperatureReadoutObservation as DeclaredTemperatureReadoutObservation,
@@ -233,7 +234,9 @@ def test_temperature_observation_uses_cached_and_fresh_snapshot_paths() -> None:
 
 def test_temperature_observation_descriptor_and_top_level_export_are_shared() -> None:
     assert TemperatureReadoutObservation is DeclaredTemperatureReadoutObservation
-    assert [field.ref for field in TEMPERATURE_OBSERVATION_DECLARATION.fields] == [
+    layout = declared_interface_layout(TEMPERATURE_READOUT_DECLARATION)
+    assert layout.observed_state is not None
+    assert [field.ref for field in layout.observed_state.fields] == [
         TEMPERATURE_READOUT_SCAN_CHANNEL,
         TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     ]
