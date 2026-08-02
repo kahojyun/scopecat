@@ -15,6 +15,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
+from scopecat.kernel.product_identity import ProductUse, ProductUseId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Payload, Scalar
 from scopecat.program.bindings import requires, resource_port
@@ -27,6 +28,7 @@ from scopecat.program.logical import (
 from scopecat.program.point_domain import point_axis_values
 from scopecat.program.products import (
     ModuleProductDecl,
+    RecordSelection,
     entity_axis,
     product_axis,
     record_product,
@@ -453,6 +455,55 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
             record_selections=(record_product("payload"),),
         )
     )
+
+
+def test_recording_rejects_an_unknown_product() -> None:
+    with pytest.raises(CheckFailed) as error:
+        verify_logical_program(
+            LogicalProgram(
+                experiment_id="test.graph.unknown-record-product",
+                kind="graph",
+                record_selections=(record_product("missing"),),
+            )
+        )
+
+    assert [problem.code for problem in error.value.problems] == [
+        "module_product_unknown"
+    ]
+
+
+def test_recording_rejects_one_use_identity_for_two_products() -> None:
+    signal = ModuleProductDecl("signal")
+    phase = ModuleProductDecl("phase")
+    shared_id = ProductUseId("shared-use")
+
+    with pytest.raises(CheckFailed) as error:
+        verify_logical_program(
+            LogicalProgram(
+                experiment_id="test.graph.conflicting-product-use",
+                kind="graph",
+                product_declarations=(signal, phase),
+                record_selections=(
+                    RecordSelection(
+                        product_use=ProductUse(
+                            product_id=signal.product_id,
+                            id=shared_id,
+                        ),
+                    ),
+                    RecordSelection(
+                        product_use=ProductUse(
+                            product_id=phase.product_id,
+                            id=shared_id,
+                        ),
+                    ),
+                ),
+            )
+        )
+
+    assert [problem.code for problem in error.value.problems] == [
+        "product_use_identity_conflict"
+    ]
+    assert error.value.problems[0].phase is ProblemPhase.AUTHORING
 
 
 def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:

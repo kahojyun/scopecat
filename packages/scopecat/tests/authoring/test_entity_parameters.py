@@ -223,11 +223,7 @@ def test_parameter_row_columns_are_read_only() -> None:
         row.frequency = DeviceParameters.frequency
 
 
-@pytest.mark.parametrize("coordinate_role", [False, True])
-def test_experiment_record_expands_per_entity_products_in_declaration_order(
-    *,
-    coordinate_role: bool,
-) -> None:
+def test_experiment_record_expands_per_entity_products_in_declaration_order() -> None:
     context = sc.ExperimentContext()
     q1 = sc.EntityRef(id="q1", kind="logical_device")
     q0 = sc.EntityRef(id="q0", kind="logical_device")
@@ -235,10 +231,7 @@ def test_experiment_record_expands_per_entity_products_in_declaration_order(
     second = context.product("second")
     products = sc.PerEntity(((q1, first), (q0, second)))
 
-    if coordinate_role:
-        context.record_coordinate(products)
-    else:
-        context.record(products)
+    context.record(products)
 
     definition = context.close_definition_internal(
         id="test.per-entity-record",
@@ -252,16 +245,12 @@ def test_experiment_record_expands_per_entity_products_in_declaration_order(
         for selection in definition.record_selections
     ] == ["first", "second"]
     assert [selection.role for selection in definition.record_selections] == [
-        "coordinate" if coordinate_role else "observable",
-        "coordinate" if coordinate_role else "observable",
+        "observable",
+        "observable",
     ]
 
 
-@pytest.mark.parametrize("coordinate_role", [False, True])
-def test_per_entity_record_id_still_requires_one_expanded_product(
-    *,
-    coordinate_role: bool,
-) -> None:
+def test_per_entity_record_id_still_requires_one_expanded_product() -> None:
     context = sc.ExperimentContext()
     q0 = sc.EntityRef(id="q0", kind="logical_device")
     q1 = sc.EntityRef(id="q1", kind="logical_device")
@@ -270,10 +259,7 @@ def test_per_entity_record_id_still_requires_one_expanded_product(
     )
 
     with pytest.raises(ValueError, match="record_id can only be used with one product"):
-        if coordinate_role:
-            context.record_coordinate(products, record_id="combined")
-        else:
-            context.record(products, record_id="combined")
+        context.record(products, record_id="combined")
 
 
 def test_per_entity_record_rejects_an_explicit_empty_record_id() -> None:

@@ -205,19 +205,15 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
 
 
 def test_root_final_state_is_materialized_outside_point_effects() -> None:
-    @sc.module(id="test.final_state-module")
-    def module(context: sc.ModuleContext) -> None:
-        context.resource("source", requires=(_SOURCE,))
-
     @sc.template(id="test.final_state", kind="desired-state")
     def experiment_definition(
         experiment: sc.ExperimentContext,
         level: float = 0.0,
     ) -> None:
-        call = experiment.run(module())
+        source = experiment.resource("source", requires=(_SOURCE,))
         experiment.finalize(
-            call.resources.source,
-            _SourceTarget(level=level, enabled=False),
+            _TypedSource(source),
+            _DeclaredSourceState(level=level, enabled=False),
         )
 
     bound = bind_invocation(
@@ -267,11 +263,6 @@ def test_root_final_state_accepts_a_typed_finalization_adapter() -> None:
 
 
 def test_root_final_state_rejects_scan_coordinates() -> None:
-    @sc.module(id="test.final_state-coordinate")
-    def module(context: sc.ModuleContext) -> None:
-        context.resource("source", requires=(_SOURCE,))
-
-    call = module()
     level = sc.coordinate("level", sc.ScalarType(sc.FloatType()))
 
     with pytest.raises(
@@ -281,8 +272,8 @@ def test_root_final_state_rejects_scan_coordinates() -> None:
 
         @sc.template(id="test.final_state-coordinate", kind="desired-state")
         def experiment_definition(experiment: sc.ExperimentContext) -> None:
-            experiment.run(call)
+            source = experiment.resource("source", requires=(_SOURCE,))
             experiment.finalize(
-                call.resources.source,
-                _SourceTarget(level=level, enabled=False),
+                _TypedSource(source),
+                _DeclaredSourceState(level=level, enabled=False),
             )

@@ -11,23 +11,16 @@ from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.instrument_members import AcquisitionResultRef
-from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
     ProductId,
-    ProductUse,
-    ProductUseId,
 )
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.products import (
     ModuleProductDecl,
     ProductOutputs,
-    RecordSelection,
     product_axis,
     product_axis_dimension_id,
-    record_alias,
-    record_coordinate,
-    record_product,
 )
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
@@ -545,41 +538,6 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     assert acquisition.interface_id == "test.scalar_signal/v1"
 
 
-def test_product_selection_rejects_unexposed_product() -> None:
-    source = _product_module()
-    selected = source.instantiate("selected")
-
-    @sc.module(id="test.products.selection-validation")
-    def root(context: sc.ModuleContext) -> None:
-        context.call(selected)
-
-    call = root()
-
-    def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
-        experiment.record("signal")
-        experiment.record(
-            call.products["selected/signal"],
-            record_id="first",
-        )
-        experiment.record(
-            call.products["selected/signal"],
-            record_id="second",
-        )
-
-    template = sc.template(
-        id="test.products.selection-validation",
-        kind="module_products",
-    )(template_definition)
-
-    with pytest.raises(CheckFailed) as error:
-        compile_invocation(template())
-
-    assert [problem.code for problem in error.value.problems] == [
-        "module_product_unknown",
-    ]
-
-
 def test_repeated_product_selection_creates_distinct_use_occurrences(
     tmp_path: Path,
 ) -> None:
@@ -614,114 +572,6 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
     assert {use.product_id for use in resolved.bindings.product_uses} == {
         ProductId(SymbolId(scope=("repeated-use", "selected"), local_id="signal"))
     }
-
-
-def test_record_coordinate_aliases_share_one_public_product_use(tmp_path: Path) -> None:
-    source = _product_module()
-    selected = source.instantiate("selected")
-
-    @sc.module(id="test.products.alias")
-    def root(context: sc.ModuleContext) -> None:
-        context.call(selected)
-
-    call = root()
-    primary = record_coordinate(
-        call.products["selected/signal"],
-        record_id="primary",
-    )
-    secondary = record_alias(
-        primary,
-        record_id="secondary",
-        metadata={"projection": "secondary"},
-    )
-
-    @sc.template(id="test.products.alias", kind="module_products")
-    def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
-        experiment.records(primary, secondary)
-
-    resolved = bind_invocation(
-        template_definition(),
-        config_profile=load_config(),
-    )
-
-    assert len(resolved.bindings.product_uses) == 1
-    assert [record.id for record in resolved.bindings.record_uses] == [
-        "primary",
-        "secondary",
-    ]
-    assert {record.product_use_id for record in resolved.bindings.record_uses} == {
-        resolved.bindings.product_uses[0].id
-    }
-    assert [record.role for record in resolved.bindings.record_uses] == [
-        "coordinate",
-        "coordinate",
-    ]
-    assert resolved.bindings.record_uses[1].metadata == {"projection": "secondary"}
-
-
-def test_recording_group_lowers_with_the_record_use() -> None:
-    source = _product_module()
-    call = source()
-    selection = record_product(
-        call.products.signal,
-        recording_group_id="source/sample",
-    )
-    alias = record_alias(selection, record_id="signal-alias")
-
-    assert alias.recording_group_id is None
-
-    @sc.template(id="test.products.recording-group", kind="module_products")
-    def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
-        experiment.records(selection)
-
-    resolved = bind_invocation(
-        template_definition(),
-        config_profile=load_config(),
-    )
-
-    [record] = resolved.bindings.record_uses
-    assert record.recording_group_id == "source/sample"
-
-
-def test_authoring_compile_rejects_one_use_identity_for_two_products() -> None:
-    @sc.module(id="test.products.conflicting-use")
-    def module(context: sc.ModuleContext) -> None:
-        context.product("signal")
-        context.product("phase")
-
-    shared_id = ProductUseId("shared-use")
-    call = module()
-
-    @sc.template(id="test.products.conflicting-use", kind="module_products")
-    def template_definition(experiment: sc.ExperimentContext) -> None:
-        selections = (
-            RecordSelection(
-                product_use=ProductUse(
-                    product_id=call.products.signal.product_id,
-                    id=shared_id,
-                ),
-                record_id="signal",
-            ),
-            RecordSelection(
-                product_use=ProductUse(
-                    product_id=call.products.phase.product_id,
-                    id=shared_id,
-                ),
-                record_id="phase",
-            ),
-        )
-        experiment.run(call)
-        experiment.records(*selections)
-
-    with pytest.raises(CheckFailed) as error:
-        compile_invocation(template_definition())
-
-    assert [problem.code for problem in error.value.problems] == [
-        "product_use_identity_conflict"
-    ]
-    assert error.value.problems[0].phase is ProblemPhase.AUTHORING
 
 
 def test_root_module_products_are_typed_template_refs() -> None:

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import scopecat as sc
+from scopecat.authoring._module_context import DefinitionResource
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.measurements.results import MeasurementValue
 from scopecat.program.logical import (
@@ -39,6 +40,18 @@ class _DeviceTarget:
             _DEVICE_LEVEL: self.level,
             _DEVICE_ENABLED: self.enabled,
         }
+
+
+@dataclass(frozen=True)
+class _TypedDevice:
+    resource: DefinitionResource
+
+    def finalization_targets(
+        self,
+        state: _DeviceTarget,
+        /,
+    ) -> tuple[sc.FinalizationTarget, ...]:
+        return ((self.resource, state),)
 
 
 def _build_trigger(*, level: object) -> object:
@@ -91,7 +104,7 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
         )
         experiment.record(raw, derived)
         experiment.finalize(
-            device,
+            _TypedDevice(device),
             _DeviceTarget(level=0.0, enabled=False),
         )
 

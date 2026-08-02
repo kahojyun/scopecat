@@ -30,7 +30,6 @@ from scopecat.authoring._module_context import (
 from scopecat.authoring._module_invocation import (
     DomainCallProvider,
     ModuleInvocation,
-    ModuleResource,
     domain_use_call,
     module_use_invocation,
 )
@@ -63,7 +62,6 @@ from scopecat.program.input_capture import empty_program_mapping
 from scopecat.program.measurements import (
     MeasurementPostprocessor,
 )
-from scopecat.program.module import ModuleInstance
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
     ProductAxis,
@@ -111,9 +109,8 @@ class _RecordableProducts(Protocol):
     def _recording_products(self) -> tuple[ProductRef, ...]: ...
 
 
-type ScalarRecordProductInput = str | ProductRef | PerEntity[ProductRef]
 type RecordProductInput = (
-    str | ProductRef | _RecordableProducts | PerEntity[ProductRef | _RecordableProducts]
+    ProductRef | _RecordableProducts | PerEntity[ProductRef | _RecordableProducts]
 )
 
 
@@ -131,8 +128,8 @@ def input_ref[T](value: Input[T]) -> ValueRef:
 
 def _expand_record_products(
     products: Sequence[RecordProductInput],
-) -> tuple[str | ProductRef, ...]:
-    selected: list[str | ProductRef] = []
+) -> tuple[ProductRef, ...]:
+    selected: list[ProductRef] = []
     for product in products:
         if isinstance(product, PerEntity):
             for value in product.values():
@@ -143,17 +140,17 @@ def _expand_record_products(
 
 
 def _append_record_product(
-    selected: list[str | ProductRef],
-    product: str | ProductRef | _RecordableProducts,
+    selected: list[ProductRef],
+    product: ProductRef | _RecordableProducts,
 ) -> None:
-    if isinstance(product, str | ProductRef):
+    if isinstance(product, ProductRef):
         selected.append(product)
         return
     selected.extend(product._recording_products())
 
 
-def _recording_role_is_coordinate(product: str | ProductRef) -> bool:
-    return isinstance(product, ProductRef) and product._recording_role == "coordinate"
+def _recording_role_is_coordinate(product: ProductRef) -> bool:
+    return product._recording_role == "coordinate"
 
 
 def _record_namespace_segments(namespace: str) -> tuple[str, ...]:
@@ -164,22 +161,17 @@ def _record_namespace_segments(namespace: str) -> tuple[str, ...]:
 
 
 def _namespaced_record_id(
-    product: str | ProductRef,
+    product: ProductRef,
     namespace: tuple[str, ...],
 ) -> str:
-    product_id = (
-        product.product_id
-        if isinstance(product, ProductRef)
-        else parse_product_id(product)
-    )
-    return product_id.prefixed(*namespace).qualified_name
+    return product.product_id.prefixed(*namespace).qualified_name
 
 
 def _recording_group_id(
-    product: str | ProductRef,
+    product: ProductRef,
     namespace: tuple[str, ...],
 ) -> str | None:
-    if not isinstance(product, ProductRef) or product._recording is None:
+    if product._recording is None:
         return None
     return product._recording.occurrence.prefixed(*namespace).qualified_name
 
@@ -422,7 +414,7 @@ class ExperimentContext:
         namespace: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
-        """Select products, optionally under one structural output prefix."""
+        """Select typed product references under an optional output prefix."""
 
         if record_id is not None and namespace is not None:
             raise ValueError("record_id and namespace cannot be used together")
@@ -454,101 +446,24 @@ class ExperimentContext:
             for product in selected_products
         )
 
-    def record_coordinate(
-        self,
-        *products: ScalarRecordProductInput,
-        record_id: str | None = None,
-        namespace: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> None:
-        """Select custom coordinate products under an optional output prefix."""
-
-        if record_id is not None and namespace is not None:
-            raise ValueError("record_id and namespace cannot be used together")
-        namespace_segments = (
-            () if namespace is None else _record_namespace_segments(namespace)
-        )
-        selected_products = _expand_record_products(
-            cast("Sequence[RecordProductInput]", products)
-        )
-        if record_id is not None and len(selected_products) != 1:
-            raise ValueError("record_id can only be used with one product")
-        self._record_selections.extend(
-            record_coordinate(
-                product,
-                record_id=(
-                    _namespaced_record_id(product, namespace_segments)
-                    if namespace_segments
-                    else record_id
-                ),
-                recording_group_id=(
-                    _recording_group_id(product, namespace_segments)
-                    if namespace_segments
-                    else None
-                ),
-                metadata=metadata,
-            )
-            for product in selected_products
-        )
-
-    def records(self, *selections: RecordSelection) -> None:
-        """Append preconstructed durable record selections."""
-
-        self._record_selections.extend(selections)
-
-    @overload
-    def finalize(
-        self,
-        resource: ModuleResource | DefinitionResource,
-        target: DesiredState,
-    ) -> None: ...
-
-    @overload
     def finalize[StateT](
         self,
         resource: Finalizable[StateT],
         target: StateT,
-    ) -> None: ...
-
-    def finalize(
-        self,
-        resource: object,
-        target: object,
     ) -> None:
-        """Declare typed or low-level state after normal experiment completion."""
+        """Declare typed state after normal experiment completion."""
 
-        if not isinstance(resource, ModuleResource | DefinitionResource):
-            provider = cast("Finalizable[object]", resource)
-            for logical_resource, desired_state in provider.finalization_targets(
-                target
-            ):
-                self._append_finalization_target(logical_resource, desired_state)
-            return
-
-        self._append_finalization_target(
-            resource,
-            cast("DesiredState", target),
-        )
+        for logical_resource, desired_state in resource.finalization_targets(target):
+            self._append_finalization_target(logical_resource, desired_state)
 
     def _append_finalization_target(
         self,
-        resource: ModuleResource | DefinitionResource,
+        resource: DefinitionResource,
         target: DesiredState,
     ) -> None:
         """Validate and append one normalized final-state target."""
 
-        if isinstance(resource, DefinitionResource):
-            self._program.require_owned_resource_internal(resource)
-        else:
-            owners = {
-                effect.invocation_key
-                for effect in self._program.effects_internal
-                if isinstance(effect, ModuleInstance)
-            }
-            if resource.owner not in owners:
-                raise ValueError(
-                    "experiment final_state resource must belong to this experiment"
-                )
+        self._program.require_owned_resource_internal(resource)
         intent = build_ensure_state_intent(resource.port_id, target)
         for assignment in intent.assignments:
             value = assignment.value

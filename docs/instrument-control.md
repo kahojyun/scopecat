@@ -299,7 +299,9 @@ while the experiment is authored.
 A normal-completion state belongs to the root experiment because two
 experiments may intentionally leave the same reusable work's hardware
 differently. In the example, `finalize(...)` disables the flux source once after
-all points complete normally; it is not repeated after every scan point.
+all points complete normally; it is not repeated after every scan point. The
+method accepts a typed symbolic client and its declared state, so experiment
+code does not assemble resource and desired-state internals directly.
 
 All `finalize(...)` declarations form one desired state applied
 only after every point and measurement block completes successfully. A
@@ -555,7 +557,8 @@ declaration order, keeps each field's declared coordinate/observable role, and
 gives every scoped product a stable qualified record id. Recording an
 individual acquisition member, such as `record(trace.frequency)`, inherits that
 member's declared role and group provenance just like recording the complete
-bundle.
+bundle. Recording selects product references or typed result bundles rather
+than resolving string product ids in the containing experiment.
 
 Custom product producers should declare result roles at their own typed
 boundary so ordinary experiment code still uses only `record(...)`.
