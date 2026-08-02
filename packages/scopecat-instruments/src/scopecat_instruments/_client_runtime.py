@@ -238,17 +238,6 @@ class InstrumentClientBase:
         return output_factory(receipt=receipt, **values)
 
 
-class InstrumentComponentClientBase(InstrumentClientBase):
-    """A component proxy sharing one live root client's session target."""
-
-    __slots__ = ("_owner",)
-    _owner: InstrumentClientBase
-
-    def __init__(self, owner: InstrumentClientBase, /) -> None:
-        super().__init__(owner._session, owner.instrument_id)
-        self._owner = owner
-
-
 class DeclaredStateClientBase[StateT](InstrumentClientBase):
     def apply(self, patch: StateT) -> ApplyReceipt:
         return self._apply_declared(patch)
@@ -287,6 +276,5 @@ __all__ = [
     "ClientObservedState",
     "DeclaredStateClientBase",
     "InstrumentClientBase",
-    "InstrumentComponentClientBase",
     "client_property_value_type",
 ]

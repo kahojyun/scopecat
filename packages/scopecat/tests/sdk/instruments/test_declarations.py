@@ -8,7 +8,6 @@ from typing import Annotated, Literal, Protocol, assert_type, cast
 
 import pytest
 
-from scopecat.kernel.instrument_members import ComponentRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Int as IntType
@@ -46,7 +45,6 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments import (
     acquisition_result as expected_result,
 )
-from scopecat.sdk.instruments import component as expected_component
 from scopecat.sdk.instruments import (
     discriminated_state as expected_discriminated_state,
 )
@@ -75,11 +73,9 @@ from scopecat.sdk.instruments.declarations import (
     argument,
     axis,
     compile_interface,
-    component,
     declared_acquisition,
     declared_acquisition_ref,
     declared_argument_ref,
-    declared_component_ref,
     declared_discriminator_ref,
     declared_interface_layout,
     declared_interface_ref,
@@ -395,76 +391,13 @@ class UnrelatedObservation:
     value: int
 
 
-@instrument_result
-class TriggerSampleResults:
-    value: Annotated[
-        float,
-        result(
-            id="trigger_value",
-            unit="V",
-            label="Trigger value",
-            description="Value sampled at the trigger input.",
-        ),
-    ]
-
-
-class TriggerCapability(Protocol):
-    @operation(
-        id="reset_trigger",
-        label="Reset trigger",
-        description="Reset trigger state.",
-    )
-    def reset(
-        self,
-        cycles: Annotated[
-            int,
-            argument(
-                id="wait_cycles",
-                minimum=0,
-                label="Wait cycles",
-                description="Cycles to wait after reset.",
-            ),
-        ],
-    ) -> None: ...
-
-    @acquisition(
-        id="sample_trigger",
-        label="Sample trigger",
-        description="Sample the trigger input.",
-    )
-    def sample(self) -> TriggerSampleResults: ...
-
-
-class OutputCapability(Protocol):
-    trigger: Annotated[
-        TriggerCapability,
-        component(
-            id="trigger-input",
-            label="Trigger input",
-            description="External trigger endpoint.",
-        ),
-    ]
-
-    @operation(id="arm_output", label="Arm output", description="Arm one output.")
-    def arm(self) -> None: ...
-
-
 @instrument_interface(
     "test.typed_control/v1",
     observed_state=ScannerObservation,
     label="Typed control",
-    description="Operations, observations, and nested capabilities.",
+    description="Operations and observations.",
 )
 class TypedControlContract(Protocol):
-    output: Annotated[
-        OutputCapability,
-        component(
-            id="output-a",
-            label="Output A",
-            description="First output endpoint.",
-        ),
-    ]
-
     @operation(
         id="select_input",
         label="Select input",
@@ -764,12 +697,10 @@ def test_declared_acquisition_resolves_an_inherited_protocol_method() -> None:
     assert [field.python_name for field in declared.active_result_fields()] == ["value"]
 
 
-def test_operations_observed_state_and_nested_components_compile_together() -> None:
+def test_operations_and_observed_state_compile_together() -> None:
     compiled = compile_interface(TypedControlContract)
 
     def check_client_type(client: TypedControlContract) -> None:
-        assert_type(client.output, OutputCapability)
-        assert_type(client.output.trigger, TriggerCapability)
         assert_type(
             client.select(1, Quantity(1, "V"), "normal"),
             None,
@@ -781,7 +712,7 @@ def test_operations_observed_state_and_nested_components_compile_together() -> N
     expected = expected_interface(
         "test.typed_control/v1",
         label="Typed control",
-        description="Operations, observations, and nested capabilities.",
+        description="Operations and observations.",
         properties=[
             int_property(
                 "active_channel",
@@ -825,65 +756,13 @@ def test_operations_observed_state_and_nested_components_compile_together() -> N
                 ],
             )
         ],
-        components=[
-            expected_component(
-                "output-a",
-                label="Output A",
-                description="First output endpoint.",
-                operations=[
-                    expected_operation(
-                        "arm_output",
-                        label="Arm output",
-                        description="Arm one output.",
-                    )
-                ],
-                components=[
-                    expected_component(
-                        "trigger-input",
-                        label="Trigger input",
-                        description="External trigger endpoint.",
-                        operations=[
-                            expected_operation(
-                                "reset_trigger",
-                                label="Reset trigger",
-                                description="Reset trigger state.",
-                                arguments=[
-                                    expected_operation_argument(
-                                        "wait_cycles",
-                                        value_type=Scalar(IntType(minimum=0)),
-                                        label="Wait cycles",
-                                        description="Cycles to wait after reset.",
-                                    )
-                                ],
-                            )
-                        ],
-                        acquisitions=[
-                            expected_acquisition(
-                                "sample_trigger",
-                                label="Sample trigger",
-                                description="Sample the trigger input.",
-                                results=[
-                                    expected_result(
-                                        "trigger_value",
-                                        unit="V",
-                                        label="Trigger value",
-                                        description=(
-                                            "Value sampled at the trigger input."
-                                        ),
-                                    )
-                                ],
-                            )
-                        ],
-                    )
-                ],
-            )
-        ],
     )
 
     assert compiled.spec == expected
+    assert not compiled.spec.components
 
 
-def test_declared_interface_layout_preserves_authored_tree_and_spec_identity() -> None:
+def test_declared_interface_layout_preserves_root_members_and_spec_identity() -> None:
     compiled = compile_interface(TypedControlContract)
 
     layout = assert_type(
@@ -909,7 +788,6 @@ def test_declared_interface_layout_preserves_authored_tree_and_spec_identity() -
     )
 
     root = layout.root
-    assert root.python_path == ()
     assert root.capability_type is TypedControlContract
     assert root.ref is compiled.ref
     assert root.spec is compiled.spec
@@ -941,43 +819,6 @@ def test_declared_interface_layout_preserves_authored_tree_and_spec_identity() -
         Literal["normal", "fast"],
     ]
     assert root.acquisitions == ()
-
-    [output] = root.components
-    assert output.python_path == ("output",)
-    assert output.capability_type is OutputCapability
-    assert isinstance(output.ref, ComponentRef)
-    assert output.ref.component_path == ("output-a",)
-    assert output.spec is compiled.spec.components[0]
-    [arm] = output.operations
-    assert arm.method_name == "arm"
-    assert arm.ref.operation_id == "arm_output"
-    assert arm.spec is output.spec.operations[0]
-    assert output.acquisitions == ()
-
-    [trigger] = output.components
-    assert trigger.python_path == ("output", "trigger")
-    assert trigger.capability_type is TriggerCapability
-    assert isinstance(trigger.ref, ComponentRef)
-    assert trigger.ref.component_path == ("output-a", "trigger-input")
-    assert trigger.spec is output.spec.components[0]
-    [reset] = trigger.operations
-    assert reset.method_name == "reset"
-    assert reset.ref.operation_id == "reset_trigger"
-    assert reset.spec is trigger.spec.operations[0]
-    [cycles] = reset.arguments
-    assert cycles.python_name == "cycles"
-    assert cycles.argument_id == "wait_cycles"
-    assert cycles.annotation is int
-    assert cycles.spec is reset.spec.arguments[0]
-    [sample] = trigger.acquisitions
-    assert sample.method_name == "sample"
-    assert sample.ref.acquisition_id == "sample_trigger"
-    assert sample.spec is trigger.spec.acquisitions[0]
-    [sample_layout] = sample.layouts
-    assert sample_layout.result_type is TriggerSampleResults
-    assert isinstance(sample.spec, FixedAcquisitionSpec)
-    assert sample_layout.fields[0].spec is sample.spec.results[0]
-    assert trigger.components == ()
 
 
 def test_declared_interface_layout_covers_inherited_and_state_declarations() -> None:
@@ -1053,9 +894,8 @@ def test_declared_interface_layout_covers_inherited_and_state_declarations() -> 
     ]
 
 
-def test_operation_and_component_refs_use_python_member_names() -> None:
+def test_operation_refs_use_python_member_names() -> None:
     select = declared_operation_ref(TypedControlContract, "select")
-    output = declared_component_ref(TypedControlContract, "output")
 
     assert select == declared_interface_ref(TypedControlContract).operation(
         "select_input"
@@ -1063,17 +903,6 @@ def test_operation_and_component_refs_use_python_member_names() -> None:
     assert declared_argument_ref(TypedControlContract, "select", "channel") == (
         select.argument("input")
     )
-    assert output == declared_interface_ref(TypedControlContract).component("output-a")
-    assert declared_operation_ref(
-        TypedControlContract,
-        "arm",
-        component=("output",),
-    ) == output.operation("arm_output")
-    assert declared_component_ref(
-        TypedControlContract,
-        "output",
-        "trigger",
-    ).component_path == ("output-a", "trigger-input")
 
 
 def test_declared_operation_preserves_argument_layout() -> None:
@@ -1124,32 +953,6 @@ def test_declared_operation_preserves_argument_layout() -> None:
     assert payload_argument.spec.value_type == Scalar(
         PayloadType(schema_id="test.waveform/v1")
     )
-
-
-def test_declared_operation_resolves_nested_component_arguments() -> None:
-    compiled = compile_interface(TypedControlContract)
-    component_path = ("output", "trigger")
-
-    declared = declared_operation(
-        compiled,
-        TriggerCapability.reset,
-        component=component_path,
-    )
-    [argument] = declared.arguments
-
-    assert declared.ref == declared_operation_ref(
-        TypedControlContract,
-        "reset",
-        component=component_path,
-    )
-    assert declared.spec is compiled.spec.components[0].components[0].operations[0]
-    assert argument.ref == declared_argument_ref(
-        TypedControlContract,
-        "reset",
-        "cycles",
-        component=component_path,
-    )
-    assert argument.python_name == "cycles"
 
 
 def test_declared_operation_rejects_a_method_from_another_interface() -> None:
@@ -1306,72 +1109,6 @@ def test_concrete_type_aliases_compile_without_authoring_wrapper_semantics() -> 
     acquisition_spec = compiled.spec.acquisitions[0]
     assert isinstance(acquisition_spec, FixedAcquisitionSpec)
     assert acquisition_spec.results[0].dtype == "float64"
-
-
-def test_nested_component_member_refs_use_python_paths() -> None:
-    component_path = ("output", "trigger")
-    trigger = declared_component_ref(TypedControlContract, *component_path)
-    reset = declared_operation_ref(
-        TypedControlContract,
-        "reset",
-        component=component_path,
-    )
-    sample = declared_acquisition_ref(
-        TypedControlContract,
-        "sample",
-        component=component_path,
-    )
-
-    assert reset == trigger.operation("reset_trigger")
-    assert declared_argument_ref(
-        TypedControlContract,
-        "reset",
-        "cycles",
-        component=component_path,
-    ) == reset.argument("wait_cycles")
-    assert sample == trigger.acquisition("sample_trigger")
-    assert declared_result_ref(
-        TypedControlContract,
-        "sample",
-        "value",
-        component=component_path,
-    ) == sample.result("trigger_value")
-
-
-def test_declared_acquisition_resolves_nested_component_result_layout() -> None:
-    compiled = compile_interface(TypedControlContract)
-    component_path = ("output", "trigger")
-
-    declared = assert_type(
-        declared_acquisition(
-            compiled,
-            TriggerCapability.sample,
-            component=component_path,
-        ),
-        DeclaredAcquisition[TriggerSampleResults],
-    )
-
-    trigger_spec = compiled.spec.components[0].components[0]
-    assert declared.method_name == "sample"
-    assert declared.ref == declared_acquisition_ref(
-        TypedControlContract,
-        "sample",
-        component=component_path,
-    )
-    assert declared.spec is trigger_spec.acquisitions[0]
-    assert declared.discriminator is None
-    assert [layout.case_value for layout in declared.layouts] == [None]
-    assert declared.layouts[0].result_type is TriggerSampleResults
-    assert [
-        (field.python_name, field.result_id, field.spec.id)
-        for field in declared.active_result_fields()
-    ] == [
-        (
-            "value",
-            "trigger_value",
-            "trigger_value",
-        )
-    ]
 
 
 def test_observed_state_has_refs_but_cannot_be_encoded_as_desired_state() -> None:

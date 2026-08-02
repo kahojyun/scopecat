@@ -139,11 +139,11 @@ uv run --locked python scripts/generate_instrument_clients.py
 uv run --locked python scripts/generate_instrument_clients.py --check
 ```
 
-Do not edit those modules or the package facade directly. The generated source
-includes nested component operation proxies for supported declarations. A live
-operation accepts concrete arguments and returns `InvokeReceipt`; the scalar
-symbolic form projects each concrete `T` argument to `T | ValueRef` and adds an
-`effect_id`. Its group form accepts a scalar or `PerEntity` value
+Do not edit those modules or the package facade directly. Decorated interfaces
+and their generated clients are deliberately root-only. A live operation
+accepts concrete arguments and returns `InvokeReceipt`; the scalar symbolic form
+projects each concrete `T` argument to `T | ValueRef` and adds an `effect_id`.
+Its group form accepts a scalar or `PerEntity` value
 independently for every argument, performs exact
 identity joins for all mappings before recording any effect, and then records
 one scalar invocation per entity. Mapping order is therefore irrelevant, while
@@ -158,8 +158,9 @@ types. Group state and operation arguments still accept broadcasts or
 Payload-bearing operations are currently rejected only by the client source
 generator, until their schema-specific live and symbolic carriers are defined.
 The declaration compiler and generated driver handlers already support decoded
-payload operations. Component-owned state and component acquisitions also remain
-outside the generated client surface.
+payload operations. Nested or repeated component trees remain a low-level
+`InterfaceSpec` shape for explicit contract builders and hand-written clients;
+the decorator DSL does not mirror them as recursive Python classes.
 
 ## Driver authoring
 

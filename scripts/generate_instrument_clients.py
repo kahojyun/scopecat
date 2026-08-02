@@ -19,7 +19,6 @@ from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.sdk.instruments import (
     AcquisitionAxisSpec,
     AcquisitionRef,
-    ComponentRef,
     InterfaceSpec,
     OperationRef,
     PropertyRef,
@@ -62,7 +61,6 @@ PACKAGE_EXPORTS_OUTPUT = (
     INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "__init__.py"
 )
 FIXTURE_IMPORT_ROOT = INSTRUMENTS_PACKAGE_ROOT / "tests"
-FIXTURE_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_client_fixture.py"
 FIXTURE_MEMBERS_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_member_catalog_fixture.py"
 FIXTURE_INTERFACES_OUTPUT = (
     FIXTURE_IMPORT_ROOT / "generated_interface_catalog_fixture.py"
@@ -75,7 +73,6 @@ FIXTURE_DRIVER_HANDLERS_OUTPUT = (
     FIXTURE_IMPORT_ROOT / "generated_driver_handler_fixture.py"
 )
 PRODUCTION_STATE_PROJECTION_MODULE = "scopecat_instruments.states"
-FIXTURE_STATE_PROJECTION_MODULE = "generated_state_catalog_fixture"
 _TYPING_UNION_ORIGIN: object = typing.Union  # pyright: ignore[reportDeprecated]
 
 
@@ -230,12 +227,12 @@ class _Options(argparse.Namespace):
 
 class _FixtureDeclarations(Protocol):
     CatalogProjectionInterface: type[object]
-    ComponentOperationInterface: type[object]
     DriverFixedAcquisitionInterface: type[object]
     DriverMonitorInterface: type[object]
     DriverSourceInterface: type[object]
     LiteralOperationInterface: type[object]
     PayloadOperationInterface: type[object]
+    ScalarOperationInterface: type[object]
 
 
 def _manifest_surface(registration: SurfaceRegistration, /) -> GenerationSurface:
@@ -288,15 +285,6 @@ PRODUCTION_PACKAGE_EXPORTS_TARGET = PackageExportsTarget(
 )
 
 
-def _fixture_target() -> GenerationTarget:
-    declarations = _fixture_declarations()
-    return GenerationTarget(
-        output=FIXTURE_OUTPUT,
-        surfaces=(clients_for(declarations.ComponentOperationInterface),),
-        state_projection_module=FIXTURE_STATE_PROJECTION_MODULE,
-    )
-
-
 def _fixture_catalog_target() -> CatalogTarget:
     declarations = _fixture_declarations()
     handler_surfaces = _fixture_driver_handler_surfaces(declarations)
@@ -317,7 +305,7 @@ def _fixture_driver_handler_surfaces(
     declarations: _FixtureDeclarations,
 ) -> tuple[GenerationSurface, ...]:
     return (
-        clients_for(declarations.ComponentOperationInterface),
+        clients_for(declarations.ScalarOperationInterface),
         clients_for(declarations.LiteralOperationInterface),
         clients_for(declarations.PayloadOperationInterface),
         clients_for(declarations.DriverFixedAcquisitionInterface),
@@ -352,7 +340,7 @@ def _fixture_declarations() -> _FixtureDeclarations:
 
 
 def _generation_targets() -> tuple[GenerationTarget, ...]:
-    return (PRODUCTION_TARGET, _fixture_target())
+    return (PRODUCTION_TARGET,)
 
 
 def _catalog_targets() -> tuple[CatalogTarget, ...]:
@@ -395,19 +383,9 @@ class _AcquisitionModel:
 
 @dataclass(frozen=True, slots=True)
 class _ScopeModel:
-    python_path: tuple[str, ...]
     class_stem: str
     operations: tuple[_OperationModel, ...]
     acquisitions: tuple[_AcquisitionModel, ...]
-    components: tuple[_ScopeModel, ...]
-
-    @property
-    def is_root(self) -> bool:
-        return not self.python_path
-
-    @property
-    def python_name(self) -> str:
-        return self.python_path[-1]
 
     @property
     def live_client_name(self) -> str:
@@ -887,7 +865,6 @@ def _append_scope_member_projections(
     scope_name: str,
     owner_prefix: str,
 ) -> None:
-    scope_path = ".".join(scope.python_path) or "<root>"
     for property_spec in scope.spec.properties:
         name = _join_constant_name(scope_name, property_spec.id)
         projections.append(
@@ -896,7 +873,7 @@ def _append_scope_member_projections(
                 expression=(
                     f"{scope_name}.property({_string_literal(property_spec.id)})"
                 ),
-                owner=f"{owner_prefix} scope {scope_path} property {property_spec.id}",
+                owner=f"{owner_prefix} property {property_spec.id}",
             )
         )
     for operation in scope.operations:
@@ -911,10 +888,7 @@ def _append_scope_member_projections(
                     f"{scope_name}.operation("
                     f"{_string_literal(operation.ref.operation_id)})"
                 ),
-                owner=(
-                    f"{owner_prefix} scope {scope_path} operation "
-                    f"{operation.method_name}"
-                ),
+                owner=(f"{owner_prefix} operation {operation.method_name}"),
             )
         )
         for argument in operation.arguments:
@@ -930,7 +904,7 @@ def _append_scope_member_projections(
                         f"{_string_literal(argument.ref.argument_id)})"
                     ),
                     owner=(
-                        f"{owner_prefix} scope {scope_path} operation "
+                        f"{owner_prefix} operation "
                         f"{operation.method_name} argument {argument.python_name}"
                     ),
                 )
@@ -949,10 +923,7 @@ def _append_scope_member_projections(
                     f"{scope_name}.acquisition("
                     f"{_string_literal(acquisition.ref.acquisition_id)})"
                 ),
-                owner=(
-                    f"{owner_prefix} scope {scope_path} acquisition "
-                    f"{acquisition.method_name}"
-                ),
+                owner=(f"{owner_prefix} acquisition {acquisition.method_name}"),
             )
         )
         seen_results: set[object] = set()
@@ -971,28 +942,11 @@ def _append_scope_member_projections(
                         f"{_string_literal(result_field.result_id)})"
                     ),
                     owner=(
-                        f"{owner_prefix} scope {scope_path} acquisition "
+                        f"{owner_prefix} acquisition "
                         f"{acquisition.method_name} result {result_field.python_name}"
                     ),
                 )
             )
-    for component in scope.components:
-        component_id = component.spec.id
-        component_name = _join_constant_name(scope_name, component_id)
-        component_path = ".".join(component.python_path)
-        projections.append(
-            _MemberProjection(
-                name=component_name,
-                expression=f"{scope_name}.component({_string_literal(component_id)})",
-                owner=f"{owner_prefix} component {component_path}",
-            )
-        )
-        _append_scope_member_projections(
-            projections,
-            component,
-            scope_name=component_name,
-            owner_prefix=owner_prefix,
-        )
 
 
 def _validate_member_projections(
@@ -1405,8 +1359,7 @@ def _render_driver_handlers_module(
         operation
         for surface in surfaces
         for constituent in surface.constituents
-        for scope in _walk_declared_scopes(constituent.layout.root)
-        for operation in scope.operations
+        for operation in constituent.layout.root.operations
     )
     has_operation_arguments = any(operation.arguments for operation in operations)
     has_payload_arguments = any(
@@ -1447,19 +1400,17 @@ def _render_driver_handlers_module(
     acquisition_models: dict[object, _DriverAcquisitionModel] = {}
     for surface in surfaces:
         for constituent in surface.constituents:
-            for scope in _walk_declared_scopes(constituent.layout.root):
-                for acquisition in scope.acquisitions:
-                    if acquisition.ref in acquisition_models:
-                        continue
-                    model = _driver_acquisition_model(
-                        constituent,
-                        scope,
-                        acquisition,
-                        member_imports=member_imports,
-                    )
-                    acquisition_models[acquisition.ref] = model
-                    declarations.append(_render_driver_acquisition_types(model))
-                    exports.append(f"{model.type_stem}DriverReadback")
+            for acquisition in constituent.layout.root.acquisitions:
+                if acquisition.ref in acquisition_models:
+                    continue
+                model = _driver_acquisition_model(
+                    constituent,
+                    acquisition,
+                    member_imports=member_imports,
+                )
+                acquisition_models[acquisition.ref] = model
+                declarations.append(_render_driver_acquisition_types(model))
+                exports.append(f"{model.type_stem}DriverReadback")
 
     for surface in surfaces:
         rendered, surface_exports = _render_driver_adapter(
@@ -1491,12 +1442,11 @@ def _render_driver_handlers_module(
 
 def _driver_acquisition_model(
     constituent: _DriverHandlerConstituent,
-    scope: DeclaredScopeLayout,
     acquisition: DeclaredAcquisition[object],
     *,
     member_imports: set[str],
 ) -> _DriverAcquisitionModel:
-    scope_name = _driver_scope_constant_name(constituent.constant_prefix, scope)
+    scope_name = constituent.constant_prefix
     member_name = _join_constant_name(scope_name, acquisition.method_name)
     if member_name == scope_name:
         member_name = f"{scope_name}_ACQUISITION"
@@ -1517,13 +1467,9 @@ def _driver_acquisition_model(
                 member_name=result_name,
             )
         )
-    type_stem = (
-        constituent.stem
-        + "".join(_pascal_case(item) for item in scope.python_path)
-        + _pascal_case(acquisition.method_name)
-    )
+    type_stem = constituent.stem + _pascal_case(acquisition.method_name)
     return _DriverAcquisitionModel(
-        hook_name=_driver_hook_name(scope.python_path, acquisition.method_name),
+        hook_name=f"handle_{acquisition.method_name}",
         member_name=member_name,
         type_stem=type_stem,
         fields=tuple(fields),
@@ -1569,19 +1515,16 @@ def _render_driver_adapter(
     operation_models = tuple(
         _driver_operation_model(
             constituent,
-            scope,
             operation,
             member_imports=member_imports,
         )
         for constituent in surface.constituents
-        for scope in _walk_declared_scopes(constituent.layout.root)
-        for operation in scope.operations
+        for operation in constituent.layout.root.operations
     )
     selected_acquisitions = tuple(
         acquisition_models[acquisition.ref]
         for constituent in surface.constituents
-        for scope in _walk_declared_scopes(constituent.layout.root)
-        for acquisition in scope.acquisitions
+        for acquisition in constituent.layout.root.acquisitions
     )
 
     declarations: list[str] = []
@@ -1750,37 +1693,19 @@ def _driver_state_annotation(
 
 def _driver_operation_model(
     constituent: _DriverHandlerConstituent,
-    scope: DeclaredScopeLayout,
     operation: DeclaredOperation,
     *,
     member_imports: set[str],
 ) -> _DriverOperationModel:
-    scope_name = _driver_scope_constant_name(constituent.constant_prefix, scope)
+    scope_name = constituent.constant_prefix
     member_name = _join_constant_name(scope_name, operation.ref.operation_id)
     member_imports.add(member_name)
     return _DriverOperationModel(
         declaration=operation,
-        hook_name=_driver_hook_name(scope.python_path, operation.method_name),
+        hook_name=f"handle_{operation.method_name}",
         member_name=member_name,
         optional=constituent.optional,
     )
-
-
-def _driver_scope_constant_name(
-    constant_prefix: str,
-    scope: DeclaredScopeLayout,
-) -> str:
-    selected = constant_prefix
-    component_path = (
-        scope.ref.component_path if isinstance(scope.ref, ComponentRef) else ()
-    )
-    for component_id in component_path:
-        selected = _join_constant_name(selected, component_id)
-    return selected
-
-
-def _driver_hook_name(python_path: tuple[str, ...], method_name: str) -> str:
-    return "handle_" + "_".join((*python_path, method_name))
 
 
 def _render_driver_unsupported_helper() -> str:
@@ -2814,13 +2739,6 @@ def _composite_model(
         )
         for interface_type in surface.interface_types
     )
-    for constituent in constituents:
-        if constituent.layout.root.components:
-            raise ClientGenerationError(
-                f"generated composite {composite_identity} only supports root members; "
-                f"constituent {constituent.interface_identity} declares components"
-            )
-
     owners_by_method: dict[str, list[str]] = {}
     for constituent in constituents:
         for operation in constituent.layout.root.operations:
@@ -2869,7 +2787,6 @@ def _composite_model(
         for constituent in constituents
     )
     root = _ScopeModel(
-        python_path=(),
         class_stem=stem,
         operations=tuple(
             operation for scope in scopes for operation in scope.operations
@@ -2877,7 +2794,6 @@ def _composite_model(
         acquisitions=tuple(
             acquisition for scope in scopes for acquisition in scope.acquisitions
         ),
-        components=(),
     )
     state_layouts: list[DeclaredStateLayout] = []
     live_states: list[str] = []
@@ -2957,27 +2873,22 @@ def _validate_generated_symbols(
                 constituent.observation_descriptor_name,
                 f"{declaration} observation",
             )
-        for scope in _walk_declared_scopes(constituent.layout.root):
-            path = ".".join(scope.python_path) or "<root>"
-            scope_owner = f"{declaration} scope {path}"
-            for operation in scope.operations:
-                register(
-                    _descriptor_name(
-                        constituent.constant_prefix,
-                        scope.python_path,
-                        operation.method_name,
-                    ),
-                    f"{scope_owner} operation {operation.method_name}",
-                )
-            for acquisition in scope.acquisitions:
-                register(
-                    _descriptor_name(
-                        constituent.constant_prefix,
-                        scope.python_path,
-                        acquisition.method_name,
-                    ),
-                    f"{scope_owner} acquisition {acquisition.method_name}",
-                )
+        for operation in constituent.layout.root.operations:
+            register(
+                _descriptor_name(
+                    constituent.constant_prefix,
+                    operation.method_name,
+                ),
+                f"{declaration} operation {operation.method_name}",
+            )
+        for acquisition in constituent.layout.root.acquisitions:
+            register(
+                _descriptor_name(
+                    constituent.constant_prefix,
+                    acquisition.method_name,
+                ),
+                f"{declaration} acquisition {acquisition.method_name}",
+            )
 
     for model in models:
         declaration = model.interface_identity
@@ -3002,25 +2913,22 @@ def _validate_generated_symbols(
                 register(alias_name, f"{declaration} {projection} union")
         if model.generate_family:
             register(model.factory_name, f"{declaration} factory")
-        for scope in _walk_scopes(model.root):
-            path = ".".join(scope.python_path) or "<root>"
-            scope_owner = f"{declaration} scope {path}"
-            register(scope.live_client_name, f"{scope_owner} live client")
-            register(scope.symbolic_client_name, f"{scope_owner} symbolic client")
-            register(scope.symbolic_group_name, f"{scope_owner} symbolic group")
-            for acquisition in scope.acquisitions:
-                result_owner = (
-                    f"{acquisition.descriptor_name} results "
-                    f"{acquisition.result_type_name}"
-                )
-                register(
-                    acquisition.readback_name,
-                    f"{result_owner} live",
-                )
-                register(
-                    acquisition.products_name,
-                    f"{result_owner} symbolic",
-                )
+        scope = model.root
+        register(scope.live_client_name, f"{declaration} live client")
+        register(scope.symbolic_client_name, f"{declaration} symbolic client")
+        register(scope.symbolic_group_name, f"{declaration} symbolic group")
+        for acquisition in scope.acquisitions:
+            result_owner = (
+                f"{acquisition.descriptor_name} results {acquisition.result_type_name}"
+            )
+            register(
+                acquisition.readback_name,
+                f"{result_owner} live",
+            )
+            register(
+                acquisition.products_name,
+                f"{result_owner} symbolic",
+            )
 
     collisions = {
         symbol: owners for symbol, owners in owners_by_symbol.items() if len(owners) > 1
@@ -3042,13 +2950,9 @@ def _scope_model(
     overrides: dict[str, str],
     renderer: _AnnotationRenderer,
 ) -> _ScopeModel:
-    class_stem = interface_stem + "".join(
-        _pascal_case(name) for name in scope.python_path
-    )
     operations = tuple(
         _operation_model(
             operation,
-            python_path=scope.python_path,
             constant_prefix=constant_prefix,
             renderer=renderer,
         )
@@ -3057,51 +2961,35 @@ def _scope_model(
     acquisitions = tuple(
         _acquisition_model(
             acquisition,
-            python_path=scope.python_path,
             constant_prefix=constant_prefix,
             overrides=overrides,
         )
         for acquisition in scope.acquisitions
     )
-    components = tuple(
-        _scope_model(
-            component,
-            interface_stem=interface_stem,
-            constant_prefix=constant_prefix,
-            overrides=overrides,
-            renderer=renderer,
-        )
-        for component in scope.components
-    )
     return _ScopeModel(
-        python_path=scope.python_path,
-        class_stem=class_stem,
+        class_stem=interface_stem,
         operations=operations,
         acquisitions=acquisitions,
-        components=components,
     )
 
 
 def _operation_model(
     operation: DeclaredOperation,
     *,
-    python_path: tuple[str, ...],
     constant_prefix: str,
     renderer: _AnnotationRenderer,
 ) -> _OperationModel:
     arguments: list[_OperationArgumentModel] = []
     for argument in operation.arguments:
         if argument.python_name == "effect_id":
-            qualified_method = ".".join((*python_path, operation.method_name))
             raise ClientGenerationError(
                 "generated symbolic clients reserve operation parameter "
-                f"{qualified_method}.effect_id"
+                f"{operation.method_name}.effect_id"
             )
         if isinstance(argument.spec.value_type.atom, PayloadType):
-            qualified_method = ".".join((*python_path, operation.method_name))
             raise ClientGenerationError(
                 "generated clients do not support payload operation argument "
-                f"{qualified_method}.{argument.python_name}"
+                f"{operation.method_name}.{argument.python_name}"
             )
         concrete_annotation = renderer.render(argument.annotation)
         arguments.append(
@@ -3117,7 +3005,6 @@ def _operation_model(
         method_name=operation.method_name,
         descriptor_name=_descriptor_name(
             constant_prefix,
-            python_path,
             operation.method_name,
         ),
         arguments=tuple(arguments),
@@ -3127,7 +3014,6 @@ def _operation_model(
 def _acquisition_model(
     acquisition: DeclaredAcquisition[object],
     *,
-    python_path: tuple[str, ...],
     constant_prefix: str,
     overrides: dict[str, str],
 ) -> _AcquisitionModel:
@@ -3136,12 +3022,11 @@ def _acquisition_model(
     result_type_name = result_type.__name__
     result_stem = result_type_name.removesuffix("Results")
     method_name = acquisition.method_name
-    override_prefix = ".".join((*python_path, method_name))
+    override_prefix = method_name
     return _AcquisitionModel(
         method_name=method_name,
         descriptor_name=_descriptor_name(
             constant_prefix,
-            python_path,
             method_name,
         ),
         result_type_name=result_type_name,
@@ -3164,8 +3049,7 @@ def _render_header(
     *,
     renderer: _AnnotationRenderer,
 ) -> str:
-    scopes = tuple(scope for model in models for scope in _walk_scopes(model.root))
-    has_components = any(not scope.is_root for scope in scopes)
+    scopes = tuple(model.root for model in models)
     has_operations = any(scope.operations for scope in scopes)
     has_acquisitions = any(scope.acquisitions for scope in scopes)
     has_observations = any(model.observation_type_name for model in models)
@@ -3227,16 +3111,6 @@ def _render_header(
                 "ClientObservedField",
                 "ClientObservedState",
                 "client_property_value_type",
-            }
-        )
-    if has_components:
-        imports["scopecat_instruments._client_runtime"].add(
-            "InstrumentComponentClientBase"
-        )
-        imports["scopecat_instruments._symbolic_runtime"].update(
-            {
-                "SymbolicInstrumentComponentClientBase",
-                "SymbolicInstrumentComponentGroupBase",
             }
         )
     for module, names in renderer.imports.items():
@@ -3461,7 +3335,6 @@ def _append_client_scope_descriptors(
             + _render_ref_assignment(
                 _descriptor_name(
                     constant_prefix,
-                    scope.python_path,
                     operation.method_name,
                 ),
                 _operation_ref_expression(root_ref_name, operation.ref),
@@ -3472,19 +3345,11 @@ def _append_client_scope_descriptors(
             _render_client_acquisition(
                 _descriptor_name(
                     constant_prefix,
-                    scope.python_path,
                     acquisition.method_name,
                 ),
                 acquisition,
                 root_ref_name=root_ref_name,
             )
-        )
-    for component in scope.components:
-        _append_client_scope_descriptors(
-            sections,
-            component,
-            root_ref_name=root_ref_name,
-            constant_prefix=constant_prefix,
         )
 
 
@@ -3635,41 +3500,39 @@ def _render_result_types(
     rendered: set[tuple[str, str, tuple[str, ...]]],
 ) -> str:
     sections: list[str] = []
-    for scope in _walk_scopes(model.root):
-        for item in scope.acquisitions:
-            identity = (
-                item.readback_name,
-                item.products_name,
-                item.result_field_names,
-            )
-            if identity in rendered:
-                continue
-            rendered.add(identity)
-            readback_fields = "".join(
-                f"    {field_name}: MeasurementValue\n"
-                for field_name in item.result_field_names
-            )
-            product_fields = "".join(
-                f"    {field_name}: ProductRef\n"
-                for field_name in item.result_field_names
-            )
-            sections.append(
-                "\n\n"
-                "@dataclass(frozen=True, slots=True)\n"
-                f"class {item.readback_name}:\n"
-                f'    """Named {item.method_name} results plus their effect '
-                'receipt."""\n'
-                "\n"
-                f"{readback_fields}"
-                "    receipt: CollectReceipt = field(repr=False)\n"
-                "\n\n"
-                "@dataclass(frozen=True, slots=True)\n"
-                f"class {item.products_name}:\n"
-                f'    """Typed logical products produced by '
-                f'{item.method_name}."""\n'
-                "\n"
-                f"{product_fields}"
-            )
+    for item in model.root.acquisitions:
+        identity = (
+            item.readback_name,
+            item.products_name,
+            item.result_field_names,
+        )
+        if identity in rendered:
+            continue
+        rendered.add(identity)
+        readback_fields = "".join(
+            f"    {field_name}: MeasurementValue\n"
+            for field_name in item.result_field_names
+        )
+        product_fields = "".join(
+            f"    {field_name}: ProductRef\n" for field_name in item.result_field_names
+        )
+        sections.append(
+            "\n\n"
+            "@dataclass(frozen=True, slots=True)\n"
+            f"class {item.readback_name}:\n"
+            f'    """Named {item.method_name} results plus their effect '
+            'receipt."""\n'
+            "\n"
+            f"{readback_fields}"
+            "    receipt: CollectReceipt = field(repr=False)\n"
+            "\n\n"
+            "@dataclass(frozen=True, slots=True)\n"
+            f"class {item.products_name}:\n"
+            f'    """Typed logical products produced by '
+            f'{item.method_name}."""\n'
+            "\n"
+            f"{product_fields}"
+        )
     return "".join(sections)
 
 
@@ -3784,22 +3647,17 @@ def _render_optional_keyword_parameter(
 
 
 def _render_live_scopes(model: _InterfaceModel) -> str:
-    return "".join(
-        _render_live_scope(model, scope) for scope in _walk_scopes_postorder(model.root)
-    )
+    return _render_live_scope(model, model.root)
 
 
 def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
-    if scope.is_root:
-        base = (
-            "InstrumentClientBase"
-            if model.live_state_type_name is None
-            else f"DeclaredStateClientBase[{model.live_state_type_name}]"
-        )
-    else:
-        base = "InstrumentComponentClientBase"
+    base = (
+        "InstrumentClientBase"
+        if model.live_state_type_name is None
+        else f"DeclaredStateClientBase[{model.live_state_type_name}]"
+    )
     body: list[str] = []
-    if scope.is_root and model.keyword_state is not None:
+    if model.keyword_state is not None:
         state = model.keyword_state
         body.append(
             _render_keyword_projection_method(
@@ -3814,7 +3672,7 @@ def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
                 returns=True,
             )
         )
-    if scope.is_root and model.observation_type_name is not None:
+    if model.observation_type_name is not None:
         _append_member_separator(body)
         observation_name = model.observation_descriptor_name
         if observation_name is None:
@@ -3839,15 +3697,6 @@ def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
     for acquisition in scope.acquisitions:
         _append_member_separator(body)
         body.append(_render_live_acquisition(acquisition))
-    for component in scope.components:
-        _append_member_separator(body)
-        owner = "self" if scope.is_root else "self._owner"
-        body.append(
-            "    @property\n"
-            f"    def {component.python_name}(self) -> "
-            f"{component.live_client_name}:\n"
-            f"        return {component.live_client_name}({owner})\n"
-        )
     if not body:
         body.append("    pass\n")
     return (
@@ -3881,72 +3730,56 @@ def _render_live_acquisition(acquisition: _AcquisitionModel) -> str:
 
 
 def _render_symbolic_scopes(model: _InterfaceModel) -> str:
-    return "".join(
-        _render_symbolic_scope(model, scope)
-        for scope in _walk_scopes_postorder(model.root)
-    )
+    return _render_symbolic_scope(model, model.root)
 
 
 def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
-    if scope.is_root:
-        base = (
-            "SymbolicInstrumentClientBase"
-            if model.symbolic_state_type_name is None
-            else f"DeclaredStateSymbolicClientBase[{model.symbolic_state_type_name}]"
-        )
-    else:
-        base = "SymbolicInstrumentComponentClientBase"
+    base = (
+        "SymbolicInstrumentClientBase"
+        if model.symbolic_state_type_name is None
+        else f"DeclaredStateSymbolicClientBase[{model.symbolic_state_type_name}]"
+    )
     body: list[str] = ["    __slots__ = ()\n"]
-    if scope.is_root:
-        body.extend(
-            (
-                "\n",
-                "    def __init__(\n",
-                "        self,\n",
-                "        recorder: SymbolicInstrumentRecorder,\n",
-                "        resource_id: str,\n",
-                "        *,\n",
-                "        for_: OneEntity | None = None,\n",
-                "    ) -> None:\n",
-                "        super().__init__(\n",
-                "            recorder,\n",
-                "            resource_id,\n",
-                f"            requires={model.requires_expression},\n",
-                "            for_=for_,\n",
-                "        )\n",
+    body.extend(
+        (
+            "\n",
+            "    def __init__(\n",
+            "        self,\n",
+            "        recorder: SymbolicInstrumentRecorder,\n",
+            "        resource_id: str,\n",
+            "        *,\n",
+            "        for_: OneEntity | None = None,\n",
+            "    ) -> None:\n",
+            "        super().__init__(\n",
+            "            recorder,\n",
+            "            resource_id,\n",
+            f"            requires={model.requires_expression},\n",
+            "            for_=for_,\n",
+            "        )\n",
+        )
+    )
+    if model.keyword_state is not None:
+        _append_member_separator(body)
+        state = model.keyword_state
+        body.append(
+            _render_keyword_projection_method(
+                method_name="ensure",
+                positional_name="state",
+                positional_annotation=state.target_type_name,
+                projection_type_name=state.target_type_name,
+                fields=state.fields,
+                field_annotation="symbolic_annotation",
+                return_annotation="None",
+                helper_name="_ensure_projected",
+                returns=False,
             )
         )
-        if model.keyword_state is not None:
-            _append_member_separator(body)
-            state = model.keyword_state
-            body.append(
-                _render_keyword_projection_method(
-                    method_name="ensure",
-                    positional_name="state",
-                    positional_annotation=state.target_type_name,
-                    projection_type_name=state.target_type_name,
-                    fields=state.fields,
-                    field_annotation="symbolic_annotation",
-                    return_annotation="None",
-                    helper_name="_ensure_projected",
-                    returns=False,
-                )
-            )
     for operation in scope.operations:
         _append_member_separator(body)
         body.append(_render_symbolic_operation(operation))
     for acquisition in scope.acquisitions:
         _append_member_separator(body)
         body.append(_render_symbolic_acquisition(acquisition))
-    for component in scope.components:
-        _append_member_separator(body)
-        owner = "self" if scope.is_root else "self._owner"
-        body.append(
-            "    @property\n"
-            f"    def {component.python_name}(self) -> "
-            f"{component.symbolic_client_name}:\n"
-            f"        return {component.symbolic_client_name}({owner})\n"
-        )
     declaration = f"class {scope.symbolic_client_name}({base}):\n"
     if len(declaration.rstrip("\n")) > 88:
         declaration = f"class {scope.symbolic_client_name}(\n    {base}\n):\n"
@@ -3985,83 +3818,64 @@ def _render_symbolic_acquisition(acquisition: _AcquisitionModel) -> str:
 
 
 def _render_symbolic_group_scopes(model: _InterfaceModel) -> str:
-    return "".join(
-        _render_symbolic_group_scope(model, scope)
-        for scope in _walk_scopes_postorder(model.root)
-    )
+    return _render_symbolic_group_scope(model, model.root)
 
 
 def _render_symbolic_group_scope(
     model: _InterfaceModel,
     scope: _ScopeModel,
 ) -> str:
-    if scope.is_root:
-        base = (
-            f"SymbolicInstrumentGroupBase[{scope.symbolic_client_name}]"
-            if model.symbolic_state_type_name is None
-            else "DeclaredStateSymbolicGroupBase["
-            f"{model.symbolic_state_type_name}, "
-            f"{model.group_state_type_name}, {scope.symbolic_client_name}]"
-        )
-    else:
-        base = f"SymbolicInstrumentComponentGroupBase[{scope.symbolic_client_name}]"
+    base = (
+        f"SymbolicInstrumentGroupBase[{scope.symbolic_client_name}]"
+        if model.symbolic_state_type_name is None
+        else "DeclaredStateSymbolicGroupBase["
+        f"{model.symbolic_state_type_name}, "
+        f"{model.group_state_type_name}, {scope.symbolic_client_name}]"
+    )
     body: list[str] = ["    __slots__ = ()\n"]
-    if scope.is_root:
-        body.extend(
-            (
-                "\n",
-                "    def __init__(\n",
-                "        self,\n",
-                "        recorder: SymbolicInstrumentRecorder,\n",
-                "        resource_id: str,\n",
-                "        *,\n",
-                "        for_: EachEntity,\n",
-                "    ) -> None:\n",
-                "        super().__init__(\n",
-                "            recorder,\n",
-                "            resource_id,\n",
-                "            for_=for_,\n",
-                f"            client_factory={scope.symbolic_client_name},\n",
-                "        )\n",
+    body.extend(
+        (
+            "\n",
+            "    def __init__(\n",
+            "        self,\n",
+            "        recorder: SymbolicInstrumentRecorder,\n",
+            "        resource_id: str,\n",
+            "        *,\n",
+            "        for_: EachEntity,\n",
+            "    ) -> None:\n",
+            "        super().__init__(\n",
+            "            recorder,\n",
+            "            resource_id,\n",
+            "            for_=for_,\n",
+            f"            client_factory={scope.symbolic_client_name},\n",
+            "        )\n",
+        )
+    )
+    if model.keyword_state is not None:
+        _append_member_separator(body)
+        state = model.keyword_state
+        body.append(
+            _render_keyword_projection_method(
+                method_name="ensure",
+                positional_name="state",
+                positional_annotation=(
+                    f"{state.group_target_type_name} | "
+                    f"PerEntity[{state.target_type_name}]"
+                ),
+                projection_type_name=state.group_target_type_name,
+                fields=state.fields,
+                field_annotation="group_annotation",
+                return_annotation="None",
+                helper_name="_ensure_projected",
+                returns=False,
             )
         )
-        if model.keyword_state is not None:
-            _append_member_separator(body)
-            state = model.keyword_state
-            body.append(
-                _render_keyword_projection_method(
-                    method_name="ensure",
-                    positional_name="state",
-                    positional_annotation=(
-                        f"{state.group_target_type_name} | "
-                        f"PerEntity[{state.target_type_name}]"
-                    ),
-                    projection_type_name=state.group_target_type_name,
-                    fields=state.fields,
-                    field_annotation="group_annotation",
-                    return_annotation="None",
-                    helper_name="_ensure_projected",
-                    returns=False,
-                )
-            )
     for operation in scope.operations:
         _append_member_separator(body)
         body.append(_render_group_operation(operation))
     for acquisition in scope.acquisitions:
         _append_member_separator(body)
         body.append(_render_group_acquisition(acquisition))
-    for component in scope.components:
-        _append_member_separator(body)
-        body.append(
-            "    @property\n"
-            f"    def {component.python_name}(self) -> "
-            f"{component.symbolic_group_name}:\n"
-            f"        return {component.symbolic_group_name}(\n"
-            "            self._entities,\n"
-            "            self._clients.map("
-            f"lambda client: client.{component.python_name}),\n"
-            "        )\n"
-        )
     return (
         "\n\n"
         f"class {scope.symbolic_group_name}(\n"
@@ -4246,46 +4060,17 @@ def _client_export_names(
     for model in models:
         if model.generate_family:
             exports.add(model.factory_name)
-        for scope in _walk_scopes(model.root):
-            exports.update(
-                {
-                    scope.live_client_name,
-                    scope.symbolic_client_name,
-                    scope.symbolic_group_name,
-                }
-            )
-            for acquisition in scope.acquisitions:
-                exports.update({acquisition.products_name, acquisition.readback_name})
+        scope = model.root
+        exports.update(
+            {
+                scope.live_client_name,
+                scope.symbolic_client_name,
+                scope.symbolic_group_name,
+            }
+        )
+        for acquisition in scope.acquisitions:
+            exports.update({acquisition.products_name, acquisition.readback_name})
     return tuple(sorted(exports))
-
-
-def _walk_scopes(root: _ScopeModel) -> tuple[_ScopeModel, ...]:
-    return (
-        root,
-        *(child for component in root.components for child in _walk_scopes(component)),
-    )
-
-
-def _walk_scopes_postorder(root: _ScopeModel) -> tuple[_ScopeModel, ...]:
-    return (
-        *(
-            child
-            for component in root.components
-            for child in _walk_scopes_postorder(component)
-        ),
-        root,
-    )
-
-
-def _walk_declared_scopes(root: DeclaredScopeLayout) -> tuple[DeclaredScopeLayout, ...]:
-    return (
-        root,
-        *(
-            child
-            for component in root.components
-            for child in _walk_declared_scopes(component)
-        ),
-    )
 
 
 def _unique_constituents(
@@ -4318,10 +4103,9 @@ def _render_tuple(values: tuple[str, ...]) -> str:
 
 def _descriptor_name(
     constant_prefix: str,
-    python_path: tuple[str, ...],
     method_name: str,
 ) -> str:
-    segments = (constant_prefix, *python_path, method_name, "DECLARATION")
+    segments = (constant_prefix, method_name, "DECLARATION")
     return "_" + "_".join(_constant_segment(segment) for segment in segments)
 
 

@@ -9,7 +9,6 @@ from scopecat.sdk.instruments.declarations import (
     acquisition,
     argument,
     axis,
-    component,
     discriminated_state,
     instrument_interface,
     instrument_observed_state,
@@ -23,7 +22,8 @@ from scopecat.sdk.instruments.declarations import (
 )
 
 
-class TriggerCapability(Protocol):
+@instrument_interface("test.generated_scalar_operation/v1")
+class ScalarOperationInterface(Protocol):
     @operation(id="emit_pulse")
     def emit(
         self,
@@ -36,13 +36,6 @@ class TriggerCapability(Protocol):
         *,
         label: Annotated[str, argument(id="pulse_label")],
     ) -> None: ...
-
-
-class OutputCapability(Protocol):
-    trigger: Annotated[
-        TriggerCapability,
-        component(id="pulse_trigger"),
-    ]
 
 
 @instrument_state
@@ -60,19 +53,7 @@ class CatalogProjectionObservation:
     state=CatalogProjectionState,
     observed_state=CatalogProjectionObservation,
 )
-class CatalogProjectionInterface(Protocol):
-    output: Annotated[
-        OutputCapability,
-        component(id="signal_output"),
-    ]
-
-
-@instrument_interface("test.generated_component_operation/v1")
-class ComponentOperationInterface(Protocol):
-    output: Annotated[
-        OutputCapability,
-        component(id="signal_output"),
-    ]
+class CatalogProjectionInterface(Protocol): ...
 
 
 @instrument_interface("test.generated_composite_peer/v1")
@@ -204,40 +185,10 @@ class EffectIdCollisionInterface(Protocol):
     ) -> None: ...
 
 
-class FlatFooBarCapability(Protocol):
-    @operation(id="flat_fire")
-    def fire(self) -> None: ...
-
-
-class NestedBarCapability(Protocol):
-    @operation(id="nested_fire")
-    def fire(self) -> None: ...
-
-
-class NestedFooCapability(Protocol):
-    bar: Annotated[
-        NestedBarCapability,
-        component(id="nested_bar"),
-    ]
-
-
-@instrument_interface("test.generated_symbol_collision/v1")
-class SymbolCollisionInterface(Protocol):
-    foo_bar: Annotated[
-        FlatFooBarCapability,
-        component(id="flat_foo_bar"),
-    ]
-    foo: Annotated[
-        NestedFooCapability,
-        component(id="nested_foo"),
-    ]
-
-
 __all__ = [
     "CatalogProjectionInterface",
     "CatalogProjectionObservation",
     "CatalogProjectionState",
-    "ComponentOperationInterface",
     "CompositeMethodLeftInterface",
     "CompositeMethodPeerInterface",
     "CompositeMethodRightInterface",
@@ -252,12 +203,7 @@ __all__ = [
     "DriverSourceRightState",
     "DriverSourceState",
     "EffectIdCollisionInterface",
-    "FlatFooBarCapability",
     "LiteralOperationInterface",
-    "NestedBarCapability",
-    "NestedFooCapability",
-    "OutputCapability",
     "PayloadOperationInterface",
-    "SymbolCollisionInterface",
-    "TriggerCapability",
+    "ScalarOperationInterface",
 ]

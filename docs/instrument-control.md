@@ -370,11 +370,11 @@ Device mode changes need not become a discriminated desired-state schema.
 belong to the typed `source_voltage(...)` and `source_current(...)` operations,
 which map directly onto live driver calls and ordered experiment effects.
 
-The same declaration surface also covers read-only observed-state dataclasses,
-typed atomic methods whose `Annotated` parameters carry operation-argument
-metadata, and nested typed capability attributes marked as components. Component
-capabilities may contain operations and acquisitions and may nest further, while
-the Python annotations remain visible to static type checkers.
+The same declaration surface also covers read-only observed-state dataclasses
+and typed atomic methods whose `Annotated` parameters carry operation-argument
+metadata. Decorated Python interfaces are deliberately root-only: nested or
+repeated component trees remain a low-level `InterfaceSpec` shape for drivers
+that need it, rather than a second recursive Python declaration and proxy model.
 
 Compiled declarations expose typed member descriptors in addition to the wire
 contract. `declared_operation(...)` binds the concrete Python call signature and
@@ -420,8 +420,8 @@ existing interfaces, not a third wire interface or a decorated Python type. The
 factory also defines how `each(...)` fans one logical operation out to
 independently routable resources. The compiler covers persistent flat and
 discriminated scalar state, read-only observed state, typed atomic operations,
-fixed and state-discriminated acquisitions, axes, results, preconditions, and nested
-method capabilities. Explicit contract builders remain the escape hatch for
+fixed and state-discriminated acquisitions, axes, results, and preconditions.
+Explicit contract builders remain the escape hatch for
 component-owned state or properties, combining observed and discriminated state,
 and other unusual contract shapes.
 
@@ -444,7 +444,8 @@ flat and discriminated schemas both produce typed `apply(...)`, `ensure(...)`,
 and field-wise group target surfaces.
 The same pass writes the six public runtime modules—`clients.py`, `members.py`,
 `interfaces.py`, `states.py`, `driver_states.py`, and `driver_handlers.py`—plus
-the package facade. Refs recurse through components and operations, interface
+the package facade. Generated refs cover root properties, operations, and
+acquisitions; interface
 factories return fresh wire specs from generated JSON, and state projections
 preserve canonical field types while adding only presence, binding-time, or
 entity-cardinality semantics. These modules are generated output, not a second
@@ -457,15 +458,13 @@ uv run --locked python scripts/generate_instrument_clients.py
 uv run --locked python scripts/generate_instrument_clients.py --check
 ```
 
-For supported nested component operations, generation emits a typed component
-proxy tree while retaining the recursively resolved component and operation
-refs. The authored operation uses concrete `T` arguments. The live method keeps
-`T` and returns `InvokeReceipt`; the scalar symbolic method projects each
-argument to `T | ValueRef` and adds `effect_id`; its group counterpart also
+For a root operation, the authored method uses concrete `T` arguments. The live
+method keeps `T` and returns `InvokeReceipt`; the scalar symbolic method projects
+each argument to `T | ValueRef` and adds `effect_id`; its group counterpart also
 accepts `PerEntity[T | ValueRef]` independently for each argument. The group
-aligns every argument before recording any invocation, then
-emits one ordinary scalar effect per child resource. Alignment is an exact join
-by entity identity, not by input order.
+aligns every argument before recording any invocation, then emits one ordinary
+scalar effect per child resource. Alignment is an exact join by entity identity,
+not by input order.
 
 The optional DC monitor composition is declared in the package manifest:
 
@@ -486,9 +485,10 @@ The client source generator intentionally supports concrete declaration shapes
 rather than claiming every compiled interface shape. It currently rejects
 payload-bearing operations because their live and symbolic carriers need a
 schema-specific policy; the declaration compiler and generated driver handlers
-already support decoded payload operations. Component-owned state and component
-acquisitions also remain outside the generated client surface; explicit
-contract builders and hand-written clients remain their escape hatch.
+already support decoded payload operations. High-level component declarations
+and generated component proxies are intentionally absent; explicit contract
+builders and hand-written clients are the low-level escape hatch for component
+trees.
 
 ### Entity selection and parameter mapping
 

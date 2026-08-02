@@ -16,25 +16,7 @@ _CATALOG_PROJECTION_SPEC_JSON = (
     'ccess":"read_only","value_type":{"type":'
     '"string","choices":null}}],"state":null,'
     '"operations":[],"acquisitions":[],"compo'
-    'nents":[{"id":"signal_output","label":nu'
-    'll,"description":null,"properties":[],"s'
-    'tate":null,"operations":[],"acquisitions'
-    '":[],"components":[{"id":"pulse_trigger"'
-    ',"label":null,"description":null,"proper'
-    'ties":[],"state":null,"operations":[{"id'
-    '":"emit_pulse","label":null,"description'
-    '":null,"arguments":[{"id":"pulse_count",'
-    '"label":null,"description":null,"value_t'
-    'ype":{"type":"int","minimum":-9007199254'
-    '740991,"maximum":9007199254740991}},{"id'
-    '":"pulse_width","label":null,"descriptio'
-    'n":null,"value_type":{"type":"quantity",'
-    '"dimension":null,"unit":"s","minimum":nu'
-    'll,"maximum":null,"finite":true}},{"id":'
-    '"pulse_label","label":null,"description"'
-    ':null,"value_type":{"type":"string","cho'
-    'ices":null}}]}],"acquisitions":[],"compo'
-    'nents":[]}]}]}'
+    'nents":[]}'
 )
 
 
@@ -42,35 +24,28 @@ def catalog_projection_interface() -> InterfaceSpec:
     return InterfaceSpec.model_validate_json(_CATALOG_PROJECTION_SPEC_JSON)
 
 
-_COMPONENT_OPERATION_SPEC_JSON = (
-    '{"id":"test.generated_component_operatio'
-    'n/v1","label":null,"description":null,"p'
-    'roperties":[],"state":null,"operations":'
-    '[],"acquisitions":[],"components":[{"id"'
-    ':"signal_output","label":null,"descripti'
-    'on":null,"properties":[],"state":null,"o'
-    'perations":[],"acquisitions":[],"compone'
-    'nts":[{"id":"pulse_trigger","label":null'
-    ',"description":null,"properties":[],"sta'
-    'te":null,"operations":[{"id":"emit_pulse'
-    '","label":null,"description":null,"argum'
-    'ents":[{"id":"pulse_count","label":null,'
-    '"description":null,"value_type":{"type":'
-    '"int","minimum":-9007199254740991,"maxim'
-    'um":9007199254740991}},{"id":"pulse_widt'
-    'h","label":null,"description":null,"valu'
-    'e_type":{"type":"quantity","dimension":n'
-    'ull,"unit":"s","minimum":null,"maximum":'
-    'null,"finite":true}},{"id":"pulse_label"'
-    ',"label":null,"description":null,"value_'
-    'type":{"type":"string","choices":null}}]'
-    '}],"acquisitions":[],"components":[]}]}]'
-    "}"
+_SCALAR_OPERATION_SPEC_JSON = (
+    '{"id":"test.generated_scalar_operation/v'
+    '1","label":null,"description":null,"prop'
+    'erties":[],"state":null,"operations":[{"'
+    'id":"emit_pulse","label":null,"descripti'
+    'on":null,"arguments":[{"id":"pulse_count'
+    '","label":null,"description":null,"value'
+    '_type":{"type":"int","minimum":-90071992'
+    '54740991,"maximum":9007199254740991}},{"'
+    'id":"pulse_width","label":null,"descript'
+    'ion":null,"value_type":{"type":"quantity'
+    '","dimension":null,"unit":"s","minimum":'
+    'null,"maximum":null,"finite":true}},{"id'
+    '":"pulse_label","label":null,"descriptio'
+    'n":null,"value_type":{"type":"string","c'
+    'hoices":null}}]}],"acquisitions":[],"com'
+    'ponents":[]}'
 )
 
 
-def component_operation_interface() -> InterfaceSpec:
-    return InterfaceSpec.model_validate_json(_COMPONENT_OPERATION_SPEC_JSON)
+def scalar_operation_interface() -> InterfaceSpec:
+    return InterfaceSpec.model_validate_json(_SCALAR_OPERATION_SPEC_JSON)
 
 
 _LITERAL_OPERATION_SPEC_JSON = (
@@ -181,10 +156,10 @@ def driver_monitor_interface() -> InterfaceSpec:
 
 __all__ = [
     "catalog_projection_interface",
-    "component_operation_interface",
     "driver_fixed_acquisition_interface",
     "driver_monitor_interface",
     "driver_source_interface",
     "literal_operation_interface",
     "payload_operation_interface",
+    "scalar_operation_interface",
 ]

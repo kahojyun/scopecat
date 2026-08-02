@@ -196,7 +196,7 @@ def test_codegen_renders_flat_dc_source_state_and_typed_transitions() -> None:
 
 
 def test_codegen_accepts_a_projection_module_for_a_stateless_surface() -> None:
-    completed = _render_surface("ComponentOperationInterface")
+    completed = _render_surface("ScalarOperationInterface")
 
     assert completed.returncode == 0, completed.stderr
     assert "from generated_state_catalog_fixture import" not in completed.stdout
@@ -227,15 +227,6 @@ def test_codegen_imports_literal_for_resolved_declared_annotations() -> None:
         'mode: Literal["left", "right"] | ValueRef | '
         'PerEntity[Literal["left", "right"] | ValueRef],'
     ) in completed.stdout
-
-
-def test_codegen_rejects_every_colliding_generated_symbol() -> None:
-    completed = _render_surface("SymbolCollisionInterface")
-
-    assert completed.returncode != 0
-    assert "generated symbol collisions" in completed.stderr
-    assert "SymbolCollisionFooBarClient" in completed.stderr
-    assert "_SYMBOL_COLLISION_FOO_BAR_FIRE_DECLARATION" in completed.stderr
 
 
 def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
@@ -287,18 +278,6 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "dc_source_monitor: InstrumentFamily[" in completed.stdout
     assert "requires=(_DC_SOURCE_REF, _DC_MONITOR_REF)," in completed.stdout
     assert "compile_interface" not in completed.stdout
-
-
-def test_codegen_rejects_composite_components() -> None:
-    completed = _render_surface(
-        "ComponentOperationInterface",
-        "CompositePeerInterface",
-        composite_name="ComponentComposite",
-    )
-
-    assert completed.returncode != 0
-    assert "only supports root members" in completed.stderr
-    assert "ComponentOperationInterface" in completed.stderr
 
 
 def test_codegen_composes_distinct_root_operations_from_each_constituent() -> None:

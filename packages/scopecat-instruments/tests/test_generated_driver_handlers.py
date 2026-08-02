@@ -22,7 +22,6 @@ from client_codegen_fixture_declarations import (
     DriverSourceLeftState,
 )
 from generated_driver_handler_fixture import (
-    ComponentOperationDriverAdapter,
     DriverFixedAcquisitionAcquireDriverReadback,
     DriverFixedAcquisitionDriverAdapter,
     DriverMonitorMonitorDriverReadback,
@@ -33,10 +32,10 @@ from generated_driver_handler_fixture import (
     MonitorCompositeDriverPatch,
     MonitorCompositeDriverSnapshot,
     PayloadOperationDriverAdapter,
+    ScalarOperationDriverAdapter,
 )
 from generated_driver_state_catalog_fixture import DriverSourceDriverPatch
 from generated_member_catalog_fixture import (
-    COMPONENT_OPERATION_SIGNAL_OUTPUT_PULSE_TRIGGER_EMIT_PULSE,
     DRIVER_FIXED_ACQUISITION_ACQUIRE,
     DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT,
     DRIVER_MONITOR_ACQUISITION,
@@ -48,17 +47,18 @@ from generated_member_catalog_fixture import (
     DRIVER_SOURCE_RIGHT_LEVEL,
     LITERAL_OPERATION_SELECT,
     PAYLOAD_OPERATION_UPLOAD,
+    SCALAR_OPERATION_EMIT_PULSE,
 )
 
 
-class _ComponentDriver(ComponentOperationDriverAdapter):
-    instrument_id = "component"
+class _ScalarDriver(ScalarOperationDriverAdapter):
+    instrument_id = "scalar"
 
     def __init__(self) -> None:
         self.call: tuple[int, Quantity, str] | None = None
 
     @override
-    def handle_output_trigger_emit(
+    def handle_emit(
         self,
         count: int,
         /,
@@ -67,7 +67,7 @@ class _ComponentDriver(ComponentOperationDriverAdapter):
         label: str,
     ) -> DriverOutcome[None]:
         self.call = (count, width, label)
-        return DriverSuccess(None, metadata={"handler": "component"})
+        return DriverSuccess(None, metadata={"handler": "scalar"})
 
 
 class _LiteralDriver(LiteralOperationDriverAdapter):
@@ -215,13 +215,13 @@ def _as_instrument_driver(driver: InstrumentDriver) -> InstrumentDriver:
     return driver
 
 
-def test_component_scalar_operation_preserves_signature_and_metadata() -> None:
-    driver = _ComponentDriver()
+def test_scalar_operation_preserves_signature_and_metadata() -> None:
+    driver = _ScalarDriver()
     width = Quantity(2.5, "ms")
 
     outcome = driver.invoke(
         DriverOperation(
-            target=COMPONENT_OPERATION_SIGNAL_OUTPUT_PULSE_TRIGGER_EMIT_PULSE,
+            target=SCALAR_OPERATION_EMIT_PULSE,
             arguments={
                 "pulse_count": 3,
                 "pulse_width": width,
@@ -232,7 +232,7 @@ def test_component_scalar_operation_preserves_signature_and_metadata() -> None:
 
     assert isinstance(outcome, DriverSuccess)
     assert outcome.value is None
-    assert outcome.metadata == {"handler": "component"}
+    assert outcome.metadata == {"handler": "scalar"}
     assert driver.call == (3, width, "sync")
 
 

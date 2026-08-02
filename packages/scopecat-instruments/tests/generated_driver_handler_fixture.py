@@ -44,7 +44,6 @@ from generated_driver_state_catalog_fixture import (
     encode_driver_state,
 )
 from generated_member_catalog_fixture import (
-    COMPONENT_OPERATION_SIGNAL_OUTPUT_PULSE_TRIGGER_EMIT_PULSE,
     DRIVER_FIXED_ACQUISITION_ACQUIRE,
     DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT,
     DRIVER_MONITOR_ACQUISITION,
@@ -52,6 +51,7 @@ from generated_member_catalog_fixture import (
     DRIVER_MONITOR_RIGHT_RESULT,
     LITERAL_OPERATION_SELECT,
     PAYLOAD_OPERATION_UPLOAD,
+    SCALAR_OPERATION_EMIT_PULSE,
 )
 
 
@@ -85,11 +85,11 @@ class DriverMonitorMonitorDriverReadback:
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
-class ComponentOperationDriverAdapter(ABC):
+class ScalarOperationDriverAdapter(ABC):
     instrument_id: str
 
     @abstractmethod
-    def handle_output_trigger_emit(
+    def handle_emit(
         self,
         count: int,
         /,
@@ -112,9 +112,9 @@ class ComponentOperationDriverAdapter(ABC):
         self,
         request: DriverOperation,
     ) -> DriverOutcome[DriverState | None]:
-        if request.target == COMPONENT_OPERATION_SIGNAL_OUTPUT_PULSE_TRIGGER_EMIT_PULSE:
+        if request.target == SCALAR_OPERATION_EMIT_PULSE:
             arguments = request.arguments
-            outcome = self.handle_output_trigger_emit(
+            outcome = self.handle_emit(
                 cast("int", arguments["pulse_count"]),
                 cast("Quantity", arguments["pulse_width"]),
                 label=cast("str", arguments["pulse_label"]),
@@ -474,7 +474,6 @@ class MonitorCompositeDriverAdapter(ABC):
 
 
 __all__ = [
-    "ComponentOperationDriverAdapter",
     "DriverFixedAcquisitionAcquireDriverReadback",
     "DriverFixedAcquisitionDriverAdapter",
     "DriverMonitorMonitorDriverReadback",
@@ -485,4 +484,5 @@ __all__ = [
     "MonitorCompositeDriverPatch",
     "MonitorCompositeDriverSnapshot",
     "PayloadOperationDriverAdapter",
+    "ScalarOperationDriverAdapter",
 ]

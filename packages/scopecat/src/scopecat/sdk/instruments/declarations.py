@@ -28,7 +28,6 @@ from typing import (
 from scopecat.kernel.instrument_members import (
     AcquisitionRef,
     AcquisitionResultRef,
-    ComponentRef,
     InterfaceRef,
     OperationArgumentRef,
     OperationRef,
@@ -51,7 +50,6 @@ from scopecat.sdk.instruments.contracts import (
     AcquisitionPreconditionSpec,
     AcquisitionResultSpec,
     AcquisitionSpec,
-    ComponentSpec,
     DiscriminatedState,
     FixedAcquisitionSpec,
     InterfaceSpec,
@@ -74,7 +72,6 @@ from scopecat.sdk.instruments.contracts import (
 from scopecat.sdk.instruments.contracts import (
     acquisition_result as build_acquisition_result,
 )
-from scopecat.sdk.instruments.contracts import component as build_component
 from scopecat.sdk.instruments.contracts import (
     discriminated_state as build_discriminated_state,
 )
@@ -172,15 +169,6 @@ class ArgumentMetadata:
     maximum: float | None = None
     choices: tuple[str, ...] | None = None
     payload_schema_id: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ComponentMetadata:
-    """One named occurrence of a nested typed capability."""
-
-    id: str | None = None
-    label: str | None = None
-    description: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -473,15 +461,13 @@ class DeclaredAcquisition[ResultT]:
 
 @dataclass(frozen=True, slots=True)
 class DeclaredScopeLayout:
-    """One root or component capability and its typed declared members."""
+    """The root interface capability and its typed declared members."""
 
-    python_path: tuple[str, ...]
     capability_type: type[object]
-    ref: InterfaceRef | ComponentRef
-    spec: InterfaceSpec | ComponentSpec
+    ref: InterfaceRef
+    spec: InterfaceSpec
     operations: tuple[DeclaredOperation, ...]
     acquisitions: tuple[DeclaredAcquisition[object], ...]
-    components: tuple[DeclaredScopeLayout, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -586,17 +572,6 @@ def argument(
         choices=None if choices is None else tuple(choices),
         payload_schema_id=payload_schema_id,
     )
-
-
-def component(
-    *,
-    id: str | None = None,
-    label: str | None = None,
-    description: str | None = None,
-) -> ComponentMetadata:
-    """Attach a typed nested capability to a Protocol/ABC attribute."""
-
-    return ComponentMetadata(id=id, label=label, description=description)
 
 
 def state_case(
@@ -978,7 +953,7 @@ def compile_interface[InterfaceT](
         state=compiled_state,
         operations=operations,
         acquisitions=acquisitions,
-        components=_compile_components(interface_type, scope=scope),
+        components=(),
     )
     return CompiledInterface(
         interface_type=interface_type,
@@ -1071,32 +1046,13 @@ def declared_discriminator_ref(interface_type: type[object]) -> PropertyRef:
     return InterfaceRef(declaration.id).property(discriminator_id)
 
 
-def declared_component_ref(
-    interface_type: type[object],
-    attribute_name: str,
-    *nested_attribute_names: str,
-) -> ComponentRef:
-    """Resolve typed component attribute names to a stable component path."""
-
-    _, scope = _resolve_declared_scope(
-        interface_type,
-        (attribute_name, *nested_attribute_names),
-    )
-    if not isinstance(scope, ComponentRef):
-        raise AssertionError("declared component resolution produced an interface ref")
-    return scope
-
-
 def declared_operation_ref(
     interface_type: type[object],
     method_name: str,
-    *,
-    component: tuple[str, ...] = (),
 ) -> OperationRef:
-    """Resolve a decorated method in one declared scope to its operation identity."""
+    """Resolve a decorated interface method to its operation identity."""
 
-    capability_type, scope = _resolve_declared_scope(interface_type, component)
-    method = _declared_members(capability_type).get(method_name)
+    method = _declared_members(interface_type).get(method_name)
     if method is None:
         raise ValueError(f"declared scope has no method {method_name!r}")
     declaration = _required_metadata(
@@ -1105,20 +1061,19 @@ def declared_operation_ref(
         OperationMetadata,
         f"declared scope method {method_name!r}",
     )
-    return scope.operation(declaration.id or method_name)
+    return declared_interface_ref(interface_type).operation(
+        declaration.id or method_name
+    )
 
 
 def declared_argument_ref(
     interface_type: type[object],
     method_name: str,
     parameter_name: str,
-    *,
-    component: tuple[str, ...] = (),
 ) -> OperationArgumentRef:
-    """Resolve one operation parameter in a declared scope to its identity."""
+    """Resolve one interface operation parameter to its identity."""
 
-    capability_type, _ = _resolve_declared_scope(interface_type, component)
-    method = _declared_members(capability_type).get(method_name)
+    method = _declared_members(interface_type).get(method_name)
     if method is None:
         raise ValueError(f"declared scope has no method {method_name!r}")
     _required_metadata(
@@ -1144,7 +1099,6 @@ def declared_argument_ref(
     return declared_operation_ref(
         interface_type,
         method_name,
-        component=component,
     ).argument(_declared_operation_argument_id(parameter_name, annotation))
 
 
@@ -1211,10 +1165,6 @@ def declared_interface_layout[InterfaceT](
         compiled=compiled,
         root=_declared_scope_layout(
             compiled,
-            python_path=(),
-            capability_type=compiled.interface_type,
-            scope=compiled.ref,
-            scope_spec=compiled.spec,
         ),
         observed_state=observed_state,
         states=_declared_state_layouts(compiled, declaration.state),
@@ -1307,15 +1257,10 @@ def _declared_state_fields[InterfaceT](
 
 def _declared_scope_layout[InterfaceT](
     compiled: CompiledInterface[InterfaceT],
-    *,
-    python_path: tuple[str, ...],
-    capability_type: type[object],
-    scope: InterfaceRef | ComponentRef,
-    scope_spec: InterfaceSpec | ComponentSpec,
 ) -> DeclaredScopeLayout:
     operations: list[DeclaredOperation] = []
     acquisitions: list[DeclaredAcquisition[object]] = []
-    for method in _declared_members(capability_type).values():
+    for method in _declared_members(compiled.interface_type).values():
         operation_declaration = getattr(method, _OPERATION_METADATA, None)
         acquisition_declaration = getattr(method, _ACQUISITION_METADATA, None)
         if isinstance(operation_declaration, OperationMetadata):
@@ -1324,7 +1269,6 @@ def _declared_scope_layout[InterfaceT](
                 declared_operation(
                     compiled,
                     operation_method,
-                    component=python_path,
                 )
             )
         if isinstance(acquisition_declaration, AcquisitionMetadata):
@@ -1333,42 +1277,14 @@ def _declared_scope_layout[InterfaceT](
                 declared_acquisition(
                     compiled,
                     acquisition_method,
-                    component=python_path,
                 )
             )
-
-    components: list[DeclaredScopeLayout] = []
-    hints = cast(
-        "Mapping[str, object]",
-        get_type_hints(capability_type, include_extras=True),
-    )
-    for attribute_name, annotation in hints.items():
-        _, component_declaration = _split_annotation(annotation, ComponentMetadata)
-        if component_declaration is None:
-            continue
-        component_path = (*python_path, attribute_name)
-        nested_type, component_scope = _resolve_declared_scope(
-            compiled.interface_type,
-            component_path,
-        )
-        nested_spec = _resolve_compiled_scope_spec(compiled.spec, component_scope)
-        components.append(
-            _declared_scope_layout(
-                compiled,
-                python_path=component_path,
-                capability_type=nested_type,
-                scope=component_scope,
-                scope_spec=nested_spec,
-            )
-        )
     return DeclaredScopeLayout(
-        python_path=python_path,
-        capability_type=capability_type,
-        ref=scope,
-        spec=scope_spec,
+        capability_type=compiled.interface_type,
+        ref=compiled.ref,
+        spec=compiled.spec,
         operations=tuple(operations),
         acquisitions=tuple(acquisitions),
-        components=tuple(components),
     )
 
 
@@ -1376,19 +1292,15 @@ def declared_operation[InterfaceT](
     compiled: CompiledInterface[InterfaceT],
     method: Callable[..., None],
     /,
-    *,
-    component: tuple[str, ...] = (),
 ) -> DeclaredOperation:
-    """Bind a decorated method to its compiled argument identities."""
+    """Bind a decorated interface method to its compiled argument identities."""
 
-    capability_type, scope = _resolve_declared_scope(
-        compiled.interface_type,
-        component,
-    )
     method_name = next(
         (
             name
-            for name, declared_method in _declared_members(capability_type).items()
+            for name, declared_method in _declared_members(
+                compiled.interface_type
+            ).items()
             if declared_method is method
         ),
         None,
@@ -1402,11 +1314,10 @@ def declared_operation[InterfaceT](
         f"interface method {method_name!r}",
     )
     operation_id = declaration.id or method_name
-    scope_spec = _resolve_compiled_scope_spec(compiled.spec, scope)
     operation_spec = next(
-        item for item in scope_spec.operations if item.id == operation_id
+        item for item in compiled.spec.operations if item.id == operation_id
     )
-    operation_ref = scope.operation(operation_id)
+    operation_ref = compiled.ref.operation(operation_id)
     method_signature = signature(method)
     parameters = tuple(method_signature.parameters.values())[1:]
     hints = cast(
@@ -1445,19 +1356,15 @@ def declared_acquisition[InterfaceT, ResultT](
     compiled: CompiledInterface[InterfaceT],
     method: Callable[..., ResultT],
     /,
-    *,
-    component: tuple[str, ...] = (),
 ) -> DeclaredAcquisition[ResultT]:
-    """Bind a decorated method in one scope to its compiled result layouts."""
+    """Bind a decorated interface method to its compiled result layouts."""
 
-    capability_type, scope = _resolve_declared_scope(
-        compiled.interface_type,
-        component,
-    )
     method_name = next(
         (
             name
-            for name, declared_method in _declared_members(capability_type).items()
+            for name, declared_method in _declared_members(
+                compiled.interface_type
+            ).items()
             if declared_method is method
         ),
         None,
@@ -1471,11 +1378,10 @@ def declared_acquisition[InterfaceT, ResultT](
         f"interface method {method_name!r}",
     )
     acquisition_id = declaration.id or method_name
-    scope_spec = _resolve_compiled_scope_spec(compiled.spec, scope)
     acquisition_spec = next(
-        item for item in scope_spec.acquisitions if item.id == acquisition_id
+        item for item in compiled.spec.acquisitions if item.id == acquisition_id
     )
-    acquisition_ref = scope.acquisition(acquisition_id)
+    acquisition_ref = compiled.ref.acquisition(acquisition_id)
     if isinstance(acquisition_spec, FixedAcquisitionSpec):
         result_type = _declared_method_result_type(method, method_name=method_name)
         layouts = (
@@ -1516,13 +1422,10 @@ def declared_acquisition[InterfaceT, ResultT](
 def declared_acquisition_ref(
     interface_type: type[object],
     method_name: str,
-    *,
-    component: tuple[str, ...] = (),
 ) -> AcquisitionRef:
-    """Resolve a decorated method in one declared scope to its acquisition identity."""
+    """Resolve a decorated interface method to its acquisition identity."""
 
-    capability_type, scope = _resolve_declared_scope(interface_type, component)
-    method = _declared_members(capability_type).get(method_name)
+    method = _declared_members(interface_type).get(method_name)
     if method is None:
         raise ValueError(f"declared scope has no method {method_name!r}")
     declaration = _required_metadata(
@@ -1531,20 +1434,19 @@ def declared_acquisition_ref(
         AcquisitionMetadata,
         f"declared scope method {method_name!r}",
     )
-    return scope.acquisition(declaration.id or method_name)
+    return declared_interface_ref(interface_type).acquisition(
+        declaration.id or method_name
+    )
 
 
 def declared_result_ref(
     interface_type: type[object],
     method_name: str,
     field_name: str,
-    *,
-    component: tuple[str, ...] = (),
 ) -> AcquisitionResultRef:
-    """Resolve a result field in one declared scope to its acquisition identity."""
+    """Resolve one interface acquisition result field to its identity."""
 
-    capability_type, _ = _resolve_declared_scope(interface_type, component)
-    method = _declared_members(capability_type).get(method_name)
+    method = _declared_members(interface_type).get(method_name)
     if method is None:
         raise ValueError(f"declared scope has no method {method_name!r}")
     declaration = _required_metadata(
@@ -1592,7 +1494,6 @@ def declared_result_ref(
     return declared_acquisition_ref(
         interface_type,
         method_name,
-        component=component,
     ).result(result_id)
 
 
@@ -1958,121 +1859,6 @@ def _compile_property(
     )
 
 
-def _compile_components(
-    capability_type: type[object],
-    *,
-    scope: InterfaceRef | ComponentRef,
-) -> list[ComponentSpec]:
-    components: list[ComponentSpec] = []
-    hints = cast(
-        "Mapping[str, object]",
-        get_type_hints(capability_type, include_extras=True),
-    )
-    for attribute_name, annotation in hints.items():
-        nested_type, declaration = _split_annotation(annotation, ComponentMetadata)
-        if declaration is None:
-            continue
-        if not isinstance(nested_type, type):
-            raise TypeError(
-                f"component attribute {attribute_name!r} must name a capability type"
-            )
-        component_id = declaration.id or attribute_name
-        component_scope = scope.component(component_id)
-        operations: list[OperationSpec] = []
-        acquisitions: list[AcquisitionSpec] = []
-        for method_name, method in _declared_members(nested_type).items():
-            operation_declaration = getattr(method, _OPERATION_METADATA, None)
-            acquisition_declaration = getattr(method, _ACQUISITION_METADATA, None)
-            if isinstance(operation_declaration, OperationMetadata) and isinstance(
-                acquisition_declaration,
-                AcquisitionMetadata,
-            ):
-                raise TypeError(
-                    f"component method {method_name!r} cannot be both an operation "
-                    "and an acquisition"
-                )
-            if isinstance(operation_declaration, OperationMetadata):
-                operations.append(
-                    _compile_operation(
-                        method_name,
-                        cast("Callable[..., object]", method),
-                        operation_declaration,
-                    )
-                )
-            if isinstance(acquisition_declaration, AcquisitionMetadata):
-                acquisitions.append(
-                    _compile_acquisition(
-                        method_name,
-                        cast("Callable[..., object]", method),
-                        acquisition_declaration,
-                        scope=component_scope,
-                    )
-                )
-        components.append(
-            build_component(
-                component_id,
-                label=declaration.label,
-                description=declaration.description,
-                operations=operations,
-                acquisitions=acquisitions,
-                components=_compile_components(nested_type, scope=component_scope),
-            )
-        )
-    return components
-
-
-def _declared_component(
-    capability_type: type[object],
-    attribute_name: str,
-) -> tuple[type[object], ComponentMetadata]:
-    hints = cast(
-        "Mapping[str, object]",
-        get_type_hints(capability_type, include_extras=True),
-    )
-    annotation = hints.get(attribute_name)
-    if annotation is None:
-        raise ValueError(f"capability has no component attribute {attribute_name!r}")
-    nested_type, declaration = _split_annotation(annotation, ComponentMetadata)
-    if declaration is None:
-        raise ValueError(
-            f"capability attribute {attribute_name!r} is not a declared component"
-        )
-    if not isinstance(nested_type, type):
-        raise TypeError(
-            f"component attribute {attribute_name!r} must name a capability type"
-        )
-    return nested_type, declaration
-
-
-def _resolve_declared_scope(
-    interface_type: type[object],
-    component: tuple[str, ...],
-) -> tuple[type[object], InterfaceRef | ComponentRef]:
-    capability_type = interface_type
-    scope: InterfaceRef | ComponentRef = declared_interface_ref(interface_type)
-    for attribute_name in component:
-        capability_type, declaration = _declared_component(
-            capability_type,
-            attribute_name,
-        )
-        scope = scope.component(declaration.id or attribute_name)
-    return capability_type, scope
-
-
-def _resolve_compiled_scope_spec(
-    interface_spec: InterfaceSpec,
-    scope: InterfaceRef | ComponentRef,
-) -> InterfaceSpec | ComponentSpec:
-    if isinstance(scope, InterfaceRef):
-        return interface_spec
-    scope_spec: InterfaceSpec | ComponentSpec = interface_spec
-    for component_id in scope.component_path:
-        scope_spec = next(
-            item for item in scope_spec.components if item.id == component_id
-        )
-    return scope_spec
-
-
 def _compile_operation(
     method_name: str,
     method: Callable[..., object],
@@ -2216,7 +2002,7 @@ def _compile_acquisition(
     method: Callable[..., object],
     declaration: AcquisitionMetadata,
     *,
-    scope: InterfaceRef | ComponentRef,
+    scope: InterfaceRef,
 ) -> AcquisitionSpec:
     parameters = tuple(signature(method).parameters.values())
     if (
@@ -2696,7 +2482,6 @@ __all__ = [
     "AxisMetadata",
     "AxisSize",
     "CompiledInterface",
-    "ComponentMetadata",
     "DeclaredAcquisition",
     "DeclaredInterfaceLayout",
     "DeclaredObservedField",
@@ -2728,11 +2513,9 @@ __all__ = [
     "argument",
     "axis",
     "compile_interface",
-    "component",
     "declared_acquisition",
     "declared_acquisition_ref",
     "declared_argument_ref",
-    "declared_component_ref",
     "declared_discriminator_ref",
     "declared_interface_layout",
     "declared_interface_ref",
