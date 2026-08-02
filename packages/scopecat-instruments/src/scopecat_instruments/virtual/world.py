@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from threading import RLock
 
 from scopecat_instruments._support import NetworkTrace
-from scopecat_instruments.interface_declarations import SParameter
+from scopecat_instruments.interface_declarations import ReferenceSource, SParameter
 
 
 @dataclass
@@ -17,7 +17,7 @@ class VirtualRfSourceState:
     frequency_hz: float = 5.0e9
     power_dbm: float = -30.0
     output_enabled: bool = False
-    reference_source: str = "internal"
+    reference_source: ReferenceSource = "internal"
 
 
 @dataclass

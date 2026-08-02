@@ -8,7 +8,6 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import (
     DriverOperation,
     DriverRejected,
-    DriverScalar,
     DriverUnknown,
     PropertyRef,
 )
@@ -37,30 +36,10 @@ class LinearSweepSettings:
     s_parameter: SParameter
 
 
-def quantity_value(value: DriverScalar, unit: str) -> float:
-    if not isinstance(value, Quantity):
-        raise TypeError("validated state property is not a quantity")
+def quantity_value(value: Quantity, unit: str) -> float:
     if value.unit == unit:
         return value.value
     return value.to(unit).value
-
-
-def bool_value(value: DriverScalar) -> bool:
-    if not isinstance(value, bool):
-        raise TypeError("validated state property is not a boolean")
-    return value
-
-
-def int_value(value: DriverScalar) -> int:
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise TypeError("validated state property is not an integer")
-    return value
-
-
-def string_value(value: DriverScalar) -> str:
-    if not isinstance(value, str):
-        raise TypeError("validated state property is not a string")
-    return value
 
 
 def unsupported_invoke(

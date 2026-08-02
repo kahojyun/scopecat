@@ -80,6 +80,7 @@ def test_virtual_rf_driver_applies_typed_sparse_patch() -> None:
 def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
     world = VirtualLabWorld(seed=13)
     driver = VirtualDcSource("flux", world)
+    driver.set_output(True)
 
     receipt = driver.apply_state(
         DriverStatePatch(
@@ -87,7 +88,8 @@ def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
                 DC_SOURCE_MODE: "current",
                 DC_SOURCE_CURRENT_RANGE: Quantity(0.01, "A"),
                 DC_SOURCE_CURRENT_LEVEL: Quantity(0.001, "A"),
-                DC_SOURCE_OUTPUT_ENABLED: True,
+                DC_MONITOR_INTEGRATION_CYCLES: 5,
+                RF_OUTPUT_FREQUENCY: Quantity(6.0e9, "Hz"),
             },
         )
     )
@@ -103,6 +105,9 @@ def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
         DC_SOURCE_VOLTAGE_RANGE,
         DC_SOURCE_VOLTAGE_LEVEL,
     }.isdisjoint(property_targets)
+    assert property_targets[DC_SOURCE_OUTPUT_ENABLED] is True
+    assert property_targets[DC_MONITOR_INTEGRATION_CYCLES] == 5
+    assert RF_OUTPUT_FREQUENCY not in property_targets
     assert world.flux_bias() == 0.5
 
 

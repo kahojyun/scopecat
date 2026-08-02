@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
+from typing import Literal
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import (
@@ -28,11 +28,8 @@ from scopecat.sdk.instruments import (
 from scopecat_instruments._support import (
     LinearSweepSettings,
     NetworkTrace,
-    bool_value,
-    int_value,
     quantity_value,
     state_property_problem,
-    string_value,
     unsupported_invoke,
 )
 from scopecat_instruments.driver_ids import (
@@ -42,14 +39,24 @@ from scopecat_instruments.driver_ids import (
     VIRTUAL_VNA,
 )
 from scopecat_instruments.driver_states import (
+    decode_dc_monitor_patch,
+    decode_dc_source_patch,
     decode_network_sweep_patch,
     decode_rf_output_patch,
+    encode_dc_monitor_state,
+    encode_dc_source_current_state,
+    encode_dc_source_state,
+    encode_dc_source_voltage_state,
     encode_driver_state,
     encode_network_sweep_state,
     encode_rf_output_state,
     encode_temperature_readout_observation,
 )
 from scopecat_instruments.interface_declarations import (
+    DCMonitorState,
+    DCSourceCurrent,
+    DCSourceState,
+    DCSourceVoltage,
     NetworkSweepState,
     ReferenceSource,
     RFOutputState,
@@ -64,18 +71,10 @@ from scopecat_instruments.interfaces import (
 )
 from scopecat_instruments.members import (
     DC_MONITOR_CURRENT_RESULT,
-    DC_MONITOR_INTEGRATION_CYCLES,
-    DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
     DC_MONITOR_VOLTAGE_RESULT,
-    DC_SOURCE_CURRENT_LEVEL,
-    DC_SOURCE_CURRENT_PROTECTION,
-    DC_SOURCE_CURRENT_RANGE,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
-    DC_SOURCE_VOLTAGE_PROTECTION,
-    DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP_FREQUENCY_RESULT,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
@@ -108,7 +107,7 @@ class VirtualRfSource:
                 frequency=Quantity(source.frequency_hz, "Hz"),
                 power=Quantity(source.power_dbm, "dBm"),
                 output_enabled=source.output_enabled,
-                reference_source=cast("ReferenceSource", source.reference_source),
+                reference_source=source.reference_source,
             )
         return encode_driver_state(
             encode_rf_output_state(state),
@@ -175,16 +174,30 @@ class VirtualRfSource:
 
     def reference_source(self) -> ReferenceSource:
         with self.world.lock:
-            return cast(
-                "ReferenceSource",
-                self.world.rf_source(self.instrument_id).reference_source,
-            )
+            return self.world.rf_source(self.instrument_id).reference_source
 
     def disconnect(self) -> None:
         pass
 
     def abort(self) -> None:
         pass
+
+
+type _VirtualDcSourceMode = Literal["voltage", "current"]
+type _VirtualDcSourceCase = DCSourceVoltage | DCSourceCurrent
+
+
+@dataclass(frozen=True)
+class _VirtualDcSnapshot:
+    common: DCSourceState
+    active_case: _VirtualDcSourceCase
+    monitor: DCMonitorState
+
+    @property
+    def source_mode(self) -> _VirtualDcSourceMode:
+        if isinstance(self.active_case, DCSourceVoltage):
+            return "voltage"
+        return "current"
 
 
 class VirtualDcSource:
@@ -210,78 +223,69 @@ class VirtualDcSource:
         )
 
     def read_state(self) -> DriverState:
+        snapshot = self._canonical_snapshot()
+        active_case = snapshot.active_case
+        encoded_case = (
+            encode_dc_source_voltage_state(active_case)
+            if isinstance(active_case, DCSourceVoltage)
+            else encode_dc_source_current_state(active_case)
+        )
+        return encode_driver_state(
+            encode_dc_source_state(snapshot.common),
+            encoded_case,
+            encode_dc_monitor_state(snapshot.monitor),
+            metadata={"mode": "virtual", "world_seed": self.world.seed},
+        )
+
+    def _canonical_snapshot(self) -> _VirtualDcSnapshot:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
-            mode = source.source_mode
-            range_property = (
-                (
-                    DC_SOURCE_VOLTAGE_RANGE,
-                    Quantity(source.voltage_range_v, "V"),
+            common = DCSourceState(
+                voltage_protection=Quantity(source.voltage_protection_v, "V"),
+                current_protection=Quantity(source.current_protection_a, "A"),
+                output_enabled=source.output_enabled,
+            )
+            active_case: _VirtualDcSourceCase = (
+                DCSourceVoltage(
+                    range=Quantity(source.voltage_range_v, "V"),
+                    level=Quantity(source.voltage_level_v, "V"),
                 )
-                if mode == "voltage"
-                else (
-                    DC_SOURCE_CURRENT_RANGE,
-                    Quantity(source.current_range_a, "A"),
+                if source.source_mode == "voltage"
+                else DCSourceCurrent(
+                    range=Quantity(source.current_range_a, "A"),
+                    level=Quantity(source.current_level_a, "A"),
                 )
             )
-            level_property = (
-                (
-                    DC_SOURCE_VOLTAGE_LEVEL,
-                    Quantity(source.voltage_level_v, "V"),
-                )
-                if mode == "voltage"
-                else (
-                    DC_SOURCE_CURRENT_LEVEL,
-                    Quantity(source.current_level_a, "A"),
-                )
+            monitor = DCMonitorState(
+                measurement_enabled=source.measurement_enabled,
+                integration_cycles=source.integration_cycles,
+                measurement_delay=Quantity(source.measurement_delay_s, "s"),
             )
-            values = {
-                DC_SOURCE_MODE: mode,
-                range_property[0]: range_property[1],
-                level_property[0]: level_property[1],
-                DC_SOURCE_VOLTAGE_PROTECTION: Quantity(
-                    source.voltage_protection_v, "V"
-                ),
-                DC_SOURCE_CURRENT_PROTECTION: Quantity(
-                    source.current_protection_a, "A"
-                ),
-                DC_SOURCE_OUTPUT_ENABLED: source.output_enabled,
-                DC_MONITOR_MEASUREMENT_ENABLED: source.measurement_enabled,
-                DC_MONITOR_INTEGRATION_CYCLES: source.integration_cycles,
-                DC_MONITOR_MEASUREMENT_DELAY: Quantity(source.measurement_delay_s, "s"),
-            }
-        return DriverState(
-            values=values,
-            metadata={"mode": "virtual", "world_seed": self.world.seed},
+        return _VirtualDcSnapshot(
+            common=common,
+            active_case=active_case,
+            monitor=monitor,
         )
 
     def apply_state(
         self,
         request: DriverStatePatch,
     ) -> DriverOutcome[DriverState | None]:
-        baseline = self.read_state()
-        properties = request.values
-        baseline_properties = baseline.values
-        current_mode = string_value(baseline_properties[DC_SOURCE_MODE])
-        current_output = bool_value(baseline_properties[DC_SOURCE_OUTPUT_ENABLED])
-        mode_property = properties.get(DC_SOURCE_MODE)
-        target_mode = (
-            string_value(mode_property) if mode_property is not None else current_mode
-        )
-        output_property = properties.get(DC_SOURCE_OUTPUT_ENABLED)
-        target_output = (
-            bool_value(output_property)
-            if output_property is not None
-            else current_output
-        )
+        source_patch = decode_dc_source_patch(request)
+        monitor_patch = decode_dc_monitor_patch(request)
+        baseline = self._canonical_snapshot()
+        current_mode = baseline.source_mode
+        current_output = baseline.common.output_enabled
+        target_mode = source_patch.get("source_mode", current_mode)
+        target_output = source_patch.get("output_enabled", current_output)
         changes_source_state = target_mode != current_mode or bool(
             {
-                DC_SOURCE_VOLTAGE_RANGE,
-                DC_SOURCE_CURRENT_RANGE,
-                DC_SOURCE_VOLTAGE_LEVEL,
-                DC_SOURCE_CURRENT_LEVEL,
+                "voltage_range",
+                "current_range",
+                "voltage_level",
+                "current_level",
             }
-            & properties.keys()
+            & source_patch.keys()
         )
         disabled_for_update = current_output and (
             not target_output or changes_source_state
@@ -290,47 +294,29 @@ class VirtualDcSource:
             self.set_output(False)
         if target_mode != current_mode:
             self.set_source_mode(target_mode)
-        if DC_SOURCE_VOLTAGE_RANGE in properties:
-            self.set_voltage_range(
-                quantity_value(properties[DC_SOURCE_VOLTAGE_RANGE], "V")
-            )
-        if DC_SOURCE_CURRENT_RANGE in properties:
-            self.set_current_range(
-                quantity_value(properties[DC_SOURCE_CURRENT_RANGE], "A")
-            )
-        if DC_SOURCE_VOLTAGE_PROTECTION in properties:
+        if "voltage_range" in source_patch:
+            self.set_voltage_range(quantity_value(source_patch["voltage_range"], "V"))
+        if "current_range" in source_patch:
+            self.set_current_range(quantity_value(source_patch["current_range"], "A"))
+        if "voltage_protection" in source_patch:
             self.set_voltage_protection(
-                quantity_value(
-                    properties[DC_SOURCE_VOLTAGE_PROTECTION],
-                    "V",
-                )
+                quantity_value(source_patch["voltage_protection"], "V")
             )
-        if DC_SOURCE_CURRENT_PROTECTION in properties:
+        if "current_protection" in source_patch:
             self.set_current_protection(
-                quantity_value(
-                    properties[DC_SOURCE_CURRENT_PROTECTION],
-                    "A",
-                )
+                quantity_value(source_patch["current_protection"], "A")
             )
-        if DC_SOURCE_VOLTAGE_LEVEL in properties:
-            self.set_voltage_level(
-                quantity_value(properties[DC_SOURCE_VOLTAGE_LEVEL], "V")
-            )
-        if DC_SOURCE_CURRENT_LEVEL in properties:
-            self.set_current_level(
-                quantity_value(properties[DC_SOURCE_CURRENT_LEVEL], "A")
-            )
-        if DC_MONITOR_MEASUREMENT_ENABLED in properties:
-            self.set_measurement_enabled(
-                bool_value(properties[DC_MONITOR_MEASUREMENT_ENABLED])
-            )
-        if DC_MONITOR_INTEGRATION_CYCLES in properties:
-            self.set_integration_cycles(
-                int_value(properties[DC_MONITOR_INTEGRATION_CYCLES])
-            )
-        if DC_MONITOR_MEASUREMENT_DELAY in properties:
+        if "voltage_level" in source_patch:
+            self.set_voltage_level(quantity_value(source_patch["voltage_level"], "V"))
+        if "current_level" in source_patch:
+            self.set_current_level(quantity_value(source_patch["current_level"], "A"))
+        if "measurement_enabled" in monitor_patch:
+            self.set_measurement_enabled(monitor_patch["measurement_enabled"])
+        if "integration_cycles" in monitor_patch:
+            self.set_integration_cycles(monitor_patch["integration_cycles"])
+        if "measurement_delay" in monitor_patch:
             self.set_measurement_delay(
-                quantity_value(properties[DC_MONITOR_MEASUREMENT_DELAY], "s")
+                quantity_value(monitor_patch["measurement_delay"], "s")
             )
         effective_output = False if disabled_for_update else current_output
         if target_output != effective_output:
