@@ -5,35 +5,266 @@
 from __future__ import annotations
 
 from scopecat.sdk.instruments import InterfaceSpec
-from scopecat.sdk.instruments.declarations import compile_interface
 
-from scopecat_instruments.interface_declarations import (
-    DCMonitorInterface,
-    DCSourceInterface,
-    NetworkSweepInterface,
-    RFOutputInterface,
-    TemperatureReadoutInterface,
+_TEMPERATURE_READOUT_SPEC_JSON = (
+    '{"id":"scopecat.temperature_readout/v1",'
+    '"label":"Temperature readout","descripti'
+    'on":"Read-only scanner state and settled'
+    " temperature or resistance acquisition. "
+    "Heater control belongs to a separate int"
+    'erface.","properties":[{"id":"scan_chann'
+    'el","label":"Scan channel","description"'
+    ':"Sensor input currently selected by the'
+    ' scanner.","access":"read_only","value_t'
+    'ype":{"type":"int","minimum":1,"maximum"'
+    ':16}},{"id":"autoscan_enabled","label":"'
+    'Autoscan","description":"Whether the inp'
+    'ut scanner is advancing automatically.",'
+    '"access":"read_only","value_type":{"type'
+    '":"bool"}}],"state":null,"operations":[]'
+    ',"acquisitions":[{"id":"sample","label":'
+    '"Sample sensor","description":"Read a se'
+    "ttled sample from one coherent scan chan"
+    'nel.","preconditions":[],"kind":"fixed",'
+    '"results":[{"id":"temperature","label":"'
+    'Temperature","description":"Current scan'
+    '-channel temperature.","dtype":"float64"'
+    ',"unit":"K","axes":[]},{"id":"resistance'
+    '","label":"Resistance","description":"Cu'
+    'rrent scan-channel sensor resistance.","'
+    'dtype":"float64","unit":"Ohm","axes":[]}'
+    ']}],"components":[]}'
 )
 
 
 def temperature_readout_interface() -> InterfaceSpec:
-    return compile_interface(TemperatureReadoutInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_TEMPERATURE_READOUT_SPEC_JSON)
+
+
+_RF_OUTPUT_SPEC_JSON = (
+    '{"id":"scopecat.rf_output/v1","label":"R'
+    'F output","description":"Continuous-wave'
+    " RF source controls independent of vendo"
+    'r syntax.","properties":[{"id":"frequenc'
+    'y","label":"CW frequency","description":'
+    '"Continuous-wave carrier frequency.","ac'
+    'cess":"read_write","value_type":{"type":'
+    '"quantity","dimension":null,"unit":"Hz",'
+    '"minimum":null,"maximum":null,"finite":t'
+    'rue}},{"id":"power","label":"Output powe'
+    'r","description":"Configured RF output l'
+    'evel at the source connector.","access":'
+    '"read_write","value_type":{"type":"quant'
+    'ity","dimension":null,"unit":"dBm","mini'
+    'mum":null,"maximum":null,"finite":true}}'
+    ',{"id":"output_enabled","label":"RF outp'
+    'ut","description":"Whether the RF output'
+    ' connector is enabled.","access":"read_w'
+    'rite","value_type":{"type":"bool"}},{"id'
+    '":"reference_source","label":"Reference '
+    'source","description":"Reference oscilla'
+    "tor source; external frequency is not se"
+    't.","access":"read_write","value_type":{'
+    '"type":"string","choices":["internal","e'
+    'xternal"]}}],"state":null,"operations":['
+    '],"acquisitions":[],"components":[]}'
+)
 
 
 def rf_output_interface() -> InterfaceSpec:
-    return compile_interface(RFOutputInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_RF_OUTPUT_SPEC_JSON)
+
+
+_DC_SOURCE_SPEC_JSON = (
+    '{"id":"scopecat.dc_source/v2","label":"D'
+    'C source","description":"DC voltage/curr'
+    "ent source controls with mode-specific l"
+    'evel and range state.","properties":[{"i'
+    'd":"source_mode","label":"Source mode","'
+    'description":"Discriminator selecting vo'
+    'ltage or current source state.","access"'
+    ':"read_write","value_type":{"type":"stri'
+    'ng","choices":["voltage","current"]}},{"'
+    'id":"voltage_protection","label":"Voltag'
+    'e protection","description":"Absolute vo'
+    'ltage limiter level.","access":"read_wri'
+    'te","value_type":{"type":"quantity","dim'
+    'ension":null,"unit":"V","minimum":null,"'
+    'maximum":null,"finite":true}},{"id":"cur'
+    'rent_protection","label":"Current protec'
+    'tion","description":"Absolute current li'
+    'miter level.","access":"read_write","val'
+    'ue_type":{"type":"quantity","dimension":'
+    'null,"unit":"A","minimum":null,"maximum"'
+    ':null,"finite":true}},{"id":"output_enab'
+    'led","label":"DC output","description":"'
+    'Whether the source output is enabled.","'
+    'access":"read_write","value_type":{"type'
+    '":"bool"}},{"id":"voltage_range","label"'
+    ':"Voltage range","description":"Voltage-'
+    "source range, available in voltage mode."
+    '","access":"read_write","value_type":{"t'
+    'ype":"quantity","dimension":null,"unit":'
+    '"V","minimum":null,"maximum":null,"finit'
+    'e":true}},{"id":"voltage_level","label":'
+    '"Voltage level","description":"Voltage-s'
+    'ource level, available in voltage mode."'
+    ',"access":"read_write","value_type":{"ty'
+    'pe":"quantity","dimension":null,"unit":"'
+    'V","minimum":null,"maximum":null,"finite'
+    '":true}},{"id":"current_range","label":"'
+    'Current range","description":"Current-so'
+    'urce range, available in current mode.",'
+    '"access":"read_write","value_type":{"typ'
+    'e":"quantity","dimension":null,"unit":"A'
+    '","minimum":null,"maximum":null,"finite"'
+    ':true}},{"id":"current_level","label":"C'
+    'urrent level","description":"Current-sou'
+    'rce level, available in current mode.","'
+    'access":"read_write","value_type":{"type'
+    '":"quantity","dimension":null,"unit":"A"'
+    ',"minimum":null,"maximum":null,"finite":'
+    'true}}],"state":{"discriminator_property'
+    '_id":"source_mode","common_property_ids"'
+    ':["voltage_protection","current_protecti'
+    'on","output_enabled"],"cases":[{"value":'
+    '"voltage","property_ids":["voltage_range'
+    '","voltage_level"],"required_on_entry_pr'
+    'operty_ids":["voltage_range","voltage_le'
+    'vel"]},{"value":"current","property_ids"'
+    ':["current_range","current_level"],"requ'
+    'ired_on_entry_property_ids":["current_ra'
+    'nge","current_level"]}]},"operations":[]'
+    ',"acquisitions":[],"components":[]}'
+)
 
 
 def dc_source_interface() -> InterfaceSpec:
-    return compile_interface(DCSourceInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_DC_SOURCE_SPEC_JSON)
+
+
+_DC_MONITOR_SPEC_JSON = (
+    '{"id":"scopecat.dc_monitor/v3","label":"'
+    'DC monitor","description":"Single-value '
+    "voltage or current monitoring for a DC s"
+    'ource.","properties":[{"id":"measurement'
+    '_enabled","label":"Measurement","descrip'
+    'tion":"Whether monitor measurements are '
+    'enabled.","access":"read_write","value_t'
+    'ype":{"type":"bool"}},{"id":"integration'
+    '_cycles","label":"Integration cycles","d'
+    'escription":"Power-line cycles integrate'
+    'd for each measurement.","access":"read_'
+    'write","value_type":{"type":"int","minim'
+    'um":1,"maximum":25}},{"id":"measurement_'
+    'delay","label":"Measurement delay","desc'
+    'ription":"Delay between measurement trig'
+    'ger and sampling.","access":"read_write"'
+    ',"value_type":{"type":"quantity","dimens'
+    'ion":null,"unit":"s","minimum":0.0,"maxi'
+    'mum":999.999,"finite":true}}],"state":nu'
+    'll,"operations":[],"acquisitions":[{"id"'
+    ':"monitor","label":"Monitor output","des'
+    'cription":"Read one monitor sample from '
+    'the active source mode.","preconditions"'
+    ':[{"property":{"interface_id":"scopecat.'
+    'dc_source/v2","component_path":[],"prope'
+    'rty_id":"output_enabled"},"value":true,"'
+    'unavailable_reason":"DC source output is'
+    ' disabled."},{"property":{"interface_id"'
+    ':"scopecat.dc_monitor/v3","component_pat'
+    'h":[],"property_id":"measurement_enabled'
+    '"},"value":true,"unavailable_reason":"DC'
+    ' monitor measurement is disabled."}],"ki'
+    'nd":"state_discriminated","discriminator'
+    '":{"interface_id":"scopecat.dc_source/v2'
+    '","component_path":[],"property_id":"sou'
+    'rce_mode"},"cases":[{"value":"voltage","'
+    'results":[{"id":"monitored_current","lab'
+    'el":"Monitored current","description":"O'
+    'ne measurement while sourcing voltage.",'
+    '"dtype":"float64","unit":"A","axes":[]}]'
+    ',"preconditions":[]},{"value":"current",'
+    '"results":[{"id":"monitored_voltage","la'
+    'bel":"Monitored voltage","description":"'
+    'One measurement while sourcing current."'
+    ',"dtype":"float64","unit":"V","axes":[]}'
+    '],"preconditions":[]}]}],"components":[]'
+    "}"
+)
 
 
 def dc_monitor_interface() -> InterfaceSpec:
-    return compile_interface(DCMonitorInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_DC_MONITOR_SPEC_JSON)
+
+
+_NETWORK_SWEEP_SPEC_JSON = (
+    '{"id":"scopecat.network_sweep/v1","label'
+    '":"Network sweep","description":"Linear,'
+    " single-trigger complex S-parameter swee"
+    'p.","properties":[{"id":"start_frequency'
+    '","label":"Start frequency","description'
+    '":"First stimulus frequency in the linea'
+    'r sweep.","access":"read_write","value_t'
+    'ype":{"type":"quantity","dimension":null'
+    ',"unit":"Hz","minimum":null,"maximum":nu'
+    'll,"finite":true}},{"id":"stop_frequency'
+    '","label":"Stop frequency","description"'
+    ':"Last stimulus frequency in the linear '
+    'sweep.","access":"read_write","value_typ'
+    'e":{"type":"quantity","dimension":null,"'
+    'unit":"Hz","minimum":null,"maximum":null'
+    ',"finite":true}},{"id":"points","label":'
+    '"Sweep points","description":"Number of '
+    'equally spaced frequency points.","acces'
+    's":"read_write","value_type":{"type":"in'
+    't","minimum":2,"maximum":900719925474099'
+    '1}},{"id":"if_bandwidth","label":"IF ban'
+    'dwidth","description":"Receiver intermed'
+    'iate-frequency bandwidth.","access":"rea'
+    'd_write","value_type":{"type":"quantity"'
+    ',"dimension":null,"unit":"Hz","minimum":'
+    'null,"maximum":null,"finite":true}},{"id'
+    '":"source_power","label":"Source power",'
+    '"description":"Stimulus power for the se'
+    'lected analyzer channel.","access":"read'
+    '_write","value_type":{"type":"quantity",'
+    '"dimension":null,"unit":"dBm","minimum":'
+    'null,"maximum":null,"finite":true}},{"id'
+    '":"s_parameter","label":"S-parameter","d'
+    'escription":"Two-port S-parameter measur'
+    'ed by the selected trace.","access":"rea'
+    'd_write","value_type":{"type":"string","'
+    'choices":["S11","S21","S12","S22"]}}],"s'
+    'tate":null,"operations":[],"acquisitions'
+    '":[{"id":"sweep","label":"Acquire sweep"'
+    ',"description":"Trigger and read the con'
+    'figured network sweep.","preconditions":'
+    '[],"kind":"fixed","results":[{"id":"freq'
+    'uency","label":"Frequency","description"'
+    ':"Stimulus frequency values for the acqu'
+    'ired trace.","dtype":"float64","unit":"H'
+    'z","axes":[{"id":"frequency","label":"Fr'
+    'equency","description":"Linear VNA stimu'
+    'lus frequency.","kind":"frequency","size'
+    '":{"interface_id":"scopecat.network_swee'
+    'p/v1","component_path":[],"property_id":'
+    '"points"},"unit":"Hz"}]},{"id":"s_parame'
+    'ter","label":"Complex S-parameter","desc'
+    'ription":"Complex response values for th'
+    'e configured S-parameter.","dtype":"comp'
+    'lex128","unit":"ratio","axes":[{"id":"fr'
+    'equency","label":"Frequency","descriptio'
+    'n":"Linear VNA stimulus frequency.","kin'
+    'd":"frequency","size":{"interface_id":"s'
+    'copecat.network_sweep/v1","component_pat'
+    'h":[],"property_id":"points"},"unit":"Hz'
+    '"}]}]}],"components":[]}'
+)
 
 
 def network_sweep_interface() -> InterfaceSpec:
-    return compile_interface(NetworkSweepInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_NETWORK_SWEEP_SPEC_JSON)
 
 
 __all__ = [

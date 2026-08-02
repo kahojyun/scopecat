@@ -5,45 +5,183 @@
 from __future__ import annotations
 
 from scopecat.sdk.instruments import InterfaceSpec
-from scopecat.sdk.instruments.declarations import compile_interface
 
-from client_codegen_fixture_declarations import (
-    CatalogProjectionInterface,
-    ComponentOperationInterface,
-    DriverFixedAcquisitionInterface,
-    DriverMonitorInterface,
-    DriverSourceInterface,
-    LiteralOperationInterface,
-    PayloadOperationInterface,
+_CATALOG_PROJECTION_SPEC_JSON = (
+    '{"id":"test.generated_catalog_projection'
+    '/v1","label":null,"description":null,"pr'
+    'operties":[{"id":"enabled","label":null,'
+    '"description":null,"access":"read_write"'
+    ',"value_type":{"type":"bool"}},{"id":"st'
+    'atus","label":null,"description":null,"a'
+    'ccess":"read_only","value_type":{"type":'
+    '"string","choices":null}}],"state":null,'
+    '"operations":[],"acquisitions":[],"compo'
+    'nents":[{"id":"signal_output","label":nu'
+    'll,"description":null,"properties":[],"s'
+    'tate":null,"operations":[],"acquisitions'
+    '":[],"components":[{"id":"pulse_trigger"'
+    ',"label":null,"description":null,"proper'
+    'ties":[],"state":null,"operations":[{"id'
+    '":"emit_pulse","label":null,"description'
+    '":null,"arguments":[{"id":"pulse_count",'
+    '"label":null,"description":null,"value_t'
+    'ype":{"type":"int","minimum":-9007199254'
+    '740991,"maximum":9007199254740991}},{"id'
+    '":"pulse_width","label":null,"descriptio'
+    'n":null,"value_type":{"type":"quantity",'
+    '"dimension":null,"unit":"s","minimum":nu'
+    'll,"maximum":null,"finite":true}},{"id":'
+    '"pulse_label","label":null,"description"'
+    ':null,"value_type":{"type":"string","cho'
+    'ices":null}}]}],"acquisitions":[],"compo'
+    'nents":[]}]}]}'
 )
 
 
 def catalog_projection_interface() -> InterfaceSpec:
-    return compile_interface(CatalogProjectionInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_CATALOG_PROJECTION_SPEC_JSON)
+
+
+_COMPONENT_OPERATION_SPEC_JSON = (
+    '{"id":"test.generated_component_operatio'
+    'n/v1","label":null,"description":null,"p'
+    'roperties":[],"state":null,"operations":'
+    '[],"acquisitions":[],"components":[{"id"'
+    ':"signal_output","label":null,"descripti'
+    'on":null,"properties":[],"state":null,"o'
+    'perations":[],"acquisitions":[],"compone'
+    'nts":[{"id":"pulse_trigger","label":null'
+    ',"description":null,"properties":[],"sta'
+    'te":null,"operations":[{"id":"emit_pulse'
+    '","label":null,"description":null,"argum'
+    'ents":[{"id":"pulse_count","label":null,'
+    '"description":null,"value_type":{"type":'
+    '"int","minimum":-9007199254740991,"maxim'
+    'um":9007199254740991}},{"id":"pulse_widt'
+    'h","label":null,"description":null,"valu'
+    'e_type":{"type":"quantity","dimension":n'
+    'ull,"unit":"s","minimum":null,"maximum":'
+    'null,"finite":true}},{"id":"pulse_label"'
+    ',"label":null,"description":null,"value_'
+    'type":{"type":"string","choices":null}}]'
+    '}],"acquisitions":[],"components":[]}]}]'
+    "}"
+)
 
 
 def component_operation_interface() -> InterfaceSpec:
-    return compile_interface(ComponentOperationInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_COMPONENT_OPERATION_SPEC_JSON)
+
+
+_LITERAL_OPERATION_SPEC_JSON = (
+    '{"id":"test.generated_literal_operation/'
+    'v1","label":null,"description":null,"pro'
+    'perties":[],"state":null,"operations":[{'
+    '"id":"select","label":null,"description"'
+    ':null,"arguments":[{"id":"mode","label":'
+    'null,"description":null,"value_type":{"t'
+    'ype":"string","choices":["left","right"]'
+    '}}]}],"acquisitions":[],"components":[]}'
+)
 
 
 def literal_operation_interface() -> InterfaceSpec:
-    return compile_interface(LiteralOperationInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_LITERAL_OPERATION_SPEC_JSON)
+
+
+_PAYLOAD_OPERATION_SPEC_JSON = (
+    '{"id":"test.generated_payload_operation/'
+    'v1","label":null,"description":null,"pro'
+    'perties":[],"state":null,"operations":[{'
+    '"id":"upload","label":null,"description"'
+    ':null,"arguments":[{"id":"payload","labe'
+    'l":null,"description":null,"value_type":'
+    '{"type":"payload","schema_id":"test.payl'
+    'oad/v1"}}]}],"acquisitions":[],"componen'
+    'ts":[]}'
+)
 
 
 def payload_operation_interface() -> InterfaceSpec:
-    return compile_interface(PayloadOperationInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_PAYLOAD_OPERATION_SPEC_JSON)
+
+
+_DRIVER_FIXED_ACQUISITION_SPEC_JSON = (
+    '{"id":"test.generated_driver_fixed_acqui'
+    'sition/v1","label":null,"description":nu'
+    'll,"properties":[],"state":null,"operati'
+    'ons":[],"acquisitions":[{"id":"acquire",'
+    '"label":null,"description":null,"precond'
+    'itions":[],"kind":"fixed","results":[{"i'
+    'd":"signal","label":null,"description":n'
+    'ull,"dtype":"complex128","unit":"ratio",'
+    '"axes":[{"id":"sample","label":null,"des'
+    'cription":null,"kind":"sample","size":2,'
+    '"unit":null}]}]}],"components":[]}'
+)
 
 
 def driver_fixed_acquisition_interface() -> InterfaceSpec:
-    return compile_interface(DriverFixedAcquisitionInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_DRIVER_FIXED_ACQUISITION_SPEC_JSON)
+
+
+_DRIVER_SOURCE_SPEC_JSON = (
+    '{"id":"test.generated_driver_source/v1",'
+    '"label":null,"description":null,"propert'
+    'ies":[{"id":"mode","label":null,"descrip'
+    'tion":null,"access":"read_write","value_'
+    'type":{"type":"string","choices":["left"'
+    ',"right"]}},{"id":"enabled","label":null'
+    ',"description":null,"access":"read_write'
+    '","value_type":{"type":"bool"}},{"id":"l'
+    'eft_level","label":null,"description":nu'
+    'll,"access":"read_write","value_type":{"'
+    'type":"int","minimum":-9007199254740991,'
+    '"maximum":9007199254740991}},{"id":"righ'
+    't_level","label":null,"description":null'
+    ',"access":"read_write","value_type":{"ty'
+    'pe":"int","minimum":-9007199254740991,"m'
+    'aximum":9007199254740991}}],"state":{"di'
+    'scriminator_property_id":"mode","common_'
+    'property_ids":["enabled"],"cases":[{"val'
+    'ue":"left","property_ids":["left_level"]'
+    ',"required_on_entry_property_ids":["left'
+    '_level"]},{"value":"right","property_ids'
+    '":["right_level"],"required_on_entry_pro'
+    'perty_ids":["right_level"]}]},"operation'
+    's":[],"acquisitions":[],"components":[]}'
+)
 
 
 def driver_source_interface() -> InterfaceSpec:
-    return compile_interface(DriverSourceInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_DRIVER_SOURCE_SPEC_JSON)
+
+
+_DRIVER_MONITOR_SPEC_JSON = (
+    '{"id":"test.generated_driver_monitor/v1"'
+    ',"label":null,"description":null,"proper'
+    'ties":[{"id":"enabled","label":null,"des'
+    'cription":null,"access":"read_write","va'
+    'lue_type":{"type":"bool"}}],"state":null'
+    ',"operations":[],"acquisitions":[{"id":"'
+    'monitor","label":null,"description":null'
+    ',"preconditions":[],"kind":"state_discri'
+    'minated","discriminator":{"interface_id"'
+    ':"test.generated_driver_source/v1","comp'
+    'onent_path":[],"property_id":"mode"},"ca'
+    'ses":[{"value":"left","results":[{"id":"'
+    'left_value","label":null,"description":n'
+    'ull,"dtype":"float64","unit":null,"axes"'
+    ':[]}],"preconditions":[]},{"value":"righ'
+    't","results":[{"id":"right_value","label'
+    '":null,"description":null,"dtype":"float'
+    '64","unit":null,"axes":[]}],"preconditio'
+    'ns":[]}]}],"components":[]}'
+)
 
 
 def driver_monitor_interface() -> InterfaceSpec:
-    return compile_interface(DriverMonitorInterface).fresh_spec()
+    return InterfaceSpec.model_validate_json(_DRIVER_MONITOR_SPEC_JSON)
 
 
 __all__ = [

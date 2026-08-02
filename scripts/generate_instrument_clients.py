@@ -20,6 +20,7 @@ from scopecat.sdk.instruments import (
     AcquisitionAxisSpec,
     AcquisitionRef,
     ComponentRef,
+    InterfaceSpec,
     OperationRef,
     PropertyRef,
 )
@@ -517,6 +518,7 @@ class _CatalogInterfaceModel:
     interface_type_name: str
     constant_prefix: str
     factory_name: str
+    spec: InterfaceSpec
     root: DeclaredScopeLayout
     states: tuple[DeclaredStateLayout, ...]
     observed_state: DeclaredObservedState[object] | None
@@ -795,6 +797,7 @@ def _catalog_models(
                 interface_type_name=interface_name,
                 constant_prefix=_snake_case(stem).upper(),
                 factory_name=f"{_snake_case(stem)}_interface",
+                spec=layout.compiled.spec,
                 root=layout.root,
                 states=layout.states,
                 observed_state=layout.observed_state,
@@ -1007,20 +1010,20 @@ def _render_interfaces_module(models: tuple[_CatalogInterfaceModel, ...]) -> str
     owners_by_name: dict[str, list[str]] = {}
     imports: dict[str, set[str]] = {
         "scopecat.sdk.instruments": {"InterfaceSpec"},
-        "scopecat.sdk.instruments.declarations": {"compile_interface"},
     }
     declarations: list[str] = []
     for model in models:
         owners_by_name.setdefault(model.factory_name, []).append(
             model.interface_identity
         )
-        imports.setdefault(model.interface_type.__module__, set()).add(
-            model.interface_type_name
-        )
+        spec_json_name = f"_{model.constant_prefix}_SPEC_JSON"
         declarations.append(
+            f"{spec_json_name} = (\n"
+            f"{_render_string_literal_lines(model.spec.model_dump_json(), indent=4)}"
+            ")\n"
             "\n\n"
             f"def {model.factory_name}() -> InterfaceSpec:\n"
-            f"    return compile_interface({model.interface_type_name}).fresh_spec()\n"
+            f"    return InterfaceSpec.model_validate_json({spec_json_name})\n"
         )
     collisions = {
         name: owners for name, owners in owners_by_name.items() if len(owners) > 1
@@ -1038,7 +1041,8 @@ def _render_interfaces_module(models: tuple[_CatalogInterfaceModel, ...]) -> str
             "Vendor-neutral interface factories generated from Python declarations."
         )
         + _render_import_block(imports)
-        + "".join(declarations)
+        + "\n"
+        + "\n\n".join(declarations)
         + "\n"
         + _render_all(tuple(model.factory_name for model in models))
     )

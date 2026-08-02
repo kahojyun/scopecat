@@ -44,6 +44,39 @@ print(
     end="",
 )
 """
+_IMPORT_STATIC_CATALOG = """
+from scopecat.sdk.instruments import declarations
+
+
+def reject_runtime_compilation(*args: object, **kwargs: object) -> object:
+    raise AssertionError("generated instrument modules compiled a declaration")
+
+
+declarations.compile_interface = reject_runtime_compilation
+
+import scopecat_instruments.clients
+import scopecat_instruments.members
+import scopecat_instruments.states
+from scopecat_instruments.interfaces import (
+    dc_monitor_interface,
+    dc_source_interface,
+    network_sweep_interface,
+    rf_output_interface,
+    temperature_readout_interface,
+)
+
+for factory in (
+    dc_monitor_interface,
+    dc_source_interface,
+    network_sweep_interface,
+    rf_output_interface,
+    temperature_readout_interface,
+):
+    first = factory()
+    second = factory()
+    assert first == second
+    assert first is not second
+"""
 
 
 def _render_surface(
@@ -81,6 +114,18 @@ def _render_surface(
 def test_committed_generated_instrument_sources_are_current() -> None:
     completed = subprocess.run(  # noqa: S603 - fixed repository script
         [sys.executable, str(GENERATOR), "--check"],
+        cwd=REPOSITORY_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_generated_catalog_imports_without_runtime_declaration_compilation() -> None:
+    completed = subprocess.run(  # noqa: S603 - fixed interpreter and package code
+        [sys.executable, "-c", _IMPORT_STATIC_CATALOG],
         cwd=REPOSITORY_ROOT,
         check=False,
         capture_output=True,
