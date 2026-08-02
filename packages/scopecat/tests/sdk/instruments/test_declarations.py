@@ -1743,6 +1743,15 @@ def test_generated_state_projection_distinguishes_omission_from_falsy_values() -
         declared_property_ref(SweepState, "points"): 0,
         declared_property_ref(SweepState, "output_enabled"): False,
     }
+    assert repr(projection) == (
+        f"{type(projection).__qualname__}(points=0, output_enabled=False)"
+    )
+    matching = SweepProjection(points=0, output_enabled=False)
+    assert projection == matching
+    assert hash(projection) == hash(matching)
+    assert not hasattr(projection, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        projection.__setattr__("points", 1)
     target: DesiredState = state_projection_target(projection)
     assert target.target_assignments() == state_projection_assignments(projection)
 
@@ -1770,6 +1779,11 @@ def test_discriminated_projection_includes_required_fields_and_constants() -> No
         declared_property_ref(VoltageState, "level"): Quantity(0.1, "V"),
         declared_property_ref(SourceCommonState, "output_enabled"): True,
     }
+    assert repr(projection) == (
+        f"{type(projection).__qualname__}("
+        f"range={projection.range!r}, level={projection.level!r}, "
+        "output_enabled=True)"
+    )
 
 
 def test_compilation_and_fresh_spec_do_not_share_mutable_models() -> None:

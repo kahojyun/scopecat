@@ -121,6 +121,22 @@ class _StateProjectionOmitted(Enum):
 _STATE_PROJECTION_OMITTED = _StateProjectionOmitted.TOKEN
 
 
+def _state_projection_repr(self: object) -> str:
+    layout = _required_metadata(
+        type(self),
+        _STATE_PROJECTION_METADATA,
+        DeclaredStateLayout,
+        "instrument state projection",
+    )
+    arguments: list[str] = []
+    for projected_field in layout.fields:
+        value = cast("object", getattr(self, projected_field.python_name))
+        if value is _STATE_PROJECTION_OMITTED:
+            continue
+        arguments.append(f"{projected_field.python_name}={value!r}")
+    return f"{type(self).__qualname__}({', '.join(arguments)})"
+
+
 @dataclass(frozen=True, slots=True)
 class MemberMetadata:
     """Metadata that cannot be inferred from a state field annotation."""
@@ -776,6 +792,7 @@ def instrument_state_projection[ClassT](
     def decorate(cls: type[ClassT]) -> type[ClassT]:
         projected = dataclass(frozen=True, slots=True, kw_only=True)(cls)
         setattr(projected, _STATE_PROJECTION_METADATA, layout)
+        projected.__repr__ = _state_projection_repr
         return projected
 
     return decorate
