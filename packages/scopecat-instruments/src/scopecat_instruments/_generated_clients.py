@@ -15,15 +15,22 @@ from scopecat.sdk.instruments.declarations import (
     declared_interface_layout,
 )
 
-from scopecat_instruments._client_runtime import InstrumentClientBase
+from scopecat_instruments._client_runtime import (
+    DeclaredStateClientBase,
+    InstrumentClientBase,
+)
 from scopecat_instruments._family_runtime import InstrumentFamily
 from scopecat_instruments._symbolic_runtime import (
+    DeclaredStateSymbolicClientBase,
+    DeclaredStateSymbolicGroupBase,
     SymbolicInstrumentClientBase,
     SymbolicInstrumentGroupBase,
     SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
+    RF_OUTPUT_DECLARATION,
     TEMPERATURE_READOUT_DECLARATION,
+    RFOutputState,
     TemperatureReadoutObservation,
     TemperatureSampleResults,
 )
@@ -135,12 +142,70 @@ temperature_readout: InstrumentFamily[
     requires=(TEMPERATURE_READOUT_DECLARATION.ref,),
 )
 
+
+class RFOutputClient(DeclaredStateClientBase[RFOutputState]):
+    pass
+
+
+class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputState]):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: OneEntity | None = None,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            requires=(RF_OUTPUT_DECLARATION.ref,),
+            for_=for_,
+        )
+
+
+class SymbolicRFOutputGroup(
+    DeclaredStateSymbolicGroupBase[RFOutputState, SymbolicRFOutputClient]
+):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: EachEntity,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            for_=for_,
+            client_factory=SymbolicRFOutputClient,
+        )
+
+
+rf_output: InstrumentFamily[
+    RFOutputClient,
+    SymbolicRFOutputClient,
+    SymbolicRFOutputGroup,
+] = InstrumentFamily(
+    RFOutputClient,
+    SymbolicRFOutputClient,
+    SymbolicRFOutputGroup,
+    requires=(RF_OUTPUT_DECLARATION.ref,),
+)
+
 __all__ = [
+    "RFOutputClient",
+    "SymbolicRFOutputClient",
+    "SymbolicRFOutputGroup",
     "SymbolicTemperatureReadoutClient",
     "SymbolicTemperatureReadoutGroup",
     "TemperatureReadback",
     "TemperatureReadoutClient",
     "TemperatureReadoutObservation",
     "TemperatureSampleProducts",
+    "rf_output",
     "temperature_readout",
 ]

@@ -12,6 +12,8 @@ from scopecat.authoring import (
 )
 
 from scopecat_instruments._generated_clients import (
+    SymbolicRFOutputClient,
+    SymbolicRFOutputGroup,
     SymbolicTemperatureReadoutClient,
     SymbolicTemperatureReadoutGroup,
     TemperatureSampleProducts,
@@ -31,7 +33,6 @@ from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
     NETWORK_SWEEP,
-    RF_OUTPUT,
 )
 from scopecat_instruments.states import (
     DCMonitorState,
@@ -39,7 +40,6 @@ from scopecat_instruments.states import (
     DCSourceState,
     DCSourceVoltage,
     NetworkSweepState,
-    RFOutputState,
 )
 
 type _DCSourceState = DCSourceState | DCSourceVoltage | DCSourceCurrent
@@ -104,26 +104,6 @@ class SymbolicDCSourceMonitorClient(
             DC_MONITOR_ACQUISITION_DECLARATION,
             DCMonitorProducts,
             id=id,
-        )
-
-
-class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputState]):
-    """Declarative RF-output state client backed by a logical resource."""
-
-    __slots__ = ()
-
-    def __init__(
-        self,
-        recorder: SymbolicInstrumentRecorder,
-        resource_id: str,
-        *,
-        for_: OneEntity | None = None,
-    ) -> None:
-        super().__init__(
-            recorder,
-            resource_id,
-            requires=(RF_OUTPUT,),
-            for_=for_,
         )
 
 
@@ -204,28 +184,6 @@ class SymbolicDCSourceMonitorGroup(
 
     def monitor(self, *, id: str | None = None) -> PerEntity[DCMonitorProducts]:
         return self._clients.map(lambda client: client.monitor(id=id))
-
-
-class SymbolicRFOutputGroup(
-    DeclaredStateSymbolicGroupBase[RFOutputState, SymbolicRFOutputClient]
-):
-    """Entity-keyed declarative RF-output clients with broadcast state."""
-
-    __slots__ = ()
-
-    def __init__(
-        self,
-        recorder: SymbolicInstrumentRecorder,
-        resource_id: str,
-        *,
-        for_: EachEntity,
-    ) -> None:
-        super().__init__(
-            recorder,
-            resource_id,
-            for_=for_,
-            client_factory=SymbolicRFOutputClient,
-        )
 
 
 class SymbolicNetworkSweepGroup(

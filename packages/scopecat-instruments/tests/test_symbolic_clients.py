@@ -201,6 +201,38 @@ def test_dc_group_accepts_broadcast_and_typed_per_entity_state() -> None:
     assert len(ensures) == 4
 
 
+def test_generated_rf_group_aligns_state_and_finalization() -> None:
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+
+    @template(id="test.symbolic.generated-rf-state", kind="symbolic_root")
+    def experiment(context: ExperimentContext) -> None:
+        outputs = rf_output(context, "drive", for_=each(q0, q1))
+        assert_type(outputs, SymbolicRFOutputGroup)
+        outputs.ensure(
+            PerEntity(
+                (
+                    (q1, RFOutputState(output_enabled=True)),
+                    (q0, RFOutputState(output_enabled=False)),
+                )
+            )
+        )
+        context.finalize(outputs, RFOutputState(output_enabled=False))
+
+    definition = experiment.definition
+    ensures = tuple(
+        effect
+        for effect in definition.body.effects
+        if isinstance(effect, EnsureStateIntent)
+    )
+    assert [effect.assignments[0].value for effect in ensures] == [False, True]
+    assert definition.final_state is not None
+    assert [assignment.value for assignment in definition.final_state.assignments] == [
+        False,
+        False,
+    ]
+
+
 def test_group_per_entity_state_requires_an_exact_full_identity_join() -> None:
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")

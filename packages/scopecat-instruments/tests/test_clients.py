@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 # pyright: reportPrivateUsage=false
+from collections.abc import Mapping
 from typing import assert_type, cast
 
+import pytest
 from scopecat.api._instruments import InstrumentClientChannel, InstrumentRef
+from scopecat.authoring import QuantityType, ScalarType, coordinate
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
+from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.records.instrument import (
     InstrumentPropertyState,
     InstrumentStateSnapshot,
 )
+from scopecat.sdk.instruments import ApplyReceipt, PropertyRef
 from scopecat.sdk.instruments.declarations import (
     declared_interface_layout,
     declared_state_assignments,
@@ -22,10 +26,13 @@ from scopecat_instruments import (
     DCSourceVoltage,
     NetworkSweepClient,
     NetworkSweepState,
+    RFOutputClient,
+    RFOutputState,
     TemperatureReadoutClient,
     TemperatureReadoutObservation,
     dc_source,
     network_sweep,
+    rf_output,
     temperature_readout,
 )
 from scopecat_instruments.interface_declarations import (
@@ -45,6 +52,10 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP_POINTS,
     NETWORK_SWEEP_S_PARAMETER,
     NETWORK_SWEEP_START_FREQUENCY,
+    RF_OUTPUT,
+    RF_OUTPUT_ENABLED,
+    RF_OUTPUT_FREQUENCY,
+    RF_OUTPUT_POWER,
     TEMPERATURE_READOUT,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     TEMPERATURE_READOUT_SCAN_CHANNEL,
@@ -71,6 +82,23 @@ class _ObservationChannel:
         return self.fresh
 
 
+class _ApplyChannel:
+    def __init__(self) -> None:
+        self.receipt = ApplyReceipt(metadata={"generated": "rf-output"})
+        self.values: Mapping[PropertyRef, StateLiteral | StateValue] | None = None
+        self.instrument_id: str | None = None
+
+    def apply(
+        self,
+        values: Mapping[PropertyRef, StateLiteral | StateValue],
+        *,
+        instrument_id: str,
+    ) -> ApplyReceipt:
+        self.values = values
+        self.instrument_id = instrument_id
+        return self.receipt
+
+
 def _temperature_snapshot(
     *,
     scan_channel: int,
@@ -95,17 +123,69 @@ def _temperature_snapshot(
 
 def test_first_party_factories_retain_static_client_types() -> None:
     source = dc_source("flux-source")
+    rf = rf_output("drive-source")
     vna = network_sweep("readout-vna")
     thermometer = temperature_readout("thermometer")
 
     assert_type(source, InstrumentRef[DCSourceClient])
+    assert_type(rf, InstrumentRef[RFOutputClient])
     assert_type(vna, InstrumentRef[NetworkSweepClient])
     assert_type(thermometer, InstrumentRef[TemperatureReadoutClient])
     assert source.instrument_id == "flux-source"
+    assert rf.instrument_id == "drive-source"
     assert vna.instrument_id == "readout-vna"
     assert source.requires == (DC_SOURCE,)
+    assert rf.requires == (RF_OUTPUT,)
     assert vna.requires == (NETWORK_SWEEP,)
     assert thermometer.requires == (TEMPERATURE_READOUT,)
+
+
+def test_generated_rf_live_client_lowers_declared_state() -> None:
+    channel = _ApplyChannel()
+    client = RFOutputClient(
+        cast("InstrumentClientChannel", cast("object", channel)),
+        "drive-source",
+    )
+
+    receipt = assert_type(
+        client.apply(
+            RFOutputState(
+                frequency=Quantity(5.0, "GHz"),
+                power=Quantity(-20.0, "dBm"),
+                output_enabled=True,
+            )
+        ),
+        ApplyReceipt,
+    )
+
+    assert receipt is channel.receipt
+    assert channel.instrument_id == "drive-source"
+    assert channel.values == {
+        RF_OUTPUT_FREQUENCY: Quantity(5.0, "GHz"),
+        RF_OUTPUT_POWER: Quantity(-20.0, "dBm"),
+        RF_OUTPUT_ENABLED: True,
+    }
+
+
+def test_generated_rf_live_client_rejects_symbolic_state_before_io() -> None:
+    channel = _ApplyChannel()
+    client = RFOutputClient(
+        cast("InstrumentClientChannel", cast("object", channel)),
+        "drive-source",
+    )
+    frequency = coordinate(
+        "drive_frequency",
+        ScalarType(QuantityType(unit="GHz")),
+    )
+
+    with pytest.raises(
+        TypeError,
+        match="direct instrument state must contain concrete values",
+    ):
+        client.apply(RFOutputState(frequency=frequency))
+
+    assert channel.values is None
+    assert channel.instrument_id is None
 
 
 def test_temperature_observation_uses_cached_and_fresh_snapshot_paths() -> None:

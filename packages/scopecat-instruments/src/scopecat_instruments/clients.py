@@ -21,12 +21,16 @@ from scopecat_instruments._client_runtime import (
 )
 from scopecat_instruments._family_runtime import InstrumentFamily
 from scopecat_instruments._generated_clients import (
+    RFOutputClient,
+    SymbolicRFOutputClient,
+    SymbolicRFOutputGroup,
     SymbolicTemperatureReadoutClient,
     SymbolicTemperatureReadoutGroup,
     TemperatureReadback,
     TemperatureReadoutClient,
     TemperatureReadoutObservation,
     TemperatureSampleProducts,
+    rf_output,
     temperature_readout,
 )
 from scopecat_instruments.interface_declarations import (
@@ -39,7 +43,6 @@ from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
     NETWORK_SWEEP,
-    RF_OUTPUT,
 )
 from scopecat_instruments.states import (
     DCMonitorState,
@@ -47,7 +50,6 @@ from scopecat_instruments.states import (
     DCSourceState,
     DCSourceVoltage,
     NetworkSweepState,
-    RFOutputState,
 )
 from scopecat_instruments.symbolic import (
     DCMonitorProducts,
@@ -59,8 +61,6 @@ from scopecat_instruments.symbolic import (
     SymbolicInstrumentRecorder,
     SymbolicNetworkSweepClient,
     SymbolicNetworkSweepGroup,
-    SymbolicRFOutputClient,
-    SymbolicRFOutputGroup,
 )
 
 
@@ -99,10 +99,6 @@ class DCSourceMonitorClient(DCSourceClient):
             DC_MONITOR_ACQUISITION_DECLARATION,
             DCMonitorReadback,
         )
-
-
-class RFOutputClient(DeclaredStateClientBase[RFOutputState]):
-    pass
 
 
 class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepState]):
@@ -211,17 +207,6 @@ def dc_source(
         )
     return SymbolicDCSourceClient(instrument_id, resource_id, for_=for_)
 
-
-rf_output: InstrumentFamily[
-    RFOutputClient,
-    SymbolicRFOutputClient,
-    SymbolicRFOutputGroup,
-] = InstrumentFamily(
-    RFOutputClient,
-    SymbolicRFOutputClient,
-    SymbolicRFOutputGroup,
-    requires=(RF_OUTPUT,),
-)
 
 network_sweep: InstrumentFamily[
     NetworkSweepClient,

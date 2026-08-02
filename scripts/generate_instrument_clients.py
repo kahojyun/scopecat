@@ -65,6 +65,10 @@ PRODUCTION_TARGET = GenerationTarget(
             declaration_symbol="TEMPERATURE_READOUT_DECLARATION",
             public_name_overrides=(("sample.readback", "TemperatureReadback"),),
         ),
+        ClientGenerationPolicy(
+            declaration_module="scopecat_instruments.interface_declarations",
+            declaration_symbol="RF_OUTPUT_DECLARATION",
+        ),
     ),
 )
 FIXTURE_TARGET = GenerationTarget(
@@ -146,7 +150,20 @@ class _InterfaceModel:
     stem: str
     factory_name: str
     observation_type_name: str | None
+    state_type_names: tuple[str, ...]
     root: _ScopeModel
+
+    @property
+    def state_type_name(self) -> str | None:
+        if not self.state_type_names:
+            return None
+        if len(self.state_type_names) == 1:
+            return self.state_type_names[0]
+        return self.state_alias_name
+
+    @property
+    def state_alias_name(self) -> str:
+        return f"_{self.stem}State"
 
     @property
     def live_client_name(self) -> str:
@@ -159,6 +176,12 @@ class _InterfaceModel:
     @property
     def symbolic_group_name(self) -> str:
         return self.root.symbolic_group_name
+
+    @property
+    def needs_layout(self) -> bool:
+        return self.observation_type_name is not None or any(
+            scope.operations or scope.acquisitions for scope in _walk_scopes(self.root)
+        )
 
 
 class _AnnotationRenderer:
@@ -265,11 +288,12 @@ def render_client_module(policies: tuple[ClientGenerationPolicy, ...]) -> str:
     for model in models:
         sections.extend(
             (
+                _render_state_alias(model),
                 _render_descriptors(model),
                 _render_result_types(model),
                 _render_live_scopes(model),
                 _render_symbolic_scopes(model),
-                _render_symbolic_group_scopes(model.root),
+                _render_symbolic_group_scopes(model),
                 _render_family(model),
             )
         )
@@ -293,14 +317,6 @@ def _interface_model(
     )
     layout = declared_interface_layout(compiled)
     interface_name = compiled.interface_type.__name__
-    if layout.state_types:
-        state_names = ", ".join(
-            state_type.__name__ for state_type in layout.state_types
-        )
-        raise ClientGenerationError(
-            f"generated clients do not yet support state for {interface_name}: "
-            f"{state_names}"
-        )
     stem = interface_name.removesuffix("Interface")
     overrides = dict(policy.public_name_overrides)
     observation_type_name = (
@@ -325,6 +341,9 @@ def _interface_model(
         stem=stem,
         factory_name=overrides.get("factory", _snake_case(stem)),
         observation_type_name=observation_type_name,
+        state_type_names=tuple(
+            renderer.reference(state_type) for state_type in layout.state_types
+        ),
         root=root,
     )
 
@@ -337,12 +356,15 @@ def _validate_generated_symbols(models: tuple[_InterfaceModel, ...]) -> None:
 
     for model in models:
         declaration = model.declaration_symbol
-        register(f"_{model.constant_prefix}_LAYOUT", f"{declaration} layout")
+        if model.needs_layout:
+            register(f"_{model.constant_prefix}_LAYOUT", f"{declaration} layout")
         if model.observation_type_name is not None:
             register(
                 f"_{model.constant_prefix}_OBSERVATION_DECLARATION",
                 f"{declaration} observation",
             )
+        if len(model.state_type_names) > 1:
+            register(model.state_alias_name, f"{declaration} state union")
         register(model.factory_name, f"{declaration} factory")
         for scope in _walk_scopes(model.root):
             path = ".".join(scope.python_path) or "<root>"
@@ -523,18 +545,36 @@ def _render_header(
     has_operations = any(scope.operations for scope in scopes)
     has_acquisitions = any(scope.acquisitions for scope in scopes)
     has_observations = any(model.observation_type_name for model in models)
+    has_state = any(model.state_type_name is not None for model in models)
+    has_plain_root = any(model.state_type_name is None for model in models)
 
     imports: dict[str, set[str]] = {
-        "scopecat.authoring": {"EachEntity", "OneEntity", "PerEntity"},
-        "scopecat.sdk.instruments.declarations": {"declared_interface_layout"},
-        "scopecat_instruments._client_runtime": {"InstrumentClientBase"},
+        "scopecat.authoring": {"EachEntity", "OneEntity"},
         "scopecat_instruments._family_runtime": {"InstrumentFamily"},
-        "scopecat_instruments._symbolic_runtime": {
-            "SymbolicInstrumentClientBase",
-            "SymbolicInstrumentGroupBase",
-            "SymbolicInstrumentRecorder",
-        },
+        "scopecat_instruments._symbolic_runtime": {"SymbolicInstrumentRecorder"},
     }
+    if any(model.needs_layout for model in models):
+        imports["scopecat.sdk.instruments.declarations"] = {"declared_interface_layout"}
+    if has_plain_root:
+        imports["scopecat_instruments._client_runtime"] = {"InstrumentClientBase"}
+        imports["scopecat_instruments._symbolic_runtime"].update(
+            {
+                "SymbolicInstrumentClientBase",
+                "SymbolicInstrumentGroupBase",
+            }
+        )
+    if has_state:
+        imports.setdefault("scopecat_instruments._client_runtime", set()).add(
+            "DeclaredStateClientBase"
+        )
+        imports["scopecat_instruments._symbolic_runtime"].update(
+            {
+                "DeclaredStateSymbolicClientBase",
+                "DeclaredStateSymbolicGroupBase",
+            }
+        )
+    if has_operations or has_acquisitions:
+        imports["scopecat.authoring"].add("PerEntity")
     if has_acquisitions:
         imports["dataclasses"] = {"dataclass", "field"}
         imports["scopecat.authoring"].add("ProductRef")
@@ -592,7 +632,7 @@ def _render_header(
 
 
 def _render_from_import(module: str, names: set[str]) -> str:
-    ordered = sorted(names)
+    ordered = sorted(names, key=_import_name_key)
     compact = f"from {module} import {', '.join(ordered)}\n"
     if len(compact.rstrip("\n")) <= 88:
         return compact
@@ -603,7 +643,34 @@ def _render_from_import(module: str, names: set[str]) -> str:
     )
 
 
+def _import_name_key(name: str) -> tuple[int, str]:
+    if name.isupper():
+        return (0, name)
+    if name[0].isupper():
+        return (1, name)
+    return (2, name)
+
+
+def _render_state_alias(model: _InterfaceModel) -> str:
+    if len(model.state_type_names) <= 1:
+        return ""
+    union = " | ".join(model.state_type_names)
+    compact = f"type {model.state_alias_name} = {union}\n"
+    if len(compact.rstrip("\n")) <= 88:
+        return "\n" + compact
+    return (
+        f"\ntype {model.state_alias_name} = (\n"
+        + "\n".join(
+            f"    {'| ' if index else ''}{state_type}"
+            for index, state_type in enumerate(model.state_type_names)
+        )
+        + "\n)\n"
+    )
+
+
 def _render_descriptors(model: _InterfaceModel) -> str:
+    if not model.needs_layout:
+        return ""
     layout_name = f"_{model.constant_prefix}_LAYOUT"
     sections = [
         "\n",
@@ -680,7 +747,14 @@ def _render_live_scopes(model: _InterfaceModel) -> str:
 
 
 def _render_live_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
-    base = "InstrumentClientBase" if scope.is_root else "InstrumentComponentClientBase"
+    if scope.is_root:
+        base = (
+            "InstrumentClientBase"
+            if model.state_type_name is None
+            else f"DeclaredStateClientBase[{model.state_type_name}]"
+        )
+    else:
+        base = "InstrumentComponentClientBase"
     body: list[str] = []
     if scope.is_root and model.observation_type_name is not None:
         observation_name = f"_{model.constant_prefix}_OBSERVATION_DECLARATION"
@@ -754,11 +828,14 @@ def _render_symbolic_scopes(model: _InterfaceModel) -> str:
 
 
 def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
-    base = (
-        "SymbolicInstrumentClientBase"
-        if scope.is_root
-        else "SymbolicInstrumentComponentClientBase"
-    )
+    if scope.is_root:
+        base = (
+            "SymbolicInstrumentClientBase"
+            if model.state_type_name is None
+            else f"DeclaredStateSymbolicClientBase[{model.state_type_name}]"
+        )
+    else:
+        base = "SymbolicInstrumentComponentClientBase"
     body: list[str] = ["    __slots__ = ()\n"]
     if scope.is_root:
         body.extend(
@@ -831,17 +908,24 @@ def _render_symbolic_acquisition(acquisition: _AcquisitionModel) -> str:
     )
 
 
-def _render_symbolic_group_scopes(root: _ScopeModel) -> str:
+def _render_symbolic_group_scopes(model: _InterfaceModel) -> str:
     return "".join(
-        _render_symbolic_group_scope(scope) for scope in _walk_scopes_postorder(root)
+        _render_symbolic_group_scope(model, scope)
+        for scope in _walk_scopes_postorder(model.root)
     )
 
 
 def _render_symbolic_group_scope(
+    model: _InterfaceModel,
     scope: _ScopeModel,
 ) -> str:
     if scope.is_root:
-        base = f"SymbolicInstrumentGroupBase[{scope.symbolic_client_name}]"
+        base = (
+            f"SymbolicInstrumentGroupBase[{scope.symbolic_client_name}]"
+            if model.state_type_name is None
+            else "DeclaredStateSymbolicGroupBase["
+            f"{model.state_type_name}, {scope.symbolic_client_name}]"
+        )
     else:
         base = f"SymbolicInstrumentComponentGroupBase[{scope.symbolic_client_name}]"
     body: list[str] = ["    __slots__ = ()\n"]

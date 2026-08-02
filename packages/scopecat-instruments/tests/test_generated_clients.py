@@ -89,12 +89,25 @@ def test_codegen_rejects_every_colliding_generated_symbol() -> None:
     assert "_SYMBOL_COLLISION_FOO_BAR_FIRE_DECLARATION" in completed.stderr
 
 
-def test_codegen_rejects_declared_state_until_state_clients_are_generated() -> None:
+def test_codegen_renders_every_discriminated_state_type_as_one_union() -> None:
     completed = _render_policy(
         "DC_SOURCE_DECLARATION",
         module="scopecat_instruments.interface_declarations",
         import_root=None,
     )
 
-    assert completed.returncode != 0
-    assert "do not yet support state for DCSourceInterface" in completed.stderr
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-dc-source>", "exec")
+    assert (
+        "type _DCSourceState = DCSourceState | DCSourceVoltage | DCSourceCurrent"
+    ) in completed.stdout
+    assert "class DCSourceClient(DeclaredStateClientBase[_DCSourceState]):" in (
+        completed.stdout
+    )
+    assert (
+        "class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[_DCSourceState]):"
+    ) in completed.stdout
+    assert (
+        "DeclaredStateSymbolicGroupBase[_DCSourceState, SymbolicDCSourceClient]"
+    ) in completed.stdout
+    assert "declared_interface_layout" not in completed.stdout
