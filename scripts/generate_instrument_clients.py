@@ -59,6 +59,9 @@ DRIVER_STATES_OUTPUT = (
 DRIVER_HANDLERS_OUTPUT = (
     INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "driver_handlers.py"
 )
+PACKAGE_EXPORTS_OUTPUT = (
+    INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "__init__.py"
+)
 FIXTURE_IMPORT_ROOT = INSTRUMENTS_PACKAGE_ROOT / "tests"
 FIXTURE_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_client_fixture.py"
 FIXTURE_MEMBERS_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_member_catalog_fixture.py"
@@ -186,6 +189,18 @@ class DriverHandlerTarget:
     driver_states_module: str
 
 
+@dataclass(frozen=True, slots=True)
+class PackageExportsTarget:
+    """Lazy package exports derived from generated client and state surfaces."""
+
+    output: Path
+    client_target: GenerationTarget
+    catalog_target: CatalogTarget
+    client_module: str
+    states_module: str
+    static_exports: tuple[tuple[str, str], ...] = ()
+
+
 class _DeclarationCache:
     """Compile each interface declaration at most once per generator run."""
 
@@ -258,6 +273,15 @@ PRODUCTION_DRIVER_HANDLER_TARGET = DriverHandlerTarget(
     driver_states_module="scopecat_instruments.driver_states",
 )
 
+PRODUCTION_PACKAGE_EXPORTS_TARGET = PackageExportsTarget(
+    output=PACKAGE_EXPORTS_OUTPUT,
+    client_target=PRODUCTION_TARGET,
+    catalog_target=PRODUCTION_CATALOG_TARGET,
+    client_module="scopecat_instruments.clients",
+    states_module="scopecat_instruments.states",
+    static_exports=(("ConfiguredInstrumentProvider", "scopecat_instruments.provider"),),
+)
+
 
 def _fixture_target() -> GenerationTarget:
     declarations = _fixture_declarations()
@@ -327,6 +351,10 @@ def _catalog_targets() -> tuple[CatalogTarget, ...]:
 
 def _driver_handler_targets() -> tuple[DriverHandlerTarget, ...]:
     return (PRODUCTION_DRIVER_HANDLER_TARGET, _fixture_driver_handler_target())
+
+
+def _package_exports_targets() -> tuple[PackageExportsTarget, ...]:
+    return (PRODUCTION_PACKAGE_EXPORTS_TARGET,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1048,19 +1076,34 @@ def _render_interfaces_module(models: tuple[_CatalogInterfaceModel, ...]) -> str
     )
 
 
-def _render_states_module(
+def _unique_state_layouts(
+    models: tuple[_CatalogInterfaceModel, ...],
+) -> tuple[tuple[_CatalogInterfaceModel, DeclaredStateLayout], ...]:
+    selected: list[tuple[_CatalogInterfaceModel, DeclaredStateLayout]] = []
+    seen_sources: dict[type[object], DeclaredStateLayout] = {}
+    for model in models:
+        for layout in model.states:
+            existing = seen_sources.get(layout.source_type)
+            if existing is not None:
+                if existing != layout:
+                    raise ClientGenerationError(
+                        "one state schema produced inconsistent projection layouts: "
+                        f"{layout.source_type.__module__}."
+                        f"{layout.source_type.__qualname__}"
+                    )
+                continue
+            seen_sources[layout.source_type] = layout
+            selected.append((model, layout))
+    return tuple(selected)
+
+
+def _state_export_owners(
     models: tuple[_CatalogInterfaceModel, ...],
     *,
     public_types: tuple[object, ...],
-    members_module: str,
-) -> str:
-    renderer = _AnnotationRenderer()
-    imports: dict[str, set[str]] = {}
+    state_layouts: tuple[tuple[_CatalogInterfaceModel, DeclaredStateLayout], ...],
+) -> dict[str, str]:
     exports_by_name: dict[str, str] = {}
-    declarations: list[str] = []
-    seen_sources: dict[type[object], DeclaredStateLayout] = {}
-    member_imports: set[str] = set()
-
     for candidate in (
         *(
             model.observed_state_type
@@ -1077,10 +1120,49 @@ def _render_states_module(
                 f"generated state export collision {name}: {existing} vs {owner}"
             )
         exports_by_name[name] = owner
+
+    for _, layout in state_layouts:
+        owner = f"{layout.source_type.__module__}.{layout.source_type.__qualname__}"
+        names = _state_projection_names(layout)
+        for name in (names.patch, names.target, names.group_target):
+            existing = exports_by_name.get(name)
+            if existing is not None:
+                raise ClientGenerationError(
+                    f"generated state export collision {name}: {existing} vs {owner}"
+                )
+            exports_by_name[name] = owner
+    return exports_by_name
+
+
+def _render_states_module(
+    models: tuple[_CatalogInterfaceModel, ...],
+    *,
+    public_types: tuple[object, ...],
+    members_module: str,
+) -> str:
+    renderer = _AnnotationRenderer()
+    imports: dict[str, set[str]] = {}
+    declarations: list[str] = []
+    member_imports: set[str] = set()
+    state_layouts = _unique_state_layouts(models)
+    exports_by_name = _state_export_owners(
+        models,
+        public_types=public_types,
+        state_layouts=state_layouts,
+    )
+
+    for candidate in (
+        *(
+            model.observed_state_type
+            for model in models
+            if model.observed_state_type is not None
+        ),
+        *public_types,
+    ):
+        module, name = _public_type_location(candidate)
         imports.setdefault(module, set()).add(f"{name} as {name}")
 
-    has_states = any(model.states for model in models)
-    if has_states:
+    if state_layouts:
         imports["scopecat.authoring"] = {"PerEntity", "ValueRef"}
         imports["scopecat.sdk.instruments.declarations"] = {
             "StateProjectionField",
@@ -1089,64 +1171,42 @@ def _render_states_module(
             "state_projection_field",
         }
 
-    for model in models:
-        if not model.states:
-            continue
-        for layout in model.states:
-            existing_layout = seen_sources.get(layout.source_type)
-            if existing_layout is not None:
-                if existing_layout != layout:
-                    raise ClientGenerationError(
-                        "one state schema produced inconsistent projection layouts: "
-                        f"{layout.source_type.__module__}."
-                        f"{layout.source_type.__qualname__}"
-                    )
-                continue
-            seen_sources[layout.source_type] = layout
-            names = _state_projection_names(layout)
-            owner = f"{layout.source_type.__module__}.{layout.source_type.__qualname__}"
-            for name in (names.patch, names.target, names.group_target):
-                existing = exports_by_name.get(name)
-                if existing is not None:
-                    raise ClientGenerationError(
-                        f"generated state export collision {name}: "
-                        f"{existing} vs {owner}"
-                    )
-                exports_by_name[name] = owner
-            layout_expression = _state_projection_layout_name(names)
-            declarations.append(
-                _render_state_projection_layout(
-                    layout_expression,
+    for model, layout in state_layouts:
+        names = _state_projection_names(layout)
+        layout_expression = _state_projection_layout_name(names)
+        declarations.append(
+            _render_state_projection_layout(
+                layout_expression,
+                layout,
+                constant_prefix=model.constant_prefix,
+                member_imports=member_imports,
+            )
+        )
+        declarations.extend(
+            (
+                _render_state_projection(
+                    names.patch,
                     layout,
-                    constant_prefix=model.constant_prefix,
-                    member_imports=member_imports,
-                )
+                    layout_expression=layout_expression,
+                    renderer=renderer,
+                    projection="live",
+                ),
+                _render_state_projection(
+                    names.target,
+                    layout,
+                    layout_expression=layout_expression,
+                    renderer=renderer,
+                    projection="symbolic",
+                ),
+                _render_state_projection(
+                    names.group_target,
+                    layout,
+                    layout_expression=layout_expression,
+                    renderer=renderer,
+                    projection="group",
+                ),
             )
-            declarations.extend(
-                (
-                    _render_state_projection(
-                        names.patch,
-                        layout,
-                        layout_expression=layout_expression,
-                        renderer=renderer,
-                        projection="live",
-                    ),
-                    _render_state_projection(
-                        names.target,
-                        layout,
-                        layout_expression=layout_expression,
-                        renderer=renderer,
-                        projection="symbolic",
-                    ),
-                    _render_state_projection(
-                        names.group_target,
-                        layout,
-                        layout_expression=layout_expression,
-                        renderer=renderer,
-                        projection="group",
-                    ),
-                )
-            )
+        )
 
     for module, names in renderer.imports.items():
         imports.setdefault(module, set()).update(names)
@@ -2522,21 +2582,12 @@ def render_client_module(
 
     renderer = _AnnotationRenderer()
     cache = declaration_cache or _DeclarationCache()
-    suppressed_families = _facade_base_identities(surfaces)
-    models = tuple(
-        _generation_model(
-            surface,
-            renderer=renderer,
-            state_projection_module=state_projection_module,
-            suppressed_families=suppressed_families,
-            declaration_cache=cache,
-        )
-        for surface in surfaces
+    models, facade_models = _client_models(
+        surfaces,
+        renderer=renderer,
+        state_projection_module=state_projection_module,
+        declaration_cache=cache,
     )
-    if not models:
-        raise ClientGenerationError("a generated client module requires a declaration")
-    facade_models = _bundle_flag_facade_models(surfaces, models=models)
-    _validate_generated_symbols(models, facades=facade_models)
 
     sections = [
         _render_header(models, facades=facade_models, renderer=renderer),
@@ -2557,6 +2608,135 @@ def render_client_module(
     sections.append(_render_bundle_flag_facades(facade_models))
     sections.append(_render_exports(models, facades=facade_models))
     return "".join(sections)
+
+
+def _client_models(
+    surfaces: tuple[GenerationSurface, ...],
+    *,
+    renderer: _AnnotationRenderer,
+    state_projection_module: str,
+    declaration_cache: _DeclarationCache,
+) -> tuple[tuple[_InterfaceModel, ...], tuple[_BundleFlagFacadeModel, ...]]:
+    suppressed_families = _facade_base_identities(surfaces)
+    models = tuple(
+        _generation_model(
+            surface,
+            renderer=renderer,
+            state_projection_module=state_projection_module,
+            suppressed_families=suppressed_families,
+            declaration_cache=declaration_cache,
+        )
+        for surface in surfaces
+    )
+    if not models:
+        raise ClientGenerationError("a generated client module requires a declaration")
+    facade_models = _bundle_flag_facade_models(surfaces, models=models)
+    _validate_generated_symbols(models, facades=facade_models)
+    return models, facade_models
+
+
+def render_package_exports_target(
+    target: PackageExportsTarget,
+    *,
+    declaration_cache: _DeclarationCache | None = None,
+) -> str:
+    """Render static package export routes without importing generated modules."""
+
+    cache = declaration_cache or _DeclarationCache()
+    client_models, facade_models = _client_models(
+        target.client_target.surfaces,
+        renderer=_AnnotationRenderer(),
+        state_projection_module=target.client_target.state_projection_module,
+        declaration_cache=cache,
+    )
+    catalog_models = _catalog_models(
+        target.catalog_target.interface_types,
+        declaration_cache=cache,
+    )
+    state_layouts = _unique_state_layouts(catalog_models)
+    state_exports = _state_export_owners(
+        catalog_models,
+        public_types=target.catalog_target.public_types,
+        state_layouts=state_layouts,
+    )
+
+    routes: dict[str, str] = {}
+    for name, module in target.static_exports:
+        _register_package_export(routes, name=name, module=module)
+    for name in _client_export_names(client_models, facades=facade_models):
+        _register_package_export(routes, name=name, module=target.client_module)
+    for name in state_exports:
+        _register_package_export(routes, name=name, module=target.states_module)
+    return _render_package_exports_module(routes)
+
+
+def _register_package_export(
+    routes: dict[str, str],
+    *,
+    name: str,
+    module: str,
+) -> None:
+    existing = routes.get(name)
+    if existing is not None:
+        raise ClientGenerationError(
+            f"generated package export collision {name}: {existing} vs {module}"
+        )
+    routes[name] = module
+
+
+def _render_package_exports_module(routes: dict[str, str]) -> str:
+    names_by_module: dict[str, set[str]] = {}
+    for name, module in routes.items():
+        names_by_module.setdefault(module, set()).add(name)
+    type_checking_imports = "".join(
+        "".join(
+            f"    {line}"
+            for line in _render_bare_from_import(module, names).splitlines(
+                keepends=True
+            )
+        )
+        for module, names in sorted(names_by_module.items())
+    )
+    return (
+        "# This file was auto-generated by scripts/generate_instrument_clients.py.\n"
+        "# Do not make direct changes to the file.\n"
+        "# ruff: noqa: F401\n"
+        "# pyright: reportUnusedImport=false, reportUnsupportedDunderAll=false\n"
+        '"""Generated typed and lazy instrument package facade."""\n'
+        "\n"
+        "from __future__ import annotations\n"
+        "\n"
+        "from importlib import import_module\n"
+        "from typing import TYPE_CHECKING, cast\n"
+        "\n"
+        "if TYPE_CHECKING:\n"
+        f"{type_checking_imports}"
+        "\n"
+        "\n"
+        "_PUBLIC_EXPORT_MODULES: dict[str, str] = {\n"
+        + "".join(
+            f"    {_string_literal(name)}: {_string_literal(module)},\n"
+            for name, module in sorted(routes.items())
+        )
+        + "}\n"
+        "\n"
+        "\n"
+        "def __getattr__(name: str) -> object:\n"
+        "    module = _PUBLIC_EXPORT_MODULES.get(name)\n"
+        "    if module is None:\n"
+        "        raise AttributeError("
+        'f"module {__name__!r} has no attribute {name!r}")\n'
+        '    value = cast("object", getattr(import_module(module), name))\n'
+        "    globals()[name] = value\n"
+        "    return value\n"
+        "\n"
+        "\n"
+        "def __dir__() -> list[str]:\n"
+        "    return sorted({*globals(), *_PUBLIC_EXPORT_MODULES})\n"
+        "\n"
+        "\n"
+        "__all__ = sorted(_PUBLIC_EXPORT_MODULES)\n"
+    )
 
 
 def _generation_model(
@@ -4295,6 +4475,14 @@ def _render_exports(
     *,
     facades: tuple[_BundleFlagFacadeModel, ...] = (),
 ) -> str:
+    return _render_all(_client_export_names(models, facades=facades))
+
+
+def _client_export_names(
+    models: tuple[_InterfaceModel, ...],
+    *,
+    facades: tuple[_BundleFlagFacadeModel, ...] = (),
+) -> tuple[str, ...]:
     exports = {"SymbolicInstrumentRecorder"}
     for model in models:
         if model.generate_family:
@@ -4310,11 +4498,7 @@ def _render_exports(
             for acquisition in scope.acquisitions:
                 exports.update({acquisition.products_name, acquisition.readback_name})
     exports.update(facade.factory_name for facade in facades)
-    return (
-        "\n__all__ = [\n"
-        + "".join(f'    "{name}",\n' for name in sorted(exports))
-        + "]\n"
-    )
+    return tuple(sorted(exports))
 
 
 def _walk_scopes(root: _ScopeModel) -> tuple[_ScopeModel, ...]:
@@ -4484,6 +4668,16 @@ def main(argv: list[str] | None = None) -> None:
                 ),
             )
             for target in _driver_handler_targets()
+        ),
+        *(
+            (
+                target.output,
+                render_package_exports_target(
+                    target,
+                    declaration_cache=declaration_cache,
+                ),
+            )
+            for target in _package_exports_targets()
         ),
     )
     if options.check:
