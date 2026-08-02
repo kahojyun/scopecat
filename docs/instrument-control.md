@@ -170,14 +170,14 @@ Live control is imperative:
 
 ```python
 import scopecat as sc
-from scopecat_instruments import NetworkSweepPatch, network_sweep
+from scopecat_instruments import network_sweep
 
 READOUT_VNA = network_sweep("readout-vna")
 
 with sc.open_project(".").connect(operator="alice") as lab:
     with lab.instruments.open(READOUT_VNA) as devices:
         vna = devices[READOUT_VNA]
-        vna.apply(NetworkSweepPatch(points=401))
+        vna.apply(points=401)
         trace = vna.sweep()  # NetworkSweepReadback, produced now
 ```
 
@@ -198,7 +198,6 @@ import scopecat as sc
 from scopecat_instruments import (
     DCSourceTarget,
     DCSourceVoltageTarget,
-    NetworkSweepTarget,
     dc_source,
     network_sweep,
 )
@@ -230,12 +229,10 @@ def capture(experiment: sc.ExperimentContext) -> None:
         )
     )
     vna.ensure(
-        NetworkSweepTarget(
-            start_frequency=sc.Quantity(4.9, "GHz"),
-            stop_frequency=sc.Quantity(5.1, "GHz"),
-            points=751,
-            s_parameter="S21",
-        )
+        start_frequency=sc.Quantity(4.9, "GHz"),
+        stop_frequency=sc.Quantity(5.1, "GHz"),
+        points=751,
+        s_parameter="S21",
     )
     trace = vna.sweep()  # NetworkSweepProducts, declared for every point
 
@@ -393,6 +390,12 @@ domain value. A group also accepts `PerEntity[NetworkSweepTarget]` when complete
 targets or discriminated cases differ by entity. The lower-level
 `resource + DesiredState` path remains available as an escape hatch.
 
+For an unambiguous flat schema, generated overloads also accept those same
+fields directly: `vna.apply(points=401)`, `vna.ensure(points=TRACE_POINTS)`,
+and `vnas.ensure(points=per_entity_points)`. The scalar overload remains narrow
+and never accepts `PerEntity`; only its group counterpart performs that lift.
+Carrier objects remain the positional form for reuse and composition.
+
 The same Python declaration also generates the typed driver state boundary.
 Each writable interface has a flat, sparse, concrete `TypedDict` patch decoder;
 for discriminated state, the discriminator and case fields retain distinct
@@ -547,7 +550,7 @@ sources.ensure(
 )
 
 readouts = network_sweep(experiment, "readout", for_=targets)
-readouts.ensure(NetworkSweepGroupTarget(points=751))  # one common target
+readouts.ensure(points=751)  # one common target
 traces = readouts.sweep()  # PerEntity[NetworkSweepProducts]
 experiment.record(traces.map(lambda trace: trace.s_parameter))
 ```
@@ -805,10 +808,7 @@ The normal project connection exposes the same daemon-owned path:
 
 ```python
 import scopecat as sc
-from scopecat_instruments import (
-    NetworkSweepPatch,
-    network_sweep,
-)
+from scopecat_instruments import network_sweep
 
 READOUT_VNA = network_sweep("readout-vna")
 
@@ -822,19 +822,18 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.observed_state())
 
         receipt = vna.apply(
-            NetworkSweepPatch(
-                start_frequency=sc.Quantity(4.8, "GHz"),
-                stop_frequency=sc.Quantity(5.2, "GHz"),
-                points=401,
-            )
+            start_frequency=sc.Quantity(4.8, "GHz"),
+            stop_frequency=sc.Quantity(5.2, "GHz"),
+            points=401,
         )
         trace = vna.sweep()
 ```
 
 Typed physical refs bind a project-owned instrument id to a statically known
-client inside the daemon-owned session. Generated patches correlate property
-names, concrete Python value types, and explicit presence, while typed acquisitions expose named result
-fields. Experiment lowering and the low-level dynamic API continue to use
+client inside the daemon-owned session. Generated keyword signatures and
+reusable patches correlate property names, concrete Python value types, and
+explicit presence, while typed acquisitions expose named result fields.
+Experiment lowering and the low-level dynamic API continue to use
 nominal member refs, so an acquisition result cannot be accidentally paired
 with another interface or component. Specs, compiler IR, and daemon requests
 lower them to physical ids.
