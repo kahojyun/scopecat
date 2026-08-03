@@ -65,7 +65,7 @@ from scopecat.program.products import (
     ProductRef,
     ProductRefs,
 )
-from scopecat.program.state import DesiredState, StateBinding
+from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
     internal_value_ref_operation_id,
@@ -153,12 +153,6 @@ class ModuleContext:
         self._measurement_postprocessors: list[MeasurementPostprocessor] = []
         self._product_declarations: list[ModuleProductDecl] = []
 
-    @property
-    def effects_internal(self) -> tuple[ModuleEffect, ...]:
-        """Return closed effects for the owning experiment context."""
-
-        return tuple(self._effects)
-
     def append_invocation_internal[ResultT](
         self,
         invocation: ModuleInvocation[ResultT],
@@ -233,13 +227,14 @@ class ModuleContext:
 
     def call(
         self,
-        part: ModuleInvocation[object] | DomainCall | DomainCallProvider,
-    ) -> ModuleInvocation[object] | DomainCall | DomainCallProvider:
+        part: object,
+    ) -> object:
         """Append one explicitly constructed module or domain occurrence."""
 
         if isinstance(part, ModuleInvocation):
-            self.append_invocation_internal(part)
-            return part
+            invocation = cast("ModuleInvocation[object]", part)
+            self.append_invocation_internal(invocation)
+            return invocation
         call = domain_use_call(part)
         self.append_domain_call_internal(call)
         return part
@@ -291,11 +286,15 @@ class ModuleContext:
             )
         )
 
-    def _ensure(self, resource: DefinitionResource, target: DesiredState) -> None:
+    def _ensure(
+        self,
+        resource: DefinitionResource,
+        assignments: Mapping[PropertyRef, StateBinding],
+    ) -> None:
         """Record a generated client's coherent resource target state."""
 
         self._require_owned_resource(resource)
-        self._effects.append(build_ensure_state_intent(resource.port_id, target))
+        self._effects.append(build_ensure_state_intent(resource.port_id, assignments))
 
     def _invoke(
         self,
@@ -512,16 +511,16 @@ class ModuleContext:
 
 def build_ensure_state_intent(
     resource: LogicalResourcePortId,
-    target: DesiredState,
+    assignments: Mapping[PropertyRef, StateBinding],
 ) -> EnsureStateIntent:
-    """Normalize one public desired-state target at an authoring boundary."""
+    """Normalize coherent property assignments at an authoring boundary."""
 
-    assignments = tuple(target.target_assignments().items())
-    if not assignments:
+    assignment_items = tuple(assignments.items())
+    if not assignment_items:
         raise ValueError("ensure requires at least one target assignment")
 
     bindings: list[BindingIntent] = []
-    for property, value in assignments:
+    for property, value in assignment_items:
         _require_public_state_binding(value)
         bindings.append(
             binding_property(

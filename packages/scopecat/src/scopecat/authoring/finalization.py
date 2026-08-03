@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 from scopecat.authoring._module_context import DefinitionResource
-from scopecat.program.state import DesiredState
+from scopecat.kernel.instrument_members import PropertyRef
+from scopecat.program.state import StateBinding
 
-type FinalizationTarget = tuple[DefinitionResource, DesiredState]
+type FinalizationTarget = tuple[
+    DefinitionResource,
+    Mapping[PropertyRef, StateBinding],
+]
 
 
 class Finalizable[StateT](Protocol):
@@ -24,7 +28,7 @@ class Finalizable[StateT](Protocol):
         state: StateT,
         /,
     ) -> Sequence[FinalizationTarget]:
-        """Pair each owned logical resource with its lower-level target."""
+        """Pair each owned logical resource with its property assignments."""
         ...
 
 

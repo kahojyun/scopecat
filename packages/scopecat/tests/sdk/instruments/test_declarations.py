@@ -14,7 +14,6 @@ from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
-from scopecat.program.state import DesiredState
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments import (
     AcquisitionSpec,
@@ -76,8 +75,6 @@ from scopecat.sdk.instruments.declarations import (
     state_field,
     state_projection_assignments,
     state_projection_field,
-    state_projection_target,
-    target_from_state_projection_assignments,
 )
 
 type ConcreteAlias[ValueT] = ValueT
@@ -1158,7 +1155,6 @@ def test_generated_state_projection_distinguishes_omission_from_falsy_values() -
 
     projection = SweepProjection(points=0, output_enabled=False)
 
-    assert not hasattr(projection, "target_assignments")
     assert state_projection_assignments(projection) == {
         declared_property_ref(SweepContract, SweepState, "points"): 0,
         declared_property_ref(
@@ -1176,12 +1172,6 @@ def test_generated_state_projection_distinguishes_omission_from_falsy_values() -
     assert not hasattr(projection, "__dict__")
     with pytest.raises(FrozenInstanceError):
         projection.__setattr__("points", 1)
-    assignments = state_projection_assignments(projection)
-    target: DesiredState = state_projection_target(projection)
-    assignments_target = target_from_state_projection_assignments(assignments)
-    assert target.target_assignments() == assignments
-    assert assignments_target.target_assignments() == assignments
-    assert type(target) is type(assignments_target)
 
 
 def test_state_projection_accepts_a_compile_free_runtime_layout() -> None:

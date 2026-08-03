@@ -73,7 +73,7 @@ from scopecat.program.products import (
     record_product,
 )
 from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
-from scopecat.program.state import DesiredState, StateBinding
+from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
     internal_value_ref_point_dependencies,
@@ -299,11 +299,11 @@ class ExperimentContext:
     def _ensure(
         self,
         resource: DefinitionResource,
-        target: DesiredState,
+        assignments: Mapping[PropertyRef, StateBinding],
     ) -> None:
         """Declare a target state for a generated symbolic client."""
 
-        self._program._ensure(resource, target)
+        self._program._ensure(resource, assignments)
 
     def _invoke(
         self,
@@ -408,7 +408,13 @@ class ExperimentContext:
         namespace: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
-        """Persist product traces or scalar symbolic values in the dataset."""
+        """Persist symbolic values or complete acquisition bundles.
+
+        ``ProductBundle`` and ``PerEntity`` inputs expand structurally while
+        retaining each product's declared role, axes, acquisition group, and
+        entity identity. A scalar ``ValueRef`` becomes an ordinary plottable
+        dataset value when its declared type is durable.
+        """
 
         if record_id is not None and namespace is not None:
             raise ValueError("record_id and namespace cannot be used together")
@@ -472,12 +478,12 @@ class ExperimentContext:
     def _append_finalization_target(
         self,
         resource: DefinitionResource,
-        target: DesiredState,
+        assignments: Mapping[PropertyRef, StateBinding],
     ) -> None:
         """Validate and append one normalized final-state target."""
 
         self._program.require_owned_resource_internal(resource)
-        intent = build_ensure_state_intent(resource.port_id, target)
+        intent = build_ensure_state_intent(resource.port_id, assignments)
         for assignment in intent.assignments:
             value = assignment.value
             if not isinstance(value, ValueRef):
@@ -927,7 +933,7 @@ def _input_port(name: str, value: ValueRef) -> ModuleInputPort:
 
 def _module_invocation(value: object) -> ModuleInvocation[object]:
     if isinstance(value, ExperimentModule):
-        return value()
+        return cast("ModuleInvocation[object]", value())
     try:
         return module_use_invocation(value)
     except TypeError as error:

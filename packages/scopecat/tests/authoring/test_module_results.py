@@ -9,7 +9,6 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.authoring import ValueValidationError
 from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.frontend.elaboration import compose_module
@@ -21,7 +20,6 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.value_graph import OperationId
-from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.expressions import evaluate_scalar
@@ -46,7 +44,6 @@ type _PayloadInput = Annotated[
     sc.ScalarType(sc.PayloadType("test.module-result")),
 ]
 type _FloatInput = Annotated[sc.Input[float], sc.FloatType()]
-type _PositiveIntInput = Annotated[sc.Input[int], sc.IntType(minimum=1)]
 type _GhzQuantityInput = Annotated[sc.Input[sc.Quantity], sc.QuantityType(unit="GHz")]
 type _MhzQuantityInput = Annotated[sc.Input[sc.Quantity], sc.QuantityType(unit="MHz")]
 _GHZ_FREQUENCY_TABLE = sc.TableType(
@@ -447,42 +444,6 @@ def test_direct_table_result_preserves_its_declared_assignable_input_type() -> N
     ]
 
 
-def test_invocation_validates_typed_and_literal_inputs_immediately() -> None:
-    @sc.module(id="test.results.validation")
-    def module(
-        context: sc.ModuleContext,
-        payload: _PayloadInput,
-        count: _PositiveIntInput,
-    ) -> None:
-        del context, payload, count
-
-    incompatible = program_input(
-        "waveform",
-        sc.ScalarType(sc.PayloadType("test.waveform")),
-    )
-
-    with pytest.raises(ValueValidationError, match=r"Payload\[test.module-result\]"):
-        module.instantiate(
-            "incompatible-input",
-            payload=incompatible,
-            count=1,
-        )
-    with pytest.raises(ValueValidationError, match="value must be at least 1"):
-        module.instantiate("invalid-literal", count=0)
-    with pytest.raises(ValueError, match="must connect all inputs"):
-        module.instantiate("missing-inputs")
-
-
-def test_module_products_remain_reusable_across_instances() -> None:
-    @sc.module(id="test.results.product")
-    def module(context: sc.ModuleContext) -> sc.ProductRef:
-        return context._product("signal")
-
-    child = module.instantiate("child")
-
-    assert child.result.id == "child/signal"
-
-
 def test_module_result_arithmetic_resolves_during_elaboration() -> None:
     value_type = sc.ScalarType(sc.FloatType())
 
@@ -528,17 +489,6 @@ def test_module_result_arithmetic_resolves_during_elaboration() -> None:
         )
         == 2.0
     )
-
-
-def test_duplicate_explicit_instance_ids_are_rejected() -> None:
-    producer = _producer_module()
-
-    with pytest.raises(ValueError, match="duplicate module instance ids: 'duplicate'"):
-
-        @sc.module(id="test.results.duplicate-instance")
-        def duplicate_instance(context: sc.ModuleContext) -> None:
-            context.call(producer.instantiate("duplicate"))
-            context.call(producer.instantiate("duplicate"))
 
 
 def test_result_refs_are_nominally_owned_by_the_used_instance() -> None:

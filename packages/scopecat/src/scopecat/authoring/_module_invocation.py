@@ -51,10 +51,13 @@ def _empty_resource_bindings() -> FrozenMapping[
     return FrozenMapping()
 
 
-@dataclass(frozen=True, slots=True, repr=False, init=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class ModuleInvocation[ResultT]:
+    """One occurrence produced by calling or instantiating an experiment module."""
+
     module: ModuleHandle
     instance_id: str
+    _result: ResultT = field(repr=False, compare=False)
     inputs: Mapping[str, ValueRef] = field(default_factory=empty_program_mapping)
     resource_bindings: Mapping[LogicalResourcePortId, LogicalResourcePortId] = field(
         default_factory=_empty_resource_bindings
@@ -64,11 +67,6 @@ class ModuleInvocation[ResultT]:
         repr=False,
         compare=False,
     )
-    _result: ResultT = field(repr=False, compare=False)
-
-    def __init__(self) -> None:
-        msg = "ModuleInvocation is created by calling or instantiating a module"
-        raise TypeError(msg)
 
     @property
     def invocation_key(self) -> InvocationKey:
@@ -86,20 +84,10 @@ class ModuleInvocation[ResultT]:
     def _product_refs_internal(self) -> ProductRefs:
         """Return every product visible to compiler projection."""
 
-        relative_ports = self.module.definition.products
-        return ProductRefs(
-            {
-                port.qualified_id: ProductRef(
-                    product_id=port.symbol_id.prefixed(self.instance_id),
-                    origin=(self._key, *port.target_origin),
-                    _recording=(
-                        None
-                        if port.recording is None
-                        else port.recording.prefixed(self.instance_id)
-                    ),
-                )
-                for port in relative_ports
-            }
+        return _invocation_product_refs(
+            self.module,
+            instance_id=self.instance_id,
+            key=self._key,
         )
 
 
@@ -113,34 +101,56 @@ def create_module_invocation[ResultT](
 ) -> ModuleInvocation[ResultT]:
     """Close values validated and normalized by ``ExperimentModule``."""
 
-    invocation = cast(
-        "ModuleInvocation[ResultT]",
-        object.__new__(ModuleInvocation),
+    key = InvocationKey.fresh()
+    product_refs = _invocation_product_refs(
+        module,
+        instance_id=instance_id,
+        key=key,
     )
-    object.__setattr__(invocation, "module", module)
-    object.__setattr__(invocation, "instance_id", instance_id)
-    object.__setattr__(invocation, "inputs", inputs)
-    object.__setattr__(invocation, "resource_bindings", resource_bindings)
-    object.__setattr__(invocation, "_key", InvocationKey.fresh())
-    object.__setattr__(
-        invocation,
-        "_result",
-        relocate_module_result(
-            result,
-            product_sources=module._product_refs_internal.values(),
-            product_targets=invocation._product_refs_internal.values(),
-            value_sources=(port.source for port in module.definition.interface.exports),
-            value_targets=(
-                internal_module_export_value_ref(
-                    invocation._key,
-                    port.id,
-                    port.value_type,
-                )
-                for port in module.definition.interface.exports
-            ),
+    relocated_result = relocate_module_result(
+        result,
+        product_sources=module._product_refs_internal.values(),
+        product_targets=product_refs.values(),
+        value_sources=(port.source for port in module.definition.interface.exports),
+        value_targets=(
+            internal_module_export_value_ref(
+                key,
+                port.id,
+                port.value_type,
+            )
+            for port in module.definition.interface.exports
         ),
     )
-    return invocation
+    return ModuleInvocation(
+        module=module,
+        instance_id=instance_id,
+        _result=relocated_result,
+        inputs=inputs,
+        resource_bindings=resource_bindings,
+        _key=key,
+    )
+
+
+def _invocation_product_refs(
+    module: ModuleHandle,
+    *,
+    instance_id: str,
+    key: InvocationKey,
+) -> ProductRefs:
+    return ProductRefs(
+        {
+            port.qualified_id: ProductRef(
+                product_id=port.symbol_id.prefixed(instance_id),
+                origin=(key, *port.target_origin),
+                _recording=(
+                    None
+                    if port.recording is None
+                    else port.recording.prefixed(instance_id)
+                ),
+            )
+            for port in module.definition.products
+        }
+    )
 
 
 def module_instance[ResultT](
@@ -168,7 +178,7 @@ def module_use_invocation(
     selected: object,
 ) -> ModuleInvocation[object]:
     if isinstance(selected, ModuleInvocation):
-        return selected
+        return cast("ModuleInvocation[object]", selected)
     msg = "module composition requires a ModuleInvocation"
     raise TypeError(msg)
 

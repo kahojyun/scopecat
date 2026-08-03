@@ -17,23 +17,17 @@ from scopecat.authoring._module_results import relocate_module_result
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_type_compatibility import require_assignable
-from scopecat.program.bindings import BindingIntent, InvocationIntent
 from scopecat.program.input_capture import capture_module_inputs
-from scopecat.program.module import (
-    ModuleDef,
-    ModuleEffect,
-    ModulePythonImplementation,
-)
-from scopecat.program.operations import ModuleInputPort, ModuleOperationDecl
-from scopecat.program.products import ModuleProductDecl, ProductRef, ProductRefs
+from scopecat.program.module import ModuleDef
+from scopecat.program.products import ProductRef, ProductRefs
 from scopecat.program.value_refs import ValueRef, internal_literal_value_ref
 from scopecat.program.value_types import ValueType
 from scopecat.program.values import MetadataValue, ModuleInput
 
 
-@dataclass(frozen=True, slots=True, repr=False, init=False)
+@dataclass(frozen=True, slots=True, repr=False)
 class ExperimentModule[ResultT, **P]:
-    """One closed module definition with a single Python call contract."""
+    """Reusable handle returned by ``@module``; calling it creates an occurrence."""
 
     _module_def: ModuleDef = field(repr=False)
     _authoring_fn: Callable[P, ResultT] = field(
@@ -42,10 +36,6 @@ class ExperimentModule[ResultT, **P]:
     )
     _signature: inspect.Signature = field(repr=False, compare=False)
     _result: ResultT = field(repr=False, compare=False)
-
-    def __init__(self) -> None:
-        msg = "ExperimentModule is created by @module"
-        raise TypeError(msg)
 
     @property
     def definition(self) -> ModuleDef:
@@ -56,38 +46,6 @@ class ExperimentModule[ResultT, **P]:
     @property
     def id(self) -> str:
         return self._module_def.id
-
-    @property
-    def input_ports(self) -> tuple[ModuleInputPort, ...]:
-        return self._module_def.interface.imports
-
-    @property
-    def bindings(self) -> tuple[BindingIntent, ...]:
-        return self._module_def.body.bindings
-
-    @property
-    def invocations(self) -> tuple[InvocationIntent, ...]:
-        return self._module_def.body.invocations
-
-    @property
-    def effects(self) -> tuple[ModuleEffect, ...]:
-        return self._module_def.body.effects
-
-    @property
-    def operations(self) -> tuple[ModuleOperationDecl, ...]:
-        return self._module_def.body.operations
-
-    @property
-    def python_implementations(self) -> tuple[ModulePythonImplementation, ...]:
-        """Return local implementations stored outside the semantic body."""
-
-        return self._module_def.python_implementations
-
-    @property
-    def product_declarations(self) -> tuple[ModuleProductDecl, ...]:
-        """Local product declarations consumed by the flattening pass."""
-
-        return self._module_def.body.products
 
     @property
     def metadata(self) -> Mapping[str, MetadataValue]:
@@ -229,17 +187,7 @@ class ExperimentModule[ResultT, **P]:
     def _product_refs_internal(self) -> ProductRefs:
         """Return every product visible to compiler projection."""
 
-        ports = self._module_def.products
-        return ProductRefs(
-            {
-                port.qualified_id: ProductRef(
-                    product_id=port.symbol_id,
-                    origin=port.target_origin,
-                    _recording=port.recording,
-                )
-                for port in ports
-            }
-        )
+        return _definition_product_refs(self._module_def)
 
 
 def create_experiment_module_internal[ResultT, **P](
@@ -251,31 +199,34 @@ def create_experiment_module_internal[ResultT, **P](
 ) -> ExperimentModule[ResultT, P]:
     """Close one module definition behind its authoring handle."""
 
-    module = cast(
-        "ExperimentModule[ResultT, P]",
-        object.__new__(ExperimentModule),
-    )
-    object.__setattr__(module, "_module_def", module_def)
-    object.__setattr__(module, "_authoring_fn", definition)
-    definition_products = module._product_refs_internal
+    definition_products = _definition_product_refs(module_def)
     value_exports = module_def.interface.exports
-    object.__setattr__(
-        module,
-        "_result",
-        relocate_module_result(
-            result,
-            product_sources=definition_products.values(),
-            product_targets=definition_products.values(),
-            value_sources=(export.source for export in value_exports),
-            value_targets=(export.source for export in value_exports),
-        ),
+    relocated_result = relocate_module_result(
+        result,
+        product_sources=definition_products.values(),
+        product_targets=definition_products.values(),
+        value_sources=(export.source for export in value_exports),
+        value_targets=(export.source for export in value_exports),
     )
-    object.__setattr__(
-        module,
-        "_signature",
-        signature.replace(return_annotation=ModuleInvocation),
+    return ExperimentModule(
+        _module_def=module_def,
+        _authoring_fn=definition,
+        _signature=signature.replace(return_annotation=ModuleInvocation),
+        _result=relocated_result,
     )
-    return module
+
+
+def _definition_product_refs(module_def: ModuleDef) -> ProductRefs:
+    return ProductRefs(
+        {
+            port.qualified_id: ProductRef(
+                product_id=port.symbol_id,
+                origin=port.target_origin,
+                _recording=port.recording,
+            )
+            for port in module_def.products
+        }
+    )
 
 
 def _module_input_value_ref(

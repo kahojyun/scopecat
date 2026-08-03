@@ -18,8 +18,7 @@ from scopecat.program.module import (
     ModuleInterface,
     ModulePythonImplementation,
 )
-from scopecat.program.products import RecordSelection
-from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
+from scopecat.program.recording import ProgramRecordSelection
 from scopecat.program.scans import Scan
 from scopecat.program.values import (
     MetadataValue,
@@ -78,22 +77,6 @@ class ExperimentDef:
         if len(product_ids) != len(set(product_ids)):
             raise ValueError("experiment definition contains duplicate product ids")
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
-
-    @property
-    def product_record_selections(self) -> tuple[RecordSelection, ...]:
-        return tuple(
-            selection
-            for selection in self.record_selections
-            if isinstance(selection, RecordSelection)
-        )
-
-    @property
-    def value_record_selections(self) -> tuple[ValueRecordSelection, ...]:
-        return tuple(
-            selection
-            for selection in self.record_selections
-            if isinstance(selection, ValueRecordSelection)
-        )
 
 
 @dataclass(frozen=True, slots=True, repr=False)

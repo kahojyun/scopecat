@@ -19,6 +19,7 @@ from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.products import (
     ModuleProductDecl,
+    RecordSelection,
     product_axis,
     product_axis_dimension_id,
 )
@@ -602,7 +603,8 @@ def test_root_module_products_are_typed_template_refs() -> None:
         experiment.run(call)
         experiment.record(call.result)
 
-    selection = template_definition.definition.product_record_selections[0]
+    [selection] = template_definition.definition.record_selections
+    assert isinstance(selection, RecordSelection)
     assert selection.product_id == ProductId(
         SymbolId(scope=("source",), local_id="signal")
     )

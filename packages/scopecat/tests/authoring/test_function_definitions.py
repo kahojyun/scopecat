@@ -42,7 +42,9 @@ def test_module_decorator_injects_one_explicit_context() -> None:
     assert elaborations == 1
     assert count_source.id.endswith(".count_source")
     assert count_source.metadata["description"] == "Expose the selected count."
-    assert count_source.input_ports[0].value_type == sc.ScalarType(_COUNT_TYPE)
+    assert count_source.definition.interface.imports[0].value_type == sc.ScalarType(
+        _COUNT_TYPE
+    )
     signature = inspect.signature(count_source)
     assert tuple(signature.parameters) == ("count",)
     assert signature.return_annotation is sc.ModuleInvocation

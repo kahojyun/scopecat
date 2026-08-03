@@ -10,6 +10,7 @@ from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
+from scopecat.program.products import RecordSelection
 
 from scopecat_quantum import authoring
 from scopecat_quantum.gates import GateCall, GateParameterKind
@@ -295,9 +296,9 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
         context.record(placed.results.iq_shots)
 
     invocation = experiment()
-    assert invocation.definition.product_record_selections[
-        0
-    ].product_id.qualified_name == ("call/iq_shots")
+    [selection] = invocation.definition.record_selections
+    assert isinstance(selection, RecordSelection)
+    assert selection.product_id.qualified_name == "call/iq_shots"
 
 
 def test_program_call_validates_bound_values_and_shot_count() -> None:

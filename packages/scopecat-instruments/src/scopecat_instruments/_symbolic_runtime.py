@@ -23,7 +23,7 @@ from scopecat.kernel.entity import EntityRef, entity_identity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.results import MeasurementDType
 from scopecat.program.products import ProductAxis, ProductRecording, ProductRef
-from scopecat.program.state import DesiredState, StateBinding
+from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     internal_literal_value_ref,
     internal_value_ref_point_dependencies,
@@ -38,8 +38,6 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.instruments.declarations import (
     state_projection_assignments,
-    state_projection_target,
-    target_from_state_projection_assignments,
 )
 
 from scopecat_instruments._client_runtime import (
@@ -63,7 +61,11 @@ class _SymbolicInstrumentRecorder(Protocol):
         for_entities: Sequence[ValueRef],
     ) -> DefinitionResource: ...
 
-    def _ensure(self, resource: DefinitionResource, target: DesiredState) -> None: ...
+    def _ensure(
+        self,
+        resource: DefinitionResource,
+        assignments: Mapping[PropertyRef, StateBinding],
+    ) -> None: ...
 
     def _invoke(
         self,
@@ -119,9 +121,11 @@ class SymbolicInstrumentClientBase:
     def id(self) -> str:
         return self._resource.id
 
-    def _ensure(self, target: DesiredState) -> None:
-        assignments = target.target_assignments()
-        self._recorder._ensure(self._resource, target)
+    def _ensure(
+        self,
+        assignments: Mapping[PropertyRef, StateBinding],
+    ) -> None:
+        self._recorder._ensure(self._resource, assignments)
         self._state_assignments.update(assignments)
 
     def _invoke(
@@ -202,17 +206,20 @@ class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
         self._ensure_projected_state(projected)
 
     def _ensure_projected_state(self, state: StateT, /) -> None:
-        self._ensure(self._desired_state_target(state))
+        self._ensure(self._projected_state_assignments(state))
 
     def finalization_targets(
         self,
         state: StateT,
         /,
     ) -> tuple[FinalizationTarget, ...]:
-        return ((self._resource, self._desired_state_target(state)),)
+        return ((self._resource, self._projected_state_assignments(state)),)
 
-    def _desired_state_target(self, state: StateT) -> DesiredState:
-        return state_projection_target(state)
+    def _projected_state_assignments(
+        self,
+        state: StateT,
+    ) -> Mapping[PropertyRef, StateBinding]:
+        return state_projection_assignments(state)
 
 
 class _SymbolicClientFactory[ClientT: SymbolicInstrumentClientBase](Protocol):
@@ -226,6 +233,13 @@ class _SymbolicClientFactory[ClientT: SymbolicInstrumentClientBase](Protocol):
 
 
 class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
+    """Entity-keyed scalar clients exposed through one instrument vocabulary.
+
+    Generated group methods broadcast scalar arguments and exact-join
+    ``PerEntity`` arguments before recording effects. The group is authoring
+    sugar over independently routable scalar resources, not a vector driver.
+    """
+
     __slots__ = ("_clients", "_entities", "_id")
 
     def __init__(
@@ -278,6 +292,8 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
         value: ValueT | PerEntity[ValueT],
         /,
     ) -> PerEntity[ValueT]:
+        """Broadcast a scalar or align every value by complete entity identity."""
+
         return self._entities.align(value)
 
 
@@ -306,8 +322,8 @@ class DeclaredStateSymbolicGroupBase[
         state: GroupStateT | PerEntity[StateT],
         /,
     ) -> None:
-        for entity, target in self._aligned_targets(state):
-            self._state_client(entity)._ensure(target)
+        for entity, assignments in self._aligned_state_assignments(state):
+            self._state_client(entity)._ensure(assignments)
 
     def finalization_targets(
         self,
@@ -315,18 +331,21 @@ class DeclaredStateSymbolicGroupBase[
         /,
     ) -> tuple[FinalizationTarget, ...]:
         return tuple(
-            (self._state_client(entity)._resource, target)
-            for entity, target in self._aligned_targets(state)
+            (self._state_client(entity)._resource, assignments)
+            for entity, assignments in self._aligned_state_assignments(state)
         )
 
-    def _aligned_targets(
+    def _aligned_state_assignments(
         self,
         state: GroupStateT | PerEntity[StateT],
-    ) -> tuple[tuple[EntityRef, DesiredState], ...]:
+    ) -> tuple[
+        tuple[EntityRef, Mapping[PropertyRef, StateBinding]],
+        ...,
+    ]:
         if isinstance(state, PerEntity):
             projections = self._align(cast("PerEntity[StateT]", state))
             return tuple(
-                (entity, state_projection_target(projection))
+                (entity, state_projection_assignments(projection))
                 for entity, projection in projections.items()
             )
 
@@ -341,12 +360,10 @@ class DeclaredStateSymbolicGroupBase[
         return tuple(
             (
                 entity,
-                target_from_state_projection_assignments(
-                    {
-                        property_ref: values[entity]
-                        for property_ref, values in aligned.items()
-                    }
-                ),
+                {
+                    property_ref: values[entity]
+                    for property_ref, values in aligned.items()
+                },
             )
             for entity in self._entities
         )

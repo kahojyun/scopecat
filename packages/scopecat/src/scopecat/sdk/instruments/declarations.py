@@ -43,7 +43,7 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
 from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
-from scopecat.program.state import DesiredState, StateBinding
+from scopecat.program.state import StateBinding
 from scopecat.sdk.instruments.contracts import (
     AcquisitionAxisSpec,
     AcquisitionPreconditionSpec,
@@ -341,16 +341,6 @@ class DeclaredInterfaceLayout[InterfaceT]:
     state: DeclaredStateLayout | None
 
 
-@dataclass(frozen=True, slots=True)
-class _ProjectedStateAssignmentsTarget:
-    """Internal desired-state adapter for already-projected assignments."""
-
-    assignments: Mapping[PropertyRef, StateBinding]
-
-    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
-        return self.assignments
-
-
 def member(
     *,
     id: str | None = None,
@@ -387,7 +377,12 @@ def member_field[ValueT](
     maximum: float | None = None,
     choices: Sequence[str] | None = None,
 ) -> ValueT:  # pyright: ignore[reportInvalidTypeVarUse]
-    """Declare one required concrete state field and its instrument metadata."""
+    """Declare one required concrete state field and its instrument metadata.
+
+    Interface state describes a complete driver-facing snapshot, so the Python
+    annotation is the concrete ``T``. Generated patch and target carriers add
+    omission where live transitions or symbolic effects need sparse updates.
+    """
 
     metadata = {
         _FIELD_DECLARATION_METADATA: member(
@@ -572,7 +567,12 @@ def axis(
     kw_only_default=True,
 )
 def instrument_state[ClassT](cls: type[ClassT], /) -> type[ClassT]:
-    """Create an immutable concrete instrument-state schema dataclass."""
+    """Create an immutable concrete instrument-state schema dataclass.
+
+    Use this for the state a driver can read or report in full. Optionality is
+    ordinary domain optionality, not a marker for an omitted device update.
+    Sparse generated patch and target types are derived from this schema.
+    """
 
     declared = dataclass(frozen=True, slots=True, kw_only=True)(cls)
     setattr(declared, _STATE_METADATA, True)
@@ -604,7 +604,12 @@ def instrument_state_projection[ClassT](
     kw_only_default=True,
 )
 def instrument_result[ClassT](cls: type[ClassT], /) -> type[ClassT]:
-    """Create an immutable, slotted, keyword-only acquisition result dataclass."""
+    """Create an immutable, slotted acquisition-result dataclass.
+
+    Field roles and axes form one acquisition bundle. Live clients return the
+    concrete fields together; symbolic clients preserve the same bundle as
+    related dataset products when it is recorded.
+    """
 
     declared = dataclass(frozen=True, slots=True, kw_only=True)(cls)
     setattr(declared, _RESULT_METADATA, True)
@@ -618,7 +623,12 @@ def instrument_interface[ClassT: type[object]](
     label: str | None = None,
     description: str | None = None,
 ) -> Callable[[ClassT], ClassT]:
-    """Attach stable interface identity and state metadata to a typed class."""
+    """Attach instrument identity to an authored ``Protocol`` or ABC.
+
+    The decorator preserves the Python class. Decorated methods define typed
+    operation and acquisition members; ``compile_interface`` is the explicit
+    boundary that lowers those declarations to wire and driver contracts.
+    """
 
     declaration = InterfaceMetadata(
         id=id,
@@ -663,7 +673,11 @@ def acquisition[**P, ReturnT](
     description: str | None = None,
     preconditions: Sequence[PreconditionMetadata] = (),
 ) -> Callable[[Callable[P, ReturnT]], Callable[P, ReturnT]]:
-    """Mark an existing method as an acquisition without wrapping it."""
+    """Mark an existing method as a bundled acquisition without wrapping it.
+
+    The method's decorated result type owns variable roles. ``axes`` declares
+    dimensions shared by those fields, including sizes derived from state.
+    """
 
     declaration = AcquisitionMetadata(
         id=id,
@@ -842,23 +856,6 @@ def state_projection_assignments(
         if value is not _STATE_PROJECTION_OMITTED:
             assignments[projected_field.ref] = cast("StateBinding", value)
     return assignments
-
-
-def target_from_state_projection_assignments(
-    assignments: Mapping[PropertyRef, StateBinding],
-    /,
-) -> DesiredState:
-    """Adapt an already-projected property-assignment mapping to ``DesiredState``."""
-
-    return _ProjectedStateAssignmentsTarget(assignments)
-
-
-def state_projection_target(projection: object) -> DesiredState:
-    """Encode a generated projection as a ``DesiredState`` target."""
-
-    return target_from_state_projection_assignments(
-        state_projection_assignments(projection)
-    )
 
 
 def declared_interface_layout[InterfaceT](
@@ -1950,6 +1947,4 @@ __all__ = [
     "state_field",
     "state_projection_assignments",
     "state_projection_field",
-    "state_projection_target",
-    "target_from_state_projection_assignments",
 ]

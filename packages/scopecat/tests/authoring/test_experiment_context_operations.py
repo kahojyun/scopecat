@@ -8,6 +8,7 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource
+from scopecat.authoring.finalization import FinalizationTarget
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.measurements.results import MeasurementValue
 from scopecat.program.logical import (
@@ -34,11 +35,15 @@ class _DeviceTarget:
     level: StateBinding
     enabled: StateBinding
 
-    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
-        return {
-            _DEVICE_LEVEL: self.level,
-            _DEVICE_ENABLED: self.enabled,
-        }
+
+def _device_assignments(
+    state: _DeviceTarget,
+    /,
+) -> Mapping[PropertyRef, StateBinding]:
+    return {
+        _DEVICE_LEVEL: state.level,
+        _DEVICE_ENABLED: state.enabled,
+    }
 
 
 @dataclass(frozen=True)
@@ -49,8 +54,8 @@ class _TypedDevice:
         self,
         state: _DeviceTarget,
         /,
-    ) -> tuple[sc.FinalizationTarget, ...]:
-        return ((self.resource, state),)
+    ) -> tuple[FinalizationTarget, ...]:
+        return ((self.resource, _device_assignments(state)),)
 
 
 def _build_trigger(*, level: object) -> object:
@@ -76,7 +81,7 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
         )
         experiment._ensure(
             device,
-            _DeviceTarget(level=level, enabled=True),
+            _device_assignments(_DeviceTarget(level=level, enabled=True)),
         )
         experiment._bind_property(device, _DEVICE_MODE, value="measurement")
         experiment._invoke(

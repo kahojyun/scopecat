@@ -8,6 +8,7 @@ import scopecat as sc
 from scopecat.compiler.frontend.parameter_contract_validation import (
     validate_parameter_contracts,
 )
+from scopecat.program.products import RecordSelection
 from scopecat.program.value_refs import (
     internal_value_ref_parameter_contracts,
     internal_value_ref_parameter_lookup,
@@ -240,14 +241,17 @@ def test_experiment_record_expands_per_entity_products_in_declaration_order() ->
         input_defaults={},
         required_inputs=(),
     )
-    assert [
-        selection.product_id.qualified_name
-        for selection in definition.product_record_selections
-    ] == ["first", "second"]
-    assert [selection.role for selection in definition.product_record_selections] == [
-        "observable",
-        "observable",
+    selections = tuple(
+        selection
+        for selection in definition.record_selections
+        if isinstance(selection, RecordSelection)
+    )
+    assert len(selections) == len(definition.record_selections)
+    assert [selection.product_id.qualified_name for selection in selections] == [
+        "first",
+        "second",
     ]
+    assert [selection.role for selection in selections] == ["observable", "observable"]
 
 
 def test_per_entity_record_id_still_requires_one_expanded_product() -> None:
@@ -294,6 +298,6 @@ def test_record_namespace_is_non_empty_and_exclusive_with_record_id() -> None:
         input_defaults={},
         required_inputs=(),
     )
-    assert [
-        selection.record_id for selection in definition.product_record_selections
-    ] == ["calibration/first/readout/signal"]
+    [selection] = definition.record_selections
+    assert isinstance(selection, RecordSelection)
+    assert selection.record_id == "calibration/first/readout/signal"

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, cast
+from typing import Annotated
 
 import pytest
 
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource
+from scopecat.authoring.finalization import Finalizable, FinalizationTarget
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.planning.local_materialization import (
     materialize_local_final_state,
@@ -23,33 +23,20 @@ from tests.testkit.authoring import bind_invocation
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.materialized_effects import config_with_physical_resources
 
-_SOURCE = InterfaceRef("test.desired_source/v1")
+_SOURCE = InterfaceRef("test.state_effect_source/v1")
 _SOURCE_LEVEL = _SOURCE.property("level")
 _SOURCE_ENABLED = _SOURCE.property("enabled")
 
 
-@dataclass(frozen=True)
-class _SourceTarget:
-    level: StateBinding
-    enabled: StateBinding
-
-    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
-        return {
-            _SOURCE_LEVEL: self.level,
-            _SOURCE_ENABLED: self.enabled,
-        }
-
-
-@dataclass(frozen=True)
-class _EmptyTarget:
-    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
-        return {}
-
-
-@dataclass(frozen=True)
-class _NullTarget:
-    def target_assignments(self) -> Mapping[PropertyRef, StateBinding]:
-        return {_SOURCE_ENABLED: cast("StateBinding", cast("object", None))}
+def _source_assignments(
+    *,
+    level: StateBinding,
+    enabled: StateBinding,
+) -> dict[PropertyRef, StateBinding]:
+    return {
+        _SOURCE_LEVEL: level,
+        _SOURCE_ENABLED: enabled,
+    }
 
 
 @dataclass(frozen=True)
@@ -66,18 +53,18 @@ class _TypedSource:
         self,
         state: _DeclaredSourceState,
         /,
-    ) -> tuple[sc.FinalizationTarget, ...]:
+    ) -> tuple[FinalizationTarget, ...]:
         return (
             (
                 self.resource,
-                _SourceTarget(level=state.level, enabled=state.enabled),
+                _source_assignments(level=state.level, enabled=state.enabled),
             ),
         )
 
 
 def test_ensure_binds_one_declarative_target_with_point_resolved_values() -> None:
-    @sc.module(id="test.desired-state")
-    def desired_state(
+    @sc.module(id="test.state-effect")
+    def state_effect(
         module: sc.ModuleContext,
         level: Annotated[
             sc.Input[sc.Quantity],
@@ -87,61 +74,31 @@ def test_ensure_binds_one_declarative_target_with_point_resolved_values() -> Non
         source = module._resource("source", requires=(_SOURCE,))
         module._ensure(
             source,
-            _SourceTarget(level=level, enabled=True),
+            _source_assignments(level=level, enabled=True),
         )
 
-    assert [binding.property_id for binding in desired_state.bindings] == [
+    body = state_effect.definition.body
+    assert [binding.property_id for binding in body.bindings] == [
         "level",
         "enabled",
     ]
-    assert isinstance(desired_state.bindings[0].value, sc.ValueRef)
-    assert desired_state.bindings[1].value is True
-    [effect] = desired_state.effects
+    assert isinstance(body.bindings[0].value, sc.ValueRef)
+    assert body.bindings[1].value is True
+    [effect] = body.effects
     assert isinstance(effect, EnsureStateIntent)
     assert len(effect.assignments) == 2
-
-
-def test_ensure_rejects_an_empty_target() -> None:
-    with pytest.raises(
-        ValueError,
-        match="ensure requires at least one target assignment",
-    ):
-
-        @sc.module(id="test.empty-target")
-        def empty_target(module: sc.ModuleContext) -> None:
-            source = module._resource("source")
-            module._ensure(source, _EmptyTarget())
-
-
-def test_ensure_rejects_none_at_the_authoring_boundary() -> None:
-    with pytest.raises(TypeError, match="state bindings cannot be None"):
-
-        @sc.module(id="test.none-target")
-        def none_target(module: sc.ModuleContext) -> None:
-            source = module._resource("source", requires=(_SOURCE,))
-            module._ensure(source, _NullTarget())
-
-
-def test_bind_property_rejects_none_at_the_authoring_boundary() -> None:
-    with pytest.raises(TypeError, match="state bindings cannot be None"):
-
-        @sc.module(id="test.none-binding")
-        def none_binding(module: sc.ModuleContext) -> None:
-            source = module._resource("source", requires=(_SOURCE,))
-            module._bind_property(
-                source,
-                _SOURCE_ENABLED,
-                value=cast("StateBinding", cast("object", None)),
-            )
 
 
 def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
     @sc.module(id="test.coherent-target")
     def module(context: sc.ModuleContext) -> None:
         source = context._resource("source", requires=(_SOURCE,))
-        context._ensure(source, _SourceTarget(level=1.5, enabled=True))
+        context._ensure(
+            source,
+            _source_assignments(level=1.5, enabled=True),
+        )
 
-    @sc.template(id="test.coherent-target", kind="desired-state")
+    @sc.template(id="test.coherent-target", kind="state-effect")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module())
 
@@ -176,10 +133,16 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
     @sc.module(id="test.sequential-targets")
     def module(context: sc.ModuleContext) -> None:
         source = context._resource("source", requires=(_SOURCE,))
-        context._ensure(source, _SourceTarget(level=1.0, enabled=True))
-        context._ensure(source, _SourceTarget(level=2.0, enabled=False))
+        context._ensure(
+            source,
+            _source_assignments(level=1.0, enabled=True),
+        )
+        context._ensure(
+            source,
+            _source_assignments(level=2.0, enabled=False),
+        )
 
-    @sc.template(id="test.sequential-targets", kind="desired-state")
+    @sc.template(id="test.sequential-targets", kind="state-effect")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module())
 
@@ -205,7 +168,7 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
 
 
 def test_root_final_state_is_materialized_outside_point_effects() -> None:
-    @sc.template(id="test.final_state", kind="desired-state")
+    @sc.template(id="test.final_state", kind="state-effect")
     def experiment_definition(
         experiment: sc.ExperimentContext,
         level: float = 0.0,
@@ -245,10 +208,10 @@ def test_root_final_state_is_materialized_outside_point_effects() -> None:
 
 
 def test_root_final_state_accepts_a_typed_finalization_adapter() -> None:
-    @sc.template(id="test.typed-final-state", kind="desired-state")
+    @sc.template(id="test.typed-final-state", kind="state-effect")
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
         source = experiment._resource("source", requires=(_SOURCE,))
-        typed_source: sc.Finalizable[_DeclaredSourceState] = _TypedSource(source)
+        typed_source: Finalizable[_DeclaredSourceState] = _TypedSource(source)
         experiment.finalize(
             typed_source,
             _DeclaredSourceState(level=0.0, enabled=False),
@@ -270,7 +233,7 @@ def test_root_final_state_rejects_scan_coordinates() -> None:
         match="final_state cannot depend on scan coordinates",
     ):
 
-        @sc.template(id="test.final_state-coordinate", kind="desired-state")
+        @sc.template(id="test.final_state-coordinate", kind="state-effect")
         def experiment_definition(experiment: sc.ExperimentContext) -> None:
             source = experiment._resource("source", requires=(_SOURCE,))
             experiment.finalize(

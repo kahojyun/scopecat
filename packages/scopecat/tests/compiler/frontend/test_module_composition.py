@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 import scopecat as sc
 from scopecat.authoring import MetadataValue
@@ -76,7 +77,7 @@ def _composable_module() -> sc.ExperimentModule[sc.ValueRef, ...]:
 
 def _compose_module(
     id: str,
-    *parts: sc.ModuleInvocation[object],
+    *parts: sc.ModuleInvocation[Any],
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> sc.ExperimentModule[None, ...]:
     @sc.module(id=id, metadata=metadata)
