@@ -13,6 +13,7 @@ from scopecat.kernel.content_identity import content_fingerprint, stable_content
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import thaw_json_value
+from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
@@ -20,16 +21,23 @@ from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import (
+    BoundRecordUse,
+    DatasetRecordPlan,
     RecordPlan,
     RecordUse,
+    ValueRecordCandidate,
+    ValueRecordPlan,
+    ValueRecordUse,
     expected_dataset_schema,
     plan_records,
+    plan_value_records,
     validate_record_plan,
 )
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCatalog,
 )
+from scopecat.program.value_graph import ValueId
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementDatasetSchema,
@@ -45,16 +53,27 @@ class MeasurementProjection:
     """Closed pre-effect plan for durable measurement variables."""
 
     catalog: MeasurementValueCatalog = field(repr=False)
-    _records: tuple[RecordPlan, ...] = field(repr=False)
+    _records: tuple[DatasetRecordPlan, ...] = field(repr=False)
+    _static_value_candidates: tuple[ValueRecordCandidate, ...] = field(
+        repr=False,
+        compare=False,
+    )
     contract_fingerprint: str
 
     def __init__(
         self,
         catalog: MeasurementValueCatalog,
-        records: tuple[RecordPlan, ...],
+        records: tuple[DatasetRecordPlan, ...],
+        *,
+        static_value_candidates: Sequence[ValueRecordCandidate] = (),
     ) -> None:
         object.__setattr__(self, "catalog", catalog)
         object.__setattr__(self, "_records", records)
+        object.__setattr__(
+            self,
+            "_static_value_candidates",
+            tuple(static_value_candidates),
+        )
         object.__setattr__(
             self,
             "contract_fingerprint",
@@ -66,8 +85,22 @@ class MeasurementProjection:
         )
 
     @property
-    def records(self) -> tuple[RecordPlan, ...]:
+    def records(self) -> tuple[DatasetRecordPlan, ...]:
         return self._records
+
+    @property
+    def runtime_value_ids(self) -> tuple[ValueId, ...]:
+        return tuple(
+            dict.fromkeys(
+                record.value_id
+                for record in self.records
+                if isinstance(record, ValueRecordPlan) and record.requires_execution
+            )
+        )
+
+    @property
+    def static_value_candidates(self) -> tuple[ValueRecordCandidate, ...]:
+        return self._static_value_candidates
 
     @property
     def coordinate_ids(self) -> tuple[str, ...]:
@@ -131,18 +164,26 @@ class ProjectedMeasurementDataset:
 
 def select_measurement_projection(
     catalog: MeasurementValueCatalog,
-    record_uses: Sequence[RecordUse],
+    record_uses: Sequence[BoundRecordUse],
+    *,
+    static_value_candidates: Sequence[ValueRecordCandidate] = (),
 ) -> MeasurementProjection:
     """Close every record projection against one value catalog."""
 
     selected_records = tuple(record_uses)
+    product_records = tuple(
+        record for record in selected_records if isinstance(record, RecordUse)
+    )
+    value_records = tuple(
+        record for record in selected_records if isinstance(record, ValueRecordUse)
+    )
     product_uses = catalog.product_uses
     product_defs = catalog.product_defs
     use_by_id = {use.id: use for use in product_uses}
     product_by_id = {product.id: product for product in product_defs}
     problems: list[Problem] = []
 
-    for index, record in enumerate(selected_records):
+    for index, record in enumerate(product_records):
         if not _record_product_exists(record, use_by_id, product_by_id):
             problems.append(
                 _projection_problem(
@@ -155,12 +196,19 @@ def select_measurement_projection(
         raise CheckFailed(problems)
 
     coordinate_ids = catalog.point_contract.coordinate_ids
-    record_plans = tuple(
+    product_record_iterator = iter(
         plan_records(
             product_defs,
             product_uses,
-            selected_records,
+            product_records,
         )
+    )
+    value_record_iterator = iter(plan_value_records(value_records))
+    record_plans: tuple[DatasetRecordPlan, ...] = tuple(
+        next(product_record_iterator)
+        if isinstance(record, RecordUse)
+        else next(value_record_iterator)
+        for record in selected_records
     )
     record_problems = validate_record_plan(
         record_plans,
@@ -171,6 +219,7 @@ def select_measurement_projection(
     return MeasurementProjection(
         catalog,
         record_plans,
+        static_value_candidates=static_value_candidates,
     )
 
 
@@ -180,6 +229,7 @@ def project_measurement_records(
     *,
     run_id: str,
     points: Sequence[RunPoint],
+    value_candidates: Sequence[ValueRecordCandidate] = (),
 ) -> ProjectedMeasurementDataset:
     """Project one closed admitted point range without changing product values."""
 
@@ -192,6 +242,13 @@ def project_measurement_records(
         raise ValueError(msg)
     record_plans = projection.records
     points = tuple(points)
+    value_candidates_by_key = {
+        (candidate.logical_point_id, candidate.value_id): candidate.value
+        for candidate in (
+            *projection.static_value_candidates,
+            *value_candidates,
+        )
+    }
     if not record_plans:
         records: tuple[MeasurementRecord, ...] = ()
     else:
@@ -206,6 +263,7 @@ def project_measurement_records(
                         record_plans,
                         role="coordinate",
                         product_values=values,
+                        value_candidates=value_candidates_by_key,
                         point=point,
                     ),
                 },
@@ -213,6 +271,7 @@ def project_measurement_records(
                     record_plans,
                     role="observable",
                     product_values=values,
+                    value_candidates=value_candidates_by_key,
                     point=point,
                 ),
                 acquisition_evidence=_projected_acquisition_evidence(
@@ -233,46 +292,75 @@ def project_measurement_records(
 
 def _projection_contract_fingerprint(
     catalog_fingerprint: str,
-    records: Sequence[RecordPlan],
+    records: Sequence[DatasetRecordPlan],
     coordinate_ids: Sequence[str],
 ) -> str:
     return stable_content_hash(
         content_fingerprint(
             {
-                "schema": "scopecat.measurements.projection_contract.v5",
+                "schema": "scopecat.measurements.projection_contract.v6",
                 "catalog_fingerprint": catalog_fingerprint,
-                "records": tuple(records),
+                "records": tuple(_record_contract(record) for record in records),
                 "coordinate_ids": tuple(coordinate_ids),
             }
         )
     )
 
 
-def _projected_values(
-    records: Sequence[RecordPlan],
-    *,
-    role: MeasurementVariableRole,
-    product_values: ClosedMeasurementProductValues,
-    point: RunPoint,
-) -> dict[str, MeasurementValue]:
+def _record_contract(record: DatasetRecordPlan) -> object:
+    if isinstance(record, RecordPlan):
+        return record
     return {
-        record.id: product_values.value_for_output(
-            point.logical_id,
-            record.product_use_id,
-        ).value
-        for record in records
-        if record.role == role
+        "kind": "value",
+        "id": record.id,
+        "source_value_id": record.source_value_id,
+        "dtype": record.dtype,
+        "requires_execution": record.requires_execution,
+        "role": record.role,
+        "unit": record.unit,
+        "metadata": record.metadata,
     }
 
 
+def _projected_values(
+    records: Sequence[DatasetRecordPlan],
+    *,
+    role: MeasurementVariableRole,
+    product_values: ClosedMeasurementProductValues,
+    value_candidates: Mapping[tuple[LogicalPointId, ValueId], CellValue],
+    point: RunPoint,
+) -> dict[str, MeasurementValue]:
+    projected: dict[str, MeasurementValue] = {}
+    for record in records:
+        if record.role != role:
+            continue
+        if isinstance(record, RecordPlan):
+            projected[record.id] = product_values.value_for_output(
+                point.logical_id,
+                record.product_use_id,
+            ).value
+            continue
+        try:
+            value = value_candidates[(point.logical_id, record.value_id)]
+        except KeyError as error:
+            raise ValueError(
+                f"recorded value {record.id!r} is unavailable for point "
+                f"{point.logical_ordinal}"
+            ) from error
+        projected[record.id] = _measurement_coordinate(value)
+    return projected
+
+
 def _projected_acquisition_evidence(
-    records: Sequence[RecordPlan],
+    records: Sequence[DatasetRecordPlan],
     *,
     product_values: ClosedMeasurementProductValues,
     point: RunPoint,
 ) -> dict[str, InstrumentAcquisitionEvidence]:
     acquisition_evidence: dict[str, InstrumentAcquisitionEvidence] = {}
     for record in records:
+        if not isinstance(record, RecordPlan):
+            continue
         evidence = product_values.value_for_output(
             point.logical_id,
             record.product_use_id,

@@ -43,7 +43,7 @@ from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
 )
-from scopecat.measurements.records import RecordUse
+from scopecat.measurements.records import BoundRecordUse
 from scopecat.measurements.results import MeasurementDType
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
@@ -291,7 +291,7 @@ def program_fixture(
     product_defs: Sequence[ProductDef] = (),
     instrument_acquisitions: Sequence[AcquireEffect] = (),
     product_uses: Sequence[ProductUse] = (),
-    record_uses: Sequence[RecordUse] = (),
+    record_uses: Sequence[BoundRecordUse] = (),
     effects: Sequence[EffectFixture] | None = None,
 ) -> ProgramFixture:
     """Build canonical logical semantics plus explicit config-derived facts."""

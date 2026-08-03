@@ -28,6 +28,10 @@ from scopecat.program.operations import ModuleInputPort
 from scopecat.program.parameters import ParameterContract
 from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl, RecordSelection
+from scopecat.program.recording import (
+    LogicalRecordSelection,
+    LogicalValueRecordSelection,
+)
 from scopecat.program.scans import AxisSpec
 from scopecat.program.table_values import TableSource
 from scopecat.program.value_refs import PointValueDependency, ValueRef
@@ -224,7 +228,7 @@ class LogicalProgram:
     point_dependencies: tuple[PointValueDependency, ...] = ()
     parameter_overlays: tuple[AxisSpec, ...] = ()
     product_declarations: tuple[ModuleProductDecl, ...] = ()
-    record_selections: tuple[RecordSelection, ...] = ()
+    record_selections: tuple[LogicalRecordSelection, ...] = ()
     parameter_contracts: tuple[ParameterContract, ...] = ()
     point_domain: PointAxes[ValueRef] = ()
     value_defs: tuple[ValueDef, ...] = ()
@@ -250,6 +254,22 @@ class LogicalProgram:
             self,
             "implementations",
             MappingProxyType(dict(self.implementations)),
+        )
+
+    @property
+    def product_record_selections(self) -> tuple[RecordSelection, ...]:
+        return tuple(
+            selection
+            for selection in self.record_selections
+            if isinstance(selection, RecordSelection)
+        )
+
+    @property
+    def value_record_selections(self) -> tuple[LogicalValueRecordSelection, ...]:
+        return tuple(
+            selection
+            for selection in self.record_selections
+            if isinstance(selection, LogicalValueRecordSelection)
         )
 
     @property

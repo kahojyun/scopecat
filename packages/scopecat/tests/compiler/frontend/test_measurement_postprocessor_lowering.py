@@ -69,7 +69,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         "scopecat.measurement-postprocessor/lowering/derive/input"
     )
     assert postprocessor.outputs[0].product_use_ids == tuple(
-        record.product_use_id for record in program.record_uses
+        record.product_use_id for record in program.product_record_uses
     )
     assert {use.product_id.qualified_name for use in program.product_uses} == {
         "lowering/raw",

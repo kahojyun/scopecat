@@ -19,6 +19,7 @@ from scopecat.program.module import (
     ModulePythonImplementation,
 )
 from scopecat.program.products import RecordSelection
+from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
 from scopecat.program.scans import Scan
 from scopecat.program.values import (
     MetadataValue,
@@ -66,7 +67,7 @@ class ExperimentDef:
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
     inputs: tuple[ExperimentInputDef, ...] = ()
     default_scans: tuple[Scan, ...] = ()
-    record_selections: tuple[RecordSelection, ...] = ()
+    record_selections: tuple[ProgramRecordSelection, ...] = ()
     final_state: EnsureStateIntent | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
@@ -77,6 +78,22 @@ class ExperimentDef:
         if len(product_ids) != len(set(product_ids)):
             raise ValueError("experiment definition contains duplicate product ids")
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
+
+    @property
+    def product_record_selections(self) -> tuple[RecordSelection, ...]:
+        return tuple(
+            selection
+            for selection in self.record_selections
+            if isinstance(selection, RecordSelection)
+        )
+
+    @property
+    def value_record_selections(self) -> tuple[ValueRecordSelection, ...]:
+        return tuple(
+            selection
+            for selection in self.record_selections
+            if isinstance(selection, ValueRecordSelection)
+        )
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -117,7 +134,7 @@ def create_experiment_def(
     interface: ModuleInterface,
     body: ModuleBody,
     python_implementations: Sequence[ModulePythonImplementation] = (),
-    record_selections: Sequence[RecordSelection] = (),
+    record_selections: Sequence[ProgramRecordSelection] = (),
     input_defaults: Mapping[str, RuntimeInput] | None = None,
     required_inputs: Sequence[str] = (),
     default_scans: Sequence[Scan] = (),

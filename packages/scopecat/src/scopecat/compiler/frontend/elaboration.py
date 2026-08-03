@@ -33,6 +33,8 @@ from scopecat.compiler.frontend.module_scoping import (
     localize_value_ref,
 )
 from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
+from scopecat.kernel.product_identity import parse_product_id
+from scopecat.kernel.value_types import Scalar
 from scopecat.program.bindings import (
     EnsureStateIntent,
     ResourcePort,
@@ -52,10 +54,15 @@ from scopecat.program.parameters import (
 from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import (
     ModuleProductDecl,
-    RecordSelection,
+)
+from scopecat.program.recording import (
+    LogicalRecordSelection,
+    LogicalValueRecordSelection,
+    ProgramRecordSelection,
+    ValueRecordSelection,
 )
 from scopecat.program.scans import AxisSpec, scan_parameter_contracts
-from scopecat.program.value_refs import ValueRef
+from scopecat.program.value_refs import ValueRef, internal_value_ref_record_id
 from scopecat.program.value_transforms import internal_bind_value_ref_inputs
 
 
@@ -216,13 +223,41 @@ def _elaborate_hierarchy(
     inputs: Mapping[str, object],
     logical_inputs: Mapping[str, object] | None = None,
     parameter_overlays: Sequence[AxisSpec] = (),
-    record_selections: Sequence[RecordSelection] = (),
+    record_selections: Sequence[ProgramRecordSelection] = (),
     additional_parameter_contracts: tuple[ParameterContract, ...] = (),
     point_domain: PointAxes[ValueRef] = (),
     final_state: EnsureStateIntent | None,
 ) -> LogicalProgram:
     composer = _LogicalProgramComposer()
     effects = composer.add_hierarchy(root)
+    root_resolver = ModuleValueResolver(root)
+    value_record_selections = tuple(
+        selection
+        for selection in record_selections
+        if isinstance(selection, ValueRecordSelection)
+    )
+    resolved_record_values = tuple(
+        root_resolver.resolve(selection.value) for selection in value_record_selections
+    )
+    resolved_value_records = tuple(
+        _resolve_value_record_selection(
+            selection,
+            value=value,
+            builder=composer.logical,
+        )
+        for selection, value in zip(
+            value_record_selections,
+            resolved_record_values,
+            strict=True,
+        )
+    )
+    value_record_iterator = iter(resolved_value_records)
+    logical_record_selections: tuple[LogicalRecordSelection, ...] = tuple(
+        next(value_record_iterator)
+        if isinstance(selection, ValueRecordSelection)
+        else selection
+        for selection in record_selections
+    )
     execution_ids = tuple(
         effect.id for effect in effects if isinstance(effect, DomainExecution)
     )
@@ -239,7 +274,11 @@ def _elaborate_hierarchy(
     )
     require_closed_logical_values(
         inputs,
-        (*value_roots, *final_state_values),
+        (
+            *value_roots,
+            *resolved_record_values,
+            *final_state_values,
+        ),
     )
     typed_inputs = {
         input_id: value
@@ -251,6 +290,7 @@ def _elaborate_hierarchy(
         for source in (
             *value_roots,
             *composer.dependency_roots,
+            *resolved_record_values,
             *final_state_values,
         )
         for value in nested_value_refs(source)
@@ -272,7 +312,7 @@ def _elaborate_hierarchy(
         point_dependencies=dependencies.point,
         parameter_overlays=parameter_overlays,
         product_declarations=tuple(composer.product_declarations),
-        record_selections=record_selections,
+        record_selections=logical_record_selections,
         parameter_contracts=merge_parameter_contracts(
             dependencies.parameters,
             additional_parameter_contracts,
@@ -287,4 +327,34 @@ def _elaborate_hierarchy(
                 scope=("final_state",),
             )
         ),
+    )
+
+
+def _resolve_value_record_selection(
+    selection: ValueRecordSelection,
+    *,
+    value: ValueRef,
+    builder: LogicalProgramBuilder,
+) -> LogicalValueRecordSelection:
+    if not isinstance(value.value_type, Scalar):
+        raise TypeError("dataset value records must be scalar")
+    default_id = internal_value_ref_record_id(value)
+    if selection.record_id is None and default_id is None:
+        raise ValueError("recording an unnamed symbolic expression requires record_id")
+    source_value_id = default_id or selection.record_id
+    if source_value_id is None:
+        raise AssertionError("value record identity was not resolved")
+    selected_id = (
+        selection.record_id
+        or parse_product_id(source_value_id)
+        .prefixed(*selection.namespace)
+        .qualified_name
+    )
+    return LogicalValueRecordSelection(
+        id=selected_id,
+        value_id=builder.add_value_root(value),
+        source_value_id=source_value_id,
+        value_type=value.value_type,
+        role=selection.role,
+        metadata=selection.metadata,
     )

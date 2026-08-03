@@ -380,9 +380,9 @@ def test_unselected_product_definition_survives_binding_without_collection() -> 
     assert tuple(use.product_id for use in bound.bindings.product_uses) == (
         selected_id,
     )
-    assert tuple(record.product_use_id for record in bound.bindings.record_uses) == (
-        bound.bindings.product_uses[0].id,
-    )
+    assert tuple(
+        record.product_use_id for record in bound.bindings.product_record_uses
+    ) == (bound.bindings.product_uses[0].id,)
     assert {
         product_use_id
         for operation in operations_of_type(plan, CollectOperation)

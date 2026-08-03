@@ -1888,10 +1888,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v5
+             * @default scopecat.measurement_dataset_schema.v6
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v5";
+            format_version: "scopecat.measurement_dataset_schema.v6";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
@@ -2005,6 +2005,7 @@ export interface components {
              */
             role: "coordinate" | "observable";
             source_product_id?: components["schemas"]["_NonEmptyText"] | null;
+            source_value_id?: components["schemas"]["_NonEmptyText"] | null;
             /** Unit */
             unit?: string | null;
         };

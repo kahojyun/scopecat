@@ -69,10 +69,10 @@ from scopecat.program.products import (
     ProductAxis,
     ProductRecording,
     ProductRef,
-    RecordSelection,
     record_coordinate,
     record_product,
 )
+from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
 from scopecat.program.state import DesiredState, StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
@@ -108,6 +108,7 @@ type Input[T] = T | ValueRef
 type RecordProductInput = (
     ProductRef | ProductBundle | PerEntity[ProductRef | ProductBundle]
 )
+type RecordInput = RecordProductInput | ValueRef
 
 
 def input_ref[T](value: Input[T]) -> ValueRef:
@@ -122,21 +123,24 @@ def input_ref[T](value: Input[T]) -> ValueRef:
     return cast("ValueRef", value)
 
 
-def _expand_record_products(
-    products: Sequence[RecordProductInput],
-) -> tuple[ProductRef, ...]:
-    selected: list[ProductRef] = []
-    for product in products:
-        if isinstance(product, PerEntity):
-            for value in product.values():
-                _append_record_product(selected, value)
+def _expand_record_inputs(
+    values: Sequence[RecordInput],
+) -> tuple[ProductRef | ValueRef, ...]:
+    selected: list[ProductRef | ValueRef] = []
+    for value in values:
+        if isinstance(value, ValueRef):
+            selected.append(value)
             continue
-        _append_record_product(selected, product)
+        if isinstance(value, PerEntity):
+            for entity_value in value.values():
+                _append_record_product(selected, entity_value)
+            continue
+        _append_record_product(selected, value)
     return tuple(selected)
 
 
 def _append_record_product(
-    selected: list[ProductRef],
+    selected: list[ProductRef | ValueRef],
     product: ProductRef | ProductBundle,
 ) -> None:
     if isinstance(product, ProductRef):
@@ -197,7 +201,7 @@ class ExperimentContext:
     def __init__(self) -> None:
         self._program = ModuleContext()
         self._scans: list[Scan] = []
-        self._record_selections: list[RecordSelection] = []
+        self._record_selections: list[ProgramRecordSelection] = []
         self._final_state_bindings: list[BindingIntent] = []
 
     def close_definition_internal(
@@ -399,42 +403,61 @@ class ExperimentContext:
 
     def record(
         self,
-        *products: RecordProductInput,
+        *values: RecordInput,
         record_id: str | None = None,
         namespace: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
-        """Select typed product references under an optional output prefix."""
+        """Persist product traces or scalar symbolic values in the dataset."""
 
         if record_id is not None and namespace is not None:
             raise ValueError("record_id and namespace cannot be used together")
         namespace_segments = (
             () if namespace is None else _record_namespace_segments(namespace)
         )
-        selected_products = _expand_record_products(products)
-        if record_id is not None and len(selected_products) != 1:
-            raise ValueError("record_id can only be used with one product")
-        self._record_selections.extend(
-            (
-                record_coordinate
-                if _recording_role_is_coordinate(product)
-                else record_product
-            )(
-                product,
-                record_id=(
-                    _namespaced_record_id(product, namespace_segments)
-                    if namespace_segments
-                    else record_id
-                ),
-                recording_group_id=(
-                    _recording_group_id(product, namespace_segments)
-                    if namespace_segments
-                    else None
-                ),
-                metadata=metadata,
+        selected = _expand_record_inputs(values)
+        if record_id is not None and len(selected) != 1:
+            raise ValueError("record_id can only be used with one recorded value")
+        selected_metadata = freeze_json_mapping(metadata or {})
+        for value in selected:
+            if isinstance(value, ProductRef):
+                selection = (
+                    record_coordinate
+                    if _recording_role_is_coordinate(value)
+                    else record_product
+                )(
+                    value,
+                    record_id=(
+                        _namespaced_record_id(value, namespace_segments)
+                        if namespace_segments
+                        else record_id
+                    ),
+                    recording_group_id=(
+                        _recording_group_id(value, namespace_segments)
+                        if namespace_segments
+                        else None
+                    ),
+                    metadata=selected_metadata,
+                )
+                self._record_selections.append(selection)
+                continue
+            value_type = value.value_type
+            if not isinstance(value_type, Scalar):
+                raise TypeError("dataset value records must be scalar")
+            if isinstance(value_type.atom, Payload):
+                raise TypeError("opaque payload values cannot be recorded in a dataset")
+            if isinstance(value_type.atom, Quantity) and value_type.atom.unit is None:
+                raise TypeError(
+                    "recorded quantity values require an explicit declared unit"
+                )
+            self._record_selections.append(
+                ValueRecordSelection(
+                    value=value,
+                    record_id=record_id,
+                    namespace=namespace_segments,
+                    metadata=selected_metadata,
+                )
             )
-            for product in selected_products
-        )
 
     def finalize[StateT](
         self,

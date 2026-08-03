@@ -325,6 +325,26 @@ def internal_value_ref_operation_origin(value: ValueRef) -> tuple[object, ...]:
     return source.origin if isinstance(source, ComputeResultScalarExpr) else ()
 
 
+def internal_value_ref_record_id(value: ValueRef) -> str | None:
+    """Return a stable user-facing id for a directly named scalar value."""
+
+    operation_id = internal_value_ref_operation_id(value)
+    if operation_id is not None:
+        return operation_id.qualified_name
+    source = value.source
+    if isinstance(
+        source,
+        PointColumnScalarExpr | InputScalarExpr | ParameterScalarExpr,
+    ):
+        return source.name
+    if isinstance(source, ParameterLookupScalarExpr):
+        return SymbolId(
+            scope=(source.use.table_id,),
+            local_id=source.use.column_id,
+        ).qualified_name
+    return None
+
+
 def internal_value_ref_module_export(
     value: ValueRef,
 ) -> tuple[InvocationKey, str] | None:

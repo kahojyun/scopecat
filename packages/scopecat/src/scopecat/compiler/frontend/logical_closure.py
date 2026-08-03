@@ -39,7 +39,8 @@ from scopecat.program.operations import (
 )
 from scopecat.program.parameters import ParameterContract
 from scopecat.program.point_domain import PointAxes
-from scopecat.program.products import ModuleProductDecl, RecordSelection
+from scopecat.program.products import ModuleProductDecl
+from scopecat.program.recording import LogicalRecordSelection
 from scopecat.program.scans import AxisSpec
 from scopecat.program.value_graph import (
     OperationId,
@@ -273,7 +274,7 @@ class LogicalProgramBuilder:
         point_dependencies: Sequence[PointValueDependency],
         parameter_overlays: Sequence[AxisSpec],
         product_declarations: Sequence[ModuleProductDecl],
-        record_selections: Sequence[RecordSelection],
+        record_selections: Sequence[LogicalRecordSelection],
         parameter_contracts: Sequence[ParameterContract],
         point_domain: PointAxes[ValueRef],
         effects: tuple[

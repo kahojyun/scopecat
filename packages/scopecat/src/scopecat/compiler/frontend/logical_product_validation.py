@@ -25,6 +25,7 @@ from scopecat.program.products import (
     ProductAxis,
     product_axis_dimension_id,
 )
+from scopecat.program.recording import LogicalValueRecordSelection
 from scopecat.program.value_refs import (
     ValueRef,
     internal_value_ref_point_dependencies,
@@ -73,7 +74,7 @@ def verify_product_schema(
 
     product_uses: dict[ProductUseId, ProductUse] = {}
     conflicting_product_uses: dict[ProductUseId, tuple[ProductUse, ProductUse]] = {}
-    for selection in program.record_selections:
+    for selection in program.product_record_selections:
         use = selection.product_use
         existing_use = product_uses.get(use.id)
         if existing_use is None:
@@ -117,7 +118,11 @@ def verify_product_schema(
         )
 
     record_ids = [
-        selection.record_id or selection.product_id.qualified_name
+        (
+            selection.id
+            if isinstance(selection, LogicalValueRecordSelection)
+            else selection.record_id or selection.product_id.qualified_name
+        )
         for selection in program.record_selections
     ]
     duplicate_records = _duplicates(record_ids)

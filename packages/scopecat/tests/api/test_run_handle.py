@@ -10,6 +10,9 @@ from scopecat.authoring import (
     ExperimentTemplate,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.system import ExperimentSystem
+from scopecat.records.config import config_content_hash
 from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 from scopecat.records.run import AnalysisCandidateRunConfigSource
 from scopecat.sdk.instruments import InterfaceRef
@@ -112,6 +115,42 @@ def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
 
     assert preview.point_count == 3
     assert preview.primary_observables == ("signal",)
+
+
+def test_in_process_lab_records_compute_value_without_instruments(
+    tmp_path: Path,
+) -> None:
+    @sc.template(id="test.session.compute-only", kind="compute-only")
+    def compute_only(experiment: sc.ExperimentContext) -> None:
+        score = experiment.compute(
+            "score",
+            fn=lambda: 2.5,
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        experiment.record(score)
+
+    config = load_config()
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=ExperimentSystem(
+            instrument_catalog=InstrumentContractCatalog(
+                config_content_hash=config_content_hash(config)
+            )
+        ),
+    )
+
+    run = lab.prepare(compute_only).run()
+    raw = run.measurements().dataset
+
+    assert run.manifest.status == "completed"
+    [record] = raw.records
+    assert record.observables["score"] == MeasurementScalar.create(
+        dtype="float64",
+        value=2.5,
+    )
+    variable = next(item for item in raw.dataset_schema.variables if item.id == "score")
+    assert variable.source_value_id == "score"
 
 
 def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(

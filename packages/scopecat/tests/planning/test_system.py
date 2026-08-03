@@ -2,17 +2,19 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal, Never
+from typing import Annotated, Literal, Never
 
 import pytest
 
-from scopecat.compiler.bind import BoundPlan
+import scopecat as sc
+from scopecat.compiler.bind import BoundPlan, bind_program
 from scopecat.compiler.bound_facts import (
     BoundMeasurementPostprocessor,
     BoundMeasurementPostprocessorOutput,
     LogicalResourceRequirement,
     record_product,
 )
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.context import ParameterRelationData
@@ -26,7 +28,7 @@ from scopecat.domain.program import (
     DomainProgramDef,
     DomainResultPort,
 )
-from scopecat.execution.local.program import ApplyStateOperation
+from scopecat.execution.local.program import ApplyStateOperation, ComputeOperation
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -600,6 +602,61 @@ def test_unified_planning_rejects_missing_local_catalog_before_effects() -> None
     )
     assert compiler.compile_calls == 0
     _assert_no_domain_effects(compiler)
+
+
+def test_recorded_compute_runs_without_an_instrument_provider() -> None:
+    @sc.template(id="test.recorded-compute", kind="compute")
+    def definition(experiment: sc.ExperimentContext) -> None:
+        score = experiment.compute(
+            "score",
+            fn=lambda: 2.5,
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        experiment.record(score)
+
+    bound = bind_program(
+        compile_invocation(definition()).program,
+        build_config_environment(load_config()),
+    )
+    plan = ExperimentSystem(instrument_catalog=_catalog(bound)).compile(bound)
+
+    assert plan.host is None
+    assert [node.local_id for node in bound.bindings.live_compute_ids] == ["score"]
+    compute_operations = [
+        operation.operation
+        for operation in plan.coverage
+        if isinstance(operation, RunCoverageEffect)
+        and isinstance(operation.operation, ComputeOperation)
+    ]
+    assert len(compute_operations) == 1
+    assert plan.measurements.runtime_value_ids == (
+        bound.program.program.compute_nodes[0].result_id,
+    )
+
+
+def test_plan_stage_value_record_is_materialized_per_point() -> None:
+    @sc.template(id="test.recorded-input", kind="compute")
+    def definition(
+        experiment: sc.ExperimentContext,
+        threshold: Annotated[
+            sc.Input[float],
+            sc.ScalarType(sc.FloatType()),
+        ] = 1.5,
+    ) -> None:
+        experiment.record(sc.input_ref(threshold))
+
+    bound = bind_program(
+        compile_invocation(definition()).program,
+        build_config_environment(load_config()),
+    )
+    plan = ExperimentSystem(instrument_catalog=_catalog(bound)).compile(bound)
+
+    assert plan.host is None
+    assert bound.bindings.live_compute_ids == frozenset()
+    [candidate] = plan.measurements.static_value_candidates
+    assert candidate.value == 1.5
+    [record] = plan.measurements.records
+    assert record.id == "threshold"
 
 
 def test_planning_rejects_catalog_for_another_config() -> None:

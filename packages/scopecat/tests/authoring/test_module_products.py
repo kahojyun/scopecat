@@ -455,7 +455,7 @@ def test_explicit_instances_select_same_named_products_independently(
     products_by_id = {product.id: product for product in resolved.bindings.product_defs}
     selected_products = [
         products_by_id[uses_by_id[record.product_use_id].product_id]
-        for record in resolved.bindings.record_uses
+        for record in resolved.bindings.product_record_uses
     ]
     acquisitions_by_product = {
         result.product_id: (acquisition, result)
@@ -534,7 +534,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
         config_profile=load_config(),
     )
 
-    record = resolved.bindings.record_uses[0]
+    record = resolved.bindings.product_record_uses[0]
     use = next(
         use for use in resolved.bindings.product_uses if use.id == record.product_use_id
     )
@@ -602,7 +602,7 @@ def test_root_module_products_are_typed_template_refs() -> None:
         experiment.run(call)
         experiment.record(call.result)
 
-    selection = template_definition.definition.record_selections[0]
+    selection = template_definition.definition.product_record_selections[0]
     assert selection.product_id == ProductId(
         SymbolId(scope=("source",), local_id="signal")
     )

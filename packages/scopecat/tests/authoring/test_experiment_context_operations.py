@@ -115,7 +115,8 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
         "derived",
     ]
     selected_products = [
-        selection.product_id.qualified_name for selection in logical.record_selections
+        selection.product_id.qualified_name
+        for selection in logical.product_record_selections
     ]
     assert selected_products == [
         "raw",
@@ -166,9 +167,72 @@ def test_template_and_scratch_share_direct_root_authoring() -> None:
     assert template_program.product_declarations == scratch_program.product_declarations
     assert template_program.effects == scratch_program.effects
     template_records = [
-        selection.product_id for selection in template_program.record_selections
+        selection.product_id for selection in template_program.product_record_selections
     ]
     scratch_records = [
-        selection.product_id for selection in scratch_program.record_selections
+        selection.product_id for selection in scratch_program.product_record_selections
     ]
     assert template_records == scratch_records
+
+
+def test_template_records_a_compute_result_as_a_named_dataset_value() -> None:
+    @sc.template(id="test.direct.value-record", kind="direct")
+    def direct(experiment: sc.ExperimentContext) -> None:
+        score = experiment.compute(
+            "score",
+            fn=lambda: 2.5,
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        experiment.record(score)
+
+    logical = compile_invocation(direct()).program.program
+
+    assert logical.product_record_selections == ()
+    [record] = logical.value_record_selections
+    assert record.id == "score"
+    assert record.source_value_id == "score"
+    assert record.value_id == logical.compute_nodes[0].result_id
+
+
+def test_template_derives_value_record_id_after_resolving_a_module_result() -> None:
+    @sc.module(id="test.value_source")
+    def value_source(module: sc.ModuleContext) -> sc.ValueRef:
+        return module.compute(
+            "score",
+            fn=lambda: 2.5,
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+
+    @sc.template(id="test.module-value-record", kind="direct")
+    def direct(experiment: sc.ExperimentContext) -> None:
+        call = experiment.run(value_source())
+        trace = experiment._product("trace")
+        experiment.record(call.result, trace)
+
+    logical = compile_invocation(direct()).program.program
+
+    [record] = logical.value_record_selections
+    [trace] = logical.product_record_selections
+    assert logical.record_selections == (record, trace)
+    assert record.id == "value_source/score"
+    assert record.source_value_id == "value_source/score"
+    assert record.value_id == logical.compute_nodes[0].result_id
+
+
+def test_value_record_namespaces_preserve_segment_identity() -> None:
+    @sc.template(id="test.value-record.namespace", kind="direct")
+    def direct(experiment: sc.ExperimentContext) -> None:
+        score = experiment.compute(
+            "score",
+            fn=lambda: 2.5,
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        experiment.record(score, namespace="analysis%2Fdaily")
+        experiment.record(score, namespace="analysis/daily")
+
+    logical = compile_invocation(direct()).program.program
+
+    assert [record.id for record in logical.value_record_selections] == [
+        "analysis%2Fdaily/score",
+        "analysis/daily/score",
+    ]

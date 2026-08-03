@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from typing import cast
 
 import scopecat.execution.effect_result as effect_result
 from scopecat.execution.effects.compute import ComputeEffectExecutor, PointEffectState
@@ -25,7 +26,10 @@ from scopecat.execution.program import (
 )
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import ProblemPhase
+from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.points import RunPoint
+from scopecat.measurements.records import ValueRecordCandidate
+from scopecat.program.value_graph import ValueId
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.journal import ExecutionJournal, ExecutionJournalError
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
@@ -55,6 +59,7 @@ class RunEffectInterpreter:
         instruments: RunInstrumentHost,
         journal: ExecutionJournal,
         coverage_observer: effect_result.CoverageMeasurementObserver | None = None,
+        recorded_value_ids: Sequence[ValueId] = (),
         payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
     ) -> None:
         self.run_id = run_id
@@ -82,6 +87,7 @@ class RunEffectInterpreter:
             problems=self._journal,
         )
         self._coverage_observer = coverage_observer
+        self._recorded_value_ids = tuple(recorded_value_ids)
         self._instruments = instruments
 
     def run(
@@ -221,6 +227,17 @@ class RunEffectInterpreter:
         self,
         point_indices: tuple[int, ...],
     ) -> None:
+        value_candidates = tuple(
+            ValueRecordCandidate(
+                logical_point_id=self.logical_points[point_index],
+                value_id=value_id,
+                value=cast("CellValue", state.compute_results[value_id]),
+            )
+            for point_index in point_indices
+            if (state := self._point_states.get(point_index)) is not None
+            for value_id in self._recorded_value_ids
+            if value_id in state.compute_results
+        )
         self._complete_coverage(point_indices)
         try:
             points = tuple(
@@ -233,7 +250,7 @@ class RunEffectInterpreter:
                     for candidate in self._hardware.values
                     if candidate.logical_point_id.logical_ordinal in selected
                 )
-                self._coverage_observer(points, candidates)
+                self._coverage_observer(points, candidates, value_candidates)
                 self._hardware.values[:] = (
                     candidate
                     for candidate in self._hardware.values

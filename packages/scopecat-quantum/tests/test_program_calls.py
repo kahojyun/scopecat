@@ -295,9 +295,9 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
         context.record(placed.results.iq_shots)
 
     invocation = experiment()
-    assert invocation.definition.record_selections[0].product_id.qualified_name == (
-        "call/iq_shots"
-    )
+    assert invocation.definition.product_record_selections[
+        0
+    ].product_id.qualified_name == ("call/iq_shots")
 
 
 def test_program_call_validates_bound_values_and_shot_count() -> None:

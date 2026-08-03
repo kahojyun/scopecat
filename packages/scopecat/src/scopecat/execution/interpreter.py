@@ -45,6 +45,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.projection import project_measurement_records
+from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
@@ -100,6 +101,7 @@ def _execute_run(
     def commit_coverage(
         points: tuple[RunPoint, ...],
         candidates: tuple[MeasurementValueCandidate, ...],
+        value_candidates: tuple[ValueRecordCandidate, ...],
     ) -> None:
         nonlocal committed_measurement_count
         completed_candidates = execute_measurement_postprocessors(
@@ -118,6 +120,7 @@ def _execute_run(
             values,
             run_id=run_id,
             points=points,
+            value_candidates=value_candidates,
         )
         block_problems = (
             *validate_run_measurements(
@@ -322,6 +325,7 @@ def _execute_instrument_effects(
         instruments=instruments,
         journal=session.journal,
         coverage_observer=coverage_observer,
+        recorded_value_ids=program.measurements.runtime_value_ids,
         payload_codecs=(
             EMPTY_PAYLOAD_CODECS
             if program.host is None

@@ -51,7 +51,7 @@ def specialize_bound_facts(
             )
             for requirement in program.resource_requirements
         ),
-        live_compute_ids=_live_compute_ids(logical),
+        live_compute_ids=_live_compute_ids(logical, program),
         value_overrides=_specialize_value_overrides(
             logical,
             program,
@@ -92,6 +92,7 @@ def _specialize_point_domain(
 
 def _live_compute_ids(
     logical: VerifiedLogicalProgram,
+    program: BoundProgramFacts,
 ) -> frozenset[OperationId]:
     """Keep the dependency closure of compute results observed by effects."""
 
@@ -106,6 +107,11 @@ def _live_compute_ids(
         if isinstance(effect, LogicalInvocation)
         for argument in effect.arguments
         if argument.value_id in logical.operation_results
+    )
+    demanded.update(
+        record.value_id
+        for record in program.value_record_uses
+        if record.requires_execution
     )
 
     owners = {node.result_id: node for node in logical.program.compute_nodes}

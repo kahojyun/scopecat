@@ -347,7 +347,7 @@ def test_measurement_dataset_and_schema_round_trip() -> None:
     assert restored.dataset_schema.format_version == MEASUREMENT_DATASET_FORMAT_VERSION
     assert (
         restored.dataset_schema.format_version
-        == "scopecat.measurement_dataset_schema.v5"
+        == "scopecat.measurement_dataset_schema.v6"
     )
     assert restored.dataset_schema.record_schema == MEASUREMENT_RECORD_SCHEMA_VERSION
     assert restored.dataset_schema.record_schema == "scopecat.measurement_record.v4"

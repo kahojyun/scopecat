@@ -242,9 +242,9 @@ def test_experiment_record_expands_per_entity_products_in_declaration_order() ->
     )
     assert [
         selection.product_id.qualified_name
-        for selection in definition.record_selections
+        for selection in definition.product_record_selections
     ] == ["first", "second"]
-    assert [selection.role for selection in definition.record_selections] == [
+    assert [selection.role for selection in definition.product_record_selections] == [
         "observable",
         "observable",
     ]
@@ -258,7 +258,10 @@ def test_per_entity_record_id_still_requires_one_expanded_product() -> None:
         ((q0, context._product("first")), (q1, context._product("second")))
     )
 
-    with pytest.raises(ValueError, match="record_id can only be used with one product"):
+    with pytest.raises(
+        ValueError,
+        match="record_id can only be used with one recorded value",
+    ):
         context.record(products, record_id="combined")
 
 
@@ -291,6 +294,6 @@ def test_record_namespace_is_non_empty_and_exclusive_with_record_id() -> None:
         input_defaults={},
         required_inputs=(),
     )
-    assert [selection.record_id for selection in definition.record_selections] == [
-        "calibration/first/readout/signal"
-    ]
+    assert [
+        selection.record_id for selection in definition.product_record_selections
+    ] == ["calibration/first/readout/signal"]

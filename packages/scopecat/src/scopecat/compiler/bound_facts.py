@@ -31,7 +31,7 @@ from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
 )
-from scopecat.measurements.records import RecordUse
+from scopecat.measurements.records import BoundRecordUse, RecordUse, ValueRecordUse
 from scopecat.measurements.results import MeasurementVariableRole
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
@@ -102,7 +102,7 @@ class BoundProgramFacts:
     measurement_postprocessors: tuple[BoundMeasurementPostprocessor, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
-    record_uses: tuple[RecordUse, ...] = ()
+    record_uses: tuple[BoundRecordUse, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "value_overrides", dict(self.value_overrides))
@@ -110,6 +110,18 @@ class BoundProgramFacts:
             self,
             "domain_result_use_ids",
             dict(self.domain_result_use_ids),
+        )
+
+    @property
+    def product_record_uses(self) -> tuple[RecordUse, ...]:
+        return tuple(
+            record for record in self.record_uses if isinstance(record, RecordUse)
+        )
+
+    @property
+    def value_record_uses(self) -> tuple[ValueRecordUse, ...]:
+        return tuple(
+            record for record in self.record_uses if isinstance(record, ValueRecordUse)
         )
 
 

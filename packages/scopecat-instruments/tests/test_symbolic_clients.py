@@ -362,18 +362,21 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
     ]
     assert [
         selection.product_id.qualified_name
-        for selection in definition.record_selections
+        for selection in definition.product_record_selections
     ] == ["readout/frequency", "readout/s_parameter"]
-    assert [selection.record_id for selection in definition.record_selections] == [
+    assert [
+        selection.record_id for selection in definition.product_record_selections
+    ] == [
         "readout/frequency",
         "readout/s_parameter",
     ]
-    assert [selection.role for selection in definition.record_selections] == [
+    assert [selection.role for selection in definition.product_record_selections] == [
         "coordinate",
         "observable",
     ]
     assert {
-        selection.recording_group_id for selection in definition.record_selections
+        selection.recording_group_id
+        for selection in definition.product_record_selections
     } == {"readout/sweep"}
 
 
@@ -391,12 +394,15 @@ def test_record_namespace_prefixes_typed_variables_and_their_group() -> None:
         input_defaults={},
         required_inputs=(),
     )
-    assert [selection.record_id for selection in definition.record_selections] == [
+    assert [
+        selection.record_id for selection in definition.product_record_selections
+    ] == [
         "calibration/readout/frequency",
         "calibration/readout/s_parameter",
     ]
     assert {
-        selection.recording_group_id for selection in definition.record_selections
+        selection.recording_group_id
+        for selection in definition.product_record_selections
     } == {"calibration/readout/sweep"}
 
 
@@ -415,12 +421,13 @@ def test_typed_result_members_keep_their_declared_recording_roles() -> None:
         input_defaults={},
         required_inputs=(),
     )
-    assert [selection.role for selection in definition.record_selections] == [
+    assert [selection.role for selection in definition.product_record_selections] == [
         "coordinate",
         "observable",
     ]
     assert {
-        selection.recording_group_id for selection in definition.record_selections
+        selection.recording_group_id
+        for selection in definition.product_record_selections
     } == {"readout/sweep"}
 
 
@@ -444,11 +451,12 @@ def test_typed_result_recording_semantics_survive_a_module_boundary() -> None:
         input_defaults={},
         required_inputs=(),
     )
-    assert [selection.role for selection in definition.record_selections] == [
+    assert [selection.role for selection in definition.product_record_selections] == [
         "coordinate"
     ]
     assert [
-        selection.recording_group_id for selection in definition.record_selections
+        selection.recording_group_id
+        for selection in definition.product_record_selections
     ] == ["segment/readout/sweep"]
 
 
@@ -470,13 +478,15 @@ def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
         input_defaults={},
         required_inputs=(),
     )
-    assert [selection.role for selection in definition.record_selections] == [
+    assert [selection.role for selection in definition.product_record_selections] == [
         "coordinate",
         "observable",
         "coordinate",
         "observable",
     ]
-    record_ids = [selection.record_id for selection in definition.record_selections]
+    record_ids = [
+        selection.record_id for selection in definition.product_record_selections
+    ]
     assert len(set(record_ids)) == 4
     assert all(
         record_id is not None and record_id.startswith("calibration/readout.")
@@ -487,7 +497,8 @@ def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
     assert record_ids[2] is not None and record_ids[2].endswith("/frequency")
     assert record_ids[3] is not None and record_ids[3].endswith("/s_parameter")
     recording_group_ids = [
-        selection.recording_group_id for selection in definition.record_selections
+        selection.recording_group_id
+        for selection in definition.product_record_selections
     ]
     assert len(set(recording_group_ids)) == 2
     assert recording_group_ids[0] == recording_group_ids[1]

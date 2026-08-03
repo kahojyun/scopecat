@@ -30,6 +30,7 @@ from scopecat.compiler.frontend.logical_value_validation import (
     verify_effect_value_references,
     verify_final_state_values,
     verify_scalar_values,
+    verify_value_record_references,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem
@@ -150,6 +151,12 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
             operation.result_id: operation for operation in compute_nodes
         }
         verify_effect_value_references(
+            normalized,
+            {definition.id for definition in normalized.value_defs},
+            operation_results,
+            problems,
+        )
+        verify_value_record_references(
             normalized,
             {definition.id for definition in normalized.value_defs},
             operation_results,

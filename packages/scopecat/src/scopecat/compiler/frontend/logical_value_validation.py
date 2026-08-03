@@ -136,6 +136,29 @@ def verify_effect_value_references(
             )
 
 
+def verify_value_record_references(
+    program: LogicalProgram,
+    definition_ids: set[ValueId],
+    operation_results: Mapping[ValueId, LogicalComputeNode],
+    problems: list[Problem],
+) -> None:
+    """Verify that every durable scalar selection closes over the value graph."""
+
+    known_ids = definition_ids | set(operation_results)
+    for index, record in enumerate(program.value_record_selections):
+        if record.value_id in known_ids:
+            continue
+        problems.append(
+            compiler_problem(
+                "logical_value_record_unknown",
+                "dataset record references unknown value "
+                f"{record.value_id.qualified_name!r}",
+                model_location("value_record_selections", index, "value_id"),
+                phase=ProblemPhase.AUTHORING,
+            )
+        )
+
+
 def verify_final_state_values(
     program: LogicalProgram,
     problems: list[Problem],
