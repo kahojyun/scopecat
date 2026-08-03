@@ -14,6 +14,7 @@ from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.measurements.datasets import RAW_MEASUREMENTS_DATASET_ID
 from scopecat.measurements.projection import ProjectedMeasurementDataset
 from scopecat.records.execution_journal import ExecutionStage
+from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
@@ -35,18 +36,21 @@ def append_measurement_dataset(
     dataset: ProjectedMeasurementDataset,
     writer: MeasurementDatasetWriter,
     journal: ExecutionJournal,
+    *,
+    schema: MeasurementDatasetSchema | None,
 ) -> MeasurementDatasetReceipt | None:
     """Append one contiguous projected point range."""
 
     records = dataset.records
     if not records:
         return None
-    if dataset.schema is None:
+    if schema is None:
         raise ValueError("projected measurement records require a dataset schema")
     append = MeasurementDatasetAppend(
         run_id=dataset.run_id,
         recording_contract_fingerprint=dataset.recording_contract_fingerprint,
         start_index=records[0].point_index,
+        schema=schema,
         records=records,
     )
     return _record_operation(

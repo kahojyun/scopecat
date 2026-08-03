@@ -58,6 +58,8 @@ from scopecat.kernel.errors import (
     DataIntegrityError,
     NotFound,
 )
+from scopecat.measurements.datasets import RAW_MEASUREMENTS_DATASET_ID
+from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
@@ -451,16 +453,29 @@ class RunService:
         offset: int,
     ) -> MeasurementPage:
         with self._config_errors():
-            self._runs.read_manifest(run_id)
-            records = SQLiteMeasurementDatasetRepository(
+            manifest = self._runs.read_manifest(run_id)
+            items, next_offset, live_schema = SQLiteMeasurementDatasetRepository(
                 self._runs,
                 run_id=run_id,
-            ).measurements()
-        items = records[offset : offset + limit]
-        next_offset = (
-            offset + len(items) if offset + len(items) < len(records) else None
+            ).measurement_page(limit=limit, offset=offset)
+        dataset = next(
+            (
+                entry
+                for entry in manifest.datasets
+                if entry.id == RAW_MEASUREMENTS_DATASET_ID
+            ),
+            None,
         )
-        return MeasurementPage(items=items, next_offset=next_offset)
+        terminal_schema = (
+            None
+            if dataset is None or dataset.data_schema is None
+            else MeasurementDatasetSchema.model_validate(dataset.data_schema)
+        )
+        return MeasurementPage(
+            items=items,
+            next_offset=next_offset,
+            dataset_schema=terminal_schema or live_schema,
+        )
 
     @contextmanager
     def _config_errors(self) -> Generator[None]:

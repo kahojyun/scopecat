@@ -59,7 +59,12 @@ from scopecat.kernel.state import StateValue
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
+from scopecat.records.measurement import (
+    MeasurementDatasetSchema,
+    MeasurementDimension,
+    MeasurementRecord,
+    MeasurementScalar,
+)
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
@@ -763,6 +768,10 @@ def test_effect_commands_do_not_repeat_durable_identity() -> None:
         run_id="run-1",
         recording_contract_fingerprint="test.recording.v1",
         start_index=0,
+        schema=MeasurementDatasetSchema(
+            dataset_id="raw-measurements",
+            dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+        ),
         records=(
             MeasurementRecord(
                 run_id="run-1",

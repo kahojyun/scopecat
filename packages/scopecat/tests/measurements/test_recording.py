@@ -54,10 +54,16 @@ def _seal(
 
 def test_recording_appends_and_seals_one_canonical_dataset() -> None:
     projected = _projected()
+    assert projected.schema is not None
     writer = FakeMeasurementDatasetRepository()
     journal = FakeExecutionJournal()
 
-    append_receipt = append_measurement_dataset(projected, writer, journal)
+    append_receipt = append_measurement_dataset(
+        projected,
+        writer,
+        journal,
+        schema=projected.schema,
+    )
     assert append_receipt is not None
     seal_receipt = _seal(projected, writer, journal, append_receipt)
 
@@ -80,6 +86,7 @@ def test_append_identity_is_stable_and_content_detects_conflict() -> None:
         run_id=projected.run_id,
         recording_contract_fingerprint=projected.recording_contract_fingerprint,
         start_index=0,
+        schema=projected.schema,
         records=projected.records,
     )
     changed = append.model_copy(
@@ -90,8 +97,17 @@ def test_append_identity_is_stable_and_content_detects_conflict() -> None:
             )
         }
     )
+    changed_schema = append.model_copy(
+        update={
+            "dataset_schema": append.dataset_schema.model_copy(
+                update={"metadata": {"revision": 2}}
+            )
+        }
+    )
     assert changed.operation_id == append.operation_id
     assert changed.content_hash != append.content_hash
+    assert changed_schema.operation_id == append.operation_id
+    assert changed_schema.content_hash != append.content_hash
 
 
 class _InvalidReceiptWriter(FakeMeasurementDatasetRepository):
@@ -104,11 +120,14 @@ class _InvalidReceiptWriter(FakeMeasurementDatasetRepository):
 
 
 def test_invalid_append_receipt_terminalizes_uncertain_operation() -> None:
+    projected = _projected()
+    assert projected.schema is not None
     with pytest.raises(MeasurementRecordingError) as caught:
         append_measurement_dataset(
-            _projected(),
+            projected,
             _InvalidReceiptWriter(),
             FakeExecutionJournal(),
+            schema=projected.schema,
         )
     assert caught.value.write_may_have_completed
     assert caught.value.receipt is not None
@@ -116,17 +135,20 @@ def test_invalid_append_receipt_terminalizes_uncertain_operation() -> None:
 
 def test_append_and_seal_replay_are_idempotent() -> None:
     projected = _projected()
+    assert projected.schema is not None
     writer = FakeMeasurementDatasetRepository()
     receipt = append_measurement_dataset(
         projected,
         writer,
         FakeExecutionJournal(),
+        schema=projected.schema,
     )
     assert receipt is not None
     repeated = append_measurement_dataset(
         projected,
         writer,
         FakeExecutionJournal(),
+        schema=projected.schema,
     )
     assert repeated == receipt
     _seal(projected, writer, FakeExecutionJournal(), receipt)

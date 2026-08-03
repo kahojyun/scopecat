@@ -335,6 +335,7 @@ describe("project daemon reads", () => {
       Promise.resolve(
         jsonResponse({
           items: [{ run_id: "run/1", point_index: 100 }],
+          dataset_schema: measurementSchema(),
           next_offset: 200,
         }),
       ),
@@ -343,6 +344,7 @@ describe("project daemon reads", () => {
 
     await expect(getMeasurementPreview("run/1", 100)).resolves.toEqual({
       items: [{ run_id: "run/1", point_index: 100 }],
+      schema: measurementSchema(),
       nextOffset: 200,
     });
     expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
@@ -350,6 +352,16 @@ describe("project daemon reads", () => {
     );
   });
 });
+
+function measurementSchema() {
+  return {
+    format_version: "scopecat.measurement_dataset_schema.v6" as const,
+    dataset_id: "raw-measurements",
+    record_schema: "scopecat.measurement_record.v4" as const,
+    dimensions: [{ id: "point", kind: "point", size: 1 }],
+    variables: [],
+  };
+}
 
 function runSummary(runId: string, state: "queued" | "leased") {
   return {

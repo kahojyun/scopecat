@@ -10,7 +10,7 @@ from scopecat.kernel.content_identity import (
     model_wire_content_hash,
     stable_content_hash,
 )
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
 
 type _MeasurementDatasetRef = Literal["data/measurement_dataset/raw-measurements"]
 CANONICAL_MEASUREMENT_DATASET_REF: _MeasurementDatasetRef = (
@@ -21,11 +21,12 @@ CANONICAL_MEASUREMENT_DATASET_REF: _MeasurementDatasetRef = (
 class MeasurementDatasetAppend(BaseModel):
     """One idempotent append to a canonical run dataset."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
     run_id: str
     recording_contract_fingerprint: str
     start_index: int = Field(ge=0)
+    dataset_schema: MeasurementDatasetSchema = Field(alias="schema")
     records: tuple[MeasurementRecord, ...] = Field(min_length=1)
 
     @field_validator("run_id", "recording_contract_fingerprint")

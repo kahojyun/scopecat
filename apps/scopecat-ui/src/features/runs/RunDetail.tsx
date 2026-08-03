@@ -11,14 +11,13 @@ import {
   Cpu,
   Database,
   Gauge,
-  LoaderCircle,
   SquareStack,
   Unlock,
   XCircle,
 } from "lucide-react";
 import { canPreviewRunContent, getRunContent } from "../../api";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
-import { classes, countBadge, detailCard, secondaryButton } from "../../ui/styles";
+import { classes, countBadge, detailCard } from "../../ui/styles";
 import type {
   ContentEntry,
   MeasurementPreview,
@@ -27,6 +26,7 @@ import type {
   RunAnalysis,
 } from "../../types";
 import { RunProposals } from "../proposals/RunProposals";
+import { MeasurementDataPreview } from "./MeasurementDataPreview";
 
 export function RunDetail({
   run,
@@ -666,31 +666,12 @@ function MeasurementRecords({
     );
   }
   return (
-    <div className={previewPanel}>
-      <div className={previewHeading}>
-        <strong className="text-[0.65rem] text-text-soft">Measurement preview</strong>
-        <span>
-          {preview.items.length}
-          {preview.nextOffset !== undefined ? "+" : ""} records
-        </span>
-      </div>
-      <pre className={previewContent} data-testid="measurement-preview">
-        {JSON.stringify(preview.items, null, 2)}
-      </pre>
-      {hasMore && (
-        <div className="flex justify-center border-t border-line px-2.5 py-[9px]">
-          <button
-            className={classes(secondaryButton, "w-full")}
-            type="button"
-            disabled={loadingMore}
-            onClick={onLoadMore}
-          >
-            {loadingMore && <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />}
-            {loadingMore ? "Loading measurements…" : "Load more measurements"}
-          </button>
-        </div>
-      )}
-    </div>
+    <MeasurementDataPreview
+      preview={preview}
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      onLoadMore={onLoadMore}
+    />
   );
 }
 

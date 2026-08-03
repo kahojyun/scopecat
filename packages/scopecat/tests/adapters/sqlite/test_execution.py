@@ -27,6 +27,8 @@ from scopecat.records.execution_journal import (
     execution_transition_identity,
 )
 from scopecat.records.measurement import (
+    MeasurementDatasetSchema,
+    MeasurementDimension,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -84,6 +86,10 @@ def _append(
         run_id=run_id,
         recording_contract_fingerprint="recording.v1",
         start_index=point_index,
+        schema=MeasurementDatasetSchema(
+            dataset_id="raw-measurements",
+            dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+        ),
         records=(
             MeasurementRecord(
                 run_id=run_id,
@@ -398,6 +404,49 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
         )
 
 
+def test_measurement_page_reads_intersecting_chunks_and_live_schema(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-page")
+    first = _append("run-page", point_index=0, value=1)
+    second = _append("run-page", point_index=1, value=2)
+    _commit_append(runs, repository, first)
+    _commit_append(runs, repository, second)
+
+    items, next_offset, schema = repository.measurement_page(limit=1, offset=0)
+    later, later_offset, later_schema = repository.measurement_page(
+        limit=1,
+        offset=1,
+    )
+
+    assert [record.point_index for record in items] == [0]
+    assert next_offset == 1
+    assert [record.point_index for record in later] == [1]
+    assert later_offset is None
+    assert schema == first.dataset_schema
+    assert later_schema == first.dataset_schema
+
+
+def test_measurement_append_rejects_a_changed_live_schema(tmp_path: Path) -> None:
+    runs = _runs(tmp_path)
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-schema")
+    first = _append("run-schema", point_index=0)
+    _commit_append(runs, repository, first)
+    changed_schema = first.dataset_schema.model_copy(
+        update={"metadata": {"revision": 2}}
+    )
+
+    with pytest.raises(ExecutionJournalConflict, match="changed its schema"):
+        _commit_append(
+            runs,
+            repository,
+            _append("run-schema", point_index=1).model_copy(
+                update={"dataset_schema": changed_schema}
+            ),
+        )
+
+
 def test_unavailable_measurement_round_trips_through_dataset_storage(
     tmp_path: Path,
 ) -> None:
@@ -417,6 +466,10 @@ def test_unavailable_measurement_round_trips_through_dataset_storage(
         run_id="run-unavailable",
         recording_contract_fingerprint="recording.v1",
         start_index=0,
+        schema=MeasurementDatasetSchema(
+            dataset_id="raw-measurements",
+            dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+        ),
         records=(
             MeasurementRecord(
                 run_id="run-unavailable",

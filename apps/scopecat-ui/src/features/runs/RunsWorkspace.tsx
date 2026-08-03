@@ -539,7 +539,11 @@ function mergeRunPages(pages: ProjectRunPage[]): ProjectRun[] {
 function mergeMeasurementPages(pages: MeasurementPreview[]): MeasurementPreview | undefined {
   if (pages.length === 0) return undefined;
   const items = pages.flatMap((page) => page.items);
-  return { items, nextOffset: pages.at(-1)?.nextOffset };
+  return {
+    items,
+    schema: pages.find((page) => page.schema !== undefined)?.schema,
+    nextOffset: pages.at(-1)?.nextOffset,
+  };
 }
 
 function filterRuns(runs: ProjectRun[], filter: FilterKey, search: string): ProjectRun[] {

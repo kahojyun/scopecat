@@ -69,6 +69,7 @@ export type InstrumentState =
   GetResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state">;
 export type InstrumentStateValue = components["schemas"]["StateValue"];
 export type InstrumentView = GetResponse<"/api/v1/instruments/{instrument_id}">;
+export type MeasurementDatasetSchema = components["schemas"]["MeasurementDatasetSchema-Output"];
 export type ActiveConfig = GetResponse<"/api/v1/config-registry/active">;
 export type InstrumentList = GetResponse<"/api/v1/instruments">;
 export type ParameterProposalList = GetResponse<"/api/v1/runs/{run_id}/parameter-proposals">;

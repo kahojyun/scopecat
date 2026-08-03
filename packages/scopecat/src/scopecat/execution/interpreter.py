@@ -95,6 +95,7 @@ def _execute_run(
     run_id = session.run_id
     journal = session.journal
     measurements = session.measurements
+    planned_dataset_schema = projection.schema_for(program.points.points)
     committed_measurement_count = 0
     append_content_hashes: list[str] = []
 
@@ -134,6 +135,7 @@ def _execute_run(
             projected,
             measurements,
             journal,
+            schema=planned_dataset_schema,
         )
         if receipt is not None:
             committed_measurement_count += len(projected.records)

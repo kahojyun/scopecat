@@ -26,7 +26,7 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
 )
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.records.parameter_change import (
     ParameterChangeApprovalRecord,
     ParameterChangeProposal,
@@ -302,10 +302,11 @@ class ParameterProposalListView(_ViewModel):
 
 
 class MeasurementPage(_ViewModel):
-    """Bounded raw-record preview for interactive browsing."""
+    """Bounded typed-record preview for interactive browsing."""
 
     items: tuple[MeasurementRecord, ...] = ()
     next_offset: int | None = Field(default=None, ge=0)
+    dataset_schema: MeasurementDatasetSchema | None = None
 
 
 def _require_entry_role(

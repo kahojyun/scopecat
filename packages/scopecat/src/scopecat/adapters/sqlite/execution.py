@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
@@ -11,13 +12,14 @@ from typing import cast
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
+from scopecat.adapters.sqlite.connection import connect
 from scopecat.adapters.sqlite.object_store import ObjectStoreError, StoredObject
 from scopecat.adapters.sqlite.run_repository import SQLiteRunRepository
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
 )
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.records.measurement_recording import (
     CANONICAL_MEASUREMENT_DATASET_REF,
     MeasurementDatasetAppend,
@@ -234,6 +236,16 @@ class SQLiteMeasurementDatasetRepository:
                 raise ExecutionJournalConflict(
                     "measurement dataset append changed its contract"
                 )
+            if previous:
+                first = self._runs.read_model(
+                    self._run_id,
+                    _text(previous[0], "ref"),
+                    MeasurementDatasetAppend,
+                )
+                if first.dataset_schema != durable.dataset_schema:
+                    raise ExecutionJournalConflict(
+                        "measurement dataset append changed its schema"
+                    )
             _publish_ref(connection, self._run_id, ref, prepared.stored)
             connection.execute(
                 """
@@ -385,6 +397,77 @@ class SQLiteMeasurementDatasetRepository:
         except Exception as error:
             raise ExecutionJournalError(
                 f"failed to read measurement dataset: {error}"
+            ) from error
+
+    def measurement_page(
+        self,
+        *,
+        limit: int,
+        offset: int,
+    ) -> tuple[
+        tuple[MeasurementRecord, ...],
+        int | None,
+        MeasurementDatasetSchema | None,
+    ]:
+        """Read only chunks intersecting one record page plus the first schema."""
+
+        try:
+            with closing(
+                connect(
+                    self._runs.database,
+                    busy_timeout_seconds=self._runs.busy_timeout_seconds,
+                )
+            ) as connection:
+                rows = _all(
+                    connection.execute(
+                        """
+                        SELECT start_index, record_count, ref
+                        FROM execution_measurement_appends
+                        WHERE run_id = ?
+                          AND start_index < ?
+                          AND start_index + record_count > ?
+                        ORDER BY start_index
+                        """,
+                        (self._run_id, offset + limit, offset),
+                    )
+                )
+                all_rows = _measurement_rows(connection, self._run_id)
+
+            if not all_rows:
+                return (), None, None
+
+            first_ref = _text(all_rows[0], "ref")
+            first = self._runs.read_model(
+                self._run_id,
+                first_ref,
+                MeasurementDatasetAppend,
+            )
+            appends = {first_ref: first}
+            for row in rows:
+                ref = _text(row, "ref")
+                if ref not in appends:
+                    appends[ref] = self._runs.read_model(
+                        self._run_id,
+                        ref,
+                        MeasurementDatasetAppend,
+                    )
+            page_end = offset + limit
+            items: list[MeasurementRecord] = []
+            for row in rows:
+                start_index = _integer(row, "start_index")
+                chunk = appends[_text(row, "ref")]
+                chunk_start = max(0, offset - start_index)
+                chunk_end = min(
+                    _integer(row, "record_count"),
+                    page_end - start_index,
+                )
+                items.extend(chunk.records[chunk_start:chunk_end])
+            total = sum(_integer(row, "record_count") for row in all_rows)
+            next_offset = offset + len(items) if offset + len(items) < total else None
+            return tuple(items), next_offset, first.dataset_schema
+        except Exception as error:
+            raise ExecutionJournalError(
+                f"failed to read measurement dataset page: {error}"
             ) from error
 
 

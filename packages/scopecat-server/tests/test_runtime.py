@@ -78,7 +78,12 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.records.execution_journal import ExecutionTransition
-from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
+from scopecat.records.measurement import (
+    MeasurementDatasetSchema,
+    MeasurementDimension,
+    MeasurementRecord,
+    MeasurementScalar,
+)
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
@@ -1971,6 +1976,10 @@ def test_effect_is_fenced_and_terminal_updates_control(
             run_id=run_id,
             recording_contract_fingerprint="test.recording.v1",
             start_index=0,
+            schema=MeasurementDatasetSchema(
+                dataset_id="raw-measurements",
+                dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+            ),
             records=(measurement,),
         )
         measurement_response = client.post(
@@ -2037,6 +2046,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert detail.json()["manifest"]["outcome"] is None
         assert detail.json()["resources"][0]["status"] == "active"
         assert measurements.json()["items"][0]["point_index"] == 0
+        assert measurements.json()["dataset_schema"]["dataset_id"] == "raw-measurements"
         assert committed.status_code == 200
         assert committed.json()["sequence"] == 0
         committed_transition = ExecutionTransition.model_validate(committed.json())
@@ -2150,6 +2160,10 @@ def test_effect_and_terminal_publication_roll_back_with_control(
             run_id=admission.run_id,
             recording_contract_fingerprint="test.recording.v1",
             start_index=0,
+            schema=MeasurementDatasetSchema(
+                dataset_id="raw-measurements",
+                dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+            ),
             records=(measurement,),
         )
 

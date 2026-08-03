@@ -1878,14 +1878,14 @@ export interface components {
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Records */
             records: components["schemas"]["MeasurementRecord-Output"][];
-            schema: components["schemas"]["MeasurementDatasetSchema"];
+            schema: components["schemas"]["MeasurementDatasetSchema-Output"];
         };
         /** MeasurementDatasetSchema */
-        MeasurementDatasetSchema: {
+        "MeasurementDatasetSchema-Output": {
             /** Dataset Id */
             dataset_id: string;
             /** Dimensions */
-            dimensions: components["schemas"]["MeasurementDimension"][];
+            dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
              * @default scopecat.measurement_dataset_schema.v6
@@ -1904,13 +1904,13 @@ export interface components {
              */
             record_schema: "scopecat.measurement_record.v4";
             /** Variables */
-            variables?: components["schemas"]["MeasurementVariable"][];
+            variables?: components["schemas"]["MeasurementVariable-Output"][];
         };
         /**
          * MeasurementDimension
          * @description One concrete extent; physical coordinate values are variables.
          */
-        MeasurementDimension: {
+        "MeasurementDimension-Output": {
             /** Id */
             id: string;
             /** Kind */
@@ -1923,9 +1923,10 @@ export interface components {
         };
         /**
          * MeasurementPage
-         * @description Bounded raw-record preview for interactive browsing.
+         * @description Bounded typed-record preview for interactive browsing.
          */
         MeasurementPage: {
+            dataset_schema?: components["schemas"]["MeasurementDatasetSchema-Output"] | null;
             /**
              * Items
              * @default []
@@ -1985,7 +1986,7 @@ export interface components {
          * MeasurementVariable
          * @description A point-local variable whose shape is derived from its dimensions.
          */
-        MeasurementVariable: {
+        "MeasurementVariable-Output": {
             /** Dims */
             dims: string[];
             /**

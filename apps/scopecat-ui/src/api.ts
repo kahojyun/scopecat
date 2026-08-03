@@ -99,6 +99,7 @@ export async function getMeasurementPreview(
   );
   return {
     items: (response.items ?? []) as Array<Record<string, unknown>>,
+    schema: response.dataset_schema ?? undefined,
     nextOffset: response.next_offset ?? undefined,
   };
 }

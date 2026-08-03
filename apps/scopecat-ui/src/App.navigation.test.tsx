@@ -371,8 +371,10 @@ describe("config provenance navigation", () => {
       ).not.toBeInTheDocument(),
     );
     expect(getMeasurementPreview).toHaveBeenCalledWith("run-1", 1, expect.any(AbortSignal));
-    expect(screen.getByText(/"dataset_id": "dataset-b"/)).toBeVisible();
-    expect(screen.getByText("2 records")).toBeVisible();
+    expect(screen.getByTestId("measurement-preview")).toHaveTextContent(
+      '"dataset_id": "dataset-b"',
+    );
+    expect(screen.getByText(/2 records/)).toBeVisible();
   });
 
   it("resets measurement pages for the event's run", async () => {

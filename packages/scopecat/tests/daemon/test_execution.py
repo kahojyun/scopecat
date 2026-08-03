@@ -40,7 +40,12 @@ from scopecat.records.execution_journal import (
     execution_transition_content_hash,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
+from scopecat.records.measurement import (
+    MeasurementDatasetSchema,
+    MeasurementDimension,
+    MeasurementRecord,
+    MeasurementScalar,
+)
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
@@ -350,6 +355,10 @@ def _measurement_append(
         run_id="run-1",
         recording_contract_fingerprint="contract-1",
         start_index=0,
+        schema=MeasurementDatasetSchema(
+            dataset_id="raw-measurements",
+            dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+        ),
         records=(record,),
     )
 
