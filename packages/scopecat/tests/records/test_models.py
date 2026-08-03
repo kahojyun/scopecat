@@ -27,6 +27,7 @@ from scopecat.records.parameter import (
     ScalarParameterValue,
     TableParameterValue,
 )
+from scopecat.records.run import RunStageLineage
 from scopecat.records.run_request import (
     AroundScanRecord,
     PointScanRecord,
@@ -84,6 +85,27 @@ def test_run_request_records_operator_metadata() -> None:
 
     assert restored.operator == "alice"
     assert restored.metadata == {"sample": "q0"}
+
+
+def test_run_request_records_typed_stage_lineage() -> None:
+    lineage = RunStageLineage(
+        sequence_id="adaptive-sequence",
+        index=2,
+        previous_run_id="run-2",
+    )
+
+    restored = assert_model_round_trip(RunRequest(stage=lineage))
+
+    assert restored.stage == lineage
+    assert restored.metadata == {}
+    with pytest.raises(ValidationError, match="first run stage"):
+        RunStageLineage(
+            sequence_id="adaptive-sequence",
+            index=0,
+            previous_run_id="run-previous",
+        )
+    with pytest.raises(ValidationError, match="later run stage"):
+        RunStageLineage(sequence_id="adaptive-sequence", index=1)
 
 
 def test_run_request_records_canonical_scans_only() -> None:

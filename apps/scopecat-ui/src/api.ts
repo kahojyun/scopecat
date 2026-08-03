@@ -255,6 +255,13 @@ function normalizeRun(
     attentionReason: control.attention_reason ?? undefined,
     result: outcome?.result,
     certainty: outcome?.certainty,
+    stage: manifest.stage
+      ? {
+          sequenceId: manifest.stage.sequence_id,
+          index: manifest.stage.index,
+          previousRunId: manifest.stage.previous_run_id ?? undefined,
+        }
+      : undefined,
     plan: {
       pointCount: plan.point_count,
       coordinateIds: plan.coordinate_ids ?? [],

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from threading import Event, Lock, Thread
 from typing import override
 from uuid import uuid4
@@ -39,6 +39,7 @@ from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunConfigSource,
     RunManifest,
+    RunStageLineage,
 )
 
 
@@ -91,6 +92,7 @@ class _DaemonRunner:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        stage: RunStageLineage | None = None,
         executor_id: str = "notebook",
         submission_id: str | None = None,
     ) -> RunManifest:
@@ -103,6 +105,7 @@ class _DaemonRunner:
             description=description,
             metadata=metadata,
             operator=operator,
+            stage=stage,
         )
         return self.execute(
             planned,
@@ -130,6 +133,7 @@ class _DaemonRunner:
             description=description,
             metadata=metadata,
             operator=operator,
+            stage=None,
         )
         return build_run_program_preview(planned.program)
 
@@ -144,6 +148,7 @@ class _DaemonRunner:
         description: str | None,
         metadata: Mapping[str, MetadataValue] | None,
         operator: str | None,
+        stage: RunStageLineage | None,
     ) -> PlannedRun:
         selected_source = config_source
         if config is None:
@@ -173,13 +178,19 @@ class _DaemonRunner:
             selected_metadata["tags"] = list(tags)
         if description is not None:
             selected_metadata["description"] = description
-        return plan_experiment_invocation(
+        planned = plan_experiment_invocation(
             experiment,
             config=selected_config,
             system=selected_system,
             config_source=selected_source,
             metadata=selected_metadata,
             operator=operator,
+        )
+        if stage is None:
+            return planned
+        return replace(
+            planned,
+            request=planned.request.model_copy(update={"stage": stage}),
         )
 
 

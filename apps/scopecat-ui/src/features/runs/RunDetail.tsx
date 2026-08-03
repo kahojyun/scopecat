@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
   Atom,
   Box,
   CheckCircle2,
@@ -44,6 +45,7 @@ export function RunDetail({
   analysesPending,
   attentionError,
   attentionPending,
+  onSelectRun,
   onResolveAttention,
 }: {
   run: ProjectRun;
@@ -61,8 +63,10 @@ export function RunDetail({
   analysesPending: boolean;
   attentionError: Error | null;
   attentionPending: boolean;
+  onSelectRun: (runId: string) => void;
   onResolveAttention: () => void;
 }) {
+  const previousRunId = run.stage?.previousRunId;
   return (
     <>
       <header
@@ -70,7 +74,7 @@ export function RunDetail({
         data-testid="run-detail-header"
       >
         <div className="min-w-0">
-          <div className="mb-2.5 flex items-center gap-2.5 text-[0.68rem] font-bold text-text-dim">
+          <div className="mb-2.5 flex flex-wrap items-center gap-2.5 text-[0.68rem] font-bold text-text-dim">
             <span
               className={classes(
                 "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[0.62rem] font-extrabold tracking-[0.04em] uppercase",
@@ -81,6 +85,31 @@ export function RunDetail({
               <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
               {run.stateLabel}
             </span>
+            {run.stage && (
+              <span
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-[rgb(128_163_207_/_18%)] bg-accent-soft px-2 py-1 text-[0.62rem] font-bold text-accent"
+                data-testid="run-stage-lineage"
+                title={`Sequence ${run.stage.sequenceId}, stage ${run.stage.index + 1}`}
+              >
+                <span>Sequence</span>
+                <code className="max-w-40 overflow-hidden text-ellipsis whitespace-nowrap">
+                  {shorten(run.stage.sequenceId, 18)}
+                </code>
+                <span aria-hidden="true">·</span>
+                <span>Stage {run.stage.index + 1}</span>
+              </span>
+            )}
+            {previousRunId && (
+              <button
+                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-[7px] border border-line bg-transparent px-2 text-[0.62rem] font-bold text-text-soft hover:border-line-strong hover:bg-panel-strong hover:text-text"
+                type="button"
+                title={`Open previous stage ${previousRunId}`}
+                onClick={() => onSelectRun(previousRunId)}
+              >
+                <ArrowLeft size={13} aria-hidden="true" />
+                Previous stage
+              </button>
+            )}
           </div>
           <h2 className="mb-[7px] text-[clamp(1.2rem,1.8vw,1.55rem)] font-[650] tracking-[-0.035em] [overflow-wrap:anywhere]">
             {run.experimentId}

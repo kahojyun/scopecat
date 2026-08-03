@@ -2493,6 +2493,7 @@ export interface components {
             outcome?: components["schemas"]["RunOutcome-Output"] | null;
             /** Run Id */
             run_id: string;
+            stage?: components["schemas"]["RunStageLineage"] | null;
         };
         /**
          * RunMeasurementDatasetResult
@@ -2588,6 +2589,18 @@ export interface components {
              * @enum {string}
              */
             status: "required" | "active" | "quarantined" | "released";
+        };
+        /**
+         * RunStageLineage
+         * @description Durable identity of one run within a notebook-driven sequence.
+         */
+        RunStageLineage: {
+            /** Index */
+            index: number;
+            /** Previous Run Id */
+            previous_run_id?: string | null;
+            /** Sequence Id */
+            sequence_id: string;
         };
         /**
          * RunSummary

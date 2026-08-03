@@ -222,11 +222,11 @@ export function RunsWorkspace({
 
           <label className="flex min-h-10 items-center gap-[9px] rounded-[9px] border border-line bg-bg px-[11px] text-text-dim transition-[border-color,box-shadow] duration-150 focus-within:border-[rgb(128_163_207_/_55%)] focus-within:shadow-[0_0_0_3px_rgb(128_163_207_/_7%)]">
             <Search size={16} aria-hidden="true" />
-            <span className="sr-only">Search by run, experiment, mode, or resource</span>
+            <span className="sr-only">Search by run, sequence, experiment, or resource</span>
             <input
               className="w-full min-w-0 border-0 bg-transparent p-0 text-[0.8rem] text-text outline-none placeholder:text-[#5e6a77]"
               type="search"
-              placeholder="Search runs"
+              placeholder="Search runs or sequences"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -283,14 +283,24 @@ export function RunsWorkspace({
                 detail="Try another status or search term."
               />
             )}
-            {filteredRuns.map((run) => (
-              <RunListItem
-                key={run.runId}
-                run={run}
-                selected={run.runId === selectedRunId}
-                onSelect={() => onSelectRun(run.runId)}
-              />
-            ))}
+            {groupRunsBySequence(filteredRuns).map((entry) =>
+              entry.kind === "run" ? (
+                <RunListItem
+                  key={entry.run.runId}
+                  run={entry.run}
+                  selected={entry.run.runId === selectedRunId}
+                  onSelect={() => onSelectRun(entry.run.runId)}
+                />
+              ) : (
+                <RunSequenceGroup
+                  key={`sequence:${entry.sequenceId}`}
+                  sequenceId={entry.sequenceId}
+                  runs={entry.runs}
+                  selectedRunId={selectedRunId}
+                  onSelectRun={onSelectRun}
+                />
+              ),
+            )}
             {olderRunsMutation.isError && (
               <p className="mx-2 mt-1 mb-0 text-[0.67rem] leading-[1.45] text-red" role="status">
                 {errorMessage(olderRunsMutation.error)}
@@ -350,6 +360,7 @@ export function RunsWorkspace({
               analysesPending={analysesQuery.isPending}
               attentionError={attentionMutation.error}
               attentionPending={attentionMutation.isPending}
+              onSelectRun={onSelectRun}
               onResolveAttention={() => {
                 const confirmation = attentionConfirmation();
                 requestConfirmation({
@@ -409,6 +420,48 @@ function StatusItem({
   );
 }
 
+function RunSequenceGroup({
+  sequenceId,
+  runs,
+  selectedRunId,
+  onSelectRun,
+}: {
+  sequenceId: string;
+  runs: ProjectRun[];
+  selectedRunId?: string;
+  onSelectRun: (runId: string) => void;
+}) {
+  return (
+    <section
+      className="rounded-md border border-[rgb(128_163_207_/_13%)] bg-[rgb(128_163_207_/_3%)] p-1.5"
+      aria-label={`Sequence ${sequenceId}`}
+      data-testid="run-sequence-group"
+    >
+      <header className="flex min-w-0 items-center justify-between gap-2 px-2 pt-1 pb-1.5 text-[0.6rem] text-text-dim">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="font-extrabold tracking-[0.08em] uppercase">Sequence</span>
+          <code className="overflow-hidden text-ellipsis whitespace-nowrap" title={sequenceId}>
+            {shorten(sequenceId, 20)}
+          </code>
+        </span>
+        <span className="flex-none">
+          {runs.length} {runs.length === 1 ? "stage" : "stages"} shown
+        </span>
+      </header>
+      <div className="grid gap-1">
+        {runs.map((run) => (
+          <RunListItem
+            key={run.runId}
+            run={run}
+            selected={run.runId === selectedRunId}
+            onSelect={() => onSelectRun(run.runId)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function RunListItem({
   run,
   selected,
@@ -448,13 +501,23 @@ function RunListItem({
             {shorten(run.runId, 18)}
           </code>
         </span>
-        <span
-          className={classes(
-            "mt-2 justify-self-start rounded-[5px] border px-1.5 py-[3px] text-[0.6rem] leading-none font-extrabold tracking-[0.05em] uppercase",
-            runStatusBadge[run.status],
+        <span className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span
+            className={classes(
+              "rounded-[5px] border px-1.5 py-[3px] text-[0.6rem] leading-none font-extrabold tracking-[0.05em] uppercase",
+              runStatusBadge[run.status],
+            )}
+          >
+            {run.stateLabel}
+          </span>
+          {run.stage && (
+            <span
+              className="rounded-[5px] border border-[rgb(128_163_207_/_17%)] bg-accent-soft px-1.5 py-[3px] text-[0.6rem] leading-none font-bold text-accent"
+              data-testid="run-stage"
+            >
+              Stage {run.stage.index + 1}
+            </span>
           )}
-        >
-          {run.stateLabel}
         </span>
       </span>
       <ChevronRight
@@ -536,6 +599,35 @@ function mergeRunPages(pages: ProjectRunPage[]): ProjectRun[] {
   });
 }
 
+type RunListEntry =
+  | { kind: "run"; run: ProjectRun }
+  | { kind: "sequence"; sequenceId: string; runs: ProjectRun[] };
+
+function groupRunsBySequence(runs: ProjectRun[]): RunListEntry[] {
+  const entries: RunListEntry[] = [];
+  const sequences = new Map<string, Extract<RunListEntry, { kind: "sequence" }>>();
+  for (const run of runs) {
+    const sequenceId = run.stage?.sequenceId;
+    if (sequenceId === undefined) {
+      entries.push({ kind: "run", run });
+      continue;
+    }
+    const existing = sequences.get(sequenceId);
+    if (existing) {
+      existing.runs.push(run);
+      continue;
+    }
+    const group: Extract<RunListEntry, { kind: "sequence" }> = {
+      kind: "sequence",
+      sequenceId,
+      runs: [run],
+    };
+    sequences.set(sequenceId, group);
+    entries.push(group);
+  }
+  return entries;
+}
+
 function mergeMeasurementPages(pages: MeasurementPreview[]): MeasurementPreview | undefined {
   if (pages.length === 0) return undefined;
   const items = pages.flatMap((page) => page.items);
@@ -559,8 +651,10 @@ function filterRuns(runs: ProjectRun[], filter: FilterKey, search: string): Proj
     return [
       run.runId,
       run.experimentId,
+      run.stage?.sequenceId,
       ...run.resources.flatMap((resource) => [resource.id, resource.kind]),
     ]
+      .filter((value) => value !== undefined)
       .join(" ")
       .toLocaleLowerCase()
       .includes(query);

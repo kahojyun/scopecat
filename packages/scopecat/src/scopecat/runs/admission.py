@@ -32,6 +32,7 @@ def build_run_admission(
             run_id=new_run_id(),
             config_content_hash=config_content_hash(config),
             config_source=config_source,
+            stage=request.stage,
         ),
         request=request,
         config=config,

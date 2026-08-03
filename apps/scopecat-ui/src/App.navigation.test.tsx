@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import {
@@ -232,6 +232,91 @@ describe("config provenance navigation", () => {
       screen.getAllByTitle(/^Inspect run /).map((button) => button.getAttribute("title")),
     ).toEqual(["Inspect run run-2", "Inspect run run-1", "Inspect run run-old"]);
     expect(screen.queryByRole("button", { name: "Load older runs" })).not.toBeInTheDocument();
+  });
+
+  it("groups loaded staged runs and finds them by sequence id", async () => {
+    window.history.replaceState(null, "", "/");
+    const stagedRuns = [
+      { ...stagedRun("run-stage-3", "adaptive-sequence", 2, "run-stage-2"), sequence: 30 },
+      { ...projectRun("run-regular"), sequence: 29 },
+      { ...stagedRun("run-stage-2", "adaptive-sequence", 1, "run-stage-1"), sequence: 28 },
+      { ...stagedRun("run-stage-1", "adaptive-sequence", 0), sequence: 27 },
+    ];
+    vi.mocked(getRuns).mockResolvedValue({ items: stagedRuns });
+    vi.mocked(getRun).mockImplementation(
+      async (runId) => stagedRuns.find((run) => run.runId === runId) ?? projectRun(runId),
+    );
+
+    renderApp();
+
+    const group = await screen.findByRole("region", {
+      name: "Sequence adaptive-sequence",
+    });
+    expect(screen.getAllByTestId("run-sequence-group")).toHaveLength(1);
+    expect(within(group).getByText("3 stages shown")).toBeVisible();
+    expect(within(group).getByText("Stage 3")).toBeVisible();
+    expect(within(group).getByText("Stage 2")).toBeVisible();
+    expect(within(group).getByText("Stage 1")).toBeVisible();
+    expect(screen.getByTitle("Inspect run run-regular")).toBeVisible();
+
+    fireEvent.change(screen.getByPlaceholderText("Search runs or sequences"), {
+      target: { value: "adaptive-sequence" },
+    });
+    expect(screen.queryByTitle("Inspect run run-regular")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Sequence adaptive-sequence" })).toBeVisible();
+    expect(getRuns).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(getRun).toHaveBeenCalledTimes(1));
+  });
+
+  it("merges one staged sequence across loaded run pages", async () => {
+    window.history.replaceState(null, "", "/");
+    vi.mocked(getRuns).mockResolvedValue({
+      items: [{ ...stagedRun("run-stage-2", "paged-sequence", 1, "run-stage-1"), sequence: 20 }],
+      nextCursor: 20,
+    });
+    vi.mocked(getOlderRuns).mockResolvedValue({
+      items: [{ ...stagedRun("run-stage-1", "paged-sequence", 0), sequence: 19 }],
+    });
+    vi.mocked(getRun).mockImplementation(async (runId) =>
+      runId === "run-stage-2"
+        ? stagedRun("run-stage-2", "paged-sequence", 1, "run-stage-1")
+        : stagedRun("run-stage-1", "paged-sequence", 0),
+    );
+
+    renderApp();
+
+    const initial = await screen.findByRole("region", { name: "Sequence paged-sequence" });
+    expect(within(initial).getByText("1 stage shown")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Load older runs" }));
+
+    const merged = await screen.findByRole("region", { name: "Sequence paged-sequence" });
+    expect(within(merged).getByText("2 stages shown")).toBeVisible();
+    expect(screen.getAllByTestId("run-sequence-group")).toHaveLength(1);
+  });
+
+  it("opens an unloaded previous stage from run detail lineage", async () => {
+    window.history.replaceState(null, "", "/?run=run-stage-2");
+    const current = stagedRun("run-stage-2", "detail-sequence", 1, "run-stage-1-unloaded");
+    const previous = stagedRun("run-stage-1-unloaded", "detail-sequence", 0);
+    vi.mocked(getRuns).mockResolvedValue({ items: [current] });
+    vi.mocked(getRun).mockImplementation(async (runId) =>
+      runId === current.runId ? current : previous,
+    );
+
+    renderApp();
+
+    const lineage = await screen.findByTestId("run-stage-lineage");
+    expect(lineage).toHaveAttribute("title", "Sequence detail-sequence, stage 2");
+    expect(lineage).toHaveTextContent("Stage 2");
+    fireEvent.click(screen.getByRole("button", { name: "Previous stage" }));
+
+    await waitFor(() =>
+      expect(getRun).toHaveBeenCalledWith("run-stage-1-unloaded", expect.any(AbortSignal)),
+    );
+    expect(await screen.findByTitle("run-stage-1-unloaded")).toHaveTextContent(
+      "run-stage-1-unloaded",
+    );
+    expect(window.location.search).toBe("?run=run-stage-1-unloaded");
   });
 
   it("discards loaded history when the latest page head moves", async () => {
@@ -479,6 +564,18 @@ function projectRun(runId: string): ProjectRun {
     },
     resources: [],
     contents: [],
+  };
+}
+
+function stagedRun(
+  runId: string,
+  sequenceId: string,
+  index: number,
+  previousRunId?: string,
+): ProjectRun {
+  return {
+    ...projectRun(runId),
+    stage: { sequenceId, index, previousRunId },
   };
 }
 

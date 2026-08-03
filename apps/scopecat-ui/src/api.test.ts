@@ -61,6 +61,11 @@ describe("project daemon reads", () => {
             manifest: {
               run_id: "run/1",
               config_content_hash: "sha256:config",
+              stage: {
+                sequence_id: "adaptive-sequence",
+                index: 1,
+                previous_run_id: "run/0",
+              },
               outcome: { result: "succeeded", certainty: "known" },
               contents: [
                 {
@@ -92,6 +97,11 @@ describe("project daemon reads", () => {
       status: "succeeded",
       result: "succeeded",
       certainty: "known",
+      stage: {
+        sequenceId: "adaptive-sequence",
+        index: 1,
+        previousRunId: "run/0",
+      },
     });
     expect(run.contents).toEqual([
       {
@@ -170,6 +180,66 @@ describe("project daemon reads", () => {
         { runId: "run/queued", status: "accepted" },
       ],
     });
+  });
+
+  it("reads staged lineage from the run page without per-run request reads", async () => {
+    const fetchMock = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(
+        jsonResponse({
+          items: [
+            {
+              ...runSummary("run/stage-2", "leased"),
+              manifest: {
+                run_id: "run/stage-2",
+                contents: [],
+                stage: {
+                  sequence_id: "adaptive-sequence",
+                  index: 1,
+                  previous_run_id: "run/stage-1",
+                },
+              },
+            },
+            {
+              ...runSummary("run/stage-1", "queued"),
+              manifest: {
+                run_id: "run/stage-1",
+                contents: [],
+                stage: {
+                  sequence_id: "adaptive-sequence",
+                  index: 0,
+                  previous_run_id: null,
+                },
+              },
+            },
+          ],
+          next_cursor: null,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getRuns()).resolves.toMatchObject({
+      items: [
+        {
+          runId: "run/stage-2",
+          stage: {
+            sequenceId: "adaptive-sequence",
+            index: 1,
+            previousRunId: "run/stage-1",
+          },
+        },
+        {
+          runId: "run/stage-1",
+          stage: {
+            sequenceId: "adaptive-sequence",
+            index: 0,
+            previousRunId: undefined,
+          },
+        },
+      ],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/runs?limit=100");
   });
 
   it("reads persisted analyses and typed run content", async () => {
