@@ -727,6 +727,7 @@ class SubprocessInstrumentBackendEndpoint:
     ) -> _RpcResponse | None:
         selected_deadline = deadline or (monotonic() + self._shutdown_timeout)
         response: _RpcResponse | None = None
+        process_closed = False
         try:
             if graceful is not None:
                 graceful.pending.event.wait(
@@ -736,16 +737,15 @@ class SubprocessInstrumentBackendEndpoint:
                 if received is not None:
                     response = received.response
                     self._process.join(max(0.0, (selected_deadline - monotonic()) / 2))
-            if self._process.is_alive():
-                self._close_connection()
-                _terminate_process_until(self._process, selected_deadline)
-            else:
-                self._close_connection()
+            self._close_connection()
+            _terminate_process_until(self._process, selected_deadline)
             self._receiver.join(max(0.0, selected_deadline - monotonic()))
             if self._receiver.is_alive():
                 raise InstrumentBackendUnavailable(
                     "instrument worker receiver did not stop"
                 )
+            self._process.close()
+            process_closed = True
             return response
         finally:
             with self._state_lock:
@@ -754,9 +754,7 @@ class SubprocessInstrumentBackendEndpoint:
                         graceful.request.request_id,
                         None,
                     )
-                self._cleanup_complete = (
-                    not self._process.is_alive() and not self._receiver.is_alive()
-                )
+                self._cleanup_complete = process_closed
 
     def _close_connection(self) -> None:
         with self._state_lock:
@@ -1197,6 +1195,7 @@ def _require_child_handle(request: _RpcRequest) -> InstrumentHandle:
 
 def _stop_process(process: BaseProcess, timeout: float) -> None:
     _stop_process_until(process, monotonic() + timeout)
+    process.close()
 
 
 def _stop_process_until(process: BaseProcess, deadline: float) -> None:
@@ -1212,7 +1211,7 @@ def _terminate_process_until(process: BaseProcess, deadline: float) -> None:
         process.join(remaining / 2)
     if process.is_alive():
         process.kill()
-        process.join(max(0.0, deadline - monotonic()))
+    process.join(max(0.0, deadline - monotonic()))
     if process.is_alive():
         raise InstrumentBackendUnavailable("instrument worker did not stop")
 

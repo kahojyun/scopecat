@@ -296,6 +296,7 @@ def test_worker_crash_degrades_runtime_health(tmp_path: Path) -> None:
             time.sleep(0.01)
 
     assert health.status == "degraded"
+    assert not psutil.pid_exists(worker_pid)
 
 
 def test_worker_rejects_invalid_collect_array_without_poisoning_protocol(
