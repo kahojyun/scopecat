@@ -146,7 +146,7 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
     ] == ["level", "enabled"]
 
 
-def test_template_and_scratch_share_direct_root_authoring() -> None:
+def test_template_and_experiment_factory_share_direct_root_authoring() -> None:
     def body(experiment: sc.ExperimentContext) -> None:
         device = experiment._resource("device", requires=(_DEVICE,))
         signal = experiment._product("signal")
@@ -158,21 +158,21 @@ def test_template_and_scratch_share_direct_root_authoring() -> None:
         experiment.record(signal)
 
     template = sc.template(id="test.direct.template", kind="direct")(body)
-    scratch = sc.scratch(id="test.direct.scratch", kind="direct")(body)
+    factory = sc.experiment_factory(id="test.direct.factory", kind="direct")(body)
 
     template_program = compile_invocation(template()).program.program
-    scratch_program = compile_invocation(scratch()).program.program
+    factory_program = compile_invocation(factory()).program.program
 
-    assert template_program.resource_ports == scratch_program.resource_ports
-    assert template_program.product_declarations == scratch_program.product_declarations
-    assert template_program.effects == scratch_program.effects
+    assert template_program.resource_ports == factory_program.resource_ports
+    assert template_program.product_declarations == factory_program.product_declarations
+    assert template_program.effects == factory_program.effects
     template_records = [
         selection.product_id for selection in template_program.product_record_selections
     ]
-    scratch_records = [
-        selection.product_id for selection in scratch_program.product_record_selections
+    factory_records = [
+        selection.product_id for selection in factory_program.product_record_selections
     ]
-    assert template_records == scratch_records
+    assert template_records == factory_records
 
 
 def test_template_records_a_compute_result_as_a_named_dataset_value() -> None:

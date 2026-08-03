@@ -13,11 +13,11 @@ from scopecat.authoring._module_invocation import (
 from scopecat.authoring._module_results import ProductBundle
 from scopecat.authoring.definitions import (
     ExperimentContext,
+    ExperimentFactory,
     Input,
-    ScratchDefinition,
+    experiment_factory,
     input_ref,
     module,
-    scratch,
     template,
 )
 from scopecat.authoring.entity_parameters import (
@@ -102,6 +102,7 @@ __all__ = [
     "EntitySelection",
     "EntityType",
     "ExperimentContext",
+    "ExperimentFactory",
     "ExperimentInvocation",
     "ExperimentModule",
     "ExperimentTemplate",
@@ -127,7 +128,6 @@ __all__ = [
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",
-    "ScratchDefinition",
     "StringType",
     "TableColumn",
     "TableType",
@@ -137,12 +137,12 @@ __all__ = [
     "coordinate",
     "each",
     "entity_key",
+    "experiment_factory",
     "input_ref",
     "module",
     "one",
     "parameter",
     "parameter_column",
     "parameter_lookup",
-    "scratch",
     "template",
 ]

@@ -150,7 +150,7 @@ def test_analysis_decorator_preserves_configuration_signature() -> None:
         readout_fit(unknown="q0")  # pyright: ignore[reportCallIssue]
 
 
-def test_template_and_scratch_share_the_context_protocol() -> None:
+def test_template_and_experiment_factory_share_the_context_protocol() -> None:
     count = sc.coordinate("count", sc.ScalarType(_COUNT_TYPE))
 
     @sc.module
@@ -166,21 +166,21 @@ def test_template_and_scratch_share_the_context_protocol() -> None:
         experiment.scan(sc.axis(count, (1, 2, 3)))
 
     template = sc.template(id="test.function.template", kind="count")(body)
-    scratch = sc.scratch(id="test.function.scratch", kind="count")(body)
+    factory = sc.experiment_factory(id="test.function.factory", kind="count")(body)
 
     template_invocation = template()
-    scratch_invocation = scratch()
+    factory_invocation = factory()
     assert (
         template_invocation.definition.default_scans
-        == scratch_invocation.definition.default_scans
+        == factory_invocation.definition.default_scans
     )
     compile_invocation(template_invocation)
-    compile_invocation(scratch_invocation)
-    assert inspect.signature(scratch).parameters == inspect.Signature().parameters
-    assert scratch.__wrapped__ is body
+    compile_invocation(factory_invocation)
+    assert inspect.signature(factory).parameters == inspect.Signature().parameters
+    assert factory.__wrapped__ is body
 
 
-def test_scratch_preserves_typed_call_contract() -> None:
+def test_experiment_factory_preserves_typed_call_contract() -> None:
     @sc.module
     def count_source(
         module: sc.ModuleContext,
@@ -188,22 +188,22 @@ def test_scratch_preserves_typed_call_contract() -> None:
     ) -> None:
         del module, count
 
-    @sc.scratch
-    def count_scratch(
+    @sc.experiment_factory
+    def count_experiment(
         experiment: sc.ExperimentContext,
         count: int = 2,
     ) -> None:
         experiment.run(count_source(count=count))
 
-    signature = inspect.signature(count_scratch)
+    signature = inspect.signature(count_experiment)
     assert signature.parameters["count"].default == 2
     assert signature.return_annotation is sc.ExperimentInvocation
-    invocation = assert_type(count_scratch(3), sc.ExperimentInvocation)
+    invocation = assert_type(count_experiment(3), sc.ExperimentInvocation)
     compile_invocation(invocation)
 
     if TYPE_CHECKING:
-        count_scratch("invalid")  # pyright: ignore[reportArgumentType]
-        count_scratch(unknown=3)  # pyright: ignore[reportCallIssue]
+        count_experiment("invalid")  # pyright: ignore[reportArgumentType]
+        count_experiment(unknown=3)  # pyright: ignore[reportCallIssue]
 
 
 def test_definition_annotations_require_an_unambiguous_value_type() -> None:

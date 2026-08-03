@@ -189,7 +189,7 @@ class _DefinitionContract:
 
 
 class ExperimentContext:
-    """Explicit recorder injected into one template or scratch definition."""
+    """Authoring context shared by templates and experiment factories."""
 
     __slots__ = (
         "_final_state_bindings",
@@ -494,8 +494,8 @@ class ExperimentContext:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ScratchDefinition[**P]:
-    """A project-neutral experiment factory evaluated for each call."""
+class ExperimentFactory[**P]:
+    """An experiment factory evaluated structurally for each Python call."""
 
     fn: Callable[Concatenate[ExperimentContext, P], None] = field(
         repr=False,
@@ -521,7 +521,7 @@ class ScratchDefinition[**P]:
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
         context = ExperimentContext()
         result = self.fn(context, *args, **kwargs)
-        _require_definition_none(result, kind="scratch")
+        _require_definition_none(result, kind="experiment_factory")
         definition = context.close_definition_internal(
             id=self.id,
             kind=self.kind,
@@ -634,18 +634,18 @@ def template[**P](
 
 
 @overload
-def scratch[**P](
+def experiment_factory[**P](
     definition: Callable[Concatenate[ExperimentContext, P], None],
     /,
     *,
     id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ScratchDefinition[P]: ...
+) -> ExperimentFactory[P]: ...
 
 
 @overload
-def scratch[**P](
+def experiment_factory[**P](
     definition: None = None,
     /,
     *,
@@ -654,11 +654,11 @@ def scratch[**P](
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> Callable[
     [Callable[Concatenate[ExperimentContext, P], None]],
-    ScratchDefinition[P],
+    ExperimentFactory[P],
 ]: ...
 
 
-def scratch[**P](
+def experiment_factory[**P](
     definition: Callable[Concatenate[ExperimentContext, P], None] | None = None,
     /,
     *,
@@ -666,19 +666,19 @@ def scratch[**P](
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
-    ScratchDefinition[P]
+    ExperimentFactory[P]
     | Callable[
         [Callable[Concatenate[ExperimentContext, P], None]],
-        ScratchDefinition[P],
+        ExperimentFactory[P],
     ]
 ):
-    """Define a project-neutral scratch experiment factory."""
+    """Define an experiment whose Python arguments may change graph structure."""
 
     def decorate(
         fn: Callable[Concatenate[ExperimentContext, P], None],
-    ) -> ScratchDefinition[P]:
+    ) -> ExperimentFactory[P]:
         signature = _context_signature(fn, ExperimentContext)
-        return ScratchDefinition(
+        return ExperimentFactory(
             fn=fn,
             _signature=signature.replace(return_annotation=ExperimentInvocation),
             id=id or _definition_id(fn),
@@ -942,10 +942,10 @@ def _definition_id(fn: DefinitionFunction) -> str:
 
 __all__ = [
     "ExperimentContext",
+    "ExperimentFactory",
     "Input",
-    "ScratchDefinition",
+    "experiment_factory",
     "input_ref",
     "module",
-    "scratch",
     "template",
 ]

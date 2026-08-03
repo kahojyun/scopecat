@@ -142,7 +142,7 @@ def create_backend(_project_root: Path) -> InstrumentBackend:
 __all__ = ["create_backend"]
 ''',
     "notebooks/01_first_run.py": '''\
-"""Run the smallest scratch experiment through the project daemon."""
+"""Run the smallest experiment through the project daemon."""
 
 from __future__ import annotations
 
@@ -153,7 +153,7 @@ import scopecat as sc
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-@sc.scratch(id="scopecat_lab.first_run", kind="first_run")
+@sc.experiment_factory(id="scopecat_lab.first_run", kind="first_run")
 def first_run(experiment: sc.ExperimentContext) -> None:
     """Close the daemon, notebook, history, and GUI loop without hardware."""
 
