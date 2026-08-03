@@ -72,12 +72,37 @@ sequence = lab.run_staged(
 ```
 
 Each stage is an ordinary durable run. It uses the same resolved configuration
-snapshot and records its sequence id, stage index, and predecessor run id in
-request metadata. The callback may inspect the current run and all prior runs
-through `stage.run` and `stage.history`; returning `None` finishes naturally,
-while `max_stages` bounds an optimizer that keeps proposing points. This first
-implementation deliberately favors notebook-driven adaptive work over a hidden
-intra-run control loop.
+snapshot and records typed sequence id, stage index, and predecessor run id in
+both its request and manifest. The callback may inspect the current run and all
+prior runs through `stage.run` and `stage.history`; returning `None` finishes
+naturally, while `max_stages` bounds an optimizer that keeps proposing points.
+Reaching that bound does not call the callback for the final completed stage,
+so a stateful optimizer is not advanced past durable work.
+
+Sequences can be rediscovered after restarting a notebook. Discovery pages
+through run manifests rather than loading every run request:
+
+```python
+sequences = lab.staged_experiments()  # newest sequence first
+sequence = lab.get_staged_experiment(sequences[0].sequence_id)
+
+continued = lab.resume_staged(
+    sequence.sequence_id,
+    next_stage=choose_next,
+    max_stages=10,  # bounds newly executed stages
+)
+```
+
+For a rediscovered sequence, `stopped_by_limit` is `None`: individual runs and
+their lineage are durable, but the earlier notebook loop's stop reason is not.
+
+Resume calls `choose_next` with the latest durable stage before executing new
+work, including the callback deferred when the earlier execution reached
+`max_stages`. Its own limit again defers the callback for its final stage until
+another resume. New stages inherit the latest accepted config snapshot and
+source, ordinary request metadata, and operator. Resuming requires the latest
+run to have completed successfully. This workflow deliberately favors
+notebook-driven adaptive work over a hidden intra-run control loop.
 
 The schema records whether the domain is a `product_grid` or `point_cloud`.
 Consumers should use that semantic layout instead of trying to infer a grid
@@ -191,18 +216,22 @@ JSON values. Automatic plots use:
 - labels and units for axes and table columns;
 - data type information, exposing complex magnitude, phase, real, and imaginary
   views explicitly; and
-- point-domain layout, using a heatmap for a complete two-axis product grid in
-  authored axis order, scatter for point clouds, and a line only for a
+- point-domain layout, using the first two authored real numeric axes of a
+  product grid as heatmap x/y, scatter for point clouds, and a line only for a
   monotonic grid coordinate.
 
 Point-scalar observables become coordinate plots; point-local rank-one arrays
 become trace series. A point cloud with two scalar coordinate columns also gets
-an x/y scatter whose color encodes each scalar observable. A complete 2-D grid
-gets one cell per authored axis pair; missing or duplicate cells fall back to
-the scalar views instead of presenting a misleading surface. Complex heatmaps
-offer magnitude, phase, real, and imaginary color modes. When several safe
-views exist, the GUI lists every candidate in a selector instead of silently
-truncating them. Shapes that do not have a safe automatic visual remain in the
-typed table, with raw records available as a secondary expandable view. This
-keeps automatic plotting useful without pretending that every tensor has one
-obvious chart.
+an x/y scatter whose color encodes each scalar observable. For a
+higher-dimensional product grid, every remaining authored axis becomes a fixed
+slice shown in the selector and caption. Each observed slice is validated
+independently: it must contain exactly one cell for every x/y pair, with no
+missing or duplicate coordinates. An invalid slice falls back to scalar/table
+views instead of presenting a misleading surface. If a candidate produces more
+than 32 actual slices, the GUI disables heatmaps for the whole candidate and
+uses the same scalar/table fallback. Complex heatmaps offer magnitude, phase,
+real, and imaginary color modes. When several safe views exist, the GUI lists
+every candidate in a selector instead of silently truncating them. Shapes that
+do not have a safe automatic visual remain in the typed table, with raw records
+available as a secondary expandable view. This keeps automatic plotting useful
+without pretending that every tensor has one obvious chart.
