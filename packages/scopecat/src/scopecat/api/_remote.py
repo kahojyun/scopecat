@@ -55,7 +55,7 @@ class RemoteRunOperations:
     def load_request(self, run_id: str) -> RunRequest:
         return self.client.run_request(run_id).request
 
-    def measurements(
+    def load_measurement_dataset(
         self,
         run_id: str,
         *,

@@ -14,7 +14,6 @@ from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
-    RunMeasurementDatasetResult,
 )
 
 
@@ -34,7 +33,7 @@ class _DataRun(Protocol):
         self,
         *,
         selector: str = "raw-measurements",
-    ) -> RunMeasurementDatasetResult: ...
+    ) -> Dataset: ...
 
     def artifact_text(
         self,
@@ -108,8 +107,7 @@ class Data:
         self,
         selector: str = "raw-measurements",
     ) -> Dataset:
-        result = self.run.measurements(selector=selector)
-        return Dataset(raw=result.dataset, entry=result.dataset_entry)
+        return self.run.measurements(selector=selector)
 
     def schema(self, selector: str = "raw-measurements") -> MeasurementDatasetSchema:
         return self.measurements(selector).schema

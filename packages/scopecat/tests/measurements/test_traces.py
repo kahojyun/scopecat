@@ -6,7 +6,6 @@ from scopecat.measurements.results import (
     measurement_traces,
     validate_measurement_records_against_schema,
 )
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
@@ -17,7 +16,6 @@ from scopecat.records.measurement import (
     MeasurementUnavailable,
     MeasurementVariable,
 )
-from scopecat.runs.data import RunMeasurementDatasetResult
 
 
 def test_trace_view_selects_one_shared_point_local_dimension() -> None:
@@ -85,18 +83,6 @@ def test_trace_view_selects_one_recording_group_without_cross_pairing() -> None:
     assert trace.observable_id == "second_s_parameter"
     [selected_trace, *_] = measurement_traces(dataset, "second_s_parameter")
     assert selected_trace.coordinate_id == "second_frequency"
-
-    result = RunMeasurementDatasetResult(
-        dataset_entry=RunContentEntry(
-            role="dataset",
-            id="raw-measurements",
-            kind="measurement_dataset",
-            content_hash="unused",
-        ),
-        dataset=dataset,
-    )
-    [run_trace, *_] = result.traces(group="readout/second")
-    assert run_trace.recording_group_id == "readout/second"
 
 
 def test_trace_view_rejects_unknown_and_mixed_recording_groups() -> None:

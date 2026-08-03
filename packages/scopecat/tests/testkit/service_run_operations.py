@@ -51,7 +51,7 @@ class ServiceRunOperations:
     def load_request(self, run_id: str) -> RunRequest:
         return load_run_request(run_id=run_id, services=self.services)
 
-    def measurements(
+    def load_measurement_dataset(
         self,
         run_id: str,
         *,

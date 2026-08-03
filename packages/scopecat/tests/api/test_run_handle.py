@@ -10,6 +10,7 @@ from scopecat.authoring import (
     ExperimentTemplate,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.results import Dataset
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import config_content_hash
@@ -141,16 +142,19 @@ def test_in_process_lab_records_compute_value_without_instruments(
     )
 
     run = lab.prepare(compute_only).run()
-    raw = run.measurements().dataset
+    dataset = run.measurements()
 
     assert run.manifest.status == "completed"
-    [record] = raw.records
+    assert isinstance(dataset, Dataset)
+    assert dataset.entry.id == "raw-measurements"
+    [record] = dataset.records
     assert record.observables["score"] == MeasurementScalar.create(
         dtype="float64",
         value=2.5,
     )
-    variable = next(item for item in raw.dataset_schema.variables if item.id == "score")
+    variable = next(item for item in dataset.schema.variables if item.id == "score")
     assert variable.source_value_id == "score"
+    assert run.data().measurements().records == dataset.records
 
 
 def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
@@ -170,7 +174,7 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     experiment = load_invocation()
 
     baseline = lab.prepare(experiment).run()
-    raw = baseline.measurements()
+    dataset = baseline.measurements()
     analysis = (
         baseline.analysis("manual best signal")
         .input("raw-measurements")
@@ -179,7 +183,7 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
             sc.replace_scalar_parameter(
                 "drive_frequency",
                 _quantity_coordinate(
-                    raw.dataset.records[2],
+                    dataset.records[2],
                     "drive_frequency",
                 ),
             ),
@@ -191,7 +195,7 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     candidate = lab.prepare(experiment, config=candidate_config).run()
 
     assert baseline.id.startswith("run_")
-    assert raw.dataset_entry.id == "raw-measurements"
+    assert dataset.entry.id == "raw-measurements"
     assert [input_ref.target for input_ref in saved.inputs] == ["raw-measurements"]
     assert not any(
         record.kind == "candidate_config" for record in baseline.manifest.records
@@ -221,13 +225,13 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     experiment = load_invocation()
 
     baseline = lab.prepare(experiment).run()
-    raw = baseline.measurements()
+    dataset = baseline.measurements()
     analysis = baseline.analysis("manual center point").propose(
         "drive_frequency",
         sc.replace_scalar_parameter(
             "drive_frequency",
             _quantity_coordinate(
-                raw.dataset.records[2],
+                dataset.records[2],
                 "drive_frequency",
             ),
         ),
@@ -238,8 +242,8 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     candidate = lab.prepare(experiment, config=candidate_config).run()
 
     assert baseline.manifest.status == "completed"
-    assert len(raw.dataset.records) == 3
-    assert raw.dataset_entry.id == "raw-measurements"
+    assert len(dataset.records) == 3
+    assert dataset.entry.id == "raw-measurements"
     assert (
         candidate_config.parameter_proposal.deltas[0].parameter_id == "drive_frequency"
     )

@@ -16,6 +16,7 @@ from scopecat.analysis.service import (
 )
 from scopecat.api.analysis import Analysis, AnalysisContext, AnalysisStep
 from scopecat.api.data import Data
+from scopecat.measurements.results import Dataset
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -40,7 +41,7 @@ class RunOperations(Protocol):
 
     def load_request(self, run_id: str) -> RunRequest: ...
 
-    def measurements(
+    def load_measurement_dataset(
         self,
         run_id: str,
         *,
@@ -146,11 +147,14 @@ class RunHandle:
         self,
         *,
         selector: str = "raw-measurements",
-    ) -> RunMeasurementDatasetResult:
-        return self.session.run_operations.measurements(
+    ) -> Dataset:
+        """Load one labeled measurement dataset for notebook analysis."""
+
+        loaded = self.session.run_operations.load_measurement_dataset(
             self.id,
             selector=selector,
         )
+        return Dataset(raw=loaded.dataset, entry=loaded.dataset_entry)
 
     def data(self) -> Data:
         return Data(run=self)
