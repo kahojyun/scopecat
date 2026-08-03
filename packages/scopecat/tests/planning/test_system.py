@@ -28,7 +28,11 @@ from scopecat.domain.program import (
     DomainProgramDef,
     DomainResultPort,
 )
-from scopecat.execution.local.program import ApplyStateOperation, ComputeOperation
+from scopecat.execution.local.program import (
+    ApplyStateOperation,
+    CollectOperation,
+    ComputeOperation,
+)
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -458,22 +462,38 @@ def _postprocess_identity(
 
 def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
     source = observable_product("source", unit="ratio")
+    middle = observable_product("middle", unit="ratio")
     derived = observable_product("derived", unit="ratio")
     source_use = product_use(source.id)
+    middle_use = product_use(middle.id)
     derived_use, derived_record = record_product(derived)
-    postprocessor_id = MeasurementPostprocessorId(SymbolId(local_id="normalize"))
-    postprocessor = BoundMeasurementPostprocessor(
-        id=postprocessor_id,
-        input_product_id=source.id,
-        input_product_use_id=source_use.id,
-        outputs=(
-            BoundMeasurementPostprocessorOutput(
-                id="result",
-                product_id=derived.id,
-                product_use_ids=(derived_use.id,),
+    postprocessors = (
+        BoundMeasurementPostprocessor(
+            id=MeasurementPostprocessorId(SymbolId(local_id="normalize")),
+            input_product_id=source.id,
+            input_product_use_id=source_use.id,
+            outputs=(
+                BoundMeasurementPostprocessorOutput(
+                    id="result",
+                    product_id=middle.id,
+                    product_use_ids=(middle_use.id,),
+                ),
             ),
+            kernel=_postprocess_identity,
         ),
-        kernel=_postprocess_identity,
+        BoundMeasurementPostprocessor(
+            id=MeasurementPostprocessorId(SymbolId(local_id="summarize")),
+            input_product_id=middle.id,
+            input_product_use_id=middle_use.id,
+            outputs=(
+                BoundMeasurementPostprocessorOutput(
+                    id="result",
+                    product_id=derived.id,
+                    product_use_ids=(derived_use.id,),
+                ),
+            ),
+            kernel=_postprocess_identity,
+        ),
     )
     program = program_fixture(
         point_domain=PointDomain(axes=()),
@@ -490,9 +510,9 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
                 result_id="signal",
             ),
         ),
-        measurement_postprocessors=(postprocessor,),
-        product_defs=(source, derived),
-        product_uses=(source_use, derived_use),
+        measurement_postprocessors=postprocessors,
+        product_defs=(source, middle, derived),
+        product_uses=(source_use, middle_use, derived_use),
         record_uses=(derived_record,),
     )
     return bind_program_facts(
@@ -781,9 +801,20 @@ def test_planning_keeps_postprocessor_outputs_out_of_local_acquisition() -> None
         instrument_catalog=_catalog(bound, TestSignalInstrumentProvider())
     ).compile(bound)
 
-    [postprocessor] = plan.measurement_postprocessors
-    assert postprocessor.id.qualified_name == "normalize"
-    assert postprocessor.input_product_id.qualified_name == "source"
+    first, second = plan.measurement_postprocessors
+    assert [first.id.qualified_name, second.id.qualified_name] == [
+        "normalize",
+        "summarize",
+    ]
+    assert first.input_product_id.qualified_name == "source"
+    assert second.input_product_id.qualified_name == "middle"
+    [collect] = [
+        effect.operation
+        for effect in plan.coverage
+        if isinstance(effect, RunCoverageEffect)
+        and isinstance(effect.operation, CollectOperation)
+    ]
+    assert collect.result_bindings[0].product_use_ids == (first.input_product_use_id,)
 
 
 def test_domain_target_partitions_complete_point_space_by_capacity() -> None:

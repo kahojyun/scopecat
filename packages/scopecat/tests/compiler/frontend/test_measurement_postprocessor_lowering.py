@@ -32,8 +32,16 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     def module(context: sc.ModuleContext) -> sc.ProductRef:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
         raw = context._product("raw")
+        first = context._product("first")
+        second = context._product("second")
         derived = context._product("derived")
         dead = context._product("dead")
+        context._postprocess(
+            "final",
+            input=second,
+            outputs={"result": derived},
+            kernel=_kernel,
+        )
         context._postprocess(
             "dead",
             input=raw,
@@ -41,9 +49,15 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
             kernel=_kernel,
         )
         context._postprocess(
-            "derive",
+            "middle",
+            input=first,
+            outputs={"result": second},
+            kernel=_kernel,
+        )
+        context._postprocess(
+            "first",
             input=raw,
-            outputs={"result": derived},
+            outputs={"result": first},
             kernel=_kernel,
         )
         context._acquire(
@@ -62,17 +76,23 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     resolved = bind_invocation(template(), config_profile=load_config())
     program = resolved.bindings
 
-    [postprocessor] = program.measurement_postprocessors
-    assert postprocessor.id.qualified_name == "lowering/derive"
-    assert postprocessor.input_product_id.qualified_name == "lowering/raw"
-    assert postprocessor.input_product_use_id.value == (
-        "scopecat.measurement-postprocessor/lowering/derive/input"
-    )
-    assert postprocessor.outputs[0].product_use_ids == tuple(
+    first, middle, final = program.measurement_postprocessors
+    assert [
+        postprocessor.id.qualified_name
+        for postprocessor in program.measurement_postprocessors
+    ] == ["lowering/first", "lowering/middle", "lowering/final"]
+    assert first.input_product_id.qualified_name == "lowering/raw"
+    assert first.outputs[0].product_use_ids == (middle.input_product_use_id,)
+    assert middle.input_product_id.qualified_name == "lowering/first"
+    assert middle.outputs[0].product_use_ids == (final.input_product_use_id,)
+    assert final.input_product_id.qualified_name == "lowering/second"
+    assert final.outputs[0].product_use_ids == tuple(
         record.product_use_id for record in program.product_record_uses
     )
     assert {use.product_id.qualified_name for use in program.product_uses} == {
         "lowering/raw",
+        "lowering/first",
+        "lowering/second",
         "lowering/derived",
     }
     assert {
@@ -80,7 +100,10 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         for acquisition in resolved.program.program.acquisitions
         for result in acquisition.results
     } == {"lowering/raw"}
-    assert postprocessor.kernel is _kernel
+    assert all(
+        postprocessor.kernel is _kernel
+        for postprocessor in program.measurement_postprocessors
+    )
 
 
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:

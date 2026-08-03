@@ -38,10 +38,15 @@ from tests.testkit.measurement_assembly import (
 def _postprocessor(
     scenario: MeasurementAssemblyScenario,
     kernel: Callable[[MeasurementValue], dict[str, MeasurementValue]],
+    *,
+    id: str = "normalize",
+    input_index: int = 0,
+    output_index: int = 1,
 ) -> BoundMeasurementPostprocessor:
-    source, output = scenario.uses
+    source = scenario.uses[input_index]
+    output = scenario.uses[output_index]
     return BoundMeasurementPostprocessor(
-        id=MeasurementPostprocessorId(SymbolId(local_id="normalize")),
+        id=MeasurementPostprocessorId(SymbolId(local_id=id)),
         input_product_id=source.product_id,
         input_product_use_id=source.id,
         outputs=(
@@ -94,6 +99,92 @@ def test_postprocessor_runs_one_direct_kernel_per_point() -> None:
     ]
 
 
+def test_postprocessor_chain_feeds_derived_outputs_to_downstream_nodes() -> None:
+    scenario = measurement_assembly_scenario(point_values=(2.0, 4.0), use_count=3)
+    evidence = InstrumentAcquisitionEvidence(
+        command_id="collect-signal",
+        instrument_id="readout",
+        interface_id="test.scalar_signal/v1",
+        acquisition_id="sample",
+        result_id="signal",
+        started_at=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
+    )
+    observed: list[tuple[str, float]] = []
+
+    def increment(value: MeasurementValue) -> dict[str, MeasurementValue]:
+        assert isinstance(value, MeasurementScalar)
+        assert isinstance(value.value, int | float)
+        observed.append(("increment", float(value.value)))
+        return {
+            "output": MeasurementScalar.create(
+                dtype="float64",
+                value=value.value + 1.0,
+                unit="ratio",
+            )
+        }
+
+    def double(value: MeasurementValue) -> dict[str, MeasurementValue]:
+        assert isinstance(value, MeasurementScalar)
+        assert isinstance(value.value, int | float)
+        observed.append(("double", float(value.value)))
+        return {
+            "output": MeasurementScalar.create(
+                dtype="float64",
+                value=value.value * 2.0,
+                unit="ratio",
+            )
+        }
+
+    source_candidates = tuple(
+        replace(candidate, evidence=evidence)
+        for candidate in measurement_value_candidates(scenario, (scenario.uses[0],))
+    )
+    completed = execute_measurement_postprocessors(
+        (
+            _postprocessor(
+                scenario,
+                increment,
+                id="increment",
+                input_index=0,
+                output_index=1,
+            ),
+            _postprocessor(
+                scenario,
+                double,
+                id="double",
+                input_index=1,
+                output_index=2,
+            ),
+        ),
+        source_candidates,
+        points=scenario.points,
+        catalog=scenario.catalog,
+    )
+    sealed = seal_measurement_values(
+        scenario.catalog,
+        completed,
+        points=scenario.points,
+    )
+
+    assert observed == [
+        ("increment", 0.0),
+        ("increment", 100.0),
+        ("double", 1.0),
+        ("double", 101.0),
+    ]
+    final_use = scenario.uses[2]
+    final_values = [
+        sealed.value_for_output(point.logical_id, final_use.id)
+        for point in scenario.points
+    ]
+    assert [value.value for value in final_values] == [
+        MeasurementScalar.create(dtype="float64", value=2.0, unit="ratio"),
+        MeasurementScalar.create(dtype="float64", value=202.0, unit="ratio"),
+    ]
+    assert all(value.evidence == evidence for value in final_values)
+
+
 def test_postprocessor_retains_instrument_acquisition_evidence() -> None:
     scenario = measurement_assembly_scenario(point_values=(2.0,), use_count=2)
     evidence = InstrumentAcquisitionEvidence(
@@ -116,8 +207,8 @@ def test_postprocessor_retains_instrument_acquisition_evidence() -> None:
     assert derived.evidence == evidence
 
 
-def test_postprocessor_propagates_unavailable_without_running_kernel() -> None:
-    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
+def test_postprocessor_chain_propagates_unavailable_without_running_kernels() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=3)
     [source] = measurement_value_candidates(scenario, (scenario.uses[0],))
     unavailable = MeasurementUnavailable.create(
         reason="overload",
@@ -131,7 +222,22 @@ def test_postprocessor_propagates_unavailable_without_running_kernel() -> None:
         raise AssertionError("unavailable inputs must not reach user kernels")
 
     completed = execute_measurement_postprocessors(
-        (_postprocessor(scenario, kernel),),
+        (
+            _postprocessor(
+                scenario,
+                kernel,
+                id="first",
+                input_index=0,
+                output_index=1,
+            ),
+            _postprocessor(
+                scenario,
+                kernel,
+                id="second",
+                input_index=1,
+                output_index=2,
+            ),
+        ),
         (
             MeasurementValueCandidate(
                 logical_point_id=source.logical_point_id,

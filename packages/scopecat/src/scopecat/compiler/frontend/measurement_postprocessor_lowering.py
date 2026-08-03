@@ -40,13 +40,22 @@ def lower_measurement_postprocessor_graph(
 
     declarations = tuple(program.program.measurement_postprocessors)
     demanded_product_ids = {use.product_id for use in record_product_uses}
-    live = tuple(
-        postprocessor
+    producer_by_output = {
+        product_id: postprocessor
         for postprocessor in declarations
-        if any(
-            product_id in demanded_product_ids
-            for _role, product_id in postprocessor.outputs
-        )
+        for _role, product_id in postprocessor.outputs
+    }
+    live_ids: set[MeasurementPostprocessorId] = set()
+    pending = list(demanded_product_ids)
+    while pending:
+        product_id = pending.pop()
+        producer = producer_by_output.get(product_id)
+        if producer is None or producer.id in live_ids:
+            continue
+        live_ids.add(producer.id)
+        pending.append(producer.input)
+    live = tuple(
+        postprocessor for postprocessor in declarations if postprocessor.id in live_ids
     )
     input_uses = tuple(
         ProductUse(

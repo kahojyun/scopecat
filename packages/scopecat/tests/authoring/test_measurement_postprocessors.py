@@ -97,30 +97,31 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
     assert scoped.input.qualified_name == "nested/raw"
 
 
-def test_postprocessor_chaining_is_rejected() -> None:
+def test_postprocessor_chaining_is_sorted_by_dependency() -> None:
     @sc.module(id="test.postprocessor.chain")
     def module(context: sc.ModuleContext) -> None:
         raw = context._product("raw")
         middle = context._product("middle")
         derived = context._product("derived")
         context._postprocess(
-            "first",
-            input=raw,
-            outputs={"result": middle},
-            kernel=_identity,
-        )
-        context._postprocess(
             "second",
             input=middle,
             outputs={"result": derived},
             kernel=_identity,
         )
+        context._postprocess(
+            "first",
+            input=raw,
+            outputs={"result": middle},
+            kernel=_identity,
+        )
 
-    with pytest.raises(CheckFailed) as error:
-        verify_logical_program(compose_module(module.definition))
-    assert {problem.code for problem in error.value.problems} == {
-        "logical_measurement_postprocessor_chaining_unsupported"
-    }
+    verified = verify_logical_program(compose_module(module.definition))
+
+    assert [
+        postprocessor.id.qualified_name
+        for postprocessor in verified.program.measurement_postprocessors
+    ] == ["first", "second"]
 
 
 def test_domain_and_postprocessor_cannot_own_the_same_product() -> None:
