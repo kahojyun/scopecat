@@ -39,6 +39,11 @@ jobs:
       - name: Run tests
         run: uv run --locked pytest
 
+      - name: Test data ecosystem adapters
+        run: >-
+          uv run --locked --package scopecat --extra data pytest -q
+          packages/scopecat/tests/measurements/test_dataset.py
+
   python-quality:
     name: Python quality
     runs-on: ubuntu-latest

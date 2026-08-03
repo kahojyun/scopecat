@@ -38,7 +38,7 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         "run_id": run.manifest.run_id,
         "status": run.manifest.status,
         "point_count": preview.point_count,
-        "measurement_records": len(run.data().measurements().records),
+        "measurement_records": len(run.measurements().records),
         "analysis_id": saved_analysis.record.id,
         "proposal_id": proposal.id,
         "candidate_config_id": candidate_snapshot.id,

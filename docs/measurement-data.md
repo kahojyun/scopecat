@@ -35,8 +35,8 @@ experiment.scan(sc.axis(bias, (-0.2, 0.0, 0.2)))
 experiment.scan(sc.axis(power, (-30.0, -20.0)))
 ```
 
-Use explicit rows when points are correlated, sparse, adaptive, duplicated, or
-otherwise do not form a rectangular product:
+Use explicit rows when points are correlated, sparse, duplicated, or otherwise
+do not form a rectangular product:
 
 ```python
 experiment.points(
@@ -54,6 +54,10 @@ duplicates are preserved, and each row receives its own logical point identity.
 Grid axes and explicit point rows cannot be mixed in one experiment because
 they describe two different domain semantics. For an empty explicit domain,
 pass its columns with `experiment.points((), coordinates=(bias, power))`.
+
+Explicit rows are materialized before execution. A run whose next point depends
+on measurements from earlier points should currently be expressed as a staged
+series of runs rather than described as an adaptive point domain.
 
 The schema records whether the domain is a `product_grid` or `point_cloud`.
 Consumers should use that semantic layout instead of trying to infer a grid
@@ -85,10 +89,10 @@ before entering the measurement stream.
 
 ## Read and slice measurements in notebooks
 
-`run.data().measurements()` returns the labeled analysis facade:
+`run.measurements()` returns the labeled analysis facade directly:
 
 ```python
-data = run.data().measurements()
+data = run.measurements()
 
 data.coords                    # coordinate variables by id
 data.data_vars                 # observable variables by id
@@ -98,14 +102,22 @@ near_zero = data.sel(
     **{"readout.dc_bias": sc.Quantity(0.0, "V")},
     method="nearest",
 )
-subset = data.isel(point=slice(0, 20))
+subset = data.isel(point=slice(0, 20), sample=slice(10, 50))
+ragged_window = data.isel_ragged(
+    sample=slice(10, 50),
+    group="readout",
+)
 valid = data.where(data["temperature"].is_available())
 groups = data.groupby("amplification")
 ```
 
 Exact selection retains every matching row, including duplicate point-cloud
 coordinates. Numeric coordinate selection accepts unit-aware quantities and an
-optional nearest tolerance. Boolean masks compose with `&`, `|`, and `~`.
+optional nearest tolerance. `isel(...)` accepts the point dimension and any
+fixed local dimension without dropping dimensions. `isel_ragged(...)` applies
+the indexer independently inside each point and requires either a recording
+group, which keeps its variables aligned, or one ungrouped variable. Boolean
+masks compose with `&`, `|`, and `~`.
 
 The same view connects to common analysis ecosystems:
 
@@ -119,26 +131,33 @@ long_frame = data.to_pandas(layout="long")
 ```
 
 Complex values remain complex in Xarray and pandas and become explicit
-`{real, imag}` structs in Arrow. Unavailable values remain null or missing and
-gain a companion `__unavailable_reason` variable or column. The durable Pydantic
-records remain available through `data.raw` when low-level inspection is
-actually needed.
+`{real, imag}` structs in Arrow. Ragged variables in the same recording group
+share one Xarray observation dimension and retain `parent_point_index` and local
+index coordinates; ungrouped ragged variables remain independent. Unavailable
+values remain null or missing and gain a companion `__unavailable_reason`
+variable or column. The durable Pydantic dataset remains available through
+`data.raw` when low-level inspection is actually needed.
 
 ## Let the GUI use experiment knowledge
 
-The complete planned schema travels with live measurement appends, so plotting
-does not wait for a run to finish and does not guess solely from JSON values.
-Automatic plots use:
+The complete planned schema is registered once in the canonical dataset header
+before the first measurement append. The GUI can therefore render live or empty
+datasets without waiting for terminal metadata and without guessing solely from
+JSON values. Automatic plots use:
 
 - coordinate versus observable roles and primary-variable ordering;
 - dimensions and recording groups to pair trace coordinates with samples;
 - labels and units for axes and table columns;
-- data type information, with complex magnitude stated explicitly; and
+- data type information, exposing complex magnitude, phase, real, and imaginary
+  views explicitly; and
 - point-domain layout, using scatter for point clouds and a line only for a
   monotonic grid coordinate.
 
 Point-scalar observables become coordinate plots; point-local rank-one arrays
-become trace series. Shapes that do not have a safe automatic visual remain in
-the typed table, with raw records available as a secondary expandable view.
-This keeps automatic plotting useful without pretending that every tensor has
-one obvious chart.
+become trace series. A point cloud with two scalar coordinate columns also gets
+an x/y scatter whose color encodes each scalar observable. When several safe
+views exist, the GUI lists every candidate in a selector instead of silently
+truncating them. Shapes that do not have a safe automatic visual remain in the
+typed table, with raw records available as a secondary expandable view. This
+keeps automatic plotting useful without pretending that every tensor has one
+obvious chart.

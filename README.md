@@ -142,6 +142,7 @@ Run the repository checks from the repository root:
 
 ```sh
 uv run pytest
+uv run --package scopecat --extra data pytest packages/scopecat/tests/measurements/test_dataset.py
 uv run basedpyright
 uv run lint-imports
 uv run ruff check packages examples docs scripts
