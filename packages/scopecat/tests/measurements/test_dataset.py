@@ -145,6 +145,55 @@ def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() ->
     assert signal_rows.iloc[1]["value"] == complex(0.5, -0.1)
 
 
+def test_ragged_dataset_exports_nested_arrow_lists() -> None:
+    pa = pytest.importorskip("pyarrow")
+    dataset = _ragged_dataset()
+
+    arrow = dataset.to_arrow()
+    assert isinstance(arrow, pa.Table)
+    assert [len(value.as_py()) for value in arrow["signal"]] == [2, 1, 3]
+
+
+def test_ragged_dataset_exports_indexed_xarray_observations() -> None:
+    xr = pytest.importorskip("xarray")
+    dataset = _ragged_dataset()
+
+    xarray_dataset = dataset.to_xarray()
+    assert isinstance(xarray_dataset, xr.Dataset)
+    assert tuple(xarray_dataset["signal"].dims) == ("signal__observation",)
+    assert list(xarray_dataset["signal__parent_point"].values) == [0, 0, 1, 2, 2, 2]
+    assert list(xarray_dataset["signal__row_size"].values) == [2, 1, 3]
+    assert list(xarray_dataset["signal__sample_extent"].values) == [2, 1, 3]
+    assert list(xarray_dataset["signal__sample_index"].values) == [0, 1, 0, 0, 1, 2]
+    assert (
+        xarray_dataset["signal"].attrs["scopecat_ragged_representation"]
+        == "indexed_observation"
+    )
+
+
+def _ragged_dataset() -> Dataset:
+    dataset = _dataset()
+    dataset.raw.dataset_schema.dimensions[1].size = None
+    lengths = (2, 1, 3)
+    for point, length in enumerate(lengths):
+        dataset.raw.records[point].coordinates["frequency"] = MeasurementArray.create(
+            shape=(length,),
+            values=tuple(10.0 * point + index for index in range(length)),
+            dtype="float64",
+            unit="Hz",
+        )
+        dataset.raw.records[point].observables["signal"] = MeasurementArray.create(
+            shape=(length,),
+            values=tuple(
+                ComplexComponents(real=float(point), imag=float(index))
+                for index in range(length)
+            ),
+            dtype="complex128",
+            unit="ratio",
+        )
+    return Dataset(dataset.raw, dataset.entry)
+
+
 class _DataRunStub:
     def __init__(self, result: RunMeasurementDatasetResult) -> None:
         self._result = result

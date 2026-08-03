@@ -220,6 +220,28 @@ def test_categorical_product_axis_lowers_to_its_label_count() -> None:
     assert axis.metadata == {}
 
 
+def test_variable_product_axis_lowers_without_inventing_a_fixed_extent() -> None:
+    @sc.module(id="test.products.ragged-axis")
+    def module(context: sc.ModuleContext) -> None:
+        context._product(
+            "trace",
+            axes=(product_axis("sample", size=None),),
+        )
+
+    @sc.template(id="test.products.ragged-axis", kind="module_products")
+    def template_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module())
+
+    resolved = bind_invocation(
+        template_definition(),
+        config_profile=load_config(),
+    )
+
+    [axis] = resolved.bindings.product_defs[0].axes
+    assert axis.size is None
+    assert axis.kind == "sample"
+
+
 def test_local_and_shared_axis_namespaces_cannot_collide() -> None:
     local_product = ModuleProductDecl(id="capture", scope=("nested",))
     shared_product = ModuleProductDecl(

@@ -124,20 +124,23 @@ def _lower_product_axis(
     type_bindings: ExpressionTypeBindings,
     input_row: InputRow,
 ) -> ProductAxisDef:
-    size, metadata = _static_axis_size(
-        static_evaluator,
-        topology,
-        axis.size,
-        default=1,
-        location=ModelLocation(
-            root="products",
-            path=(product.qualified_id, "axes", axis.id, "size"),
-        ),
-        inputs=inputs,
-        type_bindings=type_bindings,
-        entity_axis=axis.entity_values,
-        input_row=input_row,
-    )
+    if axis.size is None:
+        size, metadata = None, {}
+    else:
+        size, metadata = _static_axis_size(
+            static_evaluator,
+            topology,
+            axis.size,
+            default=1,
+            location=ModelLocation(
+                root="products",
+                path=(product.qualified_id, "axes", axis.id, "size"),
+            ),
+            inputs=inputs,
+            type_bindings=type_bindings,
+            entity_axis=axis.entity_values,
+            input_row=input_row,
+        )
     return compiler_product_axis(
         axis.id,
         dimension_id=product_axis_dimension_id(product, axis),

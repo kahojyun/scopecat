@@ -253,7 +253,10 @@ def _shot_count(call: DomainCallView) -> int:
         axes = result.product.axes
         if not axes or axes[0].kind != "shot":
             raise ValueError("quantum lab result products require a leading shot axis")
-        counts.append(axes[0].size)
+        size = axes[0].size
+        if size is None:
+            raise ValueError("quantum lab result products require fixed shot counts")
+        counts.append(size)
     if not counts or len(set(counts)) != 1:
         raise ValueError("quantum lab result products require one shared shot count")
     return counts[0]

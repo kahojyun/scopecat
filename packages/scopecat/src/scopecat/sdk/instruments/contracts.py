@@ -104,7 +104,9 @@ class StatePropertyRef(BaseModel):
 
 
 type AcquisitionAxisSize = (
-    Annotated[int, Field(strict=True, ge=1, le=_JSON_SAFE_INTEGER)] | StatePropertyRef
+    Annotated[int, Field(strict=True, ge=1, le=_JSON_SAFE_INTEGER)]
+    | StatePropertyRef
+    | None
 )
 
 
@@ -338,7 +340,7 @@ def component(
 def acquisition_axis(
     id: str,
     *,
-    size: int | PropertyRef,
+    size: int | PropertyRef | None,
     kind: str | None = None,
     unit: str | None = None,
     label: str | None = None,
@@ -349,7 +351,9 @@ def acquisition_axis(
         label=label,
         description=description,
         kind=kind or id,
-        size=size if isinstance(size, int) else _state_property_ref(size),
+        size=(
+            size if isinstance(size, int) or size is None else _state_property_ref(size)
+        ),
         unit=unit,
     )
 
@@ -2382,7 +2386,7 @@ def _collect_axis_state_problem(
     reference: StatePropertyRef,
     request_id: str,
     axis_index: int,
-    requested_size: int,
+    requested_size: int | None,
     observed_value: StateValue | None,
 ) -> Problem:
     details: dict[str, object] = {

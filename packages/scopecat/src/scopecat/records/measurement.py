@@ -43,7 +43,7 @@ class MeasurementDimension(BaseModel):
     id: str = Field(min_length=1)
     kind: str = Field(min_length=1)
     label: str | None = None
-    size: int = Field(ge=0)
+    size: Annotated[int, Field(ge=0)] | None
     metadata: JsonMetadata = Field(default_factory=dict)
 
 
@@ -132,6 +132,8 @@ class MeasurementDatasetSchema(BaseModel):
                 "measurement dataset schema must define exactly one point "
                 "dimension with id point"
             )
+        if point_dimensions[0].size is None:
+            raise ValueError("measurement point dimension must have a fixed size")
 
         for variable in self.variables:
             missing_dims = missing_references(variable.dims, dimension_id_set)

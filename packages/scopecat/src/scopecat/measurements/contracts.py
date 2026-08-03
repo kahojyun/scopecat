@@ -28,7 +28,7 @@ from scopecat.records.measurement import (
 )
 
 type MeasurementValueContractPathItem = str | int
-type MeasurementValueContractFact = str | int | None | tuple[int, ...]
+type MeasurementValueContractFact = str | int | None | tuple[int | None, ...]
 
 
 class MeasurementValueContractIssueCode(StrEnum):
@@ -55,7 +55,7 @@ def measurement_value_contract_issues(
     *,
     expected_dtype: MeasurementDType,
     expected_unit: str | None,
-    expected_shape: Sequence[int],
+    expected_shape: Sequence[int | None],
 ) -> tuple[MeasurementValueContractIssue, ...]:
     """Check one value against a logical product's point-local contract.
 
@@ -91,7 +91,7 @@ def measurement_value_contract_issues(
         )
 
     actual_shape = _measurement_value_shape(value)
-    if actual_shape != selected_shape:
+    if not _shape_compatible(selected_shape, actual_shape):
         issues.append(
             MeasurementValueContractIssue(
                 code=MeasurementValueContractIssueCode.SHAPE_MISMATCH,
@@ -118,6 +118,18 @@ def measurement_value_contract_issues(
             issues=issues,
         )
     return tuple(issues)
+
+
+def _shape_compatible(
+    expected: tuple[int | None, ...],
+    actual: tuple[int, ...],
+) -> bool:
+    """Match rank exactly while treating a variable extent as one-axis wildcard."""
+
+    return len(expected) == len(actual) and all(
+        expected_extent is None or expected_extent == actual_extent
+        for expected_extent, actual_extent in zip(expected, actual, strict=True)
+    )
 
 
 def validated_measurement_value_copy(value: MeasurementValue) -> MeasurementValue:
@@ -323,7 +335,7 @@ def _validate_record_variables(
     variables: dict[str, MeasurementVariable],
     actual: Mapping[str, MeasurementValue],
     role: MeasurementVariableRole,
-    dimension_sizes: Mapping[str, int],
+    dimension_sizes: Mapping[str, int | None],
 ) -> list[Problem]:
     problems: list[Problem] = []
     field_name = "coordinates" if role == "coordinate" else "observables"

@@ -310,6 +310,46 @@ def test_validate_schema_derives_inner_shape_from_dimensions() -> None:
     assert problems[0].message.endswith("incompatible shape (2,), expected (3,)")
 
 
+def test_variable_extent_preserves_array_rank_validation() -> None:
+    schema = MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        dimensions=[
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(id="sample", kind="sample", size=None),
+        ],
+        variables=[
+            MeasurementVariable(
+                id="trace",
+                role="observable",
+                dtype="float64",
+                dims=["point", "sample"],
+            )
+        ],
+        primary_observables=["trace"],
+    )
+    record = MeasurementRecord(
+        run_id="run-test",
+        point_index=0,
+        coordinates={},
+        observables={
+            "trace": MeasurementArray.create(
+                dtype="float64",
+                shape=(2, 2),
+                values=((0.1, 0.2), (0.3, 0.4)),
+            )
+        },
+    )
+
+    problems = validate_measurement_records_against_schema(
+        [record], schema, "raw-measurements"
+    )
+
+    assert [problem.code for problem in problems] == [
+        "measurement_record_shape_mismatch"
+    ]
+    assert problems[0].message.endswith("incompatible shape (2, 2), expected (None,)")
+
+
 def test_validate_measurement_records_against_schema_reports_contract_errors() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.measurements.results import measurement_traces
+from scopecat.measurements.results import (
+    measurement_traces,
+    validate_measurement_records_against_schema,
+)
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     ComplexComponents,
@@ -159,6 +162,38 @@ def test_trace_view_reports_unavailable_point_values() -> None:
             coordinate="frequency",
             observable="s_parameter",
         )
+
+
+def test_trace_view_and_schema_accept_different_lengths_at_each_point() -> None:
+    dataset = _trace_dataset()
+    dataset.dataset_schema.dimensions[1].size = None
+    dataset.records[1].coordinates["frequency"] = MeasurementArray.create(
+        dtype="float64",
+        unit="Hz",
+        shape=(2,),
+        values=(4.9e9, 5.0e9),
+    )
+    dataset.records[1].observables["s_parameter"] = MeasurementArray.create(
+        dtype="complex128",
+        unit="ratio",
+        shape=(2,),
+        values=(
+            ComplexComponents(real=1.0, imag=0.0),
+            ComplexComponents(real=0.2, imag=-0.1),
+        ),
+    )
+
+    assert (
+        validate_measurement_records_against_schema(
+            dataset.records,
+            dataset.dataset_schema,
+            "raw-measurements",
+        )
+        == []
+    )
+    traces = measurement_traces(dataset)
+    assert [len(trace.x) for trace in traces] == [3, 2]
+    assert [len(trace.y) for trace in traces] == [3, 2]
 
 
 def _trace_dataset() -> MeasurementDataset:

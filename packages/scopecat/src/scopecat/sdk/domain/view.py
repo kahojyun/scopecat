@@ -53,7 +53,7 @@ class DomainProductAxisView:
     id: str
     dimension_id: str
     kind: str
-    size: int
+    size: int | None
     dimension_label: str | None = None
     unit: str | None = None
     metadata: Mapping[str, object] = field(default_factory=_empty_metadata)
@@ -63,8 +63,10 @@ class DomainProductAxisView:
             raise ValueError(
                 "domain product axis ids, dimension ids, and kinds must be non-empty"
             )
-        if self.size <= 0:
-            raise ValueError("domain product axis sizes must be positive integers")
+        if self.size is not None and self.size <= 0:
+            raise ValueError(
+                "domain product axis sizes must be positive integers when fixed"
+            )
         if self.dimension_label is not None and not self.dimension_label:
             raise ValueError("domain product axis dimension labels must be non-empty")
         object.__setattr__(

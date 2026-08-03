@@ -105,7 +105,7 @@ class RecordAxisPlan:
     id: str
     label: str | None
     kind: str
-    size: int
+    size: int | None
     unit: str | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
@@ -417,6 +417,14 @@ def _record_axes(records: Sequence[DatasetRecordPlan]) -> list[MeasurementDimens
         for axis in record.axes:
             existing = seen.get(axis.id)
             if existing is not None:
+                if existing.size is None and axis.size is not None:
+                    seen[axis.id] = axis
+                    for index, dimension in enumerate(dimensions):
+                        if dimension.id == axis.id:
+                            dimensions[index] = dimension.model_copy(
+                                update={"size": axis.size}
+                            )
+                            break
                 continue
             seen[axis.id] = axis
             dimensions.append(
@@ -483,7 +491,7 @@ def _axes_are_compatible(left: RecordAxisPlan, right: RecordAxisPlan) -> bool:
     return (
         left.label == right.label
         and left.kind == right.kind
-        and left.size == right.size
+        and (left.size is None or right.size is None or left.size == right.size)
         and left.unit == right.unit
         and left.metadata == right.metadata
     )

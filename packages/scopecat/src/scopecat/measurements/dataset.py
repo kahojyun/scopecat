@@ -82,6 +82,15 @@ class _NumpyModule(Protocol):
     def empty(self, shape: Sequence[int], *, dtype: object = ...) -> object: ...
 
 
+@dataclass(frozen=True, slots=True)
+class _RaggedXarrayValues:
+    values: object
+    parent_points: object
+    row_sizes: object
+    local_indices: tuple[object, ...]
+    local_extents: tuple[object, ...]
+
+
 class PointMask(Sequence[bool]):
     """A point-aligned boolean selection returned by variable comparisons."""
 
@@ -171,7 +180,7 @@ class Variable:
         return tuple(self._definition.dims)
 
     @property
-    def shape(self) -> tuple[int, ...]:
+    def shape(self) -> tuple[int | None, ...]:
         return tuple(self._dataset.dims[dim] for dim in self.dims)
 
     @property
@@ -339,7 +348,7 @@ class Dataset:
         return MappingProxyType(dict(self._raw.metadata))
 
     @property
-    def dims(self) -> Mapping[str, int]:
+    def dims(self) -> Mapping[str, int | None]:
         return MappingProxyType(
             {dimension.id: dimension.size for dimension in self.schema.dimensions}
         )
@@ -549,11 +558,70 @@ class Dataset:
         data_vars: dict[str, object] = {}
         for variable in self.variables.values():
             target = coords if variable.role == "coordinate" else data_vars
-            target[variable.id] = (
-                variable.dims,
-                _xarray_values(variable, np_module),
-                _variable_attrs(variable),
-            )
+            if _variable_is_ragged(variable):
+                observation_dim = _ragged_observation_dim(variable.id)
+                ragged = _xarray_ragged_values(
+                    variable,
+                    np_module,
+                    records=self.records,
+                )
+                target[variable.id] = (
+                    (observation_dim,),
+                    ragged.values,
+                    {
+                        **_variable_attrs(variable),
+                        "scopecat_ragged_representation": "indexed_observation",
+                    },
+                )
+                coords[_ragged_parent_name(variable.id)] = (
+                    (observation_dim,),
+                    ragged.parent_points,
+                    {
+                        "long_name": f"parent point position for {variable.id}",
+                        "scopecat_role": "ragged_parent_point",
+                        "source_variable": variable.id,
+                    },
+                )
+                coords[_ragged_row_size_name(variable.id)] = (
+                    ("point",),
+                    ragged.row_sizes,
+                    {
+                        "long_name": f"point-local observation count for {variable.id}",
+                        "scopecat_role": "ragged_row_size",
+                        "source_variable": variable.id,
+                    },
+                )
+                for local_axis, dimension_id in enumerate(variable.dims[1:]):
+                    coords[_ragged_local_index_name(variable.id, dimension_id)] = (
+                        (observation_dim,),
+                        ragged.local_indices[local_axis],
+                        {
+                            "long_name": (
+                                f"point-local {dimension_id} index for {variable.id}"
+                            ),
+                            "scopecat_role": "ragged_local_index",
+                            "source_variable": variable.id,
+                            "source_dimension": dimension_id,
+                        },
+                    )
+                    coords[_ragged_local_extent_name(variable.id, dimension_id)] = (
+                        ("point",),
+                        ragged.local_extents[local_axis],
+                        {
+                            "long_name": (
+                                f"point-local {dimension_id} extent for {variable.id}"
+                            ),
+                            "scopecat_role": "ragged_local_extent",
+                            "source_variable": variable.id,
+                            "source_dimension": dimension_id,
+                        },
+                    )
+            else:
+                target[variable.id] = (
+                    variable.dims,
+                    _xarray_values(variable, np_module),
+                    _variable_attrs(variable),
+                )
             if any(reason is not None for reason in variable.availability):
                 data_vars[_unavailable_reason_name(variable.id)] = (
                     ("point",),
@@ -852,6 +920,7 @@ def _point_identity_matches(
 
 
 def _xarray_values(variable: Variable, np_module: _NumpyModule) -> object:
+    fixed_shape = tuple(cast("int", extent) for extent in variable.shape)
     dtype = {
         "float64": np_module.float64,
         "int64": np_module.int64,
@@ -867,7 +936,7 @@ def _xarray_values(variable: Variable, np_module: _NumpyModule) -> object:
         else:
             fill = None
             dtype = np_module.object_
-        local_shape = variable.shape[1:]
+        local_shape = fixed_shape[1:]
         values = tuple(
             _filled_value(local_shape, fill) if value is None else value
             for value in variable.values
@@ -875,8 +944,110 @@ def _xarray_values(variable: Variable, np_module: _NumpyModule) -> object:
     else:
         values = variable.values
     if not values:
-        return np_module.empty(variable.shape, dtype=dtype)
+        return np_module.empty(fixed_shape, dtype=dtype)
     return np_module.asarray(values, dtype=dtype)
+
+
+def _variable_is_ragged(variable: Variable) -> bool:
+    return any(extent is None for extent in variable.shape[1:])
+
+
+def _xarray_ragged_values(
+    variable: Variable,
+    np_module: _NumpyModule,
+    *,
+    records: Sequence[MeasurementRecord],
+) -> _RaggedXarrayValues:
+    """Flatten point-local arrays without constructing a NumPy object array."""
+
+    dtype = {
+        "float64": np_module.float64,
+        "int64": np_module.int64,
+        "complex128": np_module.complex128,
+        "bool": np_module.bool_,
+        "string": np_module.object_,
+    }[variable.dtype]
+    fill: object
+    if variable.dtype == "float64":
+        fill = math.nan
+    elif variable.dtype == "complex128":
+        fill = complex(math.nan, math.nan)
+    elif variable.dtype == "int64":
+        fill = 0
+    elif variable.dtype == "bool":
+        fill = False
+    else:
+        fill = ""
+
+    flattened_values: list[object] = []
+    parent_points: list[int] = []
+    row_sizes: list[int] = []
+    local_indices: list[list[int]] = [[] for _dimension_id in variable.dims[1:]]
+    local_extents: list[list[int]] = [[] for _dimension_id in variable.dims[1:]]
+    for record, raw_value in zip(records, variable.raw_values, strict=True):
+        if isinstance(raw_value, MeasurementScalar):
+            raise ValueError(
+                f"ragged variable {variable.id!r} must contain point-local arrays"
+            )
+        local_shape = tuple(raw_value.shape)
+        if len(local_shape) != len(variable.dims) - 1:
+            raise ValueError(
+                f"ragged variable {variable.id!r} value rank {len(local_shape)} "
+                f"does not match {len(variable.dims) - 1} local dimensions"
+            )
+        for axis, extent in enumerate(local_shape):
+            local_extents[axis].append(extent)
+        native = (
+            _filled_value(local_shape, fill)
+            if isinstance(raw_value, MeasurementUnavailable)
+            else _native_value(raw_value)
+        )
+        flattened = _flatten_native_array(cast("NativeValue", native))
+        row_sizes.append(len(flattened))
+        for local_index, value in flattened:
+            flattened_values.append(value)
+            parent_points.append(record.point_index)
+            for axis, index in enumerate(local_index):
+                local_indices[axis].append(index)
+
+    values = (
+        np_module.asarray(tuple(flattened_values), dtype=dtype)
+        if flattened_values
+        else np_module.empty((0,), dtype=dtype)
+    )
+    return _RaggedXarrayValues(
+        values=values,
+        parent_points=np_module.asarray(tuple(parent_points), dtype=np_module.int64),
+        row_sizes=np_module.asarray(tuple(row_sizes), dtype=np_module.int64),
+        local_indices=tuple(
+            np_module.asarray(tuple(indices), dtype=np_module.int64)
+            for indices in local_indices
+        ),
+        local_extents=tuple(
+            np_module.asarray(tuple(extents), dtype=np_module.int64)
+            for extents in local_extents
+        ),
+    )
+
+
+def _ragged_observation_dim(variable_id: str) -> str:
+    return f"{variable_id}__observation"
+
+
+def _ragged_parent_name(variable_id: str) -> str:
+    return f"{variable_id}__parent_point"
+
+
+def _ragged_row_size_name(variable_id: str) -> str:
+    return f"{variable_id}__row_size"
+
+
+def _ragged_local_index_name(variable_id: str, dimension_id: str) -> str:
+    return f"{variable_id}__{dimension_id}_index"
+
+
+def _ragged_local_extent_name(variable_id: str, dimension_id: str) -> str:
+    return f"{variable_id}__{dimension_id}_extent"
 
 
 def _filled_value(shape: Sequence[int], fill: object) -> object:

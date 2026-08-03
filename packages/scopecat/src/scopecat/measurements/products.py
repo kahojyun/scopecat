@@ -22,16 +22,21 @@ class ProductAxisDef:
     id: str
     dimension_id: str
     kind: str
-    size: int
+    size: int | None
     dimension_label: str | None = None
     unit: str | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
-        if not self.id or not self.dimension_id or not self.kind or self.size <= 0:
+        if (
+            not self.id
+            or not self.dimension_id
+            or not self.kind
+            or (self.size is not None and self.size <= 0)
+        ):
             msg = (
                 "product axes require non-empty ids, dimension ids, and kinds "
-                "and positive sizes"
+                "and positive sizes when fixed"
             )
             raise ValueError(msg)
         if self.dimension_id == "point":

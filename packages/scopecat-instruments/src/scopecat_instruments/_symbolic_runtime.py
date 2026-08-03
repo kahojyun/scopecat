@@ -428,7 +428,7 @@ def _product_axis_size(
     axis: ClientAcquisitionAxis,
     *,
     state_assignments: Mapping[PropertyRef, StateBinding],
-) -> int | ValueRef:
+) -> int | ValueRef | None:
     size = axis.size
     if not isinstance(size, PropertyRef):
         return size
@@ -448,7 +448,7 @@ def _product_axis_size(
             "output-shaping state must resolve during configuration binding, "
             "before point execution"
         )
-    return cast("int | ValueRef", value)
+    return cast("int | ValueRef | None", value)
 
 
 __all__ = [
