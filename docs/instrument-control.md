@@ -95,11 +95,11 @@ A submitted run carries logical resource requirements only. Admission verifies
 its complete instrument inventory against daemon-owned configuration, then
 resolves separate canonical claims keyed by `exclusivity_key`; clients cannot
 author physical claim ids. Registry and analysis-candidate sources are resolved
-from their durable records, while a scratch submission must match the active
-inventory. Domain plans retain the target kind and its complete instrument
-footprint as one structured requirement. Ordinary run and instrument views
-project claims back to logical ids. Scheduler keys remain confined to admission
-storage, resource claims, and actor lookup.
+from their durable records, while a transient notebook-authored submission must
+match the active inventory. Domain plans retain the target kind and its complete
+instrument footprint as one structured requirement. Ordinary run and
+instrument views project claims back to logical ids. Scheduler keys remain
+confined to admission storage, resource claims, and actor lookup.
 
 A domain target may also own private connection endpoints that have no
 standalone instrument contract. Such endpoints are configured as named target
@@ -248,9 +248,10 @@ declare products and then wire acquisition-result mappings back to them.
 
 Every typed acquisition member retains its declared result id, role, and
 acquisition-occurrence group. That provenance belongs to the product rather
-than to the immediate Python result carrier, so it survives export from a
-reusable `@module` and is prefixed hygienically when that module is instantiated.
-Selecting one member directly therefore retains its intrinsic role as well:
+than to the immediate Python result carrier, so it survives being returned from
+a reusable `@module` and is prefixed hygienically when that module is
+instantiated. Selecting one member directly therefore retains its intrinsic
+role as well:
 
 ```python
 # If only the sampled coordinate is wanted, this is still a coordinate record.
@@ -284,8 +285,8 @@ requiring analysis code to reconstruct the pair from two variable names.
 Reusable `@module` definitions remain available when work is genuinely shared
 or composed. They are an extraction step, not a prerequisite for using typed
 instrument clients. A reusable module passes symbolic dependencies through its
-typed parameters and preserves acquisition recording provenance on exported
-products; a root template or scratch definition may author the simple workflow
+typed parameters and preserves acquisition recording provenance on returned
+products; a root template or experiment factory may author the simple workflow
 directly as above.
 
 A target is a coherent state intention, not an instruction to write every
@@ -551,14 +552,14 @@ entity metadata does not participate in the join, and duplicate identities are
 rejected. Because topology and routing still address entities by string id,
 the concrete entities in one `each(...)` selection must also have globally
 unique ids; different kinds do not disambiguate the same id there. Root
-recording accepts both one typed acquisition result and a
+recording accepts scalar `ValueRef` data, one typed acquisition result, or a
 `PerEntity[Products]` result directly. It preserves entity and result
 declaration order, keeps each field's declared coordinate/observable role, and
 gives every scoped product a stable qualified record id. Recording an
 individual acquisition member, such as `record(trace.frequency)`, inherits that
 member's declared role and group provenance just like recording the complete
-bundle. Recording selects product references or typed result bundles rather
-than resolving string product ids in the containing experiment.
+bundle. Recording selects symbolic values, product references, or typed result
+bundles rather than resolving string product ids in the containing experiment.
 
 Custom product producers should declare result roles at their own typed
 boundary so ordinary experiment code still uses only `record(...)`.
@@ -969,6 +970,12 @@ return typed bundles, just as acquisitions do; module authors do not predeclare
 output refs and then register a separate postprocessor IR object. Their derived
 products retain the input's physical source evidence. Scan coordinates and
 values produced without an instrument do not invent it.
+
+Measurement producers form a dependency graph: recording a derived product
+retains its transitive producers, prunes unrelated branches, and orders them by
+their declared dependencies. Scalar `compute(...)` values use the same
+demand-driven rule when they are recorded; registration order is not a second
+execution-order API.
 
 An abandoned idle interactive owner expires automatically. If its lease expires
 during a recorded hardware operation, the daemon faults the connection and

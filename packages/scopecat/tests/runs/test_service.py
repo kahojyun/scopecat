@@ -13,7 +13,7 @@ from scopecat.compiler.frontend.resolution import (
 )
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.errors import CheckFailed
-from scopecat.planning.service import plan_scratch_experiment
+from scopecat.planning.service import plan_experiment_invocation
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
@@ -179,7 +179,7 @@ def test_check_compiles_authoring_before_config_source_io(
     assert config_reads == 0
 
 
-def test_scratch_planning_compiles_authoring_before_config_validation(
+def test_experiment_invocation_planning_compiles_authoring_before_config_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_validations = 0
@@ -201,7 +201,7 @@ def test_scratch_planning_compiles_authoring_before_config_validation(
     )
 
     with pytest.raises(CheckFailed) as error:
-        plan_scratch_experiment(
+        plan_experiment_invocation(
             config=config,
             experiment=simple_template().bind(),
             system=composition.system,

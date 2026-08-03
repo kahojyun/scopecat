@@ -61,9 +61,9 @@ from scopecat.program.operations import ModuleInputPort, ModuleOperationDecl
 from scopecat.program.products import (
     ModuleProductDecl,
     ProductAxis,
-    ProductOutputs,
     ProductRecording,
     ProductRef,
+    ProductRefs,
 )
 from scopecat.program.state import DesiredState, StateBinding
 from scopecat.program.value_refs import (
@@ -178,7 +178,7 @@ class ModuleContext:
         *,
         id: str,
         input_ports: Sequence[ModuleInputPort] = (),
-        output_ports: Sequence[ModuleValueExport] = (),
+        value_exports: Sequence[ModuleValueExport] = (),
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ModuleDef:
         """Freeze this context directly as one reusable module definition."""
@@ -187,7 +187,7 @@ class ModuleContext:
             id=id,
             interface=ModuleInterface(
                 imports=tuple(input_ports),
-                exports=tuple(output_ports),
+                exports=tuple(value_exports),
                 resources=tuple(self._resources),
             ),
             body=self._close_body(),
@@ -418,7 +418,7 @@ class ModuleContext:
             )
         )
 
-    def _products(self) -> ProductOutputs:
+    def _products(self) -> ProductRefs:
         products = (
             *(
                 ProductRef(
@@ -443,7 +443,7 @@ class ModuleContext:
                 for product in self._product_declarations
             ),
         )
-        return ProductOutputs({product.id: product for product in products})
+        return ProductRefs({product.id: product for product in products})
 
     def _require_owned_resource(self, resource: DefinitionResource) -> None:
         if resource.owner is not self._owner:

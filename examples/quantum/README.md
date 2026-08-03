@@ -41,12 +41,13 @@ discovers that shared instance automatically. Set `SCOPECAT_DAEMON_URL` only to
 connect to another loopback instance.
 
 The lab also exposes `run_quantum(call)` for a newly authored
-`QuantumProgramCall`. The runner injects this lab's compiler inputs,
-discrimination, and dataset recording policy, and the returned experiment can
-be extended with `.scan(...)` before passing it to `lab.run(...)`. No wrapper
-module is required. Independent auxiliary-device work can be added inside the
-lab runner; hardware that must change synchronously at every quantum point
-belongs in the quantum target/compiler contract.
+`QuantumProgramCall` that exposes the lab's integrated-IQ result `iq_shots`.
+The runner injects this lab's compiler inputs, discrimination, and dataset
+recording policy, and the returned experiment can be extended with `.scan(...)`
+before passing it to `lab.run(...)`. No wrapper module is required. Independent
+auxiliary-device work can be added inside the lab runner; hardware that must
+change synchronously at every quantum point belongs in the quantum
+target/compiler contract.
 
 ## Source map
 

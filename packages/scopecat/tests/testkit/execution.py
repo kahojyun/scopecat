@@ -9,7 +9,7 @@ from pathlib import Path
 from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.interpreter import execute_admitted_run
-from scopecat.planning.service import plan_scratch_experiment
+from scopecat.planning.service import plan_experiment_invocation
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
 from scopecat.records.run import RunConfigSource, RunManifest
@@ -97,7 +97,7 @@ def execute_invocation_run(
 ) -> RunManifest:
     """Execute an authored invocation through test-local SQLite ports."""
 
-    planned = plan_scratch_experiment(
+    planned = plan_experiment_invocation(
         experiment,
         config=config,
         system=system,

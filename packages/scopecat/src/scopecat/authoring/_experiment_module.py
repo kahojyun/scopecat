@@ -17,7 +17,7 @@ from scopecat.authoring._module_results import relocate_module_result
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_type_compatibility import require_assignable
-from scopecat.program.bindings import BindingIntent, InvocationIntent, ResourcePort
+from scopecat.program.bindings import BindingIntent, InvocationIntent
 from scopecat.program.input_capture import capture_module_inputs
 from scopecat.program.module import (
     ModuleDef,
@@ -25,7 +25,7 @@ from scopecat.program.module import (
     ModulePythonImplementation,
 )
 from scopecat.program.operations import ModuleInputPort, ModuleOperationDecl
-from scopecat.program.products import ModuleProductDecl, ProductOutputs, ProductRef
+from scopecat.program.products import ModuleProductDecl, ProductRef, ProductRefs
 from scopecat.program.value_refs import ValueRef, internal_literal_value_ref
 from scopecat.program.value_types import ValueType
 from scopecat.program.values import MetadataValue, ModuleInput
@@ -60,10 +60,6 @@ class ExperimentModule[ResultT, **P]:
     @property
     def input_ports(self) -> tuple[ModuleInputPort, ...]:
         return self._module_def.interface.imports
-
-    @property
-    def resource_ports(self) -> tuple[ResourcePort, ...]:
-        return self._module_def.interface.resources
 
     @property
     def bindings(self) -> tuple[BindingIntent, ...]:
@@ -230,11 +226,11 @@ class ExperimentModule[ResultT, **P]:
         )
 
     @property
-    def _product_outputs_internal(self) -> ProductOutputs:
+    def _product_refs_internal(self) -> ProductRefs:
         """Return every product visible to compiler projection."""
 
         ports = self._module_def.products
-        return ProductOutputs(
+        return ProductRefs(
             {
                 port.qualified_id: ProductRef(
                     product_id=port.symbol_id,
@@ -261,7 +257,7 @@ def create_experiment_module_internal[ResultT, **P](
     )
     object.__setattr__(module, "_module_def", module_def)
     object.__setattr__(module, "_authoring_fn", definition)
-    definition_products = module._product_outputs_internal
+    definition_products = module._product_refs_internal
     value_exports = module_def.interface.exports
     object.__setattr__(
         module,

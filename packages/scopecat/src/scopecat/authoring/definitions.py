@@ -711,7 +711,7 @@ def _module_from_function[ResultT, **P](
     module_def = context.close_definition_internal(
         id=id or _definition_id(fn),
         input_ports=tuple(_input_port(name, value) for name, value in values.items()),
-        output_ports=module_result_value_exports(result),
+        value_exports=module_result_value_exports(result),
         metadata=selected_metadata,
     )
     return create_experiment_module_internal(

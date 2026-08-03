@@ -4,14 +4,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Protocol, cast, override
+from typing import Protocol, cast
 
 from scopecat.authoring._module_results import relocate_module_result
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.resource_identity import LogicalResourcePortId
-from scopecat.program.bindings import ResourcePort
 from scopecat.program.domain import DomainCall
 from scopecat.program.identities import InvocationKey
 from scopecat.program.input_capture import empty_program_mapping
@@ -22,7 +21,7 @@ from scopecat.program.module import (
     ModuleInstanceLookup,
     ModuleResourceBinding,
 )
-from scopecat.program.products import ProductOutputs, ProductRef
+from scopecat.program.products import ProductRef, ProductRefs
 from scopecat.program.value_refs import (
     ValueRef,
     internal_module_export_value_ref,
@@ -43,10 +42,7 @@ class ModuleHandle(Protocol):
     def definition(self) -> ModuleDef: ...
 
     @property
-    def resource_ports(self) -> tuple[ResourcePort, ...]: ...
-
-    @property
-    def _product_outputs_internal(self) -> ProductOutputs: ...
+    def _product_refs_internal(self) -> ProductRefs: ...
 
 
 def _empty_resource_bindings() -> FrozenMapping[
@@ -87,11 +83,11 @@ class ModuleInvocation[ResultT]:
         return self._result
 
     @property
-    def _product_outputs_internal(self) -> ProductOutputs:
+    def _product_refs_internal(self) -> ProductRefs:
         """Return every product visible to compiler projection."""
 
         relative_ports = self.module.definition.products
-        return ProductOutputs(
+        return ProductRefs(
             {
                 port.qualified_id: ProductRef(
                     product_id=port.symbol_id.prefixed(self.instance_id),
@@ -105,68 +101,6 @@ class ModuleInvocation[ResultT]:
                 for port in relative_ports
             }
         )
-
-    @property
-    def resources(self) -> ModuleResources:
-        """Typed references to this instance's logical resource ports."""
-
-        return ModuleResources(
-            _values=FrozenMapping(
-                (
-                    port.qualified_id,
-                    ModuleResource(
-                        owner=self._key,
-                        port_id=self.resource_bindings.get(
-                            port.symbol_id,
-                            port.symbol_id.prefixed(self.instance_id),
-                        ),
-                    ),
-                )
-                for port in self.module.resource_ports
-            )
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class ModuleResource:
-    """One logical resource as seen from a concrete module invocation."""
-
-    owner: InvocationKey = field(repr=False)
-    port_id: LogicalResourcePortId
-
-    @property
-    def id(self) -> str:
-        return self.port_id.qualified_name
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class ModuleResources(Mapping[str, ModuleResource]):
-    """Read-only attribute and mapping view of invocation resources."""
-
-    _values: Mapping[str, ModuleResource]
-
-    @override
-    def __getitem__(self, resource_id: str) -> ModuleResource:
-        return self._values[resource_id]
-
-    @override
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._values)
-
-    @override
-    def __len__(self) -> int:
-        return len(self._values)
-
-    def __getattr__(self, resource_id: str) -> ModuleResource:
-        try:
-            return self._values[resource_id]
-        except KeyError:
-            msg = f"module instance has no resource {resource_id!r}"
-            raise AttributeError(msg) from None
-
-    @override
-    def __dir__(self) -> list[str]:
-        return sorted((*super().__dir__(), *self._values))
 
 
 def create_module_invocation[ResultT](
@@ -193,8 +127,8 @@ def create_module_invocation[ResultT](
         "_result",
         relocate_module_result(
             result,
-            product_sources=module._product_outputs_internal.values(),
-            product_targets=invocation._product_outputs_internal.values(),
+            product_sources=module._product_refs_internal.values(),
+            product_targets=invocation._product_refs_internal.values(),
             value_sources=(port.source for port in module.definition.interface.exports),
             value_targets=(
                 internal_module_export_value_ref(

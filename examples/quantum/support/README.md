@@ -20,8 +20,8 @@ Inside `src/quantum_lab_demo/`:
 - `configuration.py`: combine schema-checked infrastructure with Python values.
 - `parameters.py`: the q0 DRAG calibration row.
 - `compiler.py`: the unified `QuantumLabCompiler` domain boundary.
-- `quantum_runner.py`: the fixed experiment skeleton that accepts a quantum
-  program call without a user-authored wrapper module.
+- `quantum_runner.py`: the fixed integrated-IQ experiment skeleton that accepts
+  a quantum program call without a user-authored wrapper module.
 - `targets/`: fake target lowering and execution.
 - `virtual_lab/`: q0 drive/readout wiring, compiler parameters, X90/Xm90 pulse
   recipes, and the deterministic DRAG response.

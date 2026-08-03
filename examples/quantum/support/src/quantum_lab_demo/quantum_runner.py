@@ -23,7 +23,7 @@ def author_quantum_experiment(
     experiment: sc.ExperimentContext,
     call: quantum.QuantumProgramCall,
 ) -> None:
-    """Apply this lab's compiler, measurement, and recording policy."""
+    """Apply lab policy to an integrated-IQ call exposing ``iq_shots``."""
 
     configured = call.with_compiler_inputs(qubits=qubit_parameters())
     placed = experiment.run(configured)
@@ -40,7 +40,7 @@ def run_quantum(
     experiment: sc.ExperimentContext,
     call: quantum.QuantumProgramCall,
 ) -> None:
-    """Run a program through the lab-owned multi-device experiment skeleton.
+    """Run an integrated-IQ program through the lab-owned experiment skeleton.
 
     Independent local-device work and additional domain calls belong here when
     the lab needs them. Hardware that must vary synchronously for every quantum

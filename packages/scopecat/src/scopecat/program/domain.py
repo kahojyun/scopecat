@@ -22,8 +22,8 @@ from scopecat.program.input_capture import capture_runtime_input
 from scopecat.program.operations import ComputeNodeInputValue
 from scopecat.program.products import (
     ModuleProductDecl,
-    ProductOutputs,
     ProductRef,
+    ProductRefs,
     prefix_product_decl,
 )
 from scopecat.program.value_refs import ValueRef
@@ -49,7 +49,7 @@ class DomainCall:
     key: DomainCallKey
     execution: DomainExecution
     product_declarations: tuple[ModuleProductDecl, ...]
-    results: ProductOutputs
+    results: ProductRefs
 
 
 def domain_program(
@@ -172,20 +172,20 @@ def create_domain_call_internal(
             origin=declaration.origin,
             _recording=declaration.recording,
         )
-    outputs = ProductOutputs(results)
+    result_refs = ProductRefs(results)
     execution = domain_execution(
         program,
         id=f"{id}/{program.id}",
         inputs=inputs,
         compiler_inputs=compiler_inputs,
-        results=outputs,
+        results=result_refs,
     )
     return DomainCall(
         id=id,
         key=call_key,
         execution=execution,
         product_declarations=tuple(declarations),
-        results=outputs,
+        results=result_refs,
     )
 
 

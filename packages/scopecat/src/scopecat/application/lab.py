@@ -43,7 +43,7 @@ class LabApplication:
         *,
         operator: str = "operator",
     ) -> LabClient:
-        """Connect notebook code while retaining local scratch capabilities."""
+        """Connect notebook code while retaining locally authored closures."""
 
         from scopecat.api.lab import LabClient
 

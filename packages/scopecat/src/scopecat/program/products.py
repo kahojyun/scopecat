@@ -136,8 +136,8 @@ class ProductRef:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ProductOutputs(Mapping[str, ProductRef]):
-    """Read-only attribute and mapping view of exposed occurrence products."""
+class ProductRefs(Mapping[str, ProductRef]):
+    """Read-only attribute and mapping view of occurrence-owned products."""
 
     entries: Mapping[str, ProductRef]
 

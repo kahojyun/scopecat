@@ -80,10 +80,11 @@ config, and asks the daemon for the serializable instrument-contract catalog
 bound to that exact snapshot. Concrete providers, transports, codecs, and
 drivers are constructed once in a spawned project instrument worker and never
 enter the notebook process. The daemon control plane retains only serializable
-catalogs and opaque connection handles. Transient scratch invocations are
-planned and executed in the notebook when their closures or interactive objects
-cannot be reconstructed reliably in another process. Every durable effect still
-passes through the daemon, so the notebook never becomes a second writer.
+catalogs and opaque connection handles. Transient client-planned invocations
+are planned and executed in the notebook when their closures or interactive
+objects cannot be reconstructed reliably in another process. Every durable
+effect still passes through the daemon, so the notebook never becomes a second
+writer.
 
 The same project client exposes event replay and attention resolution through
 `lab.control`. Execution remains an internal implementation of
@@ -170,7 +171,7 @@ driver objects.
 |---|---|
 | User project and Git | Python experiment/system/config code, `scopecat.toml`, and exported complete snapshots |
 | Lab daemon | Run requests and manifests, execution events, measurements, analysis, proposals, immutable config entries, and activation history |
-| GUI and notebooks | Views and commands against the daemon; transient scratch computation may remain in the notebook process |
+| GUI and notebooks | Views and commands against the daemon; transient client-planned computation may remain in the notebook process |
 
 Editing Git-owned Python config code does not mutate the active registry entry.
 The daemon does not watch, hot-reload, or rewrite that source; publishing a

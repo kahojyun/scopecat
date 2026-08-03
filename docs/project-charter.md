@@ -20,7 +20,7 @@ Success currently means:
 - common scans require little application code;
 - progress, measurements, and failures are easy to inspect;
 - results remain available after the notebook finishes;
-- moving from scratch code to a reusable experiment is incremental.
+- moving from exploratory notebook code to a reusable experiment is incremental.
 
 New features and abstractions that do not improve one of these paths should
 normally wait.

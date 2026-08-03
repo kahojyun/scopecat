@@ -29,7 +29,7 @@ from scopecat.program.domain import (
 from scopecat.program.identities import DomainCallKey
 from scopecat.program.products import (
     ModuleProductDecl,
-    ProductOutputs,
+    ProductRefs,
     shot_axis,
 )
 
@@ -73,7 +73,7 @@ class QuantumProgramCall:
     shots: ComputeInput
 
     @property
-    def results(self) -> ProductOutputs:
+    def results(self) -> ProductRefs:
         """Return products owned by this native domain occurrence."""
 
         return self.domain_call.results

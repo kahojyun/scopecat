@@ -53,7 +53,7 @@ def _plan_compiled_run(
     )
 
 
-def plan_scratch_experiment(
+def plan_experiment_invocation(
     experiment: ExperimentInvocation,
     *,
     config: ConfigProfileSnapshot,
@@ -62,7 +62,7 @@ def plan_scratch_experiment(
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
 ) -> PlannedRun:
-    """Plan notebook code against an explicit snapshot without project I/O."""
+    """Plan one authored invocation against a snapshot without project I/O."""
 
     return _plan_compiled_run(
         config=config,

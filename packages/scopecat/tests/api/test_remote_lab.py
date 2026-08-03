@@ -500,7 +500,7 @@ def test_lab_config_inventory_migration_assembles_registry_coordination() -> Non
     ]
 
 
-def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
+def test_run_invocation_plans_against_explicit_snapshot_without_local_storage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = load_config()
@@ -571,7 +571,7 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
     assert result.status == "completed"
 
 
-def test_run_scratch_uses_active_config_and_bound_system(
+def test_run_invocation_uses_active_config_and_bound_system(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = load_config()
@@ -636,7 +636,7 @@ def test_run_scratch_uses_active_config_and_bound_system(
     assert result.status == "completed"
 
 
-def test_run_scratch_uses_daemon_catalog_without_a_local_builder(
+def test_run_invocation_uses_daemon_catalog_without_a_local_builder(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = load_config()
@@ -682,7 +682,7 @@ def test_run_scratch_uses_daemon_catalog_without_a_local_builder(
     assert result.status == "completed"
 
 
-def test_preview_scratch_uses_active_config_without_admission() -> None:
+def test_preview_invocation_uses_active_config_without_admission() -> None:
     config = load_config()
     entry, activation = _config_registry_records(config)
     requests: list[httpx2.Request] = []

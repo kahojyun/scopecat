@@ -1197,7 +1197,7 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
         },
     ],
 )
-def test_scratch_admission_rejects_instrument_inventory_changes(
+def test_client_planned_admission_rejects_instrument_inventory_changes(
     tmp_path: Path,
     instrument_update: dict[str, object],
 ) -> None:
