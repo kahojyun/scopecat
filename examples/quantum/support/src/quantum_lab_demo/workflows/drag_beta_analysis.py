@@ -106,14 +106,14 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
 
     measurements = context.data.measurements()
     observations = tuple(
-        _observation_from_record(record) for record in measurements.dataset.records
+        _observation_from_record(record) for record in measurements.records
     )
     fit = fit_drag_beta(observations)
 
     return (
         context.result("DRAG beta calibration")
         .input(
-            measurements.dataset_entry.id,
+            measurements.entry.id,
             role="fit-input",
             title="DRAG beta measurements",
         )
@@ -135,7 +135,7 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
                 "x": "beta",
                 "y": "probability_1",
                 "series": "amplification",
-                "source_dataset": measurements.dataset_entry.id,
+                "source_dataset": measurements.entry.id,
                 "model_id": _DRAG_BETA_FIT_MODEL_ID,
             },
             title="DRAG beta fit",

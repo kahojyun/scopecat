@@ -86,7 +86,7 @@ def test_drag_beta_closes_measurement_analysis_publish_and_undo(
         _quantity_in_unit(beta, "ns") for beta, _rows in beta_and_compiler_tables
     } == {0.0, 0.25, 0.5, 0.75, 1.0}
 
-    records = source_run.data().measurements().dataset.records
+    records = source_run.data().measurements().records
     assert len(records) == 15
     assert all(
         _measurement_in_unit(record.observables[PROBABILITY_0_RECORD_ID], "ratio")

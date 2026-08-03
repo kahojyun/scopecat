@@ -5,6 +5,7 @@ from __future__ import annotations
 from scopecat.measurements.contracts import (
     validate_measurement_records_against_schema,
 )
+from scopecat.measurements.dataset import Dataset, PointMask, Variable
 from scopecat.measurements.traces import (
     Trace,
     TraceCoordinate,
@@ -30,6 +31,7 @@ from scopecat.records.measurement import (
 
 __all__ = [
     "ComplexComponents",
+    "Dataset",
     "InstrumentAcquisitionEvidence",
     "MeasurementArray",
     "MeasurementDType",
@@ -43,9 +45,11 @@ __all__ = [
     "MeasurementValue",
     "MeasurementVariable",
     "MeasurementVariableRole",
+    "PointMask",
     "Trace",
     "TraceCoordinate",
     "TraceSample",
+    "Variable",
     "measurement_traces",
     "validate_measurement_records_against_schema",
 ]

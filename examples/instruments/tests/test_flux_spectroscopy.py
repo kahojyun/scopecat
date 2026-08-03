@@ -123,7 +123,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert preview_records[TEMPERATURE_RECORD_ID].role == "observable"
     assert preview_records[TEMPERATURE_RECORD_ID].dims == ("point",)
     assert run.manifest.status == "completed"
-    records = run.data().measurements().dataset.records
+    records = run.data().measurements().records
     assert len(records) == BIAS_POINTS
     assert all(
         set(record.coordinates) == {"dc_bias", FREQUENCY_RECORD_ID}
@@ -170,7 +170,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert len(traces[0].x) == TRACE_POINTS
     assert all(isinstance(sample, complex) for sample in traces[0].y)
 
-    fits = fit_flux_spectroscopy(run.data().measurements().dataset)
+    fits = fit_flux_spectroscopy(run.data().measurements().raw)
     sweet_spot = max(
         fits,
         key=lambda fit: float(fit.resonance_frequency.to("Hz").value),

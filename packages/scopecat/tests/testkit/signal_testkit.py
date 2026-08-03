@@ -118,17 +118,17 @@ class SummaryStatsAnalysisStep:
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
         raw = context.data.measurements(self.selector or RAW_MEASUREMENTS_DATASET_ID)
-        input_ref = dataset_storage_ref(raw.dataset_entry)
+        input_ref = dataset_storage_ref(raw.entry)
         result = _build_summary_result(
             run_id=context.run.id,
             step=SUMMARY_STATS_STEP,
             input_ref=input_ref,
-            measurements=raw.dataset.records,
+            measurements=raw.records,
         )
         return (
             context.result("summary stats")
             .input(
-                raw.dataset_entry.id,
+                raw.entry.id,
                 title="raw measurements",
             )
             .table(
@@ -147,7 +147,7 @@ class BestSignalAnalysisStep:
         raw = context.data.measurements(RAW_MEASUREMENTS_DATASET_ID)
         parameter_id = _scan_parameter_id(context.data.schema())
         old_value = _old_parameter_value(context.config, parameter_id)
-        best_measurement = _best_signal_measurement(raw.dataset.records)
+        best_measurement = _best_signal_measurement(raw.records)
         proposed_value = _proposed_value(
             best_measurement,
             parameter_id,
@@ -169,7 +169,7 @@ class BestSignalAnalysisStep:
         return (
             context.result("best signal analysis")
             .input(
-                raw.dataset_entry.id,
+                raw.entry.id,
                 title="raw measurements",
             )
             .table(
