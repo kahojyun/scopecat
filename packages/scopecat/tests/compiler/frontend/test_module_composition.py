@@ -38,11 +38,11 @@ def _combine_payload_and_label(*, payload: object, label: str) -> dict[str, obje
     return {"payload": payload, "label": label}
 
 
-def _composable_module() -> sc.ExperimentModule[None, ...]:
+def _composable_module() -> sc.ExperimentModule[sc.ValueRef, ...]:
     payload_type = _payload_type()
 
     @sc.module(id="test.composition-invariant.source")
-    def module(context: sc.ModuleContext) -> None:
+    def module(context: sc.ModuleContext) -> sc.ValueRef:
         source = context._resource("source", requires=(_MEASURE,))
         context._bind_property(
             source,
@@ -63,20 +63,20 @@ def _composable_module() -> sc.ExperimentModule[None, ...]:
             },
             output_type=payload_type,
         )
-        context.export(payload=consumed)
         signal = context._product("signal", unit="ratio")
         context._acquire(
             "read-signal",
             resource=source,
             results={_MEASURE_SAMPLE_SIGNAL: signal},
         )
+        return consumed
 
     return module
 
 
 def _compose_module(
     id: str,
-    *parts: sc.ModuleInvocation[None],
+    *parts: sc.ModuleInvocation[object],
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> sc.ExperimentModule[None, ...]:
     @sc.module(id=id, metadata=metadata)

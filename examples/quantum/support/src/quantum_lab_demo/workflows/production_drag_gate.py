@@ -107,7 +107,7 @@ def production_drag_template(experiment: sc.ExperimentContext) -> None:
             qubits=qubit_parameters(),
         )
     )
-    experiment.record(capture.products)
+    experiment.record(capture.result)
 
 
 __all__ = [

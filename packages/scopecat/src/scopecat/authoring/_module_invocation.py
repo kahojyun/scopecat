@@ -8,7 +8,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol, cast, override
 
-from scopecat.authoring._module_products import relocate_module_products
+from scopecat.authoring._module_results import relocate_module_result
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.program.bindings import ResourcePort
@@ -21,7 +21,6 @@ from scopecat.program.module import (
     ModuleInstance,
     ModuleInstanceLookup,
     ModuleResourceBinding,
-    ModuleValueExport,
 )
 from scopecat.program.products import ProductOutputs, ProductRef
 from scopecat.program.value_refs import (
@@ -44,9 +43,6 @@ class ModuleHandle(Protocol):
     def definition(self) -> ModuleDef: ...
 
     @property
-    def output_ports(self) -> tuple[ModuleValueExport, ...]: ...
-
-    @property
     def resource_ports(self) -> tuple[ResourcePort, ...]: ...
 
     @property
@@ -60,7 +56,7 @@ def _empty_resource_bindings() -> FrozenMapping[
 
 
 @dataclass(frozen=True, slots=True, repr=False, init=False)
-class ModuleInvocation[ProductsT]:
+class ModuleInvocation[ResultT]:
     module: ModuleHandle
     instance_id: str
     inputs: Mapping[str, ValueRef] = field(default_factory=empty_program_mapping)
@@ -72,7 +68,7 @@ class ModuleInvocation[ProductsT]:
         repr=False,
         compare=False,
     )
-    _products: ProductsT = field(repr=False, compare=False)
+    _result: ResultT = field(repr=False, compare=False)
 
     def __init__(self) -> None:
         msg = "ModuleInvocation is created by calling or instantiating a module"
@@ -85,28 +81,10 @@ class ModuleInvocation[ProductsT]:
         return self._key
 
     @property
-    def products(self) -> ProductsT:
-        """Return the typed products explicitly returned by the module."""
+    def result(self) -> ResultT:
+        """Return the typed value produced by this explicit occurrence."""
 
-        return self._products
-
-    @property
-    def outputs(self) -> ModuleOutputs:
-        """Typed output values owned by this explicit module instance."""
-
-        return ModuleOutputs(
-            _values=FrozenMapping(
-                (
-                    port.id,
-                    internal_module_export_value_ref(
-                        self._key,
-                        port.id,
-                        port.value_type,
-                    ),
-                )
-                for port in self.module.output_ports
-            ),
-        )
+        return self._result
 
     @property
     def _product_outputs_internal(self) -> ProductOutputs:
@@ -191,48 +169,18 @@ class ModuleResources(Mapping[str, ModuleResource]):
         return sorted((*super().__dir__(), *self._values))
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class ModuleOutputs(Mapping[str, ValueRef]):
-    """Read-only attribute and mapping view of one invocation's exports."""
-
-    _values: Mapping[str, ValueRef]
-
-    @override
-    def __getitem__(self, output_id: str) -> ValueRef:
-        return self._values[output_id]
-
-    @override
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._values)
-
-    @override
-    def __len__(self) -> int:
-        return len(self._values)
-
-    def __getattr__(self, output_id: str) -> ValueRef:
-        try:
-            return self._values[output_id]
-        except KeyError:
-            msg = f"module instance has no output {output_id!r}"
-            raise AttributeError(msg) from None
-
-    @override
-    def __dir__(self) -> list[str]:
-        return sorted((*super().__dir__(), *self._values))
-
-
-def create_module_invocation[ProductsT](
+def create_module_invocation[ResultT](
     *,
     module: ModuleHandle,
     instance_id: str,
     inputs: Mapping[str, ValueRef],
     resource_bindings: Mapping[LogicalResourcePortId, LogicalResourcePortId],
-    products: ProductsT,
-) -> ModuleInvocation[ProductsT]:
+    result: ResultT,
+) -> ModuleInvocation[ResultT]:
     """Close values validated and normalized by ``ExperimentModule``."""
 
     invocation = cast(
-        "ModuleInvocation[ProductsT]",
+        "ModuleInvocation[ResultT]",
         object.__new__(ModuleInvocation),
     )
     object.__setattr__(invocation, "module", module)
@@ -242,18 +190,27 @@ def create_module_invocation[ProductsT](
     object.__setattr__(invocation, "_key", InvocationKey.fresh())
     object.__setattr__(
         invocation,
-        "_products",
-        relocate_module_products(
-            products,
-            sources=module._product_outputs_internal.values(),
-            targets=invocation._product_outputs_internal.values(),
+        "_result",
+        relocate_module_result(
+            result,
+            product_sources=module._product_outputs_internal.values(),
+            product_targets=invocation._product_outputs_internal.values(),
+            value_sources=(port.source for port in module.definition.interface.exports),
+            value_targets=(
+                internal_module_export_value_ref(
+                    invocation._key,
+                    port.id,
+                    port.value_type,
+                )
+                for port in module.definition.interface.exports
+            ),
         ),
     )
     return invocation
 
 
-def module_instance[ProductsT](
-    invocation: ModuleInvocation[ProductsT],
+def module_instance[ResultT](
+    invocation: ModuleInvocation[ResultT],
 ) -> ModuleInstance:
     bindings = tuple(
         ModuleImportBinding(import_id=import_id, source=source)

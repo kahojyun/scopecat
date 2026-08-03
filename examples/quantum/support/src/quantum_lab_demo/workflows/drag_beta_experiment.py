@@ -90,7 +90,7 @@ def _drag_beta_experiment_body(
         )
     )
     experiment.scan(*scans)
-    experiment.record(capture.products)
+    experiment.record(capture.result)
 
 
 @sc.template(

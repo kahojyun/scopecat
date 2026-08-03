@@ -111,7 +111,7 @@ def simple_template(
                 points=5,
             ),
         )
-        experiment.record(module_call.products, record_id="signal")
+        experiment.record(module_call.result, record_id="signal")
 
     return authoring.template(
         id=id,

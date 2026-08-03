@@ -56,8 +56,8 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     @sc.template(id="test.postprocessor.lowering", kind="postprocessor")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(module())
-        experiment.record(call.products, record_id="first")
-        experiment.record(call.products, record_id="second")
+        experiment.record(call.result, record_id="first")
+        experiment.record(call.result, record_id="second")
 
     resolved = bind_invocation(template(), config_profile=load_config())
     program = resolved.bindings
@@ -109,13 +109,13 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
     def root(context: sc.ModuleContext) -> _DerivedProducts:
         context.call(left)
         context.call(right)
-        return _DerivedProducts(left=left.products, right=right.products)
+        return _DerivedProducts(left=left.result, right=right.result)
 
     @sc.template(id="test.postprocessor.hidden-id", kind="postprocessor")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(root())
-        experiment.record(call.products.left, record_id="left")
-        experiment.record(call.products.right, record_id="right")
+        experiment.record(call.result.left, record_id="left")
+        experiment.record(call.result.right, record_id="right")
 
     def compile_input_use_ids() -> dict[str, str]:
         program = bind_invocation(
@@ -149,7 +149,7 @@ def test_recorded_product_requires_a_producer() -> None:
     @sc.template(id="test.product.owner", kind="product-owner")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(module())
-        experiment.record(call.products)
+        experiment.record(call.result)
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(template(), config_profile=load_config())

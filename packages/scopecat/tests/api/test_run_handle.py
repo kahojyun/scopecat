@@ -87,7 +87,7 @@ def simple_frequency_scan_template() -> ExperimentTemplate[...]:
                 points=3,
             ),
         )
-        experiment.record(module_call.products, record_id="signal")
+        experiment.record(module_call.result, record_id="signal")
 
     return authoring.template(
         id="test.session.simple_frequency_scan",

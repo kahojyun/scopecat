@@ -13,7 +13,7 @@ from scopecat.authoring._module_invocation import (
     ModuleInvocation,
     create_module_invocation,
 )
-from scopecat.authoring._module_products import relocate_module_products
+from scopecat.authoring._module_results import relocate_module_result
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_type_compatibility import require_assignable
@@ -23,7 +23,6 @@ from scopecat.program.module import (
     ModuleDef,
     ModuleEffect,
     ModulePythonImplementation,
-    ModuleValueExport,
 )
 from scopecat.program.operations import ModuleInputPort, ModuleOperationDecl
 from scopecat.program.products import ModuleProductDecl, ProductOutputs, ProductRef
@@ -33,16 +32,16 @@ from scopecat.program.values import MetadataValue, ModuleInput
 
 
 @dataclass(frozen=True, slots=True, repr=False, init=False)
-class ExperimentModule[ProductsT, **P]:
+class ExperimentModule[ResultT, **P]:
     """One closed module definition with a single Python call contract."""
 
     _module_def: ModuleDef = field(repr=False)
-    _authoring_fn: Callable[P, ProductsT] = field(
+    _authoring_fn: Callable[P, ResultT] = field(
         repr=False,
         compare=False,
     )
     _signature: inspect.Signature = field(repr=False, compare=False)
-    _products: ProductsT = field(repr=False, compare=False)
+    _result: ResultT = field(repr=False, compare=False)
 
     def __init__(self) -> None:
         msg = "ExperimentModule is created by @module"
@@ -61,10 +60,6 @@ class ExperimentModule[ProductsT, **P]:
     @property
     def input_ports(self) -> tuple[ModuleInputPort, ...]:
         return self._module_def.interface.imports
-
-    @property
-    def output_ports(self) -> tuple[ModuleValueExport, ...]:
-        return self._module_def.interface.exports
 
     @property
     def resource_ports(self) -> tuple[ResourcePort, ...]:
@@ -103,7 +98,7 @@ class ExperimentModule[ProductsT, **P]:
         return self._module_def.metadata
 
     @property
-    def __wrapped__(self) -> Callable[P, ProductsT]:
+    def __wrapped__(self) -> Callable[P, ResultT]:
         return self._authoring_fn
 
     @property
@@ -122,7 +117,7 @@ class ExperimentModule[ProductsT, **P]:
         *,
         resource_bindings: Mapping[str, str] | None = None,
         **inputs: ModuleInput,
-    ) -> ModuleInvocation[ProductsT]:
+    ) -> ModuleInvocation[ResultT]:
         """Create a hygienic, explicitly named module instance."""
 
         selected_inputs = dict(mapped_inputs or {})
@@ -137,7 +132,7 @@ class ExperimentModule[ProductsT, **P]:
         self,
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> ModuleInvocation[ProductsT]:
+    ) -> ModuleInvocation[ResultT]:
         """Create the ordinary single use of this closed definition."""
 
         bound = self._signature.bind(*args, **kwargs)
@@ -168,7 +163,7 @@ class ExperimentModule[ProductsT, **P]:
         inputs: Mapping[str, ModuleInput],
         *,
         resource_bindings: Mapping[str, str],
-    ) -> ModuleInvocation[ProductsT]:
+    ) -> ModuleInvocation[ResultT]:
         if not instance_id:
             msg = "module instance id must be non-empty"
             raise ValueError(msg)
@@ -231,14 +226,8 @@ class ExperimentModule[ProductsT, **P]:
             instance_id=instance_id,
             inputs=normalized,
             resource_bindings=normalized_resource_bindings,
-            products=self._products,
+            result=self._result,
         )
-
-    @property
-    def products(self) -> ProductsT:
-        """Return the typed products explicitly returned by the module."""
-
-        return self._products
 
     @property
     def _product_outputs_internal(self) -> ProductOutputs:
@@ -257,29 +246,32 @@ class ExperimentModule[ProductsT, **P]:
         )
 
 
-def create_experiment_module_internal[ProductsT, **P](
+def create_experiment_module_internal[ResultT, **P](
     module_def: ModuleDef,
     *,
-    definition: Callable[P, ProductsT],
+    definition: Callable[P, ResultT],
     signature: inspect.Signature,
-    products: ProductsT,
-) -> ExperimentModule[ProductsT, P]:
+    result: ResultT,
+) -> ExperimentModule[ResultT, P]:
     """Close one module definition behind its authoring handle."""
 
     module = cast(
-        "ExperimentModule[ProductsT, P]",
+        "ExperimentModule[ResultT, P]",
         object.__new__(ExperimentModule),
     )
     object.__setattr__(module, "_module_def", module_def)
     object.__setattr__(module, "_authoring_fn", definition)
     definition_products = module._product_outputs_internal
+    value_exports = module_def.interface.exports
     object.__setattr__(
         module,
-        "_products",
-        relocate_module_products(
-            products,
-            sources=definition_products.values(),
-            targets=definition_products.values(),
+        "_result",
+        relocate_module_result(
+            result,
+            product_sources=definition_products.values(),
+            product_targets=definition_products.values(),
+            value_sources=(export.source for export in value_exports),
+            value_targets=(export.source for export in value_exports),
         ),
     )
     object.__setattr__(

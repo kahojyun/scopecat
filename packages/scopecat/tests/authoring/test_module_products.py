@@ -84,7 +84,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
     @sc.template(id="test.products.metadata", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
-        experiment.record(call.products)
+        experiment.record(call.result)
 
     resolved = bind_invocation(
         template_definition(),
@@ -249,7 +249,7 @@ def test_acquire_is_an_ordered_effect() -> None:
 
     acquire = assembly.acquisitions[0]
     assert assembly.effects == (acquire,)
-    assert acquire.product_ids == (module.products.product_id,)
+    assert acquire.product_ids == (module.definition.body.products[0].product_id,)
 
 
 def test_component_scoped_members_lower_complete_targets() -> None:
@@ -315,9 +315,9 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
         experiment.record(
-            call.products.first,
-            call.products.second,
-            call.products.default,
+            call.result.first,
+            call.result.second,
+            call.result.default,
         )
 
     resolved = bind_invocation(
@@ -398,7 +398,7 @@ def test_acquire_rejects_invalid_result_mappings() -> None:
             context._acquire(
                 "read-foreign",
                 resource=source,
-                results={_SAMPLE.result("raw-first"): foreign.products},
+                results={_SAMPLE.result("raw-first"): foreign().result},
             )
 
 
@@ -413,11 +413,11 @@ def test_explicit_instances_select_same_named_products_independently(
     def root(context: sc.ModuleContext) -> _InstanceProducts:
         context.call(left)
         context.call(right)
-        return _InstanceProducts(left.products, right.products)
+        return _InstanceProducts(left.result, right.result)
 
-    assert isinstance(left.products, sc.ProductRef)
-    assert left.products.id == "left/signal"
-    assert right.products.id == "right/signal"
+    assert isinstance(left.result, sc.ProductRef)
+    assert left.result.id == "left/signal"
+    assert right.result.id == "right/signal"
 
     assembly = compose_module(root.definition)
     assert [product.qualified_id for product in assembly.product_declarations] == [
@@ -434,11 +434,11 @@ def test_explicit_instances_select_same_named_products_independently(
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
         experiment.record(
-            call.products.left,
+            call.result.left,
             record_id="left_signal",
         )
         experiment.record(
-            call.products.right,
+            call.result.right,
             record_id="right_signal",
         )
 
@@ -499,7 +499,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     @sc.module(id="test.products.wrapper")
     def wrapper(context: sc.ModuleContext) -> sc.ProductRef:
         context.call(inner)
-        return inner.products
+        return inner.result
 
     projected = wrapper.definition.products[0]
     expected_projection = ProductId(SymbolId(scope=("inner",), local_id="signal"))
@@ -510,16 +510,16 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     @sc.module(id="test.products.nested-root")
     def root(context: sc.ModuleContext) -> sc.ProductRef:
         context.call(outer)
-        return outer.products
+        return outer.result
 
-    nested_product = outer.products
+    nested_product = outer.result
     assert nested_product.id == "outer/inner/signal"
     assembly = compose_module(root.definition)
     assert [product.qualified_id for product in assembly.product_declarations] == [
         "outer/inner/signal"
     ]
     call = root()
-    nested_product = call.products
+    nested_product = call.result
 
     @sc.template(id="test.products.nested", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
@@ -565,7 +565,7 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
     @sc.module(id="test.products.repeated-use")
     def root(context: sc.ModuleContext) -> sc.ProductRef:
         context.call(selected)
-        return selected.products
+        return selected.result
 
     call = root()
 
@@ -573,11 +573,11 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
         experiment.record(
-            call.products,
+            call.result,
             record_id="first",
         )
         experiment.record(
-            call.products,
+            call.result,
             record_id="second",
         )
 
@@ -600,7 +600,7 @@ def test_root_module_products_are_typed_template_refs() -> None:
     @sc.template(id="test.products.root-ref", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
-        experiment.record(call.products)
+        experiment.record(call.result)
 
     selection = template_definition.definition.record_selections[0]
     assert selection.product_id == ProductId(
@@ -617,7 +617,7 @@ def test_product_refs_are_nominally_owned_by_the_selected_instance() -> None:
 
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(selected)
-        experiment.record(foreign.products)
+        experiment.record(foreign.result)
 
     template = sc.template(id="test.products.nominal", kind="module_products")(
         template_definition

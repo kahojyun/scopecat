@@ -32,7 +32,11 @@ from scopecat.authoring._module_invocation import (
     domain_use_call,
     module_use_invocation,
 )
-from scopecat.authoring._module_products import ProductBundle, recording_products
+from scopecat.authoring._module_results import (
+    ProductBundle,
+    module_result_value_exports,
+    recording_products,
+)
 from scopecat.authoring.entity_parameters import PerEntity
 from scopecat.authoring.finalization import Finalizable
 from scopecat.authoring.scans import Scan
@@ -228,16 +232,16 @@ class ExperimentContext:
         )
 
     @overload
-    def run[ProductsT](
+    def run[ResultT](
         self,
-        part: ExperimentModule[ProductsT, ...],
-    ) -> ModuleInvocation[ProductsT]: ...
+        part: ExperimentModule[ResultT, ...],
+    ) -> ModuleInvocation[ResultT]: ...
 
     @overload
-    def run[ProductsT](
+    def run[ResultT](
         self,
-        part: ModuleInvocation[ProductsT],
-    ) -> ModuleInvocation[ProductsT]: ...
+        part: ModuleInvocation[ResultT],
+    ) -> ModuleInvocation[ResultT]: ...
 
     @overload
     def run(self, part: DomainCall) -> DomainCall: ...
@@ -510,39 +514,39 @@ class ScratchDefinition[**P]:
 
 
 @overload
-def module[ProductsT, **P](
-    definition: Callable[Concatenate[ModuleContext, P], ProductsT],
+def module[ResultT, **P](
+    definition: Callable[Concatenate[ModuleContext, P], ResultT],
     /,
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentModule[ProductsT, P]: ...
+) -> ExperimentModule[ResultT, P]: ...
 
 
 @overload
-def module[ProductsT, **P](
+def module[ResultT, **P](
     definition: None = None,
     /,
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> Callable[
-    [Callable[Concatenate[ModuleContext, P], ProductsT]],
-    ExperimentModule[ProductsT, P],
+    [Callable[Concatenate[ModuleContext, P], ResultT]],
+    ExperimentModule[ResultT, P],
 ]: ...
 
 
-def module[ProductsT, **P](
-    definition: Callable[Concatenate[ModuleContext, P], ProductsT] | None = None,
+def module[ResultT, **P](
+    definition: Callable[Concatenate[ModuleContext, P], ResultT] | None = None,
     /,
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
-    ExperimentModule[ProductsT, P]
+    ExperimentModule[ResultT, P]
     | Callable[
-        [Callable[Concatenate[ModuleContext, P], ProductsT]],
-        ExperimentModule[ProductsT, P],
+        [Callable[Concatenate[ModuleContext, P], ResultT]],
+        ExperimentModule[ResultT, P],
     ]
 ):
     """Define a closed module from a Python function."""
@@ -662,12 +666,12 @@ def scratch[**P](
     return decorate(definition) if definition is not None else decorate
 
 
-def _module_from_function[ProductsT, **P](
-    fn: Callable[Concatenate[ModuleContext, P], ProductsT],
+def _module_from_function[ResultT, **P](
+    fn: Callable[Concatenate[ModuleContext, P], ResultT],
     *,
     id: str | None,
     metadata: Mapping[str, MetadataValue] | None,
-) -> ExperimentModule[ProductsT, P]:
+) -> ExperimentModule[ResultT, P]:
     source = cast("DefinitionFunction", fn)
     contract = _definition_contract(
         source,
@@ -684,13 +688,14 @@ def _module_from_function[ProductsT, **P](
     module_def = context.close_definition_internal(
         id=id or _definition_id(fn),
         input_ports=tuple(_input_port(name, value) for name, value in values.items()),
+        output_ports=module_result_value_exports(result),
         metadata=selected_metadata,
     )
     return create_experiment_module_internal(
         module_def,
-        definition=cast("Callable[P, ProductsT]", fn),
+        definition=cast("Callable[P, ResultT]", fn),
         signature=contract.signature,
-        products=cast("ProductsT", result),
+        result=cast("ResultT", result),
     )
 
 

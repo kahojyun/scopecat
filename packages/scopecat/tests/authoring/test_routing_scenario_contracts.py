@@ -277,7 +277,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
     def template(experiment: authoring.ExperimentContext) -> None:
         call = experiment.run(module(qubit))
         experiment.scan(axis(qubit, ("q0", "q1", "q0")))
-        experiment.record(call.products)
+        experiment.record(call.result)
 
     resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
@@ -377,7 +377,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         ],
     ) -> None:
         call = experiment.run(module(qubit))
-        experiment.record(call.products)
+        experiment.record(call.result)
 
     resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(

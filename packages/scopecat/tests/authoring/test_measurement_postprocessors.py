@@ -68,7 +68,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
         derived = context._product("derived")
         context._postprocess(
             "derive",
-            input=nested.products,
+            input=nested.result,
             outputs={"result": derived},
             kernel=_identity,
         )

@@ -432,7 +432,7 @@ def test_typed_result_recording_semantics_survive_a_module_boundary() -> None:
         return vna.sweep()
 
     call = sweep_module.instantiate("segment")
-    frequency = call.products.frequency
+    frequency = call.result.frequency
 
     context = ExperimentContext()
     context.run(call)

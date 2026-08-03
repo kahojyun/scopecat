@@ -223,7 +223,7 @@ def test_template_selects_module_products_as_records() -> None:
     ) -> None:
         call = experiment.run(module(subject=subject))
         experiment.scan(scan)
-        experiment.record(call.products)
+        experiment.record(call.result)
 
     unselected = bind_invocation(
         without_selection(subject="q0"),
@@ -492,7 +492,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
                 ),
             )
         )
-        experiment.record(call.products)
+        experiment.record(call.result)
 
     resolved = bind_invocation(
         template.bind().scan(
@@ -621,7 +621,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
                 points=3,
             ),
         )
-        experiment.record(call.products)
+        experiment.record(call.result)
 
     resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
@@ -667,7 +667,7 @@ def test_literal_string_values_define_categorical_product_axis() -> None:
     @sc.template(id="test.categorical_axis", kind="categorical_axis")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(module())
-        experiment.record(call.products)
+        experiment.record(call.result)
 
     resolved = bind_invocation(
         template(),
@@ -1089,7 +1089,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(prelude())
         call = experiment.run(scan(DRIVE_FREQUENCY_POINT))
-        experiment.record(call.products)
+        experiment.record(call.result)
 
     resolved = bind_invocation(
         template().scan(
@@ -1149,7 +1149,7 @@ def test_product_declaration_uses_axes() -> None:
     @sc.template(id="test.record_axes", kind="simple_scan")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(module(DRIVE_FREQUENCY_POINT))
-        experiment.record(call.products)
+        experiment.record(call.result)
 
     resolved = bind_invocation(
         template().scan(

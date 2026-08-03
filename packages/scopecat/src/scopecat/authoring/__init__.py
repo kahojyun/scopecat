@@ -10,7 +10,7 @@ from scopecat.authoring._module_context import ModuleContext
 from scopecat.authoring._module_invocation import (
     ModuleInvocation,
 )
-from scopecat.authoring._module_products import ProductBundle
+from scopecat.authoring._module_results import ProductBundle
 from scopecat.authoring.definitions import (
     ExperimentContext,
     Input,

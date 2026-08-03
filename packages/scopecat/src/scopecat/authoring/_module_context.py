@@ -138,7 +138,6 @@ class ModuleContext:
         "_effects",
         "_measurement_postprocessors",
         "_operations",
-        "_output_ports",
         "_owner",
         "_product_declarations",
         "_python_implementations",
@@ -147,7 +146,6 @@ class ModuleContext:
 
     def __init__(self) -> None:
         self._owner = object()
-        self._output_ports: list[ModuleValueExport] = []
         self._resources: list[ResourcePort] = []
         self._effects: list[ModuleEffect] = []
         self._operations: list[ModuleOperationDecl] = []
@@ -161,9 +159,9 @@ class ModuleContext:
 
         return tuple(self._effects)
 
-    def append_invocation_internal[ProductsT](
+    def append_invocation_internal[ResultT](
         self,
-        invocation: ModuleInvocation[ProductsT],
+        invocation: ModuleInvocation[ResultT],
     ) -> None:
         """Append one child after immediately closing its interface bindings."""
 
@@ -180,6 +178,7 @@ class ModuleContext:
         *,
         id: str,
         input_ports: Sequence[ModuleInputPort] = (),
+        output_ports: Sequence[ModuleValueExport] = (),
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ModuleDef:
         """Freeze this context directly as one reusable module definition."""
@@ -188,7 +187,7 @@ class ModuleContext:
             id=id,
             interface=ModuleInterface(
                 imports=tuple(input_ports),
-                exports=tuple(self._output_ports),
+                exports=tuple(output_ports),
                 resources=tuple(self._resources),
             ),
             body=self._close_body(),
@@ -221,10 +220,10 @@ class ModuleContext:
         )
 
     @overload
-    def call[ProductsT](
+    def call[ResultT](
         self,
-        part: ModuleInvocation[ProductsT],
-    ) -> ModuleInvocation[ProductsT]: ...
+        part: ModuleInvocation[ResultT],
+    ) -> ModuleInvocation[ResultT]: ...
 
     @overload
     def call(self, part: DomainCall) -> DomainCall: ...
@@ -244,14 +243,6 @@ class ModuleContext:
         call = domain_use_call(part)
         self.append_domain_call_internal(call)
         return part
-
-    def export(self, **values: ValueRef) -> None:
-        """Expose typed values from each future invocation of this module."""
-
-        for output_id, value in values.items():
-            if not output_id:
-                raise ValueError("module output ids must be non-empty")
-            self._output_ports.append(ModuleValueExport(id=output_id, source=value))
 
     def _resource(
         self,
