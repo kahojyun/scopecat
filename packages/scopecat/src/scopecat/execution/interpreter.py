@@ -21,6 +21,7 @@ from scopecat.execution.measurement_postprocessors import (
 )
 from scopecat.execution.measurement_recording import (
     append_measurement_dataset,
+    initialize_measurement_dataset,
     seal_measurement_dataset,
 )
 from scopecat.execution.persistence import (
@@ -50,6 +51,7 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
 )
+from scopecat.records.measurement_recording import MeasurementDatasetHeader
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
     RunModelWrite,
@@ -95,7 +97,7 @@ def _execute_run(
     run_id = session.run_id
     journal = session.journal
     measurements = session.measurements
-    planned_dataset_schema = projection.schema_for(program.points.points)
+    dataset_header, header_failure = _initialize_dataset_header(program, session)
     committed_measurement_count = 0
     append_content_hashes: list[str] = []
 
@@ -131,27 +133,49 @@ def _execute_run(
         )
         if block_problems:
             raise ProblemFailure(block_problems)
+        if not projected.records:
+            return
+        if dataset_header is None:
+            raise ValueError("projected measurements require a dataset header")
         receipt = append_measurement_dataset(
             projected,
             measurements,
             journal,
-            schema=planned_dataset_schema,
+            header=dataset_header,
         )
         if receipt is not None:
             committed_measurement_count += len(projected.records)
             append_content_hashes.append(receipt.dataset_content_hash)
 
-    effect_result = _execute_instrument_effects(
-        program=program,
-        session=session,
-        coverage_observer=commit_coverage,
+    effect_result = (
+        RunEffectResult(
+            problems=(),
+            observed_state=(),
+            prepared_state=(),
+            final_state=(),
+        )
+        if header_failure is not None
+        else _execute_instrument_effects(
+            program=program,
+            session=session,
+            coverage_observer=commit_coverage,
+        )
     )
 
     problems = _effect_problems(
         result=effect_result,
         run_id=run_id,
     )
-    certainty = "indeterminate" if effect_result.indeterminate else "known"
+    header_problems, header_indeterminate = _header_failure_problems(
+        header_failure,
+        run_id=run_id,
+    )
+    problems.extend(header_problems)
+    certainty = (
+        "indeterminate"
+        if effect_result.indeterminate or header_indeterminate
+        else "known"
+    )
     interruption = effect_result.interruption
     if effect_result.domain_failure is not None:
         unit, error = effect_result.domain_failure
@@ -169,13 +193,10 @@ def _execute_run(
     try:
         if coverage_failure is not None:
             raise coverage_failure
-        schema = program.measurements.schema_for(effect_result.admitted_points)
-        if schema is not None:
+        if dataset_header is not None and header_failure is None:
             seal_receipt = seal_measurement_dataset(
                 run_id=run_id,
-                recording_contract_fingerprint=(
-                    program.measurements.contract_fingerprint
-                ),
+                header=dataset_header,
                 point_count=committed_measurement_count,
                 append_content_hashes=tuple(append_content_hashes),
                 writer=measurements,
@@ -223,8 +244,7 @@ def _execute_run(
             )
         )
 
-    admitted_points = effect_result.admitted_points
-    dataset_schema = projection.schema_for(admitted_points)
+    dataset_schema = None if dataset_header is None else dataset_header.dataset_schema
 
     failed = bool(problems)
     outcome = RunOutcome(
@@ -276,6 +296,50 @@ def _execute_run(
             raise RunIndeterminate(run_id=run_id, outcome=outcome)
         raise RunFailed(run_id=run_id, outcome=outcome)
     return manifest
+
+
+def _initialize_dataset_header(
+    program: RunProgram,
+    session: ExecutionSession,
+) -> tuple[MeasurementDatasetHeader | None, MeasurementRecordingError | None]:
+    schema = program.measurements.schema_for(program.points.points)
+    if schema is None:
+        return None, None
+    header = MeasurementDatasetHeader(
+        run_id=session.run_id,
+        recording_contract_fingerprint=program.measurements.contract_fingerprint,
+        dataset_schema=schema,
+        expected_record_count=len(program.points.points),
+    )
+    try:
+        initialize_measurement_dataset(
+            header,
+            session.measurements,
+            session.journal,
+        )
+    except MeasurementRecordingError as error:
+        return header, error
+    return header, None
+
+
+def _header_failure_problems(
+    error: MeasurementRecordingError | None,
+    *,
+    run_id: str,
+) -> tuple[list[Problem], bool]:
+    if error is None:
+        return [], False
+    return (
+        [
+            *contextualize_problems(
+                error.problems,
+                run_id=run_id,
+                operation_id=error.operation_id,
+            ),
+            measurement_recording_terminal_problem(error, run_id=run_id),
+        ],
+        error.write_may_have_completed,
+    )
 
 
 def _execute_instrument_effects(

@@ -36,7 +36,7 @@ type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
 class MeasurementDimension(BaseModel):
-    """One concrete extent; physical coordinate values are variables."""
+    """One logical extent; ``None`` denotes a point-local ragged extent."""
 
     model_config = ConfigDict(extra="forbid")
 

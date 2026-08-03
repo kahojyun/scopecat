@@ -244,6 +244,8 @@ def validate_measurement_records_against_schema(
     records: Sequence[MeasurementRecord],
     schema: MeasurementDatasetSchema,
     dataset_id: str,
+    *,
+    allow_partial: bool = False,
 ) -> list[Problem]:
     """Validate persisted records through the canonical value contract."""
 
@@ -257,7 +259,13 @@ def validate_measurement_records_against_schema(
                 ("dataset_schema", "dataset_id"),
             )
         )
-    problems.extend(_validate_dimension_sizes(records=records, schema=schema))
+    problems.extend(
+        _validate_dimension_sizes(
+            records=records,
+            schema=schema,
+            allow_partial=allow_partial,
+        )
+    )
     dimension_sizes = {dimension.id: dimension.size for dimension in schema.dimensions}
     coordinate_variables = {
         variable.id: variable
@@ -312,16 +320,23 @@ def validate_measurement_records_against_schema(
 
 
 def _validate_dimension_sizes(
-    *, records: Sequence[MeasurementRecord], schema: MeasurementDatasetSchema
+    *,
+    records: Sequence[MeasurementRecord],
+    schema: MeasurementDatasetSchema,
+    allow_partial: bool,
 ) -> list[Problem]:
     point_dimension = next(
         dimension for dimension in schema.dimensions if dimension.id == "point"
     )
-    if point_dimension.size != len(records):
+    point_size = point_dimension.size
+    assert point_size is not None
+    if point_size != len(records) and not (
+        allow_partial and len(records) <= point_size
+    ):
         return [
             _problem(
                 "measurement_dataset_record_count_mismatch",
-                f"measurement dataset dimension point size {point_dimension.size} "
+                f"measurement dataset dimension point size {point_size} "
                 f"does not match {len(records)} records",
                 ("dataset_schema", "dimensions", "point", "size"),
             )

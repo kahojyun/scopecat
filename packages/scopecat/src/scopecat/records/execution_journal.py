@@ -42,6 +42,7 @@ type ExecutionStage = Literal[
     "compute",
     "apply_state",
     "collect",
+    "initialize_measurement",
     "append_measurement",
     "seal_measurement",
     "abort",

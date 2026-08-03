@@ -35,6 +35,7 @@ from scopecat.records.measurement import (
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
+    MeasurementDatasetHeader,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
@@ -76,23 +77,37 @@ def _sqlite_transaction(
         connection.close()
 
 
-def _append(
+def _header(
     run_id: str,
+    *,
+    point_count: int = 1,
+) -> MeasurementDatasetHeader:
+    return MeasurementDatasetHeader(
+        run_id=run_id,
+        recording_contract_fingerprint="recording.v1",
+        dataset_schema=MeasurementDatasetSchema(
+            dataset_id="raw-measurements",
+            dimensions=[
+                MeasurementDimension(id="point", kind="point", size=point_count)
+            ],
+        ),
+        expected_record_count=point_count,
+    )
+
+
+def _append(
+    header: MeasurementDatasetHeader,
     *,
     point_index: int = 0,
     value: float = 1,
 ) -> MeasurementDatasetAppend:
     return MeasurementDatasetAppend(
-        run_id=run_id,
-        recording_contract_fingerprint="recording.v1",
+        run_id=header.run_id,
+        header_content_hash=header.content_hash,
         start_index=point_index,
-        schema=MeasurementDatasetSchema(
-            dataset_id="raw-measurements",
-            dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
-        ),
         records=(
             MeasurementRecord(
-                run_id=run_id,
+                run_id=header.run_id,
                 logical_point_id=f"point-{point_index}",
                 point_index=point_index,
                 coordinates={},
@@ -108,13 +123,16 @@ def _append(
     )
 
 
-def _seal(append: MeasurementDatasetAppend) -> MeasurementDatasetSeal:
+def _seal(
+    header: MeasurementDatasetHeader,
+    append: MeasurementDatasetAppend,
+) -> MeasurementDatasetSeal:
     return MeasurementDatasetSeal(
         run_id=append.run_id,
-        recording_contract_fingerprint=append.recording_contract_fingerprint,
+        header_content_hash=header.content_hash,
         point_count=len(append.records),
         dataset_content_hash=measurement_dataset_content_hash(
-            recording_contract_fingerprint=append.recording_contract_fingerprint,
+            header_content_hash=header.content_hash,
             append_content_hashes=(append.content_hash,),
         ),
     )
@@ -128,6 +146,16 @@ def _commit_append(
     prepared = repository.prepare_append(append)
     with _sqlite_transaction(runs) as connection:
         repository.append_prepared_in_transaction(connection, prepared)
+
+
+def _commit_header(
+    runs: SQLiteRunRepository,
+    repository: SQLiteMeasurementDatasetRepository,
+    header: MeasurementDatasetHeader,
+) -> None:
+    prepared = repository.prepare_header(header)
+    with _sqlite_transaction(runs) as connection:
+        repository.header_prepared_in_transaction(connection, prepared)
 
 
 def _commit_seal(
@@ -271,12 +299,24 @@ def test_in_transaction_primitives_report_created_and_replay_durable_values(
     journal = SQLiteExecutionJournal(runs, run_id=run_id)
     measurements = SQLiteMeasurementDatasetRepository(runs, run_id=run_id)
     transitions = _transitions(run_id)
-    append = _append(run_id)
-    seal = _seal(append)
+    header = _header(run_id)
+    append = _append(header)
+    seal = _seal(header, append)
+    prepared_header = measurements.prepare_header(header)
     prepared_append = measurements.prepare_append(append)
     prepared_seal = measurements.prepare_seal(seal)
 
     with _sqlite_transaction(runs) as connection:
+        header_receipt, header_created = measurements.header_prepared_in_transaction(
+            connection,
+            prepared_header,
+        )
+        header_replay, header_replay_created = (
+            measurements.header_prepared_in_transaction(
+                connection,
+                prepared_header,
+            )
+        )
         transition, transition_created = journal.append_in_transaction(
             connection,
             transitions[0],
@@ -309,6 +349,9 @@ def test_in_transaction_primitives_report_created_and_replay_durable_values(
                 prepared_append,
             )
         )
+        assert header_created
+        assert not header_replay_created
+        assert header_replay == header_receipt
         assert transition_created
         assert transition.sequence == 0
         assert not transition_replay_created
@@ -375,7 +418,9 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
     runs = _runs(tmp_path)
     first = SQLiteMeasurementDatasetRepository(runs, run_id="run-measurement")
     second = SQLiteMeasurementDatasetRepository(runs, run_id="run-measurement")
-    append = _append("run-measurement")
+    header = _header("run-measurement")
+    _commit_header(runs, first, header)
+    append = _append(header)
     barrier = Barrier(2)
 
     def commit(
@@ -400,7 +445,7 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
         _commit_append(
             runs,
             second,
-            _append("run-measurement", value=2),
+            _append(header, value=2),
         )
 
 
@@ -409,8 +454,10 @@ def test_measurement_page_reads_intersecting_chunks_and_live_schema(
 ) -> None:
     runs = _runs(tmp_path)
     repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-page")
-    first = _append("run-page", point_index=0, value=1)
-    second = _append("run-page", point_index=1, value=2)
+    header = _header("run-page", point_count=2)
+    _commit_header(runs, repository, header)
+    first = _append(header, point_index=0, value=1)
+    second = _append(header, point_index=1, value=2)
     _commit_append(runs, repository, first)
     _commit_append(runs, repository, second)
 
@@ -424,26 +471,48 @@ def test_measurement_page_reads_intersecting_chunks_and_live_schema(
     assert next_offset == 1
     assert [record.point_index for record in later] == [1]
     assert later_offset is None
-    assert schema == first.dataset_schema
-    assert later_schema == first.dataset_schema
+    assert schema == header.dataset_schema
+    assert later_schema == header.dataset_schema
 
 
-def test_measurement_append_rejects_a_changed_live_schema(tmp_path: Path) -> None:
+def test_measurement_header_makes_an_empty_dataset_readable(tmp_path: Path) -> None:
+    runs = _runs(tmp_path)
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-empty")
+    header = _header("run-empty", point_count=0)
+    _commit_header(runs, repository, header)
+    seal = MeasurementDatasetSeal(
+        run_id=header.run_id,
+        header_content_hash=header.content_hash,
+        point_count=0,
+        dataset_content_hash=measurement_dataset_content_hash(
+            header_content_hash=header.content_hash,
+            append_content_hashes=(),
+        ),
+    )
+    _commit_seal(runs, repository, seal)
+
+    items, next_offset, schema = repository.measurement_page(limit=10, offset=0)
+
+    assert items == ()
+    assert next_offset is None
+    assert schema == header.dataset_schema
+    assert repository.measurements() == ()
+
+
+def test_measurement_header_rejects_a_changed_live_schema(tmp_path: Path) -> None:
     runs = _runs(tmp_path)
     repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-schema")
-    first = _append("run-schema", point_index=0)
-    _commit_append(runs, repository, first)
-    changed_schema = first.dataset_schema.model_copy(
+    header = _header("run-schema")
+    _commit_header(runs, repository, header)
+    changed_schema = header.dataset_schema.model_copy(
         update={"metadata": {"revision": 2}}
     )
 
-    with pytest.raises(ExecutionJournalConflict, match="changed its schema"):
-        _commit_append(
+    with pytest.raises(ExecutionJournalConflict, match="different content"):
+        _commit_header(
             runs,
             repository,
-            _append("run-schema", point_index=1).model_copy(
-                update={"dataset_schema": changed_schema}
-            ),
+            header.model_copy(update={"dataset_schema": changed_schema}),
         )
 
 
@@ -462,14 +531,11 @@ def test_unavailable_measurement_round_trips_through_dataset_storage(
         shape=(2,),
         metadata={"status_register": 4},
     )
+    header = _header("run-unavailable")
     append = MeasurementDatasetAppend(
         run_id="run-unavailable",
-        recording_contract_fingerprint="recording.v1",
+        header_content_hash=header.content_hash,
         start_index=0,
-        schema=MeasurementDatasetSchema(
-            dataset_id="raw-measurements",
-            dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
-        ),
         records=(
             MeasurementRecord(
                 run_id="run-unavailable",
@@ -481,6 +547,7 @@ def test_unavailable_measurement_round_trips_through_dataset_storage(
         ),
     )
 
+    _commit_header(runs, repository, header)
     _commit_append(runs, repository, append)
 
     [record] = repository.measurements()
@@ -497,14 +564,18 @@ def test_measurement_replay_rejects_mismatched_durable_operation_identity(
         runs,
         run_id="run-append-identity",
     )
-    append = _append("run-append-identity")
+    append_header = _header("run-append-identity")
+    _commit_header(runs, append_repository, append_header)
+    append = _append(append_header)
     _commit_append(runs, append_repository, append)
     seal_repository = SQLiteMeasurementDatasetRepository(
         runs,
         run_id="run-seal-identity",
     )
-    seal_append = _append("run-seal-identity")
-    seal = _seal(seal_append)
+    seal_header = _header("run-seal-identity")
+    _commit_header(runs, seal_repository, seal_header)
+    seal_append = _append(seal_header)
+    seal = _seal(seal_header, seal_append)
     _commit_append(runs, seal_repository, seal_append)
     _commit_seal(runs, seal_repository, seal)
     with sqlite3.connect(runs.database) as connection:

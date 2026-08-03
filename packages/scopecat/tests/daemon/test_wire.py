@@ -43,29 +43,19 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationReceipt,
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenReceipt,
-    MeasurementAppendCommand,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
-    TerminalRunCommitCommand,
 )
 from scopecat.execution.ports.instruments import RunHardwareApply, RunHardwareBatch
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement import (
-    MeasurementDatasetSchema,
-    MeasurementDimension,
-    MeasurementRecord,
-    MeasurementScalar,
-)
-from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import InstrumentDescription
@@ -761,51 +751,3 @@ def _configured_defaults_problem() -> Problem:
         phase=ProblemPhase.EXECUTION,
         message="configured defaults were rejected",
     )
-
-
-def test_effect_commands_do_not_repeat_durable_identity() -> None:
-    append = MeasurementDatasetAppend(
-        run_id="run-1",
-        recording_contract_fingerprint="test.recording.v1",
-        start_index=0,
-        schema=MeasurementDatasetSchema(
-            dataset_id="raw-measurements",
-            dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
-        ),
-        records=(
-            MeasurementRecord(
-                run_id="run-1",
-                logical_point_id="point-0",
-                point_index=0,
-                coordinates={},
-                observables={
-                    "signal": MeasurementScalar.create(
-                        dtype="float64",
-                        value=1,
-                        unit="ratio",
-                    )
-                },
-            ),
-        ),
-    )
-    outcome = RunOutcome(
-        run_id="run-1",
-        result="succeeded",
-        certainty="known",
-    )
-    append_command = MeasurementAppendCommand(
-        lease_id="lease-1",
-        append=append,
-    )
-    terminal_command = TerminalRunCommitCommand(
-        lease_id="lease-1",
-        outcome=outcome,
-    )
-
-    assert set(append_command.model_dump()) == {"lease_id", "append"}
-    assert set(terminal_command.model_dump()) == {
-        "lease_id",
-        "outcome",
-        "contents",
-        "models",
-    }

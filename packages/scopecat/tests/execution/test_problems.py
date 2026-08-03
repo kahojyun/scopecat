@@ -284,7 +284,14 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
 
     manifest = sqlite_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "interrupted"
-    assert manifest.datasets == ()
+    [dataset] = manifest.datasets
+    assert dataset.id == "raw-measurements"
+    assert dataset.metadata == {
+        "partial": True,
+        "run_result": "cancelled",
+        "run_certainty": "known",
+        "expected_record_count": 3,
+    }
     assert instrument.aborted
     [point_state] = instrument.applied_requests
     assert final_frequency not in point_state.values.values()

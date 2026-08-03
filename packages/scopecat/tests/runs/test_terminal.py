@@ -12,6 +12,7 @@ from scopecat.execution.evidence import (
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution import InstrumentStateEvidence
+from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementDimension
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
     RunContentPublication,
@@ -76,6 +77,28 @@ def test_terminal_outcome_lives_only_in_the_manifest(tmp_path: Path) -> None:
     assert committed.created_at == accepted.created_at
     assert not storage.exists(run_id, instrument_state_evidence_ref())
     assert storage.read_manifest(run_id) == committed
+
+
+def test_terminal_contents_publish_a_sealed_empty_measurement_dataset() -> None:
+    outcome = _successful_outcome("run-empty-dataset")
+    schema = MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        dimensions=[MeasurementDimension(id="point", kind="point", size=0)],
+    )
+
+    contents = build_terminal_contents(
+        outcome=outcome,
+        measurement_count=0,
+        dataset_content_hash="sha256:empty-dataset",
+        dataset_schema=schema,
+        expected_record_count=0,
+        instrument_state=None,
+    )
+
+    [dataset] = contents
+    assert dataset.role == "dataset"
+    assert dataset.id == "raw-measurements"
+    assert dataset.data_schema == schema.model_dump(mode="json")
 
 
 def test_terminal_manifest_preserves_existing_attachments(tmp_path: Path) -> None:

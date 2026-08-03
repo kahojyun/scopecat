@@ -60,6 +60,7 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
+    MeasurementHeaderCommand,
     MeasurementSealCommand,
     PayloadObjectReceipt,
     RunAdmission,
@@ -553,6 +554,14 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ExecutionTransition:
         _require_run_id(run_id, command.transition.run_id)
         return application.executor.append_transition(run_id, command)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/header")
+    def initialize_measurements(
+        run_id: str,
+        command: MeasurementHeaderCommand,
+    ) -> MeasurementDatasetReceipt:
+        _require_run_id(run_id, command.header.run_id)
+        return application.executor.initialize_measurements(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/append")
     def append_measurements(

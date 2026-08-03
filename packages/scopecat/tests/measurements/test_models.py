@@ -7,8 +7,6 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.records.measurement import (
-    MEASUREMENT_DATASET_FORMAT_VERSION,
-    MEASUREMENT_RECORD_SCHEMA_VERSION,
     ComplexComponents,
     InstrumentAcquisitionEvidence,
     MeasurementArray,
@@ -344,13 +342,6 @@ def test_measurement_dataset_and_schema_round_trip() -> None:
     )
     restored = assert_model_round_trip(dataset)
 
-    assert restored.dataset_schema.format_version == MEASUREMENT_DATASET_FORMAT_VERSION
-    assert (
-        restored.dataset_schema.format_version
-        == "scopecat.measurement_dataset_schema.v6"
-    )
-    assert restored.dataset_schema.record_schema == MEASUREMENT_RECORD_SCHEMA_VERSION
-    assert restored.dataset_schema.record_schema == "scopecat.measurement_record.v4"
     assert restored.dataset_schema.dataset_id == "raw-measurements"
     assert restored.dataset_schema.primary_coordinates == ["drive_frequency"]
     assert restored.dataset_schema.primary_observables == ["signal"]

@@ -59,6 +59,7 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
+    MeasurementHeaderCommand,
     MeasurementSealCommand,
     PayloadObjectReceipt,
     RunAdmission,
@@ -692,6 +693,17 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{run_id}/transitions",
             command,
             ExecutionTransition,
+        )
+
+    def initialize_measurements(
+        self,
+        run_id: str,
+        command: MeasurementHeaderCommand,
+    ) -> MeasurementDatasetReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/runs/{run_id}/measurements/header",
+            command,
+            MeasurementDatasetReceipt,
         )
 
     def append_measurements(

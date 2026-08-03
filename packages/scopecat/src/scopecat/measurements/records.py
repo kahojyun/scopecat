@@ -369,7 +369,7 @@ def expected_dataset_schema(
     point_domain_layout: PointDomainLayout = "product_grid",
     point_domain_axis_sizes: Sequence[tuple[str, int]] = (),
 ) -> MeasurementDatasetSchema | None:
-    if not points or not records:
+    if not records:
         return None
     dimensions = [
         MeasurementDimension(id="point", kind="point", size=len(points)),

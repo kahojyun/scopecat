@@ -62,6 +62,7 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationReceipt,
     ManualConfigDraftRevisionSource,
     MeasurementAppendCommand,
+    MeasurementHeaderCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunSubmission,
@@ -84,7 +85,10 @@ from scopecat.records.measurement import (
     MeasurementRecord,
     MeasurementScalar,
 )
-from scopecat.records.measurement_recording import MeasurementDatasetAppend
+from scopecat.records.measurement_recording import (
+    MeasurementDatasetAppend,
+    MeasurementDatasetHeader,
+)
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
     ParameterChangeProposal,
@@ -1972,15 +1976,27 @@ def test_effect_is_fenced_and_terminal_updates_control(
                 )
             },
         )
-        measurement_append = MeasurementDatasetAppend(
+        measurement_header = MeasurementDatasetHeader(
             run_id=run_id,
             recording_contract_fingerprint="test.recording.v1",
-            start_index=0,
-            schema=MeasurementDatasetSchema(
+            dataset_schema=MeasurementDatasetSchema(
                 dataset_id="raw-measurements",
                 dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
             ),
+            expected_record_count=1,
+        )
+        measurement_append = MeasurementDatasetAppend(
+            run_id=run_id,
+            header_content_hash=measurement_header.content_hash,
+            start_index=0,
             records=(measurement,),
+        )
+        header_response = client.post(
+            f"/api/v1/runs/{run_id}/measurements/header",
+            json=MeasurementHeaderCommand(
+                lease_id=lease.lease_id,
+                header=measurement_header,
+            ).model_dump(mode="json"),
         )
         measurement_response = client.post(
             f"/api/v1/runs/{run_id}/measurements/append",
@@ -2041,6 +2057,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
             ).model_dump(mode="json"),
         )
 
+        assert header_response.status_code == 200
         assert measurement_response.status_code == 200
         assert detail.json()["control"]["state"] == "leased"
         assert detail.json()["manifest"]["outcome"] is None
@@ -2156,15 +2173,27 @@ def test_effect_and_terminal_publication_roll_back_with_control(
                 )
             },
         )
-        append = MeasurementDatasetAppend(
+        header = MeasurementDatasetHeader(
             run_id=admission.run_id,
             recording_contract_fingerprint="test.recording.v1",
-            start_index=0,
-            schema=MeasurementDatasetSchema(
+            dataset_schema=MeasurementDatasetSchema(
                 dataset_id="raw-measurements",
                 dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
             ),
+            expected_record_count=1,
+        )
+        append = MeasurementDatasetAppend(
+            run_id=admission.run_id,
+            header_content_hash=header.content_hash,
+            start_index=0,
             records=(measurement,),
+        )
+        runtime.application.executor.initialize_measurements(
+            admission.run_id,
+            MeasurementHeaderCommand(
+                lease_id=lease.lease_id,
+                header=header,
+            ),
         )
 
         with monkeypatch.context() as patch:

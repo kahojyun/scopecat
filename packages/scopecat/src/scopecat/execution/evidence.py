@@ -39,8 +39,8 @@ def build_terminal_contents(
         expected_record_count is None or expected_record_count != measurement_count
     )
     datasets: list[RunContentEntry] = []
-    if measurement_count:
-        if dataset_content_hash is None or dataset_schema is None:
+    if dataset_content_hash is not None:
+        if dataset_schema is None:
             raise ValueError("recorded measurements require a sealed dataset contract")
         datasets.append(
             RunContentEntry(
@@ -66,6 +66,8 @@ def build_terminal_contents(
                 ),
             )
         )
+    elif measurement_count:
+        raise ValueError("recorded measurements require a sealed dataset contract")
     records = (
         ()
         if instrument_state is None

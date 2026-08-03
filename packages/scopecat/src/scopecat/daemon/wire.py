@@ -41,6 +41,7 @@ from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
+    MeasurementDatasetHeader,
     MeasurementDatasetSeal,
 )
 from scopecat.records.parameter_change import (
@@ -406,6 +407,10 @@ class ExecutionTransitionAppend(_FencedCommand):
         return self
 
 
+class MeasurementHeaderCommand(_FencedCommand):
+    header: MeasurementDatasetHeader
+
+
 class MeasurementAppendCommand(_FencedCommand):
     append: MeasurementDatasetAppend
 
@@ -628,6 +633,7 @@ __all__ = [
     "InstrumentSessionOpenReceipt",
     "ManualConfigDraftRevisionSource",
     "MeasurementAppendCommand",
+    "MeasurementHeaderCommand",
     "MeasurementSealCommand",
     "PayloadObjectReceipt",
     "RunAdmission",
