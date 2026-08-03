@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Self
+from uuid import uuid4
 
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._control import LabControlOperations
@@ -23,6 +24,42 @@ from scopecat.program.values import MetadataValue
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource
 from scopecat.runs.selectors import RunSelector
+
+type ExperimentSpec = ExperimentInvocation | ExperimentTemplate[...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentStage:
+    """One completed run in a notebook-driven staged experiment."""
+
+    sequence_id: str
+    index: int
+    run: RunHandle
+    history: tuple[RunHandle, ...]
+
+    @property
+    def previous_run(self) -> RunHandle | None:
+        return None if self.index == 0 else self.history[-2]
+
+
+type NextExperimentStage = Callable[[ExperimentStage], ExperimentSpec | None]
+
+
+@dataclass(frozen=True, slots=True)
+class StagedExperiment:
+    """Completed durable runs produced by one staged notebook loop."""
+
+    sequence_id: str
+    stages: tuple[ExperimentStage, ...]
+    stopped_by_limit: bool = False
+
+    @property
+    def runs(self) -> tuple[RunHandle, ...]:
+        return tuple(stage.run for stage in self.stages)
+
+    @property
+    def latest(self) -> RunHandle:
+        return self.stages[-1].run
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,15 +192,11 @@ class LabClient:
 
     def prepare(
         self,
-        experiment: ExperimentInvocation | ExperimentTemplate[...],
+        experiment: ExperimentSpec,
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
     ) -> PreparedLabExperiment:
-        invocation = (
-            experiment.bind()
-            if isinstance(experiment, ExperimentTemplate)
-            else experiment
-        )
+        invocation = _experiment_invocation(experiment)
         resolved_config, config_source = self._config.resolve_with_source(config)
         return PreparedLabExperiment(
             lab=self,
@@ -174,7 +207,7 @@ class LabClient:
 
     def preview(
         self,
-        experiment: ExperimentInvocation | ExperimentTemplate[...],
+        experiment: ExperimentSpec,
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         name: str | None = None,
@@ -195,7 +228,7 @@ class LabClient:
 
     def run(
         self,
-        experiment: ExperimentInvocation | ExperimentTemplate[...],
+        experiment: ExperimentSpec,
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         name: str | None = None,
@@ -212,6 +245,75 @@ class LabClient:
             description=description,
             metadata=metadata,
             operator=operator,
+        )
+
+    def run_staged(
+        self,
+        experiment: ExperimentSpec,
+        *,
+        next_stage: NextExperimentStage,
+        max_stages: int = 10,
+        sequence_id: str | None = None,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
+        name: str | None = None,
+        tags: tuple[str, ...] = (),
+        description: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+        operator: str | None = None,
+    ) -> StagedExperiment:
+        """Run a bounded sequence whose next point domain uses prior results.
+
+        Each stage is an ordinary durable run. The callback receives its
+        completed :class:`ExperimentStage` and returns the next invocation, or
+        ``None`` to finish. All stages use one resolved configuration snapshot
+        and carry explicit sequence lineage in their request metadata.
+        """
+
+        if max_stages < 1:
+            raise ValueError("max_stages must be positive")
+        selected_sequence_id = sequence_id or uuid4().hex
+        if not selected_sequence_id:
+            raise ValueError("sequence_id must be non-empty")
+
+        prepared = self.prepare(experiment, config=config)
+        current = prepared.invocation
+        completed: list[ExperimentStage] = []
+        previous_run_id: str | None = None
+        for index in range(max_stages):
+            run = self.execute_invocation(
+                current,
+                config=prepared.config,
+                config_source=prepared.config_source,
+                name=name,
+                tags=tags,
+                description=description,
+                metadata=_staged_metadata(
+                    metadata,
+                    sequence_id=selected_sequence_id,
+                    index=index,
+                    previous_run_id=previous_run_id,
+                ),
+                operator=operator,
+            )
+            stage = ExperimentStage(
+                sequence_id=selected_sequence_id,
+                index=index,
+                run=run,
+                history=(*(item.run for item in completed), run),
+            )
+            completed.append(stage)
+            following = next_stage(stage)
+            if following is None:
+                return StagedExperiment(
+                    sequence_id=selected_sequence_id,
+                    stages=tuple(completed),
+                )
+            current = _experiment_invocation(following)
+            previous_run_id = run.id
+        return StagedExperiment(
+            sequence_id=selected_sequence_id,
+            stages=tuple(completed),
+            stopped_by_limit=True,
         )
 
     def preview_invocation(
@@ -260,4 +362,32 @@ class LabClient:
         return RunHandle(session=self, id=manifest.run_id)
 
 
-__all__ = ["LabClient", "PreparedLabExperiment"]
+def _experiment_invocation(experiment: ExperimentSpec) -> ExperimentInvocation:
+    return (
+        experiment.bind() if isinstance(experiment, ExperimentTemplate) else experiment
+    )
+
+
+def _staged_metadata(
+    metadata: Mapping[str, MetadataValue] | None,
+    *,
+    sequence_id: str,
+    index: int,
+    previous_run_id: str | None,
+) -> dict[str, MetadataValue]:
+    return {
+        **dict(metadata or {}),
+        "scopecat_stage": {
+            "sequence_id": sequence_id,
+            "index": index,
+            "previous_run_id": previous_run_id,
+        },
+    }
+
+
+__all__ = [
+    "ExperimentStage",
+    "LabClient",
+    "PreparedLabExperiment",
+    "StagedExperiment",
+]

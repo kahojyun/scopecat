@@ -13,7 +13,8 @@ from pydantic import BaseModel
 
 import scopecat.api._runner as runner_module
 from scopecat.api._runner import _DaemonRunner
-from scopecat.api.lab import LabClient
+from scopecat.api.lab import ExperimentStage, LabClient, PreparedLabExperiment
+from scopecat.api.run import RunHandle
 from scopecat.config.drafts import ConfigDraft
 from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.registry.records import (
@@ -30,6 +31,11 @@ from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigDraftPreview,
     ConfigRegistryView,
+    MeasurementPage,
+    RunAdmissionView,
+    RunControlView,
+    RunDetail,
+    RunPlanView,
 )
 from scopecat.daemon.wire import (
     ConfigActivationReceipt,
@@ -55,6 +61,7 @@ from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.service import PlannedRun
 from scopecat.planning.system import ExperimentSystem
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
@@ -67,6 +74,7 @@ from scopecat.records.run import (
 )
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments import InstrumentProviderContext
+from tests.testkit.measurement_models import signal_point_schema, signal_record
 from tests.testkit.runtime import plan_experiment, sqlite_project_services
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import (
@@ -75,6 +83,83 @@ from tests.testkit.workflow_fixtures import (
 )
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
+
+
+def test_remote_run_measurement_batches_use_typed_page_endpoint() -> None:
+    schema = signal_point_schema(size=3)
+    dataset_entry = RunContentEntry(
+        role="dataset",
+        id="raw-measurements",
+        kind="measurement_dataset",
+        content_hash="measurement-content",
+        schema=schema.model_dump(mode="json"),
+        metadata={"experiment": "remote-page-test"},
+    )
+    manifest = RunManifest(
+        run_id="run-batches",
+        config_content_hash=config_content_hash(load_config()),
+        contents=(dataset_entry,),
+    )
+    detail = RunDetail(
+        control=RunControlView(
+            sequence=1,
+            admission=RunAdmissionView(
+                run_id=manifest.run_id,
+                plan=RunPlanView(
+                    experiment_id="remote-batches",
+                    experiment_kind="test",
+                    point_count=3,
+                ),
+                admitted_at=_NOW,
+            ),
+            state="closed",
+            updated_at=_NOW,
+        ),
+        manifest=manifest,
+    )
+    records = tuple(
+        signal_record(point_index=index).model_copy(update={"run_id": manifest.run_id})
+        for index in range(3)
+    )
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.url.path == "/api/v1/runs/run-batches":
+            return _model(detail)
+        if request.url.path == "/api/v1/runs/run-batches/measurements":
+            offset = int(request.url.params["offset"])
+            limit = int(request.url.params["limit"])
+            items = records[offset : offset + limit]
+            next_offset = offset + len(items)
+            return _model(
+                MeasurementPage(
+                    items=items,
+                    next_offset=next_offset if next_offset < len(records) else None,
+                    dataset_schema=schema,
+                )
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    lab = LabClient(_client(handler))
+    run = RunHandle(session=lab, id=manifest.run_id)
+
+    batches = list(run.measurement_batches(batch_size=2))
+
+    assert [[record.point_index for record in batch.records] for batch in batches] == [
+        [0, 1],
+        [2],
+    ]
+    assert [batch.dims["point"] for batch in batches] == [2, 1]
+    assert [request.url.path for request in requests] == [
+        "/api/v1/runs/run-batches",
+        "/api/v1/runs/run-batches/measurements",
+        "/api/v1/runs/run-batches/measurements",
+    ]
+    assert [dict(request.url.params) for request in requests[1:]] == [
+        {"limit": "2", "offset": "0"},
+        {"limit": "2", "offset": "2"},
+    ]
 
 
 def test_lab_preview_and_run_are_direct_prepare_shortcuts(
@@ -132,6 +217,96 @@ def test_lab_preview_and_run_are_direct_prepare_shortcuts(
             },
         ),
     ]
+
+
+def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config()
+    source = ConfigRegistryRunConfigSource(
+        selector="active",
+        entry_id="baseline",
+        config_ref="config-registry/entries/baseline/config.json",
+        content_hash=config_content_hash(config),
+        registry_generation=1,
+    )
+    invocations = [load_invocation() for _ in range(3)]
+    lab = object.__new__(LabClient)
+    prepared = PreparedLabExperiment(
+        lab=lab,
+        invocation=invocations[0],
+        config=config,
+        config_source=source,
+    )
+    prepare_calls: list[tuple[object, object]] = []
+    execute_calls: list[tuple[object, dict[str, object]]] = []
+
+    def prepare(
+        _lab: LabClient,
+        experiment: object,
+        *,
+        config: object = None,
+    ) -> PreparedLabExperiment:
+        prepare_calls.append((experiment, config))
+        return prepared
+
+    def execute_invocation(
+        _lab: LabClient,
+        invocation: object,
+        **kwargs: object,
+    ) -> RunHandle:
+        execute_calls.append((invocation, kwargs))
+        return RunHandle(session=lab, id=f"run-{len(execute_calls)}")
+
+    monkeypatch.setattr(LabClient, "prepare", prepare)
+    monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
+    stages: list[ExperimentStage] = []
+
+    def choose_next(stage: ExperimentStage):
+        stages.append(stage)
+        return None if stage.index == 2 else invocations[stage.index + 1]
+
+    result = lab.run_staged(
+        invocations[0],
+        next_stage=choose_next,
+        max_stages=5,
+        sequence_id="adaptive-sequence",
+        config="active",
+        metadata={"campaign": "notebook-demo"},
+    )
+
+    assert prepare_calls == [(invocations[0], "active")]
+    assert [invocation for invocation, _kwargs in execute_calls] == invocations
+    assert all(kwargs["config"] is config for _invocation, kwargs in execute_calls)
+    assert all(
+        kwargs["config_source"] == source for _invocation, kwargs in execute_calls
+    )
+    assert [run.id for run in result.runs] == ["run-1", "run-2", "run-3"]
+    assert not result.stopped_by_limit
+    assert result.latest is result.runs[-1]
+    assert stages[0].previous_run is None
+    assert stages[1].previous_run is result.runs[0]
+    assert stages[2].history == result.runs
+    assert [kwargs["metadata"] for _invocation, kwargs in execute_calls] == [
+        {
+            "campaign": "notebook-demo",
+            "scopecat_stage": {
+                "sequence_id": "adaptive-sequence",
+                "index": index,
+                "previous_run_id": None if index == 0 else f"run-{index}",
+            },
+        }
+        for index in range(3)
+    ]
+
+    limited = lab.run_staged(
+        invocations[0],
+        next_stage=lambda _stage: invocations[0],
+        max_stages=2,
+    )
+
+    assert len(limited.stages) == 2
+    assert limited.stopped_by_limit
 
 
 def test_execute_submits_complete_plan_and_heartbeats(

@@ -5,15 +5,21 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from pydantic import JsonValue
 
+from scopecat.adapters.sqlite import (
+    SQLiteMeasurementDatasetRepository,
+    SQLiteRunRepository,
+)
 from scopecat.analysis.service import (
     AnalysisInput,
     AnalysisOutput,
     SavedAnalysis,
     save_analysis,
 )
+from scopecat.daemon.views import MeasurementPage
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
@@ -61,6 +67,23 @@ class ServiceRunOperations:
             run_id=run_id,
             services=self.services,
             selector=selector,
+        )
+
+    def load_measurement_page(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> MeasurementPage:
+        items, next_offset, dataset_schema = SQLiteMeasurementDatasetRepository(
+            cast("SQLiteRunRepository", self.services.runs),
+            run_id=run_id,
+        ).measurement_page(limit=limit, offset=offset)
+        return MeasurementPage(
+            items=items,
+            next_offset=next_offset,
+            dataset_schema=dataset_schema,
         )
 
     def save_analysis(

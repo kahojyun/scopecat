@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
@@ -16,12 +16,19 @@ from scopecat.analysis.service import (
 )
 from scopecat.api.analysis import Analysis, AnalysisContext, AnalysisStep
 from scopecat.api.data import Data
-from scopecat.measurements.results import Dataset
+from scopecat.daemon.views import MeasurementPage
+from scopecat.measurements.datasets import (
+    MAX_MEASUREMENT_PAGE_SIZE,
+    MEASUREMENT_DATASET_KIND,
+    RAW_MEASUREMENTS_DATASET_ID,
+)
+from scopecat.measurements.results import Dataset, MeasurementDataset
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.runs.access import require_dataset
 from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
@@ -47,6 +54,14 @@ class RunOperations(Protocol):
         *,
         selector: str,
     ) -> RunMeasurementDatasetResult: ...
+
+    def load_measurement_page(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> MeasurementPage: ...
 
     def save_analysis(
         self,
@@ -155,6 +170,72 @@ class RunHandle:
             selector=selector,
         )
         return Dataset(raw=loaded.dataset, entry=loaded.dataset_entry)
+
+    def measurement_batches(self, *, batch_size: int = 100) -> Iterator[Dataset]:
+        """Iterate over raw measurements without loading the complete dataset.
+
+        Every yielded dataset keeps durable ``point_index`` values while its
+        ``point`` dimension describes only the records in that batch. The
+        original planned point count and page offset remain available in the
+        dataset metadata.
+        """
+
+        if not 1 <= batch_size <= MAX_MEASUREMENT_PAGE_SIZE:
+            raise ValueError(
+                "measurement batch_size must be between 1 and "
+                f"{MAX_MEASUREMENT_PAGE_SIZE}"
+            )
+        return self._measurement_batches(batch_size=batch_size)
+
+    def _measurement_batches(self, *, batch_size: int) -> Iterator[Dataset]:
+        entry = require_dataset(
+            manifest=self.manifest,
+            selector=RAW_MEASUREMENTS_DATASET_ID,
+            expected_kind=MEASUREMENT_DATASET_KIND,
+        )
+        offset = 0
+        while True:
+            page = self.session.run_operations.load_measurement_page(
+                self.id,
+                limit=batch_size,
+                offset=offset,
+            )
+            schema = page.dataset_schema
+            if schema is None:
+                raise ValueError("measurement dataset page has no registered schema")
+            planned_point_count = next(
+                dimension.size
+                for dimension in schema.dimensions
+                if dimension.id == "point"
+            )
+            batch_schema = schema.model_copy(
+                update={
+                    "dimensions": [
+                        dimension.model_copy(update={"size": len(page.items)})
+                        if dimension.id == "point"
+                        else dimension.model_copy(deep=True)
+                        for dimension in schema.dimensions
+                    ]
+                },
+                deep=True,
+            )
+            yield Dataset(
+                raw=MeasurementDataset(
+                    dataset_schema=batch_schema,
+                    records=list(page.items),
+                    metadata={
+                        **entry.metadata,
+                        "scopecat_batch_offset": offset,
+                        "scopecat_planned_point_count": planned_point_count,
+                    },
+                ),
+                entry=entry,
+            )
+            if page.next_offset is None:
+                return
+            if page.next_offset <= offset:
+                raise ValueError("measurement page next_offset must advance")
+            offset = page.next_offset
 
     def data(self) -> Data:
         return Data(run=self)

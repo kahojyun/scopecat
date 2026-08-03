@@ -55,9 +55,29 @@ Grid axes and explicit point rows cannot be mixed in one experiment because
 they describe two different domain semantics. For an empty explicit domain,
 pass its columns with `experiment.points((), coordinates=(bias, power))`.
 
-Explicit rows are materialized before execution. A run whose next point depends
-on measurements from earlier points should currently be expressed as a staged
-series of runs rather than described as an adaptive point domain.
+Explicit rows are materialized before execution. When the next point depends on
+measurements from an earlier point, use a bounded staged experiment:
+
+```python
+def choose_next(stage):
+    data = stage.run.measurements()
+    candidate = optimizer.ask(data)
+    return None if candidate is None else point_experiment(candidate)
+
+sequence = lab.run_staged(
+    point_experiment(initial_point),
+    next_stage=choose_next,
+    max_stages=20,
+)
+```
+
+Each stage is an ordinary durable run. It uses the same resolved configuration
+snapshot and records its sequence id, stage index, and predecessor run id in
+request metadata. The callback may inspect the current run and all prior runs
+through `stage.run` and `stage.history`; returning `None` finishes naturally,
+while `max_stages` bounds an optimizer that keeps proposing points. This first
+implementation deliberately favors notebook-driven adaptive work over a hidden
+intra-run control loop.
 
 The schema records whether the domain is a `product_grid` or `point_cloud`.
 Consumers should use that semantic layout instead of trying to infer a grid
@@ -82,6 +102,13 @@ silently padded with sentinel values. Xarray export uses an indexed observation
 dimension with parent-point and local-index coordinates, making the flattening
 explicit and reversible. Pandas point layout keeps each array in one cell;
 `layout="long"` emits one row per local sample.
+
+If an unavailable value propagates through a postprocessor before a ragged
+extent can be observed, its shape keeps `None` for that unknown axis rather
+than inventing a length. Xarray can recover the point-local layout from an
+available coordinate or observable in the same recording group. When no
+aligned sibling knows the extent, the point contributes zero observations and
+retains an explicit unknown extent.
 
 Domain-program result axes remain fixed-size. Variable-length axes currently
 belong to typed instrument acquisitions, where every returned value is checked
@@ -119,6 +146,20 @@ the indexer independently inside each point and requires either a recording
 group, which keeps its variables aligned, or one ungrouped variable. Boolean
 masks compose with `&`, `|`, and `~`.
 
+Large runs can be consumed without materializing every record at once:
+
+```python
+for batch in run.measurement_batches(batch_size=500):
+    analyze(batch)
+```
+
+Each batch is the same labeled `Dataset` facade, so slicing and ecosystem
+exports work unchanged. Its `point` dimension is the number of records in that
+batch, while durable `point_index` values remain absolute. Metadata exposes
+`scopecat_batch_offset` and `scopecat_planned_point_count`. An empty run yields
+one zero-row, schema-bearing batch so callers can still inspect variables and
+initialize downstream tables.
+
 The same view connects to common analysis ecosystems:
 
 Install the `scopecat[data]` extra to enable these optional adapters.
@@ -150,12 +191,16 @@ JSON values. Automatic plots use:
 - labels and units for axes and table columns;
 - data type information, exposing complex magnitude, phase, real, and imaginary
   views explicitly; and
-- point-domain layout, using scatter for point clouds and a line only for a
+- point-domain layout, using a heatmap for a complete two-axis product grid in
+  authored axis order, scatter for point clouds, and a line only for a
   monotonic grid coordinate.
 
 Point-scalar observables become coordinate plots; point-local rank-one arrays
 become trace series. A point cloud with two scalar coordinate columns also gets
-an x/y scatter whose color encodes each scalar observable. When several safe
+an x/y scatter whose color encodes each scalar observable. A complete 2-D grid
+gets one cell per authored axis pair; missing or duplicate cells fall back to
+the scalar views instead of presenting a misleading surface. Complex heatmaps
+offer magnitude, phase, real, and imaginary color modes. When several safe
 views exist, the GUI lists every candidate in a selector instead of silently
 truncating them. Shapes that do not have a safe automatic visual remain in the
 typed table, with raw records available as a secondary expandable view. This

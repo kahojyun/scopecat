@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -34,6 +34,8 @@ class _DataRun(Protocol):
         *,
         selector: str = "raw-measurements",
     ) -> Dataset: ...
+
+    def measurement_batches(self, *, batch_size: int = 100) -> Iterator[Dataset]: ...
 
     def artifact_text(
         self,
@@ -108,6 +110,9 @@ class Data:
         selector: str = "raw-measurements",
     ) -> Dataset:
         return self.run.measurements(selector=selector)
+
+    def measurement_batches(self, *, batch_size: int = 100) -> Iterator[Dataset]:
+        return self.run.measurement_batches(batch_size=batch_size)
 
     def schema(self, selector: str = "raw-measurements") -> MeasurementDatasetSchema:
         return self.measurements(selector).schema

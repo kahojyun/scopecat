@@ -76,6 +76,7 @@ from scopecat.execution.ports.instruments import (
     RunHardwareBatchReceipt,
     RunHardwareFinalizationReceipt,
 )
+from scopecat.measurements.datasets import MAX_MEASUREMENT_PAGE_SIZE
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
@@ -465,7 +466,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/measurements")
     def measurements(
         run_id: str,
-        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        limit: Annotated[int, Query(ge=1, le=MAX_MEASUREMENT_PAGE_SIZE)] = 100,
         offset: Annotated[int, Query(ge=0)] = 0,
     ) -> MeasurementPage:
         return application.runs.measurements(run_id, limit=limit, offset=offset)

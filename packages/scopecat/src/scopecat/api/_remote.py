@@ -15,7 +15,7 @@ from scopecat.analysis.service import (
     SavedAnalysis,
 )
 from scopecat.daemon.client import DaemonClient
-from scopecat.daemon.views import RunAnalysisListView, RunAnalysisView
+from scopecat.daemon.views import MeasurementPage, RunAnalysisListView, RunAnalysisView
 from scopecat.daemon.wire import (
     AnalysisInputPayload,
     AnalysisJsonOutputPayload,
@@ -62,6 +62,15 @@ class RemoteRunOperations:
         selector: str = "raw-measurements",
     ) -> RunMeasurementDatasetResult:
         return self.client.dataset_content(run_id, selector)
+
+    def load_measurement_page(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> MeasurementPage:
+        return self.client.measurements(run_id, limit=limit, offset=offset)
 
     def save_analysis(
         self,

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Protocol, cast
+
+import pytest
 
 import scopecat as sc
 import scopecat.authoring as authoring
+from scopecat.api.run import RunHandle
 from scopecat.authoring import (
     ExperimentInvocation,
     ExperimentTemplate,
@@ -27,6 +30,17 @@ _SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
 _SET_FREQUENCY_VALUE = _SET_FREQUENCY.property("frequency")
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SCALAR_SIGNAL_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("signal")
+
+
+class _ArrowColumn(Protocol):
+    def to_pylist(self) -> list[object]: ...
+
+
+class _ArrowTable(Protocol):
+    @property
+    def num_rows(self) -> int: ...
+
+    def __getitem__(self, name: str) -> _ArrowColumn: ...
 
 
 @authoring.module(id="test.session.simple_frequency_scan")
@@ -155,6 +169,99 @@ def test_in_process_lab_records_compute_value_without_instruments(
     variable = next(item for item in dataset.schema.variables if item.id == "score")
     assert variable.source_value_id == "score"
     assert run.data().measurements().records == dataset.records
+
+
+def test_measurement_batches_page_a_real_run_and_preserve_point_identity(
+    tmp_path: Path,
+) -> None:
+    run = _run_signal_scan(tmp_path)
+
+    batches = list(run.measurement_batches(batch_size=2))
+
+    assert [len(batch) for batch in batches] == [2, 1]
+    assert [record.point_index for batch in batches for record in batch.records] == [
+        0,
+        1,
+        2,
+    ]
+    assert [batch.dims["point"] for batch in batches] == [2, 1]
+    assert [batch.metadata["scopecat_batch_offset"] for batch in batches] == [0, 2]
+    assert all(batch.metadata["scopecat_planned_point_count"] == 3 for batch in batches)
+    assert tuple(batches[0].coords) == ("drive_frequency",)
+    assert tuple(batches[0].data_vars) == ("signal",)
+    delegated = list(run.data().measurement_batches(batch_size=2))
+    assert [batch.records for batch in delegated] == [
+        batch.records for batch in batches
+    ]
+
+    with pytest.raises(ValueError, match="between 1 and 500"):
+        run.measurement_batches(batch_size=0)
+    with pytest.raises(ValueError, match="between 1 and 500"):
+        run.measurement_batches(batch_size=501)
+
+
+def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
+    tmp_path: Path,
+) -> None:
+    @sc.template(id="test.session.empty-points", kind="empty-points")
+    def empty_points(experiment: sc.ExperimentContext) -> None:
+        experiment.points((), coordinates=(DRIVE_FREQUENCY_POINT,))
+        experiment.record(DRIVE_FREQUENCY_POINT, record_id="observed_frequency")
+
+    config = load_config()
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=ExperimentSystem(
+            instrument_catalog=InstrumentContractCatalog(
+                config_content_hash=config_content_hash(config)
+            )
+        ),
+    )
+    run = lab.prepare(empty_points).run()
+
+    [batch] = run.measurement_batches(batch_size=2)
+
+    assert batch.records == ()
+    assert batch.dims["point"] == 0
+    assert tuple(batch.coords) == ("drive_frequency",)
+    assert tuple(batch.data_vars) == ("observed_frequency",)
+    assert batch.metadata["scopecat_batch_offset"] == 0
+    assert batch.metadata["scopecat_planned_point_count"] == 0
+
+
+def test_measurement_batch_converts_directly_to_arrow(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    [first, second] = _run_signal_scan(tmp_path).measurement_batches(batch_size=2)
+
+    first_table = cast(
+        "_ArrowTable",
+        first.to_arrow(),  # pyright: ignore[reportUnknownMemberType]
+    )
+    second_table = cast(
+        "_ArrowTable",
+        second.to_arrow(),  # pyright: ignore[reportUnknownMemberType]
+    )
+
+    assert first_table.num_rows == 2
+    assert second_table.num_rows == 1
+    assert first_table["point_index"].to_pylist() == [0, 1]
+    assert second_table["point_index"].to_pylist() == [2]
+
+
+def _run_signal_scan(tmp_path: Path) -> RunHandle:
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
+    )
+    return lab.prepare(load_invocation()).run()
 
 
 def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
