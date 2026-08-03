@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { MeasurementPreview } from "../../types";
 import { classes, secondaryButton } from "../../ui/styles";
@@ -32,6 +32,8 @@ export function MeasurementDataPreview({
     () => planMeasurementCharts(preview.items, preview.schema),
     [preview.items, preview.schema],
   );
+  const [requestedChartId, setRequestedChartId] = useState<string>();
+  const selectedChart = charts.find((chart) => chart.id === requestedChartId) ?? charts[0];
   const table = useMemo(
     () => measurementTable(preview.items, preview.schema),
     [preview.items, preview.schema],
@@ -48,13 +50,30 @@ export function MeasurementDataPreview({
       </div>
 
       {charts.length > 0 ? (
-        <div
-          className="grid gap-2.5 border-b border-line p-2.5 xl:grid-cols-2"
-          data-testid="measurement-charts"
-        >
-          {charts.map((chart) => (
-            <MeasurementChart chart={chart} key={chart.id} />
-          ))}
+        <div className="border-b border-line p-2.5" data-testid="measurement-charts">
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 text-[0.59rem] text-text-dim">
+            <span>
+              {charts.length} chart {charts.length === 1 ? "candidate" : "candidates"}
+            </span>
+            {charts.length > 1 && (
+              <label className="flex items-center gap-2 font-bold tracking-[0.04em] uppercase">
+                Chart
+                <select
+                  aria-label="Measurement chart"
+                  className="max-w-[min(70vw,420px)] rounded border border-line bg-panel px-2 py-1 text-[0.62rem] font-medium tracking-normal text-text-soft normal-case"
+                  onChange={(event) => setRequestedChartId(event.target.value)}
+                  value={selectedChart?.id ?? ""}
+                >
+                  {charts.map((chart) => (
+                    <option key={chart.id} value={chart.id}>
+                      {chartOptionLabel(chart)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          {selectedChart && <MeasurementChart chart={selectedChart} />}
         </div>
       ) : (
         <p className="m-0 border-b border-line px-3 py-2.5 text-[0.67rem] leading-normal text-text-dim">
@@ -153,6 +172,11 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
     ((value - yMin) / (yMax - yMin)) * (height - margin.top - margin.bottom);
   const xTicks = ticks(xMin, xMax);
   const yTicks = ticks(yMin, yMax);
+  const colorValues = points.flatMap((point) => (point.color === undefined ? [] : [point.color]));
+  const colorExtent = colorValues.length > 0 ? rawExtent(colorValues) : undefined;
+  const accessibleTitle = chart.colorLabel
+    ? `${chart.title}: ${chart.yLabel} by ${chart.xLabel}, colored by ${chart.colorLabel}`
+    : `${chart.title}: ${chart.yLabel} by ${chart.xLabel}`;
   return (
     <figure className="m-0 min-w-0 rounded-md border border-line bg-panel-soft p-2.5">
       <figcaption className="mb-1.5 flex flex-wrap items-start justify-between gap-2">
@@ -160,19 +184,20 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
           <strong className="block text-[0.7rem] text-text-soft">{chart.title}</strong>
           <span className="text-[0.58rem] text-text-dim">
             {chart.xLabel} → {chart.yLabel}
+            {chart.colorLabel ? ` · color: ${chart.colorLabel}` : ""}
           </span>
         </span>
         <span className="rounded border border-line px-1.5 py-1 text-[0.52rem] font-bold tracking-[0.05em] text-text-dim uppercase">
-          {chart.kind}
+          {chart.kind.replace("-", " ")}
         </span>
       </figcaption>
       <svg
-        aria-label={`${chart.title}: ${chart.yLabel} by ${chart.xLabel}`}
+        aria-label={accessibleTitle}
         className="block h-auto w-full"
         role="img"
         viewBox={`0 0 ${width} ${height}`}
       >
-        <title>{`${chart.title}: ${chart.yLabel} by ${chart.xLabel}`}</title>
+        <title>{accessibleTitle}</title>
         {xTicks.map((tick) => (
           <g key={`x:${tick}`}>
             <line
@@ -232,17 +257,38 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
                 <circle
                   cx={x(point.x)}
                   cy={y(point.y)}
-                  fill={color}
+                  fill={
+                    colorExtent && point.color !== undefined
+                      ? colorScale(point.color, colorExtent[0], colorExtent[1])
+                      : color
+                  }
                   key={`${series.id}:${pointIndex}`}
-                  r={chart.kind === "scatter" ? 3.5 : 2.5}
+                  r={chart.kind === "line" ? 2.5 : chart.kind === "color-scatter" ? 4 : 3.5}
                 >
-                  <title>{`${series.label}: ${shortNumber(point.x)}, ${shortNumber(point.y)}`}</title>
+                  <title>
+                    {`${series.label}: ${shortNumber(point.x)}, ${shortNumber(point.y)}${point.color === undefined || !chart.colorLabel ? "" : `, ${chart.colorLabel}: ${shortNumber(point.color)}`}`}
+                  </title>
                 </circle>
               ))}
             </g>
           );
         })}
       </svg>
+      {colorExtent && chart.colorLabel && (
+        <div className="mt-1 flex items-center gap-2 text-[0.55rem] text-text-dim">
+          <span>{shortNumber(colorExtent[0])}</span>
+          <span
+            aria-hidden="true"
+            className="h-2 min-w-20 flex-1 rounded-sm"
+            style={{
+              background:
+                "linear-gradient(90deg, hsl(260 70% 52%), hsl(155 65% 42%), hsl(50 85% 52%))",
+            }}
+          />
+          <span>{shortNumber(colorExtent[1])}</span>
+          <span className="font-medium text-text-soft">{chart.colorLabel}</span>
+        </div>
+      )}
       {chart.series.length > 1 && (
         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[0.55rem] text-text-dim">
           {chart.series.map((series, index) => (
@@ -259,6 +305,24 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
       {chart.note && <p className="mt-1.5 mb-0 text-[0.56rem] text-text-dim">{chart.note}</p>}
     </figure>
   );
+}
+
+function chartOptionLabel(chart: MeasurementChartPlan): string {
+  const color = chart.colorLabel ? ` · color ${chart.colorLabel}` : "";
+  return `${chart.title} — ${chart.xLabel} / ${chart.yLabel}${color}`;
+}
+
+function rawExtent(values: number[]): [number, number] {
+  return [Math.min(...values), Math.max(...values)];
+}
+
+function colorScale(value: number, minimum: number, maximum: number): string {
+  const position = maximum === minimum ? 0.5 : (value - minimum) / (maximum - minimum);
+  const bounded = Math.min(1, Math.max(0, position));
+  const hue = bounded < 0.5 ? 260 - bounded * 210 : 155 - (bounded - 0.5) * 210;
+  const saturation = bounded < 0.5 ? 70 - bounded * 10 : 65 + (bounded - 0.5) * 40;
+  const lightness = bounded < 0.5 ? 52 - bounded * 20 : 42 + (bounded - 0.5) * 20;
+  return `hsl(${hue} ${saturation}% ${lightness}%)`;
 }
 
 function paddedExtent(values: number[]): [number, number] {

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   MeasurementDatasetSchema,
   MeasurementRecord,
@@ -10,6 +10,8 @@ import type {
 } from "../../api-contract";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
 import { measurementTable, planMeasurementCharts } from "./measurement-visualization";
+
+afterEach(cleanup);
 
 describe("measurement visualization", () => {
   it("plans a labeled scalar line from point coordinates", () => {
@@ -57,7 +59,8 @@ describe("measurement visualization", () => {
       ),
     );
 
-    const [chart] = planMeasurementCharts(items, schema);
+    const charts = planMeasurementCharts(items, schema);
+    const [chart] = charts;
     expect(chart).toMatchObject({
       kind: "line",
       title: "S21 magnitude",
@@ -71,6 +74,95 @@ describe("measurement visualization", () => {
       { x: 5, y: 2 },
       { x: 6, y: 1 },
     ]);
+    expect(charts.map((candidate) => candidate.title)).toEqual([
+      "S21 magnitude",
+      "S21 phase",
+      "S21 real",
+      "S21 imaginary",
+    ]);
+    expect(charts[1]).toMatchObject({
+      yLabel: "phase(S21) [rad]",
+      note: "Complex values are shown as phase in radians.",
+    });
+    expect(charts[1]?.series[0]?.points[0]?.y).toBeCloseTo(Math.atan2(4, 3));
+    expect(charts[2]?.series[0]?.points[0]?.y).toBe(3);
+    expect(charts[3]?.series[0]?.points[0]?.y).toBe(4);
+  });
+
+  it("applies complex modes when a complex variable contains widened real values", () => {
+    const items = [
+      record(
+        0,
+        { bias: scalar(0, "V"), frequency: array([4, 5], "GHz") },
+        { response: array([-2, 3], "ratio") },
+      ),
+    ];
+
+    const charts = planMeasurementCharts(items, traceSchema());
+
+    expect(charts[0]?.series[0]?.points.map((point) => point.y)).toEqual([2, 3]);
+    expect(charts[1]?.series[0]?.points.map((point) => point.y)).toEqual([Math.PI, 0]);
+    expect(charts[2]?.series[0]?.points.map((point) => point.y)).toEqual([-2, 3]);
+    expect(charts[3]?.series[0]?.points.map((point) => point.y)).toEqual([0, 0]);
+  });
+
+  it("always uses scatter for a one-dimensional point cloud", () => {
+    const schema: MeasurementDatasetSchema = {
+      ...scalarSchema(),
+      point_domain: { kind: "point_cloud", columns: [{ id: "bias" }] },
+    };
+    const items = [0, 1, 2].map((point) =>
+      record(point, { bias: scalar(point, "V") }, { signal: scalar(point + 1, "ratio") }),
+    );
+
+    expect(planMeasurementCharts(items, schema)).toEqual([
+      expect.objectContaining({
+        kind: "scatter",
+        xLabel: "Bias [V]",
+        yLabel: "Response [ratio]",
+      }),
+    ]);
+  });
+
+  it("uses ordered point-cloud columns for a two-dimensional color scatter", () => {
+    const schema = twoDimensionalPointCloudSchema();
+    const items = [
+      record(0, { x: scalar(0, "mm"), y: scalar(2, "mm") }, { temperature: scalar(10, "K") }),
+      record(1, { x: scalar(1, "mm"), y: scalar(0, "mm") }, { temperature: scalar(20, "K") }),
+      record(2, { x: scalar(2, "mm"), y: scalar(1, "mm") }, { temperature: scalar(30, "K") }),
+    ];
+
+    const [chart] = planMeasurementCharts(items, schema);
+    expect(chart).toMatchObject({
+      kind: "color-scatter",
+      title: "Temperature map",
+      xLabel: "X [mm]",
+      yLabel: "Y [mm]",
+      colorLabel: "Temperature [K]",
+      series: [
+        {
+          points: [
+            { x: 0, y: 2, color: 10 },
+            { x: 1, y: 0, color: 20 },
+            { x: 2, y: 1, color: 30 },
+          ],
+        },
+      ],
+    });
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items }}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("img", {
+        name: "Temperature map: Y [mm] by X [mm], colored by Temperature [K]",
+      }),
+    ).toBeVisible();
   });
 
   it("keeps a valid unsupported rank-two value in the table", () => {
@@ -147,13 +239,58 @@ describe("measurement visualization", () => {
     expect(screen.getByText("Raw records")).toBeVisible();
     expect(screen.getByTestId("measurement-preview")).not.toBeVisible();
   });
+
+  it("offers every chart candidate instead of silently truncating observables", () => {
+    const variables = Array.from({ length: 8 }, (_item, index) => ({
+      id: `signal-${index}`,
+      label: `Response ${index + 1}`,
+      role: "observable" as const,
+      dtype: "float64" as const,
+      unit: "ratio",
+      dims: ["point"],
+    }));
+    const schema: MeasurementDatasetSchema = {
+      ...scalarSchema(),
+      variables: [scalarSchema().variables![0]!, ...variables],
+      primary_observables: variables.map((variable) => variable.id),
+    };
+    const items = [0, 1].map((point) =>
+      record(
+        point,
+        { bias: scalar(point, "V") },
+        Object.fromEntries(
+          variables.map((variable, index) => [variable.id, scalar(point + index, "ratio")]),
+        ),
+      ),
+    );
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items }}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    const selector = screen.getByRole("combobox", { name: "Measurement chart" });
+    expect(selector).toHaveValue("scalar:signal-0:bias:value");
+    expect(screen.getAllByRole("option")).toHaveLength(8);
+    expect(screen.getByText("8 chart candidates")).toBeVisible();
+
+    fireEvent.change(selector, { target: { value: "scalar:signal-7:bias:value" } });
+    expect(
+      screen.getByRole("img", { name: "Response 8: Response 8 [ratio] by Bias [V]" }),
+    ).toBeVisible();
+  });
 });
 
 function baseSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v6",
+    format_version: "scopecat.measurement_dataset_schema.v7",
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4",
+    point_domain: { kind: "product_grid", axes: [] },
     dimensions: [{ id: "point", kind: "point", size: 3 }],
     variables: [],
   };
@@ -162,6 +299,7 @@ function baseSchema(): MeasurementDatasetSchema {
 function scalarSchema(): MeasurementDatasetSchema {
   return {
     ...baseSchema(),
+    point_domain: { kind: "product_grid", axes: [{ id: "bias", size: 3 }] },
     variables: [
       {
         id: "bias",
@@ -192,6 +330,7 @@ function traceSchema(): MeasurementDatasetSchema {
       { id: "point", kind: "point", size: 2 },
       { id: "sample", kind: "sample", size: 3 },
     ],
+    point_domain: { kind: "product_grid", axes: [{ id: "bias", size: 2 }] },
     variables: [
       {
         id: "bias",
@@ -222,6 +361,44 @@ function traceSchema(): MeasurementDatasetSchema {
     ],
     primary_coordinates: ["bias", "frequency"],
     primary_observables: ["response"],
+  };
+}
+
+function twoDimensionalPointCloudSchema(): MeasurementDatasetSchema {
+  return {
+    ...baseSchema(),
+    point_domain: {
+      kind: "point_cloud",
+      columns: [{ id: "x" }, { id: "y" }],
+    },
+    variables: [
+      {
+        id: "x",
+        label: "X",
+        role: "coordinate",
+        dtype: "float64",
+        unit: "mm",
+        dims: ["point"],
+      },
+      {
+        id: "y",
+        label: "Y",
+        role: "coordinate",
+        dtype: "float64",
+        unit: "mm",
+        dims: ["point"],
+      },
+      {
+        id: "temperature",
+        label: "Temperature",
+        role: "observable",
+        dtype: "float64",
+        unit: "K",
+        dims: ["point"],
+      },
+    ],
+    primary_coordinates: ["y", "x"],
+    primary_observables: ["temperature"],
   };
 }
 

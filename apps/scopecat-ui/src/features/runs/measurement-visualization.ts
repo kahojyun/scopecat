@@ -21,7 +21,12 @@ interface VariableDescriptor {
 interface NumericPoint {
   x: number;
   y: number;
+  color?: number;
 }
+
+type NumericValueMode = "imag" | "magnitude" | "phase" | "real" | "value";
+
+const COMPLEX_VALUE_MODES: NumericValueMode[] = ["magnitude", "phase", "real", "imag"];
 
 export interface MeasurementChartSeries {
   id: string;
@@ -31,10 +36,11 @@ export interface MeasurementChartSeries {
 
 export interface MeasurementChartPlan {
   id: string;
-  kind: "line" | "scatter";
+  kind: "color-scatter" | "line" | "scatter";
   title: string;
   xLabel: string;
   yLabel: string;
+  colorLabel?: string;
   note?: string;
   series: MeasurementChartSeries[];
 }
@@ -62,20 +68,21 @@ export function planMeasurementCharts(
   if (records.length === 0 || schema === undefined) return [];
   const variables = variableDescriptors(schema);
   const observables = orderObservables(variables, schema);
+  const colorPlans = pointCloudColorCharts(records, variables, observables, schema);
   const scalarPlans = observables
     .filter((variable) => variable.dims.length === 1)
     .flatMap((observable) => scalarChart(records, variables, observable, schema));
   const tracePlans = observables
     .filter((variable) => variable.dims.length === 2)
     .flatMap((observable) => traceChart(records, variables, observable));
-  return [...scalarPlans, ...tracePlans].slice(0, 6);
+  return [...colorPlans, ...scalarPlans, ...tracePlans];
 }
 
 export function measurementTable(
   records: MeasurementRecord[],
   schema?: MeasurementDatasetSchema,
 ): MeasurementTableModel {
-  const variables = schema ? variableDescriptors(schema).slice(0, 10) : [];
+  const variables = schema ? variableDescriptors(schema) : [];
   const columns: MeasurementTableColumn[] = [
     { id: "point", label: "Point", role: "point" },
     ...variables.map((variable) => ({
@@ -110,27 +117,75 @@ function scalarChart(
   const coordinate = orderCoordinates(candidates, schema).find((candidate) =>
     records.some((record) => numericScalar(valueFor(record, candidate)) !== undefined),
   );
-  const points = records.flatMap((record) => {
-    const y = numericScalar(valueFor(record, observable));
-    const x = coordinate ? numericScalar(valueFor(record, coordinate)) : record.point_index;
-    return x === undefined || y === undefined ? [] : [{ x, y }];
+  return valueModes(observable).flatMap((mode) => {
+    const points = records.flatMap((record) => {
+      const y = numericScalar(valueFor(record, observable), mode);
+      const x = coordinate ? numericScalar(valueFor(record, coordinate)) : record.point_index;
+      return x === undefined || y === undefined ? [] : [{ x, y }];
+    });
+    if (points.length === 0) return [];
+    return [
+      {
+        id: `scalar:${observable.id}:${coordinate?.id ?? "point"}:${mode}`,
+        kind:
+          schema.point_domain.kind === "point_cloud" || !strictlyMonotonic(points)
+            ? "scatter"
+            : "line",
+        title: chartTitle(observable, mode),
+        xLabel: coordinate ? valueLabel(coordinate) : "Point index",
+        yLabel: chartValueLabel(observable, mode),
+        note: chartNote(mode),
+        series: [{ id: observable.id, label: observable.label, points }],
+      },
+    ];
   });
-  if (points.length === 0) return [];
-  const complex = observable.dtype === "complex128";
-  return [
-    {
-      id: `scalar:${observable.id}:${coordinate?.id ?? "point"}`,
-      kind:
-        pointDomainLayout(schema) === "point_cloud" || !strictlyMonotonic(points)
-          ? "scatter"
-          : "line",
-      title: complex ? `${observable.label} magnitude` : observable.label,
-      xLabel: coordinate ? valueLabel(coordinate) : "Point index",
-      yLabel: valueLabel(observable, complex),
-      note: complex ? "Complex values are shown as magnitude." : undefined,
-      series: [{ id: observable.id, label: observable.label, points }],
-    },
-  ];
+}
+
+function pointCloudColorCharts(
+  records: MeasurementRecord[],
+  variables: VariableDescriptor[],
+  observables: VariableDescriptor[],
+  schema: MeasurementDatasetSchema,
+): MeasurementChartPlan[] {
+  if (schema.point_domain.kind !== "point_cloud") return [];
+  const variablesById = new Map(variables.map((variable) => [variable.id, variable]));
+  const coordinates = schema.point_domain.columns.flatMap((column) => {
+    const variable = variablesById.get(column.id);
+    return variable &&
+      variable.role === "coordinate" &&
+      variable.dims.length === 1 &&
+      isNumericVariable(variable)
+      ? [variable]
+      : [];
+  });
+  const xVariable = coordinates[0];
+  const yVariable = coordinates[1];
+  if (!xVariable || !yVariable) return [];
+  return observables
+    .filter((observable) => observable.dims.length === 1 && isNumericVariable(observable))
+    .flatMap((observable) =>
+      valueModes(observable).flatMap((mode) => {
+        const points = records.flatMap((record) => {
+          const x = numericScalar(valueFor(record, xVariable));
+          const y = numericScalar(valueFor(record, yVariable));
+          const color = numericScalar(valueFor(record, observable), mode);
+          return x === undefined || y === undefined || color === undefined ? [] : [{ x, y, color }];
+        });
+        if (points.length === 0) return [];
+        return [
+          {
+            id: `color:${observable.id}:${xVariable.id}:${yVariable.id}:${mode}`,
+            kind: "color-scatter" as const,
+            title: `${chartTitle(observable, mode)} map`,
+            xLabel: valueLabel(xVariable),
+            yLabel: valueLabel(yVariable),
+            colorLabel: chartValueLabel(observable, mode),
+            note: chartNote(mode),
+            series: [{ id: observable.id, label: observable.label, points }],
+          },
+        ];
+      }),
+    );
 }
 
 function traceChart(
@@ -139,10 +194,9 @@ function traceChart(
   observable: VariableDescriptor,
 ): MeasurementChartPlan[] {
   const coordinate = traceCoordinate(variables, observable);
-  const complex = observable.dtype === "complex128";
-  const series = records
-    .flatMap((record, index) => {
-      const y = numericArray(valueFor(record, observable));
+  return valueModes(observable).flatMap((mode) => {
+    const series = records.flatMap((record, index) => {
+      const y = numericArray(valueFor(record, observable), mode);
       if (!y || y.length === 0) return [];
       const candidateX = coordinate ? numericArray(valueFor(record, coordinate)) : undefined;
       const x = candidateX?.length === y.length ? candidateX : y.map((_value, item) => item);
@@ -153,20 +207,22 @@ function traceChart(
           points: y.map((value, item) => ({ x: x[item] ?? item, y: value })),
         },
       ];
-    })
-    .slice(-6);
-  if (series.length === 0) return [];
-  return [
-    {
-      id: `trace:${observable.id}:${coordinate?.id ?? observable.dims[1] ?? "sample"}`,
-      kind: series.every((item) => strictlyMonotonic(item.points)) ? "line" : "scatter",
-      title: complex ? `${observable.label} magnitude` : observable.label,
-      xLabel: coordinate ? valueLabel(coordinate) : dimensionLabel(observable.dims[1] ?? "sample"),
-      yLabel: valueLabel(observable, complex),
-      note: complex ? "Complex values are shown as magnitude." : undefined,
-      series,
-    },
-  ];
+    });
+    if (series.length === 0) return [];
+    return [
+      {
+        id: `trace:${observable.id}:${coordinate?.id ?? observable.dims[1] ?? "sample"}:${mode}`,
+        kind: series.every((item) => strictlyMonotonic(item.points)) ? "line" : "scatter",
+        title: chartTitle(observable, mode),
+        xLabel: coordinate
+          ? valueLabel(coordinate)
+          : dimensionLabel(observable.dims[1] ?? "sample"),
+        yLabel: chartValueLabel(observable, mode),
+        note: chartNote(mode),
+        series,
+      },
+    ];
+  });
 }
 
 function traceCoordinate(
@@ -221,11 +277,22 @@ function orderCoordinates(
   variables: VariableDescriptor[],
   schema: MeasurementDatasetSchema,
 ): VariableDescriptor[] {
-  const primary = new Map((schema.primary_coordinates ?? []).map((id, index) => [id, index]));
+  const domainIds =
+    schema.point_domain.kind === "product_grid"
+      ? schema.point_domain.axes.map((axis) => axis.id)
+      : schema.point_domain.columns.map((column) => column.id);
+  const orderedIds = [...new Set([...domainIds, ...(schema.primary_coordinates ?? [])])];
+  const primary = new Map(orderedIds.map((id, index) => [id, index]));
   return [...variables].sort(
     (left, right) =>
       (primary.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
       (primary.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
+function isNumericVariable(variable: VariableDescriptor): boolean {
+  return (
+    variable.dtype === "float64" || variable.dtype === "int64" || variable.dtype === "complex128"
   );
 }
 
@@ -238,25 +305,40 @@ function valueFor(
     : record.observables[variable.id];
 }
 
-function numericScalar(value: MeasurementValue | undefined): number | undefined {
-  return value?.kind === "scalar" ? numericLeaf(value.value) : undefined;
+function numericScalar(
+  value: MeasurementValue | undefined,
+  mode: NumericValueMode = "value",
+): number | undefined {
+  return value?.kind === "scalar" ? numericLeaf(value.value, mode) : undefined;
 }
 
-function numericArray(value: MeasurementValue | undefined): number[] | undefined {
+function numericArray(
+  value: MeasurementValue | undefined,
+  mode: NumericValueMode = "value",
+): number[] | undefined {
   if (value?.kind !== "array" || value.shape.length !== 1) return undefined;
   const numbers: number[] = [];
   for (const leaf of value.values) {
-    const numeric = numericLeaf(leaf);
+    const numeric = numericLeaf(leaf, mode);
     if (numeric === undefined) return undefined;
     numbers.push(numeric);
   }
   return numbers;
 }
 
-function numericLeaf(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+function numericLeaf(value: unknown, mode: NumericValueMode): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (mode === "magnitude") return Math.abs(value);
+    if (mode === "phase") return Math.atan2(0, value);
+    if (mode === "imag") return 0;
+    return value;
+  }
   const complex = complexComponents(value);
-  return complex ? Math.hypot(complex.real, complex.imag) : undefined;
+  if (!complex) return undefined;
+  if (mode === "phase") return Math.atan2(complex.imag, complex.real);
+  if (mode === "real") return complex.real;
+  if (mode === "imag") return complex.imag;
+  return Math.hypot(complex.real, complex.imag);
 }
 
 function complexComponents(value: unknown): ComplexComponents | undefined {
@@ -320,6 +402,31 @@ function valueLabel(variable: VariableDescriptor, magnitude = false): string {
   return `${label}${variable.unit ? ` [${variable.unit}]` : ""}`;
 }
 
+function valueModes(variable: VariableDescriptor): NumericValueMode[] {
+  return variable.dtype === "complex128" ? COMPLEX_VALUE_MODES : ["value"];
+}
+
+function chartTitle(variable: VariableDescriptor, mode: NumericValueMode): string {
+  if (mode === "value") return variable.label;
+  return `${variable.label} ${mode === "imag" ? "imaginary" : mode}`;
+}
+
+function chartValueLabel(variable: VariableDescriptor, mode: NumericValueMode): string {
+  if (mode === "magnitude") return valueLabel(variable, true);
+  if (mode === "phase") return `phase(${variable.label}) [rad]`;
+  if (mode === "real") return `Re(${variable.label})${variable.unit ? ` [${variable.unit}]` : ""}`;
+  if (mode === "imag") return `Im(${variable.label})${variable.unit ? ` [${variable.unit}]` : ""}`;
+  return valueLabel(variable);
+}
+
+function chartNote(mode: NumericValueMode): string | undefined {
+  if (mode === "magnitude") return "Complex values are shown as magnitude.";
+  if (mode === "phase") return "Complex values are shown as phase in radians.";
+  if (mode === "real") return "Complex values are shown as the real component.";
+  if (mode === "imag") return "Complex values are shown as the imaginary component.";
+  return undefined;
+}
+
 function unitSuffix(unit?: string | null): string {
   return unit ? ` ${unit}` : "";
 }
@@ -340,19 +447,6 @@ function strictlyMonotonic(points: NumericPoint[]): boolean {
     direction = nextDirection;
   }
   return true;
-}
-
-function pointDomainLayout(schema: MeasurementDatasetSchema): string | undefined {
-  const metadata = schema.metadata;
-  if (!isObject(metadata)) return undefined;
-  const direct = text(metadata.point_domain_layout) ?? text(metadata.domain_layout);
-  if (direct) return direct;
-  const domain = metadata.point_domain;
-  return isObject(domain) ? (text(domain.layout) ?? text(domain.kind)) : undefined;
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
