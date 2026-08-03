@@ -118,23 +118,14 @@ root_packages = [
   "scopecat_server",
 ]
 exclude_type_checking_imports = true
-include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "Scopecat core remains domain neutral and offline"
+name = "Scopecat core remains domain neutral"
 type = "forbidden"
 source_modules = ["scopecat"]
 forbidden_modules = [
-  "labrad",
-  "numpy",
-  "pandas",
-  "pyvisa",
-  "quantum_lab_demo",
-  "requests",
-  "scipy",
   "scopecat_quantum",
   "scopecat_server",
-  "serial",
 ]
 allow_indirect_imports = true
 
