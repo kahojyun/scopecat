@@ -9,6 +9,7 @@ import {
   getRunEvents,
   getRuns,
 } from "./api";
+import type { MeasurementRecord } from "./api-contract";
 import { requestPath } from "./test/http";
 import type { ContentEntry } from "./types";
 
@@ -334,7 +335,7 @@ describe("project daemon reads", () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL) =>
       Promise.resolve(
         jsonResponse({
-          items: [{ run_id: "run/1", point_index: 100 }],
+          items: [measurementRecord("run/1", 100)],
           dataset_schema: measurementSchema(),
           next_offset: 200,
         }),
@@ -343,7 +344,7 @@ describe("project daemon reads", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(getMeasurementPreview("run/1", 100)).resolves.toEqual({
-      items: [{ run_id: "run/1", point_index: 100 }],
+      items: [measurementRecord("run/1", 100)],
       schema: measurementSchema(),
       nextOffset: 200,
     });
@@ -360,6 +361,16 @@ function measurementSchema() {
     record_schema: "scopecat.measurement_record.v4" as const,
     dimensions: [{ id: "point", kind: "point", size: 1 }],
     variables: [],
+  };
+}
+
+function measurementRecord(runId: string, pointIndex: number): MeasurementRecord {
+  return {
+    run_id: runId,
+    logical_point_id: `point-${pointIndex}`,
+    point_index: pointIndex,
+    coordinates: {},
+    observables: {},
   };
 }
 

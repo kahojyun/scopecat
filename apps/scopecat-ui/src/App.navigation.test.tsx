@@ -15,6 +15,7 @@ import {
   getRunEvents,
   getRuns,
 } from "./api";
+import type { MeasurementRecord } from "./api-contract";
 import type { ProjectRun } from "./types";
 
 vi.mock("./api", async (importOriginal) => ({
@@ -338,23 +339,11 @@ describe("config provenance navigation", () => {
     vi.mocked(getMeasurementPreview).mockImplementation(async (_runId, offset = 0) =>
       offset === 0
         ? {
-            items: [
-              {
-                dataset_id: "dataset-a",
-                point_index: 0,
-                observables: { signal: 1 },
-              },
-            ],
+            items: [measurementRecord(0, 1, "dataset-a")],
             nextOffset: 1,
           }
         : {
-            items: [
-              {
-                dataset_id: "dataset-b",
-                point_index: 0,
-                observables: { signal: 2 },
-              },
-            ],
+            items: [measurementRecord(0, 2, "dataset-b")],
           },
     );
 
@@ -380,7 +369,7 @@ describe("config provenance navigation", () => {
   it("resets measurement pages for the event's run", async () => {
     window.history.replaceState(null, "", "/?run=run-1");
     vi.mocked(getMeasurementPreview).mockImplementation(async (_runId, offset = 0) => ({
-      items: [{ point_index: offset }],
+      items: [measurementRecord(offset, offset)],
       nextOffset: offset === 0 ? 1 : undefined,
     }));
 
@@ -394,7 +383,7 @@ describe("config provenance navigation", () => {
     await waitFor(() => expect(getMeasurementPreview).toHaveBeenCalledTimes(2));
     expect(projectEventListener).toBeDefined();
     queryClient.setQueryData(["measurements", "run-2"], {
-      pages: [{ items: [{ point_index: 9 }] }],
+      pages: [{ items: [measurementRecord(9, 9)] }],
       pageParams: [0],
     });
 
@@ -490,6 +479,28 @@ function projectRun(runId: string): ProjectRun {
     },
     resources: [],
     contents: [],
+  };
+}
+
+function measurementRecord(
+  pointIndex: number,
+  signal: number,
+  datasetId?: string,
+): MeasurementRecord {
+  return {
+    run_id: "run-1",
+    logical_point_id: `${datasetId ?? "point"}-${pointIndex}`,
+    point_index: pointIndex,
+    coordinates: {},
+    observables: {
+      signal: {
+        kind: "scalar",
+        dtype: "float64",
+        unit: "ratio",
+        value: signal,
+      },
+    },
+    metadata: datasetId ? { dataset_id: datasetId } : {},
   };
 }
 

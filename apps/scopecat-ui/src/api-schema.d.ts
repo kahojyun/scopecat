@@ -1444,6 +1444,32 @@ export interface components {
             }[];
         };
         /**
+         * InstrumentAcquisitionEvidence
+         * @description Daemon-observed interval and physical target for one collected result.
+         */
+        InstrumentAcquisitionEvidence: {
+            acquisition_id: components["schemas"]["_NonEmptyText"];
+            command_id: components["schemas"]["_NonEmptyText"];
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /**
+             * Component Path
+             * @default []
+             */
+            component_path: components["schemas"]["_NonEmptyText"][];
+            instrument_id: components["schemas"]["_NonEmptyText"];
+            interface_id: components["schemas"]["InterfaceId"];
+            result_id: components["schemas"]["_NonEmptyText"];
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /**
          * InstrumentBindingSpec
          * @description Provider-visible identity and connection for one configured instrument.
          */
@@ -1935,7 +1961,28 @@ export interface components {
             /** Next Offset */
             next_offset?: number | null;
         };
-        "MeasurementRecord-Output": unknown;
+        /** MeasurementRecord */
+        "MeasurementRecord-Output": {
+            /** Acquisition Evidence */
+            acquisition_evidence?: {
+                [key: string]: components["schemas"]["InstrumentAcquisitionEvidence"];
+            };
+            /** Coordinates */
+            coordinates: {
+                [key: string]: components["schemas"]["MeasurementValue-Output"];
+            };
+            /** Logical Point Id */
+            logical_point_id?: string | null;
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /** Observables */
+            observables: {
+                [key: string]: components["schemas"]["MeasurementValue-Output"];
+            };
+            /** Point Index */
+            point_index: number;
+            /** Run Id */
+            run_id: string;
+        };
         /** MeasurementScalar */
         "MeasurementScalar-Output": {
             /**
@@ -2398,7 +2445,10 @@ export interface components {
             /** Run Id */
             run_id: string;
         };
-        /** RunMeasurementDatasetResult */
+        /**
+         * RunMeasurementDatasetResult
+         * @description Internal dataset-loading payload wrapped by the public run facade.
+         */
         RunMeasurementDatasetResult: {
             dataset: components["schemas"]["MeasurementDataset"];
             dataset_entry: components["schemas"]["RunContentEntry-Output"];

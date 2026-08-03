@@ -1,18 +1,17 @@
-import type { MeasurementDatasetSchema } from "../../api-contract";
+import type {
+  ComplexComponents,
+  MeasurementDatasetSchema,
+  MeasurementRecord,
+  MeasurementValue,
+} from "../../api-contract";
 
 type SchemaVariable = NonNullable<MeasurementDatasetSchema["variables"]>[number];
-type VariableRole = "coordinate" | "observable";
-
-interface MeasurementRecordView {
-  pointIndex: number;
-  coordinates: Record<string, unknown>;
-  observables: Record<string, unknown>;
-}
+type VariableRole = SchemaVariable["role"];
 
 interface VariableDescriptor {
   id: string;
   role: VariableRole;
-  dtype: string;
+  dtype: SchemaVariable["dtype"];
   unit?: string;
   dims: string[];
   label: string;
@@ -56,38 +55,12 @@ export interface MeasurementTableModel {
   rows: MeasurementTableRow[];
 }
 
-interface ParsedScalar {
-  kind: "scalar";
-  dtype?: string;
-  unit?: string;
-  value: unknown;
-}
-
-interface ParsedArray {
-  kind: "array";
-  dtype?: string;
-  unit?: string;
-  shape: number[];
-  values: unknown;
-}
-
-interface ParsedUnavailable {
-  kind: "unavailable";
-  dtype?: string;
-  unit?: string;
-  shape: number[];
-  reason: string;
-}
-
-type ParsedValue = ParsedScalar | ParsedArray | ParsedUnavailable;
-
 export function planMeasurementCharts(
-  items: Array<Record<string, unknown>>,
+  records: MeasurementRecord[],
   schema?: MeasurementDatasetSchema,
 ): MeasurementChartPlan[] {
-  const records = parseRecords(items);
-  if (records.length === 0) return [];
-  const variables = variableDescriptors(records, schema);
+  if (records.length === 0 || schema === undefined) return [];
+  const variables = variableDescriptors(schema);
   const observables = orderObservables(variables, schema);
   const scalarPlans = observables
     .filter((variable) => variable.dims.length === 1)
@@ -99,11 +72,10 @@ export function planMeasurementCharts(
 }
 
 export function measurementTable(
-  items: Array<Record<string, unknown>>,
+  records: MeasurementRecord[],
   schema?: MeasurementDatasetSchema,
 ): MeasurementTableModel {
-  const records = parseRecords(items);
-  const variables = variableDescriptors(records, schema).slice(0, 10);
+  const variables = schema ? variableDescriptors(schema).slice(0, 10) : [];
   const columns: MeasurementTableColumn[] = [
     { id: "point", label: "Point", role: "point" },
     ...variables.map((variable) => ({
@@ -115,9 +87,9 @@ export function measurementTable(
   return {
     columns,
     rows: records.map((record, index) => ({
-      id: `${record.pointIndex}:${index}`,
+      id: `${record.logical_point_id ?? record.point_index}:${index}`,
       cells: [
-        String(record.pointIndex),
+        String(record.point_index),
         ...variables.map((variable) =>
           formatMeasurementValue(valueFor(record, variable), variable.unit),
         ),
@@ -127,32 +99,31 @@ export function measurementTable(
 }
 
 function scalarChart(
-  records: MeasurementRecordView[],
+  records: MeasurementRecord[],
   variables: VariableDescriptor[],
   observable: VariableDescriptor,
-  schema?: MeasurementDatasetSchema,
+  schema: MeasurementDatasetSchema,
 ): MeasurementChartPlan[] {
   const candidates = variables.filter(
     (variable) => variable.role === "coordinate" && variable.dims.length === 1,
   );
-  const orderedCandidates = orderCoordinates(candidates, schema);
-  const coordinate = orderedCandidates.find((candidate) =>
+  const coordinate = orderCoordinates(candidates, schema).find((candidate) =>
     records.some((record) => numericScalar(valueFor(record, candidate)) !== undefined),
   );
   const points = records.flatMap((record) => {
     const y = numericScalar(valueFor(record, observable));
-    const x = coordinate ? numericScalar(valueFor(record, coordinate)) : record.pointIndex;
+    const x = coordinate ? numericScalar(valueFor(record, coordinate)) : record.point_index;
     return x === undefined || y === undefined ? [] : [{ x, y }];
   });
   if (points.length === 0) return [];
-  const complex =
-    observable.dtype === "complex128" ||
-    records.some((record) => isComplexValue(valueFor(record, observable)));
-  const pointCloud = pointDomainLayout(schema) === "point_cloud";
+  const complex = observable.dtype === "complex128";
   return [
     {
       id: `scalar:${observable.id}:${coordinate?.id ?? "point"}`,
-      kind: pointCloud || !strictlyMonotonic(points) ? "scatter" : "line",
+      kind:
+        pointDomainLayout(schema) === "point_cloud" || !strictlyMonotonic(points)
+          ? "scatter"
+          : "line",
       title: complex ? `${observable.label} magnitude` : observable.label,
       xLabel: coordinate ? valueLabel(coordinate) : "Point index",
       yLabel: valueLabel(observable, complex),
@@ -163,14 +134,12 @@ function scalarChart(
 }
 
 function traceChart(
-  records: MeasurementRecordView[],
+  records: MeasurementRecord[],
   variables: VariableDescriptor[],
   observable: VariableDescriptor,
 ): MeasurementChartPlan[] {
   const coordinate = traceCoordinate(variables, observable);
-  const complex =
-    observable.dtype === "complex128" ||
-    records.some((record) => isComplexValue(valueFor(record, observable)));
+  const complex = observable.dtype === "complex128";
   const series = records
     .flatMap((record, index) => {
       const y = numericArray(valueFor(record, observable));
@@ -179,7 +148,7 @@ function traceChart(
       const x = candidateX?.length === y.length ? candidateX : y.map((_value, item) => item);
       return [
         {
-          id: `${record.pointIndex}:${index}`,
+          id: `${record.logical_point_id ?? record.point_index}:${index}`,
           label: traceSeriesLabel(record, variables),
           points: y.map((value, item) => ({ x: x[item] ?? item, y: value })),
         },
@@ -219,14 +188,8 @@ function traceCoordinate(
   );
 }
 
-function variableDescriptors(
-  records: MeasurementRecordView[],
-  schema?: MeasurementDatasetSchema,
-): VariableDescriptor[] {
-  if (schema?.variables && schema.variables.length > 0) {
-    return schema.variables.map(schemaVariable);
-  }
-  return inferVariables(records);
+function variableDescriptors(schema: MeasurementDatasetSchema): VariableDescriptor[] {
+  return (schema.variables ?? []).map(schemaVariable);
 }
 
 function schemaVariable(variable: SchemaVariable): VariableDescriptor {
@@ -241,43 +204,12 @@ function schemaVariable(variable: SchemaVariable): VariableDescriptor {
   };
 }
 
-function inferVariables(records: MeasurementRecordView[]): VariableDescriptor[] {
-  const variables: VariableDescriptor[] = [];
-  const seen = new Set<string>();
-  for (const role of ["coordinate", "observable"] as const) {
-    for (const record of records) {
-      const values = role === "coordinate" ? record.coordinates : record.observables;
-      for (const [id, raw] of Object.entries(values)) {
-        const key = `${role}:${id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const value = parseValue(raw);
-        const rank = value?.kind === "array" ? value.shape.length : 0;
-        variables.push({
-          id,
-          role,
-          dtype: value?.dtype ?? inferDType(value),
-          unit: value?.unit,
-          dims: [
-            "point",
-            ...Array.from({ length: rank }, (_item, index) =>
-              rank === 1 ? "sample" : `sample_${index}`,
-            ),
-          ],
-          label: dimensionLabel(id),
-        });
-      }
-    }
-  }
-  return variables;
-}
-
 function orderObservables(
   variables: VariableDescriptor[],
-  schema?: MeasurementDatasetSchema,
+  schema: MeasurementDatasetSchema,
 ): VariableDescriptor[] {
   const observables = variables.filter((variable) => variable.role === "observable");
-  const primary = new Map((schema?.primary_observables ?? []).map((id, index) => [id, index]));
+  const primary = new Map((schema.primary_observables ?? []).map((id, index) => [id, index]));
   return [...observables].sort(
     (left, right) =>
       (primary.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
@@ -287,9 +219,9 @@ function orderObservables(
 
 function orderCoordinates(
   variables: VariableDescriptor[],
-  schema?: MeasurementDatasetSchema,
+  schema: MeasurementDatasetSchema,
 ): VariableDescriptor[] {
-  const primary = new Map((schema?.primary_coordinates ?? []).map((id, index) => [id, index]));
+  const primary = new Map((schema.primary_coordinates ?? []).map((id, index) => [id, index]));
   return [...variables].sort(
     (left, right) =>
       (primary.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
@@ -297,78 +229,28 @@ function orderCoordinates(
   );
 }
 
-function parseRecords(items: Array<Record<string, unknown>>): MeasurementRecordView[] {
-  return items.map((item, index) => ({
-    pointIndex: typeof item.point_index === "number" ? item.point_index : index,
-    coordinates: objectMap(item.coordinates),
-    observables: objectMap(item.observables),
-  }));
-}
-
-function objectMap(value: unknown): Record<string, unknown> {
-  return isObject(value) ? value : {};
-}
-
-function valueFor(record: MeasurementRecordView, variable: VariableDescriptor): unknown {
+function valueFor(
+  record: MeasurementRecord,
+  variable: VariableDescriptor,
+): MeasurementValue | undefined {
   return variable.role === "coordinate"
     ? record.coordinates[variable.id]
     : record.observables[variable.id];
 }
 
-function parseValue(raw: unknown): ParsedValue | undefined {
-  if (Array.isArray(raw)) {
-    return { kind: "array", shape: arrayShape(raw), values: raw };
-  }
-  if (!isObject(raw)) {
-    return raw === undefined ? undefined : { kind: "scalar", value: raw };
-  }
-  if (raw.kind === "scalar") {
-    return {
-      kind: "scalar",
-      dtype: text(raw.dtype),
-      unit: text(raw.unit),
-      value: raw.value,
-    };
-  }
-  if (raw.kind === "array") {
-    return {
-      kind: "array",
-      dtype: text(raw.dtype),
-      unit: text(raw.unit),
-      shape: numberArray(raw.shape) ?? arrayShape(raw.values),
-      values: raw.values,
-    };
-  }
-  if (raw.kind === "unavailable") {
-    return {
-      kind: "unavailable",
-      dtype: text(raw.dtype),
-      unit: text(raw.unit),
-      shape: numberArray(raw.shape) ?? [],
-      reason: text(raw.reason) ?? "unavailable",
-    };
-  }
-  if (complexComponents(raw) !== undefined) {
-    return { kind: "scalar", dtype: "complex128", value: raw };
-  }
-  return undefined;
+function numericScalar(value: MeasurementValue | undefined): number | undefined {
+  return value?.kind === "scalar" ? numericLeaf(value.value) : undefined;
 }
 
-function numericScalar(raw: unknown): number | undefined {
-  const parsed = parseValue(raw);
-  if (parsed?.kind !== "scalar") return undefined;
-  if (typeof parsed.value === "number" && Number.isFinite(parsed.value)) return parsed.value;
-  const complex = complexComponents(parsed.value);
-  return complex ? Math.hypot(complex.real, complex.imag) : undefined;
-}
-
-function numericArray(raw: unknown): number[] | undefined {
-  const parsed = parseValue(raw);
-  if (parsed?.kind !== "array" || parsed.shape.length !== 1 || !Array.isArray(parsed.values)) {
-    return undefined;
+function numericArray(value: MeasurementValue | undefined): number[] | undefined {
+  if (value?.kind !== "array" || value.shape.length !== 1) return undefined;
+  const numbers: number[] = [];
+  for (const leaf of value.values) {
+    const numeric = numericLeaf(leaf);
+    if (numeric === undefined) return undefined;
+    numbers.push(numeric);
   }
-  const values = parsed.values.map(numericLeaf);
-  return values.every((value) => value !== undefined) ? (values as number[]) : undefined;
+  return numbers;
 }
 
 function numericLeaf(value: unknown): number | undefined {
@@ -377,7 +259,7 @@ function numericLeaf(value: unknown): number | undefined {
   return complex ? Math.hypot(complex.real, complex.imag) : undefined;
 }
 
-function complexComponents(value: unknown): { real: number; imag: number } | undefined {
+function complexComponents(value: unknown): ComplexComponents | undefined {
   if (
     !isObject(value) ||
     typeof value.real !== "number" ||
@@ -390,34 +272,24 @@ function complexComponents(value: unknown): { real: number; imag: number } | und
   return { real: value.real, imag: value.imag };
 }
 
-function isComplexValue(raw: unknown): boolean {
-  const parsed = parseValue(raw);
-  if (!parsed) return false;
-  if (parsed.dtype === "complex128") return true;
-  if (parsed.kind === "scalar") return complexComponents(parsed.value) !== undefined;
-  return (
-    parsed.kind === "array" &&
-    Array.isArray(parsed.values) &&
-    parsed.values.some((value) => complexComponents(value) !== undefined)
-  );
-}
-
-function traceSeriesLabel(record: MeasurementRecordView, variables: VariableDescriptor[]): string {
+function traceSeriesLabel(record: MeasurementRecord, variables: VariableDescriptor[]): string {
   const coordinates = variables
     .filter((variable) => variable.role === "coordinate" && variable.dims.length === 1)
     .flatMap((variable) => {
-      const parsed = parseValue(valueFor(record, variable));
-      return parsed?.kind === "scalar"
+      const value = valueFor(record, variable);
+      return value?.kind === "scalar"
         ? [
-            `${variable.label} ${formatScalar(parsed.value)}${unitSuffix(parsed.unit ?? variable.unit)}`,
+            `${variable.label} ${formatScalar(value.value)}${unitSuffix(value.unit ?? variable.unit)}`,
           ]
         : [];
     });
-  return coordinates.length > 0 ? coordinates.join(" · ") : `Point ${record.pointIndex}`;
+  return coordinates.length > 0 ? coordinates.join(" · ") : `Point ${record.point_index}`;
 }
 
-function formatMeasurementValue(raw: unknown, fallbackUnit?: string): string {
-  const value = parseValue(raw);
+function formatMeasurementValue(
+  value: MeasurementValue | undefined,
+  fallbackUnit?: string,
+): string {
   if (!value) return "—";
   if (value.kind === "unavailable") return `Unavailable · ${value.reason}`;
   if (value.kind === "array") {
@@ -448,21 +320,12 @@ function valueLabel(variable: VariableDescriptor, magnitude = false): string {
   return `${label}${variable.unit ? ` [${variable.unit}]` : ""}`;
 }
 
-function unitSuffix(unit?: string): string {
+function unitSuffix(unit?: string | null): string {
   return unit ? ` ${unit}` : "";
 }
 
 function dimensionLabel(id: string): string {
   return id.replaceAll(/[-_/]+/g, " ").replaceAll(/\b\w/g, (letter) => letter.toLocaleUpperCase());
-}
-
-function inferDType(value?: ParsedValue): string {
-  if (!value) return "unknown";
-  if (value.dtype) return value.dtype;
-  const sample = value.kind === "scalar" ? value.value : undefined;
-  if (complexComponents(sample)) return "complex128";
-  if (typeof sample === "number") return "float64";
-  return typeof sample;
 }
 
 function strictlyMonotonic(points: NumericPoint[]): boolean {
@@ -479,27 +342,13 @@ function strictlyMonotonic(points: NumericPoint[]): boolean {
   return true;
 }
 
-function pointDomainLayout(schema?: MeasurementDatasetSchema): string | undefined {
-  const metadata = schema?.metadata;
+function pointDomainLayout(schema: MeasurementDatasetSchema): string | undefined {
+  const metadata = schema.metadata;
   if (!isObject(metadata)) return undefined;
   const direct = text(metadata.point_domain_layout) ?? text(metadata.domain_layout);
   if (direct) return direct;
   const domain = metadata.point_domain;
   return isObject(domain) ? (text(domain.layout) ?? text(domain.kind)) : undefined;
-}
-
-function arrayShape(value: unknown): number[] {
-  if (!Array.isArray(value)) return [];
-  if (value.length === 0) return [0];
-  const nested = arrayShape(value[0]);
-  return [value.length, ...nested];
-}
-
-function numberArray(value: unknown): number[] | undefined {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "number")) {
-    return undefined;
-  }
-  return value;
 }
 
 function text(value: unknown): string | undefined {

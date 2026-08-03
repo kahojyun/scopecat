@@ -78,7 +78,6 @@ def main() -> None:
     # These payloads are intentionally opaque in the console and recursive in JSON
     # Schema, so narrowing them here also keeps the generated contract bounded.
     for name in (
-        "MeasurementRecord-Output",
         "RunRequest-Output",
         "pydantic__types__JsonValue",
         "scopecat__kernel__json_types__JsonValue",

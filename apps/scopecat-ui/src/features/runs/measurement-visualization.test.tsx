@@ -3,18 +3,20 @@
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { MeasurementDatasetSchema } from "../../api-contract";
+import type {
+  MeasurementDatasetSchema,
+  MeasurementRecord,
+  MeasurementValue,
+} from "../../api-contract";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
 import { measurementTable, planMeasurementCharts } from "./measurement-visualization";
 
 describe("measurement visualization", () => {
   it("plans a labeled scalar line from point coordinates", () => {
     const schema = scalarSchema();
-    const items = [0, 1, 2].map((point) => ({
-      point_index: point,
-      coordinates: { bias: scalar(point * 0.1, "V") },
-      observables: { signal: scalar(point + 1, "ratio") },
-    }));
+    const items = [0, 1, 2].map((point) =>
+      record(point, { bias: scalar(point * 0.1, "V") }, { signal: scalar(point + 1, "ratio") }),
+    );
 
     expect(planMeasurementCharts(items, schema)).toEqual([
       expect.objectContaining({
@@ -38,20 +40,22 @@ describe("measurement visualization", () => {
 
   it("plans point-local complex traces as explicit magnitude series", () => {
     const schema = traceSchema();
-    const items = [0, 1].map((point) => ({
-      point_index: point,
-      coordinates: {
-        bias: scalar(point, "V"),
-        frequency: array([4, 5, 6], "GHz"),
-      },
-      observables: {
-        response: complexArray([
-          { real: 3, imag: 4 },
-          { real: 0, imag: 2 },
-          { real: 1, imag: 0 },
-        ]),
-      },
-    }));
+    const items = [0, 1].map((point) =>
+      record(
+        point,
+        {
+          bias: scalar(point, "V"),
+          frequency: array([4, 5, 6], "GHz"),
+        },
+        {
+          response: complexArray([
+            { real: 3, imag: 4 },
+            { real: 0, imag: 2 },
+            { real: 1, imag: 0 },
+          ]),
+        },
+      ),
+    );
 
     const [chart] = planMeasurementCharts(items, schema);
     expect(chart).toMatchObject({
@@ -69,7 +73,7 @@ describe("measurement visualization", () => {
     ]);
   });
 
-  it("keeps unsupported and malformed shapes in the table without throwing", () => {
+  it("keeps a valid unsupported rank-two value in the table", () => {
     const schema: MeasurementDatasetSchema = {
       ...baseSchema(),
       dimensions: [
@@ -88,18 +92,36 @@ describe("measurement visualization", () => {
       primary_observables: ["image"],
     };
     const items = [
-      {
-        point_index: 0,
-        coordinates: {},
-        observables: {
-          image: { kind: "array", dtype: "float64", shape: [2, 2], values: [[1], [2, 3]] },
+      record(
+        0,
+        {},
+        {
+          image: {
+            kind: "array",
+            dtype: "float64",
+            shape: [2, 2],
+            values: [
+              [1, 2],
+              [3, 4],
+            ],
+          },
         },
-      },
+      ),
     ];
 
     expect(() => planMeasurementCharts(items, schema)).not.toThrow();
     expect(planMeasurementCharts(items, schema)).toEqual([]);
     expect(measurementTable(items, schema).rows[0]?.cells).toEqual(["0", "2 × 2 samples"]);
+  });
+
+  it("does not infer variable contracts while the optional schema is absent", () => {
+    const items = [record(0, { bias: scalar(1, "V") }, { signal: scalar(2, "ratio") })];
+
+    expect(planMeasurementCharts(items)).toEqual([]);
+    expect(measurementTable(items)).toEqual({
+      columns: [{ id: "point", label: "Point", role: "point" }],
+      rows: [{ id: "point-0:0", cells: ["0"] }],
+    });
   });
 
   it("renders plots and a typed table while keeping raw JSON secondary", () => {
@@ -108,16 +130,8 @@ describe("measurement visualization", () => {
         preview={{
           schema: scalarSchema(),
           items: [
-            {
-              point_index: 0,
-              coordinates: { bias: scalar(0, "V") },
-              observables: { signal: scalar(1, "ratio") },
-            },
-            {
-              point_index: 1,
-              coordinates: { bias: scalar(1, "V") },
-              observables: { signal: scalar(2, "ratio") },
-            },
+            record(0, { bias: scalar(0, "V") }, { signal: scalar(1, "ratio") }),
+            record(1, { bias: scalar(1, "V") }, { signal: scalar(2, "ratio") }),
           ],
         }}
         hasMore={false}
@@ -211,15 +225,31 @@ function traceSchema(): MeasurementDatasetSchema {
   };
 }
 
-function scalar(value: number, unit: string) {
+function record(
+  pointIndex: number,
+  coordinates: Record<string, MeasurementValue>,
+  observables: Record<string, MeasurementValue>,
+): MeasurementRecord {
+  return {
+    run_id: "run-1",
+    logical_point_id: `point-${pointIndex}`,
+    point_index: pointIndex,
+    coordinates,
+    observables,
+  };
+}
+
+function scalar(value: number, unit: string): Extract<MeasurementValue, { kind: "scalar" }> {
   return { kind: "scalar", dtype: "float64", unit, value };
 }
 
-function array(values: number[], unit: string) {
+function array(values: number[], unit: string): Extract<MeasurementValue, { kind: "array" }> {
   return { kind: "array", dtype: "float64", unit, shape: [values.length], values };
 }
 
-function complexArray(values: Array<{ real: number; imag: number }>) {
+function complexArray(
+  values: Array<{ real: number; imag: number }>,
+): Extract<MeasurementValue, { kind: "array" }> {
   return {
     kind: "array",
     dtype: "complex128",

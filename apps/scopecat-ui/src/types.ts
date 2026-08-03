@@ -1,4 +1,4 @@
-import type { MeasurementDatasetSchema } from "./api-contract";
+import type { MeasurementDatasetSchema, MeasurementRecord } from "./api-contract";
 
 export type PresentationRunStatus =
   | "accepted"
@@ -70,7 +70,7 @@ export interface ProjectHealth {
 }
 
 export interface MeasurementPreview {
-  items: Array<Record<string, unknown>>;
+  items: MeasurementRecord[];
   schema?: MeasurementDatasetSchema;
   nextOffset?: number;
 }

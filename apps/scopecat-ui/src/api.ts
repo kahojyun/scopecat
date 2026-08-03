@@ -98,7 +98,7 @@ export async function getMeasurementPreview(
     }),
   );
   return {
-    items: (response.items ?? []) as Array<Record<string, unknown>>,
+    items: response.items ?? [],
     schema: response.dataset_schema ?? undefined,
     nextOffset: response.next_offset ?? undefined,
   };
