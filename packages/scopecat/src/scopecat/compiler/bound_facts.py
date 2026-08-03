@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from scopecat.compiler.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.point_domain import PointDomain
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
@@ -37,10 +38,7 @@ from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
     MeasurementPostprocessorId,
 )
-from scopecat.program.value_graph import (
-    OperationId,
-    ValueId,
-)
+from scopecat.program.value_graph import OperationId
 
 
 def _empty_value_overrides() -> dict[ValueId, ScalarExpr]:

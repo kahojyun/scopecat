@@ -17,6 +17,7 @@ from scopecat.execution.local.program import (
     InvokeOperation,
     StateTarget,
 )
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import ModelLocation, Problem, model_location
 from scopecat.kernel.quantity import Quantity
@@ -37,7 +38,6 @@ from scopecat.planning.local_resources import (
 from scopecat.planning.routing import ResourceBindingError
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.logical import LogicalInvocation, LogicalStateAssignment
-from scopecat.program.value_graph import ValueId
 from scopecat.sdk.instruments.commands import InstrumentOperationArgument
 
 

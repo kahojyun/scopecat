@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
 from scopecat.compiler.frontend.value_binding import input_cell
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.program.bindings import (
@@ -42,11 +43,7 @@ from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl
 from scopecat.program.recording import LogicalRecordSelection
 from scopecat.program.scans import AxisSpec
-from scopecat.program.value_graph import (
-    OperationId,
-    ValueId,
-    operation_result_id,
-)
+from scopecat.program.value_graph import OperationId, operation_result_id
 from scopecat.program.value_refs import (
     PointValueDependency,
     ValueRef,

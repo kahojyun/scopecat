@@ -6,6 +6,7 @@ import heapq
 from collections.abc import Mapping, Sequence
 
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -23,10 +24,7 @@ from scopecat.program.logical import (
     MeasurementPostprocessorId,
     ValueDef,
 )
-from scopecat.program.value_graph import (
-    OperationId,
-    ValueId,
-)
+from scopecat.program.value_graph import OperationId
 
 
 def verify_logical_graph(

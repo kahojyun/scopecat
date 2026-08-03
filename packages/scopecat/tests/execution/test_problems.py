@@ -7,6 +7,7 @@ from typing import override
 import pytest
 
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.expressions import LiteralScalarExpr
@@ -15,7 +16,6 @@ from scopecat.program.logical import (
     LogicalStateAssignment,
     ValueDef,
 )
-from scopecat.program.value_graph import ValueId
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     DriverAcquisition,

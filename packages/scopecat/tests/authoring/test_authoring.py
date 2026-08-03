@@ -17,6 +17,7 @@ from scopecat.compiler.frontend.resolution import (
 )
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.expression_analysis import expression_input_refs
@@ -32,11 +33,7 @@ from scopecat.program.logical import (
     LogicalProgram,
 )
 from scopecat.program.products import product_axis, shot_axis
-from scopecat.program.value_graph import (
-    OperationId,
-    ValueId,
-    operation_result_id,
-)
+from scopecat.program.value_graph import OperationId, operation_result_id
 from scopecat.program.value_refs import (
     ValueRef,
     internal_lower_scalar_value_ref,

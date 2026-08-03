@@ -7,10 +7,10 @@ from dataclasses import fields, is_dataclass, replace
 from typing import cast
 
 from scopecat.authoring.entity_parameters import PerEntity
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.product_identity import ProductId
 from scopecat.program.module import ModuleValueExport
 from scopecat.program.products import ProductRef
-from scopecat.program.value_graph import ValueId
 from scopecat.program.value_refs import ValueRef
 
 type _ProductKey = tuple[ProductId, tuple[object, ...]]

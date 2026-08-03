@@ -25,6 +25,7 @@ from scopecat.execution.local.program import (
     OutputInput,
 )
 from scopecat.kernel.content_identity import content_fingerprint
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
@@ -58,7 +59,6 @@ from scopecat.program.point_domain import point_axis_values
 from scopecat.program.value_graph import (
     ComputeOutput,
     OperationId,
-    ValueId,
     operation_result_id,
 )
 from scopecat.sdk.instruments import InterfaceRef

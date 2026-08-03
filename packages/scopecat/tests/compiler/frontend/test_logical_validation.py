@@ -13,6 +13,7 @@ from scopecat.compiler.frontend.logical_verification import verify_logical_progr
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.product_identity import ProductUse, ProductUseId
@@ -33,7 +34,6 @@ from scopecat.program.products import (
     product_axis,
     record_product,
 )
-from scopecat.program.value_graph import ValueId
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from scopecat.sdk.instruments import InterfaceRef

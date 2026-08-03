@@ -18,12 +18,13 @@ from scopecat.compiler.relations.specialization import (
     ParameterCellBinding,
     specialize_scalar_expression,
 )
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import LogicalInvocation
 from scopecat.program.point_domain import (
     map_point_axis_centers,
 )
-from scopecat.program.value_graph import OperationId, ValueId
+from scopecat.program.value_graph import OperationId
 
 
 def specialize_bound_facts(

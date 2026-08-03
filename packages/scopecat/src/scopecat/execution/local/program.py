@@ -12,11 +12,12 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Scalar
-from scopecat.program.value_graph import ComputeOutput, ValueId
+from scopecat.program.value_graph import ComputeOutput
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.commands import (
     CollectCommand,

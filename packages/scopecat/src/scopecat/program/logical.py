@@ -9,6 +9,7 @@ from types import MappingProxyType
 import scopecat.program.value_graph as graph_values
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import ProductId
@@ -84,7 +85,7 @@ type ValueSource = ScalarExpr | TableSource
 class ValueDef:
     """One plan-available value; operation results live on their operation."""
 
-    id: graph_values.ValueId
+    id: ValueId
     value_type: ValueType
     source: ValueSource
 
@@ -92,9 +93,9 @@ class ValueDef:
 @dataclass(frozen=True, slots=True)
 class LogicalComputeNode:
     id: graph_values.OperationId
-    inputs: tuple[tuple[str, graph_values.ValueId], ...]
+    inputs: tuple[tuple[str, ValueId], ...]
     input_types: tuple[tuple[str, Scalar], ...]
-    result_id: graph_values.ValueId
+    result_id: ValueId
     result_type: Scalar
 
 
@@ -104,8 +105,8 @@ class LogicalDomainExecution:
 
     id: str
     program: DomainProgramDef
-    inputs: tuple[tuple[str, graph_values.ValueId], ...] = ()
-    compiler_inputs: tuple[tuple[str, graph_values.ValueId], ...] = ()
+    inputs: tuple[tuple[str, ValueId], ...] = ()
+    compiler_inputs: tuple[tuple[str, ValueId], ...] = ()
     results: tuple[tuple[str, ProductId], ...] = ()
 
 
@@ -162,7 +163,7 @@ class LogicalStateAssignment:
     interface_id: InterfaceId
     component_path: tuple[str, ...]
     property_id: str
-    value_id: graph_values.ValueId
+    value_id: ValueId
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,7 +176,7 @@ class LogicalEnsureState:
 @dataclass(frozen=True, slots=True)
 class LogicalInvocationArgument:
     id: str
-    value_id: graph_values.ValueId
+    value_id: ValueId
 
 
 @dataclass(frozen=True, slots=True)

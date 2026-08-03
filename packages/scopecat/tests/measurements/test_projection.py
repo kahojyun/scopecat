@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
@@ -26,7 +27,6 @@ from scopecat.planning.measurement_projection import (
     project_measurement_catalog,
     project_run_point_catalog,
 )
-from scopecat.program.value_graph import ValueId
 from tests.testkit.measurement_assembly import (
     assembled_measurement_values_for_all_uses,
     measurement_assembly_scenario,

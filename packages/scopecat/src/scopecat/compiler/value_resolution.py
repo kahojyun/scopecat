@@ -8,9 +8,9 @@ from typing import cast, override
 
 from scopecat.compiler.bound_facts import BoundProgramFacts
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.table_values import TableSource
-from scopecat.program.value_graph import ValueId
 from scopecat.program.value_types import Table
 
 type ProgramValue = ScalarExpr | TableSource

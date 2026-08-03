@@ -6,12 +6,10 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat.compiler.frontend.resolution import compile_invocation
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar
-from scopecat.program.value_graph import (
-    OperationId,
-    ValueId,
-)
+from scopecat.program.value_graph import OperationId
 
 
 def test_symbol_qualified_name_encodes_structural_segments_injectively() -> None:

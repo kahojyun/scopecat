@@ -7,6 +7,7 @@ from collections.abc import Callable
 from scopecat.compiler.point_domain import PointDomain
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import ComputeOperation
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Int, Payload, Scalar
 from scopecat.program.logical import (
@@ -17,7 +18,6 @@ from scopecat.program.point_domain import point_axis_values
 from scopecat.program.value_graph import (
     ComputeOutput,
     OperationId,
-    ValueId,
     operation_result_id,
 )
 from tests.testkit.authoring import load_config

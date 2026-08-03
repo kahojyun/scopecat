@@ -13,6 +13,7 @@ from scopecat.kernel.content_identity import content_fingerprint, stable_content
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import thaw_json_value
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
@@ -37,7 +38,6 @@ from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCatalog,
 )
-from scopecat.program.value_graph import ValueId
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementDatasetSchema,

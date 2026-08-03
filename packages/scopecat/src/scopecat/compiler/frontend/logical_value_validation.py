@@ -18,6 +18,7 @@ from scopecat.compiler.relations.verification import (
     RowType,
     verify_scalar_expression,
 )
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location
 from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.program.expression_analysis import expression_point_refs
@@ -25,7 +26,6 @@ from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import LogicalComputeNode, LogicalProgram, ValueDef
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.point_domain import analyze_point_domain
-from scopecat.program.value_graph import ValueId
 
 
 def bind_value_definition_inputs(

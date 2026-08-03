@@ -8,6 +8,7 @@ from typing import cast, override
 from uuid import uuid4
 
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
@@ -56,11 +57,7 @@ from scopecat.program.table_values import (
     TableSource,
     literal_table_source,
 )
-from scopecat.program.value_graph import (
-    OperationId,
-    ValueId,
-    operation_result_id,
-)
+from scopecat.program.value_graph import OperationId, operation_result_id
 
 type FrozenScalarLiteral = (
     Quantity | EntityRef | PayloadValue | str | int | float | bool | None

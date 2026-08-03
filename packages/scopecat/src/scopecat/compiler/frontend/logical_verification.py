@@ -33,6 +33,7 @@ from scopecat.compiler.frontend.logical_value_validation import (
     verify_value_record_references,
 )
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.value_types import ValueType
@@ -44,7 +45,6 @@ from scopecat.program.logical import (
 )
 from scopecat.program.logical_graph import verify_logical_graph
 from scopecat.program.products import ModuleProductDecl
-from scopecat.program.value_graph import ValueId
 
 
 @dataclass(frozen=True, slots=True)

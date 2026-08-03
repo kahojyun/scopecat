@@ -6,6 +6,7 @@ import pytest
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
@@ -18,7 +19,7 @@ from scopecat.program.expressions import (
 )
 from scopecat.program.logical import LogicalComputeNode
 from scopecat.program.logical_graph import verify_logical_graph
-from scopecat.program.value_graph import OperationId, ValueId, operation_result_id
+from scopecat.program.value_graph import OperationId, operation_result_id
 
 FLOAT = Scalar(Float())
 

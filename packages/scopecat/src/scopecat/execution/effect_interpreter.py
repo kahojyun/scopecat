@@ -24,12 +24,12 @@ from scopecat.execution.program import (
     RunCoveredOperation,
     RunDomainJob,
 )
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.records import ValueRecordCandidate
-from scopecat.program.value_graph import ValueId
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.journal import ExecutionJournal, ExecutionJournalError
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
