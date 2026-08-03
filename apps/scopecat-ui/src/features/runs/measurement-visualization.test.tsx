@@ -165,6 +165,90 @@ describe("measurement visualization", () => {
     ).toBeVisible();
   });
 
+  it("uses authored product-grid axis order and sizes for a rectangular 2x3 heatmap", () => {
+    const schema = twoDimensionalGridSchema();
+    const items = gridRecords((point) => scalar(point + 10, "K"));
+
+    const [chart] = planMeasurementCharts(items, schema);
+    expect(chart).toMatchObject({
+      id: "heatmap:temperature:row:column:value",
+      kind: "heatmap",
+      title: "Temperature heatmap",
+      xLabel: "Row [mm]",
+      yLabel: "Column [mm]",
+      colorLabel: "Temperature [K]",
+      grid: { xValues: [10, 20], yValues: [1, 2, 3] },
+      note: "X and Y follow the authored product-grid axis order.",
+    });
+    expect(chart?.series[0]?.points).toEqual([
+      { x: 10, y: 1, color: 10 },
+      { x: 10, y: 2, color: 11 },
+      { x: 10, y: 3, color: 12 },
+      { x: 20, y: 1, color: 13 },
+      { x: 20, y: 2, color: 14 },
+      { x: 20, y: 3, color: 15 },
+    ]);
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items }}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByTestId("heatmap-cell")).toHaveLength(6);
+    expect(
+      screen.getByRole("img", {
+        name: "Temperature heatmap: Column [mm] by Row [mm], colored by Temperature [K]",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("option", {
+        name: "Temperature heatmap — x: Row [mm] · y: Column [mm] · color: Temperature [K]",
+      }),
+    ).toHaveValue("heatmap:temperature:row:column:value");
+  });
+
+  it("offers every complex mode as a product-grid heatmap", () => {
+    const schema = twoDimensionalGridSchema("complex128");
+    const items = gridRecords((point) => complexScalar(point + 3, point + 4, "ratio"));
+
+    const heatmaps = planMeasurementCharts(items, schema).filter(
+      (chart) => chart.kind === "heatmap",
+    );
+
+    expect(heatmaps.map((chart) => chart.title)).toEqual([
+      "Temperature magnitude heatmap",
+      "Temperature phase heatmap",
+      "Temperature real heatmap",
+      "Temperature imaginary heatmap",
+    ]);
+    expect(heatmaps.map((chart) => chart.colorLabel)).toEqual([
+      "|Temperature| [ratio]",
+      "phase(Temperature) [rad]",
+      "Re(Temperature) [ratio]",
+      "Im(Temperature) [ratio]",
+    ]);
+    expect(heatmaps[0]?.series[0]?.points[0]?.color).toBe(5);
+    expect(heatmaps[1]?.series[0]?.points[0]?.color).toBeCloseTo(Math.atan2(4, 3));
+    expect(heatmaps[2]?.series[0]?.points[0]?.color).toBe(3);
+    expect(heatmaps[3]?.series[0]?.points[0]?.color).toBe(4);
+  });
+
+  it("skips heatmaps for missing or duplicate product-grid cells", () => {
+    const schema = twoDimensionalGridSchema();
+    const complete = gridRecords((point) => scalar(point + 10, "K"));
+    const missing = complete.slice(0, -1);
+    const duplicate = [...missing, complete[4]!];
+
+    for (const records of [missing, duplicate]) {
+      const charts = planMeasurementCharts(records, schema);
+      expect(charts.some((chart) => chart.kind === "heatmap")).toBe(false);
+      expect(charts[0]).toMatchObject({ kind: "scatter", title: "Temperature" });
+    }
+  });
+
   it("keeps a valid unsupported rank-two value in the table", () => {
     const schema: MeasurementDatasetSchema = {
       ...baseSchema(),
@@ -402,6 +486,62 @@ function twoDimensionalPointCloudSchema(): MeasurementDatasetSchema {
   };
 }
 
+function twoDimensionalGridSchema(
+  dtype: "complex128" | "float64" = "float64",
+): MeasurementDatasetSchema {
+  return {
+    ...baseSchema(),
+    dimensions: [{ id: "point", kind: "point", size: 6 }],
+    point_domain: {
+      kind: "product_grid",
+      axes: [
+        { id: "row", size: 2 },
+        { id: "column", size: 3 },
+      ],
+    },
+    variables: [
+      {
+        id: "column",
+        label: "Column",
+        role: "coordinate",
+        dtype: "float64",
+        unit: "mm",
+        dims: ["point"],
+      },
+      {
+        id: "row",
+        label: "Row",
+        role: "coordinate",
+        dtype: "float64",
+        unit: "mm",
+        dims: ["point"],
+      },
+      {
+        id: "temperature",
+        label: "Temperature",
+        role: "observable",
+        dtype,
+        unit: dtype === "complex128" ? "ratio" : "K",
+        dims: ["point"],
+      },
+    ],
+    primary_coordinates: ["column", "row"],
+    primary_observables: ["temperature"],
+  };
+}
+
+function gridRecords(observable: (point: number) => MeasurementValue): MeasurementRecord[] {
+  return [10, 20].flatMap((row) =>
+    [1, 2, 3].map((column, point) =>
+      record(
+        (row === 10 ? 0 : 3) + point,
+        { column: scalar(column, "mm"), row: scalar(row, "mm") },
+        { temperature: observable((row === 10 ? 0 : 3) + point) },
+      ),
+    ),
+  );
+}
+
 function record(
   pointIndex: number,
   coordinates: Record<string, MeasurementValue>,
@@ -418,6 +558,14 @@ function record(
 
 function scalar(value: number, unit: string): Extract<MeasurementValue, { kind: "scalar" }> {
   return { kind: "scalar", dtype: "float64", unit, value };
+}
+
+function complexScalar(
+  real: number,
+  imag: number,
+  unit: string,
+): Extract<MeasurementValue, { kind: "scalar" }> {
+  return { kind: "scalar", dtype: "complex128", unit, value: { real, imag } };
 }
 
 function array(values: number[], unit: string): Extract<MeasurementValue, { kind: "array" }> {

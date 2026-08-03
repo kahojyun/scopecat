@@ -162,8 +162,14 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
   const height = 230;
   const margin = { top: 16, right: 18, bottom: 38, left: 54 };
   const points = chart.series.flatMap((series) => series.points);
-  const [xMin, xMax] = paddedExtent(points.map((point) => point.x));
-  const [yMin, yMax] = paddedExtent(points.map((point) => point.y));
+  const xBoundaries = chart.kind === "heatmap" ? cellBoundaries(chart.grid.xValues) : undefined;
+  const yBoundaries = chart.kind === "heatmap" ? cellBoundaries(chart.grid.yValues) : undefined;
+  const [xMin, xMax] = xBoundaries
+    ? [xBoundaries[0]!, xBoundaries.at(-1)!]
+    : paddedExtent(points.map((point) => point.x));
+  const [yMin, yMax] = yBoundaries
+    ? [yBoundaries[0]!, yBoundaries.at(-1)!]
+    : paddedExtent(points.map((point) => point.y));
   const x = (value: number) =>
     margin.left + ((value - xMin) / (xMax - xMin)) * (width - margin.left - margin.right);
   const y = (value: number) =>
@@ -253,23 +259,60 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
               {chart.kind === "line" && series.points.length > 1 && (
                 <path d={path} fill="none" stroke={color} strokeWidth="2" />
               )}
-              {series.points.map((point, pointIndex) => (
-                <circle
-                  cx={x(point.x)}
-                  cy={y(point.y)}
-                  fill={
-                    colorExtent && point.color !== undefined
-                      ? colorScale(point.color, colorExtent[0], colorExtent[1])
-                      : color
+              {chart.kind === "heatmap" &&
+                colorExtent &&
+                series.points.map((point, pointIndex) => {
+                  const xIndex = chart.grid.xValues.indexOf(point.x);
+                  const yIndex = chart.grid.yValues.indexOf(point.y);
+                  const xStart = xBoundaries?.[xIndex];
+                  const xEnd = xBoundaries?.[xIndex + 1];
+                  const yStart = yBoundaries?.[yIndex];
+                  const yEnd = yBoundaries?.[yIndex + 1];
+                  if (
+                    point.color === undefined ||
+                    xStart === undefined ||
+                    xEnd === undefined ||
+                    yStart === undefined ||
+                    yEnd === undefined
+                  ) {
+                    return null;
                   }
-                  key={`${series.id}:${pointIndex}`}
-                  r={chart.kind === "line" ? 2.5 : chart.kind === "color-scatter" ? 4 : 3.5}
-                >
-                  <title>
-                    {`${series.label}: ${shortNumber(point.x)}, ${shortNumber(point.y)}${point.color === undefined || !chart.colorLabel ? "" : `, ${chart.colorLabel}: ${shortNumber(point.color)}`}`}
-                  </title>
-                </circle>
-              ))}
+                  return (
+                    <rect
+                      data-testid="heatmap-cell"
+                      fill={colorScale(point.color, colorExtent[0], colorExtent[1])}
+                      height={y(yStart) - y(yEnd)}
+                      key={`${series.id}:${pointIndex}`}
+                      stroke="var(--color-panel-soft)"
+                      strokeWidth="1"
+                      width={x(xEnd) - x(xStart)}
+                      x={x(xStart)}
+                      y={y(yEnd)}
+                    >
+                      <title>
+                        {`${series.label}: ${shortNumber(point.x)}, ${shortNumber(point.y)}, ${chart.colorLabel}: ${shortNumber(point.color)}`}
+                      </title>
+                    </rect>
+                  );
+                })}
+              {chart.kind !== "heatmap" &&
+                series.points.map((point, pointIndex) => (
+                  <circle
+                    cx={x(point.x)}
+                    cy={y(point.y)}
+                    fill={
+                      colorExtent && point.color !== undefined
+                        ? colorScale(point.color, colorExtent[0], colorExtent[1])
+                        : color
+                    }
+                    key={`${series.id}:${pointIndex}`}
+                    r={chart.kind === "line" ? 2.5 : chart.kind === "color-scatter" ? 4 : 3.5}
+                  >
+                    <title>
+                      {`${series.label}: ${shortNumber(point.x)}, ${shortNumber(point.y)}${point.color === undefined || !chart.colorLabel ? "" : `, ${chart.colorLabel}: ${shortNumber(point.color)}`}`}
+                    </title>
+                  </circle>
+                ))}
             </g>
           );
         })}
@@ -308,8 +351,8 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
 }
 
 function chartOptionLabel(chart: MeasurementChartPlan): string {
-  const color = chart.colorLabel ? ` · color ${chart.colorLabel}` : "";
-  return `${chart.title} — ${chart.xLabel} / ${chart.yLabel}${color}`;
+  const color = chart.colorLabel ? ` · color: ${chart.colorLabel}` : "";
+  return `${chart.title} — x: ${chart.xLabel} · y: ${chart.yLabel}${color}`;
 }
 
 function rawExtent(values: number[]): [number, number] {
@@ -334,6 +377,22 @@ function paddedExtent(values: number[]): [number, number] {
   }
   const padding = Math.abs(minimum) * 0.04 || 1;
   return [minimum - padding, maximum + padding];
+}
+
+function cellBoundaries(values: number[]): number[] {
+  const first = values[0]!;
+  if (values.length === 1) {
+    const halfWidth = Math.abs(first) * 0.04 || 1;
+    return [first - halfWidth, first + halfWidth];
+  }
+  const second = values[1]!;
+  const last = values.at(-1)!;
+  const beforeLast = values.at(-2)!;
+  return [
+    first - (second - first) / 2,
+    ...values.slice(0, -1).map((value, index) => (value + values[index + 1]!) / 2),
+    last + (last - beforeLast) / 2,
+  ];
 }
 
 function ticks(minimum: number, maximum: number): number[] {

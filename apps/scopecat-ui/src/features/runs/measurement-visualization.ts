@@ -34,9 +34,13 @@ export interface MeasurementChartSeries {
   points: NumericPoint[];
 }
 
-export interface MeasurementChartPlan {
+export interface MeasurementChartGrid {
+  xValues: number[];
+  yValues: number[];
+}
+
+interface MeasurementChartPlanBase {
   id: string;
-  kind: "color-scatter" | "line" | "scatter";
   title: string;
   xLabel: string;
   yLabel: string;
@@ -44,6 +48,12 @@ export interface MeasurementChartPlan {
   note?: string;
   series: MeasurementChartSeries[];
 }
+
+export type MeasurementChartPlan = MeasurementChartPlanBase &
+  (
+    | { kind: "heatmap"; grid: MeasurementChartGrid }
+    | { kind: "color-scatter" | "line" | "scatter"; grid?: never }
+  );
 
 export interface MeasurementTableColumn {
   id: string;
@@ -68,6 +78,7 @@ export function planMeasurementCharts(
   if (records.length === 0 || schema === undefined) return [];
   const variables = variableDescriptors(schema);
   const observables = orderObservables(variables, schema);
+  const gridPlans = productGridHeatmaps(records, variables, observables, schema);
   const colorPlans = pointCloudColorCharts(records, variables, observables, schema);
   const scalarPlans = observables
     .filter((variable) => variable.dims.length === 1)
@@ -75,7 +86,7 @@ export function planMeasurementCharts(
   const tracePlans = observables
     .filter((variable) => variable.dims.length === 2)
     .flatMap((observable) => traceChart(records, variables, observable));
-  return [...colorPlans, ...scalarPlans, ...tracePlans];
+  return [...gridPlans, ...colorPlans, ...scalarPlans, ...tracePlans];
 }
 
 export function measurementTable(
@@ -139,6 +150,100 @@ function scalarChart(
       },
     ];
   });
+}
+
+function productGridHeatmaps(
+  records: MeasurementRecord[],
+  variables: VariableDescriptor[],
+  observables: VariableDescriptor[],
+  schema: MeasurementDatasetSchema,
+): MeasurementChartPlan[] {
+  if (schema.point_domain.kind !== "product_grid") return [];
+  const variablesById = new Map(variables.map((variable) => [variable.id, variable]));
+  const axes = schema.point_domain.axes.flatMap((axis) => {
+    const variable = variablesById.get(axis.id);
+    return variable &&
+      variable.role === "coordinate" &&
+      variable.dims.length === 1 &&
+      isRealNumericVariable(variable)
+      ? [{ size: axis.size, variable }]
+      : [];
+  });
+  const xAxis = axes[0];
+  const yAxis = axes[1];
+  if (!xAxis || !yAxis || !validGridSize(xAxis.size) || !validGridSize(yAxis.size)) return [];
+  const expectedCellCount = xAxis.size * yAxis.size;
+  if (!Number.isSafeInteger(expectedCellCount) || records.length !== expectedCellCount) return [];
+
+  return observables
+    .filter((observable) => observable.dims.length === 1 && isNumericVariable(observable))
+    .flatMap((observable) =>
+      valueModes(observable).flatMap((mode) => {
+        const grid = completeGrid(
+          records,
+          xAxis.variable,
+          yAxis.variable,
+          observable,
+          mode,
+          xAxis.size,
+          yAxis.size,
+        );
+        if (!grid) return [];
+        return [
+          {
+            id: `heatmap:${observable.id}:${xAxis.variable.id}:${yAxis.variable.id}:${mode}`,
+            kind: "heatmap" as const,
+            title: `${chartTitle(observable, mode)} heatmap`,
+            xLabel: valueLabel(xAxis.variable),
+            yLabel: valueLabel(yAxis.variable),
+            colorLabel: chartValueLabel(observable, mode),
+            grid: { xValues: grid.xValues, yValues: grid.yValues },
+            note: productGridNote(mode),
+            series: [{ id: observable.id, label: observable.label, points: grid.points }],
+          },
+        ];
+      }),
+    );
+}
+
+function completeGrid(
+  records: MeasurementRecord[],
+  xVariable: VariableDescriptor,
+  yVariable: VariableDescriptor,
+  observable: VariableDescriptor,
+  mode: NumericValueMode,
+  xSize: number,
+  ySize: number,
+): { points: NumericPoint[]; xValues: number[]; yValues: number[] } | undefined {
+  const points: NumericPoint[] = [];
+  const xValues = new Set<number>();
+  const yValues = new Set<number>();
+  const pairs = new Map<number, Set<number>>();
+  for (const record of records) {
+    const x = numericScalar(valueFor(record, xVariable));
+    const y = numericScalar(valueFor(record, yVariable));
+    const color = numericScalar(valueFor(record, observable), mode);
+    if (x === undefined || y === undefined || color === undefined) return undefined;
+    const yAtX = pairs.get(x) ?? new Set<number>();
+    if (yAtX.has(y)) return undefined;
+    yAtX.add(y);
+    pairs.set(x, yAtX);
+    xValues.add(x);
+    yValues.add(y);
+    points.push({ x, y, color });
+  }
+  if (xValues.size !== xSize || yValues.size !== ySize || points.length !== xSize * ySize) {
+    return undefined;
+  }
+  return {
+    points,
+    xValues: [...xValues].sort((left, right) => left - right),
+    yValues: [...yValues].sort((left, right) => left - right),
+  };
+}
+
+function validGridSize(size: number): boolean {
+  return Number.isSafeInteger(size) && size > 0;
 }
 
 function pointCloudColorCharts(
@@ -296,6 +401,10 @@ function isNumericVariable(variable: VariableDescriptor): boolean {
   );
 }
 
+function isRealNumericVariable(variable: VariableDescriptor): boolean {
+  return variable.dtype === "float64" || variable.dtype === "int64";
+}
+
 function valueFor(
   record: MeasurementRecord,
   variable: VariableDescriptor,
@@ -425,6 +534,12 @@ function chartNote(mode: NumericValueMode): string | undefined {
   if (mode === "real") return "Complex values are shown as the real component.";
   if (mode === "imag") return "Complex values are shown as the imaginary component.";
   return undefined;
+}
+
+function productGridNote(mode: NumericValueMode): string {
+  const valueNote = chartNote(mode);
+  const axisNote = "X and Y follow the authored product-grid axis order.";
+  return valueNote ? `${valueNote} ${axisNote}` : axisNote;
 }
 
 function unitSuffix(unit?: string | null): string {
