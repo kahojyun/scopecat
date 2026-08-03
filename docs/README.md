@@ -12,6 +12,9 @@ simpler design better serves the workflows in the charter.
 - [Lab daemon](lab-daemon.md): current durable ownership and client boundary.
 - [Instrument authoring](instrument-control.md): the shared declaration, live
   control, symbolic-client, entity-mapping, and recording model.
+- [Measurement data workflows](measurement-data.md): recording intent, product
+  grids and point clouds, ragged axes, notebook slicing and ecosystem exports,
+  and schema-driven GUI visualization.
 
 Keep implementation architecture, package inventories, completed migration
 plans, and current interface lists close to the code and tests that own them.
