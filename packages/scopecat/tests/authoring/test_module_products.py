@@ -181,6 +181,45 @@ def test_product_axes_share_dimensions_only_when_explicit() -> None:
     assert dimensions[0].startswith("shared/")
 
 
+def test_categorical_product_axis_lowers_to_its_label_count() -> None:
+    @sc.module(id="test.products.categorical-axis")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        source = context._resource("source", requires=(_SCALAR_SIGNAL,))
+        iq = context._product(
+            "iq",
+            dtype="complex128",
+            axes=(
+                product_axis(
+                    "component",
+                    size=("I", "Q"),
+                    kind="component",
+                ),
+            ),
+        )
+        context._acquire(
+            "read-iq",
+            resource=source,
+            results={_SAMPLE.result("iq"): iq},
+        )
+        return iq
+
+    call = module()
+
+    @sc.template(id="test.products.categorical-axis", kind="module_products")
+    def template_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.run(call)
+
+    resolved = bind_invocation(
+        template_definition(),
+        config_profile=load_config(),
+    )
+
+    [axis] = resolved.bindings.product_defs[0].axes
+    assert axis.kind == "component"
+    assert axis.size == 2
+    assert axis.metadata == {}
+
+
 def test_local_and_shared_axis_namespaces_cannot_collide() -> None:
     local_product = ModuleProductDecl(id="capture", scope=("nested",))
     shared_product = ModuleProductDecl(

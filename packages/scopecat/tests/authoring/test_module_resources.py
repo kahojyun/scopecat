@@ -55,6 +55,17 @@ _SET_OFFSET_VALUE_PATH = _SET_OFFSET.property("value.path")
 _SET_POWER_VALUE = InterfaceRef("test.set_power/v1").property("value")
 
 
+def test_module_construction_rejects_duplicate_resource_ids() -> None:
+    with pytest.raises(ValueError, match="duplicate module resource ids"):
+
+        @sc.module(id="test.resources.duplicate")
+        def duplicate_resources(  # pyright: ignore[reportUnusedFunction]
+            context: sc.ModuleContext,
+        ) -> None:
+            context._resource("source", requires=(_SET_FREQUENCY,))
+            context._resource("source", requires=(_MEASURE_IQ,))
+
+
 def _resource_module() -> sc.ExperimentModule[None, ...]:
     frequency = sc.Quantity(value=5.0, unit="GHz")
 
