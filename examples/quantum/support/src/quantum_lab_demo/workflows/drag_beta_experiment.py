@@ -8,6 +8,7 @@ import scopecat as sc
 from scopecat import Quantity
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
+    BinaryIqProbabilityProducts,
     IqCentroid,
     binary_iq_probabilities,
 )
@@ -57,7 +58,7 @@ def drag_beta_capture(
         sc.Input[list[dict[str, object]]],
         QUBIT_PARAMETER_TABLE_TYPE,
     ],
-) -> None:
+) -> BinaryIqProbabilityProducts:
     """Capture and discriminate one DRAG-beta program call."""
 
     call = (
@@ -70,7 +71,7 @@ def drag_beta_capture(
         .with_shots(DRAG_BETA_SHOTS)
     )
     module.call(call)
-    binary_iq_probabilities(
+    return binary_iq_probabilities(
         module,
         call.results.iq_shots,
         discriminator=_DRAG_BETA_DISCRIMINATOR,
@@ -89,10 +90,7 @@ def _drag_beta_experiment_body(
         )
     )
     experiment.scan(*scans)
-    experiment.record(
-        capture.products.probability_0,
-        capture.products.probability_1,
-    )
+    experiment.record(capture.products)
 
 
 @sc.template(

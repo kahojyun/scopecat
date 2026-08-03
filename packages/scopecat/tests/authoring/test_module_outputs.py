@@ -86,7 +86,7 @@ def _identity_consumed(*, consumed: object) -> object:
     return consumed
 
 
-def _producer_module() -> sc.ExperimentModule[...]:
+def _producer_module() -> sc.ExperimentModule[None, ...]:
     payload_type = _payload_type()
 
     @sc.module(id="test.outputs.producer")
@@ -101,7 +101,7 @@ def _producer_module() -> sc.ExperimentModule[...]:
     return module
 
 
-def _consumer_module() -> sc.ExperimentModule[...]:
+def _consumer_module() -> sc.ExperimentModule[None, ...]:
     payload_type = _payload_type()
 
     @sc.module(id="test.outputs.consumer")
@@ -456,12 +456,12 @@ def test_invocation_validates_typed_and_literal_inputs_immediately() -> None:
 
 def test_module_products_remain_reusable_across_instances() -> None:
     @sc.module(id="test.outputs.product")
-    def module(context: sc.ModuleContext) -> None:
-        context._product("signal")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        return context._product("signal")
 
     child = module.instantiate("child")
 
-    assert child.products["signal"].id == "child/signal"
+    assert child.products.id == "child/signal"
 
 
 def test_module_export_arithmetic_resolves_during_elaboration() -> None:

@@ -62,7 +62,7 @@ def _resolve_root_domain_dependency(
     bind_invocation(template(), config_profile=config)
 
 
-def _empty_module(id: str) -> sc.ExperimentModule[...]:
+def _empty_module(id: str) -> sc.ExperimentModule[None, ...]:
     @sc.module(id=id)
     def module(context: sc.ModuleContext) -> None:
         del context

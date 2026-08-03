@@ -47,7 +47,7 @@ _SET_GAIN = InterfaceRef("test.set_gain/v1")
 _SET_GAIN_VALUE = _SET_GAIN.property("value")
 
 
-def _resolve(module: sc.ExperimentModule[...]) -> None:
+def _resolve(module: sc.ExperimentModule[None, ...]) -> None:
     @sc.template(id="test.graph", kind="graph")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module())

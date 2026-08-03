@@ -161,7 +161,10 @@ class ModuleContext:
 
         return tuple(self._effects)
 
-    def append_invocation_internal(self, invocation: ModuleInvocation) -> None:
+    def append_invocation_internal[ProductsT](
+        self,
+        invocation: ModuleInvocation[ProductsT],
+    ) -> None:
         """Append one child after immediately closing its interface bindings."""
 
         self._effects.append(module_instance(invocation))
@@ -218,7 +221,10 @@ class ModuleContext:
         )
 
     @overload
-    def call(self, part: ModuleInvocation) -> ModuleInvocation: ...
+    def call[ProductsT](
+        self,
+        part: ModuleInvocation[ProductsT],
+    ) -> ModuleInvocation[ProductsT]: ...
 
     @overload
     def call(self, part: DomainCall) -> DomainCall: ...
@@ -228,8 +234,8 @@ class ModuleContext:
 
     def call(
         self,
-        part: ModuleInvocation | DomainCall | DomainCallProvider,
-    ) -> ModuleInvocation | DomainCall | DomainCallProvider:
+        part: ModuleInvocation[object] | DomainCall | DomainCallProvider,
+    ) -> ModuleInvocation[object] | DomainCall | DomainCallProvider:
         """Append one explicitly constructed module or domain occurrence."""
 
         if isinstance(part, ModuleInvocation):

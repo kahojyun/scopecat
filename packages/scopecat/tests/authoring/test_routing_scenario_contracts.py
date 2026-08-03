@@ -256,7 +256,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
             authoring.Input[EntityRef | str],
             authoring.EntityType(entity_kind="logical_device"),
         ],
-    ) -> None:
+    ) -> authoring.ProductRef:
         digitizer = context._resource(
             "digitizer",
             requires=(_READOUT_ACQUIRE,),
@@ -268,6 +268,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
             resource=digitizer,
             results={_READOUT_SAMPLE_IQ: iq},
         )
+        return iq
 
     @authoring.template(
         id="test.resource-binding-scenarios.channel-selection",
@@ -276,7 +277,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
     def template(experiment: authoring.ExperimentContext) -> None:
         call = experiment.run(module(qubit))
         experiment.scan(axis(qubit, ("q0", "q1", "q0")))
-        experiment.record(call.products.iq)
+        experiment.record(call.products)
 
     resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
@@ -337,7 +338,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
             authoring.Input[EntityRef | str],
             authoring.EntityType(entity_kind="logical_device"),
         ],
-    ) -> None:
+    ) -> authoring.ProductRef:
         readout_source = context._resource(
             "readout_source",
             requires=(_READOUT_EMIT,),
@@ -362,6 +363,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
             resource=digitizer,
             results={_READOUT_SAMPLE_IQ: iq},
         )
+        return iq
 
     @authoring.template(
         id="test.resource-binding-scenarios.split-readout",
@@ -375,7 +377,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         ],
     ) -> None:
         call = experiment.run(module(qubit))
-        experiment.record(call.products.iq)
+        experiment.record(call.products)
 
     resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(

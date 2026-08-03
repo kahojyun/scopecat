@@ -234,10 +234,16 @@ class ExperimentContext:
         )
 
     @overload
-    def run(self, part: ExperimentModule[...]) -> ModuleInvocation: ...
+    def run[ProductsT](
+        self,
+        part: ExperimentModule[ProductsT, ...],
+    ) -> ModuleInvocation[ProductsT]: ...
 
     @overload
-    def run(self, part: ModuleInvocation) -> ModuleInvocation: ...
+    def run[ProductsT](
+        self,
+        part: ModuleInvocation[ProductsT],
+    ) -> ModuleInvocation[ProductsT]: ...
 
     @overload
     def run(self, part: DomainCall) -> DomainCall: ...
@@ -510,39 +516,39 @@ class ScratchDefinition[**P]:
 
 
 @overload
-def module[**P](
-    definition: Callable[Concatenate[ModuleContext, P], None],
+def module[ProductsT, **P](
+    definition: Callable[Concatenate[ModuleContext, P], ProductsT],
     /,
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentModule[P]: ...
+) -> ExperimentModule[ProductsT, P]: ...
 
 
 @overload
-def module[**P](
+def module[ProductsT, **P](
     definition: None = None,
     /,
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> Callable[
-    [Callable[Concatenate[ModuleContext, P], None]],
-    ExperimentModule[P],
+    [Callable[Concatenate[ModuleContext, P], ProductsT]],
+    ExperimentModule[ProductsT, P],
 ]: ...
 
 
-def module[**P](
-    definition: Callable[Concatenate[ModuleContext, P], None] | None = None,
+def module[ProductsT, **P](
+    definition: Callable[Concatenate[ModuleContext, P], ProductsT] | None = None,
     /,
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
-    ExperimentModule[P]
+    ExperimentModule[ProductsT, P]
     | Callable[
-        [Callable[Concatenate[ModuleContext, P], None]],
-        ExperimentModule[P],
+        [Callable[Concatenate[ModuleContext, P], ProductsT]],
+        ExperimentModule[ProductsT, P],
     ]
 ):
     """Define a closed module from a Python function."""
@@ -662,12 +668,12 @@ def scratch[**P](
     return decorate(definition) if definition is not None else decorate
 
 
-def _module_from_function[**P](
-    fn: Callable[Concatenate[ModuleContext, P], None],
+def _module_from_function[ProductsT, **P](
+    fn: Callable[Concatenate[ModuleContext, P], ProductsT],
     *,
     id: str | None,
     metadata: Mapping[str, MetadataValue] | None,
-) -> ExperimentModule[P]:
+) -> ExperimentModule[ProductsT, P]:
     source = cast("DefinitionFunction", fn)
     contract = _definition_contract(
         source,
@@ -677,7 +683,6 @@ def _module_from_function[**P](
     values = contract.values
     context = ModuleContext()
     result = source(context, **values)
-    _require_definition_none(result, kind="module")
     selected_metadata = dict(metadata or {})
     doc = inspect.getdoc(fn)
     if doc is not None:
@@ -689,8 +694,9 @@ def _module_from_function[**P](
     )
     return create_experiment_module_internal(
         module_def,
-        definition=cast("Callable[P, object]", fn),
+        definition=cast("Callable[P, ProductsT]", fn),
         signature=contract.signature,
+        products=cast("ProductsT", result),
     )
 
 
@@ -897,7 +903,7 @@ def _input_port(name: str, value: ValueRef) -> ModuleInputPort:
     return ModuleInputPort(id=name, value_type=value.value_type)
 
 
-def _module_invocation(value: object) -> ModuleInvocation:
+def _module_invocation(value: object) -> ModuleInvocation[object]:
     if isinstance(value, ExperimentModule):
         return value()
     try:

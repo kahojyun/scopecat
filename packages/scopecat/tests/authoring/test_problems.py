@@ -164,7 +164,7 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
     assert result.preview.experiment_id == simple_template().definition.id
 
 
-def _module_consuming_input() -> sc.ExperimentModule[...]:
+def _module_consuming_input() -> sc.ExperimentModule[None, ...]:
     @sc.module(id="test.consumed-input")
     def module(context: sc.ModuleContext, value: float) -> None:
         context.compute(

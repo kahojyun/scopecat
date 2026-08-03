@@ -20,7 +20,7 @@ def _identity(value: object) -> object:
 def _point_module(
     *,
     module_id: str,
-) -> sc.ExperimentModule[...]:
+) -> sc.ExperimentModule[None, ...]:
     @sc.module(id=module_id)
     def module(
         context: sc.ModuleContext,
@@ -37,7 +37,7 @@ def _point_module(
 
 
 def _resolve(
-    module: sc.ExperimentModule[...],
+    module: sc.ExperimentModule[None, ...],
     point: sc.ValueRef,
     *,
     scan: sc.Scan | None = None,

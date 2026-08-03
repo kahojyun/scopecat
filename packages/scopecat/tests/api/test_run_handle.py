@@ -32,7 +32,7 @@ def SIMPLE_FREQUENCY_SCAN(
         authoring.Input[Quantity],
         authoring.ScalarType(authoring.QuantityType(unit="GHz")),
     ],
-) -> None:
+) -> authoring.ProductRef:
     source = module._resource(
         "source",
         requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
@@ -48,6 +48,7 @@ def SIMPLE_FREQUENCY_SCAN(
         resource=source,
         results={_SCALAR_SIGNAL_VALUE: signal},
     )
+    return signal
 
 
 def _quantity_coordinate(record: MeasurementRecord, coordinate_id: str) -> Quantity:
@@ -86,7 +87,7 @@ def simple_frequency_scan_template() -> ExperimentTemplate[...]:
                 points=3,
             ),
         )
-        experiment.record(module_call.products.signal, record_id="signal")
+        experiment.record(module_call.products, record_id="signal")
 
     return authoring.template(
         id="test.session.simple_frequency_scan",

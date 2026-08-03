@@ -9,6 +9,7 @@ from scopecat import Quantity, QuantityType
 from scopecat_quantum import authoring as quantum
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
+    BinaryIqProbabilityProducts,
     IqCentroid,
     binary_iq_probabilities,
 )
@@ -78,7 +79,7 @@ def production_drag_capture(
         sc.Input[list[dict[str, object]]],
         QUBIT_PARAMETER_TABLE_TYPE,
     ],
-) -> None:
+) -> BinaryIqProbabilityProducts:
     call = (
         production_drag_program(
             qubit="q0",
@@ -88,7 +89,7 @@ def production_drag_capture(
         .with_shots(PRODUCTION_DRAG_GATE_SHOTS)
     )
     module.call(call)
-    binary_iq_probabilities(
+    return binary_iq_probabilities(
         module,
         call.results.iq_shots,
         discriminator=_DISCRIMINATOR,
@@ -106,10 +107,7 @@ def production_drag_template(experiment: sc.ExperimentContext) -> None:
             qubits=qubit_parameters(),
         )
     )
-    experiment.record(
-        capture.products.probability_0,
-        capture.products.probability_1,
-    )
+    experiment.record(capture.products)
 
 
 __all__ = [

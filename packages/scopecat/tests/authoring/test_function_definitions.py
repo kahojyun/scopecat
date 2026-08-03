@@ -48,7 +48,7 @@ def test_module_decorator_injects_one_explicit_context() -> None:
     assert signature.return_annotation is sc.ModuleInvocation
     assert count_source.__wrapped__.__name__ == "count_source"
     assert isinstance(count_source, sc.ExperimentModule)
-    invocation = assert_type(count_source(2), sc.ModuleInvocation)
+    invocation = assert_type(count_source(2), sc.ModuleInvocation[None])
     assert invocation.instance_id == "count_source"
 
     if TYPE_CHECKING:

@@ -55,7 +55,7 @@ _SET_OFFSET_VALUE_PATH = _SET_OFFSET.property("value.path")
 _SET_POWER_VALUE = InterfaceRef("test.set_power/v1").property("value")
 
 
-def _resource_module() -> sc.ExperimentModule[...]:
+def _resource_module() -> sc.ExperimentModule[None, ...]:
     frequency = sc.Quantity(value=5.0, unit="GHz")
 
     @sc.module(id="test.resources.child")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 
@@ -24,6 +25,12 @@ from scopecat.sdk.domain import (
 )
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
+
+
+@dataclass(frozen=True, slots=True)
+class _DomainProducts:
+    raw: sc.ProductRef
+    summary: sc.ProductRef
 
 
 def _domain_scenario(
@@ -58,7 +65,7 @@ def _domain_scenario(
     def domain_module(
         module: sc.ModuleContext,
         count_input: Annotated[sc.Input[int], sc.IntType(minimum=0)],
-    ) -> None:
+    ) -> _DomainProducts:
         summary = module._product("summary", unit="count", dtype="int64")
         call = domain_call(
             program,
@@ -78,6 +85,7 @@ def _domain_scenario(
             kernel=summarize,
         )
         module.call(call)
+        return _DomainProducts(raw=call.results.raw, summary=summary)
 
     @sc.template(
         id=f"test.sdk.context.{namespace}",
@@ -87,7 +95,7 @@ def _domain_scenario(
         module_call = experiment.run(domain_module(count_input=count))
         experiment.scan(sc.axis(count, (1, 3, 5)))
         if record_raw:
-            experiment.record(module_call.products["call/raw"], record_id="raw")
+            experiment.record(module_call.products.raw, record_id="raw")
         experiment.record(module_call.products.summary, record_id="summary")
 
     resolved = bind_invocation(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -18,11 +19,17 @@ def _kernel(value: MeasurementValue) -> dict[str, MeasurementValue]:
     return {"result": value}
 
 
+@dataclass(frozen=True, slots=True)
+class _DerivedProducts:
+    left: sc.ProductRef
+    right: sc.ProductRef
+
+
 def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     tmp_path: Path,
 ) -> None:
     @sc.module(id="test.postprocessor.lowering")
-    def module(context: sc.ModuleContext) -> None:
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
         raw = context._product("raw")
         derived = context._product("derived")
@@ -44,12 +51,13 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
             resource=source,
             results={_SCALAR_SIGNAL_SAMPLE_RAW: raw},
         )
+        return derived
 
     @sc.template(id="test.postprocessor.lowering", kind="postprocessor")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(module())
-        experiment.record(call.products.derived, record_id="first")
-        experiment.record(call.products.derived, record_id="second")
+        experiment.record(call.products, record_id="first")
+        experiment.record(call.products, record_id="second")
 
     resolved = bind_invocation(template(), config_profile=load_config())
     program = resolved.bindings
@@ -77,7 +85,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
 
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
     @sc.module(id="test.postprocessor.hidden-id.child")
-    def child(context: sc.ModuleContext) -> None:
+    def child(context: sc.ModuleContext) -> sc.ProductRef:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
         raw = context._product("raw")
         derived = context._product("derived")
@@ -92,20 +100,22 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
             resource=source,
             results={_SCALAR_SIGNAL_SAMPLE_RAW: raw},
         )
+        return derived
 
     left = child.instantiate("left")
     right = child.instantiate("right")
 
     @sc.module(id="test.postprocessor.hidden-id.root")
-    def root(context: sc.ModuleContext) -> None:
+    def root(context: sc.ModuleContext) -> _DerivedProducts:
         context.call(left)
         context.call(right)
+        return _DerivedProducts(left=left.products, right=right.products)
 
     @sc.template(id="test.postprocessor.hidden-id", kind="postprocessor")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(root())
-        experiment.record(call.products["left/derived"], record_id="left")
-        experiment.record(call.products["right/derived"], record_id="right")
+        experiment.record(call.products.left, record_id="left")
+        experiment.record(call.products.right, record_id="right")
 
     def compile_input_use_ids() -> dict[str, str]:
         program = bind_invocation(
@@ -133,13 +143,13 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
 
 def test_recorded_product_requires_a_producer() -> None:
     @sc.module(id="test.product.owner")
-    def module(context: sc.ModuleContext) -> None:
-        context._product("orphan")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        return context._product("orphan")
 
     @sc.template(id="test.product.owner", kind="product-owner")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(module())
-        experiment.record(call.products.orphan)
+        experiment.record(call.products)
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(template(), config_profile=load_config())

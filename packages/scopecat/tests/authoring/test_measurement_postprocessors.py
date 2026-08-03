@@ -57,8 +57,8 @@ def test_module_requires_postprocessor_products_and_unique_ids() -> None:
 
 def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
     @sc.module(id="test.postprocessor.source")
-    def child(context: sc.ModuleContext) -> None:
-        context._product("raw")
+    def child(context: sc.ModuleContext) -> sc.ProductRef:
+        return context._product("raw")
 
     nested = child.instantiate("nested")
 
@@ -68,7 +68,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
         derived = context._product("derived")
         context._postprocess(
             "derive",
-            input=nested.products.raw,
+            input=nested.products,
             outputs={"result": derived},
             kernel=_identity,
         )

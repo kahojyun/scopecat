@@ -38,7 +38,7 @@ def _combine_payload_and_label(*, payload: object, label: str) -> dict[str, obje
     return {"payload": payload, "label": label}
 
 
-def _composable_module() -> sc.ExperimentModule[...]:
+def _composable_module() -> sc.ExperimentModule[None, ...]:
     payload_type = _payload_type()
 
     @sc.module(id="test.composition-invariant.source")
@@ -76,9 +76,9 @@ def _composable_module() -> sc.ExperimentModule[...]:
 
 def _compose_module(
     id: str,
-    *parts: sc.ModuleInvocation,
+    *parts: sc.ModuleInvocation[None],
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> sc.ExperimentModule[...]:
+) -> sc.ExperimentModule[None, ...]:
     @sc.module(id=id, metadata=metadata)
     def module(context: sc.ModuleContext) -> None:
         for part in parts:

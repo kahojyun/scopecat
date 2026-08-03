@@ -1,11 +1,14 @@
 """Concrete module invocation handles and instance-owned views."""
 
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Protocol, override
+from typing import Protocol, cast, override
 
+from scopecat.authoring._module_products import relocate_module_products
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.program.bindings import ResourcePort
@@ -46,6 +49,9 @@ class ModuleHandle(Protocol):
     @property
     def resource_ports(self) -> tuple[ResourcePort, ...]: ...
 
+    @property
+    def _product_outputs_internal(self) -> ProductOutputs: ...
+
 
 def _empty_resource_bindings() -> FrozenMapping[
     LogicalResourcePortId, LogicalResourcePortId
@@ -54,7 +60,7 @@ def _empty_resource_bindings() -> FrozenMapping[
 
 
 @dataclass(frozen=True, slots=True, repr=False, init=False)
-class ModuleInvocation:
+class ModuleInvocation[ProductsT]:
     module: ModuleHandle
     instance_id: str
     inputs: Mapping[str, ValueRef] = field(default_factory=empty_program_mapping)
@@ -66,6 +72,7 @@ class ModuleInvocation:
         repr=False,
         compare=False,
     )
+    _products: ProductsT = field(repr=False, compare=False)
 
     def __init__(self) -> None:
         msg = "ModuleInvocation is created by calling or instantiating a module"
@@ -76,6 +83,12 @@ class ModuleInvocation:
         """Typed nominal owner used by unresolved module-interface edges."""
 
         return self._key
+
+    @property
+    def products(self) -> ProductsT:
+        """Return the typed products explicitly returned by the module."""
+
+        return self._products
 
     @property
     def outputs(self) -> ModuleOutputs:
@@ -96,8 +109,8 @@ class ModuleInvocation:
         )
 
     @property
-    def products(self) -> ProductOutputs:
-        """Product references owned by this explicit module instance."""
+    def _product_outputs_internal(self) -> ProductOutputs:
+        """Return every product visible to compiler projection."""
 
         relative_ports = self.module.definition.products
         return ProductOutputs(
@@ -208,25 +221,40 @@ class ModuleOutputs(Mapping[str, ValueRef]):
         return sorted((*super().__dir__(), *self._values))
 
 
-def create_module_invocation(
+def create_module_invocation[ProductsT](
     *,
     module: ModuleHandle,
     instance_id: str,
     inputs: Mapping[str, ValueRef],
     resource_bindings: Mapping[LogicalResourcePortId, LogicalResourcePortId],
-) -> ModuleInvocation:
+    products: ProductsT,
+) -> ModuleInvocation[ProductsT]:
     """Close values validated and normalized by ``ExperimentModule``."""
 
-    invocation = object.__new__(ModuleInvocation)
+    invocation = cast(
+        "ModuleInvocation[ProductsT]",
+        object.__new__(ModuleInvocation),
+    )
     object.__setattr__(invocation, "module", module)
     object.__setattr__(invocation, "instance_id", instance_id)
     object.__setattr__(invocation, "inputs", inputs)
     object.__setattr__(invocation, "resource_bindings", resource_bindings)
     object.__setattr__(invocation, "_key", InvocationKey.fresh())
+    object.__setattr__(
+        invocation,
+        "_products",
+        relocate_module_products(
+            products,
+            sources=module._product_outputs_internal.values(),
+            targets=invocation._product_outputs_internal.values(),
+        ),
+    )
     return invocation
 
 
-def module_instance(invocation: ModuleInvocation) -> ModuleInstance:
+def module_instance[ProductsT](
+    invocation: ModuleInvocation[ProductsT],
+) -> ModuleInstance:
     bindings = tuple(
         ModuleImportBinding(import_id=import_id, source=source)
         for import_id, source in invocation.inputs.items()
@@ -245,7 +273,9 @@ def module_instance(invocation: ModuleInvocation) -> ModuleInstance:
     )
 
 
-def module_use_invocation(selected: ModuleInvocation | object) -> ModuleInvocation:
+def module_use_invocation(
+    selected: object,
+) -> ModuleInvocation[object]:
     if isinstance(selected, ModuleInvocation):
         return selected
     msg = "module composition requires a ModuleInvocation"

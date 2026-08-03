@@ -64,31 +64,33 @@ def test_binary_iq_postprocessor_classifies_one_point(
     tie_policy: Literal["state_0", "state_1"],
     expected: tuple[float, float],
 ) -> None:
-    captured: list[BinaryIqProbabilityProducts] = []
-
     @authoring.program(id="test.binary-iq.kernel")
     def acquire_iq(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq_shots")
 
     @sc.module(id="test.binary-iq.kernel")
-    def discriminate(module: sc.ModuleContext) -> None:
+    def discriminate(module: sc.ModuleContext) -> BinaryIqProbabilityProducts:
         call = acquire_iq("q0").with_shots(4)
         module.call(call)
-        captured.append(
-            assert_type(
-                binary_iq_probabilities(
-                    module,
-                    call.results.iq_shots,
-                    discriminator=_discriminator(tie_policy=tie_policy),
-                    id="discriminate",
-                ),
-                BinaryIqProbabilityProducts,
-            )
+        return assert_type(
+            binary_iq_probabilities(
+                module,
+                call.results.iq_shots,
+                discriminator=_discriminator(tie_policy=tie_policy),
+                id="discriminate",
+            ),
+            BinaryIqProbabilityProducts,
         )
 
-    [products] = captured
+    products = assert_type(discriminate.products, BinaryIqProbabilityProducts)
     assert products.probability_0.id == "probability_0"
     assert products.probability_1.id == "probability_1"
+    invocation_products = assert_type(
+        discriminate().products,
+        BinaryIqProbabilityProducts,
+    )
+    assert invocation_products.probability_0.id == "kernel/probability_0"
+    assert invocation_products.probability_1.id == "kernel/probability_1"
     declarations = {
         product.qualified_id: product
         for product in discriminate.definition.body.products

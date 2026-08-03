@@ -426,13 +426,13 @@ def test_typed_result_members_keep_their_declared_recording_roles() -> None:
 
 def test_typed_result_recording_semantics_survive_a_module_boundary() -> None:
     @module(id="test.symbolic.sweep-module")
-    def sweep_module(context: ModuleContext) -> None:
+    def sweep_module(context: ModuleContext) -> NetworkSweepProducts:
         vna = network_sweep(context, "readout")
         vna.ensure(points=11)
-        vna.sweep()
+        return vna.sweep()
 
     call = sweep_module.instantiate("segment")
-    frequency = call.products["readout/frequency"]
+    frequency = call.products.frequency
 
     context = ExperimentContext()
     context.run(call)
