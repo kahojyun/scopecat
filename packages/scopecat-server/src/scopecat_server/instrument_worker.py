@@ -736,11 +736,8 @@ class SubprocessInstrumentBackendEndpoint:
                 if received is not None:
                     response = received.response
                     self._process.join(max(0.0, (selected_deadline - monotonic()) / 2))
-            if self._process.is_alive():
-                self._close_connection()
-                _terminate_process_until(self._process, selected_deadline)
-            else:
-                self._close_connection()
+            self._close_connection()
+            _terminate_process_until(self._process, selected_deadline)
             self._receiver.join(max(0.0, selected_deadline - monotonic()))
             if self._receiver.is_alive():
                 raise InstrumentBackendUnavailable(
@@ -1212,7 +1209,7 @@ def _terminate_process_until(process: BaseProcess, deadline: float) -> None:
         process.join(remaining / 2)
     if process.is_alive():
         process.kill()
-        process.join(max(0.0, deadline - monotonic()))
+    process.join(max(0.0, deadline - monotonic()))
     if process.is_alive():
         raise InstrumentBackendUnavailable("instrument worker did not stop")
 
