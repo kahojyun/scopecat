@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import math
+from typing import cast
 
 import pytest
 
-from scopecat.api.data import Data
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import Dataset, PointMask, Variable
 from scopecat.records.artifact import RunContentEntry
@@ -22,7 +22,6 @@ from scopecat.records.measurement import (
     MeasurementUnavailable,
     MeasurementVariable,
 )
-from scopecat.runs.data import RunMeasurementDatasetResult
 
 
 def test_dataset_exposes_labeled_variables_and_raw_records() -> None:
@@ -90,20 +89,35 @@ def test_dataset_supports_point_isel_sel_and_unit_aware_where() -> None:
         dataset.groupby("signal")
 
 
-def test_data_measurements_returns_the_notebook_dataset_facade() -> None:
-    dataset = _dataset()
-    run = _DataRunStub(
-        RunMeasurementDatasetResult(
-            dataset_entry=dataset.entry,
-            dataset=dataset.raw,
-        )
+@pytest.mark.parametrize(
+    ("indexer", "expected_frequency", "expected_size"),
+    [
+        (1, ((11.0,), (13.0,), (15.0,)), 1),
+        (slice(1, None), ((11.0,), (13.0,), (15.0,)), 1),
+        ([1, 0], ((11.0, 10.0), (13.0, 12.0), (15.0, 14.0)), 2),
+    ],
+)
+def test_dataset_isel_selects_fixed_local_dimensions_without_dropping_them(
+    indexer: int | slice | list[int],
+    expected_frequency: tuple[tuple[float, ...], ...],
+    expected_size: int,
+) -> None:
+    selected = _dataset().isel(sample=indexer)
+
+    assert selected.dims == {"point": 3, "sample": expected_size}
+    assert selected["frequency"].values == expected_frequency
+    assert all(
+        len(cast("tuple[complex, ...]", value)) == expected_size
+        for value in selected["signal"].values
     )
 
-    selected = Data(run).measurements()  # pyright: ignore[reportArgumentType]
 
-    assert isinstance(selected, Dataset)
-    assert selected.entry is dataset.entry
-    assert selected.raw is dataset.raw
+def test_dataset_isel_combines_point_and_fixed_local_selection() -> None:
+    selected = _dataset().isel(point=[2, 0], sample=[1])
+
+    assert [record.point_index for record in selected.records] == [2, 0]
+    assert selected.dims == {"point": 2, "sample": 1}
+    assert selected["frequency"].values == ((15.0,), (11.0,))
 
 
 def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() -> None:
@@ -160,22 +174,101 @@ def test_ragged_dataset_exports_indexed_xarray_observations() -> None:
 
     xarray_dataset = dataset.to_xarray()
     assert isinstance(xarray_dataset, xr.Dataset)
-    assert tuple(xarray_dataset["signal"].dims) == ("signal__observation",)
-    assert list(xarray_dataset["signal__parent_point"].values) == [0, 0, 1, 2, 2, 2]
-    assert list(xarray_dataset["signal__row_size"].values) == [2, 1, 3]
-    assert list(xarray_dataset["signal__sample_extent"].values) == [2, 1, 3]
-    assert list(xarray_dataset["signal__sample_index"].values) == [0, 1, 0, 0, 1, 2]
+    observation = "readout__sample__observation"
+    assert tuple(xarray_dataset["frequency"].dims) == (observation,)
+    assert tuple(xarray_dataset["signal"].dims) == (observation,)
+    parent = xarray_dataset["readout__sample__parent_point_index"]
+    assert list(parent.values) == [10, 10, 20, 40, 40, 40]
+    assert parent.attrs["scopecat_parent_identity"] == "durable_point_index"
+    assert parent.attrs["source_recording_group_id"] == "readout"
+    assert list(xarray_dataset["readout__sample__row_size"].values) == [2, 1, 3]
+    assert list(xarray_dataset["readout__sample__sample_extent"].values) == [2, 1, 3]
+    assert list(xarray_dataset["readout__sample__sample_index"].values) == [
+        0,
+        1,
+        0,
+        0,
+        1,
+        2,
+    ]
     assert (
         xarray_dataset["signal"].attrs["scopecat_ragged_representation"]
         == "indexed_observation"
     )
 
 
+def test_ungrouped_ragged_variables_keep_independent_xarray_observations() -> None:
+    xr = pytest.importorskip("xarray")
+    dataset = _ragged_dataset()
+    for variable in dataset.raw.dataset_schema.variables:
+        if variable.id in {"frequency", "signal"}:
+            variable.recording_group_id = None
+
+    xarray_dataset = dataset.to_xarray()
+
+    assert isinstance(xarray_dataset, xr.Dataset)
+    assert tuple(xarray_dataset["frequency"].dims) == (
+        "frequency__sample__observation",
+    )
+    assert tuple(xarray_dataset["signal"].dims) == ("signal__sample__observation",)
+
+
+def test_grouped_ragged_xarray_rejects_misaligned_point_local_shapes() -> None:
+    pytest.importorskip("xarray")
+    dataset = _ragged_dataset()
+    dataset.raw.records[1].observables["signal"] = MeasurementArray.create(
+        shape=(2,),
+        values=(
+            ComplexComponents(real=1.0, imag=0.0),
+            ComplexComponents(real=1.0, imag=1.0),
+        ),
+        dtype="complex128",
+        unit="ratio",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"recording group 'readout'.*do not share one point-local",
+    ):
+        dataset.to_xarray()
+
+
+def test_ragged_sample_selection_applies_independently_per_point_and_group() -> None:
+    dataset = _ragged_dataset()
+
+    with pytest.raises(ValueError, match=r"use isel_ragged\(\)"):
+        dataset.isel(sample=slice(0, 2))
+
+    selected = dataset.isel_ragged(
+        sample=slice(0, 2),
+        group="readout",
+    )
+
+    assert selected.dims["sample"] is None
+    assert [
+        len(cast("tuple[float, ...]", value)) for value in selected["frequency"].values
+    ] == [2, 1, 2]
+    assert [
+        len(cast("tuple[complex, ...]", value)) for value in selected["signal"].values
+    ] == [2, 1, 2]
+    with pytest.raises(
+        IndexError,
+        match=r"point_index 20, variable 'frequency'.*sample index 1",
+    ):
+        dataset.isel_ragged(sample=1, group="readout")
+    with pytest.raises(ValueError, match=r"belongs to recording group 'readout'"):
+        dataset.isel_ragged(sample=slice(0, 1), variable="signal")
+
+
 def _ragged_dataset() -> Dataset:
     dataset = _dataset()
     dataset.raw.dataset_schema.dimensions[1].size = None
+    for variable in dataset.raw.dataset_schema.variables:
+        if variable.id == "frequency":
+            variable.recording_group_id = "readout"
     lengths = (2, 1, 3)
     for point, length in enumerate(lengths):
+        dataset.raw.records[point].point_index = (10, 20, 40)[point]
         dataset.raw.records[point].coordinates["frequency"] = MeasurementArray.create(
             shape=(length,),
             values=tuple(10.0 * point + index for index in range(length)),
@@ -192,19 +285,6 @@ def _ragged_dataset() -> Dataset:
             unit="ratio",
         )
     return Dataset(dataset.raw, dataset.entry)
-
-
-class _DataRunStub:
-    def __init__(self, result: RunMeasurementDatasetResult) -> None:
-        self._result = result
-
-    def measurements(
-        self,
-        *,
-        selector: str = "raw-measurements",
-    ) -> RunMeasurementDatasetResult:
-        assert selector == "raw-measurements"
-        return self._result
 
 
 def _dataset() -> Dataset:

@@ -22,6 +22,7 @@ from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetSchema,
+    MeasurementDimension,
     MeasurementDType,
     MeasurementRecord,
     MeasurementScalar,
@@ -39,7 +40,8 @@ if TYPE_CHECKING:
 type NativeScalar = bool | int | float | complex | str
 type NativeValue = NativeScalar | tuple[NativeValue, ...] | None
 type GroupKey = NativeScalar | None
-type PointIndexer = int | slice | Sequence[int] | Sequence[bool]
+type DimensionIndexer = int | slice | Sequence[int] | Sequence[bool]
+type PointIndexer = DimensionIndexer
 type PointCondition = PointMask | Sequence[bool]
 type SelectionMethod = Literal["exact", "nearest"]
 type PandasLayout = Literal["points", "long"]
@@ -83,12 +85,24 @@ class _NumpyModule(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class _RaggedXarrayLayout:
+    parent_point_indices: tuple[int, ...]
+    row_sizes: tuple[int, ...]
+    local_indices: tuple[tuple[int, ...], ...]
+    local_extents: tuple[tuple[int, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _RaggedXarrayValues:
     values: object
-    parent_points: object
-    row_sizes: object
-    local_indices: tuple[object, ...]
-    local_extents: tuple[object, ...]
+    layout: _RaggedXarrayLayout
+
+
+@dataclass(frozen=True, slots=True)
+class _RaggedAlignmentKey:
+    recording_group_id: str | None
+    variable_id: str | None
+    local_dimensions: tuple[str, ...]
 
 
 class PointMask(Sequence[bool]):
@@ -406,19 +420,131 @@ class Dataset:
         /,
         **indexer_kwargs: PointIndexer,
     ) -> Self:
-        """Select point rows by position while preserving the point dimension."""
+        """Select fixed dimensions by position while preserving every dimension.
+
+        Integer indexers select a one-element extent rather than dropping the
+        dimension. Variable-length dimensions require :meth:`isel_ragged`,
+        whose indexer is applied independently inside each point-local value.
+        """
 
         selected = _merge_indexers(indexers, indexer_kwargs)
-        if set(selected) != {"point"}:
-            unknown = sorted(set(selected) - {"point"})
-            if unknown:
+        if not selected:
+            raise ValueError("isel requires at least one dimension indexer")
+        unknown = sorted(set(selected) - set(self.dims))
+        if unknown:
+            raise ValueError(
+                "isel references unknown dimensions: " + ", ".join(unknown)
+            )
+        ragged = sorted(
+            dimension_id for dimension_id in selected if self.dims[dimension_id] is None
+        )
+        if ragged:
+            raise ValueError(
+                "isel cannot apply one global indexer to variable-length "
+                f"dimensions {', '.join(ragged)}; use isel_ragged() with a "
+                "recording group or variable"
+            )
+
+        point_indexer = selected.pop("point", None)
+        result = (
+            self
+            if point_indexer is None
+            else self._select_indices(
+                _dimension_indices(point_indexer, size=len(self), label="point")
+            )
+        )
+        local_indices = {
+            dimension_id: _dimension_indices(
+                indexer,
+                size=cast("int", result.dims[dimension_id]),
+                label=dimension_id,
+            )
+            for dimension_id, indexer in selected.items()
+        }
+        return result._select_fixed_local_dimensions(local_indices)
+
+    def isel_ragged(
+        self,
+        indexers: Mapping[str, DimensionIndexer] | None = None,
+        /,
+        *,
+        group: str | None = None,
+        variable: str | None = None,
+        **indexer_kwargs: DimensionIndexer,
+    ) -> Self:
+        """Select samples independently inside each point-local ragged value.
+
+        Use ``group=`` to keep a recorded coordinate/observable bundle aligned,
+        or ``variable=`` for one ungrouped variable. Integer indexers preserve a
+        one-element local dimension, matching :meth:`isel`.
+        """
+
+        selected = _merge_indexers(indexers, indexer_kwargs)
+        if not selected:
+            raise ValueError("isel_ragged requires at least one dimension indexer")
+        if (group is None) == (variable is None):
+            raise ValueError("isel_ragged requires exactly one of group= or variable=")
+        unknown = sorted(set(selected) - set(self.dims))
+        if unknown:
+            raise ValueError(
+                "isel_ragged references unknown dimensions: " + ", ".join(unknown)
+            )
+        fixed = sorted(
+            dimension_id
+            for dimension_id in selected
+            if self.dims[dimension_id] is not None
+        )
+        if fixed:
+            raise ValueError(
+                "isel_ragged only accepts variable-length dimensions; use isel() "
+                f"for {', '.join(fixed)}"
+            )
+
+        if variable is not None:
+            try:
+                selected_variable = self[variable]
+            except KeyError as error:
                 raise ValueError(
-                    "isel currently supports the point dimension; unknown "
-                    f"dimensions: {', '.join(unknown)}"
+                    f"unknown measurement variable {variable!r}"
+                ) from error
+            if selected_variable.recording_group_id is not None:
+                raise ValueError(
+                    f"variable {variable!r} belongs to recording group "
+                    f"{selected_variable.recording_group_id!r}; select that group "
+                    "to keep its variables aligned"
                 )
-            raise ValueError("isel requires a point indexer")
-        indices = _point_indices(selected["point"], size=len(self))
-        return self._select_indices(indices)
+            target_variables = (selected_variable,)
+        else:
+            target_variables = tuple(
+                candidate
+                for candidate in self.variables.values()
+                if candidate.recording_group_id == group
+            )
+            if not target_variables:
+                raise ValueError(
+                    f"measurement dataset has no recording group {group!r}"
+                )
+        target_ids = {
+            candidate.id
+            for candidate in target_variables
+            if set(selected) & set(candidate.dims[1:])
+        }
+        unused = sorted(
+            dimension_id
+            for dimension_id in selected
+            if not any(dimension_id in candidate.dims for candidate in target_variables)
+        )
+        if unused:
+            target = (
+                f"variable {variable!r}" if variable is not None else f"group {group!r}"
+            )
+            raise ValueError(
+                f"isel_ragged dimensions {', '.join(unused)} are not used by {target}"
+            )
+        return self._select_ragged_local_dimensions(
+            selected,
+            target_variable_ids=target_ids,
+        )
 
     def sel(
         self,
@@ -541,7 +667,11 @@ class Dataset:
                     tuple(record.point_index for record in self.records),
                     dtype=np_module.int64,
                 ),
-                {"long_name": "original measurement point index"},
+                {
+                    "long_name": "durable measurement point_index",
+                    "scopecat_role": "point_index",
+                    "scopecat_identity": "durable_point_index",
+                },
             )
         }
         if "logical_point_id" not in self.variables and any(
@@ -556,66 +686,106 @@ class Dataset:
                 {"long_name": "Scopecat logical point id"},
             )
         data_vars: dict[str, object] = {}
+        ragged_layouts: dict[_RaggedAlignmentKey, _RaggedXarrayLayout] = {}
         for variable in self.variables.values():
             target = coords if variable.role == "coordinate" else data_vars
             if _variable_is_ragged(variable):
-                observation_dim = _ragged_observation_dim(variable.id)
+                alignment = _ragged_alignment_key(variable)
+                alignment_id = _ragged_alignment_id(alignment)
+                observation_dim = _ragged_observation_dim(alignment_id)
                 ragged = _xarray_ragged_values(
                     variable,
                     np_module,
                     records=self.records,
                 )
+                existing_layout = ragged_layouts.get(alignment)
+                if existing_layout is not None and existing_layout != ragged.layout:
+                    owner = (
+                        f"recording group {alignment.recording_group_id!r}"
+                        if alignment.recording_group_id is not None
+                        else f"variable {variable.id!r}"
+                    )
+                    raise ValueError(
+                        f"ragged values in {owner} do not share one point-local "
+                        f"{alignment.local_dimensions!r} layout"
+                    )
                 target[variable.id] = (
                     (observation_dim,),
                     ragged.values,
                     {
                         **_variable_attrs(variable),
                         "scopecat_ragged_representation": "indexed_observation",
+                        "scopecat_ragged_alignment": alignment_id,
                     },
                 )
-                coords[_ragged_parent_name(variable.id)] = (
-                    (observation_dim,),
-                    ragged.parent_points,
-                    {
-                        "long_name": f"parent point position for {variable.id}",
-                        "scopecat_role": "ragged_parent_point",
-                        "source_variable": variable.id,
-                    },
-                )
-                coords[_ragged_row_size_name(variable.id)] = (
-                    ("point",),
-                    ragged.row_sizes,
-                    {
-                        "long_name": f"point-local observation count for {variable.id}",
-                        "scopecat_role": "ragged_row_size",
-                        "source_variable": variable.id,
-                    },
-                )
-                for local_axis, dimension_id in enumerate(variable.dims[1:]):
-                    coords[_ragged_local_index_name(variable.id, dimension_id)] = (
+                if existing_layout is None:
+                    ragged_layouts[alignment] = ragged.layout
+                    source_attrs = _ragged_alignment_attrs(alignment)
+                    coords[_ragged_parent_point_index_name(alignment_id)] = (
                         (observation_dim,),
-                        ragged.local_indices[local_axis],
+                        np_module.asarray(
+                            ragged.layout.parent_point_indices,
+                            dtype=np_module.int64,
+                        ),
                         {
                             "long_name": (
-                                f"point-local {dimension_id} index for {variable.id}"
+                                "durable measurement point_index owning each "
+                                f"{alignment_id} observation"
                             ),
-                            "scopecat_role": "ragged_local_index",
-                            "source_variable": variable.id,
-                            "source_dimension": dimension_id,
+                            "scopecat_role": "ragged_parent_point_index",
+                            "scopecat_parent_identity": "durable_point_index",
+                            **source_attrs,
                         },
                     )
-                    coords[_ragged_local_extent_name(variable.id, dimension_id)] = (
+                    coords[_ragged_row_size_name(alignment_id)] = (
                         ("point",),
-                        ragged.local_extents[local_axis],
+                        np_module.asarray(
+                            ragged.layout.row_sizes,
+                            dtype=np_module.int64,
+                        ),
                         {
                             "long_name": (
-                                f"point-local {dimension_id} extent for {variable.id}"
+                                f"point-local observation count for {alignment_id}"
                             ),
-                            "scopecat_role": "ragged_local_extent",
-                            "source_variable": variable.id,
-                            "source_dimension": dimension_id,
+                            "scopecat_role": "ragged_row_size",
+                            **source_attrs,
                         },
                     )
+                    for local_axis, dimension_id in enumerate(variable.dims[1:]):
+                        coords[_ragged_local_index_name(alignment_id, dimension_id)] = (
+                            (observation_dim,),
+                            np_module.asarray(
+                                ragged.layout.local_indices[local_axis],
+                                dtype=np_module.int64,
+                            ),
+                            {
+                                "long_name": (
+                                    f"point-local {dimension_id} index for "
+                                    f"{alignment_id}"
+                                ),
+                                "scopecat_role": "ragged_local_index",
+                                "source_dimension": dimension_id,
+                                **source_attrs,
+                            },
+                        )
+                        coords[
+                            _ragged_local_extent_name(alignment_id, dimension_id)
+                        ] = (
+                            ("point",),
+                            np_module.asarray(
+                                ragged.layout.local_extents[local_axis],
+                                dtype=np_module.int64,
+                            ),
+                            {
+                                "long_name": (
+                                    f"point-local {dimension_id} extent for "
+                                    f"{alignment_id}"
+                                ),
+                                "scopecat_role": "ragged_local_extent",
+                                "source_dimension": dimension_id,
+                                **source_attrs,
+                            },
+                        )
             else:
                 target[variable.id] = (
                     variable.dims,
@@ -717,6 +887,101 @@ class Dataset:
         )
         return type(self)(raw, self.entry)
 
+    def _select_fixed_local_dimensions(
+        self,
+        indices_by_dimension: Mapping[str, tuple[int, ...]],
+    ) -> Self:
+        if not indices_by_dimension:
+            return self
+        variables = {variable.id: variable for variable in self.variables.values()}
+        records = [
+            _slice_record_local_values(
+                record,
+                variables=variables,
+                target_variable_ids=set(variables),
+                indices_for=lambda _record, variable, _value: {
+                    dimension_id: indices
+                    for dimension_id, indices in indices_by_dimension.items()
+                    if dimension_id in variable.dims[1:]
+                },
+            )
+            for record in self.records
+        ]
+        dimensions = [
+            dimension.model_copy(
+                update={"size": len(indices_by_dimension[dimension.id])}
+            )
+            if dimension.id in indices_by_dimension
+            else dimension.model_copy(deep=True)
+            for dimension in self.schema.dimensions
+        ]
+        return self._copy_with(records=records, dimensions=dimensions)
+
+    def _select_ragged_local_dimensions(
+        self,
+        indexers_by_dimension: Mapping[str, DimensionIndexer],
+        *,
+        target_variable_ids: set[str],
+    ) -> Self:
+        variables = {variable.id: variable for variable in self.variables.values()}
+
+        def indices_for(
+            record: MeasurementRecord,
+            variable: Variable,
+            value: MeasurementValue,
+        ) -> Mapping[str, tuple[int, ...]]:
+            local_shape = _measurement_local_shape(value)
+            selected: dict[str, tuple[int, ...]] = {}
+            for local_axis, dimension_id in enumerate(variable.dims[1:]):
+                indexer = indexers_by_dimension.get(dimension_id)
+                if indexer is None:
+                    continue
+                try:
+                    selected[dimension_id] = _dimension_indices(
+                        indexer,
+                        size=local_shape[local_axis],
+                        label=dimension_id,
+                    )
+                except (IndexError, TypeError, ValueError) as error:
+                    raise type(error)(
+                        f"point_index {record.point_index}, variable "
+                        f"{variable.id!r}: {error}"
+                    ) from error
+            return selected
+
+        records = [
+            _slice_record_local_values(
+                record,
+                variables=variables,
+                target_variable_ids=target_variable_ids,
+                indices_for=indices_for,
+            )
+            for record in self.records
+        ]
+        return self._copy_with(
+            records=records,
+            dimensions=[
+                dimension.model_copy(deep=True) for dimension in self.schema.dimensions
+            ],
+        )
+
+    def _copy_with(
+        self,
+        *,
+        records: Sequence[MeasurementRecord],
+        dimensions: Sequence[MeasurementDimension],
+    ) -> Self:
+        schema = self.schema.model_copy(
+            update={"dimensions": list(dimensions)},
+            deep=True,
+        )
+        raw = MeasurementDataset(
+            schema=schema,
+            records=list(records),
+            metadata=self._raw.metadata.copy(),
+        )
+        return type(self)(raw, self.entry)
+
     def _point_columns(self) -> Mapping[str, Sequence[object]]:
         columns: dict[str, Sequence[object]] = {
             "point_index": tuple(record.point_index for record in self.records),
@@ -804,6 +1069,108 @@ def _flatten_native_array(
     return tuple(flattened)
 
 
+def _slice_record_local_values(
+    record: MeasurementRecord,
+    *,
+    variables: Mapping[str, Variable],
+    target_variable_ids: set[str],
+    indices_for: Callable[
+        [MeasurementRecord, Variable, MeasurementValue],
+        Mapping[str, tuple[int, ...]],
+    ],
+) -> MeasurementRecord:
+    coordinates = dict(record.coordinates)
+    observables = dict(record.observables)
+    for variable_id, variable in variables.items():
+        if variable_id not in target_variable_ids:
+            continue
+        values = coordinates if variable.role == "coordinate" else observables
+        value = values[variable_id]
+        selected = indices_for(record, variable, value)
+        if selected:
+            values[variable_id] = _slice_measurement_value(
+                value,
+                local_dimensions=variable.dims[1:],
+                indices_by_dimension=selected,
+            )
+    return record.model_copy(
+        update={
+            "coordinates": coordinates,
+            "observables": observables,
+        },
+        deep=True,
+    )
+
+
+def _measurement_local_shape(value: MeasurementValue) -> tuple[int, ...]:
+    if isinstance(value, MeasurementScalar):
+        return ()
+    return tuple(value.shape)
+
+
+def _slice_measurement_value(
+    value: MeasurementValue,
+    *,
+    local_dimensions: Sequence[str],
+    indices_by_dimension: Mapping[str, tuple[int, ...]],
+) -> MeasurementValue:
+    if isinstance(value, MeasurementScalar):
+        raise ValueError("cannot apply a local dimension indexer to a scalar value")
+    shape = tuple(value.shape)
+    indices_by_axis = {
+        local_dimensions.index(dimension_id): indices
+        for dimension_id, indices in indices_by_dimension.items()
+    }
+    selected_shape = tuple(
+        len(indices_by_axis[axis]) if axis in indices_by_axis else extent
+        for axis, extent in enumerate(shape)
+    )
+    if isinstance(value, MeasurementUnavailable):
+        return MeasurementUnavailable.create(
+            reason=value.reason,
+            dtype=value.dtype,
+            unit=value.unit,
+            shape=selected_shape,
+            metadata=dict(value.metadata),
+        )
+    return MeasurementArray.create(
+        dtype=value.dtype,
+        unit=value.unit,
+        shape=selected_shape,
+        values=cast(
+            "Sequence[object]",
+            _slice_nested_array(
+                value.values,
+                rank=len(shape),
+                indices_by_axis=indices_by_axis,
+            ),
+        ),
+        metadata=dict(value.metadata),
+    )
+
+
+def _slice_nested_array(
+    value: object,
+    *,
+    rank: int,
+    indices_by_axis: Mapping[int, tuple[int, ...]],
+    axis: int = 0,
+) -> object:
+    if axis == rank:
+        return value
+    items = cast("Sequence[object]", value)
+    indices = indices_by_axis.get(axis, tuple(range(len(items))))
+    return tuple(
+        _slice_nested_array(
+            items[index],
+            rank=rank,
+            indices_by_axis=indices_by_axis,
+            axis=axis + 1,
+        )
+        for index in indices
+    )
+
+
 def _merge_indexers[T](
     indexers: Mapping[str, T] | None,
     kwargs: Mapping[str, T],
@@ -818,29 +1185,36 @@ def _merge_indexers[T](
     return selected
 
 
-def _point_indices(indexer: PointIndexer, *, size: int) -> tuple[int, ...]:
+def _dimension_indices(
+    indexer: DimensionIndexer,
+    *,
+    size: int,
+    label: str,
+) -> tuple[int, ...]:
     if isinstance(indexer, slice):
         return tuple(range(size)[indexer])
     if isinstance(indexer, int) and not isinstance(indexer, bool):
-        return (_normalize_index(indexer, size=size),)
+        return (_normalize_index(indexer, size=size, label=label),)
     if isinstance(indexer, bool):
-        raise TypeError("point indexer must not be a single bool")
+        raise TypeError(f"{label} indexer must not be a single bool")
     selected = tuple(indexer)
     if selected and all(type(value) is bool for value in selected):
         if len(selected) != size:
             raise ValueError(
-                f"point boolean indexer has length {len(selected)}; expected {size}"
+                f"{label} boolean indexer has length {len(selected)}; expected {size}"
             )
         return tuple(index for index, keep in enumerate(selected) if keep)
     if any(isinstance(value, bool) for value in selected):
-        raise TypeError("point indexer cannot mix bool and integer values")
-    return tuple(_normalize_index(int(value), size=size) for value in selected)
+        raise TypeError(f"{label} indexer cannot mix bool and integer values")
+    return tuple(
+        _normalize_index(int(value), size=size, label=label) for value in selected
+    )
 
 
-def _normalize_index(index: int, *, size: int) -> int:
+def _normalize_index(index: int, *, size: int, label: str) -> int:
     selected = index + size if index < 0 else index
     if selected < 0 or selected >= size:
-        raise IndexError(f"point index {index} is out of range for {size} points")
+        raise IndexError(f"{label} index {index} is out of range for extent {size}")
     return selected
 
 
@@ -1017,25 +1391,48 @@ def _xarray_ragged_values(
     )
     return _RaggedXarrayValues(
         values=values,
-        parent_points=np_module.asarray(tuple(parent_points), dtype=np_module.int64),
-        row_sizes=np_module.asarray(tuple(row_sizes), dtype=np_module.int64),
-        local_indices=tuple(
-            np_module.asarray(tuple(indices), dtype=np_module.int64)
-            for indices in local_indices
-        ),
-        local_extents=tuple(
-            np_module.asarray(tuple(extents), dtype=np_module.int64)
-            for extents in local_extents
+        layout=_RaggedXarrayLayout(
+            parent_point_indices=tuple(parent_points),
+            row_sizes=tuple(row_sizes),
+            local_indices=tuple(tuple(indices) for indices in local_indices),
+            local_extents=tuple(tuple(extents) for extents in local_extents),
         ),
     )
 
 
-def _ragged_observation_dim(variable_id: str) -> str:
-    return f"{variable_id}__observation"
+def _ragged_alignment_key(variable: Variable) -> _RaggedAlignmentKey:
+    group = variable.recording_group_id
+    return _RaggedAlignmentKey(
+        recording_group_id=group,
+        variable_id=variable.id if group is None else None,
+        local_dimensions=variable.dims[1:],
+    )
 
 
-def _ragged_parent_name(variable_id: str) -> str:
-    return f"{variable_id}__parent_point"
+def _ragged_alignment_id(alignment: _RaggedAlignmentKey) -> str:
+    owner = alignment.recording_group_id or cast("str", alignment.variable_id)
+    return "__".join((owner, *alignment.local_dimensions))
+
+
+def _ragged_alignment_attrs(
+    alignment: _RaggedAlignmentKey,
+) -> dict[str, object]:
+    attrs: dict[str, object] = {
+        "source_dimensions": alignment.local_dimensions,
+    }
+    if alignment.recording_group_id is not None:
+        attrs["source_recording_group_id"] = alignment.recording_group_id
+    else:
+        attrs["source_variable"] = cast("str", alignment.variable_id)
+    return attrs
+
+
+def _ragged_observation_dim(alignment_id: str) -> str:
+    return f"{alignment_id}__observation"
+
+
+def _ragged_parent_point_index_name(alignment_id: str) -> str:
+    return f"{alignment_id}__parent_point_index"
 
 
 def _ragged_row_size_name(variable_id: str) -> str:
