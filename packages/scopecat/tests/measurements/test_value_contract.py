@@ -95,6 +95,69 @@ def test_unavailable_value_satisfies_its_declared_contract(
     )
 
 
+@pytest.mark.parametrize("actual_extent", [None, 4])
+def test_variable_expected_extent_accepts_unknown_or_concrete_unavailable_extent(
+    actual_extent: int | None,
+) -> None:
+    value = MeasurementUnavailable.create(
+        reason="missing",
+        dtype="float64",
+        unit="V",
+        shape=(actual_extent,),
+        metadata={},
+    )
+
+    assert (
+        measurement_value_contract_issues(
+            value,
+            expected_dtype="float64",
+            expected_unit="V",
+            expected_shape=(None,),
+        )
+        == ()
+    )
+
+
+def test_mixed_fixed_and_variable_extents_accept_unknown_unavailable_extent() -> None:
+    value = MeasurementUnavailable.create(
+        reason="missing",
+        dtype="float64",
+        unit="V",
+        shape=(2, None),
+        metadata={},
+    )
+
+    assert (
+        measurement_value_contract_issues(
+            value,
+            expected_dtype="float64",
+            expected_unit="V",
+            expected_shape=(2, None),
+        )
+        == ()
+    )
+
+
+def test_fixed_expected_extent_rejects_unknown_unavailable_extent() -> None:
+    value = MeasurementUnavailable.create(
+        reason="missing",
+        dtype="float64",
+        unit="V",
+        shape=(None,),
+        metadata={},
+    )
+
+    [issue] = measurement_value_contract_issues(
+        value,
+        expected_dtype="float64",
+        expected_unit="V",
+        expected_shape=(4,),
+    )
+
+    assert issue.code is MeasurementValueContractIssueCode.SHAPE_MISMATCH
+    assert (issue.expected, issue.actual) == ((4,), (None,))
+
+
 def test_unavailable_value_still_checks_dtype_unit_and_shape() -> None:
     value = MeasurementUnavailable.create(
         reason="invalid",

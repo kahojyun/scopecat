@@ -2051,6 +2051,9 @@ export interface components {
         /**
          * MeasurementUnavailable
          * @description A complete scalar or array result with no usable value.
+         *
+         *     ``None`` preserves an unknown extent for a ragged product axis when no
+         *     available value exists from which to learn that point-local size.
          */
         "MeasurementUnavailable-Output": {
             /**
@@ -2070,7 +2073,7 @@ export interface components {
              */
             reason: "missing" | "invalid" | "overload";
             /** Shape */
-            shape: number[];
+            shape: (number | null)[];
             /** Unit */
             unit: string | null;
         };

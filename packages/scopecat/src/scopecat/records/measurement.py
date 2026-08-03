@@ -401,7 +401,11 @@ class MeasurementArray(BaseModel):
 
 
 class MeasurementUnavailable(BaseModel):
-    """A complete scalar or array result with no usable value."""
+    """A complete scalar or array result with no usable value.
+
+    ``None`` preserves an unknown extent for a ragged product axis when no
+    available value exists from which to learn that point-local size.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -409,7 +413,7 @@ class MeasurementUnavailable(BaseModel):
     reason: MeasurementUnavailableReason
     dtype: MeasurementDType
     unit: str | None
-    shape: tuple[Annotated[int, Field(ge=0)], ...]
+    shape: tuple[Annotated[int, Field(ge=0)] | None, ...]
     metadata: JsonMetadata
 
     @classmethod
@@ -419,7 +423,7 @@ class MeasurementUnavailable(BaseModel):
         reason: MeasurementUnavailableReason,
         dtype: MeasurementDType,
         unit: str | None,
-        shape: Sequence[int],
+        shape: Sequence[int | None],
         metadata: JsonMetadata,
     ) -> Self:
         """Construct an unavailable result with its complete value contract."""

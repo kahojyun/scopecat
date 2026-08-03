@@ -198,6 +198,63 @@ def test_ragged_dataset_exports_indexed_xarray_observations() -> None:
     )
 
 
+def test_ragged_unavailable_unknown_extent_uses_recording_group_layout() -> None:
+    pa = pytest.importorskip("pyarrow")
+    xr = pytest.importorskip("xarray")
+    dataset = _ragged_dataset()
+    dataset.raw.records[1].observables["signal"] = MeasurementUnavailable.create(
+        reason="missing",
+        dtype="complex128",
+        unit="ratio",
+        shape=(None,),
+        metadata={},
+    )
+
+    arrow = dataset.to_arrow()
+    xarray_dataset = dataset.to_xarray()
+
+    assert isinstance(arrow, pa.Table)
+    assert arrow["signal"][1].as_py() is None
+    assert isinstance(xarray_dataset, xr.Dataset)
+    assert list(xarray_dataset["readout__sample__row_size"].values) == [2, 1, 3]
+    assert list(xarray_dataset["readout__sample__sample_extent"].values) == [
+        2,
+        1,
+        3,
+    ]
+    missing_value = complex(xarray_dataset["signal"].values[2])
+    assert math.isnan(missing_value.real)
+    assert math.isnan(missing_value.imag)
+    assert xarray_dataset["signal__unavailable_reason"].values[1] == "missing"
+
+
+def test_ungrouped_ragged_unavailable_preserves_unknown_extent_in_xarray() -> None:
+    xr = pytest.importorskip("xarray")
+    dataset = _ragged_dataset()
+    for variable in dataset.raw.dataset_schema.variables:
+        if variable.id == "signal":
+            variable.recording_group_id = None
+    dataset.raw.records[1].observables["signal"] = MeasurementUnavailable.create(
+        reason="missing",
+        dtype="complex128",
+        unit="ratio",
+        shape=(None,),
+        metadata={},
+    )
+
+    xarray_dataset = dataset.to_xarray()
+
+    assert isinstance(xarray_dataset, xr.Dataset)
+    assert list(xarray_dataset["signal__sample__row_size"].values) == [2, 0, 3]
+    assert list(xarray_dataset["signal__sample__sample_extent"].values) == [
+        2,
+        None,
+        3,
+    ]
+    with pytest.raises(ValueError, match="unknown point-local extent"):
+        dataset.isel_ragged(sample=0, variable="signal")
+
+
 def test_ungrouped_ragged_variables_keep_independent_xarray_observations() -> None:
     xr = pytest.importorskip("xarray")
     dataset = _ragged_dataset()

@@ -122,9 +122,9 @@ def measurement_value_contract_issues(
 
 def _shape_compatible(
     expected: tuple[int | None, ...],
-    actual: tuple[int, ...],
+    actual: tuple[int | None, ...],
 ) -> bool:
-    """Match rank exactly while treating a variable extent as one-axis wildcard."""
+    """Match rank exactly while treating an expected variable extent as a wildcard."""
 
     return len(expected) == len(actual) and all(
         expected_extent is None or expected_extent == actual_extent
@@ -152,7 +152,7 @@ def _measurement_value_unit(
 
 def _measurement_value_shape(
     value: MeasurementValue,
-) -> tuple[int, ...]:
+) -> tuple[int | None, ...]:
     if isinstance(value, MeasurementArray | MeasurementUnavailable):
         return tuple(value.shape)
     return ()

@@ -14,7 +14,6 @@ from scopecat.measurements.points import RunPoint
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
-from scopecat.measurements.products import ProductDef
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
     MeasurementValueCatalog,
@@ -73,7 +72,9 @@ def execute_measurement_postprocessors(
                         reason=source_value.reason,
                         dtype=product_by_id[output.product_id].dtype,
                         unit=product_by_id[output.product_id].unit,
-                        shape=_fixed_product_shape(product_by_id[output.product_id]),
+                        shape=tuple(
+                            axis.size for axis in product_by_id[output.product_id].axes
+                        ),
                         metadata=source_value.metadata,
                     )
                     for output in postprocessor.outputs
@@ -156,16 +157,6 @@ def execute_measurement_postprocessors(
                         [],
                     ).append(candidate)
     return (*supplied, *derived)
-
-
-def _fixed_product_shape(product: ProductDef) -> tuple[int, ...]:
-    sizes = tuple(axis.size for axis in product.axes)
-    if any(size is None for size in sizes):
-        raise ValueError(
-            "variable-length measurement postprocessor outputs cannot synthesize "
-            "an unavailable value without a concrete shape"
-        )
-    return cast("tuple[int, ...]", sizes)
 
 
 def _execution_problem(

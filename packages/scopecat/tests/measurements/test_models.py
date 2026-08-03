@@ -231,11 +231,13 @@ def test_measurement_record_wire_requires_value_discriminators() -> None:
         ("missing", ()),
         ("invalid", (3,)),
         ("overload", (2, 4)),
+        ("missing", (None,)),
+        ("invalid", (2, None)),
     ),
 )
 def test_unavailable_measurements_round_trip_with_complete_contract(
     reason: MeasurementUnavailableReason,
-    shape: tuple[int, ...],
+    shape: tuple[int | None, ...],
 ) -> None:
     value = MeasurementUnavailable.create(
         reason=reason,
@@ -256,6 +258,20 @@ def test_unavailable_measurements_round_trip_with_complete_contract(
     assert restored == value
     assert isinstance(restored, MeasurementUnavailable)
     assert restored.shape == shape
+
+
+def test_unavailable_measurement_schema_exposes_nullable_shape_extents() -> None:
+    schema = MeasurementUnavailable.model_json_schema()
+    extent_schema = schema["properties"]["shape"]["items"]
+
+    assert {option["type"] for option in extent_schema["anyOf"]} == {
+        "integer",
+        "null",
+    }
+    [integer_schema] = [
+        option for option in extent_schema["anyOf"] if option["type"] == "integer"
+    ]
+    assert integer_schema["minimum"] == 0
 
 
 def test_unavailable_measurement_shape_extents_are_non_negative() -> None:

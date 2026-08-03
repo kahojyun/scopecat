@@ -11,6 +11,7 @@ import operator
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import import_module
+from itertools import product as cartesian_product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Protocol, Self, cast, overload, override
 
@@ -89,7 +90,7 @@ class _RaggedXarrayLayout:
     parent_point_indices: tuple[int, ...]
     row_sizes: tuple[int, ...]
     local_indices: tuple[tuple[int, ...], ...]
-    local_extents: tuple[tuple[int, ...], ...]
+    local_extents: tuple[tuple[int | None, ...], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -688,6 +689,35 @@ class Dataset:
         data_vars: dict[str, object] = {}
         ragged_layouts: dict[_RaggedAlignmentKey, _RaggedXarrayLayout] = {}
         for variable in self.variables.values():
+            if not _variable_is_ragged(variable):
+                continue
+            alignment = _ragged_alignment_key(variable)
+            variable_layout = _ragged_xarray_layout(
+                variable,
+                records=self.records,
+            )
+            existing_layout = ragged_layouts.get(alignment)
+            if existing_layout is None:
+                ragged_layouts[alignment] = variable_layout
+                continue
+            try:
+                ragged_layouts[alignment] = _merge_ragged_xarray_layouts(
+                    existing_layout,
+                    variable_layout,
+                    records=self.records,
+                )
+            except ValueError as error:
+                owner = (
+                    f"recording group {alignment.recording_group_id!r}"
+                    if alignment.recording_group_id is not None
+                    else f"variable {variable.id!r}"
+                )
+                raise ValueError(
+                    f"ragged values in {owner} do not share one point-local "
+                    f"{alignment.local_dimensions!r} layout"
+                ) from error
+        emitted_ragged_layouts: set[_RaggedAlignmentKey] = set()
+        for variable in self.variables.values():
             target = coords if variable.role == "coordinate" else data_vars
             if _variable_is_ragged(variable):
                 alignment = _ragged_alignment_key(variable)
@@ -696,19 +726,8 @@ class Dataset:
                 ragged = _xarray_ragged_values(
                     variable,
                     np_module,
-                    records=self.records,
+                    layout=ragged_layouts[alignment],
                 )
-                existing_layout = ragged_layouts.get(alignment)
-                if existing_layout is not None and existing_layout != ragged.layout:
-                    owner = (
-                        f"recording group {alignment.recording_group_id!r}"
-                        if alignment.recording_group_id is not None
-                        else f"variable {variable.id!r}"
-                    )
-                    raise ValueError(
-                        f"ragged values in {owner} do not share one point-local "
-                        f"{alignment.local_dimensions!r} layout"
-                    )
                 target[variable.id] = (
                     (observation_dim,),
                     ragged.values,
@@ -718,8 +737,8 @@ class Dataset:
                         "scopecat_ragged_alignment": alignment_id,
                     },
                 )
-                if existing_layout is None:
-                    ragged_layouts[alignment] = ragged.layout
+                if alignment not in emitted_ragged_layouts:
+                    emitted_ragged_layouts.add(alignment)
                     source_attrs = _ragged_alignment_attrs(alignment)
                     coords[_ragged_parent_point_index_name(alignment_id)] = (
                         (observation_dim,),
@@ -774,7 +793,16 @@ class Dataset:
                             ("point",),
                             np_module.asarray(
                                 ragged.layout.local_extents[local_axis],
-                                dtype=np_module.int64,
+                                dtype=(
+                                    np_module.object_
+                                    if any(
+                                        extent is None
+                                        for extent in ragged.layout.local_extents[
+                                            local_axis
+                                        ]
+                                    )
+                                    else np_module.int64
+                                ),
                             ),
                             {
                                 "long_name": (
@@ -937,9 +965,15 @@ class Dataset:
                 if indexer is None:
                     continue
                 try:
+                    extent = local_shape[local_axis]
+                    if extent is None:
+                        raise ValueError(
+                            f"cannot index dimension {dimension_id!r}: unavailable "
+                            "value has an unknown point-local extent"
+                        )
                     selected[dimension_id] = _dimension_indices(
                         indexer,
-                        size=local_shape[local_axis],
+                        size=extent,
                         label=dimension_id,
                     )
                 except (IndexError, TypeError, ValueError) as error:
@@ -1102,7 +1136,7 @@ def _slice_record_local_values(
     )
 
 
-def _measurement_local_shape(value: MeasurementValue) -> tuple[int, ...]:
+def _measurement_local_shape(value: MeasurementValue) -> tuple[int | None, ...]:
     if isinstance(value, MeasurementScalar):
         return ()
     return tuple(value.shape)
@@ -1136,7 +1170,7 @@ def _slice_measurement_value(
     return MeasurementArray.create(
         dtype=value.dtype,
         unit=value.unit,
-        shape=selected_shape,
+        shape=cast("tuple[int, ...]", selected_shape),
         values=cast(
             "Sequence[object]",
             _slice_nested_array(
@@ -1330,7 +1364,7 @@ def _xarray_ragged_values(
     variable: Variable,
     np_module: _NumpyModule,
     *,
-    records: Sequence[MeasurementRecord],
+    layout: _RaggedXarrayLayout,
 ) -> _RaggedXarrayValues:
     """Flatten point-local arrays without constructing a NumPy object array."""
 
@@ -1354,11 +1388,43 @@ def _xarray_ragged_values(
         fill = ""
 
     flattened_values: list[object] = []
-    parent_points: list[int] = []
-    row_sizes: list[int] = []
-    local_indices: list[list[int]] = [[] for _dimension_id in variable.dims[1:]]
-    local_extents: list[list[int]] = [[] for _dimension_id in variable.dims[1:]]
-    for record, raw_value in zip(records, variable.raw_values, strict=True):
+    for row_size, raw_value in zip(
+        layout.row_sizes,
+        variable.raw_values,
+        strict=True,
+    ):
+        if isinstance(raw_value, MeasurementScalar):
+            raise ValueError(
+                f"ragged variable {variable.id!r} must contain point-local arrays"
+            )
+        if isinstance(raw_value, MeasurementUnavailable):
+            flattened_values.extend(fill for _index in range(row_size))
+        else:
+            flattened_values.extend(
+                value
+                for _local_index, value in _flatten_native_array(
+                    _native_value(raw_value)
+                )
+            )
+
+    values = (
+        np_module.asarray(tuple(flattened_values), dtype=dtype)
+        if flattened_values
+        else np_module.empty((0,), dtype=dtype)
+    )
+    return _RaggedXarrayValues(
+        values=values,
+        layout=layout,
+    )
+
+
+def _ragged_xarray_layout(
+    variable: Variable,
+    *,
+    records: Sequence[MeasurementRecord],
+) -> _RaggedXarrayLayout:
+    local_extents: list[list[int | None]] = [[] for _dimension_id in variable.dims[1:]]
+    for raw_value in variable.raw_values:
         if isinstance(raw_value, MeasurementScalar):
             raise ValueError(
                 f"ragged variable {variable.id!r} must contain point-local arrays"
@@ -1371,32 +1437,66 @@ def _xarray_ragged_values(
             )
         for axis, extent in enumerate(local_shape):
             local_extents[axis].append(extent)
-        native = (
-            _filled_value(local_shape, fill)
-            if isinstance(raw_value, MeasurementUnavailable)
-            else _native_value(raw_value)
+    return _ragged_layout_from_extents(
+        tuple(tuple(extents) for extents in local_extents),
+        records=records,
+    )
+
+
+def _merge_ragged_xarray_layouts(
+    left: _RaggedXarrayLayout,
+    right: _RaggedXarrayLayout,
+    *,
+    records: Sequence[MeasurementRecord],
+) -> _RaggedXarrayLayout:
+    merged_axes: list[tuple[int | None, ...]] = []
+    for left_axis, right_axis in zip(
+        left.local_extents,
+        right.local_extents,
+        strict=True,
+    ):
+        merged_axis: list[int | None] = []
+        for left_extent, right_extent in zip(left_axis, right_axis, strict=True):
+            if (
+                left_extent is not None
+                and right_extent is not None
+                and left_extent != right_extent
+            ):
+                raise ValueError("ragged point-local extents differ")
+            merged_axis.append(left_extent if left_extent is not None else right_extent)
+        merged_axes.append(tuple(merged_axis))
+    return _ragged_layout_from_extents(tuple(merged_axes), records=records)
+
+
+def _ragged_layout_from_extents(
+    local_extents: tuple[tuple[int | None, ...], ...],
+    *,
+    records: Sequence[MeasurementRecord],
+) -> _RaggedXarrayLayout:
+    parent_points: list[int] = []
+    row_sizes: list[int] = []
+    local_indices: list[list[int]] = [[] for _axis in local_extents]
+    for point_position, record in enumerate(records):
+        local_shape = tuple(
+            axis_extents[point_position] for axis_extents in local_extents
         )
-        flattened = _flatten_native_array(cast("NativeValue", native))
-        row_sizes.append(len(flattened))
-        for local_index, value in flattened:
-            flattened_values.append(value)
+        if any(extent is None for extent in local_shape):
+            row_sizes.append(0)
+            continue
+        concrete_shape = cast("tuple[int, ...]", local_shape)
+        indices = tuple(
+            cartesian_product(*(range(extent) for extent in concrete_shape))
+        )
+        row_sizes.append(len(indices))
+        for local_index in indices:
             parent_points.append(record.point_index)
             for axis, index in enumerate(local_index):
                 local_indices[axis].append(index)
-
-    values = (
-        np_module.asarray(tuple(flattened_values), dtype=dtype)
-        if flattened_values
-        else np_module.empty((0,), dtype=dtype)
-    )
-    return _RaggedXarrayValues(
-        values=values,
-        layout=_RaggedXarrayLayout(
-            parent_point_indices=tuple(parent_points),
-            row_sizes=tuple(row_sizes),
-            local_indices=tuple(tuple(indices) for indices in local_indices),
-            local_extents=tuple(tuple(extents) for extents in local_extents),
-        ),
+    return _RaggedXarrayLayout(
+        parent_point_indices=tuple(parent_points),
+        row_sizes=tuple(row_sizes),
+        local_indices=tuple(tuple(indices) for indices in local_indices),
+        local_extents=local_extents,
     )
 
 

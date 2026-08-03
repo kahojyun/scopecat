@@ -155,7 +155,7 @@ class _CollectReadbackDescriptor(_WireModel):
                 continue
             if len(value.shape) > _MAX_ARRAY_RANK:
                 raise ValueError("worker collect unavailable rank exceeds its limit")
-            if any(extent < 0 for extent in value.shape):
+            if any(extent is not None and extent < 0 for extent in value.shape):
                 raise ValueError(
                     "worker collect unavailable shape extents must be non-negative"
                 )
