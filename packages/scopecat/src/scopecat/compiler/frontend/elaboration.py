@@ -33,6 +33,7 @@ from scopecat.compiler.frontend.module_scoping import (
     localize_value_ref,
 )
 from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.value_types import Scalar
 from scopecat.program.bindings import (
@@ -51,7 +52,7 @@ from scopecat.program.parameters import (
     ParameterContract,
     merge_parameter_contracts,
 )
-from scopecat.program.point_domain import PointAxes, PointDomainLayout
+from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import (
     ModuleProductDecl,
 )

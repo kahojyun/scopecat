@@ -5,8 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from math import prod
-from typing import Generic, Literal, Never, TypeVar
+from typing import Generic, Never, TypeVar
 
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import (
@@ -24,7 +25,6 @@ from scopecat.kernel.value_types import (
 )
 
 type PointDomainPath = tuple[str | int, ...]
-type PointDomainLayout = Literal["product_grid", "point_cloud"]
 
 CenterT_co = TypeVar("CenterT_co", covariant=True)
 

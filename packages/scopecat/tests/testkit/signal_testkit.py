@@ -400,7 +400,7 @@ def _old_parameter_value(config: ConfigProfileSnapshot, parameter_id: str) -> Qu
 
 
 def _best_signal_measurement(
-    measurements: list[MeasurementRecord],
+    measurements: Sequence[MeasurementRecord],
 ) -> MeasurementRecord:
     candidates = [
         measurement

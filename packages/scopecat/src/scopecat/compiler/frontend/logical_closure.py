@@ -7,6 +7,7 @@ from types import MappingProxyType
 
 from scopecat.compiler.frontend.value_binding import input_cell
 from scopecat.kernel.graph_identity import ValueId
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.program.bindings import (
@@ -39,7 +40,7 @@ from scopecat.program.operations import (
     ModuleOperationDecl,
 )
 from scopecat.program.parameters import ParameterContract
-from scopecat.program.point_domain import PointAxes, PointDomainLayout
+from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl
 from scopecat.program.recording import LogicalRecordSelection
 from scopecat.program.scans import AxisSpec

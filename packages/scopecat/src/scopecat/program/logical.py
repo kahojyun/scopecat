@@ -12,6 +12,7 @@ from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
@@ -27,7 +28,7 @@ from scopecat.program.expressions import (
 )
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.parameters import ParameterContract
-from scopecat.program.point_domain import PointAxes, PointDomainLayout
+from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl, RecordSelection
 from scopecat.program.recording import (
     LogicalRecordSelection,

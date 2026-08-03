@@ -144,15 +144,19 @@ def project_point_rows_record(
     values_by_axis: tuple[tuple[ScanValue, ...], ...] = tuple(
         cast("ValuesScanSource", axis.source).values for axis in axes
     )
+    row_count = len(values_by_axis[0]) if values_by_axis else 0
     return PointRowsRecord.model_validate(
         {
             "columns": [axis.id for axis in axes],
             "rows": [
                 {
-                    axis.id: _request_scalar_value(value, inputs=inputs)
-                    for axis, value in zip(axes, values, strict=True)
+                    axis.id: _request_scalar_value(
+                        values_by_axis[axis_index][row_index],
+                        inputs=inputs,
+                    )
+                    for axis_index, axis in enumerate(axes)
                 }
-                for values in zip(*values_by_axis, strict=True)
+                for row_index in range(row_count)
             ],
         }
     )

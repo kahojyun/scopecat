@@ -693,7 +693,7 @@ export interface components {
              */
             type: "string";
         };
-        AcquisitionAxisSize: number | components["schemas"]["StatePropertyRef"];
+        AcquisitionAxisSize: number | components["schemas"]["StatePropertyRef"] | null;
         /** AcquisitionAxisSpec */
         AcquisitionAxisSpec: {
             /** Description */
@@ -1919,7 +1919,7 @@ export interface components {
             label?: string | null;
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Size */
-            size: number;
+            size: number | null;
         };
         /**
          * MeasurementPage

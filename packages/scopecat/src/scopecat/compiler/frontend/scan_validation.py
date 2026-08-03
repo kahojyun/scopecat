@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.program.point_domain import PointDomainLayout
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,

@@ -12,7 +12,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.json_types import JsonValue
-from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainLayout
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -42,7 +42,6 @@ from scopecat.measurements.results import (
     MeasurementVariable,
     MeasurementVariableRole,
 )
-from scopecat.program.point_domain import PointDomainLayout
 
 
 def _empty_metadata() -> FrozenMapping[str, JsonValue]:

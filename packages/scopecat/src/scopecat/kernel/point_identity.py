@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from scopecat.kernel.content_identity import stable_content_hash
+
+type PointDomainLayout = Literal["product_grid", "point_cloud"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,4 +63,4 @@ class LogicalPointId:
         )
 
 
-__all__ = ["LogicalPointId", "PointDomainId"]
+__all__ = ["LogicalPointId", "PointDomainId", "PointDomainLayout"]

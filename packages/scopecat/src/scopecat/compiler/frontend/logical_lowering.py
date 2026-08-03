@@ -27,6 +27,7 @@ from scopecat.compiler.relations.verification import (
     verify_scalar_expression,
 )
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_type_compatibility import require_assignable
@@ -42,7 +43,6 @@ from scopecat.program.point_domain import (
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
-    PointDomainLayout,
 )
 from scopecat.program.scans import (
     AxisSpec,

@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainLayout
 from scopecat.kernel.value_data import CellValue
-from scopecat.program.point_domain import PointDomainLayout
 
 
 @dataclass(frozen=True, slots=True)

@@ -16,7 +16,11 @@ from scopecat.compiler.relations.verification import (
     scalar_expression_imports,
     scalar_expression_point_requirement,
 )
-from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.point_identity import (
+    LogicalPointId,
+    PointDomainId,
+    PointDomainLayout,
+)
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.value_data import CellValue, Row
 from scopecat.kernel.value_types import Entity, Table, TableColumn
@@ -27,7 +31,6 @@ from scopecat.program.point_domain import (
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
-    PointDomainLayout,
     PointDomainPath,
     PointDomainShape,
     PointDomainShapeError,
