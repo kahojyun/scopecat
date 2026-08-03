@@ -379,8 +379,10 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
     await waitForMarker(experiment.measurementReady, experiment);
     await expect(state).toHaveText("Running");
     const dataCard = detail.getByTestId("data-card");
-    await expect(dataCard.getByText("Measurement preview", { exact: true })).toBeVisible();
-    await expect(dataCard.getByText("1 records", { exact: true })).toBeVisible();
+    await expect(dataCard.getByText("Measurement data", { exact: true })).toBeVisible();
+    await expect(dataCard.getByText(/^1 records/)).toBeVisible();
+    await dataCard.getByText("Raw records", { exact: true }).click();
+    await expect(dataCard.getByTestId("measurement-preview")).toBeVisible();
     await expect(dataCard.getByTestId("measurement-preview")).toContainText('"point_index": 0');
     // The point closes only after the held append call returns its durable receipt.
     await expect(
@@ -393,7 +395,7 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
     const completion = await experiment.completion;
     expectProcessOk(completion);
     await expect(state).toHaveText("Succeeded");
-    await expect(dataCard.getByText("15 records", { exact: true })).toBeVisible();
+    await expect(dataCard.getByText(/^15 records/)).toBeVisible();
     await expect(timeline.getByText(/From: leased.*To: closed/)).toBeVisible();
   } finally {
     await finishControlledExperiment(experiment);
