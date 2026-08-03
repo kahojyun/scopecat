@@ -9,7 +9,6 @@ from types import UnionType
 from typing import (
     Annotated,
     Concatenate,
-    Protocol,
     TypeAliasType,
     cast,
     get_args,
@@ -33,6 +32,7 @@ from scopecat.authoring._module_invocation import (
     domain_use_call,
     module_use_invocation,
 )
+from scopecat.authoring._module_products import ProductBundle, recording_products
 from scopecat.authoring.entity_parameters import PerEntity
 from scopecat.authoring.finalization import Finalizable
 from scopecat.authoring.scans import Scan
@@ -101,14 +101,8 @@ type DefinitionFunction = Callable[..., object]
 type Input[T] = T | ValueRef
 
 
-class _RecordableProducts(Protocol):
-    """Internal structural hook implemented by generated result bundles."""
-
-    def _recording_products(self) -> tuple[ProductRef, ...]: ...
-
-
 type RecordProductInput = (
-    ProductRef | _RecordableProducts | PerEntity[ProductRef | _RecordableProducts]
+    ProductRef | ProductBundle | PerEntity[ProductRef | ProductBundle]
 )
 
 
@@ -139,12 +133,12 @@ def _expand_record_products(
 
 def _append_record_product(
     selected: list[ProductRef],
-    product: ProductRef | _RecordableProducts,
+    product: ProductRef | ProductBundle,
 ) -> None:
     if isinstance(product, ProductRef):
         selected.append(product)
         return
-    selected.extend(product._recording_products())
+    selected.extend(recording_products(product))
 
 
 def _recording_role_is_coordinate(product: ProductRef) -> bool:

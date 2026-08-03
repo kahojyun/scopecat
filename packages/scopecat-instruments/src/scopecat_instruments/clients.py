@@ -8,7 +8,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, overload, override
 
-from scopecat.authoring import EachEntity, OneEntity, PerEntity, ProductRef, ValueRef
+from scopecat.authoring import (
+    EachEntity,
+    OneEntity,
+    PerEntity,
+    ProductBundle,
+    ProductRef,
+    ValueRef,
+)
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import (
@@ -344,17 +351,11 @@ class TemperatureReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class TemperatureSampleProducts:
+class TemperatureSampleProducts(ProductBundle):
     """Typed logical products produced by sample."""
 
     temperature: ProductRef
     resistance: ProductRef
-
-    def _recording_products(self) -> tuple[ProductRef, ...]:
-        return (
-            self.temperature,
-            self.resistance,
-        )
 
 
 class TemperatureReadoutClient(InstrumentClientBase):
@@ -835,13 +836,10 @@ class DCMonitorCurrentReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorCurrentProducts:
+class DCMonitorCurrentProducts(ProductBundle):
     """Typed logical products produced by measure_current."""
 
     current: ProductRef
-
-    def _recording_products(self) -> tuple[ProductRef, ...]:
-        return (self.current,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -853,13 +851,10 @@ class DCMonitorVoltageReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorVoltageProducts:
+class DCMonitorVoltageProducts(ProductBundle):
     """Typed logical products produced by measure_voltage."""
 
     voltage: ProductRef
-
-    def _recording_products(self) -> tuple[ProductRef, ...]:
-        return (self.voltage,)
 
 
 class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
@@ -1290,17 +1285,11 @@ class NetworkSweepReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class NetworkSweepProducts:
+class NetworkSweepProducts(ProductBundle):
     """Typed logical products produced by sweep."""
 
     frequency: ProductRef
     s_parameter: ProductRef
-
-    def _recording_products(self) -> tuple[ProductRef, ...]:
-        return (
-            self.frequency,
-            self.s_parameter,
-        )
 
 
 class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):

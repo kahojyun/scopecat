@@ -2949,7 +2949,7 @@ def _render_header(
         imports["scopecat.authoring"].add("ValueRef")
     if has_acquisitions:
         imports["dataclasses"] = {"dataclass", "field"}
-        imports["scopecat.authoring"].add("ProductRef")
+        imports["scopecat.authoring"].update({"ProductBundle", "ProductRef"})
         imports["scopecat.records.measurement"] = {"MeasurementValue"}
         imports["scopecat.sdk.instruments"].add("CollectReceipt")
         imports.setdefault("scopecat_instruments._client_runtime", set()).update(
@@ -3350,15 +3350,6 @@ def _render_result_types(
         product_fields = "".join(
             f"    {field_name}: ProductRef\n" for field_name in item.result_field_names
         )
-        if len(item.result_fields) == 1:
-            [result_field] = item.result_fields
-            recording_return = f"        return (self.{result_field.python_name},)\n"
-        else:
-            recording_products = "".join(
-                f"            self.{field.python_name},\n"
-                for field in item.result_fields
-            )
-            recording_return = f"        return (\n{recording_products}        )\n"
         sections.append(
             "\n\n"
             "@dataclass(frozen=True, slots=True)\n"
@@ -3370,14 +3361,11 @@ def _render_result_types(
             "    receipt: CollectReceipt = field(repr=False)\n"
             "\n\n"
             "@dataclass(frozen=True, slots=True)\n"
-            f"class {item.products_name}:\n"
+            f"class {item.products_name}(ProductBundle):\n"
             f'    """Typed logical products produced by '
             f'{item.method_name}."""\n'
             "\n"
             f"{product_fields}"
-            "\n"
-            "    def _recording_products(self) -> tuple[ProductRef, ...]:\n"
-            f"{recording_return}"
         )
     return "".join(sections)
 

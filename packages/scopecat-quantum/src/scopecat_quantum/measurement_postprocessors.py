@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
-from scopecat import ExperimentContext, ModuleContext, ProductRef
+from scopecat import ExperimentContext, ModuleContext, ProductBundle, ProductRef
 from scopecat.measurements.results import (
     ComplexComponents,
     MeasurementArray,
@@ -55,14 +55,11 @@ class BinaryIqDiscriminator(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class BinaryIqProbabilityProducts:
+class BinaryIqProbabilityProducts(ProductBundle):
     """Typed products emitted by one binary IQ discrimination step."""
 
     probability_0: ProductRef
     probability_1: ProductRef
-
-    def _recording_products(self) -> tuple[ProductRef, ...]:
-        return (self.probability_0, self.probability_1)
 
 
 def binary_iq_probabilities(

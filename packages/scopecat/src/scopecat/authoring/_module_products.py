@@ -13,6 +13,20 @@ from scopecat.program.products import ProductRef
 type _ProductKey = tuple[ProductId, tuple[object, ...]]
 
 
+class ProductBundle:
+    """Marker base for a dataclass tree that can be recorded as one product group."""
+
+    __slots__ = ()
+
+
+def recording_products(products: ProductBundle) -> tuple[ProductRef, ...]:
+    """Flatten one recordable dataclass bundle in declaration order."""
+
+    selected: list[ProductRef] = []
+    _append_recording_products(selected, products)
+    return tuple(selected)
+
+
 def relocate_module_products[ProductsT](
     products: ProductsT,
     *,
@@ -69,6 +83,32 @@ def _relocate_product_value(
     raise TypeError(
         "module functions must return None, ProductRef, or a dataclass/PerEntity "
         "tree of ProductRef values"
+    )
+
+
+def _append_recording_products(
+    selected: list[ProductRef],
+    value: object,
+) -> None:
+    if isinstance(value, ProductRef):
+        selected.append(value)
+        return
+    if isinstance(value, PerEntity):
+        for item in value.values():
+            _append_recording_products(selected, item)
+        return
+    if is_dataclass(value) and not isinstance(value, type):
+        members = fields(value)
+        if not members:
+            raise TypeError("product bundle dataclasses must not be empty")
+        for member in members:
+            _append_recording_products(
+                selected,
+                cast("object", getattr(value, member.name)),
+            )
+        return
+    raise TypeError(
+        "product bundles must be dataclass/PerEntity trees of ProductRef values"
     )
 
 
