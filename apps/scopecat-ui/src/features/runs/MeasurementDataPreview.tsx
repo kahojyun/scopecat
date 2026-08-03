@@ -180,9 +180,14 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
   const yTicks = ticks(yMin, yMax);
   const colorValues = points.flatMap((point) => (point.color === undefined ? [] : [point.color]));
   const colorExtent = colorValues.length > 0 ? rawExtent(colorValues) : undefined;
-  const accessibleTitle = chart.colorLabel
+  const fixedCoordinates =
+    chart.kind === "heatmap" ? fixedCoordinatesLabel(chart.fixedCoordinates) : undefined;
+  const chartDescription = chart.colorLabel
     ? `${chart.title}: ${chart.yLabel} by ${chart.xLabel}, colored by ${chart.colorLabel}`
     : `${chart.title}: ${chart.yLabel} by ${chart.xLabel}`;
+  const accessibleTitle = fixedCoordinates
+    ? `${chartDescription}, fixed at ${fixedCoordinates}`
+    : chartDescription;
   return (
     <figure className="m-0 min-w-0 rounded-md border border-line bg-panel-soft p-2.5">
       <figcaption className="mb-1.5 flex flex-wrap items-start justify-between gap-2">
@@ -191,6 +196,7 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
           <span className="text-[0.58rem] text-text-dim">
             {chart.xLabel} → {chart.yLabel}
             {chart.colorLabel ? ` · color: ${chart.colorLabel}` : ""}
+            {fixedCoordinates ? ` · fixed: ${fixedCoordinates}` : ""}
           </span>
         </span>
         <span className="rounded border border-line px-1.5 py-1 text-[0.52rem] font-bold tracking-[0.05em] text-text-dim uppercase">
@@ -352,7 +358,33 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
 
 function chartOptionLabel(chart: MeasurementChartPlan): string {
   const color = chart.colorLabel ? ` · color: ${chart.colorLabel}` : "";
-  return `${chart.title} — x: ${chart.xLabel} · y: ${chart.yLabel}${color}`;
+  const fixed =
+    chart.kind === "heatmap" && chart.fixedCoordinates.length > 0
+      ? ` · fixed: ${fixedCoordinatesLabel(chart.fixedCoordinates)}`
+      : "";
+  return `${chart.title} — x: ${chart.xLabel} · y: ${chart.yLabel}${color}${fixed}`;
+}
+
+function fixedCoordinatesLabel(
+  coordinates: Extract<MeasurementChartPlan, { kind: "heatmap" }>["fixedCoordinates"],
+): string | undefined {
+  if (coordinates.length === 0) return undefined;
+  return coordinates
+    .map(
+      (coordinate) =>
+        `${coordinate.label}=${fixedCoordinateValueLabel(coordinate.value)}${coordinate.unit ? ` ${coordinate.unit}` : ""}`,
+    )
+    .join(", ");
+}
+
+function fixedCoordinateValueLabel(
+  value: Extract<MeasurementChartPlan, { kind: "heatmap" }>["fixedCoordinates"][number]["value"],
+): string {
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") return shortNumber(value);
+  if (typeof value === "string") return JSON.stringify(value);
+  const sign = value.imag < 0 ? "−" : "+";
+  return `${shortNumber(value.real)} ${sign} ${shortNumber(Math.abs(value.imag))}i`;
 }
 
 function rawExtent(values: number[]): [number, number] {

@@ -249,6 +249,157 @@ describe("measurement visualization", () => {
     }
   });
 
+  it("creates one explicit heatmap candidate per authored high-dimensional grid slice", () => {
+    const schema = threeDimensionalGridSchema();
+    const items = slicedGridRecords();
+
+    const heatmaps = planMeasurementCharts(items, schema).filter(
+      (chart) => chart.kind === "heatmap",
+    );
+
+    expect(heatmaps).toHaveLength(2);
+    expect(heatmaps).toEqual([
+      expect.objectContaining({
+        id: "heatmap:temperature:row:column:value:fixed:bias=0",
+        xLabel: "Row [mm]",
+        yLabel: "Column [mm]",
+        fixedCoordinates: [{ id: "bias", label: "Bias", unit: "V", value: 0 }],
+        grid: { xValues: [10, 20], yValues: [1, 2, 3] },
+      }),
+      expect.objectContaining({
+        id: "heatmap:temperature:row:column:value:fixed:bias=1",
+        xLabel: "Row [mm]",
+        yLabel: "Column [mm]",
+        fixedCoordinates: [{ id: "bias", label: "Bias", unit: "V", value: 1 }],
+        grid: { xValues: [10, 20], yValues: [1, 2, 3] },
+      }),
+    ]);
+    expect(heatmaps[0]?.series[0]?.points.map((point) => point.color)).toEqual([
+      10, 11, 12, 13, 14, 15,
+    ]);
+    expect(heatmaps[1]?.series[0]?.points.map((point) => point.color)).toEqual([
+      110, 111, 112, 113, 114, 115,
+    ]);
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items }}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+    const selector = screen.getByRole("combobox", { name: "Measurement chart" });
+    expect(
+      screen.getByRole("option", {
+        name: "Temperature heatmap — x: Row [mm] · y: Column [mm] · color: Temperature [K] · fixed: Bias=0 V",
+      }),
+    ).toHaveValue("heatmap:temperature:row:column:value:fixed:bias=0");
+    expect(
+      screen.getByRole("option", {
+        name: "Temperature heatmap — x: Row [mm] · y: Column [mm] · color: Temperature [K] · fixed: Bias=1 V",
+      }),
+    ).toHaveValue("heatmap:temperature:row:column:value:fixed:bias=1");
+    expect(
+      screen.getByRole("img", {
+        name: "Temperature heatmap: Column [mm] by Row [mm], colored by Temperature [K], fixed at Bias=0 V",
+      }),
+    ).toBeVisible();
+
+    fireEvent.change(selector, {
+      target: { value: "heatmap:temperature:row:column:value:fixed:bias=1" },
+    });
+    expect(
+      screen.getByRole("img", {
+        name: "Temperature heatmap: Column [mm] by Row [mm], colored by Temperature [K], fixed at Bias=1 V",
+      }),
+    ).toBeVisible();
+  });
+
+  it("keeps complete high-dimensional slices when another slice is missing or duplicated", () => {
+    const schema = threeDimensionalGridSchema();
+    const complete = slicedGridRecords();
+    const missing = complete.slice(0, -1);
+    const duplicate = [...missing, complete[10]!];
+
+    for (const records of [missing, duplicate]) {
+      const heatmaps = planMeasurementCharts(records, schema).filter(
+        (chart) => chart.kind === "heatmap",
+      );
+      expect(heatmaps).toHaveLength(1);
+      expect(heatmaps[0]).toMatchObject({
+        id: "heatmap:temperature:row:column:value:fixed:bias=0",
+        fixedCoordinates: [{ id: "bias", value: 0 }],
+      });
+    }
+  });
+
+  it("preserves fixed slices in their first materialized appearance order", () => {
+    const heatmaps = planMeasurementCharts(
+      slicedGridRecords([10, 2]),
+      threeDimensionalGridSchema(),
+    ).filter((chart) => chart.kind === "heatmap");
+
+    expect(heatmaps.map((chart) => chart.fixedCoordinates[0]?.value)).toEqual([10, 2]);
+  });
+
+  it("uses authored entity-string and boolean axes as safely labeled fixed coordinates", () => {
+    const schema = entitySlicedGridSchema();
+    const items = entitySlicedGridRecords();
+
+    const heatmaps = planMeasurementCharts(items, schema).filter(
+      (chart) => chart.kind === "heatmap",
+    );
+
+    expect(heatmaps).toHaveLength(2);
+    expect(heatmaps[0]).toMatchObject({
+      id: "heatmap:temperature:row:column:value:fixed:device=%22q1%22&enabled=true",
+      xLabel: "Row [mm]",
+      yLabel: "Column [mm]",
+      fixedCoordinates: [
+        { id: "device", label: "Device", value: "q1" },
+        { id: "enabled", label: "Enabled", value: true },
+      ],
+    });
+    expect(heatmaps[1]).toMatchObject({
+      id: "heatmap:temperature:row:column:value:fixed:device=%22q2%22&enabled=true",
+      fixedCoordinates: [
+        { id: "device", label: "Device", value: "q2" },
+        { id: "enabled", label: "Enabled", value: true },
+      ],
+    });
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items }}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("option", {
+        name: 'Temperature heatmap — x: Row [mm] · y: Column [mm] · color: Temperature [K] · fixed: Device="q1", Enabled=true',
+      }),
+    ).toHaveValue("heatmap:temperature:row:column:value:fixed:device=%22q1%22&enabled=true");
+  });
+
+  it("disables the entire automatic heatmap group above the fixed-slice limit", () => {
+    const schema = manySliceGridSchema();
+    const items = Array.from({ length: 33 }, (_item, bias) =>
+      record(
+        bias,
+        { bias: scalar(bias, "V"), column: scalar(0, "mm"), row: scalar(0, "mm") },
+        { temperature: scalar(bias, "K") },
+      ),
+    );
+
+    const charts = planMeasurementCharts(items, schema);
+
+    expect(charts.some((chart) => chart.kind === "heatmap")).toBe(false);
+    expect(charts).toEqual([expect.objectContaining({ kind: "scatter", title: "Temperature" })]);
+  });
+
   it("keeps a valid unsupported rank-two value in the table", () => {
     const schema: MeasurementDatasetSchema = {
       ...baseSchema(),
@@ -530,6 +681,124 @@ function twoDimensionalGridSchema(
   };
 }
 
+function threeDimensionalGridSchema(): MeasurementDatasetSchema {
+  const schema = twoDimensionalGridSchema();
+  return {
+    ...schema,
+    dimensions: [{ id: "point", kind: "point", size: 12 }],
+    point_domain: {
+      kind: "product_grid",
+      axes: [
+        { id: "row", size: 2 },
+        { id: "column", size: 3 },
+        { id: "bias", size: 2 },
+      ],
+    },
+    variables: [
+      {
+        id: "bias",
+        label: "Bias",
+        role: "coordinate",
+        dtype: "float64",
+        unit: "V",
+        dims: ["point"],
+      },
+      ...schema.variables!,
+    ],
+    primary_coordinates: ["bias", "column", "row"],
+  };
+}
+
+function entitySlicedGridSchema(): MeasurementDatasetSchema {
+  const schema = twoDimensionalGridSchema();
+  return {
+    ...schema,
+    dimensions: [{ id: "point", kind: "point", size: 12 }],
+    point_domain: {
+      kind: "product_grid",
+      axes: [
+        { id: "device", size: 2 },
+        { id: "enabled", size: 1 },
+        { id: "row", size: 2 },
+        { id: "column", size: 3 },
+      ],
+    },
+    variables: [
+      {
+        id: "device",
+        label: "Device",
+        role: "coordinate",
+        dtype: "string",
+        dims: ["point"],
+        metadata: { entity_kind: "qubit" },
+      },
+      {
+        id: "enabled",
+        label: "Enabled",
+        role: "coordinate",
+        dtype: "bool",
+        dims: ["point"],
+      },
+      ...schema.variables!,
+    ],
+  };
+}
+
+function entitySlicedGridRecords(): MeasurementRecord[] {
+  return ["q1", "q2"].flatMap((device, deviceIndex) =>
+    [10, 20].flatMap((row) =>
+      [1, 2, 3].map((column, columnIndex) => {
+        const point = deviceIndex * 6 + (row === 10 ? 0 : 3) + columnIndex;
+        return record(
+          point,
+          {
+            column: scalar(column, "mm"),
+            device: stringScalar(device),
+            enabled: boolScalar(true),
+            row: scalar(row, "mm"),
+          },
+          { temperature: scalar(point + 10, "K") },
+        );
+      }),
+    ),
+  );
+}
+
+function manySliceGridSchema(): MeasurementDatasetSchema {
+  const schema = threeDimensionalGridSchema();
+  return {
+    ...schema,
+    dimensions: [{ id: "point", kind: "point", size: 33 }],
+    point_domain: {
+      kind: "product_grid",
+      axes: [
+        { id: "row", size: 1 },
+        { id: "column", size: 1 },
+        { id: "bias", size: 33 },
+      ],
+    },
+  };
+}
+
+function slicedGridRecords(biasValues: number[] = [0, 1]): MeasurementRecord[] {
+  return biasValues.flatMap((bias, biasIndex) =>
+    [10, 20].flatMap((row) =>
+      [1, 2, 3].map((column, columnIndex) => {
+        const point = biasIndex * 6 + (row === 10 ? 0 : 3) + columnIndex;
+        return record(
+          point,
+          {
+            bias: scalar(bias, "V"),
+            column: scalar(column, "mm"),
+            row: scalar(row, "mm"),
+          },
+          { temperature: scalar(bias * 100 + (point % 6) + 10, "K") },
+        );
+      }),
+    ),
+  );
+}
+
 function gridRecords(observable: (point: number) => MeasurementValue): MeasurementRecord[] {
   return [10, 20].flatMap((row) =>
     [1, 2, 3].map((column, point) =>
@@ -566,6 +835,14 @@ function complexScalar(
   unit: string,
 ): Extract<MeasurementValue, { kind: "scalar" }> {
   return { kind: "scalar", dtype: "complex128", unit, value: { real, imag } };
+}
+
+function stringScalar(value: string): Extract<MeasurementValue, { kind: "scalar" }> {
+  return { kind: "scalar", dtype: "string", value };
+}
+
+function boolScalar(value: boolean): Extract<MeasurementValue, { kind: "scalar" }> {
+  return { kind: "scalar", dtype: "bool", value };
 }
 
 function array(values: number[], unit: string): Extract<MeasurementValue, { kind: "array" }> {

@@ -7,6 +7,7 @@ import type {
 
 type SchemaVariable = NonNullable<MeasurementDatasetSchema["variables"]>[number];
 type VariableRole = SchemaVariable["role"];
+type MeasurementScalarValue = Extract<MeasurementValue, { kind: "scalar" }>["value"];
 
 interface VariableDescriptor {
   id: string;
@@ -27,6 +28,7 @@ interface NumericPoint {
 type NumericValueMode = "imag" | "magnitude" | "phase" | "real" | "value";
 
 const COMPLEX_VALUE_MODES: NumericValueMode[] = ["magnitude", "phase", "real", "imag"];
+const MAX_AUTO_HEATMAP_SLICES = 32;
 
 export interface MeasurementChartSeries {
   id: string;
@@ -37,6 +39,13 @@ export interface MeasurementChartSeries {
 export interface MeasurementChartGrid {
   xValues: number[];
   yValues: number[];
+}
+
+export interface MeasurementChartFixedCoordinate {
+  id: string;
+  label: string;
+  value: MeasurementScalarValue;
+  unit?: string;
 }
 
 interface MeasurementChartPlanBase {
@@ -51,8 +60,16 @@ interface MeasurementChartPlanBase {
 
 export type MeasurementChartPlan = MeasurementChartPlanBase &
   (
-    | { kind: "heatmap"; grid: MeasurementChartGrid }
-    | { kind: "color-scatter" | "line" | "scatter"; grid?: never }
+    | {
+        kind: "heatmap";
+        grid: MeasurementChartGrid;
+        fixedCoordinates: MeasurementChartFixedCoordinate[];
+      }
+    | {
+        kind: "color-scatter" | "line" | "scatter";
+        fixedCoordinates?: never;
+        grid?: never;
+      }
   );
 
 export interface MeasurementTableColumn {
@@ -160,50 +177,122 @@ function productGridHeatmaps(
 ): MeasurementChartPlan[] {
   if (schema.point_domain.kind !== "product_grid") return [];
   const variablesById = new Map(variables.map((variable) => [variable.id, variable]));
-  const axes = schema.point_domain.axes.flatMap((axis) => {
+  const axes = schema.point_domain.axes.map((axis) => {
     const variable = variablesById.get(axis.id);
-    return variable &&
-      variable.role === "coordinate" &&
-      variable.dims.length === 1 &&
-      isRealNumericVariable(variable)
-      ? [{ size: axis.size, variable }]
-      : [];
+    return variable && variable.role === "coordinate" && variable.dims.length === 1
+      ? { size: axis.size, variable }
+      : undefined;
   });
-  const xAxis = axes[0];
-  const yAxis = axes[1];
-  if (!xAxis || !yAxis || !validGridSize(xAxis.size) || !validGridSize(yAxis.size)) return [];
-  const expectedCellCount = xAxis.size * yAxis.size;
-  if (!Number.isSafeInteger(expectedCellCount) || records.length !== expectedCellCount) return [];
+  if (axes.some((axis) => axis === undefined)) return [];
+  const declaredAxes = axes.filter((axis) => axis !== undefined);
+  if (declaredAxes.some((axis) => !validGridSize(axis.size))) return [];
+  const numericAxes = declaredAxes.filter((axis) => isRealNumericVariable(axis.variable));
+  const xAxis = numericAxes[0];
+  const yAxis = numericAxes[1];
+  if (!xAxis || !yAxis) return [];
+  const fixedAxes = declaredAxes.filter((axis) => axis !== xAxis && axis !== yAxis);
+  const slices = productGridSlices(records, fixedAxes);
+  if (!slices) return [];
 
   return observables
     .filter((observable) => observable.dims.length === 1 && isNumericVariable(observable))
     .flatMap((observable) =>
-      valueModes(observable).flatMap((mode) => {
-        const grid = completeGrid(
-          records,
-          xAxis.variable,
-          yAxis.variable,
-          observable,
-          mode,
-          xAxis.size,
-          yAxis.size,
-        );
-        if (!grid) return [];
-        return [
-          {
-            id: `heatmap:${observable.id}:${xAxis.variable.id}:${yAxis.variable.id}:${mode}`,
-            kind: "heatmap" as const,
-            title: `${chartTitle(observable, mode)} heatmap`,
-            xLabel: valueLabel(xAxis.variable),
-            yLabel: valueLabel(yAxis.variable),
-            colorLabel: chartValueLabel(observable, mode),
-            grid: { xValues: grid.xValues, yValues: grid.yValues },
-            note: productGridNote(mode),
-            series: [{ id: observable.id, label: observable.label, points: grid.points }],
-          },
-        ];
-      }),
+      valueModes(observable).flatMap((mode) =>
+        slices.flatMap((slice) => {
+          const grid = completeGrid(
+            slice.records,
+            xAxis.variable,
+            yAxis.variable,
+            observable,
+            mode,
+            xAxis.size,
+            yAxis.size,
+          );
+          if (!grid) return [];
+          const fixedCoordinates = slice.values.map((value, index) => {
+            const axis = fixedAxes[index]!;
+            return {
+              id: axis.variable.id,
+              label: axis.variable.label,
+              unit: axis.variable.unit,
+              value,
+            };
+          });
+          return [
+            {
+              id: heatmapId(observable, xAxis.variable, yAxis.variable, mode, fixedCoordinates),
+              kind: "heatmap" as const,
+              title: `${chartTitle(observable, mode)} heatmap`,
+              xLabel: valueLabel(xAxis.variable),
+              yLabel: valueLabel(yAxis.variable),
+              colorLabel: chartValueLabel(observable, mode),
+              fixedCoordinates,
+              grid: { xValues: grid.xValues, yValues: grid.yValues },
+              note: productGridNote(mode),
+              series: [{ id: observable.id, label: observable.label, points: grid.points }],
+            },
+          ];
+        }),
+      ),
     );
+}
+
+interface ProductGridAxis {
+  size: number;
+  variable: VariableDescriptor;
+}
+
+interface ProductGridSlice {
+  records: MeasurementRecord[];
+  values: MeasurementScalarValue[];
+}
+
+function productGridSlices(
+  records: MeasurementRecord[],
+  fixedAxes: ProductGridAxis[],
+): ProductGridSlice[] | undefined {
+  if (fixedAxes.length === 0) return [{ records, values: [] }];
+  const distinctValues = fixedAxes.map(() => new Set<string>());
+  const groups = new Map<string, ProductGridSlice>();
+  for (const record of records) {
+    const values: MeasurementScalarValue[] = [];
+    const keys: string[] = [];
+    for (const [index, axis] of fixedAxes.entries()) {
+      const value = scalarValue(valueFor(record, axis.variable));
+      if (value === undefined) return undefined;
+      const key = scalarValueKey(value);
+      distinctValues[index]!.add(key);
+      values.push(value);
+      keys.push(key);
+    }
+    const key = JSON.stringify(keys);
+    if (!groups.has(key) && groups.size === MAX_AUTO_HEATMAP_SLICES) return undefined;
+    const slice = groups.get(key) ?? { records: [], values };
+    slice.records.push(record);
+    groups.set(key, slice);
+  }
+  if (distinctValues.some((values, index) => values.size > fixedAxes[index]!.size)) {
+    return undefined;
+  }
+  return [...groups.values()];
+}
+
+function heatmapId(
+  observable: VariableDescriptor,
+  xVariable: VariableDescriptor,
+  yVariable: VariableDescriptor,
+  mode: NumericValueMode,
+  fixedCoordinates: MeasurementChartFixedCoordinate[],
+): string {
+  const base = `heatmap:${observable.id}:${xVariable.id}:${yVariable.id}:${mode}`;
+  if (fixedCoordinates.length === 0) return base;
+  const fixed = fixedCoordinates
+    .map(
+      (coordinate) =>
+        `${encodeURIComponent(coordinate.id)}=${encodeURIComponent(scalarValueId(coordinate.value))}`,
+    )
+    .join("&");
+  return `${base}:fixed:${fixed}`;
 }
 
 function completeGrid(
@@ -419,6 +508,23 @@ function numericScalar(
   mode: NumericValueMode = "value",
 ): number | undefined {
   return value?.kind === "scalar" ? numericLeaf(value.value, mode) : undefined;
+}
+
+function scalarValue(value: MeasurementValue | undefined): MeasurementScalarValue | undefined {
+  return value?.kind === "scalar" ? value.value : undefined;
+}
+
+function scalarValueKey(value: MeasurementScalarValue): string {
+  if (typeof value === "boolean") return `bool:${value}`;
+  if (typeof value === "number") return `number:${value}`;
+  if (typeof value === "string") return `string:${value}`;
+  return `complex:${value.real}:${value.imag}`;
+}
+
+function scalarValueId(value: MeasurementScalarValue): string {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value !== "object") return String(value);
+  return `${value.real}${value.imag < 0 ? "" : "+"}${value.imag}i`;
 }
 
 function numericArray(
