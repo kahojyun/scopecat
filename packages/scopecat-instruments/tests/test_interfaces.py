@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
+from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.value_types import Bool, Int, Quantity, Scalar
 from scopecat.sdk.instruments import (
     AcquisitionRef,
@@ -15,7 +16,6 @@ from scopecat.sdk.instruments import (
     OperationRef,
     PropertyRef,
     StatePropertyRef,
-    acquisition_results,
 )
 
 import scopecat_instruments.members as member_catalog
@@ -34,18 +34,21 @@ from scopecat_instruments.interfaces import (
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
-    DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
     DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASURE_CURRENT,
+    DC_MONITOR_MEASURE_VOLTAGE,
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
     DC_MONITOR_VOLTAGE_RESULT,
     DC_SOURCE,
+    DC_SOURCE_CURRENT,
     DC_SOURCE_CURRENT_LEVEL,
     DC_SOURCE_CURRENT_PROTECTION,
     DC_SOURCE_CURRENT_RANGE,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE,
     DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_PROTECTION,
     DC_SOURCE_VOLTAGE_RANGE,
@@ -115,9 +118,7 @@ def test_member_catalog_resolves_against_the_interface_contracts() -> None:
         if isinstance(member, AcquisitionRef):
             continue
         assert isinstance(member, AcquisitionResultRef)
-        assert member.result_id in {
-            result.id for result in acquisition_results(acquisition)
-        }
+        assert member.result_id in {result.id for result in acquisition.results}
 
 
 def test_network_sweep_axis_size_tracks_the_points_state() -> None:
@@ -128,9 +129,39 @@ def test_network_sweep_axis_size_tracks_the_points_state() -> None:
         property_id=NETWORK_SWEEP_POINTS.property_id,
     )
 
-    for result in acquisition_results(sweep):
+    for result in sweep.results:
         [frequency] = result.axes
         assert frequency.size == expected
+
+
+def test_declared_network_sweep_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(network_sweep_interface()) == (
+        "3855d931051bae10b1a7112b85e819a4ce6160d1e2ebc67a828b3f251ca8407f"
+    )
+
+
+def test_declared_rf_output_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(rf_output_interface()) == (
+        "2bda603a084e8dbb487b6dea5cecb8be4037e2753eb9a6bd0fcbfabfcbff2dbc"
+    )
+
+
+def test_declared_dc_source_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(dc_source_interface()) == (
+        "0bd8e9c89a327e53af4c682b71ff8b4f0867faf53850b9260c6f48034e4d2d5b"
+    )
+
+
+def test_declared_dc_monitor_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(dc_monitor_interface()) == (
+        "7d5c7a32e96daf82162371174645c75ecdeb6c97e4ded87ab719e0749dad85e0"
+    )
+
+
+def test_declared_temperature_readout_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(temperature_readout_interface()) == (
+        "45e177997076748215dda389754748144ceaedebf1594473a00643ad51568c71"
+    )
 
 
 def _resolve_component(
@@ -186,7 +217,7 @@ def test_interface_contract_has_complete_ui_metadata(
     for acquisition_spec in interface.acquisitions:
         assert acquisition_spec.label
         assert acquisition_spec.description
-        for result in acquisition_results(acquisition_spec):
+        for result in acquisition_spec.results:
             assert result.label
             assert result.description
             for axis in result.axes:
@@ -223,79 +254,68 @@ def test_virtual_dc_source_exposes_source_and_monitor_interfaces() -> None:
 def test_temperature_readout_separates_scanner_state_from_samples() -> None:
     interface = temperature_readout_interface()
 
-    assert {item.id for item in interface.properties} == {
+    properties = {item.id: item for item in interface.properties}
+    assert set(properties) == {
         TEMPERATURE_READOUT_SCAN_CHANNEL.property_id,
         TEMPERATURE_READOUT_AUTOSCAN_ENABLED.property_id,
     }
+    assert properties[
+        TEMPERATURE_READOUT_SCAN_CHANNEL.property_id
+    ].value_type == Scalar(Int(minimum=1, maximum=9007199254740991))
     assert len(interface.acquisitions) == 1
-    assert {item.id for item in acquisition_results(interface.acquisitions[0])} == {
+    assert {item.id for item in interface.acquisitions[0].results} == {
         TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id,
         TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id,
     }
 
 
-def test_dc_source_state_partitions_properties_by_source_mode() -> None:
+def test_dc_source_separates_state_observation_and_mode_transitions() -> None:
     interface = dc_source_interface()
-    state = interface.state
 
-    assert state is not None
+    assert interface.id == "scopecat.dc_source/v3"
     assert [item.id for item in interface.properties] == [
+        DC_SOURCE_VOLTAGE_PROTECTION.property_id,
+        DC_SOURCE_CURRENT_PROTECTION.property_id,
+        DC_SOURCE_OUTPUT_ENABLED.property_id,
         DC_SOURCE_MODE.property_id,
-        DC_SOURCE_VOLTAGE_PROTECTION.property_id,
-        DC_SOURCE_CURRENT_PROTECTION.property_id,
-        DC_SOURCE_OUTPUT_ENABLED.property_id,
-        DC_SOURCE_VOLTAGE_RANGE.property_id,
-        DC_SOURCE_VOLTAGE_LEVEL.property_id,
-        DC_SOURCE_CURRENT_RANGE.property_id,
-        DC_SOURCE_CURRENT_LEVEL.property_id,
     ]
-    assert state.discriminator_property_id == DC_SOURCE_MODE.property_id
-    assert state.common_property_ids == [
-        DC_SOURCE_VOLTAGE_PROTECTION.property_id,
-        DC_SOURCE_CURRENT_PROTECTION.property_id,
-        DC_SOURCE_OUTPUT_ENABLED.property_id,
+    properties = {item.id: item for item in interface.properties}
+    assert properties[DC_SOURCE_MODE.property_id].access == "read_only"
+    assert {
+        properties[property.property_id].access
+        for property in (
+            DC_SOURCE_VOLTAGE_PROTECTION,
+            DC_SOURCE_CURRENT_PROTECTION,
+            DC_SOURCE_OUTPUT_ENABLED,
+        )
+    } == {"read_write"}
+
+    voltage, current = interface.operations
+    assert voltage.id == DC_SOURCE_VOLTAGE.operation_id
+    assert [argument.id for argument in voltage.arguments] == [
+        DC_SOURCE_VOLTAGE_RANGE.argument_id,
+        DC_SOURCE_VOLTAGE_LEVEL.argument_id,
     ]
-    assert [(case.value, case.property_ids) for case in state.cases] == [
-        (
-            "voltage",
-            [
-                DC_SOURCE_VOLTAGE_RANGE.property_id,
-                DC_SOURCE_VOLTAGE_LEVEL.property_id,
-            ],
-        ),
-        (
-            "current",
-            [
-                DC_SOURCE_CURRENT_RANGE.property_id,
-                DC_SOURCE_CURRENT_LEVEL.property_id,
-            ],
-        ),
+    assert [argument.value_type for argument in voltage.arguments] == [
+        Scalar(Quantity(unit="V")),
+        Scalar(Quantity(unit="V")),
     ]
-    assert [
-        (case.value, case.required_on_entry_property_ids) for case in state.cases
-    ] == [
-        (
-            "voltage",
-            [
-                DC_SOURCE_VOLTAGE_RANGE.property_id,
-                DC_SOURCE_VOLTAGE_LEVEL.property_id,
-            ],
-        ),
-        (
-            "current",
-            [
-                DC_SOURCE_CURRENT_RANGE.property_id,
-                DC_SOURCE_CURRENT_LEVEL.property_id,
-            ],
-        ),
+    assert current.id == DC_SOURCE_CURRENT.operation_id
+    assert [argument.id for argument in current.arguments] == [
+        DC_SOURCE_CURRENT_RANGE.argument_id,
+        DC_SOURCE_CURRENT_LEVEL.argument_id,
+    ]
+    assert [argument.value_type for argument in current.arguments] == [
+        Scalar(Quantity(unit="A")),
+        Scalar(Quantity(unit="A")),
     ]
 
 
-def test_dc_monitor_results_follow_the_source_mode() -> None:
+def test_dc_monitor_declares_independent_results() -> None:
     monitor_interface = dc_monitor_interface()
-    [monitor] = monitor_interface.acquisitions
+    current, voltage = monitor_interface.acquisitions
 
-    assert monitor_interface.id == "scopecat.dc_monitor/v3"
+    assert monitor_interface.id == "scopecat.dc_monitor/v4"
     properties = {item.id: item for item in monitor_interface.properties}
     assert set(properties) == {
         DC_MONITOR_MEASUREMENT_ENABLED.property_id,
@@ -306,45 +326,30 @@ def test_dc_monitor_results_follow_the_source_mode() -> None:
         Bool()
     )
     assert properties[DC_MONITOR_INTEGRATION_CYCLES.property_id].value_type == Scalar(
-        Int(minimum=1, maximum=25)
+        Int(minimum=1, maximum=9007199254740991)
     )
     assert properties[DC_MONITOR_MEASUREMENT_DELAY.property_id].value_type == Scalar(
-        Quantity(unit="s", minimum=0.0, maximum=999.999)
+        Quantity(unit="s", minimum=0.0)
     )
     assert {item.access for item in properties.values()} == {"read_write"}
-    assert monitor.kind == "state_discriminated"
-    assert monitor.id == DC_MONITOR_ACQUISITION.acquisition_id
-    assert monitor.discriminator.interface_id == DC_SOURCE_MODE.interface_id
-    assert monitor.discriminator.component_path == []
-    assert monitor.discriminator.property_id == DC_SOURCE_MODE.property_id
     assert [
         (
-            precondition.property.interface_id,
-            precondition.property.property_id,
-            precondition.value,
-            precondition.unavailable_reason,
+            acquisition.id,
+            [result.id for result in acquisition.results],
         )
-        for precondition in monitor.preconditions
+        for acquisition in (current, voltage)
     ] == [
         (
-            DC_SOURCE_OUTPUT_ENABLED.interface_id,
-            DC_SOURCE_OUTPUT_ENABLED.property_id,
-            True,
-            "DC source output is disabled.",
+            DC_MONITOR_MEASURE_CURRENT.acquisition_id,
+            [DC_MONITOR_CURRENT_RESULT.result_id],
         ),
         (
-            DC_MONITOR_MEASUREMENT_ENABLED.interface_id,
-            DC_MONITOR_MEASUREMENT_ENABLED.property_id,
-            True,
-            "DC monitor measurement is disabled.",
+            DC_MONITOR_MEASURE_VOLTAGE.acquisition_id,
+            [DC_MONITOR_VOLTAGE_RESULT.result_id],
         ),
     ]
-    assert [
-        (case.value, [result.id for result in case.results]) for case in monitor.cases
-    ] == [
-        ("voltage", [DC_MONITOR_CURRENT_RESULT.result_id]),
-        ("current", [DC_MONITOR_VOLTAGE_RESULT.result_id]),
-    ]
+    assert current.preconditions == []
+    assert voltage.preconditions == []
 
 
 @pytest.mark.parametrize(

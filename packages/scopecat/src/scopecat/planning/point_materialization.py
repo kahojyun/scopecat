@@ -28,6 +28,7 @@ from scopecat.compiler.relations.evaluation import (
 from scopecat.compiler.value_resolution import BoundValueResolver, ProgramValue
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import (
     Problem,
@@ -39,7 +40,6 @@ from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import LogicalDomainExecution
-from scopecat.program.value_graph import ValueId
 
 
 @dataclass(frozen=True, slots=True)

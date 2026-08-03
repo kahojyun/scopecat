@@ -33,6 +33,7 @@ def build_run_program_preview(
             ExperimentPreviewRecord(
                 id=record.id,
                 role=record.role,
+                recording_group_id=record.recording_group_id,
                 unit=record.unit,
                 dtype=record.dtype,
                 dims=("point", *(axis.id for axis in record.axes)),

@@ -40,7 +40,7 @@ cd ../..
 ```
 
 Create a runnable project with a local Python configuration source and a
-hardware-free first scratch experiment:
+hardware-free first experiment:
 
 ```sh
 uv run scopecat init ./my-lab
@@ -103,8 +103,8 @@ uv run python examples/instruments/notebooks/01_direct_control.py
 Its coupled virtual DC source, temperature monitor, RF source, and VNA use the
 same interface and session APIs as real devices.
 
-Explicitly local scratch code still executes in the notebook process when it
-cannot be sent reliably to another process. Admission, resource ownership,
+Locally authored Python closures still execute in the notebook process when
+they cannot be sent reliably to another process. Admission, resource ownership,
 measurements, analysis, and configuration history are written only by the
 daemon.
 

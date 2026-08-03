@@ -2,23 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from typing import Literal, override
 
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.measurement import MeasurementScalar, MeasurementUnavailable
+from scopecat.records.measurement import (
+    MeasurementScalar,
+    MeasurementUnavailable,
+    MeasurementValue,
+)
 from scopecat.sdk.instruments import (
-    DriverAcquisition,
-    DriverOperation,
     DriverOutcome,
-    DriverReadback,
     DriverRejected,
-    DriverScalar,
-    DriverState,
-    DriverStatePatch,
     DriverSuccess,
     InstrumentDescription,
-    PropertyRef,
 )
 from scopecat.sdk.instruments.scpi import (
     ScpiIdentity,
@@ -35,44 +32,42 @@ from scopecat.sdk.instruments.scpi import (
 
 from scopecat_instruments._support import (
     apply_unknown,
-    bool_value,
     collect_unknown,
     execution_problem,
-    int_value,
+    invoke_unknown,
     quantity_value,
     state_property_problem,
     state_sync_failed,
-    string_value,
-    unsupported_invoke,
 )
-from scopecat_instruments.driver_ids import YOKOGAWA_GS200
+from scopecat_instruments.driver_handlers import (
+    DCMonitorMeasureCurrentDriverReadback,
+    DCMonitorMeasureVoltageDriverReadback,
+    DCSourceMonitorDriverAdapter,
+    DCSourceMonitorDriverPatch,
+    DCSourceMonitorDriverSnapshot,
+)
+from scopecat_instruments.interface_declarations import (
+    DCMonitorState,
+    DCSourceState,
+)
 from scopecat_instruments.interfaces import dc_monitor_interface, dc_source_interface
 from scopecat_instruments.members import (
-    DC_MONITOR_CURRENT_RESULT,
-    DC_MONITOR_INTEGRATION_CYCLES,
-    DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
-    DC_MONITOR_VOLTAGE_RESULT,
-    DC_SOURCE_CURRENT_LEVEL,
-    DC_SOURCE_CURRENT_PROTECTION,
-    DC_SOURCE_CURRENT_RANGE,
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
-    DC_SOURCE_VOLTAGE_PROTECTION,
-    DC_SOURCE_VOLTAGE_RANGE,
 )
+from scopecat_instruments.package_manifest import YOKOGAWA_GS200_DRIVER
 
 _CONDITION_END_OF_MEASURE = 1 << 0
 _CONDITION_OVER_RANGE = 1 << 1
 _CONDITION_NO_TRIGGER_SAMPLING_ERROR = 1 << 4
 
 
-class YokogawaGS200:
+class YokogawaGS200(DCSourceMonitorDriverAdapter):
     """GS200 source controls plus optional /MON single-value measurement."""
 
-    implementation_id = YOKOGAWA_GS200
-    implementation_version = "v2"
+    implementation_id = YOKOGAWA_GS200_DRIVER.id
+    implementation_version = YOKOGAWA_GS200_DRIVER.implementation_version
 
     def __init__(
         self,
@@ -83,6 +78,7 @@ class YokogawaGS200:
         remote_sense: bool = False,
         guard_enabled: bool = False,
     ) -> None:
+        super().__init__(monitor=monitor_option)
         self.instrument_id = instrument_id
         self.transport = transport
         self.monitor_option = monitor_option
@@ -106,17 +102,17 @@ class YokogawaGS200:
             ],
         )
 
-    def read_state(self) -> DriverState:
+    @override
+    def read_dc_source_monitor_state(self) -> DCSourceMonitorDriverSnapshot:
         self._validate_connection_profile()
         mode = self.source_mode()
-        source_range = self.source_range()
-        self._validate_source_profile(mode, source_range)
-        active_unit = "V" if mode == "voltage" else "A"
-        range_property = (
-            DC_SOURCE_VOLTAGE_RANGE if mode == "voltage" else DC_SOURCE_CURRENT_RANGE
-        )
-        level_property = (
-            DC_SOURCE_VOLTAGE_LEVEL if mode == "voltage" else DC_SOURCE_CURRENT_LEVEL
+        if self.remote_sense and mode == "voltage":
+            self._validate_source_profile(mode, self.source_range())
+        source = DCSourceState(
+            voltage_protection=Quantity(self.voltage_protection(), "V"),
+            current_protection=Quantity(self.current_protection(), "A"),
+            output_enabled=self.output_enabled(),
+            source_mode=mode,
         )
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Yokogawa",
@@ -124,32 +120,29 @@ class YokogawaGS200:
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        properties: dict[PropertyRef, DriverScalar] = {
-            DC_SOURCE_MODE: mode,
-            range_property: Quantity(source_range, active_unit),
-            level_property: Quantity(self.source_level(), active_unit),
-            DC_SOURCE_VOLTAGE_PROTECTION: Quantity(self.voltage_protection(), "V"),
-            DC_SOURCE_CURRENT_PROTECTION: Quantity(self.current_protection(), "A"),
-            DC_SOURCE_OUTPUT_ENABLED: self.output_enabled(),
-        }
-        if self.monitor_option:
-            properties.update(
-                {
-                    DC_MONITOR_MEASUREMENT_ENABLED: self.measurement_enabled(),
-                    DC_MONITOR_INTEGRATION_CYCLES: self.integration_cycles(),
-                    DC_MONITOR_MEASUREMENT_DELAY: Quantity(
-                        self.measurement_delay(), "s"
-                    ),
-                }
+        monitor = (
+            DCMonitorState(
+                measurement_enabled=self.measurement_enabled(),
+                integration_cycles=self.integration_cycles(),
+                measurement_delay=Quantity(self.measurement_delay(), "s"),
             )
-        return DriverState(values=properties, metadata=metadata)
+            if self.monitor_option
+            else None
+        )
+        return DCSourceMonitorDriverSnapshot(
+            dc_source=source,
+            dc_monitor=monitor,
+            metadata=metadata,
+        )
 
-    def apply_state(
+    @override
+    def apply_dc_source_monitor_state(
         self,
-        request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+        patch: DCSourceMonitorDriverPatch,
+        /,
+    ) -> DriverOutcome[None]:
         try:
-            baseline = self.read_state()
+            baseline = self.read_dc_source_monitor_state()
         except TransportError:
             # A not_applied receipt would keep a transport that cannot be reused.
             raise
@@ -157,174 +150,168 @@ class YokogawaGS200:
             return state_sync_failed(self.instrument_id, error)
 
         try:
-            selected_properties = request.values
-            baseline_properties = baseline.values
-            current_mode = string_value(baseline_properties[DC_SOURCE_MODE])
-            current_output = bool_value(baseline_properties[DC_SOURCE_OUTPUT_ENABLED])
-            mode_property = selected_properties.get(DC_SOURCE_MODE)
-            target_mode = (
-                string_value(mode_property)
-                if mode_property is not None
-                else current_mode
-            )
-            output_property = selected_properties.get(DC_SOURCE_OUTPUT_ENABLED)
-            target_output = (
-                bool_value(output_property)
-                if output_property is not None
-                else current_output
-            )
-            if not self._remote_sense_target_is_valid(
-                selected_properties,
-                baseline_properties,
-                current_mode=current_mode,
-                target_mode=target_mode,
-            ):
-                return DriverRejected(
-                    problems=(
-                        execution_problem(
-                            "gs200_remote_sense_voltage_range_incompatible",
-                            "GS200 remote sense requires an explicit voltage range "
-                            "of at least 1 V",
-                            "driver_state_patch",
-                            "values",
-                        ),
-                    )
-                )
+            source_patch = patch.dc_source
+            monitor_patch = patch.dc_monitor
+            current_output = baseline.dc_source.output_enabled
+            target_output = source_patch.get("output_enabled", current_output)
             current_measurement = False
             target_measurement = False
             changes_measurement_settings = False
-            if self.monitor_option:
-                current_measurement = bool_value(
-                    baseline_properties[DC_MONITOR_MEASUREMENT_ENABLED]
+            if baseline.dc_monitor is not None:
+                current_measurement = baseline.dc_monitor.measurement_enabled
+                target_measurement = monitor_patch.get(
+                    "measurement_enabled",
+                    current_measurement,
                 )
-                measurement_property = selected_properties.get(
-                    DC_MONITOR_MEASUREMENT_ENABLED
+                changes_measurement_settings = (
+                    "integration_cycles" in monitor_patch
+                    or "measurement_delay" in monitor_patch
                 )
-                target_measurement = (
-                    bool_value(measurement_property)
-                    if measurement_property is not None
-                    else current_measurement
-                )
-                changes_measurement_settings = bool(
-                    {
-                        DC_MONITOR_INTEGRATION_CYCLES,
-                        DC_MONITOR_MEASUREMENT_DELAY,
-                    }
-                    & selected_properties.keys()
-                )
-            changes_source_state = target_mode != current_mode or bool(
-                {
-                    DC_SOURCE_VOLTAGE_RANGE,
-                    DC_SOURCE_CURRENT_RANGE,
-                    DC_SOURCE_VOLTAGE_LEVEL,
-                    DC_SOURCE_CURRENT_LEVEL,
-                }
-                & selected_properties.keys()
-            )
-            # Protection values are compliance controls designed for live adjustment.
-            disabled_for_update = current_output and (
-                not target_output or changes_source_state
-            )
-
-            if disabled_for_update:
-                self.set_output(False)
-            if target_mode != current_mode:
-                self.set_source_mode(target_mode)
-            if DC_SOURCE_VOLTAGE_RANGE in selected_properties:
-                self.set_source_range(
-                    quantity_value(
-                        selected_properties[DC_SOURCE_VOLTAGE_RANGE],
-                        "V",
-                    )
-                )
-            if DC_SOURCE_CURRENT_RANGE in selected_properties:
-                self.set_source_range(
-                    quantity_value(
-                        selected_properties[DC_SOURCE_CURRENT_RANGE],
-                        "A",
-                    )
-                )
-            if DC_SOURCE_VOLTAGE_PROTECTION in selected_properties:
+            if "voltage_protection" in source_patch:
                 self.set_voltage_protection(
-                    quantity_value(
-                        selected_properties[DC_SOURCE_VOLTAGE_PROTECTION],
-                        "V",
-                    )
+                    quantity_value(source_patch["voltage_protection"], "V")
                 )
-            if DC_SOURCE_CURRENT_PROTECTION in selected_properties:
+            if "current_protection" in source_patch:
                 self.set_current_protection(
-                    quantity_value(
-                        selected_properties[DC_SOURCE_CURRENT_PROTECTION],
-                        "A",
-                    )
+                    quantity_value(source_patch["current_protection"], "A")
                 )
-            if DC_SOURCE_VOLTAGE_LEVEL in selected_properties:
-                self.set_source_level(
-                    quantity_value(
-                        selected_properties[DC_SOURCE_VOLTAGE_LEVEL],
-                        "V",
-                    )
-                )
-            if DC_SOURCE_CURRENT_LEVEL in selected_properties:
-                self.set_source_level(
-                    quantity_value(
-                        selected_properties[DC_SOURCE_CURRENT_LEVEL],
-                        "A",
-                    )
-                )
-            if self.monitor_option:
+            if baseline.dc_monitor is not None:
                 measurement_disabled_for_update = (
                     current_measurement and changes_measurement_settings
                 )
                 if measurement_disabled_for_update:
                     self.set_measurement_enabled(False)
-                if DC_MONITOR_INTEGRATION_CYCLES in selected_properties:
-                    self.set_integration_cycles(
-                        int_value(selected_properties[DC_MONITOR_INTEGRATION_CYCLES])
-                    )
-                if DC_MONITOR_MEASUREMENT_DELAY in selected_properties:
+                if "integration_cycles" in monitor_patch:
+                    self.set_integration_cycles(monitor_patch["integration_cycles"])
+                if "measurement_delay" in monitor_patch:
                     self.set_measurement_delay(
-                        quantity_value(
-                            selected_properties[DC_MONITOR_MEASUREMENT_DELAY],
-                            "s",
-                        )
+                        quantity_value(monitor_patch["measurement_delay"], "s")
                     )
                 effective_measurement = (
                     False if measurement_disabled_for_update else current_measurement
                 )
                 if target_measurement != effective_measurement:
                     self.set_measurement_enabled(target_measurement)
-            effective_output = False if disabled_for_update else current_output
-            if target_output != effective_output:
+            if target_output != current_output:
                 self.set_output(target_output)
-            return DriverSuccess(self.read_state())
+            return DriverSuccess(None)
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def invoke(
+    @override
+    def handle_source_voltage(
         self,
-        request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
-        return unsupported_invoke(request, self.instrument_id)
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> DriverOutcome[None]:
+        range_v = quantity_value(range, "V")
+        if not self._source_profile_is_valid("voltage", range_v):
+            return DriverRejected(
+                problems=(
+                    execution_problem(
+                        "gs200_remote_sense_voltage_range_incompatible",
+                        "GS200 remote sense requires a voltage range of at least 1 V",
+                        "driver_operation",
+                        "arguments",
+                        "range",
+                    ),
+                )
+            )
+        return self._source_transition(
+            mode="voltage",
+            range_value=range_v,
+            level_value=quantity_value(level, "V"),
+        )
 
-    def collect(
+    @override
+    def handle_source_current(
         self,
-        request: DriverAcquisition,
-    ) -> DriverOutcome[DriverReadback]:
+        *,
+        range: Quantity,
+        level: Quantity,
+    ) -> DriverOutcome[None]:
+        return self._source_transition(
+            mode="current",
+            range_value=quantity_value(range, "A"),
+            level_value=quantity_value(level, "A"),
+        )
+
+    def _source_transition(
+        self,
+        *,
+        mode: Literal["voltage", "current"],
+        range_value: float,
+        level_value: float,
+    ) -> DriverOutcome[None]:
+        try:
+            output_enabled = self.output_enabled()
+            if output_enabled:
+                self.set_output(False)
+            self.set_source_mode(mode)
+            self.set_source_range(range_value)
+            self.set_source_level(level_value)
+            if output_enabled:
+                self.set_output(True)
+            return DriverSuccess(None)
+        except Exception as error:
+            return invoke_unknown(self.instrument_id, error)
+
+    @override
+    def handle_measure_current(
+        self,
+    ) -> DriverOutcome[DCMonitorMeasureCurrentDriverReadback]:
+        outcome = self._measure_monitor(expected_mode="voltage", unit="A")
+        if not isinstance(outcome, DriverSuccess):
+            return outcome
+        return DriverSuccess(
+            DCMonitorMeasureCurrentDriverReadback(
+                current=outcome.value,
+                metadata={
+                    "manufacturer": "Yokogawa",
+                    "model": "GS200",
+                    "source_mode": "voltage",
+                },
+            ),
+            metadata=outcome.metadata,
+        )
+
+    @override
+    def handle_measure_voltage(
+        self,
+    ) -> DriverOutcome[DCMonitorMeasureVoltageDriverReadback]:
+        outcome = self._measure_monitor(expected_mode="current", unit="V")
+        if not isinstance(outcome, DriverSuccess):
+            return outcome
+        return DriverSuccess(
+            DCMonitorMeasureVoltageDriverReadback(
+                voltage=outcome.value,
+                metadata={
+                    "manufacturer": "Yokogawa",
+                    "model": "GS200",
+                    "source_mode": "current",
+                },
+            ),
+            metadata=outcome.metadata,
+        )
+
+    def _measure_monitor(
+        self,
+        *,
+        expected_mode: Literal["voltage", "current"],
+        unit: Literal["A", "V"],
+    ) -> DriverOutcome[MeasurementValue]:
         try:
             mode = self.source_mode()
-            active_result = (
-                DC_MONITOR_CURRENT_RESULT
-                if mode == "voltage"
-                else DC_MONITOR_VOLTAGE_RESULT
-            )
-            if request.results != frozenset({active_result}):
+            if mode != expected_mode:
                 return DriverRejected(
                     problems=(
                         state_property_problem(
-                            "gs200_monitor_result_inactive",
-                            f"{mode} source mode provides only "
-                            f"{active_result.result_id}",
+                            "gs200_monitor_source_mode_mismatch",
+                            (
+                                f"measurement requires {expected_mode} source mode, "
+                                f"got {mode}"
+                            ),
                             DC_SOURCE_MODE,
                         ),
                     )
@@ -349,13 +336,14 @@ class YokogawaGS200:
                         ),
                     )
                 )
-            if mode == "voltage" and self.source_range() < 1.0:
+            if expected_mode == "voltage" and self.source_range() < 1.0:
                 return DriverRejected(
                     problems=(
-                        state_property_problem(
+                        execution_problem(
                             "gs200_monitor_voltage_range_too_low",
                             "GS200 current monitoring requires at least the 1 V range",
-                            DC_SOURCE_VOLTAGE_RANGE,
+                            "driver_acquisition",
+                            "acquisition_id",
                         ),
                     )
                 )
@@ -372,7 +360,6 @@ class YokogawaGS200:
                     )
                 )
 
-            unit = "A" if mode == "voltage" else "V"
             original_trigger = self.measurement_trigger()
             restore_trigger = original_trigger != "COMM"
             try:
@@ -409,16 +396,7 @@ class YokogawaGS200:
                     unit=unit,
                     value=parse_float(raw_measurement, command=":MEAS?"),
                 )
-            return DriverSuccess(
-                DriverReadback(
-                    values=dict.fromkeys(request.results, measured),
-                    metadata={
-                        "manufacturer": "Yokogawa",
-                        "model": "GS200",
-                        "source_mode": mode,
-                    },
-                ),
-            )
+            return DriverSuccess(measured)
         except Exception as error:
             return collect_unknown(self.instrument_id, error)
 
@@ -428,7 +406,7 @@ class YokogawaGS200:
             raise ValueError("GS200 source mode must be voltage or current")
         self.transport.write(f":SOUR:FUNC {command}")
 
-    def source_mode(self) -> str:
+    def source_mode(self) -> Literal["voltage", "current"]:
         response = query_text(self.transport, ":SOUR:FUNC?").upper()
         if response.startswith("VOLT"):
             return "voltage"
@@ -527,28 +505,6 @@ class YokogawaGS200:
 
     def _source_profile_is_valid(self, mode: str, source_range: float) -> bool:
         return not (self.remote_sense and mode == "voltage" and source_range < 1.0)
-
-    def _remote_sense_target_is_valid(
-        self,
-        selected_properties: Mapping[PropertyRef, DriverScalar],
-        baseline_properties: Mapping[PropertyRef, DriverScalar],
-        *,
-        current_mode: str,
-        target_mode: str,
-    ) -> bool:
-        if not self.remote_sense or target_mode != "voltage":
-            return True
-        requested_range = selected_properties.get(DC_SOURCE_VOLTAGE_RANGE)
-        if requested_range is not None:
-            target_range = quantity_value(requested_range, "V")
-        elif current_mode == "voltage":
-            target_range = quantity_value(
-                baseline_properties[DC_SOURCE_VOLTAGE_RANGE],
-                "V",
-            )
-        else:
-            return False
-        return self._source_profile_is_valid(target_mode, target_range)
 
     def identify(self) -> ScpiIdentity:
         identity = query_identity(self.transport)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 import scopecat as sc
 from scopecat.authoring import MetadataValue
@@ -11,10 +12,10 @@ from scopecat.compiler.frontend.logical_verification import (
     VerifiedLogicalProgram,
     verify_logical_program,
 )
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.logical import LogicalProgram
-from scopecat.program.value_graph import ValueId
 from scopecat.sdk.instruments import InterfaceRef
 
 _MEASURE = InterfaceRef("test.measure/v1")
@@ -38,13 +39,13 @@ def _combine_payload_and_label(*, payload: object, label: str) -> dict[str, obje
     return {"payload": payload, "label": label}
 
 
-def _composable_module() -> sc.ExperimentModule[...]:
+def _composable_module() -> sc.ExperimentModule[sc.ValueRef, ...]:
     payload_type = _payload_type()
 
     @sc.module(id="test.composition-invariant.source")
-    def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_MEASURE,))
-        context.bind_property(
+    def module(context: sc.ModuleContext) -> sc.ValueRef:
+        source = context._resource("source", requires=(_MEASURE,))
+        context._bind_property(
             source,
             _MEASURE_MODE,
             value="fast",
@@ -63,22 +64,22 @@ def _composable_module() -> sc.ExperimentModule[...]:
             },
             output_type=payload_type,
         )
-        context.export(payload=consumed)
-        signal = context.product("signal", unit="ratio")
-        context.acquire(
+        signal = context._product("signal", unit="ratio")
+        context._acquire(
             "read-signal",
             resource=source,
             results={_MEASURE_SAMPLE_SIGNAL: signal},
         )
+        return consumed
 
     return module
 
 
 def _compose_module(
     id: str,
-    *parts: sc.ModuleInvocation,
+    *parts: sc.ModuleInvocation[Any],
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> sc.ExperimentModule[...]:
+) -> sc.ExperimentModule[None, ...]:
     @sc.module(id=id, metadata=metadata)
     def module(context: sc.ModuleContext) -> None:
         for part in parts:

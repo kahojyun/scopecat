@@ -47,20 +47,23 @@ The second notebook uses the normal experiment API:
 uv run python examples/instruments/notebooks/02_flux_spectroscopy.py
 ```
 
-It calls `lab.prepare(flux_spectroscopy_template()).run()`, scans eleven DC-bias
-points, and stores a VNA frequency axis, complex S21 trace, and mixing-chamber
+It builds one invocation, previews it with `lab.preview(invocation)`, and runs
+it with `lab.run(invocation, ...)`. The experiment scans eleven DC-bias points
+and stores a VNA frequency axis, complex S21 trace, and mixing-chamber
 temperature at every point. Its analysis extracts the resonance frequency and
-loaded linewidth, saves fit tables and a flux-map figure descriptor, and
-creates a reviewable configuration proposal for
+loaded linewidth, saves fit tables and a flux-map figure descriptor, and creates
+a reviewable configuration proposal for
 `readout_resonance_frequency` and `readout_resonator_linewidth`. The notebook
 does not accept that proposal automatically.
 
-The experiment declares only the logical resources `flux-source`,
-`mixing-chamber`, and `readout-vna` plus their interfaces. It has no driver or
-vendor imports, so the same experiment can be routed to compatible real
-instruments. The intended path explicitly disables the flux output after each
-acquisition. The demo provider also enforces bias-off during abort, which covers
-an acquisition failure before the final experiment effect runs.
+The experiment uses typed symbolic clients to declare only the logical resources
+`flux-source`, `mixing-chamber`, and `readout-vna`; interface contracts provide
+the acquisition product schemas automatically. It has no driver, vendor, or
+low-level interface-member imports, so the same experiment can be routed to
+compatible real instruments. After every scan point completes successfully, the
+experiment's normal-completion finalization disables the flux output once. The
+demo provider also enforces bias-off during abort, which covers a failure before
+normal-completion finalization can run.
 
 Run the example-level checks with:
 

@@ -50,30 +50,22 @@ if TYPE_CHECKING:
     from scopecat.sdk.instruments.contracts import (
         AcquisitionAxisSize,
         AcquisitionAxisSpec,
-        AcquisitionCaseSpec,
         AcquisitionPreconditionSpec,
         AcquisitionResultSpec,
         AcquisitionSpec,
         ComponentSpec,
-        DiscriminatedState,
-        FixedAcquisitionSpec,
         InstrumentDescription,
         InterfaceSpec,
         OperationArgumentSpec,
         OperationSpec,
         PropertySpec,
-        StateCase,
-        StateDiscriminatedAcquisitionSpec,
         StatePropertyRef,
         acquisition,
         acquisition_axis,
-        acquisition_case,
         acquisition_precondition,
         acquisition_result,
-        acquisition_results,
         bool_property,
         component,
-        discriminated_state,
         enum_property,
         float_property,
         int_property,
@@ -81,10 +73,9 @@ if TYPE_CHECKING:
         operation,
         operation_argument,
         quantity_property,
-        state_case,
-        state_discriminated_acquisition,
         string_property,
     )
+    from scopecat.sdk.instruments.errors import InstrumentCollectFailure
     from scopecat.sdk.instruments.members import (
         AcquisitionRef,
         AcquisitionResultRef,
@@ -131,10 +122,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "AcquisitionAxisSpec",
     ),
-    "AcquisitionCaseSpec": (
-        "scopecat.sdk.instruments.contracts",
-        "AcquisitionCaseSpec",
-    ),
     "AcquisitionPreconditionSpec": (
         "scopecat.sdk.instruments.contracts",
         "AcquisitionPreconditionSpec",
@@ -157,10 +144,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "ComponentRef": ("scopecat.sdk.instruments.members", "ComponentRef"),
     "ComponentSpec": ("scopecat.sdk.instruments.contracts", "ComponentSpec"),
-    "DiscriminatedState": (
-        "scopecat.sdk.instruments.contracts",
-        "DiscriminatedState",
-    ),
     "DriverAcquisition": (
         "scopecat.sdk.instruments.authoring",
         "DriverAcquisition",
@@ -186,10 +169,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DriverSpec": ("scopecat.sdk.instruments.catalog", "DriverSpec"),
     "DriverSuccess": ("scopecat.sdk.instruments.authoring", "DriverSuccess"),
     "DriverUnknown": ("scopecat.sdk.instruments.authoring", "DriverUnknown"),
-    "FixedAcquisitionSpec": (
-        "scopecat.sdk.instruments.contracts",
-        "FixedAcquisitionSpec",
-    ),
     "InstrumentBackend": ("scopecat.sdk.instruments.backend", "InstrumentBackend"),
     "InstrumentBindingSpec": (
         "scopecat.records.config",
@@ -203,6 +182,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InstrumentConnectionKind": (
         "scopecat.sdk.instruments.catalog",
         "InstrumentConnectionKind",
+    ),
+    "InstrumentCollectFailure": (
+        "scopecat.sdk.instruments.errors",
+        "InstrumentCollectFailure",
     ),
     "InstrumentDescription": (
         "scopecat.sdk.instruments.contracts",
@@ -245,11 +228,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ScpiIdentity": ("scopecat.sdk.instruments.scpi", "ScpiIdentity"),
     "ScpiProtocolError": ("scopecat.sdk.instruments.scpi", "ScpiProtocolError"),
     "ScpiTransport": ("scopecat.sdk.instruments.scpi", "ScpiTransport"),
-    "StateCase": ("scopecat.sdk.instruments.contracts", "StateCase"),
-    "StateDiscriminatedAcquisitionSpec": (
-        "scopecat.sdk.instruments.contracts",
-        "StateDiscriminatedAcquisitionSpec",
-    ),
     "StatePropertyRef": (
         "scopecat.sdk.instruments.contracts",
         "StatePropertyRef",
@@ -269,10 +247,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "acquisition_axis",
     ),
-    "acquisition_case": (
-        "scopecat.sdk.instruments.contracts",
-        "acquisition_case",
-    ),
     "acquisition_precondition": (
         "scopecat.sdk.instruments.contracts",
         "acquisition_precondition",
@@ -281,16 +255,8 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "acquisition_result",
     ),
-    "acquisition_results": (
-        "scopecat.sdk.instruments.contracts",
-        "acquisition_results",
-    ),
     "bool_property": ("scopecat.sdk.instruments.contracts", "bool_property"),
     "component": ("scopecat.sdk.instruments.contracts", "component"),
-    "discriminated_state": (
-        "scopecat.sdk.instruments.contracts",
-        "discriminated_state",
-    ),
     "enum_property": ("scopecat.sdk.instruments.contracts", "enum_property"),
     "float_property": ("scopecat.sdk.instruments.contracts", "float_property"),
     "format_number": ("scopecat.sdk.instruments.scpi", "format_number"),
@@ -319,11 +285,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "query_int": ("scopecat.sdk.instruments.scpi", "query_int"),
     "query_string": ("scopecat.sdk.instruments.scpi", "query_string"),
     "query_text": ("scopecat.sdk.instruments.scpi", "query_text"),
-    "state_case": ("scopecat.sdk.instruments.contracts", "state_case"),
-    "state_discriminated_acquisition": (
-        "scopecat.sdk.instruments.contracts",
-        "state_discriminated_acquisition",
-    ),
     "string_property": ("scopecat.sdk.instruments.contracts", "string_property"),
 }
 

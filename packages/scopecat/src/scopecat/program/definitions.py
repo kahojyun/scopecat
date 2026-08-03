@@ -18,7 +18,7 @@ from scopecat.program.module import (
     ModuleInterface,
     ModulePythonImplementation,
 )
-from scopecat.program.products import RecordSelection
+from scopecat.program.recording import ProgramRecordSelection
 from scopecat.program.scans import Scan
 from scopecat.program.values import (
     MetadataValue,
@@ -66,7 +66,7 @@ class ExperimentDef:
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
     inputs: tuple[ExperimentInputDef, ...] = ()
     default_scans: tuple[Scan, ...] = ()
-    record_selections: tuple[RecordSelection, ...] = ()
+    record_selections: tuple[ProgramRecordSelection, ...] = ()
     final_state: EnsureStateIntent | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
@@ -117,7 +117,7 @@ def create_experiment_def(
     interface: ModuleInterface,
     body: ModuleBody,
     python_implementations: Sequence[ModulePythonImplementation] = (),
-    record_selections: Sequence[RecordSelection] = (),
+    record_selections: Sequence[ProgramRecordSelection] = (),
     input_defaults: Mapping[str, RuntimeInput] | None = None,
     required_inputs: Sequence[str] = (),
     default_scans: Sequence[Scan] = (),

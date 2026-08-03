@@ -86,10 +86,10 @@ class ModuleValueResolver:
             raise CheckFailed(
                 [
                     problem(
-                        code="module_export_cycle",
+                        code="module_result_cycle",
                         phase=ProblemPhase.AUTHORING,
-                        message=f"module export {export_id!r} forms a cycle",
-                        location=model_location("module", "exports", export_id),
+                        message=f"module result {export_id!r} forms a cycle",
+                        location=model_location("module", "results", export_id),
                     )
                 ]
             )
@@ -98,13 +98,13 @@ class ModuleValueResolver:
             raise CheckFailed(
                 [
                     problem(
-                        code="module_export_foreign_instance",
+                        code="module_result_foreign_instance",
                         phase=ProblemPhase.AUTHORING,
                         message=(
-                            f"module export {export_id!r} belongs to an instance "
+                            f"module result {export_id!r} belongs to an instance "
                             "that is not part of this module"
                         ),
-                        location=model_location("module", "exports", export_id),
+                        location=model_location("module", "results", export_id),
                     )
                 ]
             )
@@ -114,13 +114,13 @@ class ModuleValueResolver:
             raise CheckFailed(
                 [
                     problem(
-                        code="module_export_unknown",
+                        code="module_result_unknown",
                         phase=ProblemPhase.AUTHORING,
                         message=(
                             f"module instance {instance.instance_id!r} has no "
-                            f"export {export_id!r}"
+                            f"result {export_id!r}"
                         ),
-                        location=model_location("module", "exports", export_id),
+                        location=model_location("module", "results", export_id),
                     )
                 ]
             )
@@ -142,7 +142,7 @@ class ModuleValueResolver:
             resolved = self.resolve(localized)
             internal_require_resolved_value_ref(
                 resolved,
-                context=f"module export {export_id!r}",
+                context=f"module result {export_id!r}",
             )
             self._exports[cache_key] = resolved
             return resolved

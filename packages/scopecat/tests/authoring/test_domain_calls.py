@@ -37,7 +37,11 @@ def _domain_table_type() -> sc.TableType:
     )
 
 
-def _domain_module() -> tuple[sc.ExperimentModule[...], DomainProgramDef, object]:
+def _domain_module() -> tuple[
+    sc.ExperimentModule[sc.ProductRef, ...],
+    DomainProgramDef,
+    object,
+]:
     value_type = sc.ScalarType(sc.IntType(minimum=0))
     body = object()
     program = domain_program(
@@ -53,20 +57,20 @@ def _domain_module() -> tuple[sc.ExperimentModule[...], DomainProgramDef, object
     def module(
         context: sc.ModuleContext,
         x_count: Annotated[sc.Input[int], sc.IntType(minimum=0)],
-    ) -> None:
-        context.call(
-            domain_call(
-                program,
-                inputs={"x_count": sc.input_ref(x_count)},
-                products={
-                    "counts": ModuleProductDecl(
-                        "counts",
-                        unit="count",
-                        dtype="int64",
-                    )
-                },
-            )
+    ) -> sc.ProductRef:
+        call = domain_call(
+            program,
+            inputs={"x_count": sc.input_ref(x_count)},
+            products={
+                "counts": ModuleProductDecl(
+                    "counts",
+                    unit="count",
+                    dtype="int64",
+                )
+            },
         )
+        context.call(call)
+        return call.results.counts
 
     return module, program, body
 
@@ -75,8 +79,8 @@ def test_domain_execution_rejects_unknown_or_missing_bindings() -> None:
     value_type = sc.ScalarType(sc.IntType())
 
     @sc.module(id="test.domain.products")
-    def product_module(context: sc.ModuleContext) -> None:
-        context.product("result")
+    def product_module(context: sc.ModuleContext) -> sc.ProductRef:
+        return context._product("result")
 
     program = domain_program(
         "program",
@@ -91,13 +95,13 @@ def test_domain_execution_rejects_unknown_or_missing_bindings() -> None:
         domain_execution(
             program,
             inputs={"value": 1, "typo": 2},
-            results={"result": product_module.products["result"]},
+            results={"result": product_module().result},
         )
     with pytest.raises(ValueError, match="missing"):
         domain_execution(
             program,
             inputs={},
-            results={"result": product_module.products["result"]},
+            results={"result": product_module().result},
         )
 
 
@@ -256,13 +260,14 @@ def test_native_domain_call_owns_its_result_products() -> None:
     call = domain_call(program, id="owned")
 
     @sc.module(id="test.domain.local")
-    def local(context: sc.ModuleContext) -> None:
+    def local(context: sc.ModuleContext) -> sc.ProductRef:
         context.call(call)
+        return call.results.result
 
     [declaration] = call.product_declarations
     assert declaration.qualified_id == "owned/result"
     assert call.results.result.id == "owned/result"
-    assert local.products["owned/result"].id == "owned/result"
+    assert local.definition.products[0].qualified_id == "owned/result"
 
 
 def test_module_preserves_ordered_domain_executions() -> None:
@@ -363,8 +368,9 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     def wrapper(
         context: sc.ModuleContext,
         x_count: Annotated[sc.Input[int], sc.IntType(minimum=0)],
-    ) -> None:
-        context.call(child.instantiate("inner", x_count=x_count))
+    ) -> sc.ProductRef:
+        inner = context.call(child.instantiate("inner", x_count=x_count))
+        return inner.result
 
     point_x_count = sc.coordinate(
         "x_count",
@@ -375,9 +381,10 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     def root_module(
         context: sc.ModuleContext,
         x_count: Annotated[sc.Input[int], sc.IntType(minimum=0)],
-    ) -> None:
+    ) -> sc.ProductRef:
         outer = wrapper.instantiate("outer", x_count=x_count)
         context.call(outer)
+        return outer.result
 
     assembly = compose_module(root_module.definition, x_count=point_x_count)
     assert len(assembly.domain_executions) == 1
@@ -392,7 +399,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     @sc.template(id="test.domain", kind="domain")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(root_module(point_x_count))
-        selected_product = call.products["outer/inner/call/counts"]
+        selected_product = call.result
         experiment.scan(sc.axis(point_x_count, (1, 2)))
         experiment.record(selected_product, record_id="counts_first")
         experiment.record(selected_product, record_id="counts_second")

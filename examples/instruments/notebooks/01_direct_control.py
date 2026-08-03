@@ -6,9 +6,7 @@ from pathlib import Path
 
 import scopecat as sc
 from scopecat_instruments import (
-    DCSourceState,
-    DCSourceVoltage,
-    NetworkSweepState,
+    DCSourcePatch,
     dc_source,
     network_sweep,
     temperature_readout,
@@ -35,37 +33,31 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         chamber = devices[MIXING_CHAMBER]
         vna = devices[READOUT_VNA]
 
-        source.apply(
-            DCSourceVoltage(
-                range=sc.Quantity(1.0, "V"),
-                level=sc.Quantity(0.05, "V"),
-                output_enabled=True,
-            )
+        source.source_voltage(
+            range=sc.Quantity(1.0, "V"),
+            level=sc.Quantity(0.05, "V"),
         )
+        source.apply(output_enabled=True)
         try:
             temperature = chamber.sample()
             vna.apply(
-                NetworkSweepState(
-                    start_frequency=sc.Quantity(4.8, "GHz"),
-                    stop_frequency=sc.Quantity(5.2, "GHz"),
-                    points=201,
-                )
+                start_frequency=sc.Quantity(4.8, "GHz"),
+                stop_frequency=sc.Quantity(5.2, "GHz"),
+                points=201,
             )
             trace = vna.sweep()
             trace_results = {
-                "frequency": (
-                    None
-                    if trace.frequency is None
-                    else trace.frequency.model_dump(mode="json", include={"shape"})
+                "frequency": trace.frequency.model_dump(
+                    mode="json",
+                    include={"shape"},
                 ),
-                "s_parameter": (
-                    None
-                    if trace.s_parameter is None
-                    else trace.s_parameter.model_dump(mode="json", include={"shape"})
+                "s_parameter": trace.s_parameter.model_dump(
+                    mode="json",
+                    include={"shape"},
                 ),
             }
         finally:
-            source.apply(DCSourceState(output_enabled=False))
+            source.apply(DCSourcePatch(output_enabled=False))
 
 print("inventory:", inventory)
 print(

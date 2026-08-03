@@ -29,6 +29,7 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
 )
 from scopecat.kernel.value_types import Payload
+from scopecat.measurements.postprocessor_contract import MeasurementPostprocessorKernel
 from scopecat.measurements.results import MeasurementDType
 from scopecat.program.bindings import (
     BindingIntent,
@@ -41,7 +42,10 @@ from scopecat.program.bindings import (
 from scopecat.program.bindings import bind_property as binding_property
 from scopecat.program.domain import DomainCall
 from scopecat.program.input_capture import capture_runtime_input
-from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.measurements import (
+    MeasurementPostprocessor,
+    create_measurement_postprocessor_internal,
+)
 from scopecat.program.module import (
     ModuleAcquireEffect,
     ModuleAcquireResult,
@@ -57,10 +61,11 @@ from scopecat.program.operations import ModuleInputPort, ModuleOperationDecl
 from scopecat.program.products import (
     ModuleProductDecl,
     ProductAxis,
-    ProductOutputs,
+    ProductRecording,
     ProductRef,
+    ProductRefs,
 )
-from scopecat.program.state import DesiredState, StateBinding
+from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
     internal_value_ref_operation_id,
@@ -76,7 +81,7 @@ from scopecat.program.values import (
 from scopecat.program.values import compute as define_compute
 
 type BindingInput = StateBinding
-type InvocationInput = BindingInput
+type InvocationInput = BindingInput | None
 
 
 def _is_entity_input_type(value_type: ValueType) -> bool:
@@ -85,12 +90,27 @@ def _is_entity_input_type(value_type: ValueType) -> bool:
     )
 
 
-def _is_public_binding_input(value: object) -> bool:
+def _is_public_state_binding(value: object) -> bool:
     return (
-        (isinstance(value, ValueRef) and isinstance(value.value_type, ScalarType))
-        or value is None
-        or isinstance(value, Quantity | EntityRef | str | int | float | bool)
-    )
+        isinstance(value, ValueRef) and isinstance(value.value_type, ScalarType)
+    ) or isinstance(value, Quantity | EntityRef | str | int | float | bool)
+
+
+def _is_public_invocation_input(value: object) -> bool:
+    return value is None or _is_public_state_binding(value)
+
+
+def _require_public_state_binding(value: object) -> None:
+    if value is None:
+        raise TypeError(
+            "persistent state bindings cannot be None; omit the property instead"
+        )
+    if _is_payload_binding_input(value):
+        raise TypeError("persistent properties cannot contain opaque payloads")
+    if not _is_public_state_binding(value):
+        raise TypeError(
+            "module bindings require a scalar typed value or scalar literal"
+        )
 
 
 def _resource_interfaces(
@@ -118,7 +138,6 @@ class ModuleContext:
         "_effects",
         "_measurement_postprocessors",
         "_operations",
-        "_output_ports",
         "_owner",
         "_product_declarations",
         "_python_implementations",
@@ -127,7 +146,6 @@ class ModuleContext:
 
     def __init__(self) -> None:
         self._owner = object()
-        self._output_ports: list[ModuleValueExport] = []
         self._resources: list[ResourcePort] = []
         self._effects: list[ModuleEffect] = []
         self._operations: list[ModuleOperationDecl] = []
@@ -135,13 +153,10 @@ class ModuleContext:
         self._measurement_postprocessors: list[MeasurementPostprocessor] = []
         self._product_declarations: list[ModuleProductDecl] = []
 
-    @property
-    def effects_internal(self) -> tuple[ModuleEffect, ...]:
-        """Return closed effects for the owning experiment context."""
-
-        return tuple(self._effects)
-
-    def append_invocation_internal(self, invocation: ModuleInvocation) -> None:
+    def append_invocation_internal[ResultT](
+        self,
+        invocation: ModuleInvocation[ResultT],
+    ) -> None:
         """Append one child after immediately closing its interface bindings."""
 
         self._effects.append(module_instance(invocation))
@@ -157,6 +172,7 @@ class ModuleContext:
         *,
         id: str,
         input_ports: Sequence[ModuleInputPort] = (),
+        value_exports: Sequence[ModuleValueExport] = (),
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ModuleDef:
         """Freeze this context directly as one reusable module definition."""
@@ -165,7 +181,7 @@ class ModuleContext:
             id=id,
             interface=ModuleInterface(
                 imports=tuple(input_ports),
-                exports=tuple(self._output_ports),
+                exports=tuple(value_exports),
                 resources=tuple(self._resources),
             ),
             body=self._close_body(),
@@ -181,7 +197,10 @@ class ModuleContext:
         """Freeze the structural parts owned directly by an experiment."""
 
         return (
-            ModuleInterface(imports=tuple(input_ports)),
+            ModuleInterface(
+                imports=tuple(input_ports),
+                resources=tuple(self._resources),
+            ),
             self._close_body(),
             tuple(self._python_implementations),
         )
@@ -195,7 +214,10 @@ class ModuleContext:
         )
 
     @overload
-    def call(self, part: ModuleInvocation) -> ModuleInvocation: ...
+    def call[ResultT](
+        self,
+        part: ModuleInvocation[ResultT],
+    ) -> ModuleInvocation[ResultT]: ...
 
     @overload
     def call(self, part: DomainCall) -> DomainCall: ...
@@ -205,33 +227,26 @@ class ModuleContext:
 
     def call(
         self,
-        part: ModuleInvocation | DomainCall | DomainCallProvider,
-    ) -> ModuleInvocation | DomainCall | DomainCallProvider:
+        part: object,
+    ) -> object:
         """Append one explicitly constructed module or domain occurrence."""
 
         if isinstance(part, ModuleInvocation):
-            self.append_invocation_internal(part)
-            return part
+            invocation = cast("ModuleInvocation[object]", part)
+            self.append_invocation_internal(invocation)
+            return invocation
         call = domain_use_call(part)
         self.append_domain_call_internal(call)
         return part
 
-    def export(self, **values: ValueRef) -> None:
-        """Expose typed values from each future invocation of this module."""
-
-        for output_id, value in values.items():
-            if not output_id:
-                raise ValueError("module output ids must be non-empty")
-            self._output_ports.append(ModuleValueExport(id=output_id, source=value))
-
-    def resource(
+    def _resource(
         self,
         id: str,
         *,
         requires: Sequence[InterfaceRef] = (),
         for_entities: Sequence[ValueRef] = (),
     ) -> DefinitionResource:
-        """Declare and return one logical resource owned by this module."""
+        """Declare a generated client's logical resource."""
 
         interfaces = _resource_interfaces(requires)
         for value in for_entities:
@@ -250,22 +265,17 @@ class ModuleContext:
         )
         return DefinitionResource(logical_resource_port_id(id), self._owner)
 
-    def bind_property(
+    def _bind_property(
         self,
         resource: DefinitionResource,
         property: PropertyRef,
         *,
         value: BindingInput,
     ) -> None:
-        """Bind one typed persistent property on a logical resource."""
+        """Record a generated client's persistent property binding."""
 
         self._require_owned_resource(resource)
-        if _is_payload_binding_input(value):
-            raise TypeError("persistent properties cannot contain opaque payloads")
-        if not _is_public_binding_input(value):
-            raise TypeError(
-                "module bindings require a scalar typed value or scalar literal"
-            )
+        _require_public_state_binding(value)
         self._effects.append(
             binding_property(
                 resource.id,
@@ -276,13 +286,17 @@ class ModuleContext:
             )
         )
 
-    def ensure(self, resource: DefinitionResource, target: DesiredState) -> None:
-        """Declare one coherent target state for a logical resource."""
+    def _ensure(
+        self,
+        resource: DefinitionResource,
+        assignments: Mapping[PropertyRef, StateBinding],
+    ) -> None:
+        """Record a generated client's coherent resource target state."""
 
         self._require_owned_resource(resource)
-        self._effects.append(build_ensure_state_intent(resource.port_id, target))
+        self._effects.append(build_ensure_state_intent(resource.port_id, assignments))
 
-    def invoke(
+    def _invoke(
         self,
         id: str,
         *,
@@ -290,7 +304,7 @@ class ModuleContext:
         operation: OperationRef,
         arguments: Mapping[OperationArgumentRef, InvocationInput] | None = None,
     ) -> None:
-        """Append one ordered atomic hardware operation."""
+        """Record a generated client's ordered atomic hardware operation."""
 
         self._require_owned_resource(resource)
         selected_arguments = arguments or {}
@@ -299,7 +313,8 @@ class ModuleContext:
                 "module invocation arguments must belong to the selected operation"
             )
         if any(
-            not _is_public_binding_input(value) for value in selected_arguments.values()
+            not _is_public_invocation_input(value)
+            for value in selected_arguments.values()
         ):
             raise TypeError("module invocation arguments require scalar values")
         self._effects.append(
@@ -318,32 +333,37 @@ class ModuleContext:
             )
         )
 
-    def product(
+    def _product(
         self,
         id: str,
         *,
+        scope: Sequence[str] = (),
         unit: str | None = "ratio",
         dtype: MeasurementDType = "float64",
         axes: Sequence[ProductAxis] = (),
+        recording: ProductRecording | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ProductRef:
-        """Declare and return one module-owned logical product."""
+        """Declare a logical product for a generated acquisition or producer."""
 
         declaration = ModuleProductDecl(
             id,
+            scope=tuple(scope),
             origin=(object(),),
             unit=unit,
             dtype=dtype,
             axes=tuple(axes),
+            recording=recording,
             metadata=freeze_json_mapping(metadata or {}),
         )
         self._product_declarations.append(declaration)
         return ProductRef(
             product_id=declaration.product_id,
             origin=declaration.origin,
+            _recording=declaration.recording,
         )
 
-    def acquire(
+    def _acquire(
         self,
         id: str,
         *,
@@ -351,7 +371,7 @@ class ModuleContext:
         results: Mapping[AcquisitionResultRef, ProductRef],
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
-        """Map one acquisition's typed results to declared products."""
+        """Map a generated client's acquisition results to declared products."""
 
         self._require_owned_resource(resource)
         if not id or not results:
@@ -397,27 +417,44 @@ class ModuleContext:
             )
         )
 
-    def _products(self) -> ProductOutputs:
+    def _products(self) -> ProductRefs:
         products = (
             *(
                 ProductRef(
                     product_id=product.symbol_id.prefixed(instance.instance_id),
                     origin=(instance.invocation_key, *product.target_origin),
+                    _recording=(
+                        None
+                        if product.recording is None
+                        else product.recording.prefixed(instance.instance_id)
+                    ),
                 )
                 for instance in self._effects
                 if isinstance(instance, ModuleInstance)
                 for product in instance.module.products
             ),
             *(
-                ProductRef(product_id=product.product_id, origin=product.origin)
+                ProductRef(
+                    product_id=product.product_id,
+                    origin=product.origin,
+                    _recording=product.recording,
+                )
                 for product in self._product_declarations
             ),
         )
-        return ProductOutputs({product.id: product for product in products})
+        return ProductRefs({product.id: product for product in products})
 
     def _require_owned_resource(self, resource: DefinitionResource) -> None:
         if resource.owner is not self._owner:
             raise ValueError("definition resource must belong to this module context")
+
+    def require_owned_resource_internal(
+        self,
+        resource: DefinitionResource,
+    ) -> None:
+        """Validate a resource at a containing authoring boundary."""
+
+        self._require_owned_resource(resource)
 
     def compute(
         self,
@@ -452,32 +489,39 @@ class ModuleContext:
         )
         return definition.output
 
-    def measurement_postprocessor(
+    def _postprocess(
         self,
-        postprocessor: MeasurementPostprocessor,
+        id: str,
+        *,
+        input: ProductRef,
+        outputs: Mapping[str, ProductRef],
+        kernel: MeasurementPostprocessorKernel,
     ) -> None:
-        """Register one point-local measurement calculation."""
+        """Register a typed producer's point-local measurement calculation."""
 
-        self._measurement_postprocessors.append(postprocessor)
+        self._measurement_postprocessors.append(
+            create_measurement_postprocessor_internal(
+                id,
+                input=input,
+                outputs=outputs,
+                kernel=kernel,
+            )
+        )
 
 
 def build_ensure_state_intent(
     resource: LogicalResourcePortId,
-    target: DesiredState,
+    assignments: Mapping[PropertyRef, StateBinding],
 ) -> EnsureStateIntent:
-    """Normalize one public desired-state target at an authoring boundary."""
+    """Normalize coherent property assignments at an authoring boundary."""
 
-    assignments = tuple(target.target_assignments().items())
-    if not assignments:
+    assignment_items = tuple(assignments.items())
+    if not assignment_items:
         raise ValueError("ensure requires at least one target assignment")
 
     bindings: list[BindingIntent] = []
-    for property, value in assignments:
-        if _is_payload_binding_input(value):
-            raise TypeError("persistent properties cannot contain opaque payloads")
-        if not _is_public_binding_input(value):
-            msg = "module bindings require a scalar typed value or scalar literal"
-            raise TypeError(msg)
+    for property, value in assignment_items:
+        _require_public_state_binding(value)
         bindings.append(
             binding_property(
                 resource,

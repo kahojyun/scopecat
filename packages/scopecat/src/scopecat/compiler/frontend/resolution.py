@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast
 
 from scopecat.compiler.frontend.elaboration import (
@@ -14,6 +14,7 @@ from scopecat.compiler.frontend.logical_verification import (
     VerifiedLogicalProgram,
     verify_logical_program,
 )
+from scopecat.compiler.frontend.module_resolution import ModuleValueResolver
 from scopecat.compiler.frontend.problems import frontend_problem as _problem
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
@@ -33,9 +34,11 @@ from scopecat.program.definitions import ExperimentInvocation
 from scopecat.program.logical import LogicalProgram
 from scopecat.program.point_domain import analyze_point_domain
 from scopecat.program.scans import (
+    AroundScanSource,
     AxisSpec,
     Scan,
 )
+from scopecat.program.value_refs import ValueRef
 from scopecat.records.run_request import RunRequest
 
 
@@ -53,7 +56,10 @@ def compile_invocation(
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
 ) -> CompiledInvocation:
-    scans = _effective_scans(invocation)
+    scans = _resolve_scan_module_results(
+        invocation,
+        _effective_scans(invocation),
+    )
     inputs = _merged_inputs(invocation)
     scan_axes = _verified_scans(
         scans,
@@ -129,6 +135,34 @@ def _effective_scans(invocation: ExperimentInvocation) -> tuple[AxisSpec, ...]:
     replaced = tuple(override_by_id.get(default.id, default) for default in defaults)
     additions = tuple(axis for axis in overrides if axis.id not in default_axis_ids)
     return (*replaced, *additions)
+
+
+def _resolve_scan_module_results(
+    invocation: ExperimentInvocation,
+    scans: Sequence[AxisSpec],
+) -> tuple[AxisSpec, ...]:
+    """Resolve module-return edges before scan validation and request projection."""
+
+    resolver = ModuleValueResolver(invocation.definition)
+    resolved: list[AxisSpec] = []
+    for axis in scans:
+        source = axis.source
+        if isinstance(source, AroundScanSource) and isinstance(
+            source.center,
+            ValueRef,
+        ):
+            source = replace(source, center=resolver.resolve(source.center))
+        parameter_lookup = axis.parameter_lookup
+        if parameter_lookup is not None:
+            parameter_lookup = resolver.resolve(parameter_lookup)
+        resolved.append(
+            replace(
+                axis,
+                source=source,
+                parameter_lookup=parameter_lookup,
+            )
+        )
+    return tuple(resolved)
 
 
 def _merged_inputs(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # pyright: reportPrivateUsage=false
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from datetime import timedelta
 from pathlib import Path
 from threading import Event, Thread
@@ -31,7 +31,7 @@ from scopecat.daemon.wire import (
 )
 from scopecat.kernel.problems import ProblemPhase, model_location, problem
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateLiteral, StateValue
+from scopecat.kernel.state import StateValue
 from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -70,16 +70,12 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InterfaceRef,
-    PropertyRef,
-    acquisition_case,
+    acquisition,
     acquisition_result,
     bool_property,
-    discriminated_state,
     enum_property,
     float_property,
     interface,
-    state_case,
-    state_discriminated_acquisition,
 )
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
@@ -378,47 +374,26 @@ class _VariantDriver(_TrackingDriver):
                     *base.interfaces,
                     interface(
                         "test.dc/v1",
-                        state=discriminated_state(
+                        properties=[
                             enum_property(
                                 "mode",
                                 choices=("voltage", "current"),
                             ),
-                            common_properties=(bool_property("output_enabled"),),
-                            cases=(
-                                state_case(
-                                    "voltage",
-                                    properties=(float_property("voltage_level"),),
-                                    required_on_entry_property_ids=("voltage_level",),
-                                ),
-                                state_case(
-                                    "current",
-                                    properties=(float_property("current_level"),),
-                                    required_on_entry_property_ids=("current_level",),
-                                ),
-                            ),
-                        ),
+                            bool_property("output_enabled"),
+                            float_property("voltage_level"),
+                            float_property("current_level"),
+                        ],
                         acquisitions=[
-                            state_discriminated_acquisition(
+                            acquisition(
                                 "measure",
-                                discriminator=_DC_MODE,
-                                cases=(
-                                    acquisition_case(
-                                        "voltage",
-                                        results=(
-                                            acquisition_result(
-                                                "monitored_voltage",
-                                                unit="V",
-                                            ),
-                                        ),
+                                results=(
+                                    acquisition_result(
+                                        "monitored_voltage",
+                                        unit="V",
                                     ),
-                                    acquisition_case(
-                                        "current",
-                                        results=(
-                                            acquisition_result(
-                                                "monitored_current",
-                                                unit="A",
-                                            ),
-                                        ),
+                                    acquisition_result(
+                                        "monitored_current",
+                                        unit="A",
                                     ),
                                 ),
                             )
@@ -431,14 +406,13 @@ class _VariantDriver(_TrackingDriver):
     @override
     def read_state(self) -> DriverState:
         self.read_count += 1
-        level_property = "voltage_level" if self.mode == "voltage" else "current_level"
-        level = self.voltage_level if self.mode == "voltage" else self.current_level
         base = super().read_state()
         return DriverState(
             values={
                 **base.values,
                 _DC_MODE: self.mode,
-                _DC.property(level_property): level,
+                _DC_VOLTAGE_LEVEL: self.voltage_level,
+                _DC_CURRENT_LEVEL: self.current_level,
                 _DC.property("output_enabled"): False,
             },
             metadata=base.metadata,
@@ -450,6 +424,19 @@ class _VariantDriver(_TrackingDriver):
         request: DriverAcquisition,
     ) -> DriverOutcome[DriverReadback]:
         self.collect_requests.append(request)
+        active_result = (
+            "monitored_voltage" if self.mode == "voltage" else "monitored_current"
+        )
+        if {result.result_id for result in request.results} != {active_result}:
+            return DriverRejected(
+                problems=(
+                    problem(
+                        "test_acquisition_result_inactive",
+                        f"{self.mode} mode provides only {active_result}",
+                        phase=ProblemPhase.EXECUTION,
+                    ),
+                ),
+            )
         values: dict[AcquisitionResultRef, MeasurementValue] = {
             result: (
                 MeasurementScalar.create(
@@ -940,155 +927,7 @@ def test_interactive_apply_validates_against_fresh_device_state(
             assert driver.read_count == 3
 
 
-def test_interactive_apply_tracks_observed_discriminated_state(
-    tmp_path: Path,
-) -> None:
-    provider = _TrackingProvider(_VariantDriver)
-    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
-        with TestClient(runtime.app()) as transport:
-            daemon = _daemon_client(transport)
-            session = daemon.open_instrument_session(
-                InstrumentSessionOpenCommand(
-                    operation_id="open-observed-discriminated-state",
-                    actor="alice",
-                    instrument_ids=("source-0",),
-                )
-            )
-
-            voltage = daemon.apply_instrument_state(
-                session.session_id,
-                "source-0",
-                _state_command(
-                    command_id="voltage-before-switch",
-                    values={_DC_VOLTAGE_LEVEL: 0.2},
-                ),
-            )
-            invalid_current = daemon.apply_instrument_state(
-                session.session_id,
-                "source-0",
-                _state_command(
-                    command_id="invalid-current-patch",
-                    values={_DC_CURRENT_LEVEL: 0.02},
-                ),
-            )
-            incomplete_switch = daemon.apply_instrument_state(
-                session.session_id,
-                "source-0",
-                _state_command(
-                    command_id="incomplete-current-switch",
-                    values={_DC_MODE: "current"},
-                ),
-            )
-            assert invalid_current.status == "not_applied"
-            assert any(
-                "set mode explicitly" in item.message
-                for item in invalid_current.problems
-            )
-            assert incomplete_switch.status == "not_applied"
-            assert any(
-                "requires its entry properties" in item.message
-                for item in incomplete_switch.problems
-            )
-
-            switched = daemon.apply_instrument_state(
-                session.session_id,
-                "source-0",
-                _state_command(
-                    command_id="switch-current",
-                    values={
-                        _DC_MODE: "current",
-                        _DC_CURRENT_LEVEL: 0.02,
-                    },
-                ),
-            )
-            [driver] = provider.drivers
-            assert isinstance(driver, _VariantDriver)
-            reads_before_replay = driver.read_count
-            applies_before_replay = len(driver.applied)
-            replayed_rejection = daemon.apply_instrument_state(
-                session.session_id,
-                "source-0",
-                _state_command(
-                    command_id="invalid-current-patch",
-                    values={_DC_CURRENT_LEVEL: 0.02},
-                ),
-            )
-            assert replayed_rejection == invalid_current
-            assert driver.read_count == reads_before_replay
-            assert len(driver.applied) == applies_before_replay
-            replay = daemon.apply_instrument_state(
-                session.session_id,
-                "source-0",
-                _state_command(
-                    command_id="voltage-before-switch",
-                    values={_DC_VOLTAGE_LEVEL: 0.2},
-                ),
-            )
-            partial = daemon.apply_instrument_state(
-                session.session_id,
-                "source-0",
-                _state_command(
-                    command_id="adjust-current",
-                    values={_DC_CURRENT_LEVEL: 0.03},
-                ),
-            )
-            daemon.close_instrument_session(session.session_id)
-
-            assert driver.read_count == reads_before_replay + 2
-            assert len(driver.applied) == applies_before_replay + 1
-            assert switched.state is not None
-            switched_properties = {
-                item.property_id: item.value.root
-                for item in switched.state.properties
-                if item.interface_id == "test.dc/v1"
-            }
-            assert switched_properties == {
-                "current_level": 0.02,
-                "mode": "current",
-                "output_enabled": False,
-            }
-            assert replay == voltage
-            assert partial.status == "applied"
-            assert len(driver.applied) == 3
-
-
-def test_direct_collect_resolves_active_results_from_fresh_state(
-    tmp_path: Path,
-) -> None:
-    provider = _TrackingProvider(_VariantDriver)
-    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
-        with TestClient(runtime.app()) as transport:
-            daemon = _daemon_client(transport)
-            session = daemon.open_instrument_session(
-                InstrumentSessionOpenCommand(
-                    operation_id="open-stateful-collect",
-                    actor="alice",
-                    instrument_ids=("source-0",),
-                )
-            )
-            [driver] = provider.drivers
-            assert isinstance(driver, _VariantDriver)
-            assert driver.read_count == 1
-            driver.mode = "current"
-
-            receipt = daemon.collect_instrument(
-                session.session_id,
-                "source-0",
-                _variant_collect_intent(
-                    command_id="collect-current-after-external-change",
-                ),
-            )
-
-            assert receipt.status == "collected"
-            assert len(driver.collect_requests) == 1
-            assert driver.read_count == 2
-            assert tuple(
-                result.result_id for result in driver.collect_requests[0].results
-            ) == ("monitored_current",)
-            daemon.close_instrument_session(session.session_id)
-
-
-def test_collect_replay_precedes_validation_against_changed_state(
+def test_collect_replay_precedes_fresh_state_validation(
     tmp_path: Path,
 ) -> None:
     provider = _TrackingProvider(_VariantDriver)
@@ -1115,35 +954,14 @@ def test_collect_replay_precedes_validation_against_changed_state(
             [driver] = provider.drivers
             assert isinstance(driver, _VariantDriver)
             assert driver.read_count == 2
-            daemon.apply_instrument_state(
-                session.session_id,
-                "source-0",
-                InstrumentStateCommand(
-                    command_id="switch-to-current-after-collect",
-                    instrument_id="source-0",
-                    assignments=[
-                        InstrumentStateAssignment(
-                            resource_id="source-0",
-                            interface_id="test.dc/v1",
-                            property_id="mode",
-                            value=StateValue("current"),
-                        ),
-                        InstrumentStateAssignment(
-                            resource_id="source-0",
-                            interface_id="test.dc/v1",
-                            property_id="current_level",
-                            value=StateValue(0.02),
-                        ),
-                    ],
-                ),
-            )
+            driver.mode = "current"
 
             replay = daemon.collect_instrument(
                 session.session_id,
                 "source-0",
                 intent,
             )
-            assert driver.read_count == 4
+            assert driver.read_count == 2
             with pytest.raises(
                 DaemonConflictError,
                 match="different collect content",
@@ -1158,11 +976,11 @@ def test_collect_replay_precedes_validation_against_changed_state(
 
             assert replay == first
             assert len(driver.collect_requests) == 1
-            assert driver.read_count == 4
+            assert driver.read_count == 2
             daemon.close_instrument_session(session.session_id)
 
 
-def test_collect_resolution_rejection_is_replayed_without_replanning(
+def test_collect_driver_rejection_is_replayed_without_hardware_io(
     tmp_path: Path,
 ) -> None:
     provider = _TrackingProvider(_VariantDriver)
@@ -1188,14 +1006,14 @@ def test_collect_resolution_rejection_is_replayed_without_replanning(
                 "source-0",
                 intent,
             )
-            assert driver.read_count == 2
+            assert driver.read_count == 3
             driver.mode = "current"
             replay = daemon.collect_instrument(
                 session.session_id,
                 "source-0",
                 intent,
             )
-            assert driver.read_count == 2
+            assert driver.read_count == 3
             collected = daemon.collect_instrument(
                 session.session_id,
                 "source-0",
@@ -1203,10 +1021,13 @@ def test_collect_resolution_rejection_is_replayed_without_replanning(
             )
 
             assert first.status == "not_collected"
+            assert [item.code for item in first.problems] == [
+                "test_acquisition_result_inactive"
+            ]
             assert replay == first
             assert collected.status == "collected"
-            assert len(driver.collect_requests) == 1
-            assert driver.read_count == 3
+            assert len(driver.collect_requests) == 2
+            assert driver.read_count == 4
             daemon.close_instrument_session(session.session_id)
 
 
@@ -3023,27 +2844,6 @@ def _apply_command(*, value: float) -> InstrumentStateCommand:
                 property_id="frequency",
                 value=StateValue(Quantity(value=value, unit="GHz")),
             )
-        ],
-    )
-
-
-def _state_command(
-    *,
-    command_id: str,
-    values: Mapping[PropertyRef, StateLiteral | StateValue],
-) -> InstrumentStateCommand:
-    return InstrumentStateCommand(
-        command_id=command_id,
-        instrument_id="source-0",
-        assignments=[
-            InstrumentStateAssignment(
-                resource_id="source-0",
-                interface_id=target.interface_id,
-                component_path=list(target.component_path),
-                property_id=target.property_id,
-                value=value if isinstance(value, StateValue) else StateValue(value),
-            )
-            for target, value in values.items()
         ],
     )
 

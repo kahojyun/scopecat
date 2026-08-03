@@ -26,7 +26,7 @@ from scopecat.records._schema_utils import (
 )
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v4"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v4"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v6"
 
 MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
@@ -59,6 +59,8 @@ class MeasurementVariable(BaseModel):
     dims: list[str] = Field(min_length=1)
     label: str | None = None
     source_product_id: _NonEmptyText | None = None
+    source_value_id: _NonEmptyText | None = None
+    recording_group_id: _NonEmptyText | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("unit")
@@ -87,7 +89,7 @@ class MeasurementVariable(BaseModel):
 class MeasurementDatasetSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v4"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v6"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)

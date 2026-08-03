@@ -10,6 +10,7 @@ from scopecat.compiler.relations.evaluation import evaluate_table_value
 from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
 from scopecat.compiler.relations.verification import ExpressionTypeBindings, RowType
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_data import CellValue, Row
@@ -34,7 +35,6 @@ from scopecat.program.expressions import (
 )
 from scopecat.program.identities import InvocationKey
 from scopecat.program.table_values import ParameterTableSource
-from scopecat.program.value_graph import ValueId
 from tests.testkit.expressions import evaluate_scalar
 
 _INT = Scalar(Int())

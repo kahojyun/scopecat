@@ -315,6 +315,17 @@ def test_bool_and_string_variable_schemas_reject_units(
         )
 
 
+def test_measurement_variable_rejects_an_empty_recording_group_id() -> None:
+    with pytest.raises(ValidationError, match="at least 1 character"):
+        MeasurementVariable(
+            id="signal",
+            role="observable",
+            dtype="float64",
+            dims=["point"],
+            recording_group_id="",
+        )
+
+
 def test_measurement_dimensions_require_concrete_size() -> None:
     with pytest.raises(ValidationError, match="Field required"):
         MeasurementDimension.model_validate({"id": "point", "kind": "point"})
@@ -336,7 +347,7 @@ def test_measurement_dataset_and_schema_round_trip() -> None:
     assert restored.dataset_schema.format_version == MEASUREMENT_DATASET_FORMAT_VERSION
     assert (
         restored.dataset_schema.format_version
-        == "scopecat.measurement_dataset_schema.v4"
+        == "scopecat.measurement_dataset_schema.v6"
     )
     assert restored.dataset_schema.record_schema == MEASUREMENT_RECORD_SCHEMA_VERSION
     assert restored.dataset_schema.record_schema == "scopecat.measurement_record.v4"

@@ -10,13 +10,15 @@ from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
+from scopecat.program.products import RecordSelection
 
 from scopecat_quantum import authoring
 from scopecat_quantum.gates import GateCall, GateParameterKind
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
+    BinaryIqProbabilityProducts,
     IqCentroid,
-    binary_iq_probability_postprocessor,
+    binary_iq_probabilities,
 )
 
 _REPO_ROOT = Path(__file__).parents[3]
@@ -294,9 +296,9 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
         context.record(placed.results.iq_shots)
 
     invocation = experiment()
-    assert invocation.definition.record_selections[0].product_id.qualified_name == (
-        "call/iq_shots"
-    )
+    [selection] = invocation.definition.record_selections
+    assert isinstance(selection, RecordSelection)
+    assert selection.product_id.qualified_name == "call/iq_shots"
 
 
 def test_program_call_validates_bound_values_and_shot_count() -> None:
@@ -418,19 +420,17 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
     def discriminate(module: sc.ModuleContext) -> None:
         call = declaration("q0").with_shots(16)
         placed = assert_type(module.call(call), authoring.QuantumProgramCall)
-        probability_0 = module.product("probability_0")
-        probability_1 = module.product("probability_1")
-        module.measurement_postprocessor(
-            binary_iq_probability_postprocessor(
-                "discriminate",
-                iq_shots=placed.results.iq_shots,
-                probability_0=probability_0,
-                probability_1=probability_1,
+        assert_type(
+            binary_iq_probabilities(
+                module,
+                placed.results.iq_shots,
                 discriminator=BinaryIqDiscriminator(
                     state_0_centroid=IqCentroid(real=-1, imag=0),
                     state_1_centroid=IqCentroid(real=1, imag=0),
                 ),
-            )
+                id="discriminate",
+            ),
+            BinaryIqProbabilityProducts,
         )
 
     [lowered] = discriminate.definition.body.measurement_postprocessors

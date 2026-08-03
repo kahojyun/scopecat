@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -18,61 +19,80 @@ def _kernel(value: MeasurementValue) -> dict[str, MeasurementValue]:
     return {"result": value}
 
 
-def _postprocessor(
-    id: str,
-    *,
-    source: str,
-    output: str,
-) -> sc.MeasurementPostprocessor:
-    return sc.measurement_postprocessor(
-        id,
-        input=source,
-        outputs={"result": output},
-        kernel=_kernel,
-    )
+@dataclass(frozen=True, slots=True)
+class _DerivedProducts:
+    left: sc.ProductRef
+    right: sc.ProductRef
 
 
 def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     tmp_path: Path,
 ) -> None:
     @sc.module(id="test.postprocessor.lowering")
-    def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SCALAR_SIGNAL,))
-        raw = context.product("raw")
-        context.product("derived")
-        context.product("dead")
-        context.measurement_postprocessor(
-            _postprocessor("dead", source="raw", output="dead")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        source = context._resource("source", requires=(_SCALAR_SIGNAL,))
+        raw = context._product("raw")
+        first = context._product("first")
+        second = context._product("second")
+        derived = context._product("derived")
+        dead = context._product("dead")
+        context._postprocess(
+            "final",
+            input=second,
+            outputs={"result": derived},
+            kernel=_kernel,
         )
-        context.measurement_postprocessor(
-            _postprocessor("derive", source="raw", output="derived")
+        context._postprocess(
+            "dead",
+            input=raw,
+            outputs={"result": dead},
+            kernel=_kernel,
         )
-        context.acquire(
+        context._postprocess(
+            "middle",
+            input=first,
+            outputs={"result": second},
+            kernel=_kernel,
+        )
+        context._postprocess(
+            "first",
+            input=raw,
+            outputs={"result": first},
+            kernel=_kernel,
+        )
+        context._acquire(
             "read-raw",
             resource=source,
             results={_SCALAR_SIGNAL_SAMPLE_RAW: raw},
         )
+        return derived
 
     @sc.template(id="test.postprocessor.lowering", kind="postprocessor")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(module())
-        experiment.record(call.products.derived, record_id="first")
-        experiment.record(call.products.derived, record_id="second")
+        experiment.record(call.result, record_id="first")
+        experiment.record(call.result, record_id="second")
 
     resolved = bind_invocation(template(), config_profile=load_config())
     program = resolved.bindings
 
-    [postprocessor] = program.measurement_postprocessors
-    assert postprocessor.id.qualified_name == "lowering/derive"
-    assert postprocessor.input_product_id.qualified_name == "lowering/raw"
-    assert postprocessor.input_product_use_id.value == (
-        "scopecat.measurement-postprocessor/lowering/derive/input"
-    )
-    assert postprocessor.outputs[0].product_use_ids == tuple(
-        record.product_use_id for record in program.record_uses
+    first, middle, final = program.measurement_postprocessors
+    assert [
+        postprocessor.id.qualified_name
+        for postprocessor in program.measurement_postprocessors
+    ] == ["lowering/first", "lowering/middle", "lowering/final"]
+    assert first.input_product_id.qualified_name == "lowering/raw"
+    assert first.outputs[0].product_use_ids == (middle.input_product_use_id,)
+    assert middle.input_product_id.qualified_name == "lowering/first"
+    assert middle.outputs[0].product_use_ids == (final.input_product_use_id,)
+    assert final.input_product_id.qualified_name == "lowering/second"
+    assert final.outputs[0].product_use_ids == tuple(
+        record.product_use_id for record in program.product_record_uses
     )
     assert {use.product_id.qualified_name for use in program.product_uses} == {
         "lowering/raw",
+        "lowering/first",
+        "lowering/second",
         "lowering/derived",
     }
     assert {
@@ -80,37 +100,45 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         for acquisition in resolved.program.program.acquisitions
         for result in acquisition.results
     } == {"lowering/raw"}
-    assert postprocessor.kernel is _kernel
+    assert all(
+        postprocessor.kernel is _kernel
+        for postprocessor in program.measurement_postprocessors
+    )
 
 
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
     @sc.module(id="test.postprocessor.hidden-id.child")
-    def child(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SCALAR_SIGNAL,))
-        raw = context.product("raw")
-        context.product("derived")
-        context.measurement_postprocessor(
-            _postprocessor("derive", source="raw", output="derived")
+    def child(context: sc.ModuleContext) -> sc.ProductRef:
+        source = context._resource("source", requires=(_SCALAR_SIGNAL,))
+        raw = context._product("raw")
+        derived = context._product("derived")
+        context._postprocess(
+            "derive",
+            input=raw,
+            outputs={"result": derived},
+            kernel=_kernel,
         )
-        context.acquire(
+        context._acquire(
             "read-raw",
             resource=source,
             results={_SCALAR_SIGNAL_SAMPLE_RAW: raw},
         )
+        return derived
 
     left = child.instantiate("left")
     right = child.instantiate("right")
 
     @sc.module(id="test.postprocessor.hidden-id.root")
-    def root(context: sc.ModuleContext) -> None:
+    def root(context: sc.ModuleContext) -> _DerivedProducts:
         context.call(left)
         context.call(right)
+        return _DerivedProducts(left=left.result, right=right.result)
 
     @sc.template(id="test.postprocessor.hidden-id", kind="postprocessor")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(root())
-        experiment.record(call.products["left/derived"], record_id="left")
-        experiment.record(call.products["right/derived"], record_id="right")
+        experiment.record(call.result.left, record_id="left")
+        experiment.record(call.result.right, record_id="right")
 
     def compile_input_use_ids() -> dict[str, str]:
         program = bind_invocation(
@@ -138,13 +166,13 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
 
 def test_recorded_product_requires_a_producer() -> None:
     @sc.module(id="test.product.owner")
-    def module(context: sc.ModuleContext) -> None:
-        context.product("orphan")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        return context._product("orphan")
 
     @sc.template(id="test.product.owner", kind="product-owner")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(module())
-        experiment.record(call.products.orphan)
+        experiment.record(call.result)
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(template(), config_profile=load_config())

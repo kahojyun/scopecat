@@ -9,6 +9,7 @@ from types import MappingProxyType
 import scopecat.program.value_graph as graph_values
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import ProductId
@@ -28,6 +29,10 @@ from scopecat.program.operations import ModuleInputPort
 from scopecat.program.parameters import ParameterContract
 from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl, RecordSelection
+from scopecat.program.recording import (
+    LogicalRecordSelection,
+    LogicalValueRecordSelection,
+)
 from scopecat.program.scans import AxisSpec
 from scopecat.program.table_values import TableSource
 from scopecat.program.value_refs import PointValueDependency, ValueRef
@@ -80,7 +85,7 @@ type ValueSource = ScalarExpr | TableSource
 class ValueDef:
     """One plan-available value; operation results live on their operation."""
 
-    id: graph_values.ValueId
+    id: ValueId
     value_type: ValueType
     source: ValueSource
 
@@ -88,9 +93,9 @@ class ValueDef:
 @dataclass(frozen=True, slots=True)
 class LogicalComputeNode:
     id: graph_values.OperationId
-    inputs: tuple[tuple[str, graph_values.ValueId], ...]
+    inputs: tuple[tuple[str, ValueId], ...]
     input_types: tuple[tuple[str, Scalar], ...]
-    result_id: graph_values.ValueId
+    result_id: ValueId
     result_type: Scalar
 
 
@@ -100,8 +105,8 @@ class LogicalDomainExecution:
 
     id: str
     program: DomainProgramDef
-    inputs: tuple[tuple[str, graph_values.ValueId], ...] = ()
-    compiler_inputs: tuple[tuple[str, graph_values.ValueId], ...] = ()
+    inputs: tuple[tuple[str, ValueId], ...] = ()
+    compiler_inputs: tuple[tuple[str, ValueId], ...] = ()
     results: tuple[tuple[str, ProductId], ...] = ()
 
 
@@ -158,7 +163,7 @@ class LogicalStateAssignment:
     interface_id: InterfaceId
     component_path: tuple[str, ...]
     property_id: str
-    value_id: graph_values.ValueId
+    value_id: ValueId
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +176,7 @@ class LogicalEnsureState:
 @dataclass(frozen=True, slots=True)
 class LogicalInvocationArgument:
     id: str
-    value_id: graph_values.ValueId
+    value_id: ValueId
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,7 +229,7 @@ class LogicalProgram:
     point_dependencies: tuple[PointValueDependency, ...] = ()
     parameter_overlays: tuple[AxisSpec, ...] = ()
     product_declarations: tuple[ModuleProductDecl, ...] = ()
-    record_selections: tuple[RecordSelection, ...] = ()
+    record_selections: tuple[LogicalRecordSelection, ...] = ()
     parameter_contracts: tuple[ParameterContract, ...] = ()
     point_domain: PointAxes[ValueRef] = ()
     value_defs: tuple[ValueDef, ...] = ()
@@ -250,6 +255,22 @@ class LogicalProgram:
             self,
             "implementations",
             MappingProxyType(dict(self.implementations)),
+        )
+
+    @property
+    def product_record_selections(self) -> tuple[RecordSelection, ...]:
+        return tuple(
+            selection
+            for selection in self.record_selections
+            if isinstance(selection, RecordSelection)
+        )
+
+    @property
+    def value_record_selections(self) -> tuple[LogicalValueRecordSelection, ...]:
+        return tuple(
+            selection
+            for selection in self.record_selections
+            if isinstance(selection, LogicalValueRecordSelection)
         )
 
     @property

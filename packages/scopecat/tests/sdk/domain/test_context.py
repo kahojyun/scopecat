@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 
@@ -24,6 +25,12 @@ from scopecat.sdk.domain import (
 )
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
+
+
+@dataclass(frozen=True, slots=True)
+class _DomainProducts:
+    raw: sc.ProductRef
+    summary: sc.ProductRef
 
 
 def _domain_scenario(
@@ -58,8 +65,8 @@ def _domain_scenario(
     def domain_module(
         module: sc.ModuleContext,
         count_input: Annotated[sc.Input[int], sc.IntType(minimum=0)],
-    ) -> None:
-        summary = module.product("summary", unit="count", dtype="int64")
+    ) -> _DomainProducts:
+        summary = module._product("summary", unit="count", dtype="int64")
         call = domain_call(
             program,
             inputs={"count": sc.input_ref(count_input)},
@@ -71,15 +78,14 @@ def _domain_scenario(
                 )
             },
         )
-        module.measurement_postprocessor(
-            sc.measurement_postprocessor(
-                "summarize",
-                input=call.results.raw,
-                outputs={"summary": summary},
-                kernel=summarize,
-            )
+        module._postprocess(
+            "summarize",
+            input=call.results.raw,
+            outputs={"summary": summary},
+            kernel=summarize,
         )
         module.call(call)
+        return _DomainProducts(raw=call.results.raw, summary=summary)
 
     @sc.template(
         id=f"test.sdk.context.{namespace}",
@@ -89,8 +95,8 @@ def _domain_scenario(
         module_call = experiment.run(domain_module(count_input=count))
         experiment.scan(sc.axis(count, (1, 3, 5)))
         if record_raw:
-            experiment.record(module_call.products["call/raw"], record_id="raw")
-        experiment.record(module_call.products.summary, record_id="summary")
+            experiment.record(module_call.result.raw, record_id="raw")
+        experiment.record(module_call.result.summary, record_id="summary")
 
     resolved = bind_invocation(
         template.bind(),
@@ -141,7 +147,7 @@ def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
         postprocessor.input_product_use_id,
     )
     assert postprocessor_output.product_use_ids
-    recorded_use_ids = {record.product_use_id for record in program.record_uses}
+    recorded_use_ids = {record.product_use_id for record in program.product_record_uses}
     assert postprocessor.input_product_use_id not in recorded_use_ids
     assert set(postprocessor_output.product_use_ids) == recorded_use_ids
 

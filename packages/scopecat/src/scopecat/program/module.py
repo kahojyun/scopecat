@@ -49,6 +49,7 @@ from scopecat.program.operations import (
 )
 from scopecat.program.products import (
     ModuleProductDecl,
+    ProductRecording,
     ProductRef,
 )
 from scopecat.program.value_refs import (
@@ -93,7 +94,7 @@ class ModuleValueExport:
 
     def __post_init__(self) -> None:
         if not self.id:
-            msg = "module output ids must be non-empty"
+            msg = "module value export ids must be non-empty"
             raise ValueError(msg)
 
     @property
@@ -110,6 +111,7 @@ class ModuleProductExport:
     symbol_id: ProductId
     target_id: ProductId
     target_origin: tuple[object, ...] = field(repr=False, compare=False)
+    recording: ProductRecording | None = None
 
     @classmethod
     def from_declaration(cls, product: ModuleProductDecl) -> ModuleProductExport:
@@ -118,6 +120,7 @@ class ModuleProductExport:
             symbol_id=symbol_id,
             target_id=symbol_id,
             target_origin=product.origin,
+            recording=product.recording,
         )
 
     def projected_by(self, instance: ModuleInstanceLookup) -> ModuleProductExport:
@@ -125,6 +128,11 @@ class ModuleProductExport:
             symbol_id=self.symbol_id.prefixed(instance.instance_id),
             target_id=self.target_id.prefixed(instance.instance_id),
             target_origin=(instance.invocation_key, *self.target_origin),
+            recording=(
+                None
+                if self.recording is None
+                else self.recording.prefixed(instance.instance_id)
+            ),
         )
 
     @property
@@ -525,10 +533,10 @@ def _module_closure_problems(module: ModuleDef) -> list[Problem]:
             instance = instances.get(invocation_key)
             if instance is None:
                 add_problem(
-                    "module_export_foreign_instance",
+                    "module_result_foreign_instance",
                     export_id,
                     message=(
-                        f"module export {export_id!r} belongs to an instance "
+                        f"module result {export_id!r} belongs to an instance "
                         f"outside module {module.id!r}"
                     ),
                 )
@@ -539,19 +547,19 @@ def _module_closure_problems(module: ModuleDef) -> list[Problem]:
             export = exports.get(export_id)
             if export is None:
                 add_problem(
-                    "module_export_unknown",
+                    "module_result_unknown",
                     f"{instance.instance_id}/{export_id}",
                     message=(
                         f"module instance {instance.instance_id!r} has no "
-                        f"export {export_id!r}"
+                        f"result {export_id!r}"
                     ),
                 )
             elif leaf.value_type != export.value_type:
                 add_problem(
-                    "module_export_type_mismatch",
+                    "module_result_type_mismatch",
                     f"{instance.instance_id}/{export_id}",
                     message=(
-                        f"module export {instance.instance_id!r}/{export_id!r} "
+                        f"module result {instance.instance_id!r}/{export_id!r} "
                         "does not preserve its declared value type"
                     ),
                 )

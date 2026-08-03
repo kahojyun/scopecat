@@ -706,14 +706,6 @@ export interface components {
             /** Unit */
             unit?: string | null;
         };
-        /** AcquisitionCaseSpec */
-        AcquisitionCaseSpec: {
-            /** Preconditions */
-            preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
-            /** Results */
-            results: components["schemas"]["AcquisitionResultSpec"][];
-            value: components["schemas"]["_NonEmptyId"];
-        };
         /**
          * AcquisitionPreconditionSpec
          * @description One public state value required before an acquisition can start.
@@ -739,10 +731,27 @@ export interface components {
             id: components["schemas"]["_NonEmptyId"];
             /** Label */
             label?: string | null;
+            /**
+             * Role
+             * @default observable
+             * @enum {string}
+             */
+            role: "coordinate" | "observable";
             /** Unit */
             unit?: string | null;
         };
-        AcquisitionSpec: components["schemas"]["FixedAcquisitionSpec"] | components["schemas"]["StateDiscriminatedAcquisitionSpec"];
+        /** AcquisitionSpec */
+        AcquisitionSpec: {
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+            /** Preconditions */
+            preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
+            /** Results */
+            results: components["schemas"]["AcquisitionResultSpec"][];
+        };
         /**
          * ActiveConfigView
          * @description The active registry identity and its resolved immutable snapshot.
@@ -959,7 +968,6 @@ export interface components {
             operations?: components["schemas"]["OperationSpec"][];
             /** Properties */
             properties?: components["schemas"]["PropertySpec"][];
-            state?: components["schemas"]["DiscriminatedStateSpec"] | null;
         };
         /** ConfigActivationHistoryView */
         ConfigActivationHistoryView: {
@@ -1227,17 +1235,6 @@ export interface components {
             kind: "direct_config_profile";
         };
         /**
-         * DiscriminatedStateSpec
-         * @description An exhaustive property partition selected by one persistent property.
-         */
-        DiscriminatedStateSpec: {
-            /** Cases */
-            cases: components["schemas"]["StateCaseSpec"][];
-            /** Common Property Ids */
-            common_property_ids?: components["schemas"]["_NonEmptyId"][];
-            discriminator_property_id: components["schemas"]["_NonEmptyId"];
-        };
-        /**
          * DomainTargetBinding
          * @description One composite target instance and its complete physical membership.
          */
@@ -1411,23 +1408,6 @@ export interface components {
             sheet?: string | null;
             /** Uri */
             uri: string;
-        };
-        /** FixedAcquisitionSpec */
-        FixedAcquisitionSpec: {
-            /** Description */
-            description?: string | null;
-            id: components["schemas"]["_NonEmptyId"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "fixed";
-            /** Label */
-            label?: string | null;
-            /** Preconditions */
-            preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
-            /** Results */
-            results: components["schemas"]["AcquisitionResultSpec"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1801,7 +1781,6 @@ export interface components {
             operations?: components["schemas"]["OperationSpec"][];
             /** Properties */
             properties?: components["schemas"]["PropertySpec"][];
-            state?: components["schemas"]["DiscriminatedStateSpec"] | null;
         };
         /** InvokeCommand */
         InvokeCommand: {
@@ -1909,10 +1888,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v4
+             * @default scopecat.measurement_dataset_schema.v6
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v4";
+            format_version: "scopecat.measurement_dataset_schema.v6";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
@@ -2019,12 +1998,14 @@ export interface components {
             /** Label */
             label?: string | null;
             metadata?: components["schemas"]["JsonMetadata-Output"];
+            recording_group_id?: components["schemas"]["_NonEmptyText"] | null;
             /**
              * Role
              * @enum {string}
              */
             role: "coordinate" | "observable";
             source_product_id?: components["schemas"]["_NonEmptyText"] | null;
+            source_value_id?: components["schemas"]["_NonEmptyText"] | null;
             /** Unit */
             unit?: string | null;
         };
@@ -2588,35 +2569,6 @@ export interface components {
             value: number;
         };
         Sha256ContentHash: string;
-        /**
-         * StateCaseSpec
-         * @description Properties available for one discriminator value.
-         */
-        StateCaseSpec: {
-            /** Property Ids */
-            property_ids?: components["schemas"]["_NonEmptyId"][];
-            /** Required On Entry Property Ids */
-            required_on_entry_property_ids?: components["schemas"]["_NonEmptyId"][];
-            value: components["schemas"]["_NonEmptyId"];
-        };
-        /** StateDiscriminatedAcquisitionSpec */
-        StateDiscriminatedAcquisitionSpec: {
-            /** Cases */
-            cases: components["schemas"]["AcquisitionCaseSpec"][];
-            /** Description */
-            description?: string | null;
-            discriminator: components["schemas"]["StatePropertyRef"];
-            id: components["schemas"]["_NonEmptyId"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "state_discriminated";
-            /** Label */
-            label?: string | null;
-            /** Preconditions */
-            preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
-        };
         StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
         /**
          * StatePropertyRef

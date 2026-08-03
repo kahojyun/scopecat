@@ -99,8 +99,9 @@ def test_flattened_ir_rejects_export_edges_hidden_in_root_inputs() -> None:
     def producer_definition(
         module: sc.ModuleContext,
         value: Annotated[sc.Input[float], sc.FloatType()],
-    ) -> None:
-        module.export(value=sc.input_ref(value))
+    ) -> sc.ValueRef:
+        del module
+        return sc.input_ref(value)
 
     producer = producer_definition.instantiate("producer", value=1.0)
 
@@ -108,5 +109,5 @@ def test_flattened_ir_rejects_export_edges_hidden_in_root_inputs() -> None:
     def root(module: sc.ModuleContext) -> None:
         del module
 
-    with pytest.raises(ValueError, match="unresolved module export 'value'"):
-        compose_module(root.definition, hidden=producer.outputs.value)
+    with pytest.raises(ValueError, match="unresolved module export"):
+        compose_module(root.definition, hidden=producer.result)

@@ -25,12 +25,6 @@ from scopecat.records.parameter import (
     ScalarParameterValue,
 )
 from scopecat.sdk.instruments import PropertyRef
-from scopecat_instruments.driver_ids import (
-    VIRTUAL_DC_SOURCE,
-    VIRTUAL_RF_SOURCE,
-    VIRTUAL_TEMPERATURE_MONITOR,
-    VIRTUAL_VNA,
-)
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_MONITOR_INTEGRATION_CYCLES,
@@ -38,14 +32,17 @@ from scopecat_instruments.members import (
     DC_MONITOR_MEASUREMENT_ENABLED,
     DC_SOURCE,
     DC_SOURCE_CURRENT_PROTECTION,
-    DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
     DC_SOURCE_VOLTAGE_PROTECTION,
-    DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
+)
+from scopecat_instruments.package_manifest import (
+    VIRTUAL_DC_SOURCE,
+    VIRTUAL_RF_SOURCE,
+    VIRTUAL_TEMPERATURE_MONITOR,
+    VIRTUAL_VNA,
 )
 
 RESONANCE_FREQUENCY_PARAMETER_ID = "readout_resonance_frequency"
@@ -153,15 +150,6 @@ def _virtual_instrument(
     default_state: list[InstrumentPropertyState]
     if driver_id == VIRTUAL_DC_SOURCE:
         default_state = [
-            _property_state(DC_SOURCE_MODE, StateValue("voltage")),
-            _property_state(
-                DC_SOURCE_VOLTAGE_RANGE,
-                StateValue(Quantity(1.0, "V")),
-            ),
-            _property_state(
-                DC_SOURCE_VOLTAGE_LEVEL,
-                StateValue(Quantity(0.0, "V")),
-            ),
             _property_state(
                 DC_SOURCE_VOLTAGE_PROTECTION,
                 StateValue(Quantity(1.0, "V")),

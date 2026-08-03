@@ -1,16 +1,14 @@
+# pyright: reportPrivateUsage=false
 """Hardware-independent quantum measurement postprocessors."""
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
-from scopecat import (
-    MeasurementPostprocessor,
-    ProductRef,
-    measurement_postprocessor,
-)
+from scopecat import ExperimentContext, ModuleContext, ProductBundle, ProductRef
 from scopecat.measurements.results import (
     ComplexComponents,
     MeasurementArray,
@@ -56,27 +54,36 @@ class BinaryIqDiscriminator(BaseModel):
         return self
 
 
-def binary_iq_probability_postprocessor(
-    postprocessor_id: str,
-    *,
-    iq_shots: str | ProductRef,
-    probability_0: str | ProductRef,
-    probability_1: str | ProductRef,
-    discriminator: BinaryIqDiscriminator,
-) -> MeasurementPostprocessor:
-    """Calculate binary state probabilities independently at each scan point."""
+@dataclass(frozen=True, slots=True)
+class BinaryIqProbabilityProducts(ProductBundle):
+    """Typed products emitted by one binary IQ discrimination step."""
 
-    if not postprocessor_id:
-        raise ValueError("binary IQ probability postprocessor ids must be non-empty")
-    products = (iq_shots, probability_0, probability_1)
-    if any(isinstance(product, str) and not product for product in products):
-        raise ValueError("binary IQ product ids must be non-empty")
-    product_ids = tuple(
-        product.product_id if isinstance(product, ProductRef) else product
-        for product in products
+    probability_0: ProductRef
+    probability_1: ProductRef
+
+
+def binary_iq_probabilities(
+    context: ModuleContext | ExperimentContext,
+    iq_shots: ProductRef,
+    /,
+    *,
+    discriminator: BinaryIqDiscriminator,
+    id: str = "binary-iq-probability",
+) -> BinaryIqProbabilityProducts:
+    """Declare binary state probabilities independently at each scan point."""
+
+    products = BinaryIqProbabilityProducts(
+        probability_0=context._product(
+            "probability_0",
+            dtype="float64",
+            unit="ratio",
+        ),
+        probability_1=context._product(
+            "probability_1",
+            dtype="float64",
+            unit="ratio",
+        ),
     )
-    if len(set(product_ids)) != len(product_ids):
-        raise ValueError("binary IQ probability products must be distinct")
 
     def calculate(value: MeasurementValue) -> dict[str, MeasurementValue]:
         result_0, result_1 = _binary_iq_probability_value(value, discriminator)
@@ -85,15 +92,16 @@ def binary_iq_probability_postprocessor(
             _PROBABILITY_1_ROLE: result_1,
         }
 
-    return measurement_postprocessor(
-        postprocessor_id,
+    context._postprocess(
+        id,
         input=iq_shots,
         outputs={
-            _PROBABILITY_0_ROLE: probability_0,
-            _PROBABILITY_1_ROLE: probability_1,
+            _PROBABILITY_0_ROLE: products.probability_0,
+            _PROBABILITY_1_ROLE: products.probability_1,
         },
         kernel=calculate,
     )
+    return products
 
 
 def _binary_iq_probability_value(
@@ -148,6 +156,7 @@ def _classify_shot(
 
 __all__ = [
     "BinaryIqDiscriminator",
+    "BinaryIqProbabilityProducts",
     "IqCentroid",
-    "binary_iq_probability_postprocessor",
+    "binary_iq_probabilities",
 ]

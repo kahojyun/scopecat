@@ -23,6 +23,7 @@ class Trace:
     point_index: int
     logical_point_id: str | None
     dimension_id: str
+    recording_group_id: str | None
     coordinate_id: str
     observable_id: str
     coordinate_label: str | None
@@ -35,19 +36,41 @@ class Trace:
 
 def measurement_traces(
     dataset: MeasurementDataset,
+    observable: str | None = None,
     *,
-    coordinate: str,
-    observable: str,
+    coordinate: str | None = None,
+    group: str | None = None,
 ) -> tuple[Trace, ...]:
-    """Select a compatible coordinate and observable from every dataset point."""
+    """Read one unambiguous point-local trace from every dataset point.
+
+    A recording group is the preferred selector when several acquisitions use
+    compatible dimensions; explicit variable ids remain available for custom
+    or partially grouped datasets.
+    """
 
     variables = {variable.id: variable for variable in dataset.dataset_schema.variables}
-    coordinate_variable = _require_variable(variables, coordinate)
-    observable_variable = _require_variable(variables, observable)
+    coordinate_variable, observable_variable = _select_trace_variables(
+        variables,
+        coordinate=coordinate,
+        observable=observable,
+        group=group,
+    )
+    coordinate = coordinate_variable.id
+    observable = observable_variable.id
     if coordinate_variable.role != "coordinate":
         raise ValueError(f"trace coordinate {coordinate!r} is not a coordinate")
     if observable_variable.role != "observable":
         raise ValueError(f"trace observable {observable!r} is not an observable")
+    coordinate_group = coordinate_variable.recording_group_id
+    observable_group = observable_variable.recording_group_id
+    if (
+        coordinate_group is not None
+        and observable_group is not None
+        and coordinate_group != observable_group
+    ):
+        raise ValueError(
+            "trace coordinate and observable must belong to one recording group"
+        )
     if (
         len(coordinate_variable.dims) != 2
         or coordinate_variable.dims != observable_variable.dims
@@ -91,6 +114,7 @@ def measurement_traces(
                 point_index=record.point_index,
                 logical_point_id=record.logical_point_id,
                 dimension_id=dimension_id,
+                recording_group_id=coordinate_group or observable_group,
                 coordinate_id=coordinate,
                 observable_id=observable,
                 coordinate_label=coordinate_variable.label,
@@ -102,6 +126,97 @@ def measurement_traces(
             )
         )
     return tuple(traces)
+
+
+def _select_trace_variables(
+    variables: dict[str, MeasurementVariable],
+    *,
+    coordinate: str | None,
+    observable: str | None,
+    group: str | None,
+) -> tuple[MeasurementVariable, MeasurementVariable]:
+    if group is not None:
+        variables = {
+            variable_id: variable
+            for variable_id, variable in variables.items()
+            if variable.recording_group_id == group
+        }
+        if not variables:
+            raise ValueError(f"measurement dataset has no recording group {group!r}")
+    if coordinate is not None and observable is not None:
+        return (
+            _require_variable(variables, coordinate),
+            _require_variable(variables, observable),
+        )
+    selected_coordinate = (
+        None if coordinate is None else _require_variable(variables, coordinate)
+    )
+    selected_observable = (
+        None if observable is None else _require_variable(variables, observable)
+    )
+    coordinates = (
+        (selected_coordinate,)
+        if selected_coordinate is not None
+        else tuple(
+            variable
+            for variable in variables.values()
+            if _is_trace_coordinate(variable)
+        )
+    )
+    observables = (
+        (selected_observable,)
+        if selected_observable is not None
+        else tuple(
+            variable
+            for variable in variables.values()
+            if _is_trace_observable(variable)
+        )
+    )
+    candidates = tuple(
+        (coordinate_variable, observable_variable)
+        for coordinate_variable in coordinates
+        for observable_variable in observables
+        if _is_trace_coordinate(coordinate_variable)
+        and _is_trace_observable(observable_variable)
+        and coordinate_variable.dims == observable_variable.dims
+        and (
+            coordinate_variable.recording_group_id
+            == observable_variable.recording_group_id
+        )
+    )
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        raise ValueError("measurement dataset has no compatible trace variables")
+    rendered = ", ".join(
+        f"{coordinate_variable.id!r} + {observable_variable.id!r}"
+        + (
+            ""
+            if coordinate_variable.recording_group_id is None
+            else f" (group {coordinate_variable.recording_group_id!r})"
+        )
+        for coordinate_variable, observable_variable in candidates
+    )
+    raise ValueError(
+        "measurement dataset has ambiguous trace variables; select a recording "
+        f"group, observable, or coordinate explicitly: {rendered}"
+    )
+
+
+def _is_trace_coordinate(variable: MeasurementVariable) -> bool:
+    return (
+        variable.role == "coordinate"
+        and variable.dtype in {"float64", "int64"}
+        and len(variable.dims) == 2
+    )
+
+
+def _is_trace_observable(variable: MeasurementVariable) -> bool:
+    return (
+        variable.role == "observable"
+        and variable.dtype in {"float64", "int64", "complex128"}
+        and len(variable.dims) == 2
+    )
 
 
 def _require_variable(

@@ -23,6 +23,7 @@ from scopecat.compiler.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.value_resolution import ProgramValue
 from scopecat.domain.program import DomainProgramDef
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ProblemPhase
@@ -43,7 +44,7 @@ from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
 )
-from scopecat.measurements.records import RecordUse
+from scopecat.measurements.records import BoundRecordUse
 from scopecat.measurements.results import MeasurementDType
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
@@ -65,7 +66,6 @@ from scopecat.program.logical import (
 from scopecat.program.value_graph import (
     ComputeOutput,
     OperationId,
-    ValueId,
     operation_result_id,
 )
 
@@ -291,7 +291,7 @@ def program_fixture(
     product_defs: Sequence[ProductDef] = (),
     instrument_acquisitions: Sequence[AcquireEffect] = (),
     product_uses: Sequence[ProductUse] = (),
-    record_uses: Sequence[RecordUse] = (),
+    record_uses: Sequence[BoundRecordUse] = (),
     effects: Sequence[EffectFixture] | None = None,
 ) -> ProgramFixture:
     """Build canonical logical semantics plus explicit config-derived facts."""

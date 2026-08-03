@@ -22,23 +22,40 @@ from scopecat.authoring._experiment_module import (
     create_experiment_module_internal,
 )
 from scopecat.authoring._module_context import (
+    DefinitionResource,
     ModuleContext,
     build_ensure_state_intent,
 )
 from scopecat.authoring._module_invocation import (
     DomainCallProvider,
     ModuleInvocation,
-    ModuleResource,
     domain_use_call,
     module_use_invocation,
 )
+from scopecat.authoring._module_results import (
+    ProductBundle,
+    module_result_value_exports,
+    recording_products,
+)
+from scopecat.authoring.entity_parameters import PerEntity
+from scopecat.authoring.finalization import Finalizable
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import (
     ExperimentTemplate,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
+from scopecat.kernel.instrument_members import (
+    AcquisitionResultRef,
+    InterfaceRef,
+    OperationArgumentRef,
+    OperationRef,
+    PropertyRef,
+)
+from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.measurements.postprocessor_contract import MeasurementPostprocessorKernel
+from scopecat.measurements.results import MeasurementDType
 from scopecat.program.bindings import BindingIntent
 from scopecat.program.definitions import (
     ExperimentDef,
@@ -47,15 +64,16 @@ from scopecat.program.definitions import (
 )
 from scopecat.program.domain import DomainCall
 from scopecat.program.input_capture import empty_program_mapping
-from scopecat.program.module import ModuleInstance
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
+    ProductAxis,
+    ProductRecording,
     ProductRef,
-    RecordSelection,
     record_coordinate,
     record_product,
 )
-from scopecat.program.state import DesiredState
+from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
+from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
     internal_value_ref_point_dependencies,
@@ -73,11 +91,24 @@ from scopecat.program.value_types import (
     Table,
     ValueType,
 )
-from scopecat.program.values import MetadataValue, RuntimeInput
+from scopecat.program.values import (
+    ComputeFunction,
+    ComputeInput,
+    MetadataValue,
+    RuntimeInput,
+)
 from scopecat.program.values import input as authoring_input
+
+# pyright: reportPrivateUsage=false
 
 type DefinitionFunction = Callable[..., object]
 type Input[T] = T | ValueRef
+
+
+type RecordProductInput = (
+    ProductRef | ProductBundle | PerEntity[ProductRef | ProductBundle]
+)
+type RecordInput = RecordProductInput | ValueRef
 
 
 def input_ref[T](value: Input[T]) -> ValueRef:
@@ -90,6 +121,59 @@ def input_ref[T](value: Input[T]) -> ValueRef:
     """
 
     return cast("ValueRef", value)
+
+
+def _expand_record_inputs(
+    values: Sequence[RecordInput],
+) -> tuple[ProductRef | ValueRef, ...]:
+    selected: list[ProductRef | ValueRef] = []
+    for value in values:
+        if isinstance(value, ValueRef):
+            selected.append(value)
+            continue
+        if isinstance(value, PerEntity):
+            for entity_value in value.values():
+                _append_record_product(selected, entity_value)
+            continue
+        _append_record_product(selected, value)
+    return tuple(selected)
+
+
+def _append_record_product(
+    selected: list[ProductRef | ValueRef],
+    product: ProductRef | ProductBundle,
+) -> None:
+    if isinstance(product, ProductRef):
+        selected.append(product)
+        return
+    selected.extend(recording_products(product))
+
+
+def _recording_role_is_coordinate(product: ProductRef) -> bool:
+    return product._recording_role == "coordinate"
+
+
+def _record_namespace_segments(namespace: str) -> tuple[str, ...]:
+    if not namespace:
+        raise ValueError("record namespace must be non-empty")
+    namespace_id = parse_product_id(namespace)
+    return (*namespace_id.scope, namespace_id.local_id)
+
+
+def _namespaced_record_id(
+    product: ProductRef,
+    namespace: tuple[str, ...],
+) -> str:
+    return product.product_id.prefixed(*namespace).qualified_name
+
+
+def _recording_group_id(
+    product: ProductRef,
+    namespace: tuple[str, ...],
+) -> str | None:
+    if product._recording is None:
+        return None
+    return product._recording.occurrence.prefixed(*namespace).qualified_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +189,7 @@ class _DefinitionContract:
 
 
 class ExperimentContext:
-    """Explicit recorder injected into one template or scratch definition."""
+    """Authoring context shared by templates and experiment factories."""
 
     __slots__ = (
         "_final_state_bindings",
@@ -117,7 +201,7 @@ class ExperimentContext:
     def __init__(self) -> None:
         self._program = ModuleContext()
         self._scans: list[Scan] = []
-        self._record_selections: list[RecordSelection] = []
+        self._record_selections: list[ProgramRecordSelection] = []
         self._final_state_bindings: list[BindingIntent] = []
 
     def close_definition_internal(
@@ -152,10 +236,16 @@ class ExperimentContext:
         )
 
     @overload
-    def run(self, part: ExperimentModule[...]) -> ModuleInvocation: ...
+    def run[ResultT](
+        self,
+        part: ExperimentModule[ResultT, ...],
+    ) -> ModuleInvocation[ResultT]: ...
 
     @overload
-    def run(self, part: ModuleInvocation) -> ModuleInvocation: ...
+    def run[ResultT](
+        self,
+        part: ModuleInvocation[ResultT],
+    ) -> ModuleInvocation[ResultT]: ...
 
     @overload
     def run(self, part: DomainCall) -> DomainCall: ...
@@ -180,6 +270,132 @@ class ExperimentContext:
         self._program.append_invocation_internal(invocation)
         return invocation
 
+    def _resource(
+        self,
+        id: str,
+        *,
+        requires: Sequence[InterfaceRef] = (),
+        for_entities: Sequence[ValueRef] = (),
+    ) -> DefinitionResource:
+        """Declare a logical resource for a generated symbolic client."""
+
+        return self._program._resource(
+            id,
+            requires=requires,
+            for_entities=for_entities,
+        )
+
+    def _bind_property(
+        self,
+        resource: DefinitionResource,
+        property: PropertyRef,
+        *,
+        value: StateBinding,
+    ) -> None:
+        """Bind a property for an internal authoring extension."""
+
+        self._program._bind_property(resource, property, value=value)
+
+    def _ensure(
+        self,
+        resource: DefinitionResource,
+        assignments: Mapping[PropertyRef, StateBinding],
+    ) -> None:
+        """Declare a target state for a generated symbolic client."""
+
+        self._program._ensure(resource, assignments)
+
+    def _invoke(
+        self,
+        id: str,
+        *,
+        resource: DefinitionResource,
+        operation: OperationRef,
+        arguments: Mapping[OperationArgumentRef, StateBinding | None] | None = None,
+    ) -> None:
+        """Append an operation for a generated symbolic client."""
+
+        self._program._invoke(
+            id,
+            resource=resource,
+            operation=operation,
+            arguments=arguments,
+        )
+
+    def _product(
+        self,
+        id: str,
+        *,
+        scope: Sequence[str] = (),
+        unit: str | None = "ratio",
+        dtype: MeasurementDType = "float64",
+        axes: Sequence[ProductAxis] = (),
+        recording: ProductRecording | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> ProductRef:
+        """Declare a logical product for a generated acquisition or producer."""
+
+        return self._program._product(
+            id,
+            scope=scope,
+            unit=unit,
+            dtype=dtype,
+            axes=axes,
+            recording=recording,
+            metadata=metadata,
+        )
+
+    def _acquire(
+        self,
+        id: str,
+        *,
+        resource: DefinitionResource,
+        results: Mapping[AcquisitionResultRef, ProductRef],
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> None:
+        """Map acquisition results for a generated symbolic client."""
+
+        self._program._acquire(
+            id,
+            resource=resource,
+            results=results,
+            metadata=metadata,
+        )
+
+    def compute(
+        self,
+        id: str,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput] | None = None,
+        output_type: Scalar,
+    ) -> ValueRef:
+        """Declare one experiment-owned compute node and return its result."""
+
+        return self._program.compute(
+            id,
+            fn=fn,
+            inputs=inputs,
+            output_type=output_type,
+        )
+
+    def _postprocess(
+        self,
+        id: str,
+        *,
+        input: ProductRef,
+        outputs: Mapping[str, ProductRef],
+        kernel: MeasurementPostprocessorKernel,
+    ) -> None:
+        """Register a typed producer's point-local measurement calculation."""
+
+        self._program._postprocess(
+            id,
+            input=input,
+            outputs=outputs,
+            kernel=kernel,
+        )
+
     def scan(self, *scans: Scan) -> None:
         """Declare the experiment's default point-domain scans."""
 
@@ -187,64 +403,87 @@ class ExperimentContext:
 
     def record(
         self,
-        *products: str | ProductRef,
+        *values: RecordInput,
         record_id: str | None = None,
+        namespace: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> None:
-        """Select logical products for durable recording."""
+        """Persist symbolic values or complete acquisition bundles.
 
-        if record_id is not None and len(products) != 1:
-            raise ValueError("record_id can only be used with one product")
-        self._record_selections.extend(
-            record_product(
-                product,
-                record_id=record_id,
-                metadata=metadata,
-            )
-            for product in products
+        ``ProductBundle`` and ``PerEntity`` inputs expand structurally while
+        retaining each product's declared role, axes, acquisition group, and
+        entity identity. A scalar ``ValueRef`` becomes an ordinary plottable
+        dataset value when its declared type is durable.
+        """
+
+        if record_id is not None and namespace is not None:
+            raise ValueError("record_id and namespace cannot be used together")
+        namespace_segments = (
+            () if namespace is None else _record_namespace_segments(namespace)
         )
-
-    def record_coordinate(
-        self,
-        *products: str | ProductRef,
-        record_id: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> None:
-        """Select coordinate-like products for durable recording."""
-
-        if record_id is not None and len(products) != 1:
-            raise ValueError("record_id can only be used with one product")
-        self._record_selections.extend(
-            record_coordinate(
-                product,
-                record_id=record_id,
-                metadata=metadata,
+        selected = _expand_record_inputs(values)
+        if record_id is not None and len(selected) != 1:
+            raise ValueError("record_id can only be used with one recorded value")
+        selected_metadata = freeze_json_mapping(metadata or {})
+        for value in selected:
+            if isinstance(value, ProductRef):
+                selection = (
+                    record_coordinate
+                    if _recording_role_is_coordinate(value)
+                    else record_product
+                )(
+                    value,
+                    record_id=(
+                        _namespaced_record_id(value, namespace_segments)
+                        if namespace_segments
+                        else record_id
+                    ),
+                    recording_group_id=(
+                        _recording_group_id(value, namespace_segments)
+                        if namespace_segments
+                        else None
+                    ),
+                    metadata=selected_metadata,
+                )
+                self._record_selections.append(selection)
+                continue
+            value_type = value.value_type
+            if not isinstance(value_type, Scalar):
+                raise TypeError("dataset value records must be scalar")
+            if isinstance(value_type.atom, Payload):
+                raise TypeError("opaque payload values cannot be recorded in a dataset")
+            if isinstance(value_type.atom, Quantity) and value_type.atom.unit is None:
+                raise TypeError(
+                    "recorded quantity values require an explicit declared unit"
+                )
+            self._record_selections.append(
+                ValueRecordSelection(
+                    value=value,
+                    record_id=record_id,
+                    namespace=namespace_segments,
+                    metadata=selected_metadata,
+                )
             )
-            for product in products
-        )
 
-    def records(self, *selections: RecordSelection) -> None:
-        """Append preconstructed durable record selections."""
-
-        self._record_selections.extend(selections)
-
-    def finalize(
+    def finalize[StateT](
         self,
-        resource: ModuleResource,
-        target: DesiredState,
+        resource: Finalizable[StateT],
+        target: StateT,
     ) -> None:
-        """Declare the desired state after normal experiment completion."""
+        """Declare typed state after normal experiment completion."""
 
-        owners = {
-            effect.invocation_key
-            for effect in self._program.effects_internal
-            if isinstance(effect, ModuleInstance)
-        }
-        if resource.owner not in owners:
-            raise ValueError(
-                "experiment final_state resource must belong to this experiment"
-            )
-        intent = build_ensure_state_intent(resource.port_id, target)
+        for logical_resource, desired_state in resource.finalization_targets(target):
+            self._append_finalization_target(logical_resource, desired_state)
+
+    def _append_finalization_target(
+        self,
+        resource: DefinitionResource,
+        assignments: Mapping[PropertyRef, StateBinding],
+    ) -> None:
+        """Validate and append one normalized final-state target."""
+
+        self._program.require_owned_resource_internal(resource)
+        intent = build_ensure_state_intent(resource.port_id, assignments)
         for assignment in intent.assignments:
             value = assignment.value
             if not isinstance(value, ValueRef):
@@ -261,8 +500,8 @@ class ExperimentContext:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ScratchDefinition[**P]:
-    """A project-neutral experiment factory evaluated for each call."""
+class ExperimentFactory[**P]:
+    """An experiment factory evaluated structurally for each Python call."""
 
     fn: Callable[Concatenate[ExperimentContext, P], None] = field(
         repr=False,
@@ -288,7 +527,7 @@ class ScratchDefinition[**P]:
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
         context = ExperimentContext()
         result = self.fn(context, *args, **kwargs)
-        _require_definition_none(result, kind="scratch")
+        _require_definition_none(result, kind="experiment_factory")
         definition = context.close_definition_internal(
             id=self.id,
             kind=self.kind,
@@ -304,39 +543,39 @@ class ScratchDefinition[**P]:
 
 
 @overload
-def module[**P](
-    definition: Callable[Concatenate[ModuleContext, P], None],
+def module[ResultT, **P](
+    definition: Callable[Concatenate[ModuleContext, P], ResultT],
     /,
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentModule[P]: ...
+) -> ExperimentModule[ResultT, P]: ...
 
 
 @overload
-def module[**P](
+def module[ResultT, **P](
     definition: None = None,
     /,
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> Callable[
-    [Callable[Concatenate[ModuleContext, P], None]],
-    ExperimentModule[P],
+    [Callable[Concatenate[ModuleContext, P], ResultT]],
+    ExperimentModule[ResultT, P],
 ]: ...
 
 
-def module[**P](
-    definition: Callable[Concatenate[ModuleContext, P], None] | None = None,
+def module[ResultT, **P](
+    definition: Callable[Concatenate[ModuleContext, P], ResultT] | None = None,
     /,
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
-    ExperimentModule[P]
+    ExperimentModule[ResultT, P]
     | Callable[
-        [Callable[Concatenate[ModuleContext, P], None]],
-        ExperimentModule[P],
+        [Callable[Concatenate[ModuleContext, P], ResultT]],
+        ExperimentModule[ResultT, P],
     ]
 ):
     """Define a closed module from a Python function."""
@@ -401,18 +640,18 @@ def template[**P](
 
 
 @overload
-def scratch[**P](
+def experiment_factory[**P](
     definition: Callable[Concatenate[ExperimentContext, P], None],
     /,
     *,
     id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ScratchDefinition[P]: ...
+) -> ExperimentFactory[P]: ...
 
 
 @overload
-def scratch[**P](
+def experiment_factory[**P](
     definition: None = None,
     /,
     *,
@@ -421,11 +660,11 @@ def scratch[**P](
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> Callable[
     [Callable[Concatenate[ExperimentContext, P], None]],
-    ScratchDefinition[P],
+    ExperimentFactory[P],
 ]: ...
 
 
-def scratch[**P](
+def experiment_factory[**P](
     definition: Callable[Concatenate[ExperimentContext, P], None] | None = None,
     /,
     *,
@@ -433,19 +672,19 @@ def scratch[**P](
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
-    ScratchDefinition[P]
+    ExperimentFactory[P]
     | Callable[
         [Callable[Concatenate[ExperimentContext, P], None]],
-        ScratchDefinition[P],
+        ExperimentFactory[P],
     ]
 ):
-    """Define a project-neutral scratch experiment factory."""
+    """Define an experiment whose Python arguments may change graph structure."""
 
     def decorate(
         fn: Callable[Concatenate[ExperimentContext, P], None],
-    ) -> ScratchDefinition[P]:
+    ) -> ExperimentFactory[P]:
         signature = _context_signature(fn, ExperimentContext)
-        return ScratchDefinition(
+        return ExperimentFactory(
             fn=fn,
             _signature=signature.replace(return_annotation=ExperimentInvocation),
             id=id or _definition_id(fn),
@@ -456,12 +695,12 @@ def scratch[**P](
     return decorate(definition) if definition is not None else decorate
 
 
-def _module_from_function[**P](
-    fn: Callable[Concatenate[ModuleContext, P], None],
+def _module_from_function[ResultT, **P](
+    fn: Callable[Concatenate[ModuleContext, P], ResultT],
     *,
     id: str | None,
     metadata: Mapping[str, MetadataValue] | None,
-) -> ExperimentModule[P]:
+) -> ExperimentModule[ResultT, P]:
     source = cast("DefinitionFunction", fn)
     contract = _definition_contract(
         source,
@@ -471,7 +710,6 @@ def _module_from_function[**P](
     values = contract.values
     context = ModuleContext()
     result = source(context, **values)
-    _require_definition_none(result, kind="module")
     selected_metadata = dict(metadata or {})
     doc = inspect.getdoc(fn)
     if doc is not None:
@@ -479,12 +717,14 @@ def _module_from_function[**P](
     module_def = context.close_definition_internal(
         id=id or _definition_id(fn),
         input_ports=tuple(_input_port(name, value) for name, value in values.items()),
+        value_exports=module_result_value_exports(result),
         metadata=selected_metadata,
     )
     return create_experiment_module_internal(
         module_def,
-        definition=cast("Callable[P, object]", fn),
+        definition=cast("Callable[P, ResultT]", fn),
         signature=contract.signature,
+        result=cast("ResultT", result),
     )
 
 
@@ -691,9 +931,9 @@ def _input_port(name: str, value: ValueRef) -> ModuleInputPort:
     return ModuleInputPort(id=name, value_type=value.value_type)
 
 
-def _module_invocation(value: object) -> ModuleInvocation:
+def _module_invocation(value: object) -> ModuleInvocation[object]:
     if isinstance(value, ExperimentModule):
-        return value()
+        return cast("ModuleInvocation[object]", value())
     try:
         return module_use_invocation(value)
     except TypeError as error:
@@ -708,10 +948,10 @@ def _definition_id(fn: DefinitionFunction) -> str:
 
 __all__ = [
     "ExperimentContext",
+    "ExperimentFactory",
     "Input",
-    "ScratchDefinition",
+    "experiment_factory",
     "input_ref",
     "module",
-    "scratch",
     "template",
 ]

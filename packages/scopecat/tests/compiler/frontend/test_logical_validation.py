@@ -13,8 +13,10 @@ from scopecat.compiler.frontend.logical_verification import verify_logical_progr
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
+from scopecat.kernel.product_identity import ProductUse, ProductUseId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Payload, Scalar
 from scopecat.program.bindings import requires, resource_port
@@ -25,8 +27,13 @@ from scopecat.program.logical import (
     ValueDef,
 )
 from scopecat.program.point_domain import point_axis_values
-from scopecat.program.products import ModuleProductDecl, record_product
-from scopecat.program.value_graph import ValueId
+from scopecat.program.products import (
+    ModuleProductDecl,
+    RecordSelection,
+    entity_axis,
+    product_axis,
+    record_product,
+)
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from scopecat.sdk.instruments import InterfaceRef
@@ -40,7 +47,7 @@ _SET_GAIN = InterfaceRef("test.set_gain/v1")
 _SET_GAIN_VALUE = _SET_GAIN.property("value")
 
 
-def _resolve(module: sc.ExperimentModule[...]) -> None:
+def _resolve(module: sc.ExperimentModule[None, ...]) -> None:
     @sc.template(id="test.graph", kind="graph")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module())
@@ -96,8 +103,8 @@ def test_invocation_rejects_an_unregistered_compute_output() -> None:
 
         @sc.module(id="test.graph.invocation-missing")
         def module(context: sc.ModuleContext) -> None:
-            drive = context.resource("drive", requires=(_PLAY_WAVEFORMS,))
-            context.invoke(
+            drive = context._resource("drive", requires=(_PLAY_WAVEFORMS,))
+            context._invoke(
                 "play",
                 resource=drive,
                 operation=_PLAY_WAVEFORMS_PLAY,
@@ -110,13 +117,13 @@ def test_invocation_rejects_an_unregistered_compute_output() -> None:
 def test_state_rejects_a_non_payload_compute_output() -> None:
     @sc.module(id="test.graph.state-type")
     def module(context: sc.ModuleContext) -> None:
-        drive = context.resource("drive", requires=(_SET_GAIN,))
+        drive = context._resource("drive", requires=(_SET_GAIN,))
         compute_value = context.compute(
             "numeric-value",
             fn=lambda: 1.0,
             output_type=sc.ScalarType(sc.FloatType()),
         )
-        context.bind_property(
+        context._bind_property(
             drive,
             _SET_GAIN_VALUE,
             value=compute_value,
@@ -143,8 +150,8 @@ def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
                 ),
             ],
         ) -> None:
-            drive = context.resource("drive", requires=(_SET_GAIN,))
-            context.bind_property(
+            drive = context._resource("drive", requires=(_SET_GAIN,))
+            context._bind_property(
                 drive,
                 _SET_GAIN_VALUE,
                 value=sc.input_ref(rows),
@@ -158,9 +165,9 @@ def test_product_axes_reject_table_values_at_authoring_boundary() -> None:
     )
 
     with pytest.raises(TypeError, match="axis values must be scalar"):
-        sc.product_axis("sample", size=rows)
+        product_axis("sample", size=rows)
     with pytest.raises(TypeError, match="axis values must be scalar"):
-        sc.entity_axis("entity", rows)
+        entity_axis("entity", rows)
 
 
 def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
@@ -169,11 +176,11 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
         "missing-record-parameter",
         value_type,
     )
-    duplicate_axis = sc.product_axis("sample", size=2)
+    duplicate_axis = product_axis("sample", size=2)
 
     @sc.module(id="test.graph.record-schema")
     def module(context: sc.ModuleContext) -> None:
-        context.product("signal", axes=(duplicate_axis, duplicate_axis))
+        context._product("signal", axes=(duplicate_axis, duplicate_axis))
 
     program = domain_program(
         "consume-parameter",
@@ -205,11 +212,11 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
 def test_product_rejects_duplicate_effective_dimensions() -> None:
     @sc.module(id="test.graph.duplicate-dimension")
     def module(context: sc.ModuleContext) -> None:
-        context.product(
+        context._product(
             "signal",
             axes=(
-                sc.product_axis("i", size=2, shared_as="sample"),
-                sc.product_axis("q", size=2, shared_as="sample"),
+                product_axis("i", size=2, shared_as="sample"),
+                product_axis("q", size=2, shared_as="sample"),
             ),
         )
 
@@ -227,7 +234,7 @@ def test_resource_selector_rejects_external_operation_value() -> None:
         context: sc.ModuleContext,
         subject: Annotated[sc.Input[sc.EntityRef | str], sc.EntityType()],
     ) -> None:
-        context.resource("drive", for_entities=(sc.input_ref(subject),))
+        context._resource("drive", for_entities=(sc.input_ref(subject),))
 
     @sc.module(id="test.stage.resource-parent")
     def parent(context: sc.ModuleContext) -> None:
@@ -269,9 +276,9 @@ def test_product_axis_rejects_external_operation_value() -> None:
             fn=lambda: 2,
             output_type=sc.ScalarType(sc.IntType()),
         )
-        context.product(
+        context._product(
             "signal",
-            axes=(sc.product_axis("sample", size=size),),
+            axes=(product_axis("sample", size=size),),
         )
 
     with pytest.raises(CheckFailed) as error:
@@ -292,9 +299,9 @@ def test_product_axis_rejects_point_dependent_value() -> None:
         context: sc.ModuleContext,
         size: Annotated[sc.Input[int], sc.IntType(minimum=1)],
     ) -> None:
-        context.product(
+        context._product(
             "signal",
-            axes=(sc.product_axis("sample", size=sc.input_ref(size)),),
+            axes=(product_axis("sample", size=sc.input_ref(size)),),
         )
 
     @sc.template(id="test.stage.record-point", kind="graph")
@@ -448,6 +455,55 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
             record_selections=(record_product("payload"),),
         )
     )
+
+
+def test_recording_rejects_an_unknown_product() -> None:
+    with pytest.raises(CheckFailed) as error:
+        verify_logical_program(
+            LogicalProgram(
+                experiment_id="test.graph.unknown-record-product",
+                kind="graph",
+                record_selections=(record_product("missing"),),
+            )
+        )
+
+    assert [problem.code for problem in error.value.problems] == [
+        "module_product_unknown"
+    ]
+
+
+def test_recording_rejects_one_use_identity_for_two_products() -> None:
+    signal = ModuleProductDecl("signal")
+    phase = ModuleProductDecl("phase")
+    shared_id = ProductUseId("shared-use")
+
+    with pytest.raises(CheckFailed) as error:
+        verify_logical_program(
+            LogicalProgram(
+                experiment_id="test.graph.conflicting-product-use",
+                kind="graph",
+                product_declarations=(signal, phase),
+                record_selections=(
+                    RecordSelection(
+                        product_use=ProductUse(
+                            product_id=signal.product_id,
+                            id=shared_id,
+                        ),
+                    ),
+                    RecordSelection(
+                        product_use=ProductUse(
+                            product_id=phase.product_id,
+                            id=shared_id,
+                        ),
+                    ),
+                ),
+            )
+        )
+
+    assert [problem.code for problem in error.value.problems] == [
+        "product_use_identity_conflict"
+    ]
+    assert error.value.problems[0].phase is ProblemPhase.AUTHORING
 
 
 def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:

@@ -1,48 +1,41 @@
 """Closed module definitions exposed through a Python call contract."""
 
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import cast, overload
+from typing import cast
 
 from scopecat.authoring._module_invocation import (
     ModuleInvocation,
     create_module_invocation,
 )
+from scopecat.authoring._module_results import relocate_module_result
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_type_compatibility import require_assignable
-from scopecat.program.bindings import BindingIntent, InvocationIntent, ResourcePort
 from scopecat.program.input_capture import capture_module_inputs
-from scopecat.program.module import (
-    ModuleDef,
-    ModuleEffect,
-    ModulePythonImplementation,
-    ModuleValueExport,
-)
-from scopecat.program.operations import ModuleInputPort, ModuleOperationDecl
-from scopecat.program.products import ModuleProductDecl, ProductOutputs, ProductRef
+from scopecat.program.module import ModuleDef
+from scopecat.program.products import ProductRef, ProductRefs
 from scopecat.program.value_refs import ValueRef, internal_literal_value_ref
 from scopecat.program.value_types import ValueType
 from scopecat.program.values import MetadataValue, ModuleInput
 
 
-@dataclass(frozen=True, slots=True, repr=False, init=False)
-class ExperimentModule[**P]:
-    """One closed module definition with a single Python call contract."""
+@dataclass(frozen=True, slots=True, repr=False)
+class ExperimentModule[ResultT, **P]:
+    """Reusable handle returned by ``@module``; calling it creates an occurrence."""
 
     _module_def: ModuleDef = field(repr=False)
-    _authoring_fn: Callable[P, object] | None = field(
+    _authoring_fn: Callable[P, ResultT] = field(
         repr=False,
         compare=False,
     )
     _signature: inspect.Signature = field(repr=False, compare=False)
-
-    def __init__(self) -> None:
-        msg = "ExperimentModule is created by @module"
-        raise TypeError(msg)
+    _result: ResultT = field(repr=False, compare=False)
 
     @property
     def definition(self) -> ModuleDef:
@@ -55,62 +48,16 @@ class ExperimentModule[**P]:
         return self._module_def.id
 
     @property
-    def input_ports(self) -> tuple[ModuleInputPort, ...]:
-        return self._module_def.interface.imports
-
-    @property
-    def output_ports(self) -> tuple[ModuleValueExport, ...]:
-        return self._module_def.interface.exports
-
-    @property
-    def resource_ports(self) -> tuple[ResourcePort, ...]:
-        return self._module_def.interface.resources
-
-    @property
-    def bindings(self) -> tuple[BindingIntent, ...]:
-        return self._module_def.body.bindings
-
-    @property
-    def invocations(self) -> tuple[InvocationIntent, ...]:
-        return self._module_def.body.invocations
-
-    @property
-    def effects(self) -> tuple[ModuleEffect, ...]:
-        return self._module_def.body.effects
-
-    @property
-    def operations(self) -> tuple[ModuleOperationDecl, ...]:
-        return self._module_def.body.operations
-
-    @property
-    def python_implementations(self) -> tuple[ModulePythonImplementation, ...]:
-        """Return local implementations stored outside the semantic body."""
-
-        return self._module_def.python_implementations
-
-    @property
-    def product_declarations(self) -> tuple[ModuleProductDecl, ...]:
-        """Local product declarations consumed by the flattening pass."""
-
-        return self._module_def.body.products
-
-    @property
     def metadata(self) -> Mapping[str, MetadataValue]:
         return self._module_def.metadata
 
     @property
-    def __wrapped__(self) -> Callable[P, object]:
-        if self._authoring_fn is None:
-            raise AttributeError("__wrapped__")
+    def __wrapped__(self) -> Callable[P, ResultT]:
         return self._authoring_fn
 
     @property
     def __name__(self) -> str:
-        return (
-            self._authoring_fn.__name__
-            if self._authoring_fn is not None
-            else self.id.rsplit(".", maxsplit=1)[-1]
-        )
+        return self._authoring_fn.__name__
 
     @property
     def __signature__(self) -> inspect.Signature:
@@ -124,7 +71,7 @@ class ExperimentModule[**P]:
         *,
         resource_bindings: Mapping[str, str] | None = None,
         **inputs: ModuleInput,
-    ) -> ModuleInvocation:
+    ) -> ModuleInvocation[ResultT]:
         """Create a hygienic, explicitly named module instance."""
 
         selected_inputs = dict(mapped_inputs or {})
@@ -135,7 +82,11 @@ class ExperimentModule[**P]:
             resource_bindings=resource_bindings or {},
         )
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ModuleInvocation:
+    def __call__(
+        self,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> ModuleInvocation[ResultT]:
         """Create the ordinary single use of this closed definition."""
 
         bound = self._signature.bind(*args, **kwargs)
@@ -166,7 +117,7 @@ class ExperimentModule[**P]:
         inputs: Mapping[str, ModuleInput],
         *,
         resource_bindings: Mapping[str, str],
-    ) -> ModuleInvocation:
+    ) -> ModuleInvocation[ResultT]:
         if not instance_id:
             msg = "module instance id must be non-empty"
             raise ValueError(msg)
@@ -229,59 +180,53 @@ class ExperimentModule[**P]:
             instance_id=instance_id,
             inputs=normalized,
             resource_bindings=normalized_resource_bindings,
+            result=self._result,
         )
 
     @property
-    def products(self) -> ProductOutputs:
-        """Typed product references at this module's template boundary."""
+    def _product_refs_internal(self) -> ProductRefs:
+        """Return every product visible to compiler projection."""
 
-        ports = self._module_def.products
-        return ProductOutputs(
-            {
-                port.qualified_id: ProductRef(
-                    product_id=port.symbol_id,
-                    origin=port.target_origin,
-                )
-                for port in ports
-            }
-        )
+        return _definition_product_refs(self._module_def)
 
 
-@overload
-def create_experiment_module_internal[**P](
+def create_experiment_module_internal[ResultT, **P](
     module_def: ModuleDef,
     *,
-    definition: Callable[P, object],
+    definition: Callable[P, ResultT],
     signature: inspect.Signature,
-) -> ExperimentModule[P]: ...
-
-
-@overload
-def create_experiment_module_internal(
-    module_def: ModuleDef,
-    *,
-    definition: None = None,
-    signature: inspect.Signature,
-) -> ExperimentModule[...]: ...
-
-
-def create_experiment_module_internal(
-    module_def: ModuleDef,
-    *,
-    definition: Callable[..., object] | None = None,
-    signature: inspect.Signature,
-) -> ExperimentModule[...]:
+    result: ResultT,
+) -> ExperimentModule[ResultT, P]:
     """Close one module definition behind its authoring handle."""
 
-    module = object.__new__(ExperimentModule)
-    object.__setattr__(module, "_module_def", module_def)
-    object.__setattr__(module, "_authoring_fn", definition)
-    object.__setattr__(
-        module,
-        "_signature",
-        signature.replace(return_annotation=ModuleInvocation),
+    definition_products = _definition_product_refs(module_def)
+    value_exports = module_def.interface.exports
+    relocated_result = relocate_module_result(
+        result,
+        product_sources=definition_products.values(),
+        product_targets=definition_products.values(),
+        value_sources=(export.source for export in value_exports),
+        value_targets=(export.source for export in value_exports),
     )
-    return module
+    return ExperimentModule(
+        _module_def=module_def,
+        _authoring_fn=definition,
+        _signature=signature.replace(return_annotation=ModuleInvocation),
+        _result=relocated_result,
+    )
+
+
+def _definition_product_refs(module_def: ModuleDef) -> ProductRefs:
+    return ProductRefs(
+        {
+            port.qualified_id: ProductRef(
+                product_id=port.symbol_id,
+                origin=port.target_origin,
+                _recording=port.recording,
+            )
+            for port in module_def.products
+        }
+    )
 
 
 def _module_input_value_ref(

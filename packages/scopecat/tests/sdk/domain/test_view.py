@@ -12,7 +12,7 @@ from scopecat.planning.point_materialization import (
     materialize_bound_points,
 )
 from scopecat.program.domain import domain_program
-from scopecat.program.products import ModuleProductDecl
+from scopecat.program.products import ModuleProductDecl, product_axis
 from scopecat.sdk.domain import (
     DomainPointRef,
     DomainProductAxisView,
@@ -48,7 +48,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
                 unit="count",
                 dtype="int64",
                 axes=(
-                    sc.product_axis(
+                    product_axis(
                         "shot",
                         size=8,
                         kind="shot",

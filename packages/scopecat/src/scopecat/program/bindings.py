@@ -5,20 +5,19 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
-from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.interface_identity import InterfaceId, require_interface_id
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
 )
 from scopecat.kernel.value_types import Payload, Scalar
+from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import ValueRef
 
 type EntitySource = ValueRef
-type BindingValue = ValueRef | Quantity | EntityRef | str | int | float | bool | None
-type InvocationArgumentValue = BindingValue
+type BindingValue = StateBinding
+type InvocationArgumentValue = StateBinding | None
 
 
 @dataclass(frozen=True)

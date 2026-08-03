@@ -13,6 +13,7 @@ from scopecat.compiler.value_resolution import BoundValueResolver
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.problems import Problem, model_location
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
@@ -51,7 +52,6 @@ from scopecat.program.logical import (
     LogicalInvocation,
     LogicalStateAssignment,
 )
-from scopecat.program.value_graph import ValueId
 
 
 class _InstrumentOperation(Protocol):

@@ -18,6 +18,7 @@ from scopecat.compiler.relations.verification import (
     RowType,
     verify_scalar_expression,
 )
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location
 from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.program.expression_analysis import expression_point_refs
@@ -25,7 +26,6 @@ from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import LogicalComputeNode, LogicalProgram, ValueDef
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.point_domain import analyze_point_domain
-from scopecat.program.value_graph import ValueId
 
 
 def bind_value_definition_inputs(
@@ -134,6 +134,29 @@ def verify_effect_value_references(
                     phase=ProblemPhase.AUTHORING,
                 )
             )
+
+
+def verify_value_record_references(
+    program: LogicalProgram,
+    definition_ids: set[ValueId],
+    operation_results: Mapping[ValueId, LogicalComputeNode],
+    problems: list[Problem],
+) -> None:
+    """Verify that every durable scalar selection closes over the value graph."""
+
+    known_ids = definition_ids | set(operation_results)
+    for index, record in enumerate(program.value_record_selections):
+        if record.value_id in known_ids:
+            continue
+        problems.append(
+            compiler_problem(
+                "logical_value_record_unknown",
+                "dataset record references unknown value "
+                f"{record.value_id.qualified_name!r}",
+                model_location("value_record_selections", index, "value_id"),
+                phase=ProblemPhase.AUTHORING,
+            )
+        )
 
 
 def verify_final_state_values(

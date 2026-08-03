@@ -10,7 +10,7 @@ and functions that enforce it.
 ## Program Boundaries
 
 ```text
-@module / @template contexts
+@module / @template / @experiment_factory contexts
     | close definitions
     v
 program model           shared symbolic ModuleDef, values, products, scans
@@ -47,6 +47,27 @@ products and is placed directly in the ordered effects. A child module is
 needed only when those effects are deliberately composed into a larger reusable
 workflow.
 
+The public authoring model follows four rules:
+
+1. `@module` defines a reusable graph fragment. Its Python return value is its
+   sole composition result; an invocation exposes that value as `.result`, while
+   `context.call(...)` or `experiment.run(...)` places the invocation's effects.
+   There is no second user-authored output or product-export declaration.
+2. `@template` is for a graph shape fixed by typed symbolic inputs and defaults.
+   `@experiment_factory` is for ordinary Python arguments that may change graph
+   structure on each call. Both author complete experiments and may coordinate
+   any number of local devices, reusable modules, and domain calls.
+3. A domain call is one effect in that experiment, not the experiment boundary.
+   A lab-owned runner may add compiler inputs, auxiliary-device work,
+   postprocessing, and recording without requiring a wrapper module. Hardware
+   that must vary synchronously inside each domain point belongs to that
+   target/compiler contract.
+4. `record(...)` is the single dataset projection. It accepts symbolic scalar
+   values, product references, typed product bundles, and per-entity mappings.
+   Values remain dataflow nodes and products remain measurement/evidence nodes;
+   demanded record roots determine the live compute and postprocessor DAG, whose
+   dependencies determine execution order.
+
 Logical resource ports and interface requirements form the reusable boundary
 between a module and the physical configuration selected for a run. Authoring
 never names an instrument or channel. It may select logical entities from
@@ -60,7 +81,8 @@ Product declaration, acquisition, and recording are distinct:
 2. An acquisition places instrument realization at an exact effect position
    and names one logical port, one versioned interface, one acquisition, and
    its result ids.
-3. A template or scratch experiment selects product uses that become records.
+3. A template or experiment factory selects products and values that become
+   records.
 
 Products created by domain execution or pure transforms retain those explicit
 producers and do not create instrument acquisitions. Provider acquisition

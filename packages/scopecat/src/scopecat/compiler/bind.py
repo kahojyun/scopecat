@@ -48,10 +48,12 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import ValueValidationError
+from scopecat.measurements.records import BoundRecordUse, ValueRecordUse
 from scopecat.program.logical import LogicalProgram
 from scopecat.program.parameters import (
     ParameterValueContract,
 )
+from scopecat.program.recording import LogicalValueRecordSelection
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetInstrumentMember,
@@ -154,7 +156,7 @@ def _lower_logical_program(
     products = lower_products(
         static_evaluator,
         topology,
-        logical.record_selections,
+        logical.product_record_selections,
         verified.product_declarations,
         inputs,
         type_bindings=type_bindings,
@@ -176,6 +178,26 @@ def _lower_logical_program(
         for execution in logical.domain_executions
         for _result_id, product_id in execution.results
     }
+    value_record_uses = tuple(
+        ValueRecordUse(
+            id=record.id,
+            value_id=record.value_id,
+            source_value_id=record.source_value_id,
+            value_type=record.value_type,
+            requires_execution=record.value_id in verified.operation_results,
+            role=record.role,
+            metadata=record.metadata,
+        )
+        for record in logical.value_record_selections
+    )
+    product_record_iterator = iter(products.record_uses)
+    value_record_iterator = iter(value_record_uses)
+    record_uses: tuple[BoundRecordUse, ...] = tuple(
+        next(value_record_iterator)
+        if isinstance(selection, LogicalValueRecordSelection)
+        else next(product_record_iterator)
+        for selection in logical.record_selections
+    )
     return BoundProgramFacts(
         point_domain=point_domain,
         resource_requirements=tuple(resource_requirements),
@@ -198,7 +220,7 @@ def _lower_logical_program(
         ),
         product_defs=products.product_defs,
         product_uses=product_uses,
-        record_uses=products.record_uses,
+        record_uses=record_uses,
     )
 
 

@@ -34,7 +34,6 @@ import {
   applyInstrumentState,
   applyInstrumentConfiguredDefaults,
   collectInstrumentAcquisition,
-  declaredAcquisitionResults,
   createInstrumentCommandId,
   invokeInstrumentOperation,
   readInstrumentState,
@@ -47,9 +46,6 @@ import {
 } from "./instrument-api";
 
 type DraftValue = InstrumentPropertyDraft;
-
-type DiscriminatedStateSpec = NonNullable<InstrumentInterface["state"]>;
-type DiscriminatedStateCase = DiscriminatedStateSpec["cases"][number];
 
 export function InstrumentInspector({
   instrument,
@@ -134,38 +130,23 @@ export function InstrumentInspector({
     setInvokeResults({});
     resetReadMutation();
   }, [connected, instrumentId, resetReadMutation, session?.session_id, synchronizedState]);
-  const visiblePropertyKeys = useMemo(
-    () => instrumentVisiblePropertyKeys(description?.interfaces ?? [], state, drafts),
-    [description?.interfaces, drafts, state],
+  const declaredPropertyKeys = useMemo(
+    () => instrumentPropertyKeys(description?.interfaces ?? []),
+    [description?.interfaces],
   );
-  const visibleDrafts = useMemo(
-    () => filterDrafts(drafts, visiblePropertyKeys),
-    [drafts, visiblePropertyKeys],
+  const declaredDrafts = useMemo(
+    () => filterDrafts(drafts, declaredPropertyKeys),
+    [declaredPropertyKeys, drafts],
   );
   const stagedProperties = useMemo(
-    () => stagedInstrumentProperties(visibleDrafts),
-    [visibleDrafts],
+    () => stagedInstrumentProperties(declaredDrafts),
+    [declaredDrafts],
   );
-  const stagedCount = Object.keys(visibleDrafts).length;
-  const invalidDraft = Object.values(visibleDrafts).some((draft) => draft.value === undefined);
-  const missingTransitionProperties = useMemo(
-    () =>
-      missingDiscriminatedTransitionProperties(description?.interfaces ?? [], state, visibleDrafts),
-    [description?.interfaces, state, visibleDrafts],
-  );
-  const incompleteTransitionReason =
-    missingTransitionProperties.length > 0
-      ? `Set target-mode ${
-          missingTransitionProperties.length === 1 ? "property" : "properties"
-        } before applying: ${missingTransitionProperties.join(", ")}.`
-      : undefined;
+  const stagedCount = Object.keys(declaredDrafts).length;
+  const invalidDraft = Object.values(declaredDrafts).some((draft) => draft.value === undefined);
   useEffect(() => {
-    if (!description) return;
-    setDrafts((current) => {
-      const visible = instrumentVisiblePropertyKeys(description.interfaces ?? [], state, current);
-      return filterDrafts(current, visible);
-    });
-  }, [description, state]);
+    setDrafts((current) => filterDrafts(current, declaredPropertyKeys));
+  }, [declaredPropertyKeys]);
   const applyMutation = useMutation({
     mutationFn: ({
       properties,
@@ -317,7 +298,6 @@ export function InstrumentInspector({
     interfaceId: string,
     componentPath: string[],
     property: InstrumentProperty,
-    discriminatedState: DiscriminatedStateSpec | undefined,
     draft?: DraftValue,
   ) => {
     const key = propertyKey(interfaceId, componentPath, property.id);
@@ -326,26 +306,6 @@ export function InstrumentInspector({
       const next = { ...current };
       if (draft === undefined) delete next[key];
       else next[key] = draft;
-      if (discriminatedState && property.id === discriminatedState.discriminator_property_id) {
-        const activeCase = effectiveStateCase(
-          discriminatedState,
-          draft?.value,
-          stateValue(
-            state,
-            interfaceId,
-            componentPath,
-            discriminatedState.discriminator_property_id,
-          ),
-        );
-        const activePropertyIds = new Set(activeCase?.property_ids ?? []);
-        for (const stateCase of discriminatedState.cases) {
-          for (const propertyId of stateCase.property_ids ?? []) {
-            if (!activePropertyIds.has(propertyId)) {
-              delete next[propertyKey(interfaceId, componentPath, propertyId)];
-            }
-          }
-        }
-      }
       return next;
     });
     setApplyResult(undefined);
@@ -550,14 +510,8 @@ export function InstrumentInspector({
                   invokingTarget={
                     invokeMutation.isPending ? invokeMutation.variables?.target : undefined
                   }
-                  onStage={(componentPath, property, discriminatedState, draft) =>
-                    stage(
-                      instrumentInterface.id,
-                      componentPath,
-                      property,
-                      discriminatedState,
-                      draft,
-                    )
+                  onStage={(componentPath, property, draft) =>
+                    stage(instrumentInterface.id, componentPath, property, draft)
                   }
                   onCollect={(target) => collectAcquisition(target)}
                   onInvoke={(target, operationArguments) =>
@@ -582,8 +536,7 @@ export function InstrumentInspector({
                   {stagedCount} staged {stagedCount === 1 ? "property" : "properties"}
                 </strong>
                 <small className="text-[0.54rem] text-text-dim">
-                  {incompleteTransitionReason ??
-                    "Values remain local until you apply the complete staged change once."}
+                  Values remain local until you apply the complete staged change once.
                 </small>
               </div>
               <button
@@ -599,18 +552,13 @@ export function InstrumentInspector({
                 type="button"
                 className={primaryButton}
                 onClick={applyStaged}
-                disabled={
-                  interactionDisabled ||
-                  invalidDraft ||
-                  incompleteTransitionReason !== undefined ||
-                  stagedProperties.length === 0
-                }
+                disabled={interactionDisabled || invalidDraft || stagedProperties.length === 0}
                 title={
                   interactionDisabled
                     ? "Wait for the current instrument interaction to finish"
                     : invalidDraft
                       ? "Correct invalid staged values before applying"
-                      : incompleteTransitionReason
+                      : undefined
                 }
               >
                 {applyMutation.isPending ? (
@@ -879,12 +827,7 @@ function InterfaceCard({
   collectingTarget?: InstrumentAcquisitionTarget;
   invokingTarget?: InstrumentOperationTarget;
   interactionDisabled: boolean;
-  onStage: (
-    componentPath: string[],
-    property: InstrumentProperty,
-    discriminatedState: DiscriminatedStateSpec | undefined,
-    draft?: DraftValue,
-  ) => void;
+  onStage: (componentPath: string[], property: InstrumentProperty, draft?: DraftValue) => void;
   onCollect: (target: InstrumentAcquisitionTarget) => void;
   onInvoke: (
     target: InstrumentOperationTarget,
@@ -933,7 +876,7 @@ function InterfaceCard({
 
 type InterfaceMember = Pick<
   InstrumentInterface,
-  "label" | "description" | "properties" | "state" | "operations" | "acquisitions" | "components"
+  "label" | "description" | "properties" | "operations" | "acquisitions" | "components"
 >;
 
 function InterfaceEndpoint({
@@ -964,12 +907,7 @@ function InterfaceEndpoint({
   collectingTarget?: InstrumentAcquisitionTarget;
   invokingTarget?: InstrumentOperationTarget;
   interactionDisabled: boolean;
-  onStage: (
-    componentPath: string[],
-    property: InstrumentProperty,
-    discriminatedState: DiscriminatedStateSpec | undefined,
-    draft?: DraftValue,
-  ) => void;
+  onStage: (componentPath: string[], property: InstrumentProperty, draft?: DraftValue) => void;
   onCollect: (target: InstrumentAcquisitionTarget) => void;
   onInvoke: (
     target: InstrumentOperationTarget,
@@ -977,7 +915,7 @@ function InterfaceEndpoint({
   ) => void;
   onOperationEdit: (target: InstrumentOperationTarget) => void;
 }) {
-  const properties = visibleMemberProperties(member, interfaceId, componentPath, state, drafts);
+  const properties = member.properties ?? [];
   const operations = guiSafeOperations(member.operations ?? []);
   const hasLocalControls =
     properties.length > 0 || operations.length > 0 || (member.acquisitions ?? []).length > 0;
@@ -1008,9 +946,7 @@ function InterfaceEndpoint({
                     currentValue={stateValue(state, interfaceId, componentPath, property.id)}
                     draft={drafts[key]}
                     editable={connected && !interactionDisabled && property.access !== "read_only"}
-                    onChange={(draft) =>
-                      onStage(componentPath, property, member.state ?? undefined, draft)
-                    }
+                    onChange={(draft) => onStage(componentPath, property, draft)}
                   />
                 );
               })}
@@ -1321,7 +1257,7 @@ function AcquisitionControl({
   onCollect: () => void;
 }) {
   const acquisition = target.acquisition;
-  const results = declaredAcquisitionResults(acquisition);
+  const results = acquisition.results;
   return (
     <section className="border-t border-line">
       <header className={controlHeader}>
@@ -1590,175 +1526,36 @@ function receiptTone(status: string): string {
   return ["applied", "unchanged", "invoked"].includes(status) ? positiveReceipt : warningReceipt;
 }
 
-function instrumentVisiblePropertyKeys(
-  interfaces: InstrumentInterface[],
-  state: InstrumentState | undefined,
-  drafts: Record<string, DraftValue>,
-): Set<string> {
+function instrumentPropertyKeys(interfaces: InstrumentInterface[]): Set<string> {
   const keys = new Set<string>();
   for (const instrumentInterface of interfaces) {
-    collectVisiblePropertyKeys(
-      keys,
-      instrumentInterface.id,
-      [],
-      instrumentInterface,
-      state,
-      drafts,
-    );
+    collectPropertyKeys(keys, instrumentInterface.id, [], instrumentInterface);
   }
   return keys;
 }
 
-function missingDiscriminatedTransitionProperties(
-  interfaces: InstrumentInterface[],
-  state: InstrumentState | undefined,
-  drafts: Record<string, DraftValue>,
-): string[] {
-  const missing: string[] = [];
-  for (const instrumentInterface of interfaces) {
-    collectMissingDiscriminatedTransitionProperties(
-      missing,
-      instrumentInterface.id,
-      [],
-      instrumentInterface,
-      state,
-      drafts,
-    );
-  }
-  return missing;
-}
-
-function collectMissingDiscriminatedTransitionProperties(
-  missing: string[],
-  interfaceId: string,
-  componentPath: string[],
-  member: InterfaceMember,
-  state: InstrumentState | undefined,
-  drafts: Record<string, DraftValue>,
-): void {
-  const discriminatedState = member.state;
-  if (discriminatedState) {
-    const discriminatorId = discriminatedState.discriminator_property_id;
-    const discriminatorDraft = drafts[propertyKey(interfaceId, componentPath, discriminatorId)];
-    const targetCase = stateCaseForValue(discriminatedState, discriminatorDraft?.value);
-    const currentValue = stateValue(state, interfaceId, componentPath, discriminatorId);
-    if (targetCase && discriminatorDraft?.value !== currentValue) {
-      const properties = new Map(
-        (member.properties ?? []).map((property) => [property.id, property]),
-      );
-      for (const propertyId of targetCase.required_on_entry_property_ids ?? []) {
-        const property = properties.get(propertyId);
-        if (
-          property &&
-          property.access !== "read_only" &&
-          drafts[propertyKey(interfaceId, componentPath, propertyId)]?.value === undefined
-        ) {
-          missing.push(property.label ?? titleCase(property.id));
-        }
-      }
-    }
-  }
-  for (const child of member.components ?? []) {
-    collectMissingDiscriminatedTransitionProperties(
-      missing,
-      interfaceId,
-      [...componentPath, child.id],
-      child,
-      state,
-      drafts,
-    );
-  }
-}
-
-function collectVisiblePropertyKeys(
+function collectPropertyKeys(
   keys: Set<string>,
   interfaceId: string,
   componentPath: string[],
   member: InterfaceMember,
-  state: InstrumentState | undefined,
-  drafts: Record<string, DraftValue>,
 ): void {
-  for (const property of visibleMemberProperties(
-    member,
-    interfaceId,
-    componentPath,
-    state,
-    drafts,
-  )) {
+  for (const property of member.properties ?? []) {
     keys.add(propertyKey(interfaceId, componentPath, property.id));
   }
   for (const child of member.components ?? []) {
-    collectVisiblePropertyKeys(
-      keys,
-      interfaceId,
-      [...componentPath, child.id],
-      child,
-      state,
-      drafts,
-    );
+    collectPropertyKeys(keys, interfaceId, [...componentPath, child.id], child);
   }
-}
-
-function visibleMemberProperties(
-  member: InterfaceMember,
-  interfaceId: string,
-  componentPath: string[],
-  state: InstrumentState | undefined,
-  drafts: Record<string, DraftValue>,
-): InstrumentProperty[] {
-  const properties = member.properties ?? [];
-  const discriminatedState = member.state;
-  if (!discriminatedState) return properties;
-  const discriminatorId = discriminatedState.discriminator_property_id;
-  const activeCase = effectiveStateCase(
-    discriminatedState,
-    drafts[propertyKey(interfaceId, componentPath, discriminatorId)]?.value,
-    stateValue(state, interfaceId, componentPath, discriminatorId),
-  );
-  const registry = new Map(properties.map((property) => [property.id, property]));
-  const orderedIds = [
-    discriminatorId,
-    ...(discriminatedState.common_property_ids ?? []),
-    ...(activeCase?.property_ids ?? []),
-  ];
-  const seen = new Set<string>();
-  return orderedIds.flatMap((propertyId) => {
-    if (seen.has(propertyId)) return [];
-    seen.add(propertyId);
-    const property = registry.get(propertyId);
-    return property ? [property] : [];
-  });
-}
-
-function effectiveStateCase(
-  discriminatedState: DiscriminatedStateSpec,
-  draftValue: InstrumentStateValue | undefined,
-  snapshotValue: InstrumentStateValue | undefined,
-): DiscriminatedStateCase | undefined {
-  return (
-    stateCaseForValue(discriminatedState, draftValue) ??
-    stateCaseForValue(discriminatedState, snapshotValue)
-  );
-}
-
-function stateCaseForValue(
-  discriminatedState: DiscriminatedStateSpec,
-  value: InstrumentStateValue | undefined,
-): DiscriminatedStateCase | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  return discriminatedState.cases.find((stateCase) => stateCase.value === value);
 }
 
 function filterDrafts(
   drafts: Record<string, DraftValue>,
-  visiblePropertyKeys: Set<string>,
+  declaredPropertyKeys: Set<string>,
 ): Record<string, DraftValue> {
   const next: Record<string, DraftValue> = {};
   let changed = false;
   for (const [key, draft] of Object.entries(drafts)) {
-    if (visiblePropertyKeys.has(key)) next[key] = draft;
+    if (declaredPropertyKeys.has(key)) next[key] = draft;
     else changed = true;
   }
   return changed ? next : drafts;

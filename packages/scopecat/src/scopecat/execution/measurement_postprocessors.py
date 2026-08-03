@@ -28,7 +28,7 @@ def execute_measurement_postprocessors(
     points: Sequence[RunPoint],
     catalog: MeasurementValueCatalog,
 ) -> tuple[MeasurementValueCandidate, ...]:
-    """Run each live postprocessor once per logical point."""
+    """Run each live postprocessor in dependency order per logical point."""
 
     supplied = tuple(candidates)
     product_by_id = {product.id: product for product in catalog.product_defs}
@@ -151,6 +151,11 @@ def execute_measurement_postprocessors(
                     for use_id in output.product_use_ids
                 )
                 derived.extend(produced)
+                for candidate in produced:
+                    candidates_by_key.setdefault(
+                        (candidate.logical_point_id, candidate.product_use_id),
+                        [],
+                    ).append(candidate)
     return (*supplied, *derived)
 
 

@@ -10,6 +10,7 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.program.domain import domain_program
 from scopecat.program.expressions import PointColumnScalarExpr
+from scopecat.program.values import ParameterKeyInput
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
     ParameterDefinition,
@@ -62,7 +63,7 @@ def _resolve_root_domain_dependency(
     bind_invocation(template(), config_profile=config)
 
 
-def _empty_module(id: str) -> sc.ExperimentModule[...]:
+def _empty_module(id: str) -> sc.ExperimentModule[None, ...]:
     @sc.module(id=id)
     def module(context: sc.ModuleContext) -> None:
         del context
@@ -616,7 +617,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
 )
 def test_parameter_lookup_checks_every_literal_key_type(
     key_type: sc.ScalarType,
-    literal: sc.ParameterKeyInput,
+    literal: ParameterKeyInput,
 ) -> None:
     with pytest.raises(CheckFailed) as error:
         _resolve_dependency(

@@ -1,4 +1,4 @@
-"""Local planning and execution for daemon-admitted scratch runs."""
+"""Local planning and execution for daemon-admitted experiment invocations."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
-from scopecat.planning.service import PlannedRun, plan_scratch_experiment
+from scopecat.planning.service import PlannedRun, plan_experiment_invocation
 from scopecat.planning.system import (
     ExperimentSystemBuilder,
     build_experiment_system,
@@ -173,7 +173,7 @@ class _DaemonRunner:
             selected_metadata["tags"] = list(tags)
         if description is not None:
             selected_metadata["description"] = description
-        return plan_scratch_experiment(
+        return plan_experiment_invocation(
             experiment,
             config=selected_config,
             system=selected_system,

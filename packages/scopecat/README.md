@@ -34,8 +34,18 @@ with project.connect() as lab:
 Interactive closures may execute in the notebook process:
 
 ```python
+@sc.experiment_factory
+def local_value(experiment: sc.ExperimentContext) -> None:
+    value = experiment.compute(
+        "value",
+        fn=lambda: 1.0,
+        output_type=sc.ScalarType(sc.FloatType()),
+    )
+    experiment.record(value)
+
+
 with project.connect() as lab:
-    run = lab.prepare(scratch_invocation).run()
+    run = lab.run(local_value())
 ```
 
 Admission, resource ownership, measurements, analysis, and configuration

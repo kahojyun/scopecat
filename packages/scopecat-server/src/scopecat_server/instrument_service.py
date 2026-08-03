@@ -1217,7 +1217,6 @@ class InstrumentService:
                     command=command,
                     description=description,
                     baseline=baseline,
-                    require_explicit_state_case=baseline is None,
                 )
                 problems.extend(
                     contextualize_problems(
@@ -3433,7 +3432,6 @@ def _configured_state_assignments(
         instrument_id=instrument_id,
         assignments=assignments,
         description=instrument.description,
-        require_explicit_state_case=True,
     )
     if problems:
         raise _DefaultStateReconciliationRejected(

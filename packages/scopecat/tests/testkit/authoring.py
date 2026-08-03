@@ -63,22 +63,23 @@ def SIMPLE_MODULE(
         authoring.Input[Quantity],
         authoring.ScalarType(authoring.QuantityType(unit="GHz")),
     ],
-) -> None:
-    source = module.resource(
+) -> authoring.ProductRef:
+    source = module._resource(
         "source",
         requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
     )
-    module.bind_property(
+    module._bind_property(
         source,
         _SET_FREQUENCY_VALUE,
         value=drive_frequency,
     )
-    signal = module.product("signal", unit="ratio")
-    module.acquire(
+    signal = module._product("signal", unit="ratio")
+    module._acquire(
         "read-signal",
         resource=source,
         results={_SCALAR_SIGNAL_VALUE: signal},
     )
+    return signal
 
 
 def simple_template(
@@ -110,7 +111,7 @@ def simple_template(
                 points=5,
             ),
         )
-        experiment.record(module_call.products.signal, record_id="signal")
+        experiment.record(module_call.result, record_id="signal")
 
     return authoring.template(
         id=id,

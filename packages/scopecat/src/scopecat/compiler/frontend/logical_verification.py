@@ -30,8 +30,10 @@ from scopecat.compiler.frontend.logical_value_validation import (
     verify_effect_value_references,
     verify_final_state_values,
     verify_scalar_values,
+    verify_value_record_references,
 )
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.value_types import ValueType
@@ -43,7 +45,6 @@ from scopecat.program.logical import (
 )
 from scopecat.program.logical_graph import verify_logical_graph
 from scopecat.program.products import ModuleProductDecl
-from scopecat.program.value_graph import ValueId
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +151,12 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
             operation.result_id: operation for operation in compute_nodes
         }
         verify_effect_value_references(
+            normalized,
+            {definition.id for definition in normalized.value_defs},
+            operation_results,
+            problems,
+        )
+        verify_value_record_references(
             normalized,
             {definition.id for definition in normalized.value_defs},
             operation_results,

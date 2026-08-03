@@ -12,6 +12,7 @@ from instrument_demo.configuration import (
     RESONANCE_FREQUENCY_PARAMETER_ID,
     RESONATOR_LINEWIDTH_PARAMETER_ID,
 )
+from instrument_demo.workflows.flux_spectroscopy import TEMPERATURE_RECORD_ID
 from scopecat.measurements.results import (
     MeasurementDataset,
     Trace,
@@ -114,11 +115,7 @@ def fit_flux_spectroscopy(
     records = {record.point_index: record for record in dataset.records}
     return tuple(
         _fit_record(records[trace.point_index], trace)
-        for trace in measurement_traces(
-            dataset,
-            coordinate="frequency",
-            observable="s_parameter",
-        )
+        for trace in measurement_traces(dataset)
     )
 
 
@@ -181,7 +178,7 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
 def _fit_record(record: MeasurementRecord, trace: Trace) -> ResonatorTraceFit:
     try:
         dc_bias = record.coordinates["dc_bias"]
-        temperature = record.observables["temperature"]
+        temperature = record.observables[TEMPERATURE_RECORD_ID]
     except KeyError as error:
         raise ValueError(
             "run does not contain the flux-spectroscopy measurement schema"

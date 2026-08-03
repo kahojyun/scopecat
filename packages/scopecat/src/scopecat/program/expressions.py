@@ -13,6 +13,7 @@ from typing import cast
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue as _CellValue
@@ -24,7 +25,6 @@ from scopecat.program.expression_operators import (
     scalar_operator_result_type,
 )
 from scopecat.program.identities import InvocationKey
-from scopecat.program.value_graph import ValueId
 
 
 @dataclass(frozen=True, slots=True)

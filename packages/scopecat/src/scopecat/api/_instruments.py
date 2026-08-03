@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Event, Lock, Thread
@@ -38,6 +38,7 @@ from scopecat.sdk.instruments.contracts import InstrumentDescription
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
     AcquisitionResultRef,
+    InterfaceRef,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
@@ -70,21 +71,28 @@ class InstrumentRef[ClientT]:
         repr=False,
         compare=False,
     )
+    requires: tuple[InterfaceRef, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.instrument_id:
             raise ValueError("typed instrument id must be non-empty")
+        interface_ids = tuple(item.interface_id for item in self.requires)
+        if len(interface_ids) != len(set(interface_ids)):
+            raise ValueError("typed instrument requirements must be unique")
 
 
 def instrument[ClientT](
     instrument_id: str,
     client_factory: InstrumentClientFactory[ClientT],
+    *,
+    requires: Sequence[InterfaceRef] = (),
 ) -> InstrumentRef[ClientT]:
     """Declare one typed physical instrument reference for notebook use."""
 
     return InstrumentRef(
         instrument_id=instrument_id,
         client_factory=client_factory,
+        requires=tuple(requires),
     )
 
 
@@ -231,6 +239,19 @@ class InstrumentSessionHandle:
         """Bind the target's statically typed client inside this ownership epoch."""
 
         selected = self._selected_instrument_id(target.instrument_id)
+        if target.requires:
+            description = self._describe(selected)
+            available = {item.id for item in description.interfaces}
+            missing = tuple(
+                requirement.interface_id
+                for requirement in target.requires
+                if requirement.interface_id not in available
+            )
+            if missing:
+                raise ValueError(
+                    f"instrument {selected!r} does not implement required interfaces: "
+                    + ", ".join(missing)
+                )
         return target.client_factory(InstrumentClientChannel(self), selected)
 
     def _describe(

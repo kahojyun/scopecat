@@ -2,17 +2,19 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal, Never
+from typing import Annotated, Literal, Never
 
 import pytest
 
-from scopecat.compiler.bind import BoundPlan
+import scopecat as sc
+from scopecat.compiler.bind import BoundPlan, bind_program
 from scopecat.compiler.bound_facts import (
     BoundMeasurementPostprocessor,
     BoundMeasurementPostprocessorOutput,
     LogicalResourceRequirement,
     record_product,
 )
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.context import ParameterRelationData
@@ -26,7 +28,11 @@ from scopecat.domain.program import (
     DomainProgramDef,
     DomainResultPort,
 )
-from scopecat.execution.local.program import ApplyStateOperation
+from scopecat.execution.local.program import (
+    ApplyStateOperation,
+    CollectOperation,
+    ComputeOperation,
+)
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -456,22 +462,38 @@ def _postprocess_identity(
 
 def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
     source = observable_product("source", unit="ratio")
+    middle = observable_product("middle", unit="ratio")
     derived = observable_product("derived", unit="ratio")
     source_use = product_use(source.id)
+    middle_use = product_use(middle.id)
     derived_use, derived_record = record_product(derived)
-    postprocessor_id = MeasurementPostprocessorId(SymbolId(local_id="normalize"))
-    postprocessor = BoundMeasurementPostprocessor(
-        id=postprocessor_id,
-        input_product_id=source.id,
-        input_product_use_id=source_use.id,
-        outputs=(
-            BoundMeasurementPostprocessorOutput(
-                id="result",
-                product_id=derived.id,
-                product_use_ids=(derived_use.id,),
+    postprocessors = (
+        BoundMeasurementPostprocessor(
+            id=MeasurementPostprocessorId(SymbolId(local_id="normalize")),
+            input_product_id=source.id,
+            input_product_use_id=source_use.id,
+            outputs=(
+                BoundMeasurementPostprocessorOutput(
+                    id="result",
+                    product_id=middle.id,
+                    product_use_ids=(middle_use.id,),
+                ),
             ),
+            kernel=_postprocess_identity,
         ),
-        kernel=_postprocess_identity,
+        BoundMeasurementPostprocessor(
+            id=MeasurementPostprocessorId(SymbolId(local_id="summarize")),
+            input_product_id=middle.id,
+            input_product_use_id=middle_use.id,
+            outputs=(
+                BoundMeasurementPostprocessorOutput(
+                    id="result",
+                    product_id=derived.id,
+                    product_use_ids=(derived_use.id,),
+                ),
+            ),
+            kernel=_postprocess_identity,
+        ),
     )
     program = program_fixture(
         point_domain=PointDomain(axes=()),
@@ -488,9 +510,9 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
                 result_id="signal",
             ),
         ),
-        measurement_postprocessors=(postprocessor,),
-        product_defs=(source, derived),
-        product_uses=(source_use, derived_use),
+        measurement_postprocessors=postprocessors,
+        product_defs=(source, middle, derived),
+        product_uses=(source_use, middle_use, derived_use),
         record_uses=(derived_record,),
     )
     return bind_program_facts(
@@ -600,6 +622,61 @@ def test_unified_planning_rejects_missing_local_catalog_before_effects() -> None
     )
     assert compiler.compile_calls == 0
     _assert_no_domain_effects(compiler)
+
+
+def test_recorded_compute_runs_without_an_instrument_provider() -> None:
+    @sc.template(id="test.recorded-compute", kind="compute")
+    def definition(experiment: sc.ExperimentContext) -> None:
+        score = experiment.compute(
+            "score",
+            fn=lambda: 2.5,
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        experiment.record(score)
+
+    bound = bind_program(
+        compile_invocation(definition()).program,
+        build_config_environment(load_config()),
+    )
+    plan = ExperimentSystem(instrument_catalog=_catalog(bound)).compile(bound)
+
+    assert plan.host is None
+    assert [node.local_id for node in bound.bindings.live_compute_ids] == ["score"]
+    compute_operations = [
+        operation.operation
+        for operation in plan.coverage
+        if isinstance(operation, RunCoverageEffect)
+        and isinstance(operation.operation, ComputeOperation)
+    ]
+    assert len(compute_operations) == 1
+    assert plan.measurements.runtime_value_ids == (
+        bound.program.program.compute_nodes[0].result_id,
+    )
+
+
+def test_plan_stage_value_record_is_materialized_per_point() -> None:
+    @sc.template(id="test.recorded-input", kind="compute")
+    def definition(
+        experiment: sc.ExperimentContext,
+        threshold: Annotated[
+            sc.Input[float],
+            sc.ScalarType(sc.FloatType()),
+        ] = 1.5,
+    ) -> None:
+        experiment.record(sc.input_ref(threshold))
+
+    bound = bind_program(
+        compile_invocation(definition()).program,
+        build_config_environment(load_config()),
+    )
+    plan = ExperimentSystem(instrument_catalog=_catalog(bound)).compile(bound)
+
+    assert plan.host is None
+    assert bound.bindings.live_compute_ids == frozenset()
+    [candidate] = plan.measurements.static_value_candidates
+    assert candidate.value == 1.5
+    [record] = plan.measurements.records
+    assert record.id == "threshold"
 
 
 def test_planning_rejects_catalog_for_another_config() -> None:
@@ -724,9 +801,20 @@ def test_planning_keeps_postprocessor_outputs_out_of_local_acquisition() -> None
         instrument_catalog=_catalog(bound, TestSignalInstrumentProvider())
     ).compile(bound)
 
-    [postprocessor] = plan.measurement_postprocessors
-    assert postprocessor.id.qualified_name == "normalize"
-    assert postprocessor.input_product_id.qualified_name == "source"
+    first, second = plan.measurement_postprocessors
+    assert [first.id.qualified_name, second.id.qualified_name] == [
+        "normalize",
+        "summarize",
+    ]
+    assert first.input_product_id.qualified_name == "source"
+    assert second.input_product_id.qualified_name == "middle"
+    [collect] = [
+        effect.operation
+        for effect in plan.coverage
+        if isinstance(effect, RunCoverageEffect)
+        and isinstance(effect.operation, CollectOperation)
+    ]
+    assert collect.result_bindings[0].product_use_ids == (first.input_product_use_id,)
 
 
 def test_domain_target_partitions_complete_point_space_by_capacity() -> None:

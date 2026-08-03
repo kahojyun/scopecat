@@ -11,6 +11,7 @@ from scopecat.compiler.relations.verification import (
     scalar_expression_point_requirement,
     verify_scalar_expression,
 )
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Entity,
@@ -32,7 +33,6 @@ from scopecat.program.expressions import (
     point_col,
 )
 from scopecat.program.identities import InvocationKey
-from scopecat.program.value_graph import ValueId
 
 INT = Scalar(Int())
 FLOAT = Scalar(Float())

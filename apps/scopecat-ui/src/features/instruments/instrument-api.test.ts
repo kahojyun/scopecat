@@ -347,12 +347,12 @@ describe("interactive collection request shaping", () => {
       interfaceId: "scopecat.network_sweep/v1",
       componentPath: ["readout"],
       acquisition: {
-        kind: "fixed",
         id: "sweep",
         results: [
           {
             id: "trace",
             dtype: "float64",
+            role: "observable",
             axes: [
               {
                 id: "frequency",
@@ -398,9 +398,8 @@ describe("interactive collection request shaping", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const acquisition: InstrumentAcquisition = {
-      kind: "fixed",
       id: "sweep",
-      results: [{ id: "trace", dtype: "float64", axes: [] }],
+      results: [{ id: "trace", dtype: "float64", role: "observable", axes: [] }],
     };
     const target = {
       interfaceId: "scopecat.network_sweep/v1",

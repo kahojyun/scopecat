@@ -6,13 +6,13 @@ from dataclasses import dataclass
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import (
-    DriverOperation,
     DriverRejected,
-    DriverScalar,
     DriverUnknown,
     PropertyRef,
 )
 from scopecat.sdk.problems import Problem, ProblemPhase, model_location, problem
+
+from scopecat_instruments.interface_declarations import SParameter
 
 
 @dataclass(frozen=True)
@@ -32,49 +32,13 @@ class LinearSweepSettings:
     points: int
     if_bandwidth_hz: float
     source_power_dbm: float
-    s_parameter: str
+    s_parameter: SParameter
 
 
-def quantity_value(value: DriverScalar, unit: str) -> float:
-    if not isinstance(value, Quantity):
-        raise TypeError("validated state property is not a quantity")
+def quantity_value(value: Quantity, unit: str) -> float:
     if value.unit == unit:
         return value.value
     return value.to(unit).value
-
-
-def bool_value(value: DriverScalar) -> bool:
-    if not isinstance(value, bool):
-        raise TypeError("validated state property is not a boolean")
-    return value
-
-
-def int_value(value: DriverScalar) -> int:
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise TypeError("validated state property is not an integer")
-    return value
-
-
-def string_value(value: DriverScalar) -> str:
-    if not isinstance(value, str):
-        raise TypeError("validated state property is not a string")
-    return value
-
-
-def unsupported_invoke(
-    request: DriverOperation,
-    instrument_id: str,
-) -> DriverRejected:
-    return DriverRejected(
-        problems=(
-            execution_problem(
-                "instrument_operation_not_implemented",
-                f"{instrument_id} does not implement {request.target.operation_id}",
-                "driver_operation",
-                "operation_id",
-            ),
-        ),
-    )
 
 
 def state_sync_failed(instrument_id: str, error: Exception) -> DriverRejected:
@@ -98,6 +62,20 @@ def apply_unknown(instrument_id: str, error: Exception) -> DriverUnknown:
                 f"lost confirmation while applying state to {instrument_id} "
                 f"({type(error).__name__})",
                 "driver_state_patch",
+                details={"exception_type": _exception_type(error)},
+            ),
+        ),
+    )
+
+
+def invoke_unknown(instrument_id: str, error: Exception) -> DriverUnknown:
+    return DriverUnknown(
+        problems=(
+            execution_problem(
+                "instrument_invoke_outcome_unknown",
+                f"lost confirmation while invoking an operation on {instrument_id} "
+                f"({type(error).__name__})",
+                "driver_operation",
                 details={"exception_type": _exception_type(error)},
             ),
         ),

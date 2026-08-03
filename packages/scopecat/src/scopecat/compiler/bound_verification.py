@@ -22,7 +22,10 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
-from scopecat.measurements.records import plan_records, validate_record_axes
+from scopecat.measurements.records import (
+    plan_records,
+    validate_record_axes,
+)
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
@@ -40,6 +43,7 @@ class ProgramRelationConsumerKind(StrEnum):
     DOMAIN_COMPILER_INPUT = "domain_compiler_input"
     STATE_VALUE = "state_value"
     INVOCATION_ARGUMENT = "invocation_argument"
+    VALUE_RECORD = "value_record"
 
 
 def _verify_bound_facts(
@@ -73,7 +77,7 @@ def _verify_bound_facts(
                 plan_records(
                     program.product_defs,
                     program.product_uses,
-                    program.record_uses,
+                    program.product_record_uses,
                 ),
                 phase=ProblemPhase.AUTHORING,
             )
@@ -196,6 +200,7 @@ def _program_relation_consumers(
     """Index canonical expressions with their exact lowering bindings."""
 
     values = BoundValueResolver(logical, program)
+    yield from _value_record_consumers(logical, program)
 
     for requirement_index, requirement in enumerate(program.resource_requirements):
         for expression_index, use in enumerate(requirement.entity_uses):
@@ -293,6 +298,24 @@ def _program_relation_consumers(
                     argument.id,
                 ),
             )
+
+
+def _value_record_consumers(
+    logical: VerifiedLogicalProgram,
+    program: BoundProgramFacts,
+) -> Iterator[ProgramRelationConsumer]:
+    values = BoundValueResolver(logical, program)
+    for record_index, record in enumerate(program.value_record_uses):
+        value = values[record.value_id]
+        if isinstance(value, ComputeResultScalarExpr):
+            continue
+        if not isinstance(value, ScalarExpr):
+            raise AssertionError("value records must resolve to scalars")
+        yield _consumer(
+            ProgramRelationConsumerKind.VALUE_RECORD,
+            value,
+            model_location("value_record_uses", record_index, "value_id"),
+        )
 
 
 def _problem(code: str, message: str, location: ModelLocation) -> Problem:

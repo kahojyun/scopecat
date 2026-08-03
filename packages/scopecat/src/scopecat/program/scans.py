@@ -24,13 +24,9 @@ type ScanCenter = ValueRef | Quantity
 
 
 class Scan:
-    """Opaque public handle for one scan axis."""
+    """Marker base for scan axes returned by the authoring factories."""
 
     __slots__ = ()
-
-    def __init__(self) -> None:
-        msg = "Scan is an opaque handle; create scans with scopecat scan factories"
-        raise TypeError(msg)
 
 
 @dataclass(frozen=True, slots=True)

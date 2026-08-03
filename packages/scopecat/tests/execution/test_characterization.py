@@ -28,6 +28,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.points import RunPoint
+from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.program.value_graph import (
     ComputeOutput,
@@ -100,7 +101,7 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
         journal=FakeExecutionJournal(),
-        coverage_observer=lambda selected, _candidates: delivered.append(
+        coverage_observer=lambda selected, _candidates, _values: delivered.append(
             tuple(point.ordinal for point in selected)
         ),
     ).run(operations(), points=points)
@@ -189,8 +190,8 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
             inputs={"program": sc.input_ref(program)},
             output_type=pulse_program_type,
         )
-        source = context.resource("source", requires=(_PLAY_PROGRAM,))
-        context.invoke(
+        source = context._resource("source", requires=(_PLAY_PROGRAM,))
+        context._invoke(
             "play-program",
             resource=source,
             operation=_PLAY_PROGRAM_PLAY,
@@ -306,6 +307,44 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
 
     assert not result.problems and not result.indeterminate
     assert consumed == [Quantity(value=5.0, unit="GHz")]
+
+
+def test_recorded_compute_output_is_exported_before_point_state_is_closed() -> None:
+    result_id = operation_result_id(OperationId(SymbolId(local_id="score")))
+    point = RunPoint(_logical_point_id("recorded-compute-point"), {})
+    program = LocalEffectInspection.at_point(
+        point,
+        (
+            ComputeOperation(
+                operation_id="recorded-compute-point.compute.score",
+                logical_compute_node_id="score",
+                implementation_id="python.score.v1",
+                kernel=lambda: 2.5,
+                inputs={},
+                result=ComputeOutput(
+                    id=result_id,
+                    value_type=Scalar(Float()),
+                ),
+            ),
+        ),
+        resource_order=(),
+        resource_requirements=(),
+    )
+    observed: list[ValueRecordCandidate] = []
+
+    result = RunEffectInterpreter(
+        run_id="recorded-compute-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        journal=FakeExecutionJournal(),
+        recorded_value_ids=(result_id,),
+        coverage_observer=lambda _points, _products, values: observed.extend(values),
+    ).run(complete_coverage_operations(program), points=program.points)
+
+    assert not result.problems
+    assert [(candidate.value_id, candidate.value) for candidate in observed] == [
+        (result_id, 2.5)
+    ]
 
 
 def test_distinct_compute_operations_are_each_evaluated() -> None:
@@ -474,8 +513,8 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         coordinate_ids=tuple(point.coordinates),
         instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
-        coverage_observer=lambda _block, candidates: observed_candidates.append(
-            candidates
+        coverage_observer=(
+            lambda _block, candidates, _values: observed_candidates.append(candidates)
         ),
     ).run(complete_coverage_operations(program), points=program.points)
 

@@ -11,9 +11,9 @@ from quantum_lab_demo.workflows.production_drag_gate import production_drag_temp
 
 # %%
 lab = sc.open_project(EXAMPLE_ROOT).connect()
-experiment = lab.prepare(drag_beta_template())
-preview = experiment.preview()
-baseline_run = experiment.run(
+prepared = lab.prepare(drag_beta_template())
+preview = prepared.preview()
+baseline_run = prepared.run(
     name="DRAG beta rough calibration",
     tags=("calibration", "gate-pulse"),
 )
@@ -25,7 +25,9 @@ candidate = analysis.candidate_config()
 [proposal] = analysis.parameter_proposals
 
 # A candidate run records its analysis provenance without changing the default.
-candidate_run = lab.prepare(drag_beta_template(), config=candidate).run(
+candidate_run = lab.run(
+    drag_beta_template(),
+    config=candidate,
     name="DRAG beta candidate check",
     tags=("calibration", "candidate"),
 )
@@ -37,7 +39,8 @@ accepted = lab.config.accept(
     note="accept the reviewed DRAG fit",
 )
 
-production_run = lab.prepare(production_drag_template()).run(
+production_run = lab.run(
+    production_drag_template(),
     name="Production X90 with accepted DRAG beta",
     tags=("calibration", "production-gate", "active-config"),
 )

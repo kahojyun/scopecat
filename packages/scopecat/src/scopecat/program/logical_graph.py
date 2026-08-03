@@ -6,12 +6,14 @@ import heapq
 from collections.abc import Mapping, Sequence
 
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
     model_location,
     problem,
 )
+from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import ValueType
 from scopecat.program.logical import (
@@ -22,10 +24,7 @@ from scopecat.program.logical import (
     MeasurementPostprocessorId,
     ValueDef,
 )
-from scopecat.program.value_graph import (
-    OperationId,
-    ValueId,
-)
+from scopecat.program.value_graph import OperationId
 
 
 def verify_logical_graph(
@@ -81,15 +80,16 @@ def verify_logical_graph(
         for postprocessor in declared_postprocessors
         if postprocessor.id not in ambiguous_measurement_postprocessor_ids
     )
-    _verify_product_owners(
+    ambiguous_product_ids = _verify_product_owners(
         acquisitions,
         domain_executions,
         unambiguous_measurement_postprocessors,
         problems,
     )
-    ordered_measurement_postprocessors = _verify_measurement_postprocessor_sources(
+    ordered_measurement_postprocessors = _topological_measurement_postprocessors(
         unambiguous_measurement_postprocessors,
         problems,
+        ambiguous_product_ids=ambiguous_product_ids,
     )
     ordered_operations = _topological_operations(
         declared_compute_nodes,
@@ -141,12 +141,14 @@ def _verify_product_owners(
     executions: tuple[LogicalDomainExecution, ...],
     postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
     problems: list[Problem],
-) -> None:
-    owners: dict[object, tuple[str, str]] = {}
+) -> frozenset[ProductId]:
+    owners: dict[ProductId, tuple[str, str]] = {}
+    ambiguous: set[ProductId] = set()
     for acquire in acquisitions:
         for result in acquire.results:
             existing = owners.get(result.product_id)
             if existing is not None:
+                ambiguous.add(result.product_id)
                 owner, owner_port = existing
                 problems.append(
                     _problem(
@@ -169,6 +171,7 @@ def _verify_product_owners(
         for result_id, product_id in execution.results:
             existing = owners.get(product_id)
             if existing is not None:
+                ambiguous.add(product_id)
                 owner, owner_port = existing
                 problems.append(
                     _problem(
@@ -188,6 +191,7 @@ def _verify_product_owners(
         for role, product_id in postprocessor.outputs:
             existing = owners.get(product_id)
             if existing is not None:
+                ambiguous.add(product_id)
                 owner, owner_port = existing
                 problems.append(
                     _problem(
@@ -207,33 +211,75 @@ def _verify_product_owners(
                 f"measurement postprocessor {postprocessor.id.qualified_name!r}",
                 role,
             )
+    return frozenset(ambiguous)
 
 
-def _verify_measurement_postprocessor_sources(
+def _topological_measurement_postprocessors(
     postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
     problems: list[Problem],
+    *,
+    ambiguous_product_ids: frozenset[ProductId],
 ) -> tuple[LogicalMeasurementPostprocessor, ...]:
+    postprocessors_by_id = {
+        postprocessor.id: postprocessor for postprocessor in postprocessors
+    }
+    owners_by_output: dict[ProductId, list[MeasurementPostprocessorId]] = {}
+    for postprocessor in postprocessors:
+        for _role, product_id in postprocessor.outputs:
+            owners_by_output.setdefault(product_id, []).append(postprocessor.id)
     owner_by_output = {
-        product_id: postprocessor.id
-        for postprocessor in postprocessors
-        for _role, product_id in postprocessor.outputs
+        product_id: owners[0]
+        for product_id, owners in owners_by_output.items()
+        if len(owners) == 1 and product_id not in ambiguous_product_ids
+    }
+    dependencies: dict[MeasurementPostprocessorId, set[MeasurementPostprocessorId]] = {
+        postprocessor.id: set() for postprocessor in postprocessors
+    }
+    dependents: dict[MeasurementPostprocessorId, set[MeasurementPostprocessorId]] = {
+        postprocessor.id: set() for postprocessor in postprocessors
     }
     for postprocessor in postprocessors:
-        source_owner = owner_by_output.get(postprocessor.input)
-        if source_owner is None:
+        producer = owner_by_output.get(postprocessor.input)
+        if producer is None:
             continue
-        problems.append(
-            _problem(
-                "logical_measurement_postprocessor_chaining_unsupported",
-                f"measurement postprocessor "
-                f"{postprocessor.id.qualified_name!r} consumes output from "
-                f"{source_owner.qualified_name!r}; postprocessor chaining is "
-                "not supported",
-                "measurement_postprocessors",
-                postprocessor.id.qualified_name,
-                "input",
-            )
+        dependencies[postprocessor.id].add(producer)
+        dependents[producer].add(postprocessor.id)
+    indegree = {
+        postprocessor_id: len(upstream)
+        for postprocessor_id, upstream in dependencies.items()
+    }
+    ready = [
+        (postprocessor_id.qualified_name, postprocessor_id)
+        for postprocessor_id, count in indegree.items()
+        if count == 0
+    ]
+    heapq.heapify(ready)
+    ordered: list[LogicalMeasurementPostprocessor] = []
+    while ready:
+        _name, postprocessor_id = heapq.heappop(ready)
+        ordered.append(postprocessors_by_id[postprocessor_id])
+        for dependent in sorted(
+            dependents[postprocessor_id], key=lambda item: item.qualified_name
+        ):
+            indegree[dependent] -= 1
+            if indegree[dependent] == 0:
+                heapq.heappush(ready, (dependent.qualified_name, dependent))
+    if len(ordered) == len(postprocessors):
+        return tuple(ordered)
+    cyclic = sorted(
+        (postprocessor_id for postprocessor_id, count in indegree.items() if count > 0),
+        key=lambda item: item.qualified_name,
+    )
+    first = cyclic[0]
+    problems.append(
+        _problem(
+            "logical_measurement_postprocessor_cycle",
+            "measurement postprocessor graph contains a cycle involving: "
+            + ", ".join(item.qualified_name for item in cyclic),
+            "measurement_postprocessors",
+            first.qualified_name,
         )
+    )
     return tuple(sorted(postprocessors, key=lambda item: item.id.qualified_name))
 
 

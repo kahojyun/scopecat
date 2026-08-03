@@ -225,6 +225,26 @@ def test_record_plan_boundary_rejects_duplicate_and_coordinate_ids() -> None:
     ]
 
 
+def test_recording_group_ids_must_be_non_empty_when_present() -> None:
+    product = _product()
+    use = product_use(product.id)
+
+    with pytest.raises(ValueError, match="recording group id must be non-empty"):
+        RecordUse(
+            id="signal",
+            product_use_id=use.id,
+            recording_group_id="",
+        )
+    with pytest.raises(ValueError, match="recording group id must be non-empty"):
+        RecordPlan(
+            id="signal",
+            product_use_id=use.id,
+            product_id=product.id,
+            dtype=product.dtype,
+            recording_group_id="",
+        )
+
+
 def test_record_plan_rejects_variable_and_inner_dimension_collision() -> None:
     product = _product()
     use = product_use(product.id)

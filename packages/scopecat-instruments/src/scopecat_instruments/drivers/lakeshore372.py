@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from time import monotonic, sleep
+from typing import Literal, override
 
 from pydantic import JsonValue
 from scopecat.records.measurement import (
@@ -13,13 +14,7 @@ from scopecat.records.measurement import (
     MeasurementValue,
 )
 from scopecat.sdk.instruments import (
-    AcquisitionResultRef,
-    DriverAcquisition,
-    DriverOperation,
     DriverOutcome,
-    DriverReadback,
-    DriverState,
-    DriverStatePatch,
     DriverSuccess,
     InstrumentDescription,
 )
@@ -34,19 +29,15 @@ from scopecat.sdk.instruments.scpi import (
     query_text,
 )
 
-from scopecat_instruments._support import (
-    apply_unknown,
-    collect_unknown,
-    unsupported_invoke,
+from scopecat_instruments._support import collect_unknown
+from scopecat_instruments.driver_handlers import (
+    TemperatureReadoutDriverAdapter,
+    TemperatureReadoutDriverSnapshot,
+    TemperatureReadoutSampleDriverReadback,
 )
-from scopecat_instruments.driver_ids import LAKESHORE_372
+from scopecat_instruments.interface_declarations import TemperatureReadoutState
 from scopecat_instruments.interfaces import temperature_readout_interface
-from scopecat_instruments.members import (
-    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
-    TEMPERATURE_READOUT_RESISTANCE_RESULT,
-    TEMPERATURE_READOUT_SCAN_CHANNEL,
-    TEMPERATURE_READOUT_TEMPERATURE_RESULT,
-)
+from scopecat_instruments.package_manifest import LAKESHORE_372_DRIVER
 
 _SETTLE_TIMEOUT_SECONDS = 10.0
 _SETTLE_POLL_SECONDS = 0.05
@@ -57,15 +48,16 @@ _OVERLOAD_STATUS_BITS = 0x0F
 class _LakeShore372Sample:
     scan_channel: int
     autoscan_enabled: bool
-    values: dict[AcquisitionResultRef, MeasurementValue]
-    curve_number: int | None
+    temperature: MeasurementValue
+    resistance: MeasurementValue
+    curve_number: int
 
 
-class LakeShore372:
+class LakeShore372(TemperatureReadoutDriverAdapter):
     """Observe scanner state and collect settled K/Ω samples without writes."""
 
-    implementation_id = LAKESHORE_372
-    implementation_version = "v1"
+    implementation_id = LAKESHORE_372_DRIVER.id
+    implementation_version = LAKESHORE_372_DRIVER.implementation_version
 
     def __init__(self, instrument_id: str, transport: ScpiTransport) -> None:
         self.instrument_id = instrument_id
@@ -85,7 +77,8 @@ class LakeShore372:
             interfaces=[temperature_readout_interface()],
         )
 
-    def read_state(self) -> DriverState:
+    @override
+    def read_temperature_readout_state(self) -> TemperatureReadoutDriverSnapshot:
         scan_channel, autoscan_enabled = self._scan_state()
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Lake Shore Cryotronics",
@@ -94,48 +87,30 @@ class LakeShore372:
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return DriverState(
-            values={
-                TEMPERATURE_READOUT_SCAN_CHANNEL: scan_channel,
-                TEMPERATURE_READOUT_AUTOSCAN_ENABLED: autoscan_enabled,
-            },
+        return TemperatureReadoutDriverSnapshot(
+            state=TemperatureReadoutState(
+                scan_channel=scan_channel,
+                autoscan_enabled=autoscan_enabled,
+            ),
             metadata=metadata,
         )
 
-    def apply_state(
-        self,
-        request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
-        del request
+    @override
+    def handle_sample(self) -> DriverOutcome[TemperatureReadoutSampleDriverReadback]:
         try:
-            return DriverSuccess(self.read_state())
-        except Exception as error:
-            return apply_unknown(self.instrument_id, error)
-
-    def invoke(
-        self,
-        request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
-        return unsupported_invoke(request, self.instrument_id)
-
-    def collect(
-        self,
-        request: DriverAcquisition,
-    ) -> DriverOutcome[DriverReadback]:
-        try:
-            sample = self._read_sample(set(request.results))
+            sample = self._read_sample()
             metadata: dict[str, JsonValue] = {
                 "manufacturer": "Lake Shore Cryotronics",
                 "model": "372",
                 "scan_channel": sample.scan_channel,
                 "autoscan_enabled": sample.autoscan_enabled,
                 "reading_status": 0,
+                "curve_number": sample.curve_number,
             }
-            if sample.curve_number is not None:
-                metadata["curve_number"] = sample.curve_number
             return DriverSuccess(
-                DriverReadback(
-                    values=sample.values,
+                TemperatureReadoutSampleDriverReadback(
+                    temperature=sample.temperature,
+                    resistance=sample.resistance,
                     metadata=metadata,
                 ),
             )
@@ -145,15 +120,17 @@ class LakeShore372:
                 **error.details,
             }
             return DriverSuccess(
-                DriverReadback(
-                    values={
-                        result: _unavailable_result(
-                            result,
-                            reason=error.reason,
-                            metadata=quality_metadata,
-                        )
-                        for result in request.results
-                    },
+                TemperatureReadoutSampleDriverReadback(
+                    temperature=_unavailable_result(
+                        "temperature",
+                        reason=error.reason,
+                        metadata=quality_metadata,
+                    ),
+                    resistance=_unavailable_result(
+                        "resistance",
+                        reason=error.reason,
+                        metadata=quality_metadata,
+                    ),
                     metadata={
                         "manufacturer": "Lake Shore Cryotronics",
                         "model": "372",
@@ -165,10 +142,7 @@ class LakeShore372:
         except Exception as error:
             return collect_unknown(self.instrument_id, error)
 
-    def _read_sample(
-        self,
-        requested_results: set[AcquisitionResultRef],
-    ) -> _LakeShore372Sample:
+    def _read_sample(self) -> _LakeShore372Sample:
         deadline = monotonic() + _SETTLE_TIMEOUT_SECONDS
         while True:
             initial_scan = self._scan_state()
@@ -179,38 +153,28 @@ class LakeShore372:
                 continue
 
             channel = settled_scan[0]
-            curve_number: int | None = None
-            values: dict[AcquisitionResultRef, MeasurementValue] = {}
-            if TEMPERATURE_READOUT_TEMPERATURE_RESULT in requested_results:
-                curve_number = query_int(self.transport, f"INCRV? {channel}")
-                if curve_number == 0:
-                    values[TEMPERATURE_READOUT_TEMPERATURE_RESULT] = (
-                        _unavailable_result(
-                            TEMPERATURE_READOUT_TEMPERATURE_RESULT,
-                            reason="missing",
-                            metadata={
-                                "code": "lakeshore_temperature_curve_missing",
-                                "scan_channel": channel,
-                                "curve_number": curve_number,
-                            },
-                        )
-                    )
-                else:
-                    values[TEMPERATURE_READOUT_TEMPERATURE_RESULT] = (
-                        MeasurementScalar.create(
-                            dtype="float64",
-                            unit="K",
-                            value=query_float(self.transport, f"KRDG? {channel}"),
-                        )
-                    )
-            if TEMPERATURE_READOUT_RESISTANCE_RESULT in requested_results:
-                values[TEMPERATURE_READOUT_RESISTANCE_RESULT] = (
-                    MeasurementScalar.create(
-                        dtype="float64",
-                        unit="Ohm",
-                        value=query_float(self.transport, f"SRDG? {channel}"),
-                    )
+            curve_number = query_int(self.transport, f"INCRV? {channel}")
+            if curve_number == 0:
+                temperature: MeasurementValue = _unavailable_result(
+                    "temperature",
+                    reason="missing",
+                    metadata={
+                        "code": "lakeshore_temperature_curve_missing",
+                        "scan_channel": channel,
+                        "curve_number": curve_number,
+                    },
                 )
+            else:
+                temperature = MeasurementScalar.create(
+                    dtype="float64",
+                    unit="K",
+                    value=query_float(self.transport, f"KRDG? {channel}"),
+                )
+            resistance = MeasurementScalar.create(
+                dtype="float64",
+                unit="Ohm",
+                value=query_float(self.transport, f"SRDG? {channel}"),
+            )
 
             reading_status = query_int(self.transport, f"RDGST? {channel}")
             final_settle_status = self._active_settle_status()
@@ -232,7 +196,8 @@ class LakeShore372:
             return _LakeShore372Sample(
                 scan_channel=channel,
                 autoscan_enabled=settled_scan[1],
-                values=values,
+                temperature=temperature,
+                resistance=resistance,
                 curve_number=curve_number,
             )
 
@@ -310,14 +275,14 @@ class _SampleQualityUnavailable(Exception):
 
 
 def _unavailable_result(
-    target: AcquisitionResultRef,
+    target: Literal["temperature", "resistance"],
     *,
     reason: MeasurementUnavailableReason,
     metadata: dict[str, JsonValue],
 ) -> MeasurementUnavailable:
-    units = {
-        TEMPERATURE_READOUT_TEMPERATURE_RESULT: "K",
-        TEMPERATURE_READOUT_RESISTANCE_RESULT: "Ohm",
+    units: dict[Literal["temperature", "resistance"], str] = {
+        "temperature": "K",
+        "resistance": "Ohm",
     }
     return MeasurementUnavailable.create(
         reason=reason,

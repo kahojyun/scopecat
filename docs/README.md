@@ -10,8 +10,8 @@ simpler design better serves the workflows in the charter.
 - [Experiment execution semantics](experiment-execution-model.md): current
   compiler, domain-lowering, effect, and logical-result design.
 - [Lab daemon](lab-daemon.md): current durable ownership and client boundary.
-- [Instrument control](instrument-control.md): current direct-device UX,
-  notebook APIs, driver boundaries, and virtual lab.
+- [Instrument authoring](instrument-control.md): the shared declaration, live
+  control, symbolic-client, entity-mapping, and recording model.
 
 Keep implementation architecture, package inventories, completed migration
 plans, and current interface lists close to the code and tests that own them.

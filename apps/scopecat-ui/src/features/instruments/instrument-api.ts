@@ -5,7 +5,6 @@ import type {
   ConfigProfileSnapshot,
   DriverCatalog,
   InstrumentAcquisition,
-  InstrumentAcquisitionResult,
   InstrumentApplyReceipt,
   InstrumentCollectReceipt,
   InstrumentConfiguredDefaultsApplyReceipt,
@@ -332,14 +331,6 @@ export function createInstrumentCommandId(prefix: string): string {
 
 export function retryTransientInstrumentMutation(failureCount: number, error: unknown): boolean {
   return failureCount < 1 && error instanceof ApiError && error.status === undefined;
-}
-
-export function declaredAcquisitionResults(
-  acquisition: InstrumentAcquisition,
-): InstrumentAcquisitionResult[] {
-  return acquisition.kind === "fixed"
-    ? acquisition.results
-    : acquisition.cases.flatMap((candidate) => candidate.results);
 }
 
 function cloneConfig(source: ActiveConfig["config"]): ConfigProfileSnapshot {

@@ -67,7 +67,10 @@ def test_init_creates_runnable_python_project_and_does_not_overwrite(
     assert (tmp_path / "src/scopecat_lab/configuration.py").is_file()
     notebook = tmp_path / "notebooks/01_first_run.py"
     assert notebook.is_file()
-    assert "quantum_lab_demo" not in notebook.read_text(encoding="utf-8")
+    notebook_source = notebook.read_text(encoding="utf-8")
+    assert "quantum_lab_demo" not in notebook_source
+    assert 'lab.run(first_run(), name="First run")' in notebook_source
+    assert "lab.prepare(" not in notebook_source
 
     application = project.load_application()
     assert application.bootstrap_config is not None

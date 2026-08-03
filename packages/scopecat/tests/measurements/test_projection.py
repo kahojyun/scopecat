@@ -4,13 +4,18 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_types import Float, Scalar
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.products import ProductAxisDef
 from scopecat.measurements.projection import (
+    MeasurementProjection,
     project_measurement_records,
     select_measurement_projection,
 )
+from scopecat.measurements.records import ValueRecordCandidate, ValueRecordUse
 from scopecat.measurements.results import (
     InstrumentAcquisitionEvidence,
     MeasurementScalar,
@@ -39,6 +44,97 @@ def test_projection_keeps_all_records_without_narrowing_the_value_catalog() -> N
         "alias",
         "secondary",
     )
+
+
+def test_projection_records_symbolic_scalar_values_without_product_provenance() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0, 1.0), use_count=0)
+    value_id = ValueId(SymbolId(local_id="score"))
+    value_record = ValueRecordUse(
+        id="score",
+        value_id=value_id,
+        source_value_id="analysis/score",
+        value_type=Scalar(Float()),
+        requires_execution=True,
+    )
+    candidates = tuple(
+        ValueRecordCandidate(
+            logical_point_id=point.logical_id,
+            value_id=value_id,
+            value=float(point.ordinal + 1),
+        )
+        for point in scenario.points
+    )
+    projection = select_measurement_projection(
+        scenario.catalog,
+        (value_record,),
+    )
+    values = seal_measurement_values(scenario.catalog, (), points=scenario.points)
+
+    projected = project_measurement_records(
+        projection,
+        values,
+        run_id="value-record-run",
+        points=scenario.points,
+        value_candidates=candidates,
+    )
+
+    assert [record.observables["score"] for record in projected.records] == [
+        MeasurementScalar.create(dtype="float64", value=1.0),
+        MeasurementScalar.create(dtype="float64", value=2.0),
+    ]
+    schema = projection.schema_for(scenario.points)
+    assert schema is not None
+    variable = next(item for item in schema.variables if item.id == "score")
+    assert variable.source_product_id is None
+    assert variable.source_value_id == "analysis/score"
+
+
+def test_projection_preserves_order_across_product_and_value_records() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=1)
+    value_id = ValueId(SymbolId(local_id="score"))
+    projection = select_measurement_projection(
+        scenario.catalog,
+        (
+            ValueRecordUse(
+                id="score",
+                value_id=value_id,
+                source_value_id="analysis/score",
+                value_type=Scalar(Float()),
+            ),
+            *scenario.records,
+        ),
+    )
+
+    assert [record.id for record in projection.records] == [
+        "score",
+        "primary",
+        "alias",
+    ]
+
+
+def test_value_projection_contract_uses_stable_semantic_source_identity() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=0)
+
+    def projection_for(transient_id: str) -> MeasurementProjection:
+        return select_measurement_projection(
+            scenario.catalog,
+            (
+                ValueRecordUse(
+                    id="score",
+                    value_id=ValueId(
+                        SymbolId(scope=("values",), local_id=transient_id)
+                    ),
+                    source_value_id="analysis/score",
+                    value_type=Scalar(Float()),
+                ),
+            ),
+        )
+
+    first = projection_for("first-runtime-value")
+    second = projection_for("second-runtime-value")
+
+    assert first.contract_fingerprint == second.contract_fingerprint
+    assert first.schema_for(scenario.points) == second.schema_for(scenario.points)
 
 
 def test_projection_selects_only_the_bound_point_batch() -> None:
@@ -110,6 +206,29 @@ def test_dimension_identity_changes_catalog_and_projection_contracts() -> None:
             second_catalog, scenario.records
         ).contract_fingerprint
     )
+
+
+def test_recording_group_is_part_of_the_projection_contract_and_schema() -> None:
+    scenario = measurement_assembly_scenario(use_count=2)
+    ungrouped = select_measurement_projection(scenario.catalog, scenario.records)
+    grouped_records = tuple(
+        replace(record, recording_group_id="readout/sweep")
+        for record in scenario.records
+    )
+    grouped = select_measurement_projection(scenario.catalog, grouped_records)
+
+    assert grouped.contract_fingerprint != ungrouped.contract_fingerprint
+    schema = grouped.schema_for(scenario.points)
+    assert schema is not None
+    assert {variable.recording_group_id for variable in schema.variables} == {
+        None,
+        "readout/sweep",
+    }
+    assert {
+        variable.recording_group_id
+        for variable in schema.variables
+        if variable.id in {record.id for record in grouped_records}
+    } == {"readout/sweep"}
 
 
 def test_record_aliases_project_one_value_twice_without_expanding_assembly() -> None:

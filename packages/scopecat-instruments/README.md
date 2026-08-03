@@ -16,13 +16,8 @@ Use the project connection's `lab.instruments` API. An experiment run is not
 required for direct instrument work:
 
 ```python
-from typing import Annotated
-
 import scopecat as sc
-from scopecat_instruments import (
-    NetworkSweepState,
-    network_sweep,
-)
+from scopecat_instruments import network_sweep
 
 READOUT_VNA = network_sweep("readout-vna")
 
@@ -35,28 +30,41 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.describe())
         print(vna.observed_state())
         vna.apply(
-            NetworkSweepState(
-                start_frequency=sc.Quantity(5.9, "GHz"),
-                stop_frequency=sc.Quantity(6.1, "GHz"),
-                points=401,
-            )
+            start_frequency=sc.Quantity(5.9, "GHz"),
+            stop_frequency=sc.Quantity(6.1, "GHz"),
+            points=401,
         )
         trace = vna.sweep()
 ```
 
 Typed physical references retain project-owned instrument identity and bind a
-statically known client inside the daemon-owned session. State dataclasses keep
-property names and Python value types correlated, while acquisition clients
-return named readback fields. The lower-level member catalog continues to carry
+statically known client inside the daemon-owned session. Generated keyword
+signatures keep property names, concrete Python value types, and explicit field
+presence correlated; reusable generated patches remain available when a state
+transition should be composed or passed around. Acquisition clients return
+complete named readback fields on success. A rejected collection raises
+`InstrumentCollectFailure` with the original receipt and whether non-execution
+is known or the outcome is indeterminate; the lower-level channel still returns
+the receipt directly. `MeasurementUnavailable` remains a valid field value when
+the acquisition succeeded but a measurement itself was unavailable. The
+lower-level member catalog continues to carry
 interface, component, and member identity for drivers and experiment lowering.
 
-Experiment modules reuse the same state dataclasses. Their fields accept either
-fixed values or typed Scopecat value references:
+Read-only declarations also return named state instead of forcing callers to
+decode property ids. A temperature client exposes `state()` for the
+session-opening cached `TemperatureReadoutState` and `refresh_state()` for an
+explicit device read; `observed_state()` and `refresh()` remain the raw snapshot
+escape hatch.
+
+Experiment modules use generated symbolic targets from the same concrete
+interface schema. Target fields accept either fixed values or typed Scopecat
+value references:
 
 ```python
+from typing import Annotated
+
 import scopecat as sc
-from scopecat_instruments import DCSourceVoltage
-from scopecat_instruments.members import DC_SOURCE
+from scopecat_instruments import dc_source
 
 DC_BIAS = sc.coordinate(
     "dc_bias",
@@ -71,26 +79,136 @@ def capture(
         sc.QuantityType(unit="V"),
     ],
 ) -> None:
-    flux = module.resource("flux", requires=(DC_SOURCE,))
-    module.ensure(
-        flux,
-        DCSourceVoltage(
-            range=sc.Quantity(1, "V"),
-            level=dc_bias,
-            output_enabled=True,
-        ),
+    flux = dc_source(module, "flux")
+    flux.source_voltage(
+        range=sc.Quantity(1, "V"),
+        level=dc_bias,
     )
+    flux.ensure(output_enabled=True)
 ```
 
-The verb carries the distinction: `apply(...)` performs a concrete transition
-now, while `ensure(...)` makes the supplied fields true at each experiment
-point. Unspecified fields are preserved, while coordinate- and parameter-backed
-fields resolve per point.
+`@module` is an optional extraction boundary for work that is genuinely reused
+or composed. A one-off root template can instantiate the same symbolic clients
+directly, as shown in the
+[instrument-control guide](../../docs/instrument-control.md) and the
+[flux-spectroscopy workflow](../../examples/instruments/src/instrument_demo/workflows/flux_spectroscopy.py).
+
+The verb carries the distinction: `source_voltage(...)` records an ordered
+mode/range/level transition, `apply(...)` updates persistent state now, and
+`ensure(...)` makes persistent fields true at each experiment point.
+Unspecified state fields are preserved, while coordinate- and parameter-backed
+arguments resolve per point.
 
 The context manager opens a durable daemon-owned session and closes it on exit.
 Runs and interactive sessions compete for the same exclusive resource claim.
 Consequential calls retain their replay identity automatically while retrying a
 transient transport failure.
+
+## Typed client source generation
+
+Decorated Python interface declarations are the shared source for the wire
+contract and typed Python surfaces. `PACKAGE_MANIFEST` is the authoritative list
+of generated interfaces/composites, public types, provider identity, and lazy driver
+registrations; both the generator and provider derive their catalogs from it.
+The committed output covers complete `TemperatureReadout`, `RFOutput`, and
+`NetworkSweep` families plus source-only and source-with-monitor `DCSource` live,
+symbolic single-entity, and group clients.
+
+One generation pass writes the six public runtime modules—`clients.py`,
+`members.py`, `interfaces.py`, `states.py`, `driver_states.py`, and
+`driver_handlers.py`—plus the typed, lazy package facade. Client acquisition and
+state-schema descriptors, member refs, state projection layouts, and wire specs
+are static generated data, so importing these modules does not compile interface
+declarations. Interface factories parse generated JSON into a fresh
+`InterfaceSpec`.
+
+Writable interfaces receive sparse concrete `TypedDict` patches and exact
+canonical snapshot encoders. Generated adapters own the worker's generic
+request/ref ABI; a composite adapter accepts one validated batch and calls the
+concrete driver once with one typed composite patch. Read-only state generates
+snapshot and acquisition hooks but no artificial writable patch. DC source
+protection, output, and reported source mode form one state schema; the mode is
+`read_only`, while typed `source_voltage(...)` and
+`source_current(...)` operations carry the required range and level.
+
+Run the generator from the repository root after changing a supported
+declaration, and use its check mode in validation or CI:
+
+```console
+uv run --locked python scripts/generate_instrument_clients.py
+uv run --locked python scripts/generate_instrument_clients.py --check
+```
+
+Do not edit those modules or the package facade directly. Decorated interfaces
+and their generated clients are deliberately root-only. A live operation
+accepts concrete arguments and returns `InvokeReceipt`; the scalar symbolic form
+projects each concrete `T` argument to `T | ValueRef` and adds an `effect_id`.
+Its group form accepts a scalar or `PerEntity` value
+independently for every argument, performs exact
+identity joins for all mappings before recording any effect, and then records
+one scalar invocation per entity. Mapping order is therefore irrelevant, while
+missing or extra entity identities fail before partial effects are created.
+
+The optional `DCSource`/`DCMonitor` composition is package presentation metadata
+over two existing wire interfaces. The generator emits the explicit
+`dc_source_monitor(...)` family instead of a boolean facade with union return
+types. Group state and operation arguments still accept broadcasts or
+`PerEntity` mappings with exact identity joins.
+
+Payload-bearing operations are currently rejected only by the client source
+generator, until their schema-specific live and symbolic carriers are defined.
+The declaration compiler and generated driver handlers already support decoded
+payload operations. Nested or repeated component trees remain a low-level
+`InterfaceSpec` shape for explicit contract builders and hand-written clients;
+the decorator DSL does not mirror them as recursive Python classes.
+
+## Driver authoring
+
+The shortest driver workflow is:
+
+1. Declare state/results and a `Protocol` or ABC with the decorators in
+   `interface_declarations.py`.
+2. Register any new surface and the lazy driver implementation in
+   `PACKAGE_MANIFEST`.
+3. Run `uv run --locked python scripts/generate_instrument_clients.py`.
+4. Subclass the generated adapter and implement its typed hooks.
+
+For example, an RF implementation handles Python field names rather than member
+refs or generic requests:
+
+```python
+from typing import override
+
+from scopecat.sdk.instruments import DriverOutcome, DriverSuccess
+from scopecat_instruments.driver_handlers import (
+    RFOutputDriverAdapter,
+    RFOutputDriverSnapshot,
+)
+from scopecat_instruments.driver_states import RFOutputDriverPatch
+
+
+class MyRfSource(RFOutputDriverAdapter):
+    instrument_id: str
+
+    @override
+    def read_rf_output_state(self) -> RFOutputDriverSnapshot:
+        return RFOutputDriverSnapshot(state=self._read_hardware_state())
+
+    @override
+    def apply_rf_output_state(
+        self,
+        patch: RFOutputDriverPatch,
+        /,
+    ) -> DriverOutcome[None]:
+        if "frequency" in patch:
+            self._set_frequency(patch["frequency"])
+        return DriverSuccess(None)
+```
+
+The adapter supplies `read_state`, `apply_state`, `invoke`, and `collect` at the
+worker boundary; the implementation supplies device policy plus normal
+description and lifecycle methods. All four real and four virtual first-party
+drivers use this pattern.
 
 ## Configuration
 
@@ -111,28 +229,7 @@ Virtual instrument:
   },
   "default_state": [
     {
-      "interface_id": "scopecat.dc_source/v2",
-      "property_id": "source_mode",
-      "value": "voltage"
-    },
-    {
-      "interface_id": "scopecat.dc_source/v2",
-      "property_id": "voltage_range",
-      "value": {
-        "value": 1,
-        "unit": "V"
-      }
-    },
-    {
-      "interface_id": "scopecat.dc_source/v2",
-      "property_id": "voltage_level",
-      "value": {
-        "value": 0,
-        "unit": "V"
-      }
-    },
-    {
-      "interface_id": "scopecat.dc_source/v2",
+      "interface_id": "scopecat.dc_source/v3",
       "property_id": "output_enabled",
       "value": false
     }
@@ -165,8 +262,9 @@ Unspecified and private driver settings remain untouched.
 Driver snapshots contain complete public physical state. Experiment entity and
 channel bindings are routing provenance, not fields a driver reads back.
 
-The DC monitor acquisition is selected by DC source mode: voltage-source mode
-returns monitored current, while current-source mode returns monitored voltage.
+The DC monitor exposes `measure_current()` and `measure_voltage()` as separate
+acquisitions. A concrete driver rejects the call at runtime when its
+source mode or hardware configuration is incompatible.
 
 Each registered driver declares its connection kind and a strict options model.
 Unknown fields and coerced scalar values are rejected during configuration
@@ -185,12 +283,12 @@ The package supports these driver IDs:
 
 | Driver ID | Interface |
 | --- | --- |
-| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v3` |
+| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v3`; optional `scopecat.dc_monitor/v4` |
 | `scopecat.rohde_schwarz.sgs100a` | `scopecat.rf_output/v1` |
 | `scopecat.lakeshore.372` | `scopecat.temperature_readout/v1` |
 | `scopecat.keysight.e5080b` | `scopecat.network_sweep/v1` |
 | `scopecat.virtual.rf_source` | `scopecat.rf_output/v1` |
-| `scopecat.virtual.dc_source` | `scopecat.dc_source/v2`, `scopecat.dc_monitor/v3` |
+| `scopecat.virtual.dc_source` | `scopecat.dc_source/v3`, `scopecat.dc_monitor/v4` |
 | `scopecat.virtual.temperature_monitor` | `scopecat.temperature_readout/v1` |
 | `scopecat.virtual.vna` | `scopecat.network_sweep/v1` |
 
@@ -219,12 +317,14 @@ sessions.
 
 ## Driver tests
 
-Driver implementations exchange `DriverState`, `DriverStatePatch`,
-`DriverOperation`, `DriverAcquisition`, and `DriverReadback`. They return
-`DriverSuccess`, `DriverRejected`, or `DriverUnknown`; the worker owns
-snapshot/readback envelopes, receipt status strings, and collection request
-IDs. This keeps the authoring contract unchanged when drivers move between
-local and isolated worker hosts.
+The worker exchanges generic `DriverState`, `DriverStatePatch`,
+`DriverOperation`, `DriverAcquisition`, and `DriverReadback` values with generated
+adapters. A concrete driver receives typed patches or composite patches, decoded
+operation arguments, and one typed hook per acquisition, and returns complete
+typed snapshots or readbacks inside `DriverSuccess`, `DriverRejected`, or
+`DriverUnknown`. Adapters own generic envelopes and ref mapping; SCPI sequencing,
+temporary output or measurement changes, hardware-profile checks, and
+device-specific validation remain driver policy.
 
 Transcript helpers live in the explicit testing module:
 

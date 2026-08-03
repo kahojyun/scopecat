@@ -10,7 +10,9 @@ from pydantic import JsonValue as WireJsonValue
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -21,6 +23,17 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units
 from scopecat.kernel.value_data import CellValue
+from scopecat.kernel.value_types import (
+    Bool,
+    Entity,
+    Float,
+    Int,
+    Scalar,
+    String,
+)
+from scopecat.kernel.value_types import (
+    Quantity as QuantityType,
+)
 from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.results import (
     MeasurementDatasetSchema,
@@ -42,16 +55,47 @@ class RecordUse:
     id: str
     product_use_id: ProductUseId
     role: MeasurementVariableRole = "observable"
+    recording_group_id: str | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
         if not self.id:
             msg = "record use id must be non-empty"
             raise ValueError(msg)
+        if self.recording_group_id is not None and not self.recording_group_id:
+            msg = "recording group id must be non-empty when provided"
+            raise ValueError(msg)
         object.__setattr__(
             self,
             "metadata",
             freeze_json_mapping(self.metadata, path=f"record use {self.id!r} metadata"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ValueRecordUse:
+    """Durable destination for one scalar value in the logical graph."""
+
+    id: str
+    value_id: ValueId
+    source_value_id: str
+    value_type: Scalar
+    requires_execution: bool = False
+    role: MeasurementVariableRole = "observable"
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("value record use id must be non-empty")
+        if not self.source_value_id:
+            raise ValueError("source value id must be non-empty")
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata,
+                path=f"value record use {self.id!r} metadata",
+            ),
         )
 
 
@@ -81,11 +125,15 @@ class RecordPlan:
     product_id: ProductId
     dtype: MeasurementDType
     role: MeasurementVariableRole = "observable"
+    recording_group_id: str | None = None
     unit: str | None = None
     axes: tuple[RecordAxisPlan, ...] = ()
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
+        if self.recording_group_id is not None and not self.recording_group_id:
+            msg = "recording group id must be non-empty when provided"
+            raise ValueError(msg)
         object.__setattr__(self, "axes", tuple(self.axes))
         object.__setattr__(
             self,
@@ -94,6 +142,49 @@ class RecordPlan:
                 self.metadata, path=f"record plan {self.id!r} metadata"
             ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ValueRecordPlan:
+    """Point-scalar dataset projection for one symbolic program value."""
+
+    id: str
+    value_id: ValueId
+    source_value_id: str
+    dtype: MeasurementDType
+    requires_execution: bool = False
+    role: MeasurementVariableRole = "observable"
+    unit: str | None = None
+    recording_group_id: None = field(default=None, init=False)
+    axes: tuple[RecordAxisPlan, ...] = field(default=(), init=False)
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("value record plan id must be non-empty")
+        if not self.source_value_id:
+            raise ValueError("source value id must be non-empty")
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata,
+                path=f"value record plan {self.id!r} metadata",
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ValueRecordCandidate:
+    """One point-local scalar value available to dataset projection."""
+
+    logical_point_id: LogicalPointId
+    value_id: ValueId
+    value: CellValue
+
+
+type DatasetRecordPlan = RecordPlan | ValueRecordPlan
+type BoundRecordUse = RecordUse | ValueRecordUse
 
 
 class PointRecordLike(Protocol):
@@ -122,6 +213,7 @@ def plan_records(
                 product_use_id=use.id,
                 product_id=product.id,
                 role=record.role,
+                recording_group_id=record.recording_group_id,
                 unit=product.unit,
                 dtype=product.dtype,
                 axes=tuple(_plan_axis(axis) for axis in product.axes),
@@ -129,6 +221,24 @@ def plan_records(
             )
         )
     return plans
+
+
+def plan_value_records(
+    record_uses: Sequence[ValueRecordUse],
+) -> list[ValueRecordPlan]:
+    return [
+        ValueRecordPlan(
+            id=record.id,
+            value_id=record.value_id,
+            source_value_id=record.source_value_id,
+            dtype=_value_record_dtype(record.value_type),
+            requires_execution=record.requires_execution,
+            role=record.role,
+            unit=_value_record_unit(record.value_type),
+            metadata=_value_record_metadata(record),
+        )
+        for record in record_uses
+    ]
 
 
 def _plan_axis(axis: ProductAxisDef) -> RecordAxisPlan:
@@ -192,7 +302,7 @@ def validate_record_axes(
 
 
 def validate_record_plan(
-    records: Sequence[RecordPlan],
+    records: Sequence[DatasetRecordPlan],
     *,
     coordinate_ids: Sequence[str] = (),
     phase: ProblemPhase = ProblemPhase.PLANNING,
@@ -223,7 +333,12 @@ def validate_record_plan(
         )
     dimension_ids = {
         "point",
-        *(axis.id for record in records for axis in record.axes),
+        *(
+            axis.id
+            for record in records
+            if isinstance(record, RecordPlan)
+            for axis in record.axes
+        ),
     }
     variable_ids = {*coordinate_ids, *record_ids}
     for variable_id in sorted(dimension_ids & variable_ids):
@@ -236,7 +351,12 @@ def validate_record_plan(
                 location=model_location("records", variable_id),
             )
         )
-    problems.extend(validate_record_axes(records, phase=phase))
+    problems.extend(
+        validate_record_axes(
+            tuple(record for record in records if isinstance(record, RecordPlan)),
+            phase=phase,
+        )
+    )
     return problems
 
 
@@ -244,7 +364,7 @@ def expected_dataset_schema(
     *,
     experiment_id: str,
     points: Sequence[PointRecordLike],
-    records: Sequence[RecordPlan],
+    records: Sequence[DatasetRecordPlan],
     dataset_id: str = "raw-measurements",
 ) -> MeasurementDatasetSchema | None:
     if not points or not records:
@@ -276,10 +396,12 @@ def point_coordinate_ids(points: Sequence[PointRecordLike]) -> list[str]:
     return [variable.id for variable in _coordinate_variables(points)]
 
 
-def _record_axes(records: Sequence[RecordPlan]) -> list[MeasurementDimension]:
+def _record_axes(records: Sequence[DatasetRecordPlan]) -> list[MeasurementDimension]:
     dimensions: list[MeasurementDimension] = []
     seen: dict[str, RecordAxisPlan] = {}
     for record in records:
+        if not isinstance(record, RecordPlan):
+            continue
         for axis in record.axes:
             existing = seen.get(axis.id)
             if existing is not None:
@@ -297,7 +419,17 @@ def _record_axes(records: Sequence[RecordPlan]) -> list[MeasurementDimension]:
     return dimensions
 
 
-def _record_variable(record: RecordPlan) -> MeasurementVariable:
+def _record_variable(record: DatasetRecordPlan) -> MeasurementVariable:
+    if isinstance(record, ValueRecordPlan):
+        return MeasurementVariable(
+            id=record.id,
+            role=record.role,
+            dtype=record.dtype,
+            unit=record.unit,
+            dims=["point"],
+            source_value_id=record.source_value_id,
+            metadata=_wire_metadata(record.metadata),
+        )
     return MeasurementVariable(
         id=record.id,
         role=record.role,
@@ -305,8 +437,34 @@ def _record_variable(record: RecordPlan) -> MeasurementVariable:
         unit=record.unit,
         dims=["point", *(axis.id for axis in record.axes)],
         source_product_id=record.product_id.qualified_name,
+        recording_group_id=record.recording_group_id,
         metadata=_wire_metadata(record.metadata),
     )
+
+
+def _value_record_dtype(value_type: Scalar) -> MeasurementDType:
+    atom = value_type.atom
+    if isinstance(atom, Bool):
+        return "bool"
+    if isinstance(atom, Int):
+        return "int64"
+    if isinstance(atom, Float | QuantityType):
+        return "float64"
+    if isinstance(atom, String | Entity):
+        return "string"
+    raise TypeError("opaque payload values cannot be recorded in a dataset")
+
+
+def _value_record_unit(value_type: Scalar) -> str | None:
+    atom = value_type.atom
+    return atom.unit if isinstance(atom, QuantityType) else None
+
+
+def _value_record_metadata(record: ValueRecordUse) -> Mapping[str, JsonValue]:
+    atom = record.value_type.atom
+    if not isinstance(atom, Entity) or atom.entity_kind is None:
+        return record.metadata
+    return {"entity_kind": atom.entity_kind, **record.metadata}
 
 
 def _axes_are_compatible(left: RecordAxisPlan, right: RecordAxisPlan) -> bool:

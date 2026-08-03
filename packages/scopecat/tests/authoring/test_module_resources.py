@@ -30,11 +30,11 @@ _SET_FREQUENCY_SAMPLE_SIGNAL = _SET_FREQUENCY.acquisition("sample").result("sign
 def test_definition_resources_are_owned_by_their_context() -> None:
     left = sc.ModuleContext()
     right = sc.ModuleContext()
-    foreign = left.resource("drive", requires=(_SET_FREQUENCY,))
-    right.resource("drive", requires=(_SET_FREQUENCY,))
+    foreign = left._resource("drive", requires=(_SET_FREQUENCY,))
+    right._resource("drive", requires=(_SET_FREQUENCY,))
 
     with pytest.raises(ValueError, match="must belong to this module context"):
-        right.bind_property(
+        right._bind_property(
             foreign,
             _SET_FREQUENCY_VALUE_PATH,
             value=sc.Quantity(value=5.0, unit="GHz"),
@@ -55,19 +55,30 @@ _SET_OFFSET_VALUE_PATH = _SET_OFFSET.property("value.path")
 _SET_POWER_VALUE = InterfaceRef("test.set_power/v1").property("value")
 
 
-def _resource_module() -> sc.ExperimentModule[...]:
+def test_module_construction_rejects_duplicate_resource_ids() -> None:
+    with pytest.raises(ValueError, match="duplicate module resource ids"):
+
+        @sc.module(id="test.resources.duplicate")
+        def duplicate_resources(  # pyright: ignore[reportUnusedFunction]
+            context: sc.ModuleContext,
+        ) -> None:
+            context._resource("source", requires=(_SET_FREQUENCY,))
+            context._resource("source", requires=(_MEASURE_IQ,))
+
+
+def _resource_module() -> sc.ExperimentModule[None, ...]:
     frequency = sc.Quantity(value=5.0, unit="GHz")
 
     @sc.module(id="test.resources.child")
     def module(context: sc.ModuleContext) -> None:
-        drive = context.resource("drive.v1", requires=(_SET_FREQUENCY,))
-        context.bind_property(
+        drive = context._resource("drive.v1", requires=(_SET_FREQUENCY,))
+        context._bind_property(
             drive,
             _SET_FREQUENCY_VALUE_PATH,
             value=frequency,
         )
-        signal = context.product("signal")
-        context.acquire(
+        signal = context._product("signal")
+        context._acquire(
             "read-signal",
             resource=drive,
             results={_SET_FREQUENCY_SAMPLE_SIGNAL: signal},
@@ -141,7 +152,7 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
 
     @sc.module(id="test.resources.bound-root")
     def root(context: sc.ModuleContext) -> None:
-        context.resource("shared", requires=(_SET_FREQUENCY,))
+        context._resource("shared", requires=(_SET_FREQUENCY,))
         context.call(child)
 
     assembly = compose_module(root.definition)
@@ -194,15 +205,15 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
 
     @sc.module(id="test.effects.child")
     def child_module(context: sc.ModuleContext) -> None:
-        drive = context.resource("drive.v1", requires=(_SET_FREQUENCY,))
-        context.bind_property(
+        drive = context._resource("drive.v1", requires=(_SET_FREQUENCY,))
+        context._bind_property(
             drive,
             _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
         context.call(domain_call(program, id="call"))
-        signal = context.product("signal")
-        context.acquire(
+        signal = context._product("signal")
+        context._acquire(
             "read-signal",
             resource=drive,
             results={_SET_FREQUENCY_SAMPLE_SIGNAL: signal},
@@ -215,21 +226,21 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
 
     @sc.module(id="test.effects.root")
     def module(context: sc.ModuleContext) -> None:
-        drive = context.resource("drive.v1", requires=(_SET_FREQUENCY,))
-        context.bind_property(
+        drive = context._resource("drive.v1", requires=(_SET_FREQUENCY,))
+        context._bind_property(
             drive,
             _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
         context.call(child)
-        context.bind_property(
+        context._bind_property(
             drive,
             _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
         context.call(domain_call(program, id="root-call"))
-        root_signal = context.product("root-signal")
-        context.acquire(
+        root_signal = context._product("root-signal")
+        context._acquire(
             "root-read",
             resource=drive,
             results={_SET_FREQUENCY_SAMPLE_SIGNAL: root_signal},
@@ -338,15 +349,15 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
 def test_acquire_resource_interfaces_are_checked_before_binding() -> None:
     @sc.module(id="test.resources.missing-record-interface")
     def module(context: sc.ModuleContext) -> None:
-        readout = context.resource("readout", requires=(_MEASURE_IQ,))
-        fixed = context.product("fixed")
-        exported = context.product("exported")
-        context.acquire(
+        readout = context._resource("readout", requires=(_MEASURE_IQ,))
+        fixed = context._product("fixed")
+        exported = context._product("exported")
+        context._acquire(
             "read-fixed",
             resource=readout,
             results={_MEASURE_PHASE_SAMPLE_FIXED: fixed},
         )
-        context.acquire(
+        context._acquire(
             "read-exported",
             resource=readout,
             results={_MEASURE_POPULATION_SAMPLE_EXPORTED: exported},
@@ -368,8 +379,8 @@ def test_acquire_resource_interfaces_are_checked_before_binding() -> None:
 def test_state_resource_interfaces_are_checked_before_binding() -> None:
     @sc.module(id="test.resources.missing-state-interface")
     def module(context: sc.ModuleContext) -> None:
-        drive = context.resource("drive", requires=(_SET_FREQUENCY,))
-        context.bind_property(
+        drive = context._resource("drive", requires=(_SET_FREQUENCY,))
+        context._bind_property(
             drive,
             _SET_POWER_VALUE,
             value=1.0,
@@ -386,8 +397,8 @@ def test_state_resource_interfaces_are_checked_before_binding() -> None:
 def test_state_binding_keeps_interface_and_property_ids_structured() -> None:
     @sc.module(id="test.resources.structured-state")
     def child(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SET_OFFSET,))
-        context.bind_property(
+        source = context._resource("source", requires=(_SET_OFFSET,))
+        context._bind_property(
             source,
             _SET_OFFSET_VALUE_PATH,
             value=1.0,

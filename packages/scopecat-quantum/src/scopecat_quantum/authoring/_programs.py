@@ -11,11 +11,9 @@ from typing import Protocol, cast
 from scopecat.authoring import (
     ComputeInput,
     IntType,
-    ProductOutputs,
     ScalarType,
     ValueRef,
     ValueType,
-    shot_axis,
 )
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.quantity import Quantity
@@ -31,6 +29,8 @@ from scopecat.program.domain import (
 from scopecat.program.identities import DomainCallKey
 from scopecat.program.products import (
     ModuleProductDecl,
+    ProductRefs,
+    shot_axis,
 )
 
 from scopecat_quantum._ids import (
@@ -73,7 +73,7 @@ class QuantumProgramCall:
     shots: ComputeInput
 
     @property
-    def results(self) -> ProductOutputs:
+    def results(self) -> ProductRefs:
         """Return products owned by this native domain occurrence."""
 
         return self.domain_call.results

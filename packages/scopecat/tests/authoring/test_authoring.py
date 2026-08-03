@@ -9,32 +9,22 @@ import pytest
 import scopecat as sc
 import scopecat.authoring as authoring
 from scopecat.compiler.frontend.elaboration import compose_module
-from scopecat.compiler.frontend.request_values import (
-    project_run_request_inputs,
-)
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
 )
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.symbols import SymbolId
 from scopecat.program.expression_analysis import expression_input_refs
 from scopecat.program.expressions import (
-    ComputeResultScalarExpr,
     InputScalarExpr,
     LiteralScalarExpr,
     ScalarExpr,
-    input_ref,
     param,
 )
 from scopecat.program.logical import (
     LogicalProgram,
-)
-from scopecat.program.value_graph import (
-    OperationId,
-    ValueId,
-    operation_result_id,
 )
 from scopecat.program.value_refs import (
     ValueRef,
@@ -43,7 +33,6 @@ from scopecat.program.value_refs import (
     internal_value_ref_point_dependencies,
 )
 from scopecat.program.values import compute as program_compute
-from scopecat.program.values import input as program_input
 from scopecat.records.config import (
     RoutingEndpointBinding,
     RoutingGraph,
@@ -109,11 +98,9 @@ _SET_FREQUENCY_VALUE = _SET_FREQUENCY.property("frequency")
 _SET_FREQUENCY_SIGNAL = _SET_FREQUENCY.acquisition("sample").result("signal")
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SCALAR_SIGNAL_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("signal")
-_SCALAR_IQ_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("iq")
 _PLAY_PULSE_PROGRAM = InterfaceRef("test.play_pulse_program/v1")
 _PLAY_PULSE = _PLAY_PULSE_PROGRAM.operation("play")
 _PLAY_PULSE_PROGRAM_ARGUMENT = _PLAY_PULSE.argument("program")
-_ACQUIRE_SIGNAL = InterfaceRef("test.acquire_signal/v1")
 _SET_OFFSET = InterfaceRef("test.set_offset/v1")
 _SET_OFFSET_VALUE = _SET_OFFSET.property("offset")
 _SET_GAIN = InterfaceRef("test.set_gain/v1")
@@ -146,8 +133,8 @@ def test_module_invoke_rejects_argument_from_another_operation() -> None:
 
         @sc.module(id="test.invoke.argument-target")
         def module(context: sc.ModuleContext) -> None:
-            drive = context.resource("drive", requires=(_PLAY_PULSE_PROGRAM,))
-            context.invoke(
+            drive = context._resource("drive", requires=(_PLAY_PULSE_PROGRAM,))
+            context._invoke(
                 "play-program",
                 resource=drive,
                 operation=_PLAY_PULSE,
@@ -186,64 +173,6 @@ def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
     assert target.value.root == Quantity(value=4.9, unit="GHz")
 
 
-def test_template_selects_module_products_as_records() -> None:
-    @sc.module(id="test.product_module")
-    def module(
-        context: sc.ModuleContext,
-        subject: _EntityInput,
-    ) -> None:
-        del subject
-        source = context.resource(
-            "source",
-            requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
-        )
-        signal = context.product("signal", unit="ratio")
-        context.acquire(
-            "read-signal",
-            resource=source,
-            results={_SCALAR_SIGNAL_VALUE: signal},
-        )
-
-    scan = sc.axis(DRIVE_FREQUENCY_POINT, [4.9, 5.0, 5.1], unit="GHz")
-
-    @sc.template(id="test.product_unselected", kind="product_test")
-    def without_selection(
-        experiment: sc.ExperimentContext,
-        subject: _EntityInput,
-    ) -> None:
-        experiment.run(module(subject=subject))
-        experiment.scan(scan)
-
-    @sc.template(id="test.product_selected", kind="product_test")
-    def with_selection(
-        experiment: sc.ExperimentContext,
-        subject: _EntityInput,
-    ) -> None:
-        call = experiment.run(module(subject=subject))
-        experiment.scan(scan)
-        experiment.record(call.products.signal)
-
-    unselected = bind_invocation(
-        without_selection(subject="q0"),
-        config_profile=load_config(),
-    )
-    selected = bind_invocation(
-        with_selection(subject="q0"),
-        config_profile=load_config(),
-    )
-
-    assert unselected.bindings.record_uses == ()
-    assert [
-        product.id.qualified_name for product in unselected.bindings.product_defs
-    ] == ["product_module/signal"]
-    assert [record.id for record in selected.bindings.record_uses] == ["signal"]
-    assert selected.bindings.record_uses[0].metadata == {}
-    assert (
-        selected.bindings.product_uses[0].product_id.qualified_name
-        == "product_module/signal"
-    )
-
-
 def test_compute_inputs_close_template_inputs_before_logical_verification() -> None:
     def build_program(
         *,
@@ -275,8 +204,8 @@ def test_compute_inputs_close_template_inputs_before_logical_verification() -> N
                 "frequency": frequency,
             },
         )
-        drive = context.resource("drive", requires=(_PLAY_PULSE_PROGRAM,))
-        context.invoke(
+        drive = context._resource("drive", requires=(_PLAY_PULSE_PROGRAM,))
+        context._invoke(
             "play-program",
             resource=drive,
             operation=_PLAY_PULSE,
@@ -455,24 +384,25 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         context: sc.ModuleContext,
         qubit_input: _LogicalDeviceInput,
         drive_frequency: _QuantityInput,
-    ) -> None:
+    ) -> sc.ProductRef:
         qubit_ref = sc.input_ref(qubit_input)
-        drive = context.resource(
+        drive = context._resource(
             "drive",
             requires=(_SET_FREQUENCY,),
             for_entities=(qubit_ref,),
         )
-        context.bind_property(
+        context._bind_property(
             drive,
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
         )
-        signal = context.product("signal", unit="ratio")
-        context.acquire(
+        signal = context._product("signal", unit="ratio")
+        context._acquire(
             "read-signal",
             resource=drive,
             results={_SET_FREQUENCY_SIGNAL: signal},
         )
+        return signal
 
     @sc.template(id="test.runtime_entity_scan", kind="runtime_entity_scan")
     def template(experiment: sc.ExperimentContext) -> None:
@@ -487,7 +417,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
                 ),
             )
         )
-        experiment.record(call.products.signal)
+        experiment.record(call.result)
 
     resolved = bind_invocation(
         template.bind().scan(
@@ -581,15 +511,16 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
     def module(
         context: sc.ModuleContext,
         qubit: _LogicalDeviceInput,
-    ) -> None:
+    ) -> sc.ProductRef:
         del qubit
-        source = context.resource("source", requires=(_SCALAR_SIGNAL,))
-        signal = context.product("signal", unit="ratio")
-        context.acquire(
+        source = context._resource("source", requires=(_SCALAR_SIGNAL,))
+        signal = context._product("signal", unit="ratio")
+        context._acquire(
             "read-signal",
             resource=source,
             results={_SCALAR_SIGNAL_VALUE: signal},
         )
+        return signal
 
     drive_length = sc.coordinate("drive_length", _QUANTITY_VALUE)
 
@@ -615,7 +546,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
                 points=3,
             ),
         )
-        experiment.record(call.products.signal)
+        experiment.record(call.result)
 
     resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
@@ -631,120 +562,14 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
     ]
 
 
-def test_literal_string_values_define_categorical_product_axis() -> None:
-    @sc.module(id="test.categorical_axis")
-    def module(context: sc.ModuleContext) -> None:
-        source = context.resource("source", requires=(_SCALAR_SIGNAL,))
-        iq = context.product(
-            "iq",
-            dtype="complex128",
-            axes=(
-                authoring.product_axis(
-                    "component",
-                    size=("I", "Q"),
-                    kind="component",
-                ),
-                authoring.product_axis(
-                    "entity_role",
-                    size=2,
-                    kind="entity",
-                ),
-            ),
-        )
-        context.acquire(
-            "read-iq",
-            resource=source,
-            results={_SCALAR_IQ_VALUE: iq},
-        )
-
-    @sc.template(id="test.categorical_axis", kind="categorical_axis")
-    def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(module())
-        experiment.record(call.products.iq)
-
-    resolved = bind_invocation(
-        template(),
-        config_profile=load_config(),
-    )
-
-    axis = resolved.bindings.product_defs[0].axes[0]
-    assert axis.size == 2
-    assert axis.metadata == {}
-    role_axis = resolved.bindings.product_defs[0].axes[1]
-    assert role_axis.kind == "entity"
-    assert role_axis.size == 2
-    assert role_axis.metadata == {}
-
-
-def test_request_projection_explicitly_handles_authoring_semantic_values() -> None:
-    projected = project_run_request_inputs(
-        {
-            "subjects": (
-                EntityRef(id="q0", kind="qubit"),
-                EntityRef(id="q1", kind="qubit"),
-            )
-        }
-    )
-
-    assert projected == {
-        "subjects": [
-            {
-                "kind": "entity",
-                "entity_id": "q0",
-                "entity_kind": "qubit",
-                "metadata": {},
-            },
-            {
-                "kind": "entity",
-                "entity_id": "q1",
-                "entity_kind": "qubit",
-                "metadata": {},
-            },
-        ]
-    }
-
-
-def test_request_projection_rejects_transient_typed_and_compiler_values() -> None:
-    entity_type = sc.ScalarType(sc.EntityType())
-    typed_value = program_input(
-        "subject",
-        entity_type,
-    )
-    transient_values = (
-        typed_value,
-        input_ref("subject", entity_type),
-        ComputeResultScalarExpr(
-            value_id=operation_result_id(
-                OperationId(SymbolId(local_id="build-program"))
-            ),
-            value_type=entity_type,
-        ),
-    )
-
-    for value in transient_values:
-        with pytest.raises(ValueError, match="unsupported authoring run request value"):
-            project_run_request_inputs({"value": value})
-        with pytest.raises(ValueError, match="unsupported authoring run request value"):
-            project_run_request_inputs({"nested": {"value": value}})
-
-
-def test_module_construction_rejects_duplicate_resource_ids() -> None:
-    with pytest.raises(ValueError, match="duplicate module resource ids"):
-
-        @sc.module(id="test.shared_resource.duplicate")
-        def duplicate_resources(context: sc.ModuleContext) -> None:
-            context.resource("source", requires=(_SET_FREQUENCY,))
-            context.resource("source", requires=(_ACQUIRE_SIGNAL,))
-
-
 def test_elaboration_invocation_literals_bind_local_inputs() -> None:
     @sc.module(id="test.invocation_defaults.child")
     def child(
         context: sc.ModuleContext,
         drive_frequency: _QuantityInput,
     ) -> None:
-        source = context.resource("source", requires=(_SET_FREQUENCY,))
-        context.bind_property(
+        source = context._resource("source", requires=(_SET_FREQUENCY,))
+        context._bind_property(
             source,
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
@@ -776,8 +601,8 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
         context: sc.ModuleContext,
         drive_frequency: _QuantityInput,
     ) -> None:
-        source = context.resource("source", requires=(_SET_FREQUENCY,))
-        context.bind_property(
+        source = context._resource("source", requires=(_SET_FREQUENCY,))
+        context._bind_property(
             source,
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
@@ -826,8 +651,8 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
         unused_point: _FloatInput,
     ) -> None:
         del unused_parameter, unused_point
-        source = context.resource("source", requires=(_SET_OFFSET,))
-        context.bind_property(
+        source = context._resource("source", requires=(_SET_OFFSET,))
+        context._bind_property(
             source,
             _SET_OFFSET_VALUE,
             value=child_value,
@@ -884,16 +709,16 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
         unused_point: _FloatInput,
     ) -> None:
         del unused_parameter, unused_point
-        source = context.resource(
+        source = context._resource(
             "source",
             requires=(_SET_OFFSET, _SET_GAIN),
         )
-        context.bind_property(
+        context._bind_property(
             source,
             _SET_OFFSET_VALUE,
             value=used_parameter,
         )
-        context.bind_property(
+        context._bind_property(
             source,
             _SET_GAIN_VALUE,
             value=used_point,
@@ -926,8 +751,8 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
         context: sc.ModuleContext,
         drive_frequency: _QuantityInput,
     ) -> None:
-        source = context.resource("source", requires=(_SET_FREQUENCY,))
-        context.bind_property(
+        source = context._resource("source", requires=(_SET_FREQUENCY,))
+        context._bind_property(
             source,
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
@@ -961,8 +786,8 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
         context: sc.ModuleContext,
         drive_frequency: _QuantityInput,
     ) -> None:
-        source = context.resource("source", requires=(_SET_FREQUENCY,))
-        context.bind_property(
+        source = context._resource("source", requires=(_SET_FREQUENCY,))
+        context._bind_property(
             source,
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
@@ -973,8 +798,8 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
         context: sc.ModuleContext,
         drive_frequency: _QuantityInput,
     ) -> None:
-        detector = context.resource("detector", requires=(_SET_FREQUENCY,))
-        context.bind_property(
+        detector = context._resource("detector", requires=(_SET_FREQUENCY,))
+        context._bind_property(
             detector,
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
@@ -1015,12 +840,12 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
         qubit: _EntityInput,
         drive_frequency: _QuantityInput,
     ) -> None:
-        drive = context.resource(
+        drive = context._resource(
             "drive",
             requires=(_SET_FREQUENCY,),
             for_entities=(sc.input_ref(qubit),),
         )
-        context.bind_property(
+        context._bind_property(
             drive,
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
@@ -1060,28 +885,29 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
     def scan(
         context: sc.ModuleContext,
         drive_frequency: _QuantityInput,
-    ) -> None:
-        source = context.resource(
+    ) -> sc.ProductRef:
+        source = context._resource(
             "source",
             requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
         )
-        context.bind_property(
+        context._bind_property(
             source,
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
         )
-        signal = context.product("signal", unit="ratio")
-        context.acquire(
+        signal = context._product("signal", unit="ratio")
+        context._acquire(
             "read-products",
             resource=source,
             results={_SCALAR_SIGNAL_VALUE: signal},
         )
+        return signal
 
     @sc.template(id="test.scripted_scan", kind="simple_scan")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(prelude())
         call = experiment.run(scan(DRIVE_FREQUENCY_POINT))
-        experiment.record(call.products.signal)
+        experiment.record(call.result)
 
     resolved = bind_invocation(
         template().scan(
@@ -1106,59 +932,6 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
     assert preview.points[-1].coordinates["drive_frequency"] == Quantity(
         value=5.1, unit="GHz"
     )
-
-
-def test_product_declaration_uses_axes() -> None:
-    @sc.module(id="test.record_axes")
-    def module(
-        context: sc.ModuleContext,
-        drive_frequency: _QuantityInput,
-    ) -> None:
-        source = context.resource(
-            "source",
-            requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
-        )
-        context.bind_property(
-            source,
-            _SET_FREQUENCY_VALUE,
-            value=drive_frequency,
-        )
-        signal = context.product(
-            "signal",
-            unit="ratio",
-            axes=(
-                authoring.shot_axis(2),
-                authoring.product_axis("repetition", size=3, kind="repetition"),
-            ),
-        )
-        context.acquire(
-            "read-products",
-            resource=source,
-            results={_SCALAR_SIGNAL_VALUE: signal},
-        )
-
-    @sc.template(id="test.record_axes", kind="simple_scan")
-    def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(module(DRIVE_FREQUENCY_POINT))
-        experiment.record(call.products.signal)
-
-    resolved = bind_invocation(
-        template().scan(
-            sc.axis(
-                DRIVE_FREQUENCY_POINT,
-                center=sc.parameter("drive_frequency", _QUANTITY_VALUE),
-                span=Quantity(value=200.0, unit="MHz"),
-                points=5,
-            )
-        ),
-        config_profile=load_config(),
-    )
-
-    assert len(resolved.bindings.record_uses) == 1
-    product = resolved.bindings.product_defs[0]
-    assert product.id.local_id == "signal"
-    assert [axis.id for axis in product.axes] == ["shot", "repetition"]
-    assert [axis.size for axis in product.axes] == [2, 3]
 
 
 def test_resource_port_can_select_by_fixed_entity_input() -> None:
@@ -1214,12 +987,12 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         qubit: _EntityInput,
         drive_frequency: _QuantityInput,
     ) -> None:
-        drive = context.resource(
+        drive = context._resource(
             "drive",
             requires=(_SET_FREQUENCY,),
             for_entities=(sc.input_ref(qubit),),
         )
-        context.bind_property(
+        context._bind_property(
             drive,
             _SET_FREQUENCY_VALUE,
             value=drive_frequency,
@@ -1264,8 +1037,8 @@ def test_explicit_config_binds_experiment() -> None:
 
     @sc.module(id="test.explicit-config-source")
     def module(context: sc.ModuleContext) -> None:
-        drive = context.resource("drive", requires=(_DRIVE_FREQUENCY,))
-        context.bind_property(
+        drive = context._resource("drive", requires=(_DRIVE_FREQUENCY,))
+        context._bind_property(
             drive,
             _DRIVE_FREQUENCY_VALUE,
             value=Quantity(value=5.0, unit="GHz"),

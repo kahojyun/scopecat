@@ -53,6 +53,7 @@ from scopecat.planning.local_materialization import (
 from scopecat.planning.measurement_projection import (
     project_measurement_catalog_from_domain,
     project_run_point_catalog_from_domain,
+    project_static_value_record_candidates,
 )
 from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
@@ -185,23 +186,25 @@ def _compile_system_program(
         if use.id not in domain_owned_product_use_ids
         and use.id not in postprocessor_output_use_ids
     )
-    local_required = bool(
+    local_instrument_required = bool(
         local_product_use_ids
-        or bound.bindings.live_compute_ids
         or bound.program.program.bindings
         or bound.program.program.invocations
+    )
+    local_execution_required = bool(
+        local_instrument_required or bound.bindings.live_compute_ids
     )
     implementation_problems = list(
         _implementation_problems(
             has_domain_call=bool(bound.program.program.domain_executions),
             has_domain_compiler=system.domain_compiler is not None,
-            local_required=local_required,
+            local_instrument_required=local_instrument_required,
             has_local_instrument_catalog=catalog.provider_id is not None,
         )
     )
     if implementation_problems:
         raise CheckFailed(implementation_problems)
-    if local_required and catalog.problems:
+    if local_instrument_required and catalog.problems:
         raise ProviderContractError(catalog.problems)
     bound_points = materialize_bound_points(bound)
     point_domain = bound_points.point_domain
@@ -214,6 +217,7 @@ def _compile_system_program(
     measurements = select_measurement_projection(
         measurement_catalog,
         bound.bindings.record_uses,
+        static_value_candidates=project_static_value_record_candidates(bound_points),
     )
     local_target = (
         prepare_local_target(
@@ -221,7 +225,7 @@ def _compile_system_program(
             product_use_ids=frozenset(local_product_use_ids),
             instrument_order=tuple(item.instrument_id for item in catalog.instruments),
         )
-        if local_required
+        if local_execution_required
         else None
     )
     local_effects = (
@@ -592,7 +596,7 @@ def _implementation_problems(
     *,
     has_domain_call: bool,
     has_domain_compiler: bool,
-    local_required: bool,
+    local_instrument_required: bool,
     has_local_instrument_catalog: bool,
 ) -> tuple[Problem, ...]:
     """Report missing effect/dataflow implementations directly from typed edges."""
@@ -605,7 +609,7 @@ def _implementation_problems(
                 "the typed domain call has no configured compiler",
             )
         )
-    if local_required and not has_local_instrument_catalog:
+    if local_instrument_required and not has_local_instrument_catalog:
         problems.append(
             _planning_problem(
                 "local_instrument_catalog_missing",

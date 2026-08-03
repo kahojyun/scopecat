@@ -77,6 +77,63 @@ from tests.testkit.workflow_fixtures import (
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
 
+def test_lab_preview_and_run_are_direct_prepare_shortcuts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invocation = load_invocation()
+    preview_result = object()
+    run_result = object()
+    prepared_calls: list[tuple[object, object]] = []
+    forwarded: list[tuple[str, dict[str, object]]] = []
+
+    class Prepared:
+        def preview(self, **kwargs: object) -> object:
+            forwarded.append(("preview", kwargs))
+            return preview_result
+
+        def run(self, **kwargs: object) -> object:
+            forwarded.append(("run", kwargs))
+            return run_result
+
+    def prepare(
+        _lab: LabClient,
+        experiment: object,
+        *,
+        config: object = None,
+    ) -> Prepared:
+        prepared_calls.append((experiment, config))
+        return Prepared()
+
+    monkeypatch.setattr(LabClient, "prepare", prepare)
+    lab = object.__new__(LabClient)
+
+    assert lab.preview(invocation, config="active", name="preview") is preview_result
+    assert lab.run(invocation, config="candidate", name="run") is run_result
+    assert prepared_calls == [(invocation, "active"), (invocation, "candidate")]
+    assert forwarded == [
+        (
+            "preview",
+            {
+                "name": "preview",
+                "tags": (),
+                "description": None,
+                "metadata": None,
+                "operator": None,
+            },
+        ),
+        (
+            "run",
+            {
+                "name": "run",
+                "tags": (),
+                "description": None,
+                "metadata": None,
+                "operator": None,
+            },
+        ),
+    ]
+
+
 def test_execute_submits_complete_plan_and_heartbeats(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -443,7 +500,7 @@ def test_lab_config_inventory_migration_assembles_registry_coordination() -> Non
     ]
 
 
-def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
+def test_run_invocation_plans_against_explicit_snapshot_without_local_storage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = load_config()
@@ -514,7 +571,7 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
     assert result.status == "completed"
 
 
-def test_run_scratch_uses_active_config_and_bound_system(
+def test_run_invocation_uses_active_config_and_bound_system(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = load_config()
@@ -579,7 +636,7 @@ def test_run_scratch_uses_active_config_and_bound_system(
     assert result.status == "completed"
 
 
-def test_run_scratch_uses_daemon_catalog_without_a_local_builder(
+def test_run_invocation_uses_daemon_catalog_without_a_local_builder(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = load_config()
@@ -625,7 +682,7 @@ def test_run_scratch_uses_daemon_catalog_without_a_local_builder(
     assert result.status == "completed"
 
 
-def test_preview_scratch_uses_active_config_without_admission() -> None:
+def test_preview_invocation_uses_active_config_without_admission() -> None:
     config = load_config()
     entry, activation = _config_registry_records(config)
     requests: list[httpx2.Request] = []

@@ -26,11 +26,7 @@ from scopecat.sdk.instruments import (
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    discriminated_state,
-    enum_property,
     interface,
-    quantity_property,
-    state_case,
     string_property,
 )
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
@@ -158,60 +154,6 @@ def test_catalog_validates_safe_state_against_advertised_interface() -> None:
     )
 
 
-def test_case_local_default_requires_explicit_discriminator() -> None:
-    result = _resolve_catalog(
-        _config_with_default_state(
-            InstrumentPropertyState(
-                interface_id="test.mode/v1",
-                property_id="voltage_level",
-                value=StateValue(Quantity(0.1, "V")),
-            ),
-        ),
-        _ModeProvider(),
-    )
-
-    assert [issue.code for issue in result.problems] == [
-        "instrument_driver_state_case_unknown"
-    ]
-
-
-def test_explicit_discriminator_requires_a_complete_default_case() -> None:
-    result = _resolve_catalog(
-        _config_with_default_state(
-            InstrumentPropertyState(
-                interface_id="test.mode/v1",
-                property_id="mode",
-                value=StateValue("voltage"),
-            ),
-        ),
-        _ModeProvider(),
-    )
-
-    assert [issue.code for issue in result.problems] == [
-        "instrument_driver_state_case_incomplete"
-    ]
-
-
-def test_complete_explicit_case_default_is_authoritative() -> None:
-    result = _resolve_catalog(
-        _config_with_default_state(
-            InstrumentPropertyState(
-                interface_id="test.mode/v1",
-                property_id="mode",
-                value=StateValue("voltage"),
-            ),
-            InstrumentPropertyState(
-                interface_id="test.mode/v1",
-                property_id="voltage_level",
-                value=StateValue(Quantity(0.1, "V")),
-            ),
-        ),
-        _ModeProvider(),
-    )
-
-    assert result.problems == ()
-
-
 def test_default_state_requires_an_advertised_description() -> None:
     result = _resolve_catalog(
         _config_with_default_state(
@@ -336,71 +278,6 @@ def _instrument_spec_data() -> dict[str, object]:
         "connection": {"kind": "virtual"},
         "failure_action": "abort_and_release",
     }
-
-
-@dataclass(frozen=True)
-class _ModeProvider:
-    provider_id: str = "tests.mode_provider"
-
-    def describe(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderDescription:
-        instrument_id = context.bindings[0].id
-        return InstrumentProviderDescription(
-            provider_id=self.provider_id,
-            instruments=(
-                InstrumentDescription(
-                    instrument_id=instrument_id,
-                    implementation_id="tests.mode",
-                    implementation_version="v1",
-                    interfaces=[
-                        interface(
-                            "test.mode/v1",
-                            state=discriminated_state(
-                                enum_property(
-                                    "mode",
-                                    choices=("voltage", "current"),
-                                ),
-                                cases=(
-                                    state_case(
-                                        "voltage",
-                                        properties=(
-                                            quantity_property(
-                                                "voltage_level",
-                                                unit="V",
-                                            ),
-                                        ),
-                                        required_on_entry_property_ids=(
-                                            "voltage_level",
-                                        ),
-                                    ),
-                                    state_case(
-                                        "current",
-                                        properties=(
-                                            quantity_property(
-                                                "current_level",
-                                                unit="A",
-                                            ),
-                                        ),
-                                        required_on_entry_property_ids=(
-                                            "current_level",
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        )
-                    ],
-                ),
-            ),
-        )
-
-    def connect(
-        self,
-        context: InstrumentConnectionContext,
-    ) -> Never:
-        del context
-        raise AssertionError("preflight must not connect an instrument")
 
 
 @dataclass(frozen=True)
