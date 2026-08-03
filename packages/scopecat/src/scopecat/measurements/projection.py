@@ -117,6 +117,8 @@ class MeasurementProjection:
             experiment_id=self.catalog.point_contract.experiment_id,
             points=selected,
             records=self.records,
+            point_domain_layout=self.catalog.point_contract.domain_layout,
+            point_domain_axis_sizes=self.catalog.point_contract.domain_axis_sizes,
         )
 
 

@@ -39,7 +39,7 @@ from scopecat.program.operations import (
     ModuleOperationDecl,
 )
 from scopecat.program.parameters import ParameterContract
-from scopecat.program.point_domain import PointAxes
+from scopecat.program.point_domain import PointAxes, PointDomainLayout
 from scopecat.program.products import ModuleProductDecl
 from scopecat.program.recording import LogicalRecordSelection
 from scopecat.program.scans import AxisSpec
@@ -274,6 +274,7 @@ class LogicalProgramBuilder:
         record_selections: Sequence[LogicalRecordSelection],
         parameter_contracts: Sequence[ParameterContract],
         point_domain: PointAxes[ValueRef],
+        point_domain_layout: PointDomainLayout,
         effects: tuple[
             LogicalStateAssignment
             | LogicalEnsureState
@@ -297,6 +298,7 @@ class LogicalProgramBuilder:
             record_selections=tuple(record_selections),
             parameter_contracts=tuple(parameter_contracts),
             point_domain=point_domain,
+            point_domain_layout=point_domain_layout,
             value_defs=tuple(self._definitions.values()),
             compute_nodes=tuple(self._compute_nodes.values()),
             measurement_postprocessors=tuple(self._measurement_postprocessors),

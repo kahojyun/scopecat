@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import cast
+from typing import Never, cast
 
 from scopecat.compiler.frontend.elaboration import (
     compose_experiment,
@@ -19,10 +19,14 @@ from scopecat.compiler.frontend.problems import frontend_problem as _problem
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
-from scopecat.compiler.frontend.scan_lowering import project_scan_record
+from scopecat.compiler.frontend.scan_lowering import (
+    project_point_rows_record,
+    project_scan_record,
+)
 from scopecat.compiler.frontend.scan_validation import (
     ScanValidationError,
-    verify_scans,
+    VerifiedScanDomain,
+    verify_scan_domain,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem
@@ -36,6 +40,7 @@ from scopecat.program.point_domain import analyze_point_domain
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
+    PointRowsSpec,
     Scan,
 )
 from scopecat.program.value_refs import ValueRef
@@ -61,7 +66,7 @@ def compile_invocation(
         _effective_scans(invocation),
     )
     inputs = _merged_inputs(invocation)
-    scan_axes = _verified_scans(
+    scan_domain = _verified_scans(
         scans,
         inputs=inputs,
     )
@@ -72,16 +77,17 @@ def compile_invocation(
     request = _materialized_request(
         invocation,
         inputs=inputs,
-        scan_axes=scan_axes,
+        scan_domain=scan_domain,
         metadata=metadata,
         operator=operator,
     )
     logical = compose_experiment(
         invocation.definition,
         inputs=inputs,
-        scans=scan_axes,
+        scans=scan_domain.axes,
+        point_domain_layout=scan_domain.layout,
     )
-    _validate_point_dependencies(logical, scan_axes)
+    _validate_point_dependencies(logical, scan_domain)
     return CompiledInvocation(
         program=verify_logical_program(logical),
         request=request,
@@ -110,12 +116,22 @@ def _validate_required_invocation_inputs(
         )
 
 
-def _effective_scans(invocation: ExperimentInvocation) -> tuple[AxisSpec, ...]:
-    defaults = tuple(
-        cast("AxisSpec", scan) for scan in invocation.definition.default_scans
-    )
-    overrides = tuple(cast("AxisSpec", scan) for scan in invocation.scans)
-    override_axis_ids = [axis.id for axis in overrides]
+def _effective_scans(invocation: ExperimentInvocation) -> tuple[Scan, ...]:
+    defaults = tuple(invocation.definition.default_scans)
+    overrides = tuple(invocation.scans)
+    default_rows = tuple(scan for scan in defaults if isinstance(scan, PointRowsSpec))
+    override_rows = tuple(scan for scan in overrides if isinstance(scan, PointRowsSpec))
+    if override_rows:
+        if len(overrides) != 1:
+            _raise_mixed_point_domain_layout()
+        return override_rows
+    if default_rows:
+        if len(defaults) != 1 or overrides:
+            _raise_mixed_point_domain_layout()
+        return default_rows
+    default_axes = tuple(cast("AxisSpec", scan) for scan in defaults)
+    override_axes = tuple(cast("AxisSpec", scan) for scan in overrides)
+    override_axis_ids = [axis.id for axis in override_axes]
     # Validate before indexing so repeated overrides cannot silently collapse.
     duplicate_overrides = sorted(
         axis_id for axis_id, count in Counter(override_axis_ids).items() if count > 1
@@ -130,22 +146,41 @@ def _effective_scans(invocation: ExperimentInvocation) -> tuple[AxisSpec, ...]:
                 )
             ]
         )
-    default_axis_ids = {axis.id for axis in defaults}
-    override_by_id = {axis.id: axis for axis in overrides}
-    replaced = tuple(override_by_id.get(default.id, default) for default in defaults)
-    additions = tuple(axis for axis in overrides if axis.id not in default_axis_ids)
+    default_axis_ids = {axis.id for axis in default_axes}
+    override_by_id = {axis.id: axis for axis in override_axes}
+    replaced = tuple(
+        override_by_id.get(default.id, default) for default in default_axes
+    )
+    additions = tuple(axis for axis in override_axes if axis.id not in default_axis_ids)
     return (*replaced, *additions)
+
+
+def _raise_mixed_point_domain_layout() -> Never:
+    raise CheckFailed(
+        [
+            _problem(
+                "point_domain_layout_mixed",
+                "point rows define the complete domain and cannot be combined "
+                "with scan axes",
+                "scans",
+            )
+        ]
+    )
 
 
 def _resolve_scan_module_results(
     invocation: ExperimentInvocation,
-    scans: Sequence[AxisSpec],
-) -> tuple[AxisSpec, ...]:
+    scans: Sequence[Scan],
+) -> tuple[Scan, ...]:
     """Resolve module-return edges before scan validation and request projection."""
 
     resolver = ModuleValueResolver(invocation.definition)
-    resolved: list[AxisSpec] = []
-    for axis in scans:
+    resolved: list[Scan] = []
+    for scan in scans:
+        if isinstance(scan, PointRowsSpec):
+            resolved.append(scan)
+            continue
+        axis = cast("AxisSpec", scan)
         source = axis.source
         if isinstance(source, AroundScanSource) and isinstance(
             source.center,
@@ -181,12 +216,21 @@ def _materialized_request(
     invocation: ExperimentInvocation,
     *,
     inputs: Mapping[str, object],
-    scan_axes: Sequence[AxisSpec],
+    scan_domain: VerifiedScanDomain,
     metadata: Mapping[str, object] | None,
     operator: str | None,
 ) -> RunRequest:
     request_inputs = project_run_request_inputs(inputs)
-    request_scans = [project_scan_record(axis, inputs=inputs) for axis in scan_axes]
+    request_scans = (
+        [
+            project_point_rows_record(
+                PointRowsSpec(scan_domain.axes),
+                inputs=inputs,
+            )
+        ]
+        if scan_domain.layout == "point_cloud"
+        else [project_scan_record(axis, inputs=inputs) for axis in scan_domain.axes]
+    )
     return RunRequest.model_validate(
         {
             "experiment_id": invocation.definition.id,
@@ -202,9 +246,9 @@ def _verified_scans(
     scans: Sequence[Scan],
     *,
     inputs: Mapping[str, object],
-) -> tuple[AxisSpec, ...]:
+) -> VerifiedScanDomain:
     try:
-        return verify_scans(
+        return verify_scan_domain(
             scans,
             inputs=inputs,
         )
@@ -224,12 +268,15 @@ def _verified_scans(
 
 def _validate_point_dependencies(
     program: LogicalProgram,
-    scan_axes: Sequence[AxisSpec],
+    scan_domain: VerifiedScanDomain,
 ) -> None:
-    domain_type = analyze_point_domain(program.point_domain).value_type
+    domain_type = analyze_point_domain(
+        program.point_domain,
+        layout=program.point_domain_layout,
+    ).value_type
     point_types = {
         **{column.id: column.value_type for column in domain_type.columns},
-        **{axis.id: axis.value_type for axis in scan_axes},
+        **{axis.id: axis.value_type for axis in scan_domain.axes},
     }
     problems: list[Problem] = []
     for dependency in program.point_dependencies:

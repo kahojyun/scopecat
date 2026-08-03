@@ -51,7 +51,7 @@ from scopecat.program.parameters import (
     ParameterContract,
     merge_parameter_contracts,
 )
-from scopecat.program.point_domain import PointAxes
+from scopecat.program.point_domain import PointAxes, PointDomainLayout
 from scopecat.program.products import (
     ModuleProductDecl,
 )
@@ -188,6 +188,7 @@ def compose_experiment(
     *,
     inputs: Mapping[str, object],
     scans: Sequence[AxisSpec] = (),
+    point_domain_layout: PointDomainLayout = "product_grid",
 ) -> LogicalProgram:
     """Elaborate a native experiment root without a synthetic module."""
 
@@ -211,6 +212,7 @@ def compose_experiment(
             *(scan_parameter_contracts(axis) for axis in scans),
         ),
         point_domain=lower_scans_point_domain(scans, inputs=inputs),
+        point_domain_layout=point_domain_layout,
         final_state=definition.final_state,
     )
 
@@ -226,6 +228,7 @@ def _elaborate_hierarchy(
     record_selections: Sequence[ProgramRecordSelection] = (),
     additional_parameter_contracts: tuple[ParameterContract, ...] = (),
     point_domain: PointAxes[ValueRef] = (),
+    point_domain_layout: PointDomainLayout = "product_grid",
     final_state: EnsureStateIntent | None,
 ) -> LogicalProgram:
     composer = _LogicalProgramComposer()
@@ -318,6 +321,7 @@ def _elaborate_hierarchy(
             additional_parameter_contracts,
         ),
         point_domain=point_domain,
+        point_domain_layout=point_domain_layout,
         effects=logical_effects,
         final_state=(
             None

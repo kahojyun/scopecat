@@ -52,6 +52,8 @@ def project_measurement_catalog_from_domain(
             experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
             coordinate_ids=coordinate_ids,
+            domain_layout=point_domain.layout,
+            domain_axis_sizes=point_domain.axis_sizes,
         ),
         bound.bindings.product_uses,
         bound.bindings.product_defs,
@@ -89,6 +91,8 @@ def project_run_point_catalog_from_domain(
             experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
             coordinate_ids=coordinate_ids,
+            domain_layout=point_domain.layout,
+            domain_axis_sizes=point_domain.axis_sizes,
         ),
         points=tuple(
             RunPoint(

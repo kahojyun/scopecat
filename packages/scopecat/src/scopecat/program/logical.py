@@ -27,7 +27,7 @@ from scopecat.program.expressions import (
 )
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.parameters import ParameterContract
-from scopecat.program.point_domain import PointAxes
+from scopecat.program.point_domain import PointAxes, PointDomainLayout
 from scopecat.program.products import ModuleProductDecl, RecordSelection
 from scopecat.program.recording import (
     LogicalRecordSelection,
@@ -232,6 +232,7 @@ class LogicalProgram:
     record_selections: tuple[LogicalRecordSelection, ...] = ()
     parameter_contracts: tuple[ParameterContract, ...] = ()
     point_domain: PointAxes[ValueRef] = ()
+    point_domain_layout: PointDomainLayout = "product_grid"
     value_defs: tuple[ValueDef, ...] = ()
     compute_nodes: tuple[LogicalComputeNode, ...] = ()
     measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...] = ()

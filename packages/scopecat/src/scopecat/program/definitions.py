@@ -19,7 +19,7 @@ from scopecat.program.module import (
     ModulePythonImplementation,
 )
 from scopecat.program.recording import ProgramRecordSelection
-from scopecat.program.scans import Scan
+from scopecat.program.scans import PointRowsSpec, Scan
 from scopecat.program.values import (
     MetadataValue,
     RuntimeInput,
@@ -103,10 +103,19 @@ class ExperimentInvocation:
         self,
         *scans: Scan,
     ) -> ExperimentInvocation:
+        selected = (*self.scans, *scans)
+        if (
+            any(isinstance(scan, PointRowsSpec) for scan in selected)
+            and len(selected) != 1
+        ):
+            raise ValueError(
+                "point rows define the complete domain and cannot be combined "
+                "with scan axes"
+            )
         return ExperimentInvocation(
             definition=self.definition,
             inputs=self.inputs,
-            scans=(*self.scans, *scans),
+            scans=selected,
         )
 
 

@@ -73,6 +73,8 @@ class MeasurementValueCatalog:
                         "experiment_id": self.point_contract.experiment_id,
                         "experiment_kind": self.point_contract.experiment_kind,
                         "coordinate_ids": self.point_contract.coordinate_ids,
+                        "domain_layout": self.point_contract.domain_layout,
+                        "domain_axis_sizes": self.point_contract.domain_axis_sizes,
                         "product_uses": [
                             {
                                 "product_use_id": use.id.value,

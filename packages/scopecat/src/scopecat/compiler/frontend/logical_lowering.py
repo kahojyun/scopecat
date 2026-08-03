@@ -42,6 +42,7 @@ from scopecat.program.point_domain import (
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
+    PointDomainLayout,
 )
 from scopecat.program.scans import (
     AxisSpec,
@@ -318,6 +319,7 @@ def lower_point_domain(
     *,
     inputs: Mapping[str, object],
     type_bindings: ExpressionTypeBindings,
+    layout: PointDomainLayout = "product_grid",
 ) -> PointDomain:
     """Bind and verify each closed linear-axis center."""
 
@@ -329,7 +331,8 @@ def lower_point_domain(
                 type_bindings=type_bindings,
             )
             for axis in point_domain
-        )
+        ),
+        layout=layout,
     )
 
 

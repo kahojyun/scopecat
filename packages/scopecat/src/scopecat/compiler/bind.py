@@ -139,6 +139,7 @@ def _lower_logical_program(
         logical.point_domain,
         inputs=inputs,
         type_bindings=root_type_bindings,
+        layout=logical.point_domain_layout,
     )
     type_bindings = replace(
         root_type_bindings,

@@ -39,7 +39,8 @@ from scopecat.authoring._module_results import (
 )
 from scopecat.authoring.entity_parameters import PerEntity
 from scopecat.authoring.finalization import Finalizable
-from scopecat.authoring.scans import Scan
+from scopecat.authoring.scans import PointRow, Scan
+from scopecat.authoring.scans import points as point_rows
 from scopecat.authoring.templates import (
     ExperimentTemplate,
 )
@@ -73,6 +74,7 @@ from scopecat.program.products import (
     record_product,
 )
 from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
+from scopecat.program.scans import PointRowsSpec
 from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
@@ -399,7 +401,26 @@ class ExperimentContext:
     def scan(self, *scans: Scan) -> None:
         """Declare the experiment's default point-domain scans."""
 
+        selected = (*self._scans, *scans)
+        if (
+            any(isinstance(scan, PointRowsSpec) for scan in selected)
+            and len(selected) != 1
+        ):
+            raise ValueError(
+                "point rows define the complete domain and cannot be combined "
+                "with scan axes"
+            )
         self._scans.extend(scans)
+
+    def points(
+        self,
+        rows: Sequence[PointRow],
+        *,
+        coordinates: Sequence[ValueRef] = (),
+    ) -> None:
+        """Declare the complete ordered point cloud for this experiment."""
+
+        self.scan(point_rows(rows, coordinates=coordinates))
 
     def record(
         self,

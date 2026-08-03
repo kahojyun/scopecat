@@ -138,7 +138,10 @@ def verify_product_schema(
 
     point_columns = {
         column.id
-        for column in analyze_point_domain(program.point_domain).value_type.columns
+        for column in analyze_point_domain(
+            program.point_domain,
+            layout=program.point_domain_layout,
+        ).value_type.columns
         if is_point_coordinate_type(column.value_type)
     }
     for record_id in sorted(set(record_ids) & point_columns):

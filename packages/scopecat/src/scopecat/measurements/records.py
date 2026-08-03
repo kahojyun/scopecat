@@ -42,6 +42,7 @@ from scopecat.measurements.results import (
     MeasurementVariable,
     MeasurementVariableRole,
 )
+from scopecat.program.point_domain import PointDomainLayout
 
 
 def _empty_metadata() -> FrozenMapping[str, JsonValue]:
@@ -366,6 +367,8 @@ def expected_dataset_schema(
     points: Sequence[PointRecordLike],
     records: Sequence[DatasetRecordPlan],
     dataset_id: str = "raw-measurements",
+    point_domain_layout: PointDomainLayout = "product_grid",
+    point_domain_axis_sizes: Sequence[tuple[str, int]] = (),
 ) -> MeasurementDatasetSchema | None:
     if not points or not records:
         return None
@@ -388,7 +391,16 @@ def expected_dataset_schema(
         variables=[*coordinates, *observables],
         primary_coordinates=[variable.id for variable in coordinates],
         primary_observables=[variable.id for variable in observables],
-        metadata={"experiment_id": experiment_id},
+        metadata={
+            "experiment_id": experiment_id,
+            "point_domain": {
+                "layout": point_domain_layout,
+                "axes": [
+                    {"id": axis_id, "size": size}
+                    for axis_id, size in point_domain_axis_sizes
+                ],
+            },
+        },
     )
 
 

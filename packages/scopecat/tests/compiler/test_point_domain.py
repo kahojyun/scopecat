@@ -167,6 +167,45 @@ def test_product_materialization_is_left_major() -> None:
     ]
 
 
+def test_point_cloud_materialization_zips_columns_in_row_order() -> None:
+    domain = PointDomain(
+        axes=(
+            _axis("x", (1, 2, 2)),
+            _axis("y", (10, 20, 20)),
+        ),
+        layout="point_cloud",
+    )
+
+    verified = _verify(domain)
+    materialized = materialize_point_domain(verified, ParameterRelationData())
+
+    assert verified.cardinality == 3
+    assert materialized.layout == "point_cloud"
+    assert [point.row for point in materialized.points] == [
+        {"x": 1, "y": 10},
+        {"x": 2, "y": 20},
+        {"x": 2, "y": 20},
+    ]
+    assert materialized.points[1].logical_id != materialized.points[2].logical_id
+
+
+def test_point_cloud_rejects_coordinate_columns_with_different_lengths() -> None:
+    domain = PointDomain(
+        axes=(
+            _axis("x", (1, 2)),
+            _axis("y", (10,)),
+        ),
+        layout="point_cloud",
+    )
+
+    with pytest.raises(PointDomainVerificationError) as caught:
+        _verify(domain)
+
+    assert [issue.code for issue in caught.value.issues] == [
+        "point_domain_point_cloud_length_mismatch"
+    ]
+
+
 def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
     center = verified_scalar_expr(
         param("center", _TIME),
