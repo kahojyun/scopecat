@@ -40,6 +40,14 @@ The daemon selects a loopback port and records it in the project. Notebook code
 discovers that shared instance automatically. Set `SCOPECAT_DAEMON_URL` only to
 connect to another loopback instance.
 
+The lab also exposes `run_quantum(call)` for a newly authored
+`QuantumProgramCall`. The runner injects this lab's compiler inputs,
+discrimination, and dataset recording policy, and the returned experiment can
+be extended with `.scan(...)` before passing it to `lab.run(...)`. No wrapper
+module is required. Independent auxiliary-device work can be added inside the
+lab runner; hardware that must change synchronously at every quantum point
+belongs in the quantum target/compiler contract.
+
 ## Source map
 
 | Path | Responsibility |
@@ -48,6 +56,7 @@ connect to another loopback instance.
 | `support/src/quantum_lab_demo/workflows/drag_beta_experiment.py` | DRAG template and scan definition. |
 | `support/src/quantum_lab_demo/workflows/drag_beta_analysis.py` | Measurement fitting and candidate proposal. |
 | `support/src/quantum_lab_demo/workflows/production_drag_gate.py` | Production use of the accepted parameter. |
+| `support/src/quantum_lab_demo/quantum_runner.py` | Lab-owned program placement, compiler inputs, postprocess, and recording policy. |
 | `support/src/quantum_lab_demo/application.py` | Planning and bootstrap composition. |
 | `support/src/quantum_lab_demo/backend.py` | Worker-only virtual instrument composition. |
 | `config/` and `support/src/quantum_lab_demo/parameters.py` | User-owned system and bootstrap parameter sources. |

@@ -7,19 +7,10 @@ from typing import Annotated
 import scopecat as sc
 from scopecat import Quantity, QuantityType
 from scopecat_quantum import authoring as quantum
-from scopecat_quantum.measurement_postprocessors import (
-    BinaryIqDiscriminator,
-    BinaryIqProbabilityProducts,
-    IqCentroid,
-    binary_iq_probabilities,
-)
 from scopecat_quantum.standard_gates import X90, XM90
 
-from quantum_lab_demo.virtual_lab.parameters import (
-    QUBIT_PARAMETER_TABLE_TYPE,
-    q0_drag_beta_lookup,
-    qubit_parameters,
-)
+from quantum_lab_demo.quantum_runner import author_quantum_experiment
+from quantum_lab_demo.virtual_lab.parameters import q0_drag_beta_lookup
 from quantum_lab_demo.workflows.drag_beta_calibration import (
     drag_gate_pulse,
     drag_readout_pulse,
@@ -61,60 +52,24 @@ def production_drag_program(
     )
 
 
-_DISCRIMINATOR = BinaryIqDiscriminator(
-    state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
-    state_1_centroid=IqCentroid(real=1.0, imag=0.0),
-    tie_policy="state_0",
-)
-
-
-@sc.module(id="quantum_lab_demo.production.drag_x90.capture")
-def production_drag_capture(
-    module: sc.ModuleContext,
-    drag_beta: Annotated[
-        sc.Input[Quantity],
-        sc.ScalarType(sc.QuantityType(unit="ns")),
-    ],
-    qubits: Annotated[
-        sc.Input[list[dict[str, object]]],
-        QUBIT_PARAMETER_TABLE_TYPE,
-    ],
-) -> BinaryIqProbabilityProducts:
-    call = (
-        production_drag_program(
-            qubit="q0",
-            drag_beta=drag_beta,
-        )
-        .with_compiler_inputs(qubits=sc.input_ref(qubits))
-        .with_shots(PRODUCTION_DRAG_GATE_SHOTS)
-    )
-    module.call(call)
-    return binary_iq_probabilities(
-        module,
-        call.results.iq_shots,
-        discriminator=_DISCRIMINATOR,
-    )
-
-
 @sc.template(
     id=PRODUCTION_DRAG_GATE_TEMPLATE_ID,
     kind=PRODUCTION_DRAG_GATE_EXPERIMENT_ID,
 )
 def production_drag_template(experiment: sc.ExperimentContext) -> None:
-    capture = experiment.run(
-        production_drag_capture(
+    author_quantum_experiment(
+        experiment,
+        production_drag_program(
+            qubit="q0",
             drag_beta=q0_drag_beta_lookup(),
-            qubits=qubit_parameters(),
-        )
+        ).with_shots(PRODUCTION_DRAG_GATE_SHOTS),
     )
-    experiment.record(capture.result)
 
 
 __all__ = [
     "PRODUCTION_DRAG_GATE_EXPERIMENT_ID",
     "PRODUCTION_DRAG_GATE_SHOTS",
     "PRODUCTION_DRAG_GATE_TEMPLATE_ID",
-    "production_drag_capture",
     "production_drag_program",
     "production_drag_template",
     "production_x90",
