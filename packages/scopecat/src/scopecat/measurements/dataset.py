@@ -832,7 +832,7 @@ class Dataset:
         metadata.update(
             {
                 b"scopecat.dataset_id": self.schema.dataset_id.encode(),
-                b"scopecat.schema": self.schema.model_dump_json(by_alias=True).encode(),
+                b"scopecat.schema": self.schema.model_dump_json().encode(),
                 b"scopecat.metadata": json.dumps(
                     dict(self.metadata), separators=(",", ":"), sort_keys=True
                 ).encode(),
@@ -852,7 +852,7 @@ class Dataset:
             raise ValueError("pandas layout must be 'points' or 'long'")
         frame.attrs["scopecat"] = {
             "dataset_id": self.schema.dataset_id,
-            "schema": self.schema.model_dump(mode="json", by_alias=True),
+            "schema": self.schema.model_dump(mode="json"),
             "metadata": dict(self.metadata),
             "layout": layout,
         }
@@ -881,7 +881,7 @@ class Dataset:
             deep=True,
         )
         raw = MeasurementDataset(
-            schema=schema,
+            dataset_schema=schema,
             records=selected_records,
             metadata=self._raw.metadata.copy(),
         )
@@ -976,7 +976,7 @@ class Dataset:
             deep=True,
         )
         raw = MeasurementDataset(
-            schema=schema,
+            dataset_schema=schema,
             records=list(records),
             metadata=self._raw.metadata.copy(),
         )

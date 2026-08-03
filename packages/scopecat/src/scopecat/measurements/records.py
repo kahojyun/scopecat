@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, cast
+from typing import cast
 
 from pydantic import JsonValue as WireJsonValue
 
-from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.json_types import JsonValue
@@ -20,8 +19,6 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
-from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.units import compatible_units
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import (
     Bool,
@@ -30,6 +27,7 @@ from scopecat.kernel.value_types import (
     Int,
     Scalar,
     String,
+    TableColumn,
 )
 from scopecat.kernel.value_types import (
     Quantity as QuantityType,
@@ -39,6 +37,10 @@ from scopecat.measurements.results import (
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementDType,
+    MeasurementPointCloudPointDomain,
+    MeasurementPointDomainAxis,
+    MeasurementPointDomainColumn,
+    MeasurementProductGridPointDomain,
     MeasurementVariable,
     MeasurementVariableRole,
 )
@@ -185,11 +187,6 @@ class ValueRecordCandidate:
 
 type DatasetRecordPlan = RecordPlan | ValueRecordPlan
 type BoundRecordUse = RecordUse | ValueRecordUse
-
-
-class PointRecordLike(Protocol):
-    @property
-    def row(self) -> Mapping[str, CellValue]: ...
 
 
 def plan_records(
@@ -363,19 +360,20 @@ def validate_record_plan(
 def expected_dataset_schema(
     *,
     experiment_id: str,
-    points: Sequence[PointRecordLike],
+    point_count: int,
     records: Sequence[DatasetRecordPlan],
     dataset_id: str = "raw-measurements",
+    point_coordinate_columns: Sequence[TableColumn] = (),
     point_domain_layout: PointDomainLayout = "product_grid",
     point_domain_axis_sizes: Sequence[tuple[str, int]] = (),
 ) -> MeasurementDatasetSchema | None:
     if not records:
         return None
     dimensions = [
-        MeasurementDimension(id="point", kind="point", size=len(points)),
+        MeasurementDimension(id="point", kind="point", size=point_count),
         *_record_axes(records),
     ]
-    point_coordinates = _coordinate_variables(points)
+    point_coordinates = _coordinate_variables(point_coordinate_columns)
     record_variables = [_record_variable(record) for record in records]
     record_coordinates = [
         variable for variable in record_variables if variable.role == "coordinate"
@@ -386,46 +384,39 @@ def expected_dataset_schema(
     coordinates = [*point_coordinates, *record_coordinates]
     return MeasurementDatasetSchema(
         dataset_id=dataset_id,
+        point_domain=(
+            MeasurementProductGridPointDomain(
+                axes=[
+                    MeasurementPointDomainAxis(id=axis_id, size=size)
+                    for axis_id, size in point_domain_axis_sizes
+                ]
+            )
+            if point_domain_layout == "product_grid"
+            else MeasurementPointCloudPointDomain(
+                columns=[
+                    MeasurementPointDomainColumn(id=column.id)
+                    for column in point_coordinate_columns
+                ]
+            )
+        ),
         dimensions=dimensions,
         variables=[*coordinates, *observables],
         primary_coordinates=[variable.id for variable in coordinates],
         primary_observables=[variable.id for variable in observables],
-        metadata={
-            "experiment_id": experiment_id,
-            "point_domain": {
-                "layout": point_domain_layout,
-                "axes": [
-                    {"id": axis_id, "size": size}
-                    for axis_id, size in point_domain_axis_sizes
-                ],
-            },
-        },
+        metadata={"experiment_id": experiment_id},
     )
-
-
-def point_coordinate_ids(points: Sequence[PointRecordLike]) -> list[str]:
-    return [variable.id for variable in _coordinate_variables(points)]
 
 
 def _record_axes(records: Sequence[DatasetRecordPlan]) -> list[MeasurementDimension]:
     dimensions: list[MeasurementDimension] = []
-    seen: dict[str, RecordAxisPlan] = {}
+    seen: set[str] = set()
     for record in records:
         if not isinstance(record, RecordPlan):
             continue
         for axis in record.axes:
-            existing = seen.get(axis.id)
-            if existing is not None:
-                if existing.size is None and axis.size is not None:
-                    seen[axis.id] = axis
-                    for index, dimension in enumerate(dimensions):
-                        if dimension.id == axis.id:
-                            dimensions[index] = dimension.model_copy(
-                                update={"size": axis.size}
-                            )
-                            break
+            if axis.id in seen:
                 continue
-            seen[axis.id] = axis
+            seen.add(axis.id)
             dimensions.append(
                 MeasurementDimension(
                     id=axis.id,
@@ -490,105 +481,37 @@ def _axes_are_compatible(left: RecordAxisPlan, right: RecordAxisPlan) -> bool:
     return (
         left.label == right.label
         and left.kind == right.kind
-        and (left.size is None or right.size is None or left.size == right.size)
+        and left.size == right.size
         and left.unit == right.unit
         and left.metadata == right.metadata
     )
 
 
 def _coordinate_variables(
-    points: Sequence[PointRecordLike],
+    columns: Sequence[TableColumn],
 ) -> list[MeasurementVariable]:
-    variables: list[MeasurementVariable] = []
-    dimensions = ["point"]
-    for column in _point_columns(points):
-        values = [point.row[column] for point in points if column in point.row]
-        if len(values) != len(points):
-            continue
-        variable = _coordinate_variable(
-            column,
-            values,
-            dimensions=dimensions,
-        )
-        if variable is not None:
-            variables.append(variable)
-    return variables
+    return [_coordinate_variable(column) for column in columns]
 
 
 def _coordinate_variable(
-    column: str,
-    values: list[CellValue],
-    *,
-    dimensions: list[str],
-) -> MeasurementVariable | None:
-    dtype = _measurement_dtype(values)
-    if dtype is None:
-        return None
-    unit = _compatible_quantity_unit(values)
+    column: TableColumn,
+) -> MeasurementVariable:
+    atom = column.value_type.atom
     metadata: dict[str, WireJsonValue] = {}
-    entity_kind = _entity_kind(values)
-    if entity_kind is not None:
-        metadata["entity_kind"] = entity_kind
+    if isinstance(atom, Entity) and atom.entity_kind is not None:
+        metadata["entity_kind"] = atom.entity_kind
     return MeasurementVariable(
-        id=column,
+        id=column.id,
         role="coordinate",
-        dtype=dtype,
-        unit=unit,
-        dims=dimensions,
+        dtype=_value_record_dtype(column.value_type),
+        unit=_value_record_unit(column.value_type),
+        dims=["point"],
         metadata=metadata,
     )
 
 
 def _wire_metadata(metadata: Mapping[str, JsonValue]) -> dict[str, WireJsonValue]:
     return cast("dict[str, WireJsonValue]", thaw_json_value(metadata))
-
-
-def _point_columns(points: Sequence[PointRecordLike]) -> list[str]:
-    columns: list[str] = []
-    for point in points:
-        for column in point.row:
-            if column not in columns:
-                columns.append(column)
-    return columns
-
-
-def _measurement_dtype(values: Sequence[CellValue]) -> MeasurementDType | None:
-    if all(isinstance(value, Quantity) for value in values):
-        return "float64"
-    if all(isinstance(value, bool) for value in values):
-        return "bool"
-    if all(isinstance(value, int) and not isinstance(value, bool) for value in values):
-        return "int64"
-    if all(
-        isinstance(value, int | float) and not isinstance(value, bool)
-        for value in values
-    ):
-        return "float64"
-    if all(isinstance(value, str) for value in values):
-        return "string"
-    if all(isinstance(value, EntityRef) for value in values):
-        return "string"
-    return None
-
-
-def _entity_kind(values: Sequence[CellValue]) -> str | None:
-    entity_values = [value for value in values if isinstance(value, EntityRef)]
-    if not entity_values:
-        return None
-    first_kind = entity_values[0].kind
-    if all(value.kind == first_kind for value in entity_values):
-        return first_kind
-    return None
-
-
-def _compatible_quantity_unit(values: Sequence[CellValue]) -> str | None:
-    quantity_values = [value for value in values if isinstance(value, Quantity)]
-    if not quantity_values:
-        return None
-    first_unit = quantity_values[0].unit
-    if all(compatible_units(first_unit, value.unit) for value in quantity_values):
-        return first_unit
-    return None
 
 
 def _duplicates(values: Sequence[str]) -> set[str]:

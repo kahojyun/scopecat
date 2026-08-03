@@ -115,8 +115,9 @@ class MeasurementProjection:
             return None
         return expected_dataset_schema(
             experiment_id=self.catalog.point_contract.experiment_id,
-            points=selected,
+            point_count=len(selected),
             records=self.records,
+            point_coordinate_columns=self.catalog.point_contract.coordinate_columns,
             point_domain_layout=self.catalog.point_contract.domain_layout,
             point_domain_axis_sizes=self.catalog.point_contract.domain_axis_sizes,
         )

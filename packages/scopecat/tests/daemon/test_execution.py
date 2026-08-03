@@ -44,6 +44,7 @@ from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
 )
@@ -362,6 +363,7 @@ def _measurement_header() -> MeasurementDatasetHeader:
         recording_contract_fingerprint="contract-1",
         dataset_schema=MeasurementDatasetSchema(
             dataset_id="raw-measurements",
+            point_domain=MeasurementProductGridPointDomain(axes=[]),
             dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
         ),
         expected_record_count=1,

@@ -11,6 +11,8 @@ from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementPointCloudPointDomain,
+    MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementVariable,
@@ -18,10 +20,15 @@ from scopecat.records.measurement import (
 from tests.testkit.measurement_models import signal_record
 
 
+def _empty_grid() -> MeasurementProductGridPointDomain:
+    return MeasurementProductGridPointDomain(axes=[])
+
+
 def test_measurement_dataset_schema_validates_references() -> None:
     with pytest.raises(ValidationError, match="dimension ids must be unique"):
         MeasurementDatasetSchema(
             dataset_id="bad",
+            point_domain=_empty_grid(),
             dimensions=[
                 MeasurementDimension(id="point", kind="point", size=1),
                 MeasurementDimension(id="point", kind="point", size=1),
@@ -31,6 +38,7 @@ def test_measurement_dataset_schema_validates_references() -> None:
     with pytest.raises(ValidationError, match="unknown dimensions"):
         MeasurementDatasetSchema(
             dataset_id="bad",
+            point_domain=_empty_grid(),
             dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
             variables=[
                 MeasurementVariable(
@@ -47,6 +55,7 @@ def test_measurement_dimensions_and_variables_have_distinct_ids() -> None:
     with pytest.raises(ValidationError, match="distinct ids"):
         MeasurementDatasetSchema(
             dataset_id="bad",
+            point_domain=_empty_grid(),
             dimensions=[
                 MeasurementDimension(id="point", kind="point", size=1),
                 MeasurementDimension(id="sample", kind="sample", size=2),
@@ -79,6 +88,7 @@ def test_measurement_dataset_schema_requires_one_canonical_point_dimension(
     with pytest.raises(ValidationError, match="exactly one point dimension"):
         MeasurementDatasetSchema(
             dataset_id="bad",
+            point_domain=_empty_grid(),
             dimensions=dimensions,
             variables=[
                 MeasurementVariable(
@@ -91,9 +101,49 @@ def test_measurement_dataset_schema_requires_one_canonical_point_dimension(
         )
 
 
-def test_measurement_dataset_schema_requires_point_without_variables() -> None:
-    with pytest.raises(ValidationError, match="Field required"):
-        MeasurementDatasetSchema.model_validate({"dataset_id": "bad"})
+def test_measurement_dataset_schema_requires_the_typed_point_domain() -> None:
+    with pytest.raises(ValidationError) as error:
+        MeasurementDatasetSchema.model_validate(
+            {
+                "dataset_id": "bad",
+                "dimensions": [{"id": "point", "kind": "point", "size": 1}],
+            }
+        )
+
+    assert [item["loc"] for item in error.value.errors()] == [("point_domain",)]
+
+
+def test_measurement_dataset_schema_discriminates_point_domain_wire_shapes() -> None:
+    common = {
+        "dataset_id": "raw-measurements",
+        "dimensions": [{"id": "point", "kind": "point", "size": 2}],
+    }
+
+    product_grid = MeasurementDatasetSchema.model_validate(
+        {
+            **common,
+            "point_domain": {
+                "kind": "product_grid",
+                "axes": [{"id": "x", "size": 2}],
+            },
+        }
+    )
+    point_cloud = MeasurementDatasetSchema.model_validate(
+        {
+            **common,
+            "point_domain": {
+                "kind": "point_cloud",
+                "columns": [{"id": "x"}, {"id": "y"}],
+            },
+        }
+    )
+
+    assert isinstance(product_grid.point_domain, MeasurementProductGridPointDomain)
+    assert isinstance(point_cloud.point_domain, MeasurementPointCloudPointDomain)
+    assert point_cloud.point_domain.model_dump(mode="json") == {
+        "kind": "point_cloud",
+        "columns": [{"id": "x"}, {"id": "y"}],
+    }
 
 
 @pytest.mark.parametrize(
@@ -111,6 +161,7 @@ def test_measurement_variables_require_unique_point_first_dimensions(
     with pytest.raises(ValidationError, match=message):
         MeasurementDatasetSchema(
             dataset_id="bad",
+            point_domain=_empty_grid(),
             dimensions=[
                 MeasurementDimension(id="point", kind="point", size=1),
                 MeasurementDimension(id="shot", kind="shot", size=3),
@@ -140,6 +191,7 @@ def test_measurement_dataset_primary_ids_are_unique(
     with pytest.raises(ValidationError, match="ids must be unique"):
         MeasurementDatasetSchema(
             dataset_id="bad",
+            point_domain=_empty_grid(),
             dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
             variables=[
                 MeasurementVariable(
@@ -161,6 +213,7 @@ def test_measurement_dataset_primary_ids_are_unique(
 def test_validate_measurement_records_against_schema_accepts_compatible_units() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
+        point_domain=_empty_grid(),
         dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
         variables=[
             MeasurementVariable(
@@ -216,6 +269,7 @@ def test_validate_measurement_records_against_schema_accepts_compatible_units() 
 def test_validate_schema_accepts_point_local_arrays() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
+        point_domain=_empty_grid(),
         dimensions=[
             MeasurementDimension(id="point", kind="point", size=1),
             MeasurementDimension(id="shot", kind="shot", size=3),
@@ -271,6 +325,7 @@ def test_validate_schema_accepts_point_local_arrays() -> None:
 def test_validate_schema_derives_inner_shape_from_dimensions() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
+        point_domain=_empty_grid(),
         dimensions=[
             MeasurementDimension(id="point", kind="point", size=1),
             MeasurementDimension(id="shot", kind="shot", size=3),
@@ -313,6 +368,7 @@ def test_validate_schema_derives_inner_shape_from_dimensions() -> None:
 def test_variable_extent_preserves_array_rank_validation() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
+        point_domain=_empty_grid(),
         dimensions=[
             MeasurementDimension(id="point", kind="point", size=1),
             MeasurementDimension(id="sample", kind="sample", size=None),
@@ -353,6 +409,7 @@ def test_variable_extent_preserves_array_rank_validation() -> None:
 def test_validate_measurement_records_against_schema_reports_contract_errors() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
+        point_domain=_empty_grid(),
         dimensions=[MeasurementDimension(id="point", kind="point", size=2)],
         variables=[
             MeasurementVariable(
@@ -426,6 +483,7 @@ def test_validate_measurement_records_against_schema_reports_contract_errors() -
 def test_validate_measurement_records_against_schema_reports_unit_and_dtype() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
+        point_domain=_empty_grid(),
         dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
         variables=[
             MeasurementVariable(
@@ -481,6 +539,7 @@ def test_validate_measurement_records_against_schema_reports_unit_and_dtype() ->
 def test_validate_schema_accepts_bool_and_string_values() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
+        point_domain=_empty_grid(),
         dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
         variables=[
             MeasurementVariable(
@@ -524,6 +583,7 @@ def test_validate_schema_accepts_bool_and_string_values() -> None:
 def test_validate_schema_reports_unexpected_unit_for_unitless_variable() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
+        point_domain=_empty_grid(),
         dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
         variables=[
             MeasurementVariable(

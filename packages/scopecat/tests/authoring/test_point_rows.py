@@ -11,10 +11,16 @@ from scopecat.planning.measurement_projection import (
     project_static_value_record_candidates,
 )
 from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.records.measurement import (
+    MeasurementPointCloudPointDomain,
+    MeasurementPointDomainColumn,
+    MeasurementVariable,
+)
 from scopecat.records.run_request import PointRowsRecord
 from tests.testkit.authoring import bind_invocation, load_config
 
 _INT = sc.ScalarType(sc.IntType())
+_FREQUENCY = sc.ScalarType(sc.QuantityType(unit="GHz"))
 
 
 def test_point_rows_compile_materialize_and_persist_layout() -> None:
@@ -63,19 +69,23 @@ def test_point_rows_compile_materialize_and_persist_layout() -> None:
     run_points = project_run_point_catalog(bound_points).points
     schema = projection.schema_for(run_points)
     assert schema is not None
-    assert schema.metadata["point_domain"] == {
-        "layout": "point_cloud",
-        "axes": [{"id": "x", "size": 3}, {"id": "y", "size": 3}],
-    }
+    assert schema.point_domain == MeasurementPointCloudPointDomain(
+        columns=[
+            MeasurementPointDomainColumn(id="x"),
+            MeasurementPointDomainColumn(id="y"),
+        ]
+    )
+    assert schema.metadata == {"experiment_id": "test.point-rows"}
 
 
 def test_empty_point_rows_are_a_zero_point_domain() -> None:
     x = sc.coordinate("x", _INT)
-    y = sc.coordinate("y", _INT)
+    y = sc.coordinate("y", _FREQUENCY)
 
     @sc.template(id="test.empty-point-rows", kind="point_rows")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.points((), coordinates=(x, y))
+        experiment.record(x, record_id="observed_x")
 
     invocation = template()
     compiled = compile_invocation(invocation)
@@ -85,10 +95,41 @@ def test_empty_point_rows_are_a_zero_point_domain() -> None:
     assert request_points.rows == []
 
     bound = bind_invocation(invocation, config_profile=load_config())
-    domain = materialize_bound_points(bound).point_domain
+    bound_points = materialize_bound_points(bound)
+    domain = bound_points.point_domain
     assert domain.layout == "point_cloud"
     assert domain.points == ()
     assert bound.point_domain.cardinality == 0
+
+    catalog = project_measurement_catalog(bound_points)
+    projection = select_measurement_projection(
+        catalog,
+        bound.bindings.record_uses,
+        static_value_candidates=project_static_value_record_candidates(bound_points),
+    )
+    schema = projection.schema_for(project_run_point_catalog(bound_points).points)
+    assert schema is not None
+    assert schema.point_domain == MeasurementPointCloudPointDomain(
+        columns=[
+            MeasurementPointDomainColumn(id="x"),
+            MeasurementPointDomainColumn(id="y"),
+        ]
+    )
+    assert schema.variables[:2] == [
+        MeasurementVariable(
+            id="x",
+            role="coordinate",
+            dtype="int64",
+            dims=["point"],
+        ),
+        MeasurementVariable(
+            id="y",
+            role="coordinate",
+            dtype="float64",
+            unit="GHz",
+            dims=["point"],
+        ),
+    ]
 
 
 def test_point_rows_require_the_same_typed_coordinate_columns() -> None:

@@ -17,6 +17,7 @@ from scopecat.records.measurement import (
     MeasurementDataset,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -290,6 +291,7 @@ def _ragged_dataset() -> Dataset:
 def _dataset() -> Dataset:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
+        point_domain=MeasurementProductGridPointDomain(axes=[]),
         dimensions=[
             MeasurementDimension(id="point", kind="point", size=3),
             MeasurementDimension(id="sample", kind="frequency", size=2),
@@ -378,7 +380,7 @@ def _dataset() -> Dataset:
         for point_index in range(3)
     ]
     raw = MeasurementDataset(
-        schema=schema,
+        dataset_schema=schema,
         records=records,
         metadata={"experiment": "facade-test"},
     )

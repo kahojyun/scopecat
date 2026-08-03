@@ -1901,10 +1901,10 @@ export interface components {
         };
         /** MeasurementDataset */
         MeasurementDataset: {
+            dataset_schema: components["schemas"]["MeasurementDatasetSchema-Output"];
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Records */
             records: components["schemas"]["MeasurementRecord-Output"][];
-            schema: components["schemas"]["MeasurementDatasetSchema-Output"];
         };
         /** MeasurementDatasetSchema */
         "MeasurementDatasetSchema-Output": {
@@ -1914,11 +1914,12 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v6
+             * @default scopecat.measurement_dataset_schema.v7
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v6";
+            format_version: "scopecat.measurement_dataset_schema.v7";
             metadata?: components["schemas"]["JsonMetadata-Output"];
+            point_domain: components["schemas"]["MeasurementPointDomain"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
             /** Primary Observables */
@@ -1934,7 +1935,7 @@ export interface components {
         };
         /**
          * MeasurementDimension
-         * @description One concrete extent; physical coordinate values are variables.
+         * @description One logical extent; ``None`` denotes a point-local ragged extent.
          */
         "MeasurementDimension-Output": {
             /** Id */
@@ -1960,6 +1961,51 @@ export interface components {
             items: components["schemas"]["MeasurementRecord-Output"][];
             /** Next Offset */
             next_offset?: number | null;
+        };
+        /**
+         * MeasurementPointCloudPointDomain
+         * @description A point domain whose coordinate columns form explicit ordered rows.
+         */
+        MeasurementPointCloudPointDomain: {
+            /** Columns */
+            columns: components["schemas"]["MeasurementPointDomainColumn"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "point_cloud";
+        };
+        MeasurementPointDomain: components["schemas"]["MeasurementProductGridPointDomain"] | components["schemas"]["MeasurementPointCloudPointDomain"];
+        /**
+         * MeasurementPointDomainAxis
+         * @description One ordered independent axis in a product-grid point domain.
+         */
+        MeasurementPointDomainAxis: {
+            /** Id */
+            id: string;
+            /** Size */
+            size: number;
+        };
+        /**
+         * MeasurementPointDomainColumn
+         * @description One ordered coordinate column in a point-cloud domain.
+         */
+        MeasurementPointDomainColumn: {
+            /** Id */
+            id: string;
+        };
+        /**
+         * MeasurementProductGridPointDomain
+         * @description A point domain formed from the ordered product of independent axes.
+         */
+        MeasurementProductGridPointDomain: {
+            /** Axes */
+            axes: components["schemas"]["MeasurementPointDomainAxis"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "product_grid";
         };
         /** MeasurementRecord */
         "MeasurementRecord-Output": {

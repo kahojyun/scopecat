@@ -337,7 +337,7 @@ def test_measurement_dataset_and_schema_round_trip() -> None:
     record = signal_record()
     schema = signal_point_schema(size=3)
     dataset = MeasurementDataset(
-        schema=schema,
+        dataset_schema=schema,
         records=[record],
     )
     restored = assert_model_round_trip(dataset)

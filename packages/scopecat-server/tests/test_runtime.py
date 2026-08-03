@@ -82,6 +82,7 @@ from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
 )
@@ -1981,6 +1982,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
             recording_contract_fingerprint="test.recording.v1",
             dataset_schema=MeasurementDatasetSchema(
                 dataset_id="raw-measurements",
+                point_domain=MeasurementProductGridPointDomain(axes=[]),
                 dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
             ),
             expected_record_count=1,
@@ -2178,6 +2180,7 @@ def test_effect_and_terminal_publication_roll_back_with_control(
             recording_contract_fingerprint="test.recording.v1",
             dataset_schema=MeasurementDatasetSchema(
                 dataset_id="raw-measurements",
+                point_domain=MeasurementProductGridPointDomain(axes=[]),
                 dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
             ),
             expected_record_count=1,

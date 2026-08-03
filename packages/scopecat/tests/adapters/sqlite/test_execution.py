@@ -29,6 +29,7 @@ from scopecat.records.execution_journal import (
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -87,6 +88,7 @@ def _header(
         recording_contract_fingerprint="recording.v1",
         dataset_schema=MeasurementDatasetSchema(
             dataset_id="raw-measurements",
+            point_domain=MeasurementProductGridPointDomain(axes=[]),
             dimensions=[
                 MeasurementDimension(id="point", kind="point", size=point_count)
             ],

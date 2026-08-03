@@ -12,6 +12,7 @@ from scopecat.records.measurement import (
     MeasurementDataset,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementUnavailable,
     MeasurementVariable,
@@ -185,6 +186,7 @@ def test_trace_view_and_schema_accept_different_lengths_at_each_point() -> None:
 def _trace_dataset() -> MeasurementDataset:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
+        point_domain=MeasurementProductGridPointDomain(axes=[]),
         dimensions=[
             MeasurementDimension(id="point", kind="point", size=2),
             MeasurementDimension(
@@ -215,7 +217,7 @@ def _trace_dataset() -> MeasurementDataset:
         primary_observables=["s_parameter"],
     )
     return MeasurementDataset(
-        schema=schema,
+        dataset_schema=schema,
         records=[
             MeasurementRecord(
                 run_id="trace-run",

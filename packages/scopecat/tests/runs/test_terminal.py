@@ -12,7 +12,11 @@ from scopecat.execution.evidence import (
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution import InstrumentStateEvidence
-from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementDimension
+from scopecat.records.measurement import (
+    MeasurementDatasetSchema,
+    MeasurementDimension,
+    MeasurementProductGridPointDomain,
+)
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
     RunContentPublication,
@@ -83,6 +87,7 @@ def test_terminal_contents_publish_a_sealed_empty_measurement_dataset() -> None:
     outcome = _successful_outcome("run-empty-dataset")
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
+        point_domain=MeasurementProductGridPointDomain(axes=[]),
         dimensions=[MeasurementDimension(id="point", kind="point", size=0)],
     )
 

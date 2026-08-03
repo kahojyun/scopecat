@@ -4,16 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from scopecat.compiler.bind import BoundPlan
-from scopecat.compiler.point_domain import MaterializedPointDomain
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import evaluate_scalar
 from scopecat.compiler.value_resolution import BoundValueResolver
 from scopecat.measurements.points import RunPoint, RunPointCatalog, RunPointContract
-from scopecat.measurements.records import (
-    ValueRecordCandidate,
-    point_coordinate_ids,
-)
+from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.planning.point_materialization import MaterializedBoundPoints
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
@@ -21,37 +16,17 @@ from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 
 def project_measurement_catalog(
     bound_points: MaterializedBoundPoints,
-    point_ordinals: Sequence[int] | None = None,
 ) -> MeasurementValueCatalog:
-    """Close compiler point and product inventories at the run boundary."""
+    """Close typed point-domain and product contracts at the run boundary."""
 
-    return project_measurement_catalog_from_domain(
-        bound_points.bound_plan,
-        bound_points.point_domain,
-        point_ordinals,
-    )
-
-
-def project_measurement_catalog_from_domain(
-    bound: BoundPlan,
-    point_domain: MaterializedPointDomain,
-    point_ordinals: Sequence[int] | None = None,
-) -> MeasurementValueCatalog:
-    """Project measurement contracts without materializing point parameters."""
-
-    all_points = point_domain.points
-    points_by_ordinal = {point.logical_ordinal: point for point in all_points}
-    points = (
-        all_points
-        if point_ordinals is None
-        else tuple(points_by_ordinal[ordinal] for ordinal in point_ordinals)
-    )
-    coordinate_ids = tuple(point_coordinate_ids(points))
+    bound = bound_points.bound_plan
+    point_domain = bound_points.point_domain
+    coordinate_columns = bound.point_domain.coordinate_columns
     return MeasurementValueCatalog(
         RunPointContract(
             experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
-            coordinate_ids=coordinate_ids,
+            coordinate_columns=coordinate_columns,
             domain_layout=point_domain.layout,
             domain_axis_sizes=point_domain.axis_sizes,
         ),
@@ -64,20 +39,10 @@ def project_run_point_catalog(
     bound_points: MaterializedBoundPoints,
     point_ordinals: Sequence[int] | None = None,
 ) -> RunPointCatalog:
-    return project_run_point_catalog_from_domain(
-        bound_points.bound_plan,
-        bound_points.point_domain,
-        point_ordinals,
-    )
+    """Project runtime points and their typed coordinate contract."""
 
-
-def project_run_point_catalog_from_domain(
-    bound: BoundPlan,
-    point_domain: MaterializedPointDomain,
-    point_ordinals: Sequence[int] | None = None,
-) -> RunPointCatalog:
-    """Project runtime points without materializing point parameters."""
-
+    bound = bound_points.bound_plan
+    point_domain = bound_points.point_domain
     all_points = point_domain.points
     points_by_ordinal = {point.logical_ordinal: point for point in all_points}
     points = (
@@ -85,12 +50,13 @@ def project_run_point_catalog_from_domain(
         if point_ordinals is None
         else tuple(points_by_ordinal[ordinal] for ordinal in point_ordinals)
     )
-    coordinate_ids = tuple(point_coordinate_ids(points))
+    coordinate_columns = bound.point_domain.coordinate_columns
+    coordinate_ids = tuple(column.id for column in coordinate_columns)
     return RunPointCatalog(
         contract=RunPointContract(
             experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
-            coordinate_ids=coordinate_ids,
+            coordinate_columns=coordinate_columns,
             domain_layout=point_domain.layout,
             domain_axis_sizes=point_domain.axis_sizes,
         ),
@@ -145,8 +111,6 @@ def project_static_value_record_candidates(
 
 __all__ = [
     "project_measurement_catalog",
-    "project_measurement_catalog_from_domain",
     "project_run_point_catalog",
-    "project_run_point_catalog_from_domain",
     "project_static_value_record_candidates",
 ]

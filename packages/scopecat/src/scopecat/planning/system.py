@@ -51,8 +51,8 @@ from scopecat.planning.local_materialization import (
     prepare_local_target,
 )
 from scopecat.planning.measurement_projection import (
-    project_measurement_catalog_from_domain,
-    project_run_point_catalog_from_domain,
+    project_measurement_catalog,
+    project_run_point_catalog,
     project_static_value_record_candidates,
 )
 from scopecat.planning.point_materialization import (
@@ -209,11 +209,8 @@ def _compile_system_program(
     bound_points = materialize_bound_points(bound)
     point_domain = bound_points.point_domain
     point_count = len(point_domain.points)
-    measurement_catalog = project_measurement_catalog_from_domain(
-        bound,
-        point_domain,
-    )
-    point_catalog = project_run_point_catalog_from_domain(bound, point_domain)
+    measurement_catalog = project_measurement_catalog(bound_points)
+    point_catalog = project_run_point_catalog(bound_points)
     measurements = select_measurement_projection(
         measurement_catalog,
         bound.bindings.record_uses,

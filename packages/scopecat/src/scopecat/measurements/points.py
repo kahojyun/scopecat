@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainLayout
 from scopecat.kernel.value_data import CellValue
+from scopecat.kernel.value_types import TableColumn
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,9 +36,13 @@ class RunPointContract:
 
     experiment_id: str
     experiment_kind: str
-    coordinate_ids: tuple[str, ...]
+    coordinate_columns: tuple[TableColumn, ...]
     domain_layout: PointDomainLayout = "product_grid"
     domain_axis_sizes: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def coordinate_ids(self) -> tuple[str, ...]:
+        return tuple(column.id for column in self.coordinate_columns)
 
 
 @dataclass(frozen=True, slots=True)

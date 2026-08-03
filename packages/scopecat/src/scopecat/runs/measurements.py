@@ -68,7 +68,7 @@ def read_measurement_dataset(
     ):
         raise _invalid_schema(ref)
     return MeasurementDataset(
-        schema=schema,
+        dataset_schema=schema,
         records=records,
         metadata=dataset.metadata,
     )
