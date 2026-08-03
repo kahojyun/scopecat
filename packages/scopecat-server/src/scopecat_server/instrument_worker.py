@@ -727,6 +727,7 @@ class SubprocessInstrumentBackendEndpoint:
     ) -> _RpcResponse | None:
         selected_deadline = deadline or (monotonic() + self._shutdown_timeout)
         response: _RpcResponse | None = None
+        process_closed = False
         try:
             if graceful is not None:
                 graceful.pending.event.wait(
@@ -743,6 +744,8 @@ class SubprocessInstrumentBackendEndpoint:
                 raise InstrumentBackendUnavailable(
                     "instrument worker receiver did not stop"
                 )
+            self._process.close()
+            process_closed = True
             return response
         finally:
             with self._state_lock:
@@ -751,9 +754,7 @@ class SubprocessInstrumentBackendEndpoint:
                         graceful.request.request_id,
                         None,
                     )
-                self._cleanup_complete = (
-                    not self._process.is_alive() and not self._receiver.is_alive()
-                )
+                self._cleanup_complete = process_closed
 
     def _close_connection(self) -> None:
         with self._state_lock:
@@ -1194,6 +1195,7 @@ def _require_child_handle(request: _RpcRequest) -> InstrumentHandle:
 
 def _stop_process(process: BaseProcess, timeout: float) -> None:
     _stop_process_until(process, monotonic() + timeout)
+    process.close()
 
 
 def _stop_process_until(process: BaseProcess, deadline: float) -> None:
