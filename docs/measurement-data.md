@@ -171,11 +171,14 @@ is allowed to vary. Use `axis(size=1024)` for a fixed extent or a state field
 such as `axis(size="points")` when configuration determines one fixed extent.
 
 Ragged arrays retain an explicit point-local shape and are never padded with
-sentinel values. Durable Arrow IPC chunks keep their elements in dtype-specific
-variable-length lists alongside that shape; complex elements are `{real, imag}`
-structs. Each Xarray snapshot uses an indexed observation dimension with
-parent-point and local-index coordinates, making the flattening explicit and
-reversible.
+sentinel values. Durable Arrow IPC chunks give every measurement variable its
+own schema-derived column: fixed arrays use nested fixed-size lists, ragged
+arrays use nested large lists with a shape sidecar, and complex elements are
+`{real, imag}` structs. Unavailability, metadata, and acquisition evidence use
+explicit sidecar columns; dtype, unit, and dimensions live once in the registered
+header instead of being repeated in every row. Each Xarray snapshot uses an
+indexed observation dimension with parent-point and local-index coordinates,
+making the flattening explicit and reversible.
 Pandas point layout keeps each array in one cell; `layout="long"` emits one row
 per local sample.
 
@@ -253,9 +256,10 @@ for batch in run.measurement_batches(batch_size=500):
 Each batch is the same labeled `Dataset` facade, so slicing and ecosystem
 exports work unchanged. Its `point` dimension is the number of records in that
 batch, while durable `point_index` values remain absolute. Metadata exposes
-`scopecat_batch_offset` and `scopecat_planned_point_count`. An empty run yields
-one zero-row, schema-bearing batch so callers can still inspect variables and
-initialize downstream tables.
+`scopecat_batch_offset`; the immutable schema continues to describe the complete
+planned point domain and its point count. An empty run yields one zero-row,
+schema-bearing batch so callers can still inspect variables and initialize
+downstream tables.
 
 Xarray and Arrow are core dependencies and are available on every measurement
 view. Install the `scopecat[pandas]` extra only for explicit pandas exports:
@@ -288,16 +292,16 @@ the affected observations, while the existing `<variable>__unavailable_reason`
 retains the point-level reason. This makes integer, boolean, and string fill
 values unambiguous.
 
-The facade deep-copies the durable Pydantic input and builds one private Xarray
-snapshot at construction. `raw`, `schema`, `records`, variable definitions, and
-raw values are detached inspection copies; mutating them never changes the
-facade. Each `data.xarray` or `to_xarray()` result is likewise a deep copy of the
-cached snapshot, so caller edits cannot pollute wrapper selections or later
-exports. Arrow column types come from the declared variable dtype and dimensions,
-so empty datasets and entirely unavailable columns retain numeric, complex, and
-nested-list types instead of degrading to Arrow `null`. Dataset attrs retain
-entry provenance; schema and dataset metadata use the stable JSON-string attrs
-`scopecat_schema_json` and
+Durable measurement models are deeply immutable: nested metadata and mappings
+are frozen, and arrays use immutable byte buffers whose write flag cannot be
+re-enabled. The facade can therefore share `raw`, `schema`, `records`, variable
+definitions, and raw values without copying them. Each `data.xarray` or
+`to_xarray()` result remains a deep copy of the cached snapshot, so caller edits
+cannot pollute wrapper selections or later exports. Arrow column types come from
+the declared variable dtype and dimensions, so empty datasets and entirely
+unavailable columns retain numeric, complex, and nested-list types instead of
+degrading to Arrow `null`. Dataset attrs retain entry provenance; schema and
+dataset metadata use the stable JSON-string attrs `scopecat_schema_json` and
 `scopecat_metadata_json`. Variable metadata uses the same
 `scopecat_metadata_json` name on each DataArray, keeping nested metadata
 NetCDF-safe.
@@ -358,13 +362,15 @@ real observables use `value`. The response reports that same effective
 `value_mode`; when omitted, the daemon selects magnitude for complex values and
 value for real values. Its
 `selected_series_count` is the authored domain-selection size; live or
-unavailable points need not produce a returned series, and the daemon does not
-scan beyond the requested bound looking for replacements. Durable measurement
+unavailable points need not produce a returned series. The daemon continues
+through that selection until it has the requested number of usable series or
+the selection is exhausted. Durable measurement
 appends are single-batch Arrow IPC files. Page and point-selection reads apply
-Arrow `slice` or `take` before rebuilding public measurement records, so
-unselected rows are not materialized as Pydantic objects. The content-addressed
-object store still verifies and reads each intersecting chunk as one immutable
-file, so the response bound is not a byte-range I/O guarantee.
+Arrow `slice` or `take` and select requested variable columns before rebuilding
+public measurement records, so unselected rows and variables are not
+materialized as Pydantic objects. The content-addressed object store still
+verifies and reads each intersecting chunk as one immutable file, so the response
+bound is not a byte-range I/O guarantee.
 
 ## Save analysis results as typed views
 
