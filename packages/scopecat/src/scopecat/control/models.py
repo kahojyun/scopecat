@@ -14,6 +14,8 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.records.run import RunStageLineage
+
 type ControlRunState = Literal[
     "queued",
     "leased",
@@ -177,6 +179,7 @@ class RunAdmissionRecord(_ControlModel):
     run_id: str = Field(min_length=1)
     plan: RunPlanSummary
     resource_claims: tuple[ResourceKey, ...]
+    stage: RunStageLineage | None = None
     admitted_at: datetime = Field(default_factory=utc_now)
 
     @field_validator("resource_claims")

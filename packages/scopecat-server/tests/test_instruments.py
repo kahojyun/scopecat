@@ -10,13 +10,14 @@ from typing import Never, override
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
+from scopecat.adapters.sqlite import SQLiteControlPlane
 from scopecat.api._instruments import (
     InstrumentClientChannel,
     InstrumentRef,
     InstrumentSessionHandle,
     instrument,
 )
-from scopecat.api.lab import LabClient
+from scopecat.api.lab import ExperimentStage, LabClient
 from scopecat.control.models import RunPlanSummary, RunResourceRequirement
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.views import ActiveConfigView
@@ -85,6 +86,7 @@ from scopecat.sdk.instruments.commands import (
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
+from tests.testkit.workflow_fixtures import load_invocation
 
 import scopecat_server.instrument_service as instrument_service_module
 from scopecat_server import LocalDaemonRuntime
@@ -764,6 +766,59 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
             assert [result.result_id for result in collect_request.results] == [
                 "signal"
             ]
+
+
+def test_staged_run_is_rediscovered_and_resumed_by_a_new_daemon_client(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider()
+    sequence_id = "daemon-resume-sequence"
+    invocation = load_invocation()
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            with _daemon_client(transport) as daemon:
+                initial = LabClient(daemon).run_staged(
+                    invocation,
+                    next_stage=lambda _stage: pytest.fail(
+                        "the terminal callback is deferred at the stage limit"
+                    ),
+                    max_stages=1,
+                    sequence_id=sequence_id,
+                )
+
+            callback_indices: list[int] = []
+
+            def next_stage(stage: ExperimentStage):
+                callback_indices.append(stage.index)
+                return invocation if stage.index == 0 else None
+
+            with _daemon_client(transport) as daemon:
+                lab = LabClient(daemon)
+                discovered = lab.get_staged_experiment(sequence_id)
+                resumed = lab.resume_staged(
+                    sequence_id,
+                    next_stage=next_stage,
+                    max_stages=2,
+                )
+
+            with _daemon_client(transport) as daemon:
+                rediscovered = LabClient(daemon).get_staged_experiment(sequence_id)
+
+    assert [stage.index for stage in initial.stages] == [0]
+    assert initial.stopped_by_limit
+    assert [stage.index for stage in discovered.stages] == [0]
+    assert discovered.stopped_by_limit is None
+    assert callback_indices == [0, 1]
+    assert [stage.index for stage in resumed.stages] == [0, 1]
+    assert not resumed.stopped_by_limit
+    assert [stage.index for stage in rediscovered.stages] == [0, 1]
+
+    control = SQLiteControlPlane(tmp_path / ".scopecat" / "control.sqlite3")
+    durable = tuple(reversed(control.list_staged_runs(sequence_id=sequence_id).items))
+    assert [run.admission.submission_id for run in durable] == [
+        f"staged:{sequence_id}:0",
+        f"staged:{sequence_id}:1",
+    ]
 
 
 def test_invoke_without_reported_state_reads_back_before_returning(

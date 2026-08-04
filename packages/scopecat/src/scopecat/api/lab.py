@@ -184,16 +184,10 @@ class LabClient:
         """Rediscover durable staged experiments, newest sequence first."""
 
         grouped: dict[str, list[RunManifest]] = {}
-        before: int | None = None
-        while True:
-            page = self._control.runs(limit=_RUN_PAGE_SIZE, before=before)
-            for item in page.items:
-                lineage = item.manifest.stage
-                if lineage is not None:
-                    grouped.setdefault(lineage.sequence_id, []).append(item.manifest)
-            if page.next_cursor is None:
-                break
-            before = page.next_cursor
+        for manifest in self._staged_manifests():
+            lineage = manifest.stage
+            assert lineage is not None
+            grouped.setdefault(lineage.sequence_id, []).append(manifest)
         return tuple(
             self._staged_experiment(sequence_id, manifests)
             for sequence_id, manifests in grouped.items()
@@ -204,10 +198,10 @@ class LabClient:
 
         if not sequence_id:
             raise ValueError("sequence_id must be non-empty")
-        for experiment in self.staged_experiments():
-            if experiment.sequence_id == sequence_id:
-                return experiment
-        raise KeyError(f"staged experiment not found: {sequence_id}")
+        manifests = self._staged_manifests(sequence_id=sequence_id)
+        if not manifests:
+            raise KeyError(f"staged experiment not found: {sequence_id}")
+        return self._staged_experiment(sequence_id, list(manifests))
 
     def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
         run_id = run_handle_id(run)
@@ -306,6 +300,13 @@ class LabClient:
         selected_sequence_id = uuid4().hex if sequence_id is None else sequence_id
         if not selected_sequence_id:
             raise ValueError("sequence_id must be non-empty")
+        if sequence_id is not None and self._staged_manifests(
+            sequence_id=selected_sequence_id
+        ):
+            raise ValueError(
+                f"staged experiment already exists: {selected_sequence_id}; "
+                "use resume_staged()"
+            )
 
         prepared = self.prepare(experiment, config=config)
         return self._execute_staged(
@@ -404,6 +405,7 @@ class LabClient:
                 metadata=metadata,
                 operator=operator,
                 stage=lineage,
+                submission_id=_stage_submission_id(sequence_id, index),
             )
             stage = ExperimentStage(
                 sequence_id=sequence_id,
@@ -481,6 +483,24 @@ class LabClient:
             ),
         )
 
+    def _staged_manifests(
+        self,
+        *,
+        sequence_id: str | None = None,
+    ) -> tuple[RunManifest, ...]:
+        manifests: list[RunManifest] = []
+        before: int | None = None
+        while True:
+            page = self._control.run_stages(
+                limit=_RUN_PAGE_SIZE,
+                before=before,
+                sequence_id=sequence_id,
+            )
+            manifests.extend(item.manifest for item in page.items)
+            if page.next_cursor is None:
+                return tuple(manifests)
+            before = page.next_cursor
+
     def preview_invocation(
         self,
         invocation: ExperimentInvocation,
@@ -514,6 +534,7 @@ class LabClient:
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
         stage: RunStageLineage | None = None,
+        submission_id: str | None = None,
     ) -> RunHandle:
         manifest = self._runner.run(
             invocation,
@@ -525,6 +546,7 @@ class LabClient:
             metadata=metadata,
             operator=operator,
             stage=stage,
+            submission_id=submission_id,
         )
         return RunHandle(session=self, id=manifest.run_id)
 
@@ -533,6 +555,10 @@ def _experiment_invocation(experiment: ExperimentSpec) -> ExperimentInvocation:
     return (
         experiment.bind() if isinstance(experiment, ExperimentTemplate) else experiment
     )
+
+
+def _stage_submission_id(sequence_id: str, index: int) -> str:
+    return f"staged:{sequence_id}:{index}"
 
 
 __all__ = [

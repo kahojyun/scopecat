@@ -29,6 +29,7 @@ from scopecat.control.models import (
     RunPlanSummary,
     RunResourceRequirement,
 )
+from scopecat.records.run import RunStageLineage
 
 NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 SUBMISSION_HASH = "1" * 64
@@ -237,6 +238,50 @@ def test_run_admission_state_and_pagination(tmp_path: Path) -> None:
             store,
             retry.model_copy(update={"submission_content_hash": "2" * 64}),
         )
+
+
+def test_staged_run_query_filters_and_enforces_sequence_index_identity(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    first = _admission("run-a-0").model_copy(
+        update={"stage": RunStageLineage(sequence_id="sequence-a", index=0)}
+    )
+    unrelated = _admission("run-unrelated")
+    other = _admission("run-b-0").model_copy(
+        update={"stage": RunStageLineage(sequence_id="sequence-b", index=0)}
+    )
+    latest = _admission("run-a-1").model_copy(
+        update={
+            "stage": RunStageLineage(
+                sequence_id="sequence-a",
+                index=1,
+                previous_run_id="run-a-0",
+            )
+        }
+    )
+    for admission in (first, unrelated, other, latest):
+        _admit(store, admission)
+
+    staged = store.list_staged_runs(limit=2)
+    assert [run.run_id for run in staged.items] == ["run-a-1", "run-b-0"]
+    assert staged.next_cursor == staged.items[-1].sequence
+    assert [
+        run.run_id
+        for run in store.list_staged_runs(
+            limit=2,
+            before=staged.next_cursor,
+        ).items
+    ] == ["run-a-0"]
+    assert [
+        run.run_id for run in store.list_staged_runs(sequence_id="sequence-a").items
+    ] == ["run-a-1", "run-a-0"]
+
+    duplicate = _admission("run-a-duplicate").model_copy(
+        update={"stage": RunStageLineage(sequence_id="sequence-a", index=0)}
+    )
+    with pytest.raises(ControlPlaneConflict, match="already contains index 0"):
+        _admit(store, duplicate)
 
 
 def test_executor_resources_and_scheduler_close_commit_together(

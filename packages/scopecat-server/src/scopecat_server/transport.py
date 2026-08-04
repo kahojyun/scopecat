@@ -360,6 +360,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
             state=state,
         )
 
+    @app.get(f"{_API_PREFIX}/run-stages")
+    def list_run_stages(
+        limit: Annotated[int, Query(ge=1, le=500)] = 50,
+        before: Annotated[int | None, Query(ge=1)] = None,
+        sequence_id: Annotated[str | None, Query(min_length=1)] = None,
+    ) -> RunSummaryPage:
+        return application.runs.list_run_stages(
+            limit=limit,
+            before=before,
+            sequence_id=sequence_id,
+        )
+
     @app.post(f"{_API_PREFIX}/runs", status_code=201)
     def submit_run(submission: RunSubmission) -> RunAdmission:
         return application.submit_run(submission)

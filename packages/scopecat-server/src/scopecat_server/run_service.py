@@ -159,6 +159,36 @@ class RunService:
                 next_cursor=page.next_cursor,
             )
 
+    def list_run_stages(
+        self,
+        *,
+        limit: int,
+        before: int | None,
+        sequence_id: str | None,
+    ) -> RunSummaryPage:
+        """List staged runs without scanning unrelated run manifests."""
+
+        with self._control.transaction() as connection:
+            page = self._control.list_staged_runs_in_transaction(
+                connection,
+                limit=limit,
+                before=before,
+                sequence_id=sequence_id,
+            )
+            return RunSummaryPage(
+                items=tuple(
+                    RunSummary(
+                        control=_run_control_view(control),
+                        manifest=self._runs.read_manifest_in_transaction(
+                            connection,
+                            control.run_id,
+                        ),
+                    )
+                    for control in page.items
+                ),
+                next_cursor=page.next_cursor,
+            )
+
     def get_run(self, run_id: str) -> RunDetail:
         try:
             with self._control.transaction() as connection:

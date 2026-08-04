@@ -269,8 +269,17 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
         execute_calls.append((invocation, kwargs))
         return RunHandle(session=lab, id=f"run-{len(execute_calls)}")
 
+    def staged_manifests(
+        _lab: LabClient,
+        *,
+        sequence_id: str | None = None,
+    ) -> tuple[RunManifest, ...]:
+        del _lab, sequence_id
+        return ()
+
     monkeypatch.setattr(LabClient, "prepare", prepare)
     monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
+    monkeypatch.setattr(LabClient, "_staged_manifests", staged_manifests)
     stages: list[ExperimentStage] = []
 
     def choose_next(stage: ExperimentStage):
@@ -308,6 +317,9 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
             previous_run_id=None if index == 0 else f"run-{index}",
         )
         for index in range(3)
+    ]
+    assert [kwargs["submission_id"] for _invocation, kwargs in execute_calls] == [
+        f"staged:adaptive-sequence:{index}" for index in range(3)
     ]
 
     limited = lab.run_staged(
@@ -356,23 +368,16 @@ def test_lab_rediscovers_staged_experiments_across_run_pages() -> None:
             previous_run_id=old_first.run_id,
         ),
     )
-    unrelated = RunManifest(
-        run_id="run-unrelated",
-        config_content_hash=config_hash,
-    )
     requests: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        assert request.url.path == "/api/v1/runs"
+        assert request.url.path == "/api/v1/run-stages"
         before = request.url.params.get("before")
         if before is None:
             return _model(
                 RunSummaryPage(
-                    items=(
-                        _run_summary(new_latest, sequence=5),
-                        _run_summary(unrelated, sequence=4),
-                    ),
+                    items=(_run_summary(new_latest, sequence=5),),
                     next_cursor=4,
                 )
             )
@@ -406,6 +411,32 @@ def test_lab_rediscovers_staged_experiments_across_run_pages() -> None:
     ]
 
 
+def test_lab_rejects_starting_an_existing_staged_sequence() -> None:
+    config_hash = config_content_hash(load_config())
+    existing = RunManifest(
+        run_id="run-existing-0",
+        config_content_hash=config_hash,
+        stage=RunStageLineage(sequence_id="existing-sequence", index=0),
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == "/api/v1/run-stages"
+        assert dict(request.url.params) == {
+            "limit": "500",
+            "sequence_id": "existing-sequence",
+        }
+        return _model(RunSummaryPage(items=(_run_summary(existing, sequence=1),)))
+
+    lab = LabClient(_client(handler))
+
+    with pytest.raises(ValueError, match="use resume_staged"):
+        lab.run_staged(
+            load_invocation(),
+            next_stage=lambda _stage: None,
+            sequence_id="existing-sequence",
+        )
+
+
 def test_lab_get_staged_experiment_rejects_missing_and_broken_sequences() -> None:
     config_hash = config_content_hash(load_config())
     first = RunManifest(
@@ -425,7 +456,13 @@ def test_lab_get_staged_experiment_rejects_missing_and_broken_sequences() -> Non
     page = RunSummaryPage(
         items=(_run_summary(broken, sequence=2), _run_summary(first, sequence=1))
     )
-    lab = LabClient(_client(lambda _request: _model(page)))
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == "/api/v1/run-stages"
+        assert request.url.params["sequence_id"] == "broken"
+        return _model(page)
+
+    lab = LabClient(_client(handler))
 
     with pytest.raises(ValueError, match="broken predecessor"):
         lab.get_staged_experiment("broken")
@@ -476,7 +513,8 @@ def test_lab_resumes_latest_stage_with_durable_context(
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
-        if path == "/api/v1/runs":
+        if path == "/api/v1/run-stages":
+            assert request.url.params["sequence_id"] == "resume-sequence"
             return _model(
                 RunSummaryPage(
                     items=(
@@ -592,6 +630,9 @@ def test_staged_limit_defers_latest_callback_until_resume(
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
+        if path == "/api/v1/run-stages":
+            assert request.url.params["sequence_id"] == "limit-sequence"
+            return _model(RunSummaryPage())
         if path == f"/api/v1/runs/{latest.run_id}":
             summary = _run_summary(latest, sequence=2)
             return _model(RunDetail(control=summary.control, manifest=summary.manifest))
@@ -682,6 +723,11 @@ def test_staged_limit_defers_latest_callback_until_resume(
             index=2,
             previous_run_id="run-limit-1",
         ),
+    ]
+    assert [call["submission_id"] for call in execute_calls] == [
+        "staged:limit-sequence:0",
+        "staged:limit-sequence:1",
+        "staged:limit-sequence:2",
     ]
 
 
