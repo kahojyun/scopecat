@@ -51,11 +51,14 @@ from scopecat.program.point_domain import (
     iter_point_axis_linear,
     point_axis_linear,
     point_axis_linear_value,
+    point_axis_range,
+    point_axis_range_values,
     point_axis_values,
 )
 
 _INT = Scalar(Int())
 _TIME = Scalar(QuantityType(dimension="time", unit="ns"))
+_POWER_DBM = Scalar(QuantityType(dimension="power", unit="dBm"))
 _ENTITY = Scalar(Entity("qubit"))
 
 type _CenterUse = ScalarExpr
@@ -241,6 +244,88 @@ def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
         {"delay": _quantity(10.0)},
         {"delay": _quantity(12.0)},
     ]
+
+
+def test_range_axis_materializes_dbm_as_linear_coordinate_values() -> None:
+    verified = _verify(
+        PointDomain(
+            axes=(
+                point_axis_range(
+                    "power",
+                    _POWER_DBM,
+                    Quantity(value=-30.0, unit="dBm"),
+                    Quantity(value=0.0, unit="dBm"),
+                    4,
+                ),
+            )
+        )
+    )
+
+    materialized = materialize_point_domain(verified, ParameterRelationData())
+
+    assert verified.axis_sizes == (("power", 4),)
+    assert [point.row for point in materialized.points] == [
+        {"power": Quantity(value=-30.0, unit="dBm")},
+        {"power": Quantity(value=-20.0, unit="dBm")},
+        {"power": Quantity(value=-10.0, unit="dBm")},
+        {"power": Quantity(value=0.0, unit="dBm")},
+    ]
+
+
+def test_centered_axis_materializes_dbm_as_coordinate_span() -> None:
+    materialized = _materialize(
+        PointDomain(
+            axes=(
+                point_axis_linear(
+                    "power",
+                    _POWER_DBM,
+                    as_scalar_expr(
+                        Quantity(value=-20.0, unit="dBm"),
+                        value_type=_POWER_DBM,
+                    ),
+                    Quantity(value=6.0, unit="dBm"),
+                    5,
+                ),
+            )
+        )
+    )
+
+    assert [point.row["power"] for point in materialized.points] == [
+        Quantity(value=-23.0, unit="dBm"),
+        Quantity(value=-21.5, unit="dBm"),
+        Quantity(value=-20.0, unit="dBm"),
+        Quantity(value=-18.5, unit="dBm"),
+        Quantity(value=-17.0, unit="dBm"),
+    ]
+
+
+def test_range_axis_preserves_integral_coordinates() -> None:
+    materialized = _materialize(
+        PointDomain(axes=(point_axis_range("index", _INT, 1, 5, 3),))
+    )
+
+    assert [point.row for point in materialized.points] == [
+        {"index": 1},
+        {"index": 3},
+        {"index": 5},
+    ]
+
+
+def test_range_axis_interpolates_extreme_finite_endpoints_without_overflow() -> None:
+    assert point_axis_range_values(-1e308, 1e308, 3) == (
+        -1e308,
+        0.0,
+        1e308,
+    )
+    assert point_axis_range_values(
+        Quantity(-1e308, "V"),
+        Quantity(1e308, "V"),
+        3,
+    ) == (
+        Quantity(-1e308, "V"),
+        Quantity(0.0, "V"),
+        Quantity(1e308, "V"),
+    )
 
 
 def test_linear_axis_normalizes_center_to_its_declared_value_type() -> None:

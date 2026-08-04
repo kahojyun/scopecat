@@ -9,9 +9,18 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StrictFloat,
+    StrictInt,
+    model_validator,
+)
 
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.units import compatible_units
 from scopecat.records._run_request_values import (
     normalize_json_value,
     normalize_run_request_value,
@@ -94,6 +103,16 @@ type RunRequestValue = Annotated[
 ]
 
 
+type RunRequestQuantity = Annotated[
+    Quantity,
+    BeforeValidator(normalize_run_request_value),
+]
+type RunRequestRangeValue = Annotated[
+    Quantity | StrictInt | StrictFloat,
+    BeforeValidator(normalize_run_request_value),
+]
+
+
 _RECURSIVE_REQUEST_MODELS = (
     RunRequestParameterLookupValue,
     RunRequestBinaryValue,
@@ -144,8 +163,23 @@ class AroundScanRecord(_RunRequestModel):
     kind: Literal["scan"] = "scan"
     axis_id: str
     center: RunRequestScalarValue
-    span: RunRequestScalarValue
-    points: int
+    span: RunRequestQuantity
+    points: int = Field(ge=2)
+
+
+class RangeScanRecord(_RunRequestModel):
+    """Persisted fixed-count linear coordinate range."""
+
+    kind: Literal["range"] = "range"
+    axis_id: str
+    start: RunRequestRangeValue
+    stop: RunRequestRangeValue
+    points: int = Field(ge=2)
+
+    @model_validator(mode="after")
+    def validate_endpoints(self) -> RangeScanRecord:
+        _validate_range_endpoints(self.start, self.stop)
+        return self
 
 
 class ParameterScanRecord(_RunRequestModel):
@@ -172,16 +206,50 @@ class ParameterAroundScanRecord(_RunRequestModel):
     key: dict[str, RunRequestScalarValue]
     column: str
     axis_id: str
-    span: RunRequestScalarValue
-    points: int
+    span: RunRequestQuantity
+    points: int = Field(ge=2)
+
+
+class ParameterRangeScanRecord(_RunRequestModel):
+    """Persisted parameter-table range scan axis record."""
+
+    kind: Literal["parameter_range"] = "parameter_range"
+    table_id: str
+    key: dict[str, RunRequestScalarValue]
+    column: str
+    axis_id: str
+    start: RunRequestRangeValue
+    stop: RunRequestRangeValue
+    points: int = Field(ge=2)
+
+    @model_validator(mode="after")
+    def validate_endpoints(self) -> ParameterRangeScanRecord:
+        _validate_range_endpoints(self.start, self.stop)
+        return self
+
+
+def _validate_range_endpoints(
+    start: Quantity | float,
+    stop: Quantity | float,
+) -> None:
+    if isinstance(start, Quantity) != isinstance(stop, Quantity):
+        raise ValueError("range endpoints must both be quantities or both be numeric")
+    if (
+        isinstance(start, Quantity)
+        and isinstance(stop, Quantity)
+        and not compatible_units(start.unit, stop.unit)
+    ):
+        raise ValueError("range quantity endpoints must use compatible units")
 
 
 type ScanRecord = Annotated[
     PointScanRecord
     | PointRowsRecord
     | AroundScanRecord
+    | RangeScanRecord
     | ParameterScanRecord
-    | ParameterAroundScanRecord,
+    | ParameterAroundScanRecord
+    | ParameterRangeScanRecord,
     Field(discriminator="kind"),
 ]
 

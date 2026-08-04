@@ -21,6 +21,7 @@ from scopecat.program.value_refs import (
 
 type ScanValue = Quantity | EntityRef | str | int | float | bool | None
 type ScanCenter = ValueRef | Quantity
+type ScanRangeValue = Quantity | int | float
 
 
 class Scan:
@@ -43,7 +44,16 @@ class AroundScanSource:
     points: int
 
 
-type ScanSource = ValuesScanSource | AroundScanSource
+@dataclass(frozen=True, slots=True)
+class RangeScanSource:
+    """A fixed-count linear axis between two literal coordinate endpoints."""
+
+    start: ScanRangeValue
+    stop: ScanRangeValue
+    points: int
+
+
+type ScanSource = ValuesScanSource | AroundScanSource | RangeScanSource
 
 
 @dataclass(frozen=True, slots=True, repr=False)
