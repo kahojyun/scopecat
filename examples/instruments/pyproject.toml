@@ -1,12 +1,14 @@
 [project]
-name = "scopecat-quantum"
+name = "instrument-demo"
 version = "0.1.0"
-description = "Hardware-independent quantum domain building blocks for Scopecat."
+description = "Virtual instrument lab workflows and providers for Scopecat."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
   "numpy>=2",
+  "scipy>=1.16",
   "scopecat",
+  "scopecat-instruments",
 ]
 
 [build-system]
@@ -15,6 +17,7 @@ build-backend = "uv_build"
 
 [tool.pytest]
 minversion = "9.0"
+pythonpath = ["../../packages/scopecat"]
 strict_config = true
 strict_markers = true
 testpaths = ["tests"]
@@ -22,6 +25,10 @@ testpaths = ["tests"]
 [tool.ruff]
 extend = "../../pyproject.toml"
 src = ["src", "tests"]
+exclude = [
+  ".scopecat-examples",
+]
 
 [tool.uv.sources]
 scopecat = { workspace = true }
+scopecat-instruments = { workspace = true }

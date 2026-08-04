@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import math
-import sys
-from array import array as PrimitiveArray
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 from itertools import pairwise
 from typing import Annotated, Literal, Protocol, cast
 
+import numpy as np
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -25,7 +24,6 @@ from scopecat.kernel.problems import Problem
 from scopecat.records._metadata import JsonMetadata
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementDType,
     MeasurementScalar,
@@ -525,39 +523,38 @@ def collect_attachment_sizes(
 
 
 def _encode_measurement_array(value: MeasurementArray) -> bytes:
-    leaves = _flatten_measurement_values(value.values)
     expected_count = math.prod(value.shape)
-    if len(leaves) != expected_count:
+    if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+        value.values, np.ndarray
+    ):
+        raise WorkerWireError("worker collect array values are not a NumPy array")
+    if value.values.size != expected_count or value.values.shape != value.shape:
         raise WorkerWireError("worker collect array shape does not match its values")
-    try:
-        if value.dtype == "float64":
-            return _encode_primitive_array(
-                "d",
-                (_require_float(item) for item in leaves),
-            )
-        if value.dtype == "int64":
-            return _encode_primitive_array(
-                "q",
-                (_require_int(item) for item in leaves),
-            )
-        if value.dtype == "complex128":
-            return _encode_primitive_array(
-                "d",
-                (
-                    part
-                    for item in leaves
-                    for component in (_require_complex(item),)
-                    for part in (component.real, component.imag)
-                ),
-            )
-        if value.dtype == "bool":
-            return _encode_primitive_array(
-                "B",
-                (_require_bool(item) for item in leaves),
-            )
-        return _encode_strings(leaves)
-    except OverflowError as error:
-        raise WorkerWireError("worker collect array value is out of range") from error
+    if value.dtype == "float64":
+        if (
+            value.values.dtype != np.dtype(np.float64)
+            or not np.isfinite(value.values).all()
+        ):
+            raise WorkerWireError("worker collect float64 array is invalid")
+        return value.values.astype("<f8", copy=False).tobytes(order="C")
+    if value.dtype == "int64":
+        if value.values.dtype != np.dtype(np.int64):
+            raise WorkerWireError("worker collect int64 array is invalid")
+        return value.values.astype("<i8", copy=False).tobytes(order="C")
+    if value.dtype == "complex128":
+        if (
+            value.values.dtype != np.dtype(np.complex128)
+            or not np.isfinite(value.values).all()
+        ):
+            raise WorkerWireError("worker collect complex128 array is invalid")
+        return value.values.astype("<c16", copy=False).tobytes(order="C")
+    if value.dtype == "bool":
+        if value.values.dtype != np.dtype(np.bool_):
+            raise WorkerWireError("worker collect bool array is invalid")
+        return value.values.astype("u1", copy=False).tobytes(order="C")
+    if value.values.dtype.kind != "U":
+        raise WorkerWireError("worker collect string array is invalid")
+    return _encode_strings(value.values)
 
 
 def _decode_measurement_array(
@@ -566,132 +563,51 @@ def _decode_measurement_array(
 ) -> MeasurementArray:
     count = math.prod(descriptor.shape)
     if descriptor.dtype == "float64":
-        leaves: tuple[object, ...] = _decode_primitive_array(
-            content,
-            count=count,
-            typecode="d",
-        )
+        leaves = _decode_numeric_array(content, count=count, dtype="<f8")
     elif descriptor.dtype == "int64":
-        leaves = _decode_primitive_array(content, count=count, typecode="q")
+        leaves = _decode_numeric_array(content, count=count, dtype="<i8")
     elif descriptor.dtype == "complex128":
-        components = _decode_primitive_array(
-            content,
-            count=count * 2,
-            typecode="d",
-        )
-        leaves = tuple(
-            ComplexComponents(
-                real=cast("float", components[index]),
-                imag=cast("float", components[index + 1]),
-            )
-            for index in range(0, len(components), 2)
-        )
+        leaves = _decode_numeric_array(content, count=count, dtype="<c16")
     elif descriptor.dtype == "bool":
-        raw_bools = _decode_primitive_array(
-            content,
-            count=count,
-            typecode="B",
-        )
-        if any(item not in (0, 1) for item in raw_bools):
+        raw_bools = _decode_numeric_array(content, count=count, dtype="u1")
+        if np.any(raw_bools > 1):
             raise WorkerWireError("worker collect bool attachment is invalid")
-        leaves = tuple(bool(item) for item in raw_bools)
+        leaves = raw_bools.astype(np.bool_)
     else:
-        leaves = _decode_strings(content, count=count)
+        leaves = np.asarray(_decode_strings(content, count=count), dtype=np.str_)
 
     try:
         return MeasurementArray.create(
             dtype=descriptor.dtype,
             unit=descriptor.unit,
             shape=descriptor.shape,
-            values=_reshape_measurement_values(leaves, descriptor.shape),
+            values=leaves.reshape(descriptor.shape),
             metadata=descriptor.metadata,
         )
     except ValidationError as error:
         raise WorkerWireError("invalid worker collect array attachment") from error
 
 
-def _flatten_measurement_values(values: object) -> tuple[object, ...]:
-    flattened: list[object] = []
-
-    def append(value: object) -> None:
-        if isinstance(value, tuple):
-            for item in cast("tuple[object, ...]", value):
-                append(item)
-            return
-        flattened.append(value)
-
-    append(values)
-    return tuple(flattened)
-
-
-def _reshape_measurement_values(
-    values: tuple[object, ...],
-    shape: Sequence[int],
-) -> tuple[object, ...]:
-    position = 0
-
-    def consume(axis: int) -> tuple[object, ...]:
-        nonlocal position
-        size = shape[axis]
-        if axis == len(shape) - 1:
-            selected = values[position : position + size]
-            position += size
-            return selected
-        return tuple(consume(axis + 1) for _ in range(size))
-
-    restored = consume(0)
-    if position != len(values):
-        raise WorkerWireError("worker collect attachment has excess values")
-    return restored
-
-
-def _encode_primitive_array(
-    typecode: Literal["B", "d", "q", "Q"],
-    values: Iterable[int | float],
-) -> bytes:
-    selected: PrimitiveArray[int] | PrimitiveArray[float]
-    if typecode == "d":
-        selected = PrimitiveArray("d", cast("Iterable[float]", values))
-    else:
-        selected = PrimitiveArray(typecode, cast("Iterable[int]", values))
-    _require_canonical_item_size(selected)
-    if sys.byteorder != "little" and selected.itemsize > 1:
-        selected.byteswap()
-    return selected.tobytes()
-
-
-def _decode_primitive_array(
+def _decode_numeric_array(
     content: bytes,
     *,
     count: int,
-    typecode: Literal["B", "d", "q", "Q"],
-) -> tuple[object, ...]:
-    selected: PrimitiveArray[int] | PrimitiveArray[float]
-    selected = PrimitiveArray("d") if typecode == "d" else PrimitiveArray(typecode)
-    _require_canonical_item_size(selected)
-    if len(content) != count * selected.itemsize:
+    dtype: Literal["<c16", "<f8", "<i8", "<u8", "u1"],
+) -> np.ndarray:
+    selected_dtype = np.dtype(dtype)
+    if len(content) != count * selected_dtype.itemsize:
         raise WorkerWireError("worker collect attachment has invalid size")
-    selected.frombytes(content)
-    if sys.byteorder != "little" and selected.itemsize > 1:
-        selected.byteswap()
-    return cast("tuple[object, ...]", tuple(selected))
+    return np.frombuffer(content, dtype=selected_dtype, count=count)
 
 
-def _require_canonical_item_size(
-    value: PrimitiveArray[int] | PrimitiveArray[float],
-) -> None:
-    expected = 1 if value.typecode == "B" else 8
-    if value.itemsize != expected:
-        raise WorkerWireError("platform cannot encode canonical worker arrays")
-
-
-def _encode_strings(values: tuple[object, ...]) -> bytes:
+def _encode_strings(values: np.ndarray) -> bytes:
     offsets = [0]
     chunks: list[bytes] = []
     size = 0
-    for item in values:
+    items = cast("list[str]", values.reshape(-1).tolist())
+    for item in items:
         try:
-            encoded = _require_string(item).encode("utf-8")
+            encoded = item.encode("utf-8")
         except UnicodeEncodeError as error:
             raise WorkerWireError(
                 "worker collect string array is not valid UTF-8"
@@ -699,7 +615,7 @@ def _encode_strings(values: tuple[object, ...]) -> bytes:
         chunks.append(encoded)
         size += len(encoded)
         offsets.append(size)
-    return _encode_primitive_array("Q", offsets) + b"".join(chunks)
+    return np.asarray(offsets, dtype="<u8").tobytes() + b"".join(chunks)
 
 
 def _decode_strings(content: bytes, *, count: int) -> tuple[object, ...]:
@@ -707,12 +623,12 @@ def _decode_strings(content: bytes, *, count: int) -> tuple[object, ...]:
     if len(content) < offset_bytes:
         raise WorkerWireError("worker collect string attachment has invalid size")
     offsets = cast(
-        "tuple[int, ...]",
-        _decode_primitive_array(
+        "list[int]",
+        _decode_numeric_array(
             content[:offset_bytes],
             count=count + 1,
-            typecode="Q",
-        ),
+            dtype="<u8",
+        ).tolist(),
     )
     encoded = content[offset_bytes:]
     if (
@@ -729,41 +645,6 @@ def _decode_strings(content: bytes, *, count: int) -> tuple[object, ...]:
         raise WorkerWireError(
             "worker collect string attachment is not UTF-8"
         ) from error
-
-
-def _require_float(value: object) -> float:
-    if not isinstance(value, int | float) or isinstance(value, bool):
-        raise WorkerWireError("worker collect float64 array contains an invalid value")
-    selected = float(value)
-    if not math.isfinite(selected):
-        raise WorkerWireError("worker collect float64 array value is out of range")
-    return selected
-
-
-def _require_int(value: object) -> int:
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise WorkerWireError("worker collect int64 array contains an invalid value")
-    return value
-
-
-def _require_complex(value: object) -> ComplexComponents:
-    if not isinstance(value, ComplexComponents):
-        raise WorkerWireError(
-            "worker collect complex128 array contains an invalid value"
-        )
-    return value
-
-
-def _require_bool(value: object) -> bool:
-    if not isinstance(value, bool):
-        raise WorkerWireError("worker collect bool array contains an invalid value")
-    return value
-
-
-def _require_string(value: object) -> str:
-    if not isinstance(value, str):
-        raise WorkerWireError("worker collect string array contains an invalid value")
-    return value
 
 
 def _parse_invoke_header(

@@ -1,14 +1,30 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 from runpy import run_path
 from typing import Protocol, TypedDict, cast
 
+import numpy as np
 import pytest
+import scopecat as sc
+from scopecat.kernel.errors import RunIndeterminate
+from scopecat.program.bindings import EnsureStateIntent
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementScalar,
+)
+from scopecat.records.parameter import ScalarParameterValue
+from scopecat.sdk.instruments import (
+    DriverAcquisition,
+    DriverOutcome,
+    DriverReadback,
+)
+from scopecat_instruments.virtual import VirtualNetworkAnalyzer
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_host import compose_test_instruments
 
-import scopecat as sc
 from instrument_demo.configuration import (
     RESONANCE_FREQUENCY_PARAMETER_ID,
     RESONATOR_LINEWIDTH_PARAMETER_ID,
@@ -25,23 +41,9 @@ from instrument_demo.workflows.flux_spectroscopy import (
 )
 from instrument_demo.workflows.flux_spectroscopy_analysis import (
     fit_flux_spectroscopy,
+    fit_resonator_trace,
     flux_spectroscopy_analysis,
 )
-from scopecat.kernel.errors import RunIndeterminate
-from scopecat.program.bindings import EnsureStateIntent
-from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.measurement import (
-    ComplexComponents,
-    MeasurementArray,
-    MeasurementScalar,
-)
-from scopecat.records.parameter import ScalarParameterValue
-from scopecat.sdk.instruments import (
-    DriverAcquisition,
-    DriverOutcome,
-    DriverReadback,
-)
-from scopecat_instruments.virtual import VirtualNetworkAnalyzer
 
 
 class _DemoDaemon(Protocol):
@@ -54,6 +56,47 @@ class _FluxNotebookSummary(TypedDict):
     measurement_records: int
     analysis_id: str
     candidate_config_id: str
+
+
+def test_complex_notch_fit_recovers_delay_and_ignores_one_outlier() -> None:
+    frequencies_hz = np.linspace(4.96e9, 5.04e9, 601)
+    resonance_hz = 5.0037e9
+    linewidth_hz = 1.8e6
+    amplitude = 0.84
+    depth = 0.63
+    delay_s = 0.8e-9
+    detuning = 2.0 * (frequencies_hz - resonance_hz) / linewidth_hz
+    baseline = amplitude * np.exp(
+        1j * (0.42 - 2.0 * np.pi * (frequencies_hz - 5.0e9) * delay_s)
+    )
+    modeled_samples = cast(
+        "Iterable[complex]",
+        baseline * (1.0 - depth / (1.0 + 1j * detuning)),
+    )
+    samples = [complex(value) for value in modeled_samples]
+    samples[47] += complex(0.25, -0.15)
+
+    fit = fit_resonator_trace(
+        tuple(float(value) for value in frequencies_hz),
+        samples,
+        dc_bias=sc.Quantity(0.1, "V"),
+        temperature=sc.Quantity(20.0, "mK"),
+    )
+
+    assert float(fit.resonance_frequency.to("Hz").value) == pytest.approx(
+        resonance_hz,
+        abs=5.0e3,
+    )
+    assert float(fit.linewidth.to("Hz").value) == pytest.approx(
+        linewidth_hz,
+        rel=0.01,
+    )
+    assert fit.baseline_power == pytest.approx(amplitude**2, rel=0.005)
+    assert fit.minimum_power == pytest.approx(
+        (amplitude * (1.0 - depth)) ** 2,
+        rel=0.02,
+    )
+    assert fit.complex_rmse < 0.02
 
 
 def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
@@ -162,9 +205,8 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         assert s_parameter.shape == (TRACE_POINTS,)
         assert s_parameter.dtype == "complex128"
         assert s_parameter.unit == "ratio"
-        assert all(
-            isinstance(sample, ComplexComponents) for sample in s_parameter.values
-        )
+        assert s_parameter.values.dtype == np.dtype(np.complex128)
+        assert np.iscomplexobj(s_parameter.values)
 
         temperature = record.observables[TEMPERATURE_RECORD_ID]
         assert isinstance(temperature, MeasurementScalar)

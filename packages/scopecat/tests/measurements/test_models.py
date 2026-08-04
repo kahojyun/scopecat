@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
@@ -94,6 +95,20 @@ def test_measurement_values_round_trip_through_one_record() -> None:
     assert restored.acquisition_evidence == {"signal": evidence}
 
 
+def test_measurement_array_owns_a_contiguous_read_only_numpy_copy() -> None:
+    source = np.arange(6, dtype=np.float64).reshape(3, 2).T
+
+    value = MeasurementArray.create(shape=(2, 3), values=source)
+    source[0, 0] = 99.0
+
+    assert value.values.dtype == np.dtype(np.float64)
+    assert value.values.flags.c_contiguous
+    assert not value.values.flags.writeable
+    assert value.values[0, 0] == 0.0
+    with pytest.raises(ValueError, match="read-only"):
+        value.values[0, 0] = 1.0
+
+
 def test_instrument_acquisition_evidence_requires_an_aware_ordered_interval() -> None:
     with pytest.raises(ValidationError, match="timezone info"):
         InstrumentAcquisitionEvidence(
@@ -173,7 +188,9 @@ def test_measurement_record_discriminator_restores_value_models() -> None:
     assert isinstance(record.coordinates["label"], MeasurementScalar)
     iq = record.observables["iq"]
     assert isinstance(iq, MeasurementArray)
-    assert isinstance(iq.values[0], ComplexComponents)
+    assert iq.values.dtype == np.dtype(np.complex128)
+    assert iq.values.tolist() == [complex(0.25, -0.5)]
+    assert not iq.values.flags.writeable
     assert isinstance(record.observables["temperature"], MeasurementUnavailable)
 
 

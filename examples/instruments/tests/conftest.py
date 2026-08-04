@@ -15,11 +15,10 @@ from typing import cast
 
 import pytest
 import uvicorn
-from tests.testkit.project_loading import isolated_project_imports
-
 from scopecat.daemon.endpoint import DAEMON_URL_ENV
 from scopecat.project import load_project
 from scopecat_server import LocalDaemonRuntime
+from tests.testkit.project_loading import isolated_project_imports
 
 EXAMPLE_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = EXAMPLE_ROOT / "src"

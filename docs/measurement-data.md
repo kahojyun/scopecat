@@ -122,11 +122,18 @@ the declared rank, data type, and unit; only the extent of the ragged dimension
 is allowed to vary. Use `axis(size=1024)` for a fixed extent or a state field
 such as `axis(size="points")` when configuration determines one fixed extent.
 
-Ragged arrays stay nested per point in durable records and Arrow. They are not
-silently padded with sentinel values. Xarray export uses an indexed observation
-dimension with parent-point and local-index coordinates, making the flattening
-explicit and reversible. Pandas point layout keeps each array in one cell;
-`layout="long"` emits one row per local sample.
+Ragged arrays retain an explicit point-local shape and are never padded with
+sentinel values. Durable Arrow IPC chunks keep their elements in dtype-specific
+variable-length lists alongside that shape; complex elements are `{real, imag}`
+structs. The canonical Xarray view uses an indexed observation dimension with
+parent-point and local-index coordinates, making the flattening explicit and
+reversible.
+Pandas point layout keeps each array in one cell; `layout="long"` emits one row
+per local sample.
+
+In Python, available `MeasurementArray.values` is a read-only, C-contiguous
+NumPy array with the declared dtype. JSON and API representations remain nested;
+complex leaves use `{real, imag}` objects.
 
 If an unavailable value propagates through a postprocessor before a ragged
 extent can be observed, its shape keeps `None` for that unknown axis rather
@@ -146,6 +153,7 @@ before entering the measurement stream.
 ```python
 data = run.measurements()
 
+data.xarray                    # canonical xr.Dataset analysis view
 data.coords                    # coordinate variables by id
 data.data_vars                 # observable variables by id
 data.point_indices             # durable identities in current row order
@@ -174,7 +182,12 @@ optional nearest tolerance. `isel(...)` accepts the point dimension and any
 fixed local dimension without dropping dimensions. `isel_ragged(...)` applies
 the indexer independently inside each point and requires either a recording
 group, which keeps its variables aligned, or one ungrouped variable. Boolean
-masks compose with `&`, `|`, and `~`.
+masks compose with `&`, `|`, and `~`. Fixed-shape `isel`, `sel`, `where`, and
+`groupby` use Xarray's indexing, alignment, nearest-selection, and grouping
+semantics, then map the selected positions back to durable records. Call the
+same operations directly on `data.xarray` when the result should stay entirely
+inside the Xarray ecosystem; wrapper selections are for workflows that still
+need `entry`, `raw`, `traces()`, or another durable export.
 
 Large runs can be consumed without materializing every record at once:
 
@@ -190,12 +203,12 @@ batch, while durable `point_index` values remain absolute. Metadata exposes
 one zero-row, schema-bearing batch so callers can still inspect variables and
 initialize downstream tables.
 
-The same view connects to common analysis ecosystems:
-
-Install the `scopecat[data]` extra to enable these optional adapters.
+Xarray and Arrow are core dependencies and are available on every measurement
+view. Install the `scopecat[pandas]` extra only for explicit pandas exports:
 
 ```python
-xds = data.to_xarray()
+xds = data.xarray                          # canonical, cached xr.Dataset
+assert xds is data.to_xarray()             # explicit export spelling
 table = data.to_arrow()
 frame = data.to_pandas()                  # one row per experiment point
 long_frame = data.to_pandas(layout="long")
@@ -207,7 +220,11 @@ share one Xarray observation dimension and retain `parent_point_index` and local
 index coordinates; ungrouped ragged variables remain independent. Unavailable
 values remain null or missing and gain a companion `__unavailable_reason`
 variable or column. The durable Pydantic dataset remains available through
-`data.raw` when low-level inspection is actually needed.
+`data.raw` when low-level inspection is actually needed. Treat it as source
+evidence rather than a mutation API: the canonical Xarray view is materialized
+when the facade is created so every labeled operation sees one consistent
+snapshot. Dataset attrs retain the Scopecat entry id, content hash, format
+version, schema, and dataset metadata.
 
 ## Let the GUI use experiment knowledge
 
@@ -265,11 +282,12 @@ real observables use `value`. The response reports that same effective
 value for real values. Its
 `selected_series_count` is the authored domain-selection size; live or
 unavailable points need not produce a returned series, and the daemon does not
-scan beyond the requested bound looking for replacements. The current durable
-format stores JSON append chunks, so the repository may still decode a complete
-intersecting chunk before extracting these bounded series. This response bound
-is therefore a network and rendering bound, not yet a columnar storage-read
-guarantee.
+scan beyond the requested bound looking for replacements. Durable measurement
+appends are single-batch Arrow IPC files. Page and point-selection reads apply
+Arrow `slice` or `take` before rebuilding public measurement records, so
+unselected rows are not materialized as Pydantic objects. The content-addressed
+object store still verifies and reads each intersecting chunk as one immutable
+file, so the response bound is not a byte-range I/O guarantee.
 
 ## Save analysis results as typed views
 

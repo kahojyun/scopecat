@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
+import numpy as np
+from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, model_validator
 from scopecat import ExperimentContext, ModuleContext, ProductBundle, ProductRef
 from scopecat.measurements.results import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
     MeasurementValue,
@@ -117,12 +118,21 @@ def _binary_iq_probability_value(
     if value.shape[0] <= 0:
         raise ValueError("binary IQ postprocessor requires at least one shot")
 
-    state_0_count = 0
-    for shot in value.values:
-        if not isinstance(shot, ComplexComponents):
-            raise TypeError("binary IQ postprocessor requires complex shot leaves")
-        if _classify_shot(shot, discriminator) == 0:
-            state_0_count += 1
+    state_0 = complex(
+        discriminator.state_0_centroid.real,
+        discriminator.state_0_centroid.imag,
+    )
+    state_1 = complex(
+        discriminator.state_1_centroid.real,
+        discriminator.state_1_centroid.imag,
+    )
+    shots = cast("NDArray[np.complex128]", value.values)
+    distance_0 = np.square(np.abs(shots - state_0))
+    distance_1 = np.square(np.abs(shots - state_1))
+    if discriminator.tie_policy == "state_0":
+        state_0_count = int(np.count_nonzero(distance_0 <= distance_1))
+    else:
+        state_0_count = int(np.count_nonzero(distance_0 < distance_1))
 
     probability_0 = state_0_count / len(value.values)
     return (
@@ -137,21 +147,6 @@ def _binary_iq_probability_value(
             unit="ratio",
         ),
     )
-
-
-def _classify_shot(
-    shot: ComplexComponents,
-    discriminator: BinaryIqDiscriminator,
-) -> Literal[0, 1]:
-    state_0 = discriminator.state_0_centroid
-    state_1 = discriminator.state_1_centroid
-    distance_0 = (shot.real - state_0.real) ** 2 + (shot.imag - state_0.imag) ** 2
-    distance_1 = (shot.real - state_1.real) ** 2 + (shot.imag - state_1.imag) ** 2
-    if distance_0 < distance_1:
-        return 0
-    if distance_1 < distance_0:
-        return 1
-    return 0 if discriminator.tie_policy == "state_0" else 1
 
 
 __all__ = [

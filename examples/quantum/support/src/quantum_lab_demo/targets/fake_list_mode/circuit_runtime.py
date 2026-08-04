@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.measurements.results import ComplexComponents, MeasurementArray
+import numpy as np
+from scopecat.measurements.results import MeasurementArray
 from scopecat.sdk.domain import (
     DomainResultValue,
 )
@@ -109,13 +110,10 @@ def _realize_integrated_iq_value(
         dtype="complex128",
         unit=_FAKE_RESPONSE_UNIT,
         shape=[len(frames)],
-        values=[
-            ComplexComponents(
-                real=frame.value.real,
-                imag=frame.value.imag,
-            )
-            for frame in frames
-        ],
+        values=np.asarray(
+            [frame.value for frame in frames],
+            dtype=np.complex128,
+        ),
     )
 
 

@@ -7,6 +7,7 @@ import math
 from typing import cast
 
 import pytest
+import xarray as xr
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import Dataset, PointMask, Variable
@@ -78,9 +79,10 @@ def test_dataset_supports_point_isel_sel_and_unit_aware_where() -> None:
     assert len(dataset.where(lambda current: current["bias"] < 1.5)) == 2
     grouped = dataset.groupby("bias")
     assert tuple(grouped) == (0.0, 1.0, 2.0)
+    assert all(type(key) is float for key in grouped)
     assert grouped[1.0].records == (dataset.records[1],)
 
-    with pytest.raises(KeyError, match="no measurement points"):
+    with pytest.raises(KeyError, match="not all values found"):
         dataset.sel(
             bias=Quantity(1.6, "V"),
             method="nearest",
@@ -98,10 +100,11 @@ def test_dataset_supports_point_isel_sel_and_unit_aware_where() -> None:
         (1, ((11.0,), (13.0,), (15.0,)), 1),
         (slice(1, None), ((11.0,), (13.0,), (15.0,)), 1),
         ([1, 0], ((11.0, 10.0), (13.0, 12.0), (15.0, 14.0)), 2),
+        ([True, False], ((10.0,), (12.0,), (14.0,)), 1),
     ],
 )
 def test_dataset_isel_selects_fixed_local_dimensions_without_dropping_them(
-    indexer: int | slice | list[int],
+    indexer: int | slice | list[int] | list[bool],
     expected_frequency: tuple[tuple[float, ...], ...],
     expected_size: int,
 ) -> None:
@@ -126,17 +129,24 @@ def test_dataset_isel_combines_point_and_fixed_local_selection() -> None:
 def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() -> None:
     pd = pytest.importorskip("pandas")
     pa = pytest.importorskip("pyarrow")
-    xr = pytest.importorskip("xarray")
     dataset = _dataset()
 
     xarray_dataset = dataset.to_xarray()
     assert isinstance(xarray_dataset, xr.Dataset)
+    assert xarray_dataset is dataset.xarray
+    assert dataset["signal"].xarray.identical(xarray_dataset["signal"])
     assert xarray_dataset.sizes == {"point": 3, "sample": 2}
     assert tuple(xarray_dataset["frequency"].dims) == ("point", "sample")
     assert xarray_dataset["frequency"].attrs["units"] == "Hz"
     assert xarray_dataset["signal"].values[0, 1] == complex(0.5, -0.1)
     assert math.isnan(float(xarray_dataset["temperature"].values[1]))
     assert xarray_dataset["temperature__unavailable_reason"].values[1] == "invalid"
+    assert xarray_dataset.attrs["scopecat_entry_id"] == dataset.entry.id
+    assert xarray_dataset.attrs["scopecat_content_hash"] == dataset.entry.content_hash
+    assert (
+        xarray_dataset.attrs["scopecat_schema"]["dataset_id"]
+        == dataset.schema.dataset_id
+    )
 
     arrow_table = dataset.to_arrow()
     assert isinstance(arrow_table, pa.Table)
@@ -172,7 +182,6 @@ def test_ragged_dataset_exports_nested_arrow_lists() -> None:
 
 
 def test_ragged_dataset_exports_indexed_xarray_observations() -> None:
-    xr = pytest.importorskip("xarray")
     dataset = _ragged_dataset()
 
     xarray_dataset = dataset.to_xarray()
@@ -202,7 +211,6 @@ def test_ragged_dataset_exports_indexed_xarray_observations() -> None:
 
 def test_ragged_unavailable_unknown_extent_uses_recording_group_layout() -> None:
     pa = pytest.importorskip("pyarrow")
-    xr = pytest.importorskip("xarray")
     dataset = _ragged_dataset()
     dataset.raw.records[1].observables["signal"] = MeasurementUnavailable.create(
         reason="missing",
@@ -211,6 +219,7 @@ def test_ragged_unavailable_unknown_extent_uses_recording_group_layout() -> None
         shape=(None,),
         metadata={},
     )
+    dataset = Dataset(dataset.raw, dataset.entry)
 
     arrow = dataset.to_arrow()
     xarray_dataset = dataset.to_xarray()
@@ -231,7 +240,6 @@ def test_ragged_unavailable_unknown_extent_uses_recording_group_layout() -> None
 
 
 def test_ungrouped_ragged_unavailable_preserves_unknown_extent_in_xarray() -> None:
-    xr = pytest.importorskip("xarray")
     dataset = _ragged_dataset()
     for variable in dataset.raw.dataset_schema.variables:
         if variable.id == "signal":
@@ -243,6 +251,7 @@ def test_ungrouped_ragged_unavailable_preserves_unknown_extent_in_xarray() -> No
         shape=(None,),
         metadata={},
     )
+    dataset = Dataset(dataset.raw, dataset.entry)
 
     xarray_dataset = dataset.to_xarray()
 
@@ -258,11 +267,11 @@ def test_ungrouped_ragged_unavailable_preserves_unknown_extent_in_xarray() -> No
 
 
 def test_ungrouped_ragged_variables_keep_independent_xarray_observations() -> None:
-    xr = pytest.importorskip("xarray")
     dataset = _ragged_dataset()
     for variable in dataset.raw.dataset_schema.variables:
         if variable.id in {"frequency", "signal"}:
             variable.recording_group_id = None
+    dataset = Dataset(dataset.raw, dataset.entry)
 
     xarray_dataset = dataset.to_xarray()
 
@@ -274,7 +283,6 @@ def test_ungrouped_ragged_variables_keep_independent_xarray_observations() -> No
 
 
 def test_grouped_ragged_xarray_rejects_misaligned_point_local_shapes() -> None:
-    pytest.importorskip("xarray")
     dataset = _ragged_dataset()
     dataset.raw.records[1].observables["signal"] = MeasurementArray.create(
         shape=(2,),
@@ -290,7 +298,7 @@ def test_grouped_ragged_xarray_rejects_misaligned_point_local_shapes() -> None:
         ValueError,
         match=r"recording group 'readout'.*do not share one point-local",
     ):
-        dataset.to_xarray()
+        Dataset(dataset.raw, dataset.entry)
 
 
 def test_ragged_sample_selection_applies_independently_per_point_and_group() -> None:

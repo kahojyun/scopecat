@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import cast
 
 from scopecat.kernel.problems import (
     Problem,
@@ -110,13 +109,6 @@ def measurement_value_contract_issues(
             path=("value",),
             issues=issues,
         )
-    else:
-        _validate_array_values(
-            value.values,
-            dtype=value.dtype,
-            path=("values",),
-            issues=issues,
-        )
     return tuple(issues)
 
 
@@ -135,7 +127,10 @@ def _shape_compatible(
 def validated_measurement_value_copy(value: MeasurementValue) -> MeasurementValue:
     """Detach a measurement value without repeating its construction checks."""
 
-    return value.model_copy(deep=True)
+    selected = value.model_copy(deep=True)
+    if isinstance(selected, MeasurementArray):
+        selected.values.flags.writeable = False
+    return selected
 
 
 def _measurement_value_dtype(
@@ -176,32 +171,6 @@ def _unit_compatible(expected: str | None, actual: str | None) -> bool:
         return compatible_units(expected, actual)
     except ValueError:
         return False
-
-
-def _validate_array_values(
-    value: object,
-    *,
-    dtype: MeasurementDType,
-    path: tuple[MeasurementValueContractPathItem, ...],
-    issues: list[MeasurementValueContractIssue],
-) -> None:
-    if isinstance(value, tuple):
-        selected = cast("tuple[object, ...]", value)
-        for index, item in enumerate(selected):
-            _validate_array_values(
-                item,
-                dtype=dtype,
-                path=(*path, index),
-                issues=issues,
-            )
-        return
-
-    _validate_value_type(
-        value,
-        dtype=dtype,
-        path=path,
-        issues=issues,
-    )
 
 
 def _validate_value_type(

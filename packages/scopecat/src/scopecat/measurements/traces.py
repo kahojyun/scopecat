@@ -5,10 +5,9 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetSchema,
@@ -431,24 +430,17 @@ def _require_variable(
 
 
 def _coordinate_values(value: MeasurementArray) -> tuple[TraceCoordinate, ...]:
-    selected: list[TraceCoordinate] = []
-    for item in value.values:
-        if isinstance(item, bool) or not isinstance(item, int | float):
-            raise ValueError("trace coordinate array contains a non-numeric value")
-        selected.append(item)
-    return tuple(selected)
+    if value.dtype == "int64":
+        return tuple(cast("list[int]", value.values.tolist()))
+    return tuple(cast("list[float]", value.values.tolist()))
 
 
 def _sample_values(value: MeasurementArray) -> tuple[TraceSample, ...]:
-    selected: list[TraceSample] = []
-    for item in value.values:
-        if isinstance(item, ComplexComponents):
-            selected.append(complex(item.real, item.imag))
-        elif not isinstance(item, bool) and isinstance(item, int | float):
-            selected.append(item)
-        else:
-            raise ValueError("trace observable array contains a non-numeric value")
-    return tuple(selected)
+    if value.dtype == "complex128":
+        return tuple(cast("list[complex]", value.values.tolist()))
+    if value.dtype == "int64":
+        return tuple(cast("list[int]", value.values.tolist()))
+    return tuple(cast("list[float]", value.values.tolist()))
 
 
 __all__ = ["Trace"]

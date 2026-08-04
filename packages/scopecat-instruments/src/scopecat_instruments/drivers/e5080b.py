@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from typing import override
 
+import numpy as np
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.measurement import (
-    ComplexComponents,
-    MeasurementArray,
-)
+from scopecat.records.measurement import MeasurementArray
 from scopecat.sdk.instruments import (
     DriverOutcome,
     DriverSuccess,
@@ -143,19 +141,13 @@ class KeysightE5080B(NetworkSweepDriverAdapter):
                         dtype="float64",
                         unit="Hz",
                         shape=[len(trace.frequencies_hz)],
-                        values=trace.frequencies_hz,
+                        values=np.asarray(trace.frequencies_hz, dtype=np.float64),
                     ),
                     s_parameter=MeasurementArray.create(
                         dtype="complex128",
                         unit="ratio",
                         shape=[len(trace.values)],
-                        values=[
-                            ComplexComponents(
-                                real=value.real,
-                                imag=value.imag,
-                            )
-                            for value in trace.values
-                        ],
+                        values=np.asarray(trace.values, dtype=np.complex128),
                     ),
                     metadata={
                         "manufacturer": "Keysight",

@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from scopecat.measurements.contracts import (
     MeasurementValueContractIssueCode,
     measurement_value_contract_issues,
+    validated_measurement_value_copy,
 )
 from scopecat.records.measurement import (
     ComplexComponents,
@@ -40,6 +41,16 @@ def test_complex_array_satisfies_exact_dtype_unit_shape_and_leaf_contract() -> N
         )
         == ()
     )
+
+
+def test_validated_array_copy_remains_detached_and_read_only() -> None:
+    value = MeasurementArray.create(shape=(2,), values=[1.0, 2.0])
+
+    copied = validated_measurement_value_copy(value)
+
+    assert isinstance(copied, MeasurementArray)
+    assert copied.values is not value.values
+    assert not copied.values.flags.writeable
 
 
 def test_contract_reports_typed_top_level_mismatches() -> None:
@@ -181,7 +192,7 @@ def test_unavailable_value_still_checks_dtype_unit_and_shape() -> None:
     )
 
 
-def test_complex_array_tag_requires_complex_component_leaves() -> None:
+def test_complex_array_normalizes_numeric_and_component_inputs() -> None:
     value = MeasurementArray.create(
         dtype="complex128",
         unit="ratio",
@@ -192,19 +203,15 @@ def test_complex_array_tag_requires_complex_component_leaves() -> None:
         ],
     )
 
-    issues = measurement_value_contract_issues(
-        value,
-        expected_dtype="complex128",
-        expected_unit="ratio",
-        expected_shape=(2,),
-    )
-
-    assert len(issues) == 1
-    assert issues[0].code is MeasurementValueContractIssueCode.VALUE_TYPE_MISMATCH
-    assert issues[0].path == ("values", 1)
-    assert (issues[0].expected, issues[0].actual) == (
-        "ComplexComponents",
-        "float",
+    assert value.values.tolist() == [complex(0.25, -0.5), complex(0.75, 0.0)]
+    assert (
+        measurement_value_contract_issues(
+            value,
+            expected_dtype="complex128",
+            expected_unit="ratio",
+            expected_shape=(2,),
+        )
+        == ()
     )
 
 
@@ -270,27 +277,17 @@ def test_array_leaf_types_follow_the_array_dtype_tag(
         ("string", True),
     ),
 )
-def test_array_dtype_tags_report_other_leaf_types(
+def test_array_dtype_tags_reject_other_leaf_types(
     dtype: MeasurementDType,
     value: object,
 ) -> None:
-    array = MeasurementArray.create(
-        dtype=dtype,
-        unit=None,
-        shape=[1],
-        values=[value],
-    )
-
-    issues = measurement_value_contract_issues(
-        array,
-        expected_dtype=dtype,
-        expected_unit=None,
-        expected_shape=(1,),
-    )
-
-    assert tuple(issue.code for issue in issues) == (
-        MeasurementValueContractIssueCode.VALUE_TYPE_MISMATCH,
-    )
+    with pytest.raises(ValidationError, match=f"values do not match {dtype}"):
+        MeasurementArray.create(
+            dtype=dtype,
+            unit=None,
+            shape=[1],
+            values=[value],
+        )
 
 
 @pytest.mark.parametrize(

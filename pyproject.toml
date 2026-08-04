@@ -5,6 +5,7 @@ description = "Workspace for Scopecat packages, examples, and fixtures."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+  "instrument-demo",
   "quantum-lab-demo",
   "scopecat",
   "scopecat-instruments",
@@ -299,6 +300,7 @@ default-groups = ["dev"]
 package = false
 
 [tool.uv.sources]
+instrument-demo = { workspace = true }
 scopecat = { workspace = true }
 scopecat-instruments = { workspace = true }
 scopecat-quantum = { workspace = true }
@@ -308,5 +310,6 @@ quantum-lab-demo = { workspace = true }
 [tool.uv.workspace]
 members = [
   "packages/*",
+  "examples/instruments",
   "examples/quantum/support",
 ]

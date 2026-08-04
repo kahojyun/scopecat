@@ -4,15 +4,28 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Literal, Self, cast
+from copy import deepcopy
+from typing import (
+    Annotated,
+    Literal,
+    Self,
+    SupportsComplex,
+    SupportsFloat,
+    SupportsIndex,
+    cast,
+    override,
+)
 
+import numpy as np
+from numpy.typing import NDArray
 from pydantic import (
     AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
-    ValidationError,
     ValidationInfo,
+    WithJsonSchema,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -31,7 +44,13 @@ MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v8"
 MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
-MeasurementArrayData = Sequence[object]
+type MeasurementArrayElement = (
+    np.bool_ | np.int64 | np.float64 | np.complex128 | np.str_
+)
+MeasurementArrayData = Annotated[
+    NDArray[MeasurementArrayElement],
+    WithJsonSchema({"type": "array", "items": {}, "title": "Values"}),
+]
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
@@ -315,34 +334,17 @@ class MeasurementScalar(BaseModel):
         return self
 
 
-def _restore_measurement_array_leaves(
-    value: object,
-    *,
-    dtype: object,
-) -> object:
-    if isinstance(value, list | tuple):
-        selected = cast("list[object] | tuple[object, ...]", value)
-        return tuple(
-            _restore_measurement_array_leaves(item, dtype=dtype) for item in selected
-        )
-    if isinstance(value, Mapping):
-        selected_mapping = cast("Mapping[str, object]", value)
-        try:
-            if dtype == "complex128":
-                return ComplexComponents.model_validate(selected_mapping)
-        except ValidationError:
-            pass
-        return selected_mapping
-    return value
-
-
 class MeasurementArray(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+    )
 
     kind: Literal["array"]
     dtype: MeasurementDType = "float64"
     unit: str | None = None
-    shape: Sequence[int] = Field(min_length=1)
+    shape: tuple[Annotated[int, Field(ge=0)], ...] = Field(min_length=1)
     values: MeasurementArrayData
     metadata: JsonMetadata = Field(default_factory=dict)
 
@@ -351,20 +353,22 @@ class MeasurementArray(BaseModel):
         cls,
         *,
         shape: Sequence[int],
-        values: MeasurementArrayData,
+        values: object,
         dtype: MeasurementDType = "float64",
         unit: str | None = None,
         metadata: JsonMetadata | None = None,
     ) -> Self:
         """Construct an array while keeping the wire discriminator required."""
 
-        return cls(
-            kind="array",
-            dtype=dtype,
-            unit=unit,
-            shape=shape,
-            values=values,
-            metadata={} if metadata is None else metadata,
+        return cls.model_validate(
+            {
+                "kind": "array",
+                "dtype": dtype,
+                "unit": unit,
+                "shape": shape,
+                "values": values,
+                "metadata": {} if metadata is None else metadata,
+            }
         )
 
     @field_validator("unit")
@@ -374,37 +378,77 @@ class MeasurementArray(BaseModel):
 
     @field_validator("shape")
     @classmethod
-    def freeze_shape(cls, value: Sequence[int]) -> Sequence[int]:
+    def freeze_shape(cls, value: Sequence[int]) -> tuple[int, ...]:
         return tuple(value)
 
-    @field_validator("values")
+    @field_validator("values", mode="before")
     @classmethod
-    def restore_and_freeze_values(
+    def normalize_values(
         cls,
-        value: MeasurementArrayData,
+        value: object,
         info: ValidationInfo,
     ) -> MeasurementArrayData:
-        """Restore typed leaves and freeze nested sequences in one pass."""
+        """Own one contiguous, typed, read-only array at the model boundary."""
 
-        _validate_finite_numbers(value)
-        dtype = info.data.get("dtype")
-        return cast(
-            "MeasurementArrayData",
-            _restore_measurement_array_leaves(
-                value,
-                dtype=dtype if isinstance(dtype, str) else "float64",
-            ),
+        raw_dtype = cast("object", info.data.get("dtype", "float64"))
+        dtype = cast(
+            "MeasurementDType",
+            raw_dtype
+            if raw_dtype in {"float64", "int64", "complex128", "bool", "string"}
+            else "float64",
         )
+        selected = _measurement_ndarray(value, dtype=dtype)
+        expected_shape = cast("object", info.data.get("shape"))
+        if (
+            selected.size == 0
+            and isinstance(expected_shape, tuple)
+            and math.prod(cast("tuple[int, ...]", expected_shape)) == 0
+        ):
+            selected = selected.reshape(cast("tuple[int, ...]", expected_shape))
+        selected.flags.writeable = False
+        return selected
+
+    @field_serializer("values")
+    def serialize_values(self, value: MeasurementArrayData) -> object:
+        if self.dtype == "complex128":
+            return _complex_array_json(cast("object", value.tolist()))
+        return cast("object", value.tolist())
 
     @model_validator(mode="after")
     def validate_values_shape(self) -> MeasurementArray:
-        actual_shape = _array_shape(self.values)
+        actual_shape = self.values.shape
         if actual_shape != self.shape:
             msg = f"measurement array shape {actual_shape} does not match {self.shape}"
             raise ValueError(msg)
         if self.dtype in {"bool", "string"} and self.unit is not None:
             raise ValueError(f"{self.dtype} measurement arrays cannot have a unit")
         return self
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MeasurementArray):
+            return NotImplemented
+        return (
+            self.kind == other.kind
+            and self.dtype == other.dtype
+            and self.unit == other.unit
+            and self.shape == other.shape
+            and self.metadata == other.metadata
+            and np.array_equal(self.values, other.values)
+        )
+
+    @override
+    def __deepcopy__(self, memo: dict[int, object] | None = None) -> Self:
+        selected = type(self).create(
+            dtype=self.dtype,
+            unit=self.unit,
+            shape=self.shape,
+            values=self.values,
+            metadata=deepcopy(self.metadata, memo),
+        )
+        if memo is not None:
+            memo[id(self)] = selected
+        return selected
 
 
 class MeasurementUnavailable(BaseModel):
@@ -519,18 +563,117 @@ class MeasurementDataset(BaseModel):
     metadata: JsonMetadata = Field(default_factory=dict)
 
 
-def _array_shape(values: object) -> tuple[int, ...]:
-    if not isinstance(values, tuple):
-        return ()
-    items = cast("tuple[object, ...]", values)
-    if not items:
-        return (0,)
-    first_shape = _array_shape(items[0])
-    for value in items[1:]:
-        if _array_shape(value) != first_shape:
-            msg = "measurement array values must be rectangular"
-            raise ValueError(msg)
-    return (len(items), *first_shape)
+def _measurement_ndarray(
+    value: object,
+    *,
+    dtype: MeasurementDType,
+) -> MeasurementArrayData:
+    try:
+        candidate = cast("NDArray[MeasurementArrayElement]", np.asarray(value))
+    except ValueError as error:
+        raise ValueError("measurement array values must be rectangular") from error
+
+    if candidate.dtype.kind == "O":
+        normalized = _normalize_array_tree(
+            cast("object", candidate.tolist()), dtype=dtype
+        )
+        candidate = cast(
+            "NDArray[MeasurementArrayElement]",
+            np.asarray(normalized),
+        )
+
+    _validate_array_kind(candidate, dtype=dtype)
+    try:
+        selected = np.array(
+            candidate,
+            dtype=_numpy_dtype(dtype),
+            order="C",
+            copy=True,
+        )
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(f"measurement array values do not fit {dtype}") from error
+
+    if dtype in {"float64", "complex128"} and not np.isfinite(selected).all():
+        raise ValueError("measurement values must be finite")
+    return cast("MeasurementArrayData", selected)
+
+
+def _normalize_array_tree(value: object, *, dtype: MeasurementDType) -> object:
+    if isinstance(value, list | tuple):
+        selected = cast("list[object] | tuple[object, ...]", value)
+        return tuple(_normalize_array_tree(item, dtype=dtype) for item in selected)
+
+    if dtype == "complex128" and isinstance(value, Mapping):
+        components = ComplexComponents.model_validate(
+            cast("Mapping[str, object]", value)
+        )
+        return complex(components.real, components.imag)
+    if dtype == "complex128" and isinstance(value, ComplexComponents):
+        return complex(value.real, value.imag)
+
+    is_boolean = isinstance(value, bool | np.bool_)
+    if dtype == "float64":
+        if is_boolean or not isinstance(value, int | float | np.integer | np.floating):
+            raise ValueError("float64 measurement array values must be numeric")
+        return float(cast("SupportsFloat", value))
+    if dtype == "int64":
+        if is_boolean or not isinstance(value, int | np.integer):
+            raise ValueError("int64 measurement array values must be integers")
+        return int(cast("SupportsIndex", value))
+    if dtype == "complex128":
+        if is_boolean or not isinstance(value, int | float | complex | np.number):
+            raise ValueError("complex128 measurement array values must be numeric")
+        return complex(cast("SupportsComplex", value))
+    if dtype == "bool":
+        if not is_boolean:
+            raise ValueError("bool measurement array values must be booleans")
+        return bool(value)
+    if not isinstance(value, str):
+        raise ValueError("string measurement array values must be strings")
+    return value
+
+
+def _validate_array_kind(
+    value: NDArray[MeasurementArrayElement],
+    *,
+    dtype: MeasurementDType,
+) -> None:
+    if value.size == 0:
+        return
+    allowed_kinds = {
+        "float64": "iuf",
+        "int64": "iu",
+        "complex128": "iufc",
+        "bool": "b",
+        "string": "U",
+    }
+    if value.dtype.kind not in allowed_kinds[dtype]:
+        raise ValueError(f"measurement array values do not match {dtype}")
+    if dtype == "int64" and value.dtype.kind == "u":
+        items = cast("list[int]", value.reshape(-1).tolist())
+        if max(items) > np.iinfo(np.int64).max:
+            raise ValueError("measurement array values do not fit int64")
+
+
+def _numpy_dtype(dtype: MeasurementDType) -> np.dtype[np.generic]:
+    if dtype == "float64":
+        return np.dtype(np.float64)
+    if dtype == "int64":
+        return np.dtype(np.int64)
+    if dtype == "complex128":
+        return np.dtype(np.complex128)
+    if dtype == "bool":
+        return np.dtype(np.bool_)
+    return np.dtype(np.str_)
+
+
+def _complex_array_json(value: object) -> object:
+    if isinstance(value, list):
+        return [_complex_array_json(item) for item in cast("list[object]", value)]
+    if not isinstance(value, complex):
+        raise TypeError("complex array serialization requires complex values")
+    selected = value
+    return {"real": selected.real, "imag": selected.imag}
 
 
 def _validate_finite_numbers(value: object) -> None:
@@ -543,11 +686,11 @@ def _validate_finite_numbers(value: object) -> None:
     if isinstance(value, ComplexComponents):
         return
     if isinstance(value, Mapping):
-        selected_mapping = cast("Mapping[object, object]", value)
-        for item in selected_mapping.values():
+        selected = cast("Mapping[object, object]", value)
+        for item in selected.values():
             _validate_finite_numbers(item)
         return
     if isinstance(value, list | tuple):
-        selected_sequence = cast("list[object] | tuple[object, ...]", value)
-        for item in selected_sequence:
+        selected = cast("list[object] | tuple[object, ...]", value)
+        for item in selected:
             _validate_finite_numbers(item)
