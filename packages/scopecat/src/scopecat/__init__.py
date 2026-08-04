@@ -75,7 +75,6 @@ if TYPE_CHECKING:
     )
     from scopecat.authoring.scans import (
         axis,
-        param_axis,
     )
     from scopecat.config.parameters import (
         delete_parameter_rows,
@@ -139,7 +138,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "parameter_column": ("scopecat.authoring", "parameter_column"),
     "parameter_lookup": ("scopecat.authoring", "parameter_lookup"),
     "axis": ("scopecat.authoring.scans", "axis"),
-    "param_axis": ("scopecat.authoring.scans", "param_axis"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
     "PayloadCodec": ("scopecat.sdk.payloads", "PayloadCodec"),
     "PayloadCodecCatalog": ("scopecat.sdk.payloads", "PayloadCodecCatalog"),

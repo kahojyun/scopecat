@@ -171,7 +171,7 @@ class ParameterScanRecord(_RunRequestModel):
 
 
 class ParameterAroundScanRecord(_RunRequestModel):
-    """Persisted locator and shape for a snapshot-centered parameter scan.
+    """Persisted locator and shape for a snapshot-centered parameter overlay.
 
     The accepted snapshot supplies the center during specialization rather
     than persisting a copied value, preserving the request's parameter intent

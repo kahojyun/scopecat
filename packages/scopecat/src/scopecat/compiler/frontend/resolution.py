@@ -129,14 +129,14 @@ def _resolve_point_domain_module_results(
             ValueRef,
         ):
             source = replace(source, center=resolver.resolve(source.center))
-        parameter_lookup = axis.parameter_lookup
-        if parameter_lookup is not None:
-            parameter_lookup = resolver.resolve(parameter_lookup)
+        overlay = axis.overlay
+        if overlay is not None:
+            overlay = resolver.resolve(overlay)
         resolved.append(
             replace(
                 axis,
                 source=source,
-                parameter_lookup=parameter_lookup,
+                overlay=overlay,
             )
         )
     return replace(domain, axes=tuple(resolved))

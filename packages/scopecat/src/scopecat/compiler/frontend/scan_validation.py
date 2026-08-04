@@ -111,8 +111,8 @@ def verify_point_domain(
 def _scan_source(
     axis: AxisSpec,
 ) -> tuple[ValueRef | None, ScanPath, str]:
-    if axis.parameter_lookup is not None:
-        return axis.parameter_lookup, (), "parameter scan key"
+    if axis.overlay is not None:
+        return axis.overlay, (), "parameter overlay key"
     source = axis.source
     if isinstance(source, AroundScanSource) and isinstance(source.center, ValueRef):
         return source.center, ("center",), "scan center"

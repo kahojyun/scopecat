@@ -71,7 +71,7 @@ def _empty_module(id: str) -> sc.ExperimentModule[None, ...]:
     return module
 
 
-def _scan_invocation(id: str, *axes: sc.Axis) -> sc.ExperimentInvocation:
+def _axis_invocation(id: str, *axes: sc.Axis) -> sc.ExperimentInvocation:
     module = _empty_module(id)
 
     @sc.experiment(id=id, kind="parameter_contract")
@@ -253,7 +253,7 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
 
 
 def test_parameter_contract_survives_scan_lowering() -> None:
-    invocation = _scan_invocation(
+    invocation = _axis_invocation(
         "test.parameter-contract-scan",
         sc.axis(
             sc.coordinate(
@@ -295,23 +295,24 @@ def test_parameter_contract_survives_scan_lowering() -> None:
         ),
     ],
 )
-def test_parameter_scan_target_is_checked_against_catalog_column(
+def test_parameter_overlay_target_is_checked_against_catalog_column(
     column: str,
     point_type: sc.ScalarType,
     values: list[str],
     expected_code: str,
 ) -> None:
-    scan = sc.param_axis(
-        sc.coordinate("scanned_value", point_type),
-        sc.parameter_lookup(
-            "device_parameters",
-            key={"device": "q0"},
-            column=column,
-            value_type=point_type,
-        ),
-        values,
+    lookup = sc.parameter_lookup(
+        "device_parameters",
+        key={"device": "q0"},
+        column=column,
+        value_type=point_type,
     )
-    invocation = _scan_invocation("test.parameter-contract-scan-target", scan)
+    scan = sc.axis(
+        sc.coordinate("scanned_value", point_type),
+        values,
+        overlay=lookup,
+    )
+    invocation = _axis_invocation("test.parameter-contract-overlay-target", scan)
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(
@@ -322,27 +323,28 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
     assert error.value.problems[0].code == expected_code
 
 
-def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
-    scan = sc.param_axis(
+def test_parameter_overlay_retains_row_key_parameter_contracts() -> None:
+    lookup = sc.parameter_lookup(
+        "device_parameters",
+        key={
+            "device": sc.parameter(
+                "drive_frequency",
+                sc.ScalarType(sc.StringType()),
+            )
+        },
+        column="frequency",
+        value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+    )
+    scan = sc.axis(
         sc.coordinate(
             "scanned_frequency",
             sc.ScalarType(sc.QuantityType(unit="GHz")),
         ),
-        sc.parameter_lookup(
-            "device_parameters",
-            key={
-                "device": sc.parameter(
-                    "drive_frequency",
-                    sc.ScalarType(sc.StringType()),
-                )
-            },
-            column="frequency",
-            value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
-        ),
         [5.0],
+        overlay=lookup,
         unit="GHz",
     )
-    invocation = _scan_invocation("test.parameter-contract-scan-key", scan)
+    invocation = _axis_invocation("test.parameter-contract-overlay-key", scan)
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(
@@ -355,15 +357,15 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
     )
 
 
-def test_parameter_around_scan_materializes_about_the_current_table_cell() -> None:
+def test_around_axis_overlay_materializes_about_the_current_table_cell() -> None:
     config = _config_with_parameter_table()
     frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
     frequency = sc.coordinate("scanned_frequency", frequency_type)
-    invocation = _scan_invocation(
-        "test.parameter-around-scan",
-        sc.param_axis(
+    invocation = _axis_invocation(
+        "test.parameter-around-overlay",
+        sc.axis(
             frequency,
-            sc.parameter_lookup(
+            overlay=sc.parameter_lookup(
                 "device_parameters",
                 key={"device": "q0"},
                 column="frequency",
@@ -393,15 +395,15 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
     assert stored.rows[0]["frequency"] == sc.Quantity(5.0, "GHz")
 
 
-def test_parameter_range_scan_materializes_literal_endpoints() -> None:
+def test_range_axis_overlay_materializes_literal_endpoints() -> None:
     config = _config_with_parameter_table()
     frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
     frequency = sc.coordinate("scanned_frequency", frequency_type)
-    invocation = _scan_invocation(
-        "test.parameter-range-scan",
-        sc.param_axis(
+    invocation = _axis_invocation(
+        "test.parameter-range-overlay",
+        sc.axis(
             frequency,
-            sc.parameter_lookup(
+            overlay=sc.parameter_lookup(
                 "device_parameters",
                 key={"device": "q0"},
                 column="frequency",
@@ -431,7 +433,7 @@ def test_parameter_range_scan_materializes_literal_endpoints() -> None:
     assert len(resolved.bindings.parameter_overlays) == 1
 
 
-def test_parameter_scan_specializes_consumers_against_its_point_column() -> None:
+def test_parameter_overlay_specializes_consumers_against_its_point_column() -> None:
     frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
     frequency = sc.coordinate("scanned_frequency", frequency_type)
     lookup = sc.parameter_lookup(
@@ -448,13 +450,13 @@ def test_parameter_scan_specializes_consumers_against_its_point_column() -> None
         inputs={"frequency": frequency_type},
     )
 
-    @sc.experiment(id="test.parameter-scan-consumer", kind="parameter_contract")
+    @sc.experiment(id="test.parameter-overlay-consumer", kind="parameter_contract")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(domain_call(program, inputs={"frequency": lookup}))
         experiment.grid(
-            sc.param_axis(
+            sc.axis(
                 frequency,
-                lookup,
+                overlay=lookup,
                 span="200 MHz",
                 points=3,
             )
@@ -475,29 +477,30 @@ def test_parameter_scan_specializes_consumers_against_its_point_column() -> None
     assert expression.name == "scanned_frequency"
 
 
-def test_parameter_scan_type_must_be_writable_to_catalog_column() -> None:
+def test_parameter_overlay_type_must_be_writable_to_catalog_column() -> None:
     bounded_frequency = sc.ScalarType(
         sc.QuantityType(unit="GHz", minimum=4.0, maximum=6.0)
     )
     config = _config_with_parameter_table(frequency_type=bounded_frequency)
     frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
-    scan = sc.param_axis(
+    lookup = sc.parameter_lookup(
+        "device_parameters",
+        key={"device": "q0"},
+        column="frequency",
+        value_type=frequency_type,
+    )
+    scan = sc.axis(
         sc.coordinate("scanned_frequency", frequency_type),
-        sc.parameter_lookup(
-            "device_parameters",
-            key={"device": "q0"},
-            column="frequency",
-            value_type=frequency_type,
-        ),
         [5.0],
+        overlay=lookup,
         unit="GHz",
     )
-    invocation = _scan_invocation("test.parameter-scan-write-type", scan)
+    invocation = _axis_invocation("test.parameter-overlay-write-type", scan)
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(invocation, config_profile=config)
 
-    assert error.value.problems[0].code == "authoring_parameter_scan_type_mismatch"
+    assert error.value.problems[0].code == "authoring_parameter_overlay_type_mismatch"
 
 
 def test_parameter_lookup_checks_table_column_and_entity_type() -> None:

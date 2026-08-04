@@ -47,7 +47,7 @@ from scopecat.program.point_domain import (
 )
 from scopecat.program.scans import (
     AxisSpec,
-    parameter_cell_lookup,
+    parameter_overlay_cell,
 )
 from scopecat.program.table_values import InputTableSource
 from scopecat.program.value_refs import (
@@ -69,7 +69,7 @@ def lower_parameter_overlay_intent(
     *,
     type_bindings: ExpressionTypeBindings,
 ) -> PointParameterOverlay:
-    lookup, key = parameter_cell_lookup(intent)
+    lookup, key = parameter_overlay_cell(intent)
     definition = parameter_catalog.get(lookup.table_id)
     if definition is None or not isinstance(definition.value_type, TableType):
         raise AssertionError("validated parameter overlay table is missing")
@@ -87,8 +87,8 @@ def lower_parameter_overlay_intent(
         )
     except ValueValidationError as error:
         raise_frontend_problem(
-            "authoring_parameter_scan_type_mismatch",
-            f"parameter scan cannot write the selected column: {error}",
+            "authoring_parameter_overlay_type_mismatch",
+            f"axis overlay cannot write the selected parameter column: {error}",
             "parameters",
             path=(lookup.table_id, "columns", lookup.column_id),
         )
@@ -113,7 +113,7 @@ def lower_parameter_overlay_intent(
     except (KeyError, ValueError) as error:
         raise_frontend_problem(
             "experiment_parameter_overlay_row_not_found",
-            f"parameter scan cell could not be selected: {error}",
+            f"axis overlay cell could not be selected: {error}",
             "parameter_overlays",
             path=(intent.id, "key"),
         )
@@ -225,7 +225,7 @@ def validate_consumed_inputs(
     values.extend(
         value
         for overlay in program.parameter_overlays
-        for _name, value in parameter_cell_lookup(overlay)[1]
+        for _name, value in parameter_overlay_cell(overlay)[1]
     )
     consumed_dependencies.update(
         input_id

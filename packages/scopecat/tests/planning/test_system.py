@@ -902,7 +902,7 @@ def test_domain_target_footprint_contains_every_instrument_member() -> None:
     }
 
 
-def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
+def test_parameter_overlay_binding_is_shared_with_domain_inputs() -> None:
     frequency_type = Scalar(QuantityType(unit="GHz"))
     point_type = Table(
         columns=(TableColumn("frequency", frequency_type),),

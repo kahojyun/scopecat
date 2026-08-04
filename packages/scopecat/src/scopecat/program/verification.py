@@ -21,7 +21,7 @@ from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
     PointPlan,
-    parameter_cell_lookup,
+    parameter_overlay_cell,
 )
 from scopecat.program.value_refs import (
     ValueRef,
@@ -145,8 +145,8 @@ def _direct_scan_input_types(
     values: tuple[object, ...] = ()
     if isinstance(axis.source, AroundScanSource):
         values = (axis.source.center,)
-    if axis.parameter_lookup is not None:
-        _lookup, key = parameter_cell_lookup(axis)
+    if axis.overlay is not None:
+        _lookup, key = parameter_overlay_cell(axis)
         values = (*values, *(value for _name, value in key))
     for value in values:
         if not isinstance(value, ValueRef):

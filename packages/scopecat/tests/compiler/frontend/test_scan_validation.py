@@ -84,7 +84,7 @@ def test_scan_source_cannot_depend_on_another_point() -> None:
     ]
 
 
-def test_parameter_axis_key_can_use_a_bound_input() -> None:
+def test_axis_overlay_key_can_use_a_bound_input() -> None:
     device = program_input("device", sc.ScalarType(sc.StringType()))
     lookup = sc.parameter_lookup(
         "device_parameters",
@@ -92,9 +92,9 @@ def test_parameter_axis_key_can_use_a_bound_input() -> None:
         column="frequency",
         value_type=_FREQUENCY,
     )
-    scan = sc.param_axis(
+    scan = sc.axis(
         _point("frequency"),
-        lookup,
+        overlay=lookup,
         span="200 MHz",
         points=5,
     )

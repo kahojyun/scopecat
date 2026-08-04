@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import replace
-from typing import cast, overload
+from typing import cast
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units, unit_kind
@@ -51,6 +51,7 @@ def axis(
     target: ValueRef,
     values: Iterable[ScanValue] | None = None,
     *,
+    overlay: ValueRef | None = None,
     unit: str | None = None,
     start: _ScanCoordinate | None = None,
     stop: _ScanCoordinate | None = None,
@@ -58,13 +59,19 @@ def axis(
     span: _ScanCoordinate | None = None,
     points: int | None = None,
 ) -> Axis:
-    """Scan a point over values, an inclusive range, or around a center.
+    """Build one coordinate axis, optionally overlaying a parameter cell.
 
     Generated forms interpolate evenly in one coordinate unit. ``span`` is
-    the total coordinate width, including for same-unit dBm coordinates.
+    the total coordinate width, including for same-unit dBm coordinates. When
+    ``overlay`` is present, each point temporarily supplies that parameter cell;
+    the span form is centered on the accepted parameter value.
     """
 
     axis_id, value_type = _point_target(target)
+    _validate_overlay(target, overlay)
+    if overlay is not None and center is not None:
+        raise ValueError("axis overlay supplies the center; omit center")
+    selected_center = overlay if overlay is not None else center
     selected_values = None if values is None else tuple(values)
     if selected_values is not None and any(
         item is not None for item in (start, stop, center, span, points)
@@ -81,6 +88,7 @@ def axis(
             source=_ValuesScanSource(
                 values=_capture_scan_values(target, selected_values, unit=unit),
             ),
+            overlay=overlay,
         )
     if start is not None or stop is not None:
         if center is not None or span is not None:
@@ -104,19 +112,23 @@ def axis(
                 stop=captured_stop,
                 points=points,
             ),
+            overlay=overlay,
         )
-    if center is None and span is None:
+    if selected_center is None and span is None:
         if points is not None:
-            msg = "scan axis points must accompany start/stop or center/span"
+            msg = "axis points must accompany start/stop, center/span, or overlay/span"
         else:
-            msg = "scan axis requires values, start/stop/points, or center/span/points"
+            msg = (
+                "axis requires values, start/stop/points, center/span/points, "
+                "or overlay/span/points"
+            )
         raise ValueError(msg)
-    if center is None or span is None or points is None:
-        msg = "scan axis around form requires center, span, and points"
+    if selected_center is None or span is None or points is None:
+        msg = "axis around form requires a center or overlay, plus span and points"
         raise ValueError(msg)
     around_type, captured_center, captured_span = _capture_around_scan(
         target,
-        center=center,
+        center=selected_center,
         span=span,
         points=points,
         unit=unit,
@@ -129,137 +141,17 @@ def axis(
             span=captured_span,
             points=points,
         ),
+        overlay=overlay,
     )
 
 
-@overload
-def param_axis(
-    target: ValueRef,
-    lookup: ValueRef,
-    values: Iterable[ScanValue],
-    *,
-    unit: str | None = None,
-) -> Axis: ...
-
-
-@overload
-def param_axis(
-    target: ValueRef,
-    lookup: ValueRef,
-    *,
-    unit: str | None = None,
-    start: _ScanCoordinate,
-    stop: _ScanCoordinate,
-    points: int,
-) -> Axis: ...
-
-
-@overload
-def param_axis(
-    target: ValueRef,
-    lookup: ValueRef,
-    *,
-    unit: str | None = None,
-    span: _ScanCoordinate,
-    points: int,
-) -> Axis: ...
-
-
-def param_axis(
-    target: ValueRef,
-    lookup: ValueRef,
-    values: Iterable[ScanValue] | None = None,
-    *,
-    unit: str | None = None,
-    start: _ScanCoordinate | None = None,
-    stop: _ScanCoordinate | None = None,
-    span: _ScanCoordinate | None = None,
-    points: int | None = None,
-) -> Axis:
-    """Scan a parameter cell over values, a range, or its accepted value.
-
-    The around form records the cell locator, span, and point count; its center
-    is resolved later from the accepted parameter snapshot. Each materialized
-    point overlays that cell only for its own specialization, so every host or
-    domain ``parameter_lookup`` of that cell sees the same scanned value without
-    mutating accepted parameter state.
-    """
-
-    axis_id, value_type = _point_target(target)
-    if internal_value_ref_parameter_lookup(lookup) is None:
-        msg = "parameter scan requires a direct scopecat.parameter_lookup"
-        raise TypeError(msg)
-    if lookup.value_type != target.value_type:
-        msg = "parameter scan lookup and point must use the same value type"
-        raise TypeError(msg)
-    selected_values = None if values is None else tuple(values)
-    if selected_values is not None and any(
-        item is not None for item in (start, stop, span, points)
-    ):
-        msg = (
-            "parameter scan accepts exactly one of values, start/stop/points, "
-            "or span/points"
-        )
-        raise ValueError(msg)
-    if selected_values is not None:
-        return Axis(
-            id=axis_id,
-            value_type=_explicit_value_type(value_type, unit=unit),
-            source=_ValuesScanSource(
-                values=_capture_scan_values(target, selected_values, unit=unit),
-            ),
-            parameter_lookup=lookup,
-        )
-    if start is not None or stop is not None:
-        if span is not None:
-            msg = "parameter scan range and around forms are mutually exclusive"
-            raise ValueError(msg)
-        if start is None or stop is None or points is None:
-            msg = "parameter scan range form requires start, stop, and points"
-            raise ValueError(msg)
-        range_type, captured_start, captured_stop = _capture_range_scan(
-            target,
-            start=start,
-            stop=stop,
-            points=points,
-            unit=unit,
-        )
-        return Axis(
-            id=axis_id,
-            value_type=range_type,
-            source=_RangeScanSource(
-                start=captured_start,
-                stop=captured_stop,
-                points=points,
-            ),
-            parameter_lookup=lookup,
-        )
-    if span is None:
-        if points is not None:
-            msg = "parameter scan points must accompany start/stop or span"
-        else:
-            msg = "parameter scan requires values, start/stop/points, or span/points"
-        raise ValueError(msg)
-    if points is None:
-        msg = "parameter scan around form requires span and points"
-        raise ValueError(msg)
-    around_type, _captured_center, captured_span = _capture_around_scan(
-        target,
-        center=lookup,
-        span=span,
-        points=points,
-        unit=unit,
-    )
-    return Axis(
-        id=axis_id,
-        value_type=around_type,
-        source=_AroundScanSource(
-            center=lookup,
-            span=captured_span,
-            points=points,
-        ),
-        parameter_lookup=lookup,
-    )
+def _validate_overlay(target: ValueRef, overlay: ValueRef | None) -> None:
+    if overlay is None:
+        return
+    if internal_value_ref_parameter_lookup(overlay) is None:
+        raise TypeError("axis overlay requires a direct scopecat.parameter_lookup")
+    if overlay.value_type != target.value_type:
+        raise TypeError("axis overlay and coordinate must use the same value type")
 
 
 def _point_target(target: ValueRef) -> tuple[str, Scalar]:
@@ -630,5 +522,4 @@ __all__ = [
     "ScanCenter",
     "ScanValue",
     "axis",
-    "param_axis",
 ]

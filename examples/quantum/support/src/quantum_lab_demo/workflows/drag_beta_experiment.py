@@ -53,9 +53,9 @@ def drag_beta_template(experiment: sc.ExperimentContext) -> None:
 
     _drag_beta_experiment_body(
         experiment,
-        sc.param_axis(
+        sc.axis(
             BETA,
-            q0_drag_beta_lookup(),
+            overlay=q0_drag_beta_lookup(),
             span=DRAG_BETA_SPAN,
             points=DRAG_BETA_POINTS,
         ),

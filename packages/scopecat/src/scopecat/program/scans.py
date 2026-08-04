@@ -61,7 +61,7 @@ class AxisSpec:
     id: str
     value_type: Scalar
     source: ScanSource
-    parameter_lookup: ValueRef | None = None
+    overlay: ValueRef | None = None
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -187,23 +187,23 @@ def _require_unique_ids(ids: Sequence[str], *, context: str) -> None:
         raise ValueError(f"{context} axis ids must be unique")
 
 
-def parameter_cell_lookup(
+def parameter_overlay_cell(
     axis: AxisSpec,
 ) -> tuple[
     ParameterLookupUse,
     tuple[tuple[str, ScalarOperand], ...],
 ]:
-    if axis.parameter_lookup is None:
+    if axis.overlay is None:
         raise TypeError("scan axis does not overlay a parameter cell")
-    lookup = internal_value_ref_parameter_lookup(axis.parameter_lookup)
+    lookup = internal_value_ref_parameter_lookup(axis.overlay)
     assert lookup is not None
     return lookup
 
 
-def scan_parameter_contracts(scan: AxisSpec) -> tuple[ParameterContract, ...]:
+def axis_parameter_contracts(axis: AxisSpec) -> tuple[ParameterContract, ...]:
     return merge_parameter_contracts(
-        _value_parameter_contracts(scan.parameter_lookup),
-        _source_parameter_contracts(scan),
+        _value_parameter_contracts(axis.overlay),
+        _source_parameter_contracts(axis),
     )
 
 

@@ -62,7 +62,7 @@ from scopecat.program.recording import (
     ProgramRecordSelection,
     ValueRecordSelection,
 )
-from scopecat.program.scans import AxisSpec, scan_parameter_contracts
+from scopecat.program.scans import AxisSpec, axis_parameter_contracts
 from scopecat.program.value_refs import ValueRef, internal_value_ref_record_id
 from scopecat.program.value_transforms import internal_bind_value_ref_inputs
 
@@ -205,12 +205,10 @@ def compose_experiment(
         kind=definition.kind,
         inputs=value_inputs,
         logical_inputs=inputs,
-        parameter_overlays=tuple(
-            axis for axis in scans if axis.parameter_lookup is not None
-        ),
+        parameter_overlays=tuple(axis for axis in scans if axis.overlay is not None),
         record_selections=definition.record_selections,
         additional_parameter_contracts=merge_parameter_contracts(
-            *(scan_parameter_contracts(axis) for axis in scans),
+            *(axis_parameter_contracts(axis) for axis in scans),
         ),
         point_domain=lower_scans_point_domain(scans, inputs=inputs),
         point_domain_layout=point_domain_layout,

@@ -26,7 +26,7 @@ from scopecat.program.scans import (
     RangeScanSource,
     ScanValue,
     ValuesScanSource,
-    parameter_cell_lookup,
+    parameter_overlay_cell,
 )
 from scopecat.program.value_refs import (
     ValueRef,
@@ -94,7 +94,7 @@ def project_scan_record(
     """Project scan intent into the closed durable request value domain."""
 
     source = axis.source
-    if axis.parameter_lookup is None:
+    if axis.overlay is None:
         if isinstance(source, ValuesScanSource):
             return PointScanRecord.model_validate(
                 {
@@ -124,7 +124,7 @@ def project_scan_record(
                 "points": source.points,
             }
         )
-    common = _parameter_scan_record_fields(axis, inputs=inputs)
+    common = _parameter_overlay_record_fields(axis, inputs=inputs)
     if isinstance(source, ValuesScanSource):
         return ParameterScanRecord.model_validate(
             {
@@ -182,12 +182,12 @@ def project_point_cloud_record(
     )
 
 
-def _parameter_scan_record_fields(
+def _parameter_overlay_record_fields(
     axis: AxisSpec,
     *,
     inputs: Mapping[str, object] | None,
 ) -> dict[str, object]:
-    lookup, key = parameter_cell_lookup(axis)
+    lookup, key = parameter_overlay_cell(axis)
     return {
         "table_id": lookup.table_id,
         "key": {

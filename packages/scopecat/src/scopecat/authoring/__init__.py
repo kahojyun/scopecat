@@ -38,7 +38,7 @@ from scopecat.authoring.entity_parameters import (
 from scopecat.authoring.experiments import (
     ExperimentInvocation,
 )
-from scopecat.authoring.scans import Axis, PointRow, axis, param_axis
+from scopecat.authoring.scans import Axis, PointRow, axis
 from scopecat.authoring.state_projection import (
     StateProjector,
     StateTarget,
@@ -142,7 +142,6 @@ __all__ = [
     "input_ref",
     "module",
     "one",
-    "param_axis",
     "parameter",
     "parameter_column",
     "parameter_lookup",

@@ -153,15 +153,15 @@ Linking materializes one ordered point sequence; host lowering, parameter
 overlays, entity selection, and domain projection consume those same point rows.
 
 Partial evaluation binds accepted inputs and configuration values, applies
-lexical scan overrides, folds pure subgraphs, removes undemanded work, and
+the invocation's point-plan override, folds pure subgraphs, removes undemanded work, and
 leaves residual host and domain computation. It is pure: reads, state mutation,
 acquisitions, low-level driver actions, and other external effects execute only
 from a `RunProgram`. Any concrete fallback is bounded by an explicit
 materialization limit.
 
-A parameter scan is one specialization path: `parameter_lookup` selects a cell
-from the accepted snapshot, and `param_axis` overlays it at each logical point.
-Host and domain placement observe the same overlaid value.
+A parameter overlay is one specialization path: `parameter_lookup` selects a
+cell from the accepted snapshot, and `axis(..., overlay=lookup)` supplies its
+point-local value. Host and domain placement observe the same overlaid value.
 
 Activating an approved proposal selects a new immutable snapshot for later
 specialization; it does not introduce another compiler or configuration path.

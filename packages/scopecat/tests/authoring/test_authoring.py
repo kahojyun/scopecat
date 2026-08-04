@@ -447,7 +447,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
     ]
 
 
-def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
+def test_bound_entity_input_can_select_a_default_parameter_lookup_center() -> None:
     seed_config = load_config()
     topology = seed_config.topology.model_copy(
         update={

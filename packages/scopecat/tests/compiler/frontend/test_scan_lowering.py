@@ -22,7 +22,7 @@ from scopecat.program.point_domain import (
 )
 from scopecat.program.scans import (
     AxisSpec,
-    scan_parameter_contracts,
+    axis_parameter_contracts,
 )
 from scopecat.program.values import input as program_input
 from scopecat.records.run_request import (
@@ -72,7 +72,7 @@ def test_explicit_scan_lowers_to_a_structural_axis_with_normalized_values() -> N
     )
     assert analyze_point_domain((axis,)).cardinality == 2
     assert (
-        scan_parameter_contracts(
+        axis_parameter_contracts(
             _axis(sc.axis(_point("frequency"), [4.9, 5.1], unit="GHz"))
         )
         == ()
@@ -179,10 +179,10 @@ def test_around_scan_keeps_only_its_typed_center_as_authoring_data() -> None:
     assert axis.source.count == 5
 
 
-def test_parameter_around_scan_uses_the_selected_cell_as_its_center() -> None:
-    scan = sc.param_axis(
+def test_overlay_around_axis_uses_the_selected_cell_as_its_center() -> None:
+    scan = sc.axis(
         _point("frequency"),
-        _parameter_lookup(),
+        overlay=_parameter_lookup(),
         span="200 MHz",
         points=5,
     )
@@ -193,7 +193,7 @@ def test_parameter_around_scan_uses_the_selected_cell_as_its_center() -> None:
     assert axis.source.count == 5
     [lookup] = tuple(
         contract
-        for contract in scan_parameter_contracts(_axis(scan))
+        for contract in axis_parameter_contracts(_axis(scan))
         if isinstance(contract, ParameterLookupUse)
     )
     assert lookup.table_id == "device_parameters"
@@ -201,11 +201,11 @@ def test_parameter_around_scan_uses_the_selected_cell_as_its_center() -> None:
     assert lookup.result_type == _FREQUENCY
 
 
-def test_parameter_range_scan_preserves_its_locator_and_range() -> None:
+def test_overlay_range_axis_preserves_its_locator_and_range() -> None:
     scan = _axis(
-        sc.param_axis(
+        sc.axis(
             _point("frequency"),
-            _parameter_lookup(),
+            overlay=_parameter_lookup(),
             start=4.9,
             stop=5.1,
             unit="GHz",
@@ -228,31 +228,59 @@ def test_parameter_range_scan_preserves_its_locator_and_range() -> None:
     assert record.points == 5
 
 
-def test_parameter_scan_forms_are_mutually_exclusive_and_complete() -> None:
+def test_axis_overlay_forms_are_mutually_exclusive_and_complete() -> None:
     target = _point("frequency")
     lookup = _parameter_lookup()
-    unchecked_param_axis = cast("Callable[..., sc.Axis]", sc.param_axis)
+    unchecked_axis = cast("Callable[..., sc.Axis]", sc.axis)
 
     with pytest.raises(ValueError, match="exactly one"):
-        unchecked_param_axis(
+        unchecked_axis(
             target,
-            lookup,
             [4.9, 5.1],
+            overlay=lookup,
             unit="GHz",
             span="200 MHz",
             points=3,
         )
-    with pytest.raises(ValueError, match="requires span and points"):
-        unchecked_param_axis(target, lookup, span="200 MHz")
-    with pytest.raises(ValueError, match="requires values, start/stop/points"):
-        unchecked_param_axis(target, lookup)
+    with pytest.raises(ValueError, match="requires a center or overlay"):
+        unchecked_axis(target, overlay=lookup, span="200 MHz")
+    with pytest.raises(ValueError, match="requires a center or overlay"):
+        unchecked_axis(target, overlay=lookup)
 
 
-def test_parameter_around_scan_requires_a_quantity_point() -> None:
+def test_axis_overlay_requires_one_direct_matching_parameter_cell() -> None:
+    target = _point("frequency")
+
+    with pytest.raises(TypeError, match=r"direct scopecat\.parameter_lookup"):
+        sc.axis(
+            target,
+            [4.9, 5.1],
+            overlay=sc.parameter("frequency", _FREQUENCY),
+            unit="GHz",
+        )
+    with pytest.raises(TypeError, match="same value type"):
+        sc.axis(
+            target,
+            [4.9, 5.1],
+            overlay=_parameter_lookup("gain", sc.ScalarType(sc.FloatType())),
+            unit="GHz",
+        )
+    with pytest.raises(ValueError, match="supplies the center"):
+        sc.axis(
+            target,
+            overlay=_parameter_lookup(),
+            center=5.0,
+            span=0.2,
+            unit="GHz",
+            points=3,
+        )
+
+
+def test_overlay_around_axis_requires_a_quantity_point() -> None:
     with pytest.raises(TypeError, match="typed quantity point"):
-        sc.param_axis(
+        sc.axis(
             sc.coordinate("gain", sc.ScalarType(sc.FloatType())),
-            _parameter_lookup("gain", sc.ScalarType(sc.FloatType())),
+            overlay=_parameter_lookup("gain", sc.ScalarType(sc.FloatType())),
             span="0.2 ratio",
             points=3,
         )
@@ -280,7 +308,7 @@ def test_linear_center_is_the_only_point_domain_parameter_contract_source() -> N
         )
     )
 
-    assert scan_parameter_contracts(explicit) == ()
-    assert scan_parameter_contracts(linear) == (
+    assert axis_parameter_contracts(explicit) == ()
+    assert axis_parameter_contracts(linear) == (
         ParameterValueContract("frequency_center", _FREQUENCY),
     )

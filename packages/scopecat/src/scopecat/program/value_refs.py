@@ -222,7 +222,7 @@ def internal_parameter_lookup_value_ref(
     *,
     key: Mapping[str, ScalarOperand],
 ) -> ValueRef:
-    """Create a direct parameter-cell reference retained by parameter scans."""
+    """Create a direct parameter-cell reference retained by axis overlays."""
 
     captured_key = tuple(key.items())
     bound_values = tuple(
