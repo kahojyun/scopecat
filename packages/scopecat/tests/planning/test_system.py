@@ -679,6 +679,33 @@ def test_plan_stage_value_record_is_materialized_per_point() -> None:
     assert record.id == "threshold"
 
 
+def test_planning_executes_repeated_grid_in_snake_order() -> None:
+    x = sc.coordinate("x", sc.ScalarType(sc.IntType()))
+    y = sc.coordinate("y", sc.ScalarType(sc.IntType()))
+
+    @sc.experiment(id="test.snake-repeat", kind="point_plan")
+    def definition(experiment: sc.ExperimentContext) -> None:
+        experiment.grid(
+            sc.axis(x, (0, 1)),
+            sc.axis(y, (0, 1, 2)),
+            repeat=2,
+            traversal="snake",
+        )
+
+    bound = bind_program(
+        compile_invocation(definition()).program,
+        build_config_environment(load_config()),
+    )
+    plan = ExperimentSystem(instrument_catalog=_catalog(bound)).compile(bound)
+
+    assert tuple(point.ordinal for point in plan.points.points) == tuple(range(12))
+    assert tuple(
+        operation.point_index
+        for operation in plan.coverage
+        if isinstance(operation, RunCoverageCheckpoint)
+    ) == (0, 1, 2, 3, 4, 5, 10, 11, 8, 9, 6, 7)
+
+
 def test_planning_rejects_catalog_for_another_config() -> None:
     bound = _bound_program()
     catalog = _catalog(bound).model_copy(

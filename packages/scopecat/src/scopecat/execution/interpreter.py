@@ -16,6 +16,7 @@ from scopecat.execution.evidence import (
     build_terminal_contents,
     instrument_state_evidence_ref,
 )
+from scopecat.execution.measurement_ordering import CanonicalMeasurementBuffer
 from scopecat.execution.measurement_postprocessors import (
     execute_measurement_postprocessors,
 )
@@ -45,7 +46,10 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.measurements.points import RunPoint
-from scopecat.measurements.projection import project_measurement_records
+from scopecat.measurements.projection import (
+    ProjectedMeasurementDataset,
+    project_measurement_records,
+)
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
@@ -100,6 +104,7 @@ def _execute_run(
     dataset_header, header_failure = _initialize_dataset_header(program, session)
     committed_measurement_count = 0
     append_content_hashes: list[str] = []
+    measurement_buffer = CanonicalMeasurementBuffer()
 
     def commit_coverage(
         points: tuple[RunPoint, ...],
@@ -133,18 +138,23 @@ def _execute_run(
         )
         if block_problems:
             raise ProblemFailure(block_problems)
-        if not projected.records:
+        ready_records = measurement_buffer.add(projected.records)
+        if not ready_records:
             return
         if dataset_header is None:
             raise ValueError("projected measurements require a dataset header")
         receipt = append_measurement_dataset(
-            projected,
+            ProjectedMeasurementDataset(
+                projected.projection,
+                projected.run_id,
+                ready_records,
+            ),
             measurements,
             journal,
             header=dataset_header,
         )
         if receipt is not None:
-            committed_measurement_count += len(projected.records)
+            committed_measurement_count += len(ready_records)
             append_content_hashes.append(receipt.dataset_content_hash)
 
     effect_result = (
@@ -193,6 +203,10 @@ def _execute_run(
     try:
         if coverage_failure is not None:
             raise coverage_failure
+        _validate_measurement_completion(
+            measurement_buffer,
+            successful=not problems,
+        )
         if dataset_header is not None and header_failure is None:
             seal_receipt = seal_measurement_dataset(
                 run_id=run_id,
@@ -296,6 +310,17 @@ def _execute_run(
             raise RunIndeterminate(run_id=run_id, outcome=outcome)
         raise RunFailed(run_id=run_id, outcome=outcome)
     return manifest
+
+
+def _validate_measurement_completion(
+    buffer: CanonicalMeasurementBuffer,
+    *,
+    successful: bool,
+) -> None:
+    if successful and buffer.pending_indices:
+        raise AssertionError(
+            "successful coverage left non-contiguous measurement records"
+        )
 
 
 def _initialize_dataset_header(

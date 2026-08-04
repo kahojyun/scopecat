@@ -53,7 +53,7 @@ class RunCoverageEffect:
 
 @dataclass(frozen=True, slots=True)
 class RunCoverageCheckpoint:
-    """Commit one completed logical prefix inside a larger effect block."""
+    """Commit one completed logical point inside a larger effect block."""
 
     point_index: int
 

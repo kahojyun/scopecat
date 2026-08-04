@@ -59,6 +59,7 @@ from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
     materialize_bound_points,
 )
+from scopecat.planning.point_order import point_execution_ordinals
 from scopecat.planning.provider_binding import (
     validate_run_host_binding,
 )
@@ -208,7 +209,13 @@ def _compile_system_program(
         raise ProviderContractError(catalog.problems)
     bound_points = materialize_bound_points(bound)
     point_domain = bound_points.point_domain
-    point_count = len(point_domain.points)
+    logical = bound.program.program
+    execution_ordinals = point_execution_ordinals(
+        point_domain,
+        repeat=logical.point_repeat,
+        repeat_mode=logical.point_repeat_mode,
+        traversal=logical.point_traversal,
+    )
     measurement_catalog = project_measurement_catalog(bound_points)
     point_catalog = project_run_point_catalog(bound_points)
     measurements = select_measurement_projection(
@@ -229,6 +236,7 @@ def _compile_system_program(
         materialize_local_execution(
             bound_points,
             target=local_target,
+            point_ordinals=execution_ordinals,
         )
         if local_target is not None
         else None
@@ -253,7 +261,7 @@ def _compile_system_program(
         system=system,
         bound=bound,
         bound_points=bound_points,
-        point_count=point_count,
+        point_ordinals=execution_ordinals,
         domain_calls=domain_calls,
         local_effects=local_effects,
     )
@@ -464,11 +472,11 @@ def _compile_coverage(
     system: ExperimentSystem,
     bound: BoundPlan,
     bound_points: MaterializedBoundPoints,
-    point_count: int,
+    point_ordinals: tuple[int, ...],
     domain_calls: dict[str, DomainCallView],
     local_effects: MaterializedLocalEffects | None,
 ) -> tuple[RunCoveredOperation, ...]:
-    region = tuple(range(point_count))
+    region = point_ordinals
     if not region:
         return ()
     compiler = cast("DomainCompiler", system.domain_compiler)

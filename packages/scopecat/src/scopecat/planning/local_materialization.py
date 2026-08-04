@@ -63,6 +63,7 @@ def materialize_local_execution(
     bound_points: MaterializedBoundPoints,
     *,
     target: LocalTargetPlan,
+    point_ordinals: Sequence[int] | None = None,
 ) -> MaterializedLocalEffects:
     """Lower one bounded point coverage into final ordered local effects."""
 
@@ -83,7 +84,11 @@ def materialize_local_execution(
             strict=True,
         )
     }
-    ordinals = tuple(point.logical_ordinal for point in planner_points)
+    ordinals = (
+        tuple(point.logical_ordinal for point in planner_points)
+        if point_ordinals is None
+        else tuple(point_ordinals)
+    )
     resources_by_ordinal = select_coverage_resources(
         program,
         target.resource_ports,
