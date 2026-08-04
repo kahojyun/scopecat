@@ -33,6 +33,7 @@ if TYPE_CHECKING:
         analysis_step,
     )
     from scopecat.authoring import (
+        Axis,
         BoolType,
         EachEntity,
         EntityKey,
@@ -73,10 +74,8 @@ if TYPE_CHECKING:
         parameter_lookup,
     )
     from scopecat.authoring.scans import (
-        Scan,
         axis,
         param_axis,
-        points,
     )
     from scopecat.config.parameters import (
         delete_parameter_rows,
@@ -100,6 +99,7 @@ if TYPE_CHECKING:
     )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "Axis": ("scopecat.authoring", "Axis"),
     "BoolType": ("scopecat.authoring", "BoolType"),
     "EachEntity": ("scopecat.authoring", "EachEntity"),
     "EntityKey": ("scopecat.authoring", "EntityKey"),
@@ -138,10 +138,8 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "parameter": ("scopecat.authoring", "parameter"),
     "parameter_column": ("scopecat.authoring", "parameter_column"),
     "parameter_lookup": ("scopecat.authoring", "parameter_lookup"),
-    "Scan": ("scopecat.authoring.scans", "Scan"),
     "axis": ("scopecat.authoring.scans", "axis"),
     "param_axis": ("scopecat.authoring.scans", "param_axis"),
-    "points": ("scopecat.authoring.scans", "points"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
     "PayloadCodec": ("scopecat.sdk.payloads", "PayloadCodec"),
     "PayloadCodecCatalog": ("scopecat.sdk.payloads", "PayloadCodecCatalog"),

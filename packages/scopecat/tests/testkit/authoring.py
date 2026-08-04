@@ -100,7 +100,7 @@ def simple_template(
                 drive_frequency=DRIVE_FREQUENCY_POINT,
             )
         )
-        experiment.scan(
+        experiment.grid(
             axis(
                 DRIVE_FREQUENCY_POINT,
                 center=authoring.parameter(

@@ -40,7 +40,7 @@ DC_BIAS = sc.coordinate(
 def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
     """Scan DC bias and persist one VNA trace plus temperature per point."""
 
-    experiment.scan(
+    experiment.grid(
         sc.axis(
             DC_BIAS,
             start=BIAS_START,

@@ -134,29 +134,6 @@ class PointScanRecord(_RunRequestModel):
     values: list[RunRequestScalarValue]
 
 
-class PointRowsRecord(_RunRequestModel):
-    """Persisted ordered point-cloud rows with declaration-ordered columns."""
-
-    kind: Literal["points"] = "points"
-    columns: list[str]
-    rows: list[dict[str, RunRequestScalarValue]]
-
-    @model_validator(mode="after")
-    def validate_rows(self) -> PointRowsRecord:
-        if any(not column for column in self.columns):
-            raise ValueError("point-row column ids must be non-empty")
-        if len(self.columns) != len(set(self.columns)):
-            raise ValueError("point-row column ids must be unique")
-        expected = set(self.columns)
-        if self.rows and not expected:
-            raise ValueError("non-empty point rows require coordinate columns")
-        if any(set(row) != expected for row in self.rows):
-            raise ValueError(
-                "point rows must contain exactly the declared coordinate columns"
-            )
-        return self
-
-
 class AroundScanRecord(_RunRequestModel):
     """Persisted center/span scan axis record."""
 
@@ -244,12 +221,50 @@ def _validate_range_endpoints(
 
 type ScanRecord = Annotated[
     PointScanRecord
-    | PointRowsRecord
     | AroundScanRecord
     | RangeScanRecord
     | ParameterScanRecord
     | ParameterAroundScanRecord
     | ParameterRangeScanRecord,
+    Field(discriminator="kind"),
+]
+
+
+class GridDomainRecord(_RunRequestModel):
+    """Persisted Cartesian point domain with declaration-ordered axes.
+
+    An empty axis list denotes the unit point rather than an empty domain.
+    """
+
+    kind: Literal["grid"] = "grid"
+    axes: list[ScanRecord] = Field(default_factory=list)
+
+
+class PointCloudDomainRecord(_RunRequestModel):
+    """Persisted ordered point-cloud rows with declaration-ordered columns."""
+
+    kind: Literal["points"] = "points"
+    columns: list[str]
+    rows: list[dict[str, RunRequestScalarValue]]
+
+    @model_validator(mode="after")
+    def validate_rows(self) -> PointCloudDomainRecord:
+        if any(not column for column in self.columns):
+            raise ValueError("point-cloud column ids must be non-empty")
+        if len(self.columns) != len(set(self.columns)):
+            raise ValueError("point-cloud column ids must be unique")
+        expected = set(self.columns)
+        if self.rows and not expected:
+            raise ValueError("non-empty point-cloud rows require coordinate columns")
+        if any(set(row) != expected for row in self.rows):
+            raise ValueError(
+                "point-cloud rows must contain exactly the declared coordinate columns"
+            )
+        return self
+
+
+type PointDomainRecord = Annotated[
+    GridDomainRecord | PointCloudDomainRecord,
     Field(discriminator="kind"),
 ]
 
@@ -260,6 +275,6 @@ class RunRequest(_RunRequestModel):
     experiment_id: str | None = None
     inputs: dict[str, RunRequestValue] = Field(default_factory=dict)
     operator: str | None = None
-    scans: list[ScanRecord] = Field(default_factory=list)
+    point_domain: PointDomainRecord = Field(default_factory=GridDomainRecord)
     stage: RunStageLineage | None = None
     metadata: dict[str, RunRequestJsonValue] = Field(default_factory=dict)

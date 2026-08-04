@@ -30,7 +30,9 @@ from scopecat.records.parameter import (
 from scopecat.records.run import RunStageLineage
 from scopecat.records.run_request import (
     AroundScanRecord,
+    GridDomainRecord,
     ParameterRangeScanRecord,
+    PointCloudDomainRecord,
     PointScanRecord,
     RangeScanRecord,
     RunRequest,
@@ -87,6 +89,7 @@ def test_run_request_records_operator_metadata() -> None:
 
     assert restored.operator == "alice"
     assert restored.metadata == {"sample": "q0"}
+    assert restored.point_domain == GridDomainRecord()
 
 
 def test_run_request_records_typed_stage_lineage() -> None:
@@ -110,108 +113,204 @@ def test_run_request_records_typed_stage_lineage() -> None:
         RunStageLineage(sequence_id="adaptive-sequence", index=1)
 
 
-def test_run_request_records_canonical_scans_only() -> None:
+def test_run_request_records_canonical_grid_axes_only() -> None:
     request = RunRequest(
-        scans=[
-            PointScanRecord(
-                axis_id="drive_frequency",
-                values=[5.0, 5.1],
-            )
-        ],
+        point_domain=GridDomainRecord(
+            axes=[
+                PointScanRecord(
+                    axis_id="drive_frequency",
+                    values=[5.0, 5.1],
+                )
+            ]
+        ),
     )
     restored = assert_model_round_trip(
         request,
     )
 
-    assert restored.scans == request.scans
-    assert isinstance(restored.scans[0], PointScanRecord)
-    assert restored.model_dump(mode="json")["scans"] == [
-        {
-            "kind": "point",
-            "axis_id": "drive_frequency",
-            "values": [5.0, 5.1],
-        }
-    ]
+    assert restored.point_domain == request.point_domain
+    assert isinstance(restored.point_domain, GridDomainRecord)
+    assert isinstance(restored.point_domain.axes[0], PointScanRecord)
+    assert restored.model_dump(mode="json")["point_domain"] == {
+        "kind": "grid",
+        "axes": [
+            {
+                "kind": "point",
+                "axis_id": "drive_frequency",
+                "values": [5.0, 5.1],
+            }
+        ],
+    }
     with pytest.raises(ValidationError):
         RunRequest.model_validate(
             {
-                "scans": [
-                    {
-                        "kind": "point",
-                        "axis_id": "drive_frequency",
-                        "values": [5.0],
-                        "input_id": "frequencies",
-                    }
-                ],
+                "point_domain": {
+                    "kind": "grid",
+                    "axes": [
+                        {
+                            "kind": "point",
+                            "axis_id": "drive_frequency",
+                            "values": [5.0],
+                            "input_id": "frequencies",
+                        }
+                    ],
+                },
             }
         )
     with pytest.raises(ValidationError):
         RunRequest.model_validate(
             {
-                "scans": [
-                    {
-                        "kind": "point",
-                        "axis_id": "drive_frequency",
-                    }
-                ],
+                "point_domain": {
+                    "kind": "grid",
+                    "axes": [
+                        {
+                            "kind": "point",
+                            "axis_id": "drive_frequency",
+                        }
+                    ],
+                },
             }
         )
     with pytest.raises(ValidationError):
         RunRequest.model_validate(
             {
-                "scans": [
-                    {
-                        "kind": "unknown",
-                        "axis_id": "drive_frequency",
-                    }
-                ],
+                "point_domain": {
+                    "kind": "grid",
+                    "axes": [
+                        {
+                            "kind": "unknown",
+                            "axis_id": "drive_frequency",
+                        }
+                    ],
+                },
             }
         )
 
 
 def test_range_scan_records_round_trip_numeric_and_quantity_endpoints() -> None:
     request = RunRequest(
-        scans=[
-            RangeScanRecord(
-                axis_id="power",
-                start=Quantity(value=-30.0, unit="dBm"),
-                stop=Quantity(value=0.0, unit="dBm"),
-                points=61,
-            ),
-            ParameterRangeScanRecord(
-                table_id="device_parameters",
-                key={"device": "q0"},
-                column="gain",
-                axis_id="gain",
-                start=-1,
-                stop=1.0,
-                points=3,
-            ),
-        ]
+        point_domain=GridDomainRecord(
+            axes=[
+                RangeScanRecord(
+                    axis_id="power",
+                    start=Quantity(value=-30.0, unit="dBm"),
+                    stop=Quantity(value=0.0, unit="dBm"),
+                    points=61,
+                ),
+                ParameterRangeScanRecord(
+                    table_id="device_parameters",
+                    key={"device": "q0"},
+                    column="gain",
+                    axis_id="gain",
+                    start=-1,
+                    stop=1.0,
+                    points=3,
+                ),
+            ]
+        )
     )
 
     restored = assert_model_round_trip(request)
 
     assert restored == request
-    assert restored.model_dump(mode="json")["scans"] == [
+    assert restored.model_dump(mode="json")["point_domain"] == {
+        "kind": "grid",
+        "axes": [
+            {
+                "kind": "range",
+                "axis_id": "power",
+                "start": {"value": -30.0, "unit": "dBm"},
+                "stop": {"value": 0.0, "unit": "dBm"},
+                "points": 61,
+            },
+            {
+                "kind": "parameter_range",
+                "table_id": "device_parameters",
+                "key": {"device": "q0"},
+                "column": "gain",
+                "axis_id": "gain",
+                "start": -1,
+                "stop": 1.0,
+                "points": 3,
+            },
+        ],
+    }
+
+
+def test_point_cloud_domain_round_trips_without_axis_mixing() -> None:
+    request = RunRequest(
+        point_domain=PointCloudDomainRecord(
+            columns=["frequency", "power"],
+            rows=[
+                {"frequency": 5.0, "power": -20.0},
+                {"frequency": 5.1, "power": -18.0},
+            ],
+        )
+    )
+
+    restored = assert_model_round_trip(request)
+
+    assert isinstance(restored.point_domain, PointCloudDomainRecord)
+    assert restored.model_dump(mode="json")["point_domain"] == {
+        "kind": "points",
+        "columns": ["frequency", "power"],
+        "rows": [
+            {"frequency": 5.0, "power": -20.0},
+            {"frequency": 5.1, "power": -18.0},
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "point_domain",
+    [
         {
-            "kind": "range",
-            "axis_id": "power",
-            "start": {"value": -30.0, "unit": "dBm"},
-            "stop": {"value": 0.0, "unit": "dBm"},
-            "points": 61,
+            "kind": "grid",
+            "axes": [],
+            "columns": ["frequency"],
+            "rows": [{"frequency": 5.0}],
         },
         {
-            "kind": "parameter_range",
-            "table_id": "device_parameters",
-            "key": {"device": "q0"},
-            "column": "gain",
-            "axis_id": "gain",
-            "start": -1,
-            "stop": 1.0,
-            "points": 3,
+            "kind": "points",
+            "columns": ["frequency"],
+            "rows": [{"frequency": 5.0}],
+            "axes": [],
         },
-    ]
+        {
+            "kind": "grid",
+            "axes": [
+                {
+                    "kind": "points",
+                    "columns": ["frequency"],
+                    "rows": [{"frequency": 5.0}],
+                }
+            ],
+        },
+    ],
+)
+def test_point_domain_rejects_mixed_grid_and_point_cloud_shapes(
+    point_domain: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        RunRequest.model_validate({"point_domain": point_domain})
+
+
+def test_point_cloud_domain_requires_exact_unique_columns() -> None:
+    with pytest.raises(ValidationError, match="unique"):
+        PointCloudDomainRecord(
+            columns=["frequency", "frequency"],
+            rows=[],
+        )
+    with pytest.raises(ValidationError, match="exactly"):
+        PointCloudDomainRecord(
+            columns=["frequency", "power"],
+            rows=[{"frequency": 5.0}],
+        )
+
+
+def test_run_request_rejects_legacy_scans_field() -> None:
+    with pytest.raises(ValidationError):
+        RunRequest.model_validate({"scans": []})
 
 
 def test_generated_scan_records_require_quantity_spans_and_two_points() -> None:
@@ -272,18 +371,21 @@ def test_run_request_values_have_a_closed_durable_domain() -> None:
                 "frequency": Quantity(value=5.0, unit="GHz"),
                 "settings": {"enabled": True, "labels": ["a", "b"]},
             },
-            "scans": [
-                {
-                    "kind": "scan",
-                    "axis_id": "drive_frequency",
-                    "center": {
-                        "kind": "parameter",
-                        "parameter_id": "drive_frequency",
+            "point_domain": {
+                "kind": "grid",
+                "axes": [
+                    {
+                        "kind": "scan",
+                        "axis_id": "drive_frequency",
+                        "center": {
+                            "kind": "parameter",
+                            "parameter_id": "drive_frequency",
+                        },
+                        "span": Quantity(value=100.0, unit="MHz"),
+                        "points": 3,
                     },
-                    "span": Quantity(value=100.0, unit="MHz"),
-                    "points": 3,
-                },
-            ],
+                ],
+            },
             "metadata": {"notebook": "02_define_experiment"},
         }
     )
@@ -300,7 +402,8 @@ def test_run_request_values_have_a_closed_durable_domain() -> None:
         "metadata": {},
     }
     assert isinstance(request.inputs["frequency"], Quantity)
-    scan = request.scans[0]
+    assert isinstance(request.point_domain, GridDomainRecord)
+    scan = request.point_domain.axes[0]
     assert isinstance(scan, AroundScanRecord)
     assert scan.center == RunRequestParameterValue(parameter_id="drive_frequency")
     assert scan.span == Quantity(value=100.0, unit="MHz")

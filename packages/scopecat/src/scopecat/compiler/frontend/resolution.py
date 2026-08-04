@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Never, cast
 
 from scopecat.compiler.frontend.elaboration import (
     compose_experiment,
@@ -20,13 +18,13 @@ from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
 from scopecat.compiler.frontend.scan_lowering import (
-    project_point_rows_record,
+    project_point_cloud_record,
     project_scan_record,
 )
 from scopecat.compiler.frontend.scan_validation import (
-    ScanValidationError,
-    VerifiedScanDomain,
-    verify_scan_domain,
+    PointDomainValidationError,
+    VerifiedPointDomain,
+    verify_point_domain,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem
@@ -40,11 +38,11 @@ from scopecat.program.point_domain import analyze_point_domain
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
-    PointRowsSpec,
-    Scan,
+    PointDomainSpec,
+    PointsSpec,
 )
 from scopecat.program.value_refs import ValueRef
-from scopecat.records.run_request import RunRequest
+from scopecat.records.run_request import GridDomainRecord, RunRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,13 +59,13 @@ def compile_invocation(
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
 ) -> CompiledInvocation:
-    scans = _resolve_scan_module_results(
+    domain = _resolve_point_domain_module_results(
         invocation,
-        _effective_scans(invocation),
+        invocation.point_plan.domain,
     )
     inputs = _merged_inputs(invocation)
-    scan_domain = _verified_scans(
-        scans,
+    point_domain = _verified_point_domain(
+        domain,
         inputs=inputs,
     )
     _validate_required_invocation_inputs(
@@ -77,17 +75,17 @@ def compile_invocation(
     request = _materialized_request(
         invocation,
         inputs=inputs,
-        scan_domain=scan_domain,
+        point_domain=point_domain,
         metadata=metadata,
         operator=operator,
     )
     logical = compose_experiment(
         invocation.definition,
         inputs=inputs,
-        scans=scan_domain.axes,
-        point_domain_layout=scan_domain.layout,
+        scans=point_domain.axes,
+        point_domain_layout=point_domain.layout,
     )
-    _validate_point_dependencies(logical, scan_domain)
+    _validate_point_dependencies(logical, point_domain)
     return CompiledInvocation(
         program=verify_logical_program(logical),
         request=request,
@@ -116,71 +114,15 @@ def _validate_required_invocation_inputs(
         )
 
 
-def _effective_scans(invocation: ExperimentInvocation) -> tuple[Scan, ...]:
-    defaults = tuple(invocation.definition.default_scans)
-    overrides = tuple(invocation.scans)
-    default_rows = tuple(scan for scan in defaults if isinstance(scan, PointRowsSpec))
-    override_rows = tuple(scan for scan in overrides if isinstance(scan, PointRowsSpec))
-    if override_rows:
-        if len(overrides) != 1:
-            _raise_mixed_point_domain_layout()
-        return override_rows
-    if default_rows:
-        if len(defaults) != 1 or overrides:
-            _raise_mixed_point_domain_layout()
-        return default_rows
-    default_axes = tuple(cast("AxisSpec", scan) for scan in defaults)
-    override_axes = tuple(cast("AxisSpec", scan) for scan in overrides)
-    override_axis_ids = [axis.id for axis in override_axes]
-    # Validate before indexing so repeated overrides cannot silently collapse.
-    duplicate_overrides = sorted(
-        axis_id for axis_id, count in Counter(override_axis_ids).items() if count > 1
-    )
-    if duplicate_overrides:
-        raise CheckFailed(
-            [
-                _problem(
-                    "scan_axis_duplicate",
-                    "duplicate scan axis: " + ", ".join(duplicate_overrides),
-                    "scans",
-                )
-            ]
-        )
-    default_axis_ids = {axis.id for axis in default_axes}
-    override_by_id = {axis.id: axis for axis in override_axes}
-    replaced = tuple(
-        override_by_id.get(default.id, default) for default in default_axes
-    )
-    additions = tuple(axis for axis in override_axes if axis.id not in default_axis_ids)
-    return (*replaced, *additions)
-
-
-def _raise_mixed_point_domain_layout() -> Never:
-    raise CheckFailed(
-        [
-            _problem(
-                "point_domain_layout_mixed",
-                "point rows define the complete domain and cannot be combined "
-                "with scan axes",
-                "scans",
-            )
-        ]
-    )
-
-
-def _resolve_scan_module_results(
+def _resolve_point_domain_module_results(
     invocation: ExperimentInvocation,
-    scans: Sequence[Scan],
-) -> tuple[Scan, ...]:
+    domain: PointDomainSpec,
+) -> PointDomainSpec:
     """Resolve module-return edges before scan validation and request projection."""
 
     resolver = ModuleValueResolver(invocation.definition)
-    resolved: list[Scan] = []
-    for scan in scans:
-        if isinstance(scan, PointRowsSpec):
-            resolved.append(scan)
-            continue
-        axis = cast("AxisSpec", scan)
+    resolved: list[AxisSpec] = []
+    for axis in domain.axes:
         source = axis.source
         if isinstance(source, AroundScanSource) and isinstance(
             source.center,
@@ -197,7 +139,7 @@ def _resolve_scan_module_results(
                 parameter_lookup=parameter_lookup,
             )
         )
-    return tuple(resolved)
+    return replace(domain, axes=tuple(resolved))
 
 
 def _merged_inputs(
@@ -208,7 +150,7 @@ def _merged_inputs(
         for input_definition in invocation.definition.inputs
         if input_definition.has_default
     }
-    merged.update(invocation.inputs)
+    merged.update(invocation.input_overrides)
     return merged
 
 
@@ -216,49 +158,48 @@ def _materialized_request(
     invocation: ExperimentInvocation,
     *,
     inputs: Mapping[str, object],
-    scan_domain: VerifiedScanDomain,
+    point_domain: VerifiedPointDomain,
     metadata: Mapping[str, object] | None,
     operator: str | None,
 ) -> RunRequest:
     request_inputs = project_run_request_inputs(inputs)
-    request_scans = (
-        [
-            project_point_rows_record(
-                PointRowsSpec(scan_domain.axes),
-                inputs=inputs,
-            )
-        ]
-        if scan_domain.layout == "point_cloud"
-        else [project_scan_record(axis, inputs=inputs) for axis in scan_domain.axes]
+    request_point_domain = (
+        project_point_cloud_record(PointsSpec(point_domain.axes), inputs=inputs)
+        if point_domain.layout == "point_cloud"
+        else GridDomainRecord(
+            axes=[
+                project_scan_record(axis, inputs=inputs) for axis in point_domain.axes
+            ]
+        )
     )
     return RunRequest.model_validate(
         {
             "experiment_id": invocation.definition.id,
             "inputs": request_inputs,
-            "scans": request_scans,
+            "point_domain": request_point_domain,
             "operator": operator,
             "metadata": dict(metadata or {}),
         }
     )
 
 
-def _verified_scans(
-    scans: Sequence[Scan],
+def _verified_point_domain(
+    domain: PointDomainSpec,
     *,
     inputs: Mapping[str, object],
-) -> VerifiedScanDomain:
+) -> VerifiedPointDomain:
     try:
-        return verify_scan_domain(
-            scans,
+        return verify_point_domain(
+            domain,
             inputs=inputs,
         )
-    except ScanValidationError as error:
+    except PointDomainValidationError as error:
         raise CheckFailed(
             [
                 _problem(
                     issue.code,
                     issue.message,
-                    "scans",
+                    "point_domain",
                     path=issue.path,
                 )
                 for issue in error.issues
@@ -268,7 +209,7 @@ def _verified_scans(
 
 def _validate_point_dependencies(
     program: LogicalProgram,
-    scan_domain: VerifiedScanDomain,
+    point_domain: VerifiedPointDomain,
 ) -> None:
     domain_type = analyze_point_domain(
         program.point_domain,
@@ -276,7 +217,7 @@ def _validate_point_dependencies(
     ).value_type
     point_types = {
         **{column.id: column.value_type for column in domain_type.columns},
-        **{axis.id: axis.value_type for axis in scan_domain.axes},
+        **{axis.id: axis.value_type for axis in point_domain.axes},
     }
     problems: list[Problem] = []
     for dependency in program.point_dependencies:
@@ -287,7 +228,7 @@ def _validate_point_dependencies(
                     "experiment_point_dependency_missing",
                     f"module requires point {dependency.id!r}, but no point "
                     "domain provides it",
-                    "scans",
+                    "point_domain",
                     path=(dependency.id,),
                 )
             )
@@ -300,7 +241,7 @@ def _validate_point_dependencies(
                 f"scan for point {dependency.id!r} provides "
                 f"{describe_value_type(actual)}, but the module requires "
                 f"{describe_value_type(dependency.value_type)}",
-                "scans",
+                "point_domain",
                 path=(dependency.id,),
             )
         )

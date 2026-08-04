@@ -40,7 +40,7 @@ def _resolve(
     module: sc.ExperimentModule[None, ...],
     point: sc.ValueRef,
     *,
-    scan: sc.Scan | None = None,
+    scan: sc.Axis | None = None,
 ) -> None:
     call = module(point)
 
@@ -48,7 +48,7 @@ def _resolve(
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
         if scan is not None:
-            experiment.scan(scan)
+            experiment.grid(scan)
 
     bind_invocation(
         template_definition(),
@@ -65,7 +65,7 @@ def test_direct_point_dependency_requires_a_scan() -> None:
 
     problem = error.value.problems[0]
     assert problem.code == "experiment_point_dependency_missing"
-    assert problem.location == model_location("scans", "frequency")
+    assert problem.location == model_location("point_domain", "frequency")
 
 
 def test_direct_point_dependency_rejects_same_id_with_wrong_type() -> None:
@@ -81,7 +81,7 @@ def test_direct_point_dependency_rejects_same_id_with_wrong_type() -> None:
 
     problem = error.value.problems[0]
     assert problem.code == "experiment_point_dependency_type_mismatch"
-    assert problem.location == model_location("scans", "frequency")
+    assert problem.location == model_location("point_domain", "frequency")
     assert "Scalar[String]" in problem.message
     assert "Scalar[Quantity[GHz]]" in problem.message
 
@@ -118,7 +118,7 @@ def test_nested_module_preserves_bound_point_dependency() -> None:
     @sc.experiment(id="test.point-parent", kind="point_dependency")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(parent(parent_frequency))
-        experiment.scan(sc.axis(parent_frequency, (5.0,), unit="GHz"))
+        experiment.grid(sc.axis(parent_frequency, (5.0,), unit="GHz"))
 
     assembly = compile_invocation(template()).program.program
     assert tuple(

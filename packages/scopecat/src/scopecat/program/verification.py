@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Protocol, cast
+from typing import Protocol
 
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -20,8 +20,7 @@ from scopecat.program.operations import ModuleInputPort
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
-    PointRowsSpec,
-    Scan,
+    PointPlan,
     parameter_cell_lookup,
 )
 from scopecat.program.value_refs import (
@@ -59,14 +58,14 @@ def validate_experiment_definition(
     *,
     input_ports: Sequence[ModuleInputPort],
     defaults: Mapping[str, object],
-    default_scans: Sequence[Scan],
+    default_points: PointPlan,
 ) -> dict[str, ValueType]:
     """Validate one closed experiment definition without consulting config."""
 
     problems: list[Problem] = []
     input_types, input_type_problems = _definition_input_types(
         input_ports,
-        default_scans,
+        default_points,
     )
     problems.extend(input_type_problems)
     problems.extend(
@@ -117,29 +116,25 @@ def validate_experiment_inputs(
 
 def _definition_input_types(
     input_ports: Sequence[ModuleInputPort],
-    default_scans: Sequence[Scan],
+    default_points: PointPlan,
 ) -> tuple[dict[str, ValueType], list[Problem]]:
     selected = {port.id: port.value_type for port in input_ports}
     problems: list[Problem] = []
 
-    for scan in default_scans:
-        axes = (
-            scan.axes if isinstance(scan, PointRowsSpec) else (cast("AxisSpec", scan),)
-        )
-        for axis in axes:
-            for input_id, value_type in _direct_scan_input_types(axis):
-                existing = selected.get(input_id)
-                if existing is None or is_assignable(value_type, existing):
-                    selected[input_id] = value_type
-                elif not is_assignable(existing, value_type):
-                    problems.append(
-                        _definition_problem(
-                            "module_input_type_conflict",
-                            f"experiment input {input_id} has incompatible value types",
-                            "inputs",
-                            path=(input_id,),
-                        )
+    for axis in default_points.domain.axes:
+        for input_id, value_type in _direct_scan_input_types(axis):
+            existing = selected.get(input_id)
+            if existing is None or is_assignable(value_type, existing):
+                selected[input_id] = value_type
+            elif not is_assignable(existing, value_type):
+                problems.append(
+                    _definition_problem(
+                        "module_input_type_conflict",
+                        f"experiment input {input_id} has incompatible value types",
+                        "inputs",
+                        path=(input_id,),
                     )
+                )
     return selected, problems
 
 

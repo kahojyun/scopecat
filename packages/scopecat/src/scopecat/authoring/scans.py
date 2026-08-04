@@ -1,14 +1,9 @@
-"""Typed, opaque scan composition for the public authoring DSL.
-
-Scans are transient authoring intent. Public code creates them through the
-factories in this module; private lowering projects them independently into the
-compiler relation graph and the durable ``RunRequest`` value domain.
-"""
+"""Typed axis construction for experiment point domains."""
 
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import replace
 from typing import cast, overload
 
@@ -22,16 +17,13 @@ from scopecat.program.scans import (
     AroundScanSource as _AroundScanSource,
 )
 from scopecat.program.scans import (
-    AxisSpec as _AxisSpec,
+    AxisSpec as Axis,
 )
 from scopecat.program.scans import (
-    PointRowsSpec as _PointRowsSpec,
+    PointRow as PointRow,
 )
 from scopecat.program.scans import (
     RangeScanSource as _RangeScanSource,
-)
-from scopecat.program.scans import (
-    Scan as Scan,
 )
 from scopecat.program.scans import (
     ScanCenter as ScanCenter,
@@ -51,65 +43,8 @@ from scopecat.program.value_refs import (
     internal_value_ref_point_id,
 )
 
-type PointRow = Mapping[ValueRef, ScanValue]
 type _ScanCoordinate = Quantity | str | int | float
 type _ScanCenterInput = ValueRef | _ScanCoordinate
-
-
-def points(
-    rows: Sequence[PointRow],
-    *,
-    coordinates: Sequence[ValueRef] = (),
-) -> Scan:
-    """Declare ordered, explicitly paired experiment points.
-
-    Mapping keys are coordinate references, so each column keeps its authored
-    scalar type. Every row must provide exactly the same coordinates. Repeated
-    coordinate values remain distinct points in declaration order. For an
-    empty point cloud, pass ``coordinates`` when its typed columns still need
-    to be part of the experiment contract.
-    """
-
-    selected_rows = tuple(rows)
-    selected_coordinates = tuple(coordinates)
-    if not selected_coordinates and selected_rows:
-        selected_coordinates = tuple(selected_rows[0])
-    if selected_rows and not selected_coordinates:
-        raise ValueError("non-empty points require at least one coordinate column")
-    _validate_point_row_coordinates(selected_coordinates)
-    expected = frozenset(selected_coordinates)
-    for row in selected_rows:
-        actual = frozenset(row)
-        if actual != expected:
-            raise ValueError(
-                "points rows must contain the same typed coordinate columns"
-            )
-    return _PointRowsSpec(
-        axes=tuple(
-            _AxisSpec(
-                id=axis_id,
-                value_type=value_type,
-                source=_ValuesScanSource(
-                    values=_capture_scan_values(
-                        coordinate,
-                        tuple(row[coordinate] for row in selected_rows),
-                        unit=None,
-                    ),
-                ),
-            )
-            for coordinate in selected_coordinates
-            for axis_id, value_type in (_point_target(coordinate),)
-        )
-    )
-
-
-def _validate_point_row_coordinates(coordinates: Sequence[ValueRef]) -> None:
-    coordinate_ids: list[str] = []
-    for coordinate in coordinates:
-        coordinate_id, _value_type = _point_target(coordinate)
-        coordinate_ids.append(coordinate_id)
-    if len(coordinate_ids) != len(set(coordinate_ids)):
-        raise ValueError("points coordinates must have unique ids")
 
 
 def axis(
@@ -122,7 +57,7 @@ def axis(
     center: _ScanCenterInput | None = None,
     span: _ScanCoordinate | None = None,
     points: int | None = None,
-) -> Scan:
+) -> Axis:
     """Scan a point over values, an inclusive range, or around a center.
 
     Generated forms interpolate evenly in one coordinate unit. ``span`` is
@@ -140,7 +75,7 @@ def axis(
         )
         raise ValueError(msg)
     if selected_values is not None:
-        return _AxisSpec(
+        return Axis(
             id=axis_id,
             value_type=_explicit_value_type(value_type, unit=unit),
             source=_ValuesScanSource(
@@ -161,7 +96,7 @@ def axis(
             points=points,
             unit=unit,
         )
-        return _AxisSpec(
+        return Axis(
             id=axis_id,
             value_type=range_type,
             source=_RangeScanSource(
@@ -186,7 +121,7 @@ def axis(
         points=points,
         unit=unit,
     )
-    return _AxisSpec(
+    return Axis(
         id=axis_id,
         value_type=around_type,
         source=_AroundScanSource(
@@ -204,7 +139,7 @@ def param_axis(
     values: Iterable[ScanValue],
     *,
     unit: str | None = None,
-) -> Scan: ...
+) -> Axis: ...
 
 
 @overload
@@ -216,7 +151,7 @@ def param_axis(
     start: _ScanCoordinate,
     stop: _ScanCoordinate,
     points: int,
-) -> Scan: ...
+) -> Axis: ...
 
 
 @overload
@@ -227,7 +162,7 @@ def param_axis(
     unit: str | None = None,
     span: _ScanCoordinate,
     points: int,
-) -> Scan: ...
+) -> Axis: ...
 
 
 def param_axis(
@@ -240,7 +175,7 @@ def param_axis(
     stop: _ScanCoordinate | None = None,
     span: _ScanCoordinate | None = None,
     points: int | None = None,
-) -> Scan:
+) -> Axis:
     """Scan a parameter cell over values, a range, or its accepted value.
 
     The around form records the cell locator, span, and point count; its center
@@ -267,7 +202,7 @@ def param_axis(
         )
         raise ValueError(msg)
     if selected_values is not None:
-        return _AxisSpec(
+        return Axis(
             id=axis_id,
             value_type=_explicit_value_type(value_type, unit=unit),
             source=_ValuesScanSource(
@@ -289,7 +224,7 @@ def param_axis(
             points=points,
             unit=unit,
         )
-        return _AxisSpec(
+        return Axis(
             id=axis_id,
             value_type=range_type,
             source=_RangeScanSource(
@@ -315,7 +250,7 @@ def param_axis(
         points=points,
         unit=unit,
     )
-    return _AxisSpec(
+    return Axis(
         id=axis_id,
         value_type=around_type,
         source=_AroundScanSource(
@@ -690,7 +625,8 @@ def _parse_scan_quantity(value: Quantity | str, *, path: str) -> Quantity:
 
 
 __all__ = [
-    "Scan",
+    "Axis",
+    "PointRow",
     "ScanCenter",
     "ScanValue",
     "axis",

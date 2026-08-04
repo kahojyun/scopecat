@@ -50,11 +50,11 @@ def _parameter_lookup(
     )
 
 
-def _axis(scan: sc.Scan) -> AxisSpec:
-    return cast("AxisSpec", scan)
+def _axis(scan: sc.Axis) -> AxisSpec:
+    return scan
 
 
-def _lower_axis(scan: sc.Scan) -> PointAxis[sc.ValueRef]:
+def _lower_axis(scan: sc.Axis) -> PointAxis[sc.ValueRef]:
     [axis] = lower_scans_point_domain((_axis(scan),))
     return axis
 
@@ -231,7 +231,7 @@ def test_parameter_range_scan_preserves_its_locator_and_range() -> None:
 def test_parameter_scan_forms_are_mutually_exclusive_and_complete() -> None:
     target = _point("frequency")
     lookup = _parameter_lookup()
-    unchecked_param_axis = cast("Callable[..., sc.Scan]", sc.param_axis)
+    unchecked_param_axis = cast("Callable[..., sc.Axis]", sc.param_axis)
 
     with pytest.raises(ValueError, match="exactly one"):
         unchecked_param_axis(

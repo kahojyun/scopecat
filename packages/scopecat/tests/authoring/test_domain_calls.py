@@ -410,7 +410,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     @sc.experiment(id="test.domain", kind="domain")
     def template(experiment: sc.ExperimentContext) -> None:
         selected_product = experiment.use(root_module(point_x_count))
-        experiment.scan(sc.axis(point_x_count, (1, 2)))
+        experiment.grid(sc.axis(point_x_count, (1, 2)))
         experiment.record(selected_product, record_id="counts_first")
         experiment.record(selected_product, record_id="counts_second")
 

@@ -93,7 +93,7 @@ def _domain_scenario(
     )
     def template(experiment: sc.ExperimentContext) -> None:
         products = experiment.use(domain_module(count_input=count))
-        experiment.scan(sc.axis(count, (1, 3, 5)))
+        experiment.grid(sc.axis(count, (1, 3, 5)))
         if record_raw:
             experiment.record(products.raw, record_id="raw")
         experiment.record(products.summary, record_id="summary")

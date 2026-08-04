@@ -307,7 +307,7 @@ def test_product_axis_rejects_point_dependent_value() -> None:
     @sc.experiment(id="test.stage.record-point", kind="graph")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(module(size))
-        experiment.scan(sc.axis(size, (2, 3)))
+        experiment.grid(sc.axis(size, (2, 3)))
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(

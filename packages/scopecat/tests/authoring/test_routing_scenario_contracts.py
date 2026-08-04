@@ -185,7 +185,7 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
     )
     def template(experiment: authoring.ExperimentContext) -> None:
         experiment.use(module(qubit))
-        experiment.scan(axis(qubit, ("q1", "q0", "q1")))
+        experiment.grid(axis(qubit, ("q1", "q0", "q1")))
 
     resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
@@ -277,7 +277,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
     )
     def template(experiment: authoring.ExperimentContext) -> None:
         result = experiment.use(module(qubit))
-        experiment.scan(axis(qubit, ("q0", "q1", "q0")))
+        experiment.grid(axis(qubit, ("q0", "q1", "q0")))
         experiment.record(result)
 
     resolved = bind_invocation(template(), config_profile=config)

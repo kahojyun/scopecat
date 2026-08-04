@@ -42,7 +42,7 @@ power = sc.coordinate(
     sc.ScalarType(sc.QuantityType(unit="dBm")),
 )
 
-experiment.scan(
+experiment.grid(
     sc.axis(bias, (-0.2, 0.0, 0.2), unit="V"),
     sc.axis(power, np.linspace(-30.0, -20.0, 21), unit="dBm"),
 )

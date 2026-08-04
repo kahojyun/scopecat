@@ -96,41 +96,34 @@ def test_template_bind_rejects_known_input_errors_without_requiring_missing() ->
         )
 
 
-def test_compile_validates_default_scan_axes() -> None:
+def test_grid_rejects_duplicate_axis_ids() -> None:
     first = sc.coordinate("first", sc.ScalarType(sc.FloatType()))
     second = sc.coordinate("second", sc.ScalarType(sc.FloatType()))
 
-    @sc.experiment(id="test.invalid-default-scans", kind="invalid-default-scans")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.scan(
-            sc.axis(first, (1.0, 2.0)),
-            sc.axis(second, (1.0,)),
-            sc.axis(first, (3.0,)),
-        )
+    with pytest.raises(ValueError, match="grid axis ids must be unique"):
 
-    with pytest.raises(CheckFailed) as error:
-        compile_invocation(template())
-
-    assert [problem.code for problem in error.value.problems] == [
-        "scan_axis_duplicate",
-    ]
+        @sc.experiment(id="test.invalid-default-scans", kind="invalid-default-scans")
+        def template(experiment: sc.ExperimentContext) -> None:
+            experiment.grid(
+                sc.axis(first, (1.0, 2.0)),
+                sc.axis(second, (1.0,)),
+                sc.axis(first, (3.0,)),
+            )
 
 
-def test_compile_rejects_repeated_scan_overrides_before_merging() -> None:
+def test_repeated_axis_overrides_use_the_latest_value() -> None:
     point = sc.coordinate("point", sc.ScalarType(sc.FloatType()))
 
     @sc.experiment(id="test.repeated-scan-overrides", kind="repeated-scan-overrides")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.scan(sc.axis(point, (1.0,)))
+        experiment.grid(sc.axis(point, (1.0,)))
 
-    invocation = template().scan(sc.axis(point, (2.0,))).scan(sc.axis(point, (3.0,)))
+    invocation = (
+        template().with_axis(sc.axis(point, (2.0,))).with_axis(sc.axis(point, (3.0,)))
+    )
 
-    with pytest.raises(CheckFailed) as error:
-        compile_invocation(invocation)
-
-    assert [problem.code for problem in error.value.problems] == [
-        "scan_axis_duplicate",
-    ]
+    assert invocation.point_plan.domain.axes == (sc.axis(point, (3.0,)),)
+    compile_invocation(invocation)
 
 
 def test_authoring_compile_precedes_config_binding(tmp_path: Path) -> None:
@@ -239,7 +232,7 @@ def test_scan_point_does_not_implicitly_bind_consumed_module_input() -> None:
         @sc.experiment(id="test.point-input", kind="input")
         def template(experiment: sc.ExperimentContext) -> None:
             experiment.use(module())
-            experiment.scan(sc.axis(point, (1.0,)))
+            experiment.grid(sc.axis(point, (1.0,)))
 
 
 def _identity_value(value: object) -> object:

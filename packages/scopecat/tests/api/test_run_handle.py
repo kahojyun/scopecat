@@ -92,7 +92,7 @@ def simple_frequency_scan_template() -> Experiment[...]:
     ) -> None:
         del subject
         signal = experiment.use(SIMPLE_FREQUENCY_SCAN(frequency=DRIVE_FREQUENCY_POINT))
-        experiment.scan(
+        experiment.grid(
             sc.axis(
                 DRIVE_FREQUENCY_POINT,
                 center=authoring.parameter(

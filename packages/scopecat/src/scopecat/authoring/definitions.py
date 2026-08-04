@@ -40,8 +40,7 @@ from scopecat.authoring.entity_parameters import PerEntity
 from scopecat.authoring.experiments import (
     Experiment,
 )
-from scopecat.authoring.scans import PointRow, Scan
-from scopecat.authoring.scans import points as point_rows
+from scopecat.authoring.scans import Axis, PointRow
 from scopecat.authoring.state_projection import StateProjector
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
@@ -74,7 +73,7 @@ from scopecat.program.products import (
     record_product,
 )
 from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
-from scopecat.program.scans import PointRowsSpec
+from scopecat.program.scans import GridSpec, PointDomainSpec, PointPlan, points_spec
 from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
@@ -215,15 +214,17 @@ class ExperimentContext:
     """Explicit recorder injected into one complete experiment definition."""
 
     __slots__ = (
+        "_point_plan",
+        "_point_plan_declared",
         "_program",
         "_record_selections",
-        "_scans",
         "_success_state_bindings",
     )
 
     def __init__(self) -> None:
         self._program = ModuleContext()
-        self._scans: list[Scan] = []
+        self._point_plan = PointPlan()
+        self._point_plan_declared = False
         self._record_selections: list[ProgramRecordSelection] = []
         self._success_state_bindings: list[BindingIntent] = []
 
@@ -253,7 +254,7 @@ class ExperimentContext:
             record_selections=self._record_selections,
             input_defaults=input_defaults,
             required_inputs=required_inputs,
-            default_scans=self._scans,
+            default_points=self._point_plan,
             success_state_bindings=self._success_state_bindings,
             metadata=metadata,
         )
@@ -415,19 +416,10 @@ class ExperimentContext:
             kernel=kernel,
         )
 
-    def scan(self, *scans: Scan) -> None:
-        """Declare the experiment's default point-domain scans."""
+    def grid(self, *axes: Axis) -> None:
+        """Declare the complete Cartesian point domain for this experiment."""
 
-        selected = (*self._scans, *scans)
-        if (
-            any(isinstance(scan, PointRowsSpec) for scan in selected)
-            and len(selected) != 1
-        ):
-            raise ValueError(
-                "point rows define the complete domain and cannot be combined "
-                "with scan axes"
-            )
-        self._scans.extend(scans)
+        self._declare_point_domain(GridSpec(tuple(axes)))
 
     def points(
         self,
@@ -437,7 +429,13 @@ class ExperimentContext:
     ) -> None:
         """Declare the complete ordered point cloud for this experiment."""
 
-        self.scan(point_rows(rows, coordinates=coordinates))
+        self._declare_point_domain(points_spec(rows, coordinates=coordinates))
+
+    def _declare_point_domain(self, domain: PointDomainSpec) -> None:
+        if self._point_plan_declared:
+            raise ValueError("experiment point domain can only be declared once")
+        self._point_plan = PointPlan(domain)
+        self._point_plan_declared = True
 
     def record(
         self,
@@ -750,8 +748,8 @@ def _experiment_from_function[**P](
         )
         return ExperimentInvocation(
             definition=definition,
-            inputs=captured_inputs,
-            scans=(),
+            input_overrides=captured_inputs,
+            point_override=None,
         )
 
     authored = Experiment(

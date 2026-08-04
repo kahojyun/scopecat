@@ -31,7 +31,7 @@ AMPLIFICATION = sc.coordinate(
 
 def _drag_beta_experiment_body(
     experiment: sc.ExperimentContext,
-    *scans: sc.Scan,
+    *axes: sc.Axis,
 ) -> None:
     author_quantum_experiment(
         experiment,
@@ -41,7 +41,7 @@ def _drag_beta_experiment_body(
             beta=q0_drag_beta_lookup(),
         ).with_shots(DRAG_BETA_SHOTS),
     )
-    experiment.scan(*scans)
+    experiment.grid(*axes)
 
 
 @sc.experiment(

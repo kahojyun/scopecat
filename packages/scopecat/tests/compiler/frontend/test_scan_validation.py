@@ -5,10 +5,11 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
 from scopecat.compiler.frontend.scan_validation import (
-    ScanValidationError,
-    verify_scans,
+    PointDomainValidationError,
+    verify_point_domain,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.program.scans import GridSpec
 from scopecat.program.values import input as program_input
 
 _FREQUENCY = sc.ScalarType(sc.QuantityType(unit="GHz"))
@@ -23,7 +24,9 @@ def _values(axis_id: str):
 
 
 def test_axes_are_verified_in_declaration_order() -> None:
-    verified = verify_scans((_values("first"), _values("second"), _values("third")))
+    verified = verify_point_domain(
+        GridSpec((_values("first"), _values("second"), _values("third")))
+    ).axes
     resolved = lower_scans_point_domain(
         verified,
         inputs={},
@@ -41,10 +44,10 @@ def test_bound_input_can_center_a_scan() -> None:
         points=3,
     )
 
-    verified = verify_scans(
-        (scan,),
+    verified = verify_point_domain(
+        GridSpec((scan,)),
         inputs={"center": Quantity(value=5.0, unit="GHz")},
-    )
+    ).axes
 
     assert tuple(axis.id for axis in verified) == ("frequency",)
 
@@ -57,8 +60,8 @@ def test_unbound_input_cannot_center_a_scan() -> None:
         points=3,
     )
 
-    with pytest.raises(ScanValidationError) as caught:
-        verify_scans((scan,))
+    with pytest.raises(PointDomainValidationError) as caught:
+        verify_point_domain(GridSpec((scan,)))
 
     assert [issue.code for issue in caught.value.issues] == [
         "scan_source_input_unbound"
@@ -73,8 +76,8 @@ def test_scan_source_cannot_depend_on_another_point() -> None:
         points=3,
     )
 
-    with pytest.raises(ScanValidationError) as caught:
-        verify_scans((scan, _values("source")))
+    with pytest.raises(PointDomainValidationError) as caught:
+        verify_point_domain(GridSpec((scan, _values("source"))))
 
     assert [issue.code for issue in caught.value.issues] == [
         "scan_point_dependency_unsupported"
@@ -96,6 +99,6 @@ def test_parameter_axis_key_can_use_a_bound_input() -> None:
         points=5,
     )
 
-    verified = verify_scans((scan,), inputs={"device": "q0"})
+    verified = verify_point_domain(GridSpec((scan,)), inputs={"device": "q0"}).axes
 
     assert tuple(axis.id for axis in verified) == ("frequency",)

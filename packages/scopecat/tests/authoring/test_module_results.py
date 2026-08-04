@@ -552,7 +552,7 @@ def test_result_roots_preserve_free_inputs_and_value_provenance() -> None:
                 point_value=point,
             )
         )
-        experiment.scan(sc.axis(point, (1.0,)))
+        experiment.grid(sc.axis(point, (1.0,)))
 
     assembly = compile_invocation(template(value=1.0)).program.program
 

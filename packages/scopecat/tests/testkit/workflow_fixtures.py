@@ -44,7 +44,7 @@ def load_invocation() -> ExperimentInvocation:
     return (
         simple_template(id="test.workflow_scan")
         .bind(subject="q0")
-        .scan(
+        .grid(
             axis(
                 DRIVE_FREQUENCY_POINT,
                 center=parameter(

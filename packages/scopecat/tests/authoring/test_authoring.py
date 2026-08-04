@@ -420,7 +420,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         experiment.record(signal)
 
     resolved = bind_invocation(
-        template.bind().scan(
+        template.bind().with_axis(
             sc.axis(
                 qubit,
                 ["q0", "q1"],
@@ -533,7 +533,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
         qubit: _LogicalDeviceInput,
     ) -> None:
         signal = experiment.use(module(qubit=qubit))
-        experiment.scan(
+        experiment.grid(
             sc.axis(
                 drive_length,
                 center=sc.parameter_lookup(
@@ -910,7 +910,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         experiment.record(signal)
 
     resolved = bind_invocation(
-        template().scan(
+        template().with_axis(
             sc.axis(
                 DRIVE_FREQUENCY_POINT,
                 center=sc.parameter("drive_frequency", _QUANTITY_VALUE),

@@ -92,7 +92,7 @@ def test_scan_points_are_coerced_by_their_target_type() -> None:
 
     @authoring.experiment(id="test.scan_coercion", kind="scan_coercion")
     def template(experiment: authoring.ExperimentContext) -> None:
-        experiment.scan(axis(point, (1,)))
+        experiment.grid(axis(point, (1,)))
 
     resolved = bind_invocation(
         template(),

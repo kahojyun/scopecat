@@ -11,7 +11,7 @@ from scopecat.api.run import (
     run_handle_id,
 )
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
-from scopecat.authoring.scans import Scan
+from scopecat.authoring.scans import Axis
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.execution.interpreter import execute_admitted_run
@@ -53,13 +53,13 @@ class InProcessPreparedExperiment:
     system: ExperimentSystem | None
     build_experiment_system: TestExperimentSystemBuilder | None
 
-    def scan(
+    def grid(
         self,
-        *scans: Scan,
+        *axes: Axis,
     ) -> InProcessPreparedExperiment:
         return replace(
             self,
-            invocation=self.invocation.scan(*scans),
+            invocation=self.invocation.grid(*axes),
         )
 
     def check(self) -> ExperimentCheckResult:

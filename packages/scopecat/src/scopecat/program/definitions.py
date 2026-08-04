@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import cast
 
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
@@ -19,7 +19,15 @@ from scopecat.program.module import (
     ModulePythonImplementation,
 )
 from scopecat.program.recording import ProgramRecordSelection
-from scopecat.program.scans import PointRowsSpec, Scan
+from scopecat.program.scans import (
+    AxisSpec,
+    GridSpec,
+    PointPlan,
+    PointRow,
+    PointsSpec,
+    points_spec,
+)
+from scopecat.program.value_refs import ValueRef, internal_value_ref_point_id
 from scopecat.program.values import (
     MetadataValue,
     RuntimeInput,
@@ -65,7 +73,7 @@ class ExperimentDef:
     body: ModuleBody
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
     inputs: tuple[ExperimentInputDef, ...] = ()
-    default_scans: tuple[Scan, ...] = ()
+    default_points: PointPlan = field(default_factory=PointPlan)
     record_selections: tuple[ProgramRecordSelection, ...] = ()
     success_state: EnsureStateIntent | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
@@ -82,8 +90,16 @@ class ExperimentDef:
 @dataclass(frozen=True, slots=True, repr=False)
 class ExperimentInvocation:
     definition: ExperimentDef
-    inputs: Mapping[str, RuntimeInput] = field(default_factory=empty_program_mapping)
-    scans: tuple[Scan, ...] = ()
+    input_overrides: Mapping[str, RuntimeInput] = field(
+        default_factory=empty_program_mapping
+    )
+    point_override: PointPlan | None = None
+
+    @property
+    def point_plan(self) -> PointPlan:
+        """Return the invocation override or the definition's complete plan."""
+
+        return self.point_override or self.definition.default_points
 
     def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:
         captured_inputs = capture_experiment_inputs(inputs)
@@ -91,31 +107,96 @@ class ExperimentInvocation:
             definitions=self.definition.inputs,
             inputs=captured_inputs,
         )
-        selected = dict(self.inputs)
+        selected = dict(self.input_overrides)
         selected.update(captured_inputs)
-        return ExperimentInvocation(
-            definition=self.definition,
-            inputs=FrozenMapping(selected.items()),
-            scans=self.scans,
+        return replace(
+            self,
+            input_overrides=FrozenMapping(selected.items()),
         )
 
-    def scan(
+    def unbind(self, *input_ids: str) -> ExperimentInvocation:
+        """Remove invocation overrides so definition defaults apply again."""
+
+        allowed = {definition.id for definition in self.definition.inputs}
+        unknown = sorted(set(input_ids) - allowed)
+        if unknown:
+            raise ValueError("experiment received unknown input: " + ", ".join(unknown))
+        selected = dict(self.input_overrides)
+        for input_id in input_ids:
+            selected.pop(input_id, None)
+        return replace(
+            self,
+            input_overrides=FrozenMapping(selected.items()),
+        )
+
+    def grid(self, *axes: AxisSpec) -> ExperimentInvocation:
+        """Replace the complete point domain with a Cartesian grid."""
+
+        return replace(
+            self,
+            point_override=replace(
+                self.point_plan,
+                domain=GridSpec(tuple(axes)),
+            ),
+        )
+
+    def points(
         self,
-        *scans: Scan,
+        rows: Sequence[PointRow],
+        *,
+        coordinates: Sequence[ValueRef] = (),
     ) -> ExperimentInvocation:
-        selected = (*self.scans, *scans)
-        if (
-            any(isinstance(scan, PointRowsSpec) for scan in selected)
-            and len(selected) != 1
-        ):
-            raise ValueError(
-                "point rows define the complete domain and cannot be combined "
-                "with scan axes"
-            )
-        return ExperimentInvocation(
-            definition=self.definition,
-            inputs=self.inputs,
-            scans=selected,
+        """Replace the complete point domain with ordered explicit points."""
+
+        return replace(
+            self,
+            point_override=replace(
+                self.point_plan,
+                domain=points_spec(rows, coordinates=coordinates),
+            ),
+        )
+
+    def reset_points(self) -> ExperimentInvocation:
+        """Discard the invocation point override and inherit the definition."""
+
+        return replace(self, point_override=None)
+
+    def with_axis(self, axis: AxisSpec) -> ExperimentInvocation:
+        """Replace one grid axis in place, or append it when newly introduced."""
+
+        domain = self.point_plan.domain
+        if isinstance(domain, PointsSpec):
+            raise TypeError("point clouds do not support incremental grid axes")
+        selected = tuple(
+            axis if existing.id == axis.id else existing for existing in domain.axes
+        )
+        if all(existing.id != axis.id for existing in domain.axes):
+            selected = (*selected, axis)
+        return replace(
+            self,
+            point_override=replace(
+                self.point_plan,
+                domain=GridSpec(selected),
+            ),
+        )
+
+    def without_axis(self, target: ValueRef | str) -> ExperimentInvocation:
+        """Remove one named grid axis while preserving the remaining order."""
+
+        domain = self.point_plan.domain
+        if isinstance(domain, PointsSpec):
+            raise TypeError("point clouds do not support incremental grid axes")
+        axis_id = _axis_target_id(target)
+        if all(axis.id != axis_id for axis in domain.axes):
+            raise ValueError(f"grid has no axis {axis_id!r}")
+        return replace(
+            self,
+            point_override=replace(
+                self.point_plan,
+                domain=GridSpec(
+                    tuple(axis for axis in domain.axes if axis.id != axis_id)
+                ),
+            ),
         )
 
 
@@ -129,7 +210,7 @@ def create_experiment_def(
     record_selections: Sequence[ProgramRecordSelection] = (),
     input_defaults: Mapping[str, RuntimeInput] | None = None,
     required_inputs: Sequence[str] = (),
-    default_scans: Sequence[Scan] = (),
+    default_points: PointPlan | None = None,
     success_state_bindings: Sequence[BindingIntent] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentDef:
@@ -142,13 +223,13 @@ def create_experiment_def(
         msg = "experiment definition requires kind"
         raise ValueError(msg)
     selected_records = tuple(record_selections)
-    selected_scans = tuple(default_scans)
+    selected_points = default_points if default_points is not None else PointPlan()
     selected_defaults = capture_experiment_inputs(input_defaults or {})
     selected_required = tuple(required_inputs)
     input_types = validate_experiment_definition(
         input_ports=interface.imports,
         defaults=selected_defaults,
-        default_scans=selected_scans,
+        default_points=selected_points,
     )
     program_input_ids = tuple(port.id for port in interface.imports)
     input_ids = tuple(
@@ -177,7 +258,7 @@ def create_experiment_def(
         body=body,
         python_implementations=tuple(python_implementations),
         inputs=normalized_inputs,
-        default_scans=selected_scans,
+        default_points=selected_points,
         record_selections=selected_records,
         success_state=(
             EnsureStateIntent(tuple(success_state_bindings))
@@ -201,3 +282,14 @@ def capture_experiment_inputs(
         )
         raise TypeError(msg) from error
     return cast("Mapping[str, RuntimeInput]", captured)
+
+
+def _axis_target_id(target: ValueRef | str) -> str:
+    if isinstance(target, str):
+        if not target:
+            raise ValueError("grid axis id must be non-empty")
+        return target
+    axis_id = internal_value_ref_point_id(target)
+    if axis_id is None:
+        raise TypeError("grid axis targets must be created with scopecat.coordinate")
+    return axis_id

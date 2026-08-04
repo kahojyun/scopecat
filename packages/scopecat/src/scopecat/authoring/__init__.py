@@ -38,7 +38,7 @@ from scopecat.authoring.entity_parameters import (
 from scopecat.authoring.experiments import (
     ExperimentInvocation,
 )
-from scopecat.authoring.scans import PointRow, Scan, axis, param_axis, points
+from scopecat.authoring.scans import Axis, PointRow, axis, param_axis
 from scopecat.authoring.state_projection import (
     StateProjector,
     StateTarget,
@@ -92,6 +92,7 @@ from scopecat.program.values import (
 )
 
 __all__ = [
+    "Axis",
     "BoolType",
     "ComputeInput",
     "ConcreteEntityInput",
@@ -125,7 +126,6 @@ __all__ = [
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",
-    "Scan",
     "StateProjector",
     "StateTarget",
     "StringType",
@@ -146,5 +146,4 @@ __all__ = [
     "parameter",
     "parameter_column",
     "parameter_lookup",
-    "points",
 ]

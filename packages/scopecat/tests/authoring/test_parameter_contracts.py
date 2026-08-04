@@ -71,13 +71,13 @@ def _empty_module(id: str) -> sc.ExperimentModule[None, ...]:
     return module
 
 
-def _scan_invocation(id: str, *scans: sc.Scan) -> sc.ExperimentInvocation:
+def _scan_invocation(id: str, *axes: sc.Axis) -> sc.ExperimentInvocation:
     module = _empty_module(id)
 
     @sc.experiment(id=id, kind="parameter_contract")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
-        experiment.scan(*scans)
+        experiment.grid(*axes)
 
     return template()
 
@@ -451,7 +451,7 @@ def test_parameter_scan_specializes_consumers_against_its_point_column() -> None
     @sc.experiment(id="test.parameter-scan-consumer", kind="parameter_contract")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(domain_call(program, inputs={"frequency": lookup}))
-        experiment.scan(
+        experiment.grid(
             sc.param_axis(
                 frequency,
                 lookup,

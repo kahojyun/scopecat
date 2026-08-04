@@ -9,7 +9,7 @@ from scopecat.compiler.frontend import resolution
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.program.values import compute as program_compute
-from scopecat.records.run_request import AroundScanRecord
+from scopecat.records.run_request import AroundScanRecord, GridDomainRecord
 
 
 def _quantity_scan_target() -> sc.ValueRef:
@@ -34,7 +34,7 @@ def test_default_scan_center_rejects_external_operation() -> None:
 
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
-        experiment.scan(
+        experiment.grid(
             sc.axis(
                 target,
                 center=center,
@@ -53,7 +53,8 @@ def test_default_scan_center_rejects_external_operation() -> None:
     problem = error.value.problems[0]
     assert problem.code == "value_requires_execution"
     assert problem.location == model_location(
-        "scans",
+        "point_domain",
+        "axes",
         0,
         "center",
     )
@@ -79,7 +80,7 @@ def test_invocation_scan_center_rejects_external_operation() -> None:
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
-    invocation = template_definition().scan(
+    invocation = template_definition().with_axis(
         sc.axis(
             target,
             center=center,
@@ -93,7 +94,7 @@ def test_invocation_scan_center_rejects_external_operation() -> None:
 
     problem = error.value.problems[0]
     assert problem.code == "value_requires_execution"
-    assert problem.location == model_location("scans", 0, "center")
+    assert problem.location == model_location("point_domain", "axes", 0, "center")
 
 
 def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
@@ -111,7 +112,7 @@ def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
     @sc.experiment(id="test.scan-stage.input", kind="scan-stage")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
-        experiment.scan(
+        experiment.grid(
             sc.axis(
                 target,
                 center=call.result,
@@ -122,7 +123,9 @@ def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
 
     compiled = resolution.compile_invocation(template_definition())
 
-    [scan] = compiled.request.scans
+    domain = compiled.request.point_domain
+    assert isinstance(domain, GridDomainRecord)
+    [scan] = domain.axes
     assert isinstance(scan, AroundScanRecord)
     assert scan.center == sc.Quantity(value=5.0, unit="GHz")
 

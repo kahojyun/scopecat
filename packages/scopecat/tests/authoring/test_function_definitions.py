@@ -115,14 +115,14 @@ def test_experiment_infers_identity_description_and_runtime_defaults() -> None:
     assert elaborations == 1
     assert default_invocation.definition.id == count_experiment.id
     assert default_invocation.definition.inputs[0].default == 2
-    assert default_invocation.inputs == {}
+    assert default_invocation.input_overrides == {}
     signature = inspect.signature(count_experiment)
     assert signature.parameters["count"].default == 2
     assert signature.return_annotation is sc.ExperimentInvocation
     assert isinstance(count_experiment, sc.Experiment)
     invocation = assert_type(count_experiment(3), sc.ExperimentInvocation)
     assert invocation.definition is default_invocation.definition
-    assert invocation.inputs == {"count": 3}
+    assert invocation.input_overrides == {"count": 3}
 
     if TYPE_CHECKING:
         count_experiment(count="invalid")  # pyright: ignore[reportArgumentType]
@@ -183,7 +183,7 @@ def test_experiment_separates_runtime_inputs_from_structural_arguments() -> None
         nonlocal elaborations
         elaborations += 1
         experiment.use(count_source(value=value))
-        experiment.scan(sc.axis(count, scan_values))
+        experiment.grid(sc.axis(count, scan_values))
 
     assert elaborations == 0
     with pytest.raises(TypeError, match=r"structural argument.*scan_values"):
@@ -194,9 +194,9 @@ def test_experiment_separates_runtime_inputs_from_structural_arguments() -> None
 
     assert elaborations == 2
     assert [input_.id for input_ in first.definition.inputs] == ["value"]
-    assert first.inputs == {}
-    assert second.inputs == {"value": 4}
-    assert first.definition.default_scans != second.definition.default_scans
+    assert first.input_overrides == {}
+    assert second.input_overrides == {"value": 4}
+    assert first.definition.default_points != second.definition.default_points
     compile_invocation(first.bind(value=2))
     compile_invocation(second)
 
@@ -228,7 +228,7 @@ def test_plain_experiment_arguments_are_structural() -> None:
     selected_invocation = assert_type(count_experiment(3), sc.ExperimentInvocation)
     assert elaborations == 2
     assert default_invocation.definition.inputs == ()
-    assert selected_invocation.inputs == {}
+    assert selected_invocation.input_overrides == {}
     assert default_invocation.definition.body != selected_invocation.definition.body
     compile_invocation(default_invocation)
     compile_invocation(selected_invocation)

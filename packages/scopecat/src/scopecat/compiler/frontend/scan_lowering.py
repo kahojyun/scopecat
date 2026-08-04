@@ -22,7 +22,7 @@ from scopecat.program.point_domain import (
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
-    PointRowsSpec,
+    PointsSpec,
     RangeScanSource,
     ScanValue,
     ValuesScanSource,
@@ -38,7 +38,7 @@ from scopecat.records.run_request import (
     ParameterAroundScanRecord,
     ParameterRangeScanRecord,
     ParameterScanRecord,
-    PointRowsRecord,
+    PointCloudDomainRecord,
     PointScanRecord,
     RangeScanRecord,
     ScanRecord,
@@ -84,16 +84,6 @@ def lower_scans_point_domain(
     """Lower scans to declaration-ordered axes."""
 
     return tuple(_lower_scan_axis(scan, inputs=inputs) for scan in scans)
-
-
-def lower_point_rows_domain(
-    points: PointRowsSpec,
-    *,
-    inputs: Mapping[str, object] | None = None,
-) -> PointAxes[ValueRef]:
-    """Lower declaration-ordered point columns without Cartesian expansion."""
-
-    return lower_scans_point_domain(points.axes, inputs=inputs)
 
 
 def project_scan_record(
@@ -163,11 +153,11 @@ def project_scan_record(
     )
 
 
-def project_point_rows_record(
-    points: PointRowsSpec,
+def project_point_cloud_record(
+    points: PointsSpec,
     *,
     inputs: Mapping[str, object] | None = None,
-) -> PointRowsRecord:
+) -> PointCloudDomainRecord:
     """Project a typed point cloud into ordered durable request rows."""
 
     axes = points.axes
@@ -175,7 +165,7 @@ def project_point_rows_record(
         cast("ValuesScanSource", axis.source).values for axis in axes
     )
     row_count = len(values_by_axis[0]) if values_by_axis else 0
-    return PointRowsRecord.model_validate(
+    return PointCloudDomainRecord.model_validate(
         {
             "columns": [axis.id for axis in axes],
             "rows": [
