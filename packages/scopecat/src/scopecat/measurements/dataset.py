@@ -28,7 +28,6 @@ from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetSchema,
-    MeasurementDimension,
     MeasurementDType,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
@@ -352,12 +351,38 @@ class Dataset:
 
     _raw: MeasurementDataset
     _entry: RunContentEntry
+    _view_dimensions: Mapping[str, int | None] = field(init=False, repr=False)
     _variables: Mapping[str, Variable] = field(init=False, repr=False)
     _xarray: xr.Dataset = field(init=False, repr=False)
 
-    def __init__(self, raw: MeasurementDataset, entry: RunContentEntry) -> None:
+    def __init__(
+        self,
+        raw: MeasurementDataset,
+        entry: RunContentEntry,
+        *,
+        view_dimensions: Mapping[str, int | None] | None = None,
+    ) -> None:
         object.__setattr__(self, "_raw", raw.model_copy(deep=True))
         object.__setattr__(self, "_entry", entry.model_copy(deep=True))
+        dimensions = {
+            dimension.id: dimension.size
+            for dimension in self._raw.dataset_schema.dimensions
+        }
+        dimensions["point"] = len(self._raw.records)
+        if view_dimensions is not None:
+            unknown = set(view_dimensions) - set(dimensions)
+            if unknown:
+                raise ValueError(
+                    "dataset view references unknown dimensions: "
+                    + ", ".join(sorted(unknown))
+                )
+            dimensions.update(view_dimensions)
+            dimensions["point"] = len(self._raw.records)
+        object.__setattr__(
+            self,
+            "_view_dimensions",
+            MappingProxyType(dimensions),
+        )
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -420,9 +445,9 @@ class Dataset:
 
     @property
     def dims(self) -> Mapping[str, int | None]:
-        return MappingProxyType(
-            {dimension.id: dimension.size for dimension in self._schema.dimensions}
-        )
+        """Return dimensions of this view, independent of the planned schema."""
+
+        return self._view_dimensions
 
     @property
     def variables(self) -> Mapping[str, Variable]:
@@ -850,14 +875,15 @@ class Dataset:
             )
         }
         for dimension in self._schema.dimensions:
+            view_size = self.dims[dimension.id]
             if (
                 dimension.id != "point"
-                and dimension.size is not None
+                and view_size is not None
                 and dimension.id not in self.variables
             ):
                 coords[dimension.id] = (
                     (dimension.id,),
-                    np.arange(dimension.size, dtype=np.int64),
+                    np.arange(view_size, dtype=np.int64),
                     {
                         "long_name": f"positional index for {dimension.id}",
                         "scopecat_role": "dimension_index",
@@ -1115,22 +1141,16 @@ class Dataset:
 
     def _select_indices(self, indices: Sequence[int]) -> Self:
         selected_records = [self._raw.records[index] for index in indices]
-        dimensions = [
-            dimension.model_copy(update={"size": len(selected_records)})
-            if dimension.id == "point"
-            else dimension.model_copy(deep=True)
-            for dimension in self._schema.dimensions
-        ]
-        schema = self._schema.model_copy(
-            update={"dimensions": dimensions},
-            deep=True,
-        )
         raw = MeasurementDataset(
-            dataset_schema=schema,
+            dataset_schema=self._schema,
             records=selected_records,
-            metadata=self._raw.metadata.copy(),
+            metadata=dict(self._raw.metadata),
         )
-        return type(self)(raw, self._entry)
+        return type(self)(
+            raw,
+            self._entry,
+            view_dimensions={**self.dims, "point": len(selected_records)},
+        )
 
     def _select_fixed_local_dimensions(
         self,
@@ -1152,15 +1172,14 @@ class Dataset:
             )
             for record in self._records
         ]
-        dimensions = [
-            dimension.model_copy(
-                update={"size": len(indices_by_dimension[dimension.id])}
-            )
-            if dimension.id in indices_by_dimension
-            else dimension.model_copy(deep=True)
-            for dimension in self._schema.dimensions
-        ]
-        return self._copy_with(records=records, dimensions=dimensions)
+        dimensions = {
+            **self.dims,
+            **{
+                dimension_id: len(indices)
+                for dimension_id, indices in indices_by_dimension.items()
+            },
+        }
+        return self._copy_with(records=records, view_dimensions=dimensions)
 
     def _select_ragged_local_dimensions(
         self,
@@ -1211,27 +1230,21 @@ class Dataset:
         ]
         return self._copy_with(
             records=records,
-            dimensions=[
-                dimension.model_copy(deep=True) for dimension in self._schema.dimensions
-            ],
+            view_dimensions=self.dims,
         )
 
     def _copy_with(
         self,
         *,
         records: Sequence[MeasurementRecord],
-        dimensions: Sequence[MeasurementDimension],
+        view_dimensions: Mapping[str, int | None],
     ) -> Self:
-        schema = self._schema.model_copy(
-            update={"dimensions": list(dimensions)},
-            deep=True,
-        )
         raw = MeasurementDataset(
-            dataset_schema=schema,
+            dataset_schema=self._schema,
             records=list(records),
-            metadata=self._raw.metadata.copy(),
+            metadata=dict(self._raw.metadata),
         )
-        return type(self)(raw, self._entry)
+        return type(self)(raw, self._entry, view_dimensions=view_dimensions)
 
     def _point_columns(self) -> Mapping[str, Sequence[object]]:
         columns: dict[str, Sequence[object]] = {

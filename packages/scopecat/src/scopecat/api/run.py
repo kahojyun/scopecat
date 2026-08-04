@@ -175,9 +175,8 @@ class RunHandle:
         """Iterate over raw measurements without loading the complete dataset.
 
         Every yielded dataset keeps durable ``point_index`` values while its
-        ``point`` dimension describes only the records in that batch. The
-        original planned point count and page offset remain available in the
-        dataset metadata.
+        ``point`` dimension describes only the records in that batch. Its schema
+        remains the complete planned dataset schema.
         """
 
         if not 1 <= batch_size <= MAX_MEASUREMENT_PAGE_SIZE:
@@ -203,30 +202,13 @@ class RunHandle:
             schema = page.dataset_schema
             if schema is None:
                 raise ValueError("measurement dataset page has no registered schema")
-            planned_point_count = next(
-                dimension.size
-                for dimension in schema.dimensions
-                if dimension.id == "point"
-            )
-            batch_schema = schema.model_copy(
-                update={
-                    "dimensions": [
-                        dimension.model_copy(update={"size": len(page.items)})
-                        if dimension.id == "point"
-                        else dimension.model_copy(deep=True)
-                        for dimension in schema.dimensions
-                    ]
-                },
-                deep=True,
-            )
             yield Dataset(
                 raw=MeasurementDataset(
-                    dataset_schema=batch_schema,
+                    dataset_schema=schema,
                     records=list(page.items),
                     metadata={
                         **entry.metadata,
                         "scopecat_batch_offset": offset,
-                        "scopecat_planned_point_count": planned_point_count,
                     },
                 ),
                 entry=entry,

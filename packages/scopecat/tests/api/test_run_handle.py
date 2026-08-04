@@ -188,7 +188,15 @@ def test_measurement_batches_page_a_real_run_and_preserve_point_identity(
     ]
     assert [batch.dims["point"] for batch in batches] == [2, 1]
     assert [batch.metadata["scopecat_batch_offset"] for batch in batches] == [0, 2]
-    assert all(batch.metadata["scopecat_planned_point_count"] == 3 for batch in batches)
+    assert all(
+        next(
+            dimension.size
+            for dimension in batch.schema.dimensions
+            if dimension.id == "point"
+        )
+        == 3
+        for batch in batches
+    )
     assert tuple(batches[0].coords) == ("drive_frequency",)
     assert tuple(batches[0].data_vars) == ("signal",)
     with pytest.raises(ValueError, match="between 1 and 500"):
@@ -224,7 +232,14 @@ def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
     assert tuple(batch.coords) == ("drive_frequency",)
     assert tuple(batch.data_vars) == ("observed_frequency",)
     assert batch.metadata["scopecat_batch_offset"] == 0
-    assert batch.metadata["scopecat_planned_point_count"] == 0
+    assert (
+        next(
+            dimension.size
+            for dimension in batch.schema.dimensions
+            if dimension.id == "point"
+        )
+        == 0
+    )
 
 
 def test_measurement_batch_converts_directly_to_arrow(tmp_path: Path) -> None:

@@ -63,6 +63,14 @@ def test_dataset_supports_point_isel_sel_and_unit_aware_where() -> None:
     selected = dataset.isel(point=[2, 0])
     assert [record.point_index for record in selected.records] == [2, 0]
     assert selected.dims["point"] == 2
+    assert (
+        next(
+            dimension.size
+            for dimension in selected.schema.dimensions
+            if dimension.id == "point"
+        )
+        == 3
+    )
     assert selected["bias"].values == (2.0, 0.0)
 
     [exact] = dataset.sel(bias=Quantity(1000.0, "mV")).records
@@ -117,6 +125,14 @@ def test_dataset_isel_selects_fixed_local_dimensions_without_dropping_them(
     selected = _dataset().isel(sample=indexer)
 
     assert selected.dims == {"point": 3, "sample": expected_size}
+    assert (
+        next(
+            dimension.size
+            for dimension in selected.schema.dimensions
+            if dimension.id == "sample"
+        )
+        == 2
+    )
     assert selected["frequency"].values == expected_frequency
     assert all(
         len(cast("tuple[complex, ...]", value)) == expected_size
