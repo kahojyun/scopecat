@@ -296,7 +296,7 @@ def test_trace_preview_route_forwards_typed_query_and_validates_selection() -> N
         "max_series": 4,
         "max_samples": 128,
         "value_mode": "real",
-        "downsampling": "even",
+        "downsampling": "minmax",
     }
 
     response = client.post(

@@ -751,7 +751,7 @@ function tracePreview(mode: "imag" | "magnitude" | "phase" | "real" | "value") {
     coordinate_label: "Frequency",
     coordinate_unit: "GHz",
     dimension_id: "sample",
-    downsampling: "even" as const,
+    downsampling: "minmax" as const,
     fixed_axis_indices: { bias: 0 },
     observable_id: "response",
     observable_label: "S21",

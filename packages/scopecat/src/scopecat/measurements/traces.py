@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Literal, cast
 
 import numpy as np
@@ -20,11 +20,10 @@ from scopecat.records.measurement import (
 )
 
 type TraceCoordinate = int | float
-type TraceSample = int | float | complex
 type TraceCoordinateArray = NDArray[np.int64] | NDArray[np.float64]
 type TraceSampleArray = NDArray[np.int64] | NDArray[np.float64] | NDArray[np.complex128]
 type TraceValueMode = Literal["value", "magnitude", "phase", "real", "imag"]
-type TraceDownsampling = Literal["even"]
+type TraceDownsampling = Literal["minmax"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,21 +114,21 @@ def project_measurement_trace_preview(
     max_series: int = 32,
     max_samples: int = 4096,
     value_mode: TraceValueMode | None = None,
-    downsampling: TraceDownsampling = "even",
+    downsampling: TraceDownsampling = "minmax",
 ) -> MeasurementTraceProjection:
     """Project a bounded numeric preview without scanning past its series cap.
 
     ``max_samples`` is one total response budget shared evenly by the returned
-    series. Even sampling preserves both endpoints whenever a source trace has
-    at least two samples. Unavailable selected points are omitted; callers can
-    compare the returned count with their separate domain-selection count.
+    series. Min/max bucket sampling preserves endpoints and narrow extrema.
+    Unavailable selected points are omitted; callers can compare the returned
+    count with their separate domain-selection count.
     """
 
     if max_series < 1:
         raise ValueError("trace preview max_series must be positive")
     if max_samples < 2:
         raise ValueError("trace preview max_samples must be at least two")
-    if downsampling != "even":
+    if downsampling != "minmax":
         raise ValueError(f"unsupported trace downsampling: {downsampling}")
     coordinate_variable, observable_variable = _trace_variables(
         dataset.dataset_schema,
@@ -299,7 +298,8 @@ def _project_trace(
     limit: int,
     value_mode: TraceValueMode,
 ) -> ProjectedTraceSeries:
-    indices = _even_sample_indices(len(trace.y), limit)
+    projected_values = _project_samples(trace.y, value_mode)
+    indices = _minmax_sample_indices(projected_values, limit)
     return ProjectedTraceSeries(
         point_index=trace.point_index,
         logical_point_id=trace.logical_point_id,
@@ -309,22 +309,56 @@ def _project_trace(
             for index in indices
         ),
         y=tuple(
-            _project_sample(
-                cast(
-                    "np.integer | np.floating | np.complexfloating",
-                    trace.y[index],
-                ),
-                value_mode,
-            )
-            for index in indices
+            cast("np.float64", projected_values[index]).item() for index in indices
         ),
         source_sample_count=len(trace.y),
     )
 
 
-def _even_sample_indices(size: int, limit: int) -> tuple[int, ...]:
+def _minmax_sample_indices(
+    values: NDArray[np.float64],
+    limit: int,
+) -> tuple[int, ...]:
+    size = values.size
     if size <= limit:
         return tuple(range(size))
+
+    interior_budget = limit - 2
+    bucket_count = (interior_budget + 1) // 2
+    edges = np.linspace(1, size - 1, bucket_count + 1, dtype=np.int64)
+    selected = {0, size - 1}
+    remaining_slots = interior_budget
+    for start_value, end_value in pairwise(edges):
+        start = int(start_value)
+        end = int(end_value)
+        bucket = values[start:end]
+        slots = min(2, remaining_slots)
+        if slots == 1:
+            positions = np.arange(start, end, dtype=np.float64)
+            first = cast("np.float64", values[0]).item()
+            last = cast("np.float64", values[-1]).item()
+            baseline: NDArray[np.float64] = first + (last - first) * positions / (
+                size - 1
+            )
+            selected.add(start + int(np.argmax(np.abs(bucket - baseline))))
+        else:
+            selected.add(start + int(np.argmin(bucket)))
+            selected.add(start + int(np.argmax(bucket)))
+        remaining_slots -= slots
+
+    for index in _uniform_sample_indices(size, limit):
+        if len(selected) == limit:
+            break
+        selected.add(index)
+    if len(selected) < limit:
+        for index in range(1, size - 1):
+            selected.add(index)
+            if len(selected) == limit:
+                break
+    return tuple(sorted(selected))
+
+
+def _uniform_sample_indices(size: int, limit: int) -> tuple[int, ...]:
     return tuple(round(index * (size - 1) / (limit - 1)) for index in range(limit))
 
 
@@ -332,28 +366,21 @@ def _native_coordinate(value: np.integer | np.floating) -> TraceCoordinate:
     return int(value) if isinstance(value, np.integer) else float(value)
 
 
-def _project_sample(
-    sample: TraceSample | np.integer | np.floating | np.complexfloating,
+def _project_samples(
+    samples: TraceSampleArray,
     mode: TraceValueMode,
-) -> float:
-    if isinstance(sample, np.integer):
-        sample = int(sample)
-    elif isinstance(sample, np.floating):
-        sample = float(sample)
-    elif isinstance(sample, np.complexfloating):
-        sample = complex(sample)
+) -> NDArray[np.float64]:
     if mode == "value":
-        if isinstance(sample, complex):
-            raise ValueError("complex trace samples require an explicit display mode")
-        return float(sample)
-    selected = sample if isinstance(sample, complex) else complex(sample, 0.0)
+        return np.asarray(samples, dtype=np.float64)
     if mode == "magnitude":
-        return abs(selected)
-    if mode == "phase":
-        return math.atan2(selected.imag, selected.real)
-    if mode == "real":
-        return selected.real
-    return selected.imag
+        selected = np.abs(samples)
+    elif mode == "phase":
+        selected = np.angle(samples)
+    elif mode == "real":
+        selected = np.real(samples)
+    else:
+        selected = np.imag(samples)
+    return np.asarray(selected, dtype=np.float64)
 
 
 def _select_trace_variables(

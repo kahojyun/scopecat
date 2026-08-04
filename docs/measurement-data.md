@@ -291,8 +291,9 @@ before rendering: it must contain exactly one cell for every x/y pair, with no
 missing or duplicate coordinates. Incomplete live data is labeled as incomplete
 instead of presenting a misleading surface. Automatic slice plots are bounded
 to 4,096 points; trace previews are separately bounded to 32 series and 4,096
-plotted samples, with even downsampling that preserves endpoints. Larger data
-remains available through notebook batch reads. Complex heatmaps offer
+plotted samples, with min/max bucket downsampling that preserves endpoints and
+narrow extrema. Larger data remains available through notebook batch reads.
+Complex heatmaps offer
 magnitude, phase, real, and imaginary color modes. When several safe views
 exist, the GUI lists every candidate in a selector instead of silently
 truncating them. Shapes that do not have a safe automatic visual remain in the

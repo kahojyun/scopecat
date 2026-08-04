@@ -2278,7 +2278,7 @@ export interface components {
         MeasurementTracePreviewQuery: {
             /** Coordinate Id */
             coordinate_id?: string | null;
-            /** @default even */
+            /** @default minmax */
             downsampling: components["schemas"]["TraceDownsampling"];
             /** Fixed Axis Indices */
             fixed_axis_indices?: {
@@ -3119,7 +3119,7 @@ export interface components {
             entities?: components["schemas"]["EntityRef-Output"][];
         };
         /** @constant */
-        TraceDownsampling: "even";
+        TraceDownsampling: "minmax";
         /** @enum {string} */
         TraceValueMode: "value" | "magnitude" | "phase" | "real" | "imag";
         /**

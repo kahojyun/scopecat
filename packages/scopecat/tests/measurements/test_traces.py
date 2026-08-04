@@ -232,7 +232,7 @@ def test_trace_preview_explicitly_pairs_variables_when_only_one_has_a_group(
         ("imag", (0.0, 0.1)),
     ],
 )
-def test_trace_preview_projects_value_modes_with_even_endpoint_sampling(
+def test_trace_preview_projects_value_modes_with_minmax_endpoint_sampling(
     value_mode: TraceValueMode,
     expected: tuple[float, float],
 ) -> None:
@@ -252,6 +252,47 @@ def test_trace_preview_projects_value_modes_with_even_endpoint_sampling(
     assert len(projection.series) == 2
     assert projection.series[0].x == (4.9e9, 5.1e9)
     assert projection.series[0].y == pytest.approx(expected)
+
+
+def test_trace_preview_minmax_sampling_preserves_narrow_extrema() -> None:
+    dataset = _trace_dataset()
+    dataset.dataset_schema.dimensions[1].size = 101
+    dataset.dataset_schema.variables[1] = dataset.dataset_schema.variables[
+        1
+    ].model_copy(update={"dtype": "float64"})
+    x = np.arange(101, dtype=np.float64)
+    y = np.zeros(101, dtype=np.float64)
+    y[37] = 12.0
+    y[38] = -10.0
+    for record in dataset.records:
+        record.coordinates["frequency"] = MeasurementArray.create(
+            values=x,
+            dtype="float64",
+            unit="Hz",
+        )
+        record.observables["s_parameter"] = MeasurementArray.create(
+            values=y,
+            dtype="float64",
+            unit="ratio",
+        )
+
+    projection = project_measurement_trace_preview(
+        dataset,
+        "s_parameter",
+        max_series=1,
+        max_samples=9,
+        value_mode="value",
+    )
+
+    [series] = projection.series
+    assert projection.downsampling == "minmax"
+    assert len(series.y) == 9
+    assert series.x[0] == 0.0
+    assert series.x[-1] == 100.0
+    assert 37.0 in series.x
+    assert 38.0 in series.x
+    assert 12.0 in series.y
+    assert -10.0 in series.y
 
 
 def test_trace_preview_requires_a_projection_mode_for_complex_values() -> None:
