@@ -41,7 +41,7 @@ def test_point_rows_compile_materialize_and_persist_layout() -> None:
     compiled = compile_invocation(invocation)
 
     assert compiled.program.program.point_domain_layout == "point_cloud"
-    request_points = compiled.request.point_domain
+    request_points = compiled.request.point_plan.domain
     assert isinstance(request_points, PointCloudDomainRecord)
     assert request_points.columns == ["x", "y"]
     assert request_points.rows == [
@@ -87,7 +87,7 @@ def test_empty_point_rows_are_a_zero_point_domain() -> None:
 
     invocation = template()
     compiled = compile_invocation(invocation)
-    request_points = compiled.request.point_domain
+    request_points = compiled.request.point_plan.domain
     assert isinstance(request_points, PointCloudDomainRecord)
     assert request_points.columns == ["x", "y"]
     assert request_points.rows == []

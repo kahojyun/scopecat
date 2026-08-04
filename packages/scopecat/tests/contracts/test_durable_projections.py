@@ -59,9 +59,9 @@ def test_corrupt_run_request_is_rejected(
 ) -> None:
     request = deepcopy(_golden("run-request.json"))
     if corruption == "unknown_scan_kind":
-        request["point_domain"]["axes"][0]["kind"] = "compute"
+        request["point_plan"]["domain"]["axes"][0]["kind"] = "compute"
     elif corruption == "missing_scan_values":
-        del request["point_domain"]["axes"][0]["points"]
+        del request["point_plan"]["domain"]["axes"][0]["points"]
     else:  # pragma: no cover - parametrization is closed above
         raise AssertionError(corruption)
 

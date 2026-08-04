@@ -39,10 +39,16 @@ from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
     PointDomainSpec,
+    PointPlan,
     PointsSpec,
+    expand_point_plan,
 )
 from scopecat.program.value_refs import ValueRef
-from scopecat.records.run_request import GridDomainRecord, RunRequest
+from scopecat.records.run_request import (
+    GridDomainRecord,
+    PointPlanRecord,
+    RunRequest,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,13 +65,16 @@ def compile_invocation(
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
 ) -> CompiledInvocation:
-    domain = _resolve_point_domain_module_results(
-        invocation,
-        invocation.point_plan.domain,
+    base_plan = replace(
+        invocation.point_plan,
+        domain=_resolve_point_domain_module_results(
+            invocation,
+            invocation.point_plan.domain,
+        ),
     )
     inputs = _merged_inputs(invocation)
-    point_domain = _verified_point_domain(
-        domain,
+    base_domain = _verified_point_domain(
+        base_plan.domain,
         inputs=inputs,
     )
     _validate_required_invocation_inputs(
@@ -75,17 +84,25 @@ def compile_invocation(
     request = _materialized_request(
         invocation,
         inputs=inputs,
-        point_domain=point_domain,
+        point_plan=base_plan,
+        base_domain=base_domain,
         metadata=metadata,
         operator=operator,
+    )
+    expanded_domain = _verified_point_domain(
+        expand_point_plan(base_plan),
+        inputs=inputs,
     )
     logical = compose_experiment(
         invocation.definition,
         inputs=inputs,
-        scans=point_domain.axes,
-        point_domain_layout=point_domain.layout,
+        scans=expanded_domain.axes,
+        point_domain_layout=expanded_domain.layout,
+        point_repeat=base_plan.repeat,
+        point_repeat_mode=base_plan.repeat_mode,
+        point_traversal=base_plan.traversal,
     )
-    _validate_point_dependencies(logical, point_domain)
+    _validate_point_dependencies(logical, expanded_domain)
     return CompiledInvocation(
         program=verify_logical_program(logical),
         request=request,
@@ -158,25 +175,29 @@ def _materialized_request(
     invocation: ExperimentInvocation,
     *,
     inputs: Mapping[str, object],
-    point_domain: VerifiedPointDomain,
+    point_plan: PointPlan,
+    base_domain: VerifiedPointDomain,
     metadata: Mapping[str, object] | None,
     operator: str | None,
 ) -> RunRequest:
     request_inputs = project_run_request_inputs(inputs)
     request_point_domain = (
-        project_point_cloud_record(PointsSpec(point_domain.axes), inputs=inputs)
-        if point_domain.layout == "point_cloud"
+        project_point_cloud_record(PointsSpec(base_domain.axes), inputs=inputs)
+        if base_domain.layout == "point_cloud"
         else GridDomainRecord(
-            axes=[
-                project_scan_record(axis, inputs=inputs) for axis in point_domain.axes
-            ]
+            axes=[project_scan_record(axis, inputs=inputs) for axis in base_domain.axes]
         )
     )
     return RunRequest.model_validate(
         {
             "experiment_id": invocation.definition.id,
             "inputs": request_inputs,
-            "point_domain": request_point_domain,
+            "point_plan": PointPlanRecord(
+                domain=request_point_domain,
+                repeat=point_plan.repeat,
+                repeat_mode=point_plan.repeat_mode,
+                traversal=point_plan.traversal,
+            ),
             "operator": operator,
             "metadata": dict(metadata or {}),
         }

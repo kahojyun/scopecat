@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import UnionType
 from typing import (
     Annotated,
@@ -73,7 +73,14 @@ from scopecat.program.products import (
     record_product,
 )
 from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
-from scopecat.program.scans import GridSpec, PointDomainSpec, PointPlan, points_spec
+from scopecat.program.scans import (
+    GridSpec,
+    PointDomainSpec,
+    PointPlan,
+    PointTraversal,
+    RepeatMode,
+    points_spec,
+)
 from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
@@ -416,25 +423,57 @@ class ExperimentContext:
             kernel=kernel,
         )
 
-    def grid(self, *axes: Axis) -> None:
+    def grid(
+        self,
+        *axes: Axis,
+        repeat: int = 1,
+        repeat_mode: RepeatMode = "point",
+        traversal: PointTraversal = "forward",
+    ) -> None:
         """Declare the complete Cartesian point domain for this experiment."""
 
-        self._declare_point_domain(GridSpec(tuple(axes)))
+        self._declare_point_domain(
+            GridSpec(tuple(axes)),
+            repeat=repeat,
+            repeat_mode=repeat_mode,
+            traversal=traversal,
+        )
 
     def points(
         self,
         rows: Sequence[PointRow],
         *,
         coordinates: Sequence[ValueRef] = (),
+        repeat: int = 1,
+        repeat_mode: RepeatMode = "point",
+        traversal: PointTraversal = "forward",
     ) -> None:
         """Declare the complete ordered point cloud for this experiment."""
 
-        self._declare_point_domain(points_spec(rows, coordinates=coordinates))
+        self._declare_point_domain(
+            points_spec(rows, coordinates=coordinates),
+            repeat=repeat,
+            repeat_mode=repeat_mode,
+            traversal=traversal,
+        )
 
-    def _declare_point_domain(self, domain: PointDomainSpec) -> None:
+    def _declare_point_domain(
+        self,
+        domain: PointDomainSpec,
+        *,
+        repeat: int,
+        repeat_mode: RepeatMode,
+        traversal: PointTraversal,
+    ) -> None:
         if self._point_plan_declared:
             raise ValueError("experiment point domain can only be declared once")
-        self._point_plan = PointPlan(domain)
+        self._point_plan = replace(
+            self._point_plan,
+            domain=domain,
+            repeat=repeat,
+            repeat_mode=repeat_mode,
+            traversal=traversal,
+        )
         self._point_plan_declared = True
 
     def record(

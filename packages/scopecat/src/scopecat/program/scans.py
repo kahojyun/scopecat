@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from typing import cast
+from dataclasses import dataclass, field, replace
+from typing import Literal, cast
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import Int, Scalar
 from scopecat.kernel.value_validation import validate_literal
 from scopecat.program.expressions import ParameterLookupUse
 from scopecat.program.input_capture import capture_runtime_input
@@ -28,6 +28,10 @@ type ScanValue = Quantity | EntityRef | str | int | float | bool | None
 type ScanCenter = ValueRef | Quantity
 type ScanRangeValue = Quantity | int | float
 type PointRow = Mapping[ValueRef, ScanValue]
+type RepeatMode = Literal["point", "sweep"]
+type PointTraversal = Literal["forward", "snake"]
+
+_REPEAT_AXIS_ID = "repeat"
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +102,99 @@ class PointPlan:
     """One complete logical point plan for an experiment invocation."""
 
     domain: PointDomainSpec = field(default_factory=GridSpec)
+    repeat: int = 1
+    repeat_mode: RepeatMode = "point"
+    traversal: PointTraversal = "forward"
+
+    def __post_init__(self) -> None:
+        if type(self.repeat) is not int or self.repeat <= 0:
+            raise ValueError("point repeat must be a positive integer")
+        if self.repeat_mode not in ("point", "sweep"):
+            raise ValueError("point repeat mode must be 'point' or 'sweep'")
+        if self.traversal not in ("forward", "snake"):
+            raise ValueError("point traversal must be 'forward' or 'snake'")
+        if isinstance(self.domain, PointsSpec) and self.traversal == "snake":
+            raise ValueError("point clouds only support forward traversal")
+        if self.repeat > 1 and any(
+            axis.id == _REPEAT_AXIS_ID for axis in self.domain.axes
+        ):
+            raise ValueError("repeated point plans reserve the 'repeat' axis id")
+
+
+def expand_point_plan(plan: PointPlan) -> PointDomainSpec:
+    """Expand repeat policy into one canonical point-domain declaration."""
+
+    if plan.repeat == 1:
+        return plan.domain
+    if isinstance(plan.domain, GridSpec):
+        repeat_axis = _repeat_axis(
+            tuple(range(plan.repeat)),
+            maximum=plan.repeat - 1,
+        )
+        axes = (
+            (*plan.domain.axes, repeat_axis)
+            if plan.repeat_mode == "point"
+            else (repeat_axis, *plan.domain.axes)
+        )
+        return GridSpec(axes)
+    return _expand_point_cloud(plan.domain, plan.repeat, mode=plan.repeat_mode)
+
+
+def _expand_point_cloud(
+    points: PointsSpec,
+    repeat: int,
+    *,
+    mode: RepeatMode,
+) -> PointsSpec:
+    sources = tuple(cast("ValuesScanSource", axis.source) for axis in points.axes)
+    row_count = len(sources[0].values) if sources else 0
+    if mode == "point":
+        expanded_axes = tuple(
+            replace(
+                axis,
+                source=ValuesScanSource(
+                    tuple(value for value in source.values for _index in range(repeat))
+                ),
+            )
+            for axis, source in zip(points.axes, sources, strict=True)
+        )
+        repeat_values = tuple(
+            repeat_index
+            for _row_index in range(row_count)
+            for repeat_index in range(repeat)
+        )
+        return PointsSpec(
+            (
+                *expanded_axes,
+                _repeat_axis(repeat_values, maximum=repeat - 1),
+            )
+        )
+    expanded_axes = tuple(
+        replace(
+            axis,
+            source=ValuesScanSource(source.values * repeat),
+        )
+        for axis, source in zip(points.axes, sources, strict=True)
+    )
+    repeat_values = tuple(
+        repeat_index
+        for repeat_index in range(repeat)
+        for _row_index in range(row_count)
+    )
+    return PointsSpec(
+        (
+            _repeat_axis(repeat_values, maximum=repeat - 1),
+            *expanded_axes,
+        )
+    )
+
+
+def _repeat_axis(values: tuple[int, ...], *, maximum: int) -> AxisSpec:
+    return AxisSpec(
+        id=_REPEAT_AXIS_ID,
+        value_type=Scalar(Int(minimum=0, maximum=maximum)),
+        source=ValuesScanSource(values),
+    )
 
 
 def points_spec(

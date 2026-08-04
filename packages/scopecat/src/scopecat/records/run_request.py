@@ -269,12 +269,40 @@ type PointDomainRecord = Annotated[
 ]
 
 
+class PointPlanRecord(_RunRequestModel):
+    """Persisted base point domain and its execution-independent expansion policy."""
+
+    domain: PointDomainRecord = Field(default_factory=GridDomainRecord)
+    repeat: StrictInt = Field(default=1, ge=1)
+    repeat_mode: Literal["point", "sweep"] = "point"
+    traversal: Literal["forward", "snake"] = "forward"
+
+    @model_validator(mode="after")
+    def validate_policy(self) -> PointPlanRecord:
+        if (
+            isinstance(self.domain, PointCloudDomainRecord)
+            and self.traversal == "snake"
+        ):
+            raise ValueError("snake traversal requires a Cartesian grid point domain")
+        if self.repeat > 1 and _point_domain_ids(self.domain).intersection({"repeat"}):
+            raise ValueError(
+                "repeated point plans reserve the base coordinate id 'repeat'"
+            )
+        return self
+
+
+def _point_domain_ids(domain: PointDomainRecord) -> set[str]:
+    if isinstance(domain, GridDomainRecord):
+        return {axis.axis_id for axis in domain.axes}
+    return set(domain.columns)
+
+
 class RunRequest(_RunRequestModel):
     """Operator request for one structured run."""
 
     experiment_id: str | None = None
     inputs: dict[str, RunRequestValue] = Field(default_factory=dict)
     operator: str | None = None
-    point_domain: PointDomainRecord = Field(default_factory=GridDomainRecord)
+    point_plan: PointPlanRecord = Field(default_factory=PointPlanRecord)
     stage: RunStageLineage | None = None
     metadata: dict[str, RunRequestJsonValue] = Field(default_factory=dict)

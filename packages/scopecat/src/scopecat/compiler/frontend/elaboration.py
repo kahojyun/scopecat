@@ -62,7 +62,12 @@ from scopecat.program.recording import (
     ProgramRecordSelection,
     ValueRecordSelection,
 )
-from scopecat.program.scans import AxisSpec, axis_parameter_contracts
+from scopecat.program.scans import (
+    AxisSpec,
+    PointTraversal,
+    RepeatMode,
+    axis_parameter_contracts,
+)
 from scopecat.program.value_refs import ValueRef, internal_value_ref_record_id
 from scopecat.program.value_transforms import internal_bind_value_ref_inputs
 
@@ -190,6 +195,9 @@ def compose_experiment(
     inputs: Mapping[str, object],
     scans: Sequence[AxisSpec] = (),
     point_domain_layout: PointDomainLayout = "product_grid",
+    point_repeat: int = 1,
+    point_repeat_mode: RepeatMode = "point",
+    point_traversal: PointTraversal = "forward",
 ) -> LogicalProgram:
     """Elaborate a native experiment root without a synthetic module."""
 
@@ -212,6 +220,9 @@ def compose_experiment(
         ),
         point_domain=lower_scans_point_domain(scans, inputs=inputs),
         point_domain_layout=point_domain_layout,
+        point_repeat=point_repeat,
+        point_repeat_mode=point_repeat_mode,
+        point_traversal=point_traversal,
         success_state=definition.success_state,
     )
 
@@ -228,6 +239,9 @@ def _elaborate_hierarchy(
     additional_parameter_contracts: tuple[ParameterContract, ...] = (),
     point_domain: PointAxes[ValueRef] = (),
     point_domain_layout: PointDomainLayout = "product_grid",
+    point_repeat: int = 1,
+    point_repeat_mode: RepeatMode = "point",
+    point_traversal: PointTraversal = "forward",
     success_state: EnsureStateIntent | None,
 ) -> LogicalProgram:
     composer = _LogicalProgramComposer()
@@ -321,6 +335,9 @@ def _elaborate_hierarchy(
         ),
         point_domain=point_domain,
         point_domain_layout=point_domain_layout,
+        point_repeat=point_repeat,
+        point_repeat_mode=point_repeat_mode,
+        point_traversal=point_traversal,
         effects=logical_effects,
         success_state=(
             None

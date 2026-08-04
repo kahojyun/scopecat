@@ -19,8 +19,8 @@ def test_public_scan_slice_produces_a_durable_request_and_plan() -> None:
     request = compile_invocation(load_invocation()).request
 
     assert RunRequest.model_validate_json(request.model_dump_json()) == request
-    assert isinstance(request.point_domain, GridDomainRecord)
-    centered_scan = request.point_domain.axes[0]
+    assert isinstance(request.point_plan.domain, GridDomainRecord)
+    centered_scan = request.point_plan.domain.axes[0]
     assert isinstance(centered_scan, AroundScanRecord)
     assert centered_scan.center == RunRequestParameterValue(
         parameter_id="drive_frequency"

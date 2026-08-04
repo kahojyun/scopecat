@@ -25,6 +25,8 @@ from scopecat.program.scans import (
     PointPlan,
     PointRow,
     PointsSpec,
+    PointTraversal,
+    RepeatMode,
     points_spec,
 )
 from scopecat.program.value_refs import ValueRef, internal_value_ref_point_id
@@ -157,9 +159,40 @@ class ExperimentInvocation:
         )
 
     def reset_points(self) -> ExperimentInvocation:
-        """Discard the invocation point override and inherit the definition."""
+        """Discard the complete point-plan override and inherit the definition."""
 
         return replace(self, point_override=None)
+
+    def with_repeat(
+        self,
+        count: int,
+        *,
+        mode: RepeatMode = "point",
+    ) -> ExperimentInvocation:
+        """Replace point- or sweep-repeat policy without changing the domain."""
+
+        return replace(
+            self,
+            point_override=replace(
+                self.point_plan,
+                repeat=count,
+                repeat_mode=mode,
+            ),
+        )
+
+    def with_traversal(
+        self,
+        traversal: PointTraversal,
+    ) -> ExperimentInvocation:
+        """Replace physical traversal policy without changing logical points."""
+
+        return replace(
+            self,
+            point_override=replace(
+                self.point_plan,
+                traversal=traversal,
+            ),
+        )
 
     def with_axis(self, axis: AxisSpec) -> ExperimentInvocation:
         """Replace one grid axis in place, or append it when newly introduced."""

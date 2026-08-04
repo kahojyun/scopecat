@@ -4,23 +4,28 @@
     "subject": "q0"
   },
   "operator": null,
-  "point_domain": {
-    "kind": "grid",
-    "axes": [
-      {
-        "kind": "scan",
-        "axis_id": "drive_frequency",
-        "center": {
-          "kind": "parameter",
-          "parameter_id": "drive_frequency"
-        },
-        "span": {
-          "value": 200.0,
-          "unit": "MHz"
-        },
-        "points": 3
-      }
-    ]
+  "point_plan": {
+    "domain": {
+      "kind": "grid",
+      "axes": [
+        {
+          "kind": "scan",
+          "axis_id": "drive_frequency",
+          "center": {
+            "kind": "parameter",
+            "parameter_id": "drive_frequency"
+          },
+          "span": {
+            "value": 200.0,
+            "unit": "MHz"
+          },
+          "points": 3
+        }
+      ]
+    },
+    "repeat": 1,
+    "repeat_mode": "point",
+    "traversal": "forward"
   },
   "stage": null,
   "metadata": {}

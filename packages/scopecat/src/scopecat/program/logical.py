@@ -34,7 +34,7 @@ from scopecat.program.recording import (
     LogicalRecordSelection,
     LogicalValueRecordSelection,
 )
-from scopecat.program.scans import AxisSpec
+from scopecat.program.scans import AxisSpec, PointTraversal, RepeatMode
 from scopecat.program.table_values import TableSource
 from scopecat.program.value_refs import PointValueDependency, ValueRef
 
@@ -234,6 +234,9 @@ class LogicalProgram:
     parameter_contracts: tuple[ParameterContract, ...] = ()
     point_domain: PointAxes[ValueRef] = ()
     point_domain_layout: PointDomainLayout = "product_grid"
+    point_repeat: int = 1
+    point_repeat_mode: RepeatMode = "point"
+    point_traversal: PointTraversal = "forward"
     value_defs: tuple[ValueDef, ...] = ()
     compute_nodes: tuple[LogicalComputeNode, ...] = ()
     measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...] = ()

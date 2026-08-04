@@ -123,7 +123,7 @@ def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
 
     compiled = resolution.compile_invocation(template_definition())
 
-    domain = compiled.request.point_domain
+    domain = compiled.request.point_plan.domain
     assert isinstance(domain, GridDomainRecord)
     [scan] = domain.axes
     assert isinstance(scan, AroundScanRecord)
