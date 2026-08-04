@@ -50,6 +50,7 @@ from scopecat.program.point_domain import (
     PointAxis,
     iter_point_axis_linear,
     point_axis_linear,
+    point_axis_linear_value,
     point_axis_values,
 )
 
@@ -264,10 +265,25 @@ def test_linear_axis_normalizes_center_to_its_declared_value_type() -> None:
 
     assert [point.row["frequency"] for point in materialized.points] == [
         Quantity(value=4.9999999995, unit="GHz"),
-        Quantity(value=4.999999999833, unit="GHz"),
-        Quantity(value=5.000000000167, unit="GHz"),
+        Quantity(value=4.999999999833333, unit="GHz"),
+        Quantity(value=5.000000000166667, unit="GHz"),
         Quantity(value=5.0000000005, unit="GHz"),
     ]
+
+
+def test_linear_axis_preserves_sub_picounit_steps_and_centered_endpoints() -> None:
+    center = _quantity(1.0)
+    span = _quantity(8e-13)
+
+    values = [
+        point_axis_linear_value(center, span, count=5, index=index).value
+        for index in range(5)
+    ]
+
+    assert len(set(values)) == 5
+    assert values[0] == center.value - span.value / 2
+    assert values[2] == center.value
+    assert values[-1] == center.value + span.value / 2
 
 
 def test_dynamic_center_evaluation_errors_report_the_center_path() -> None:

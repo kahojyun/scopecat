@@ -79,18 +79,18 @@ class Quantity(BaseModel):
         if not isinstance(other, Quantity):
             return NotImplemented
         converted = other.to(self.unit)
-        return Quantity(value=round(self.value + converted.value, 12), unit=self.unit)
+        return Quantity(value=self.value + converted.value, unit=self.unit)
 
     def __sub__(self, other: object) -> Quantity:
         if not isinstance(other, Quantity):
             return NotImplemented
         converted = other.to(self.unit)
-        return Quantity(value=round(self.value - converted.value, 12), unit=self.unit)
+        return Quantity(value=self.value - converted.value, unit=self.unit)
 
     def __mul__(self, other: object) -> Quantity:
         if not isinstance(other, int | float) or isinstance(other, bool):
             return NotImplemented
-        return Quantity(value=round(self.value * float(other), 12), unit=self.unit)
+        return Quantity(value=self.value * float(other), unit=self.unit)
 
     def __rmul__(self, other: object) -> Quantity:
         return self.__mul__(other)
@@ -101,4 +101,4 @@ class Quantity(BaseModel):
         if other == 0:
             msg = "cannot divide quantity by zero"
             raise ZeroDivisionError(msg)
-        return Quantity(value=round(self.value / float(other), 12), unit=self.unit)
+        return Quantity(value=self.value / float(other), unit=self.unit)

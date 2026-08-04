@@ -32,3 +32,12 @@ def test_same_non_linear_unit_is_compatible_without_conversion() -> None:
 
 def test_linear_conversion_preserves_full_float_precision() -> None:
     assert Quantity(180.0, "deg").to("rad") == Quantity(math.pi, "rad")
+
+
+def test_quantity_arithmetic_does_not_quantize_sub_picounit_values() -> None:
+    tiny = Quantity(4e-13, "ns")
+
+    assert (Quantity(0.0, "ns") + tiny).value == tiny.value
+    assert (tiny - Quantity(1e-13, "ns")).value == tiny.value - 1e-13
+    assert (tiny * 0.5).value == tiny.value * 0.5
+    assert (tiny / 2).value == tiny.value / 2

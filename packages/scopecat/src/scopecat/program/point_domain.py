@@ -47,10 +47,19 @@ def point_axis_linear_value(
     """Return one exact value from a fixed-count linear point axis."""
 
     converted_span = span.to(center.unit)
-    start = center.value - converted_span.value / 2
-    step = converted_span.value / (count - 1)
+    last_index = count - 1
+    half_span = converted_span.value / 2
+    if index == 0:
+        value = center.value - half_span
+    elif index == last_index:
+        value = center.value + half_span
+    else:
+        centered_index = 2 * index - last_index
+        value = center.value + (
+            converted_span.value * centered_index / (2 * last_index)
+        )
     return Quantity(
-        value=round(start + index * step, 12),
+        value=value,
         unit=center.unit,
     )
 
