@@ -9,7 +9,7 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
@@ -173,7 +173,7 @@ def test_explicit_instances_return_hygienic_compute_values_to_siblings(
 
     call = root()
 
-    @sc.template(id="test.results.siblings", kind="module_results")
+    @sc.experiment(id="test.results.siblings", kind="module_results")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
@@ -279,7 +279,7 @@ def test_nested_compute_results_preserve_exact_typed_result_values(
 
     call = root()
 
-    @sc.template(id="test.results.typed-result", kind="module_results")
+    @sc.experiment(id="test.results.typed-result", kind="module_results")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
@@ -541,7 +541,7 @@ def test_result_roots_preserve_free_inputs_and_value_provenance() -> None:
         )
         return source_instance.result.value
 
-    @sc.template(id="test.results.roots", kind="results")
+    @sc.experiment(id="test.results.roots", kind="results")
     def template(
         experiment: sc.ExperimentContext,
         value: _FloatInput,

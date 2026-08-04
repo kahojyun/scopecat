@@ -35,7 +35,7 @@ def author_quantum_experiment(
     experiment.record(probabilities, namespace="capture")
 
 
-@sc.experiment_factory(id="quantum_lab_demo.run_quantum", kind="quantum")
+@sc.experiment(id="quantum_lab_demo.run_quantum", kind="quantum")
 def run_quantum(
     experiment: sc.ExperimentContext,
     call: quantum.QuantumProgramCall,

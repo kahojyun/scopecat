@@ -26,7 +26,7 @@ def test_point_rows_compile_materialize_and_persist_layout() -> None:
     x = sc.coordinate("x", _INT)
     y = sc.coordinate("y", _INT)
 
-    @sc.template(id="test.point-rows", kind="point_rows")
+    @sc.experiment(id="test.point-rows", kind="point_rows")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.points(
             (
@@ -80,7 +80,7 @@ def test_empty_point_rows_are_a_zero_point_domain() -> None:
     x = sc.coordinate("x", _INT)
     y = sc.coordinate("y", _FREQUENCY)
 
-    @sc.template(id="test.empty-point-rows", kind="point_rows")
+    @sc.experiment(id="test.empty-point-rows", kind="point_rows")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.points((), coordinates=(x, y))
         experiment.record(x, record_id="observed_x")
@@ -146,4 +146,4 @@ def test_point_rows_cannot_be_combined_with_grid_scans() -> None:
         experiment.points(({x: 3},))
 
     with pytest.raises(ValueError, match="cannot be combined with scan axes"):
-        sc.template(id="test.mixed-point-domain", kind="point_rows")(definition)
+        sc.experiment(id="test.mixed-point-domain", kind="point_rows")(definition)

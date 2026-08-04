@@ -174,7 +174,7 @@ class ProductRefs(Mapping[str, ProductRef]):
 class RecordSelection:
     """Select one hygienic product use for durable experiment output.
 
-    The selection belongs to a template or experiment factory, not to the
+    The selection belongs to an experiment, not to the
     reusable module that declared and acquired the product.
     """
 

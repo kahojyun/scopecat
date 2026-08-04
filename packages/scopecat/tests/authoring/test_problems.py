@@ -55,10 +55,10 @@ def test_unknown_experiment_inputs_are_reported_together_in_stable_order(
 def test_template_definition_reports_literal_errors() -> None:
     with pytest.raises(CheckFailed) as error:
 
-        @sc.template(id="test.invalid-template", kind="invalid-template")
+        @sc.experiment(id="test.invalid-template", kind="invalid-template")
         def template(
             experiment: sc.ExperimentContext,
-            count: int = "not-an-int",  # pyright: ignore[reportArgumentType]
+            count: sc.Input[int] = "not-an-int",  # pyright: ignore[reportArgumentType]
         ) -> None:
             del experiment, count
 
@@ -71,11 +71,11 @@ def test_template_definition_reports_literal_errors() -> None:
 
 
 def test_template_bind_rejects_known_input_errors_without_requiring_missing() -> None:
-    @sc.template(id="test.early-bind", kind="early-bind")
+    @sc.experiment(id="test.early-bind", kind="early-bind")
     def template(
         experiment: sc.ExperimentContext,
-        count: int,
-        required_later: float,
+        count: sc.Input[int],
+        required_later: sc.Input[float],
     ) -> None:
         del experiment, count, required_later
 
@@ -100,7 +100,7 @@ def test_compile_validates_default_scan_axes() -> None:
     first = sc.coordinate("first", sc.ScalarType(sc.FloatType()))
     second = sc.coordinate("second", sc.ScalarType(sc.FloatType()))
 
-    @sc.template(id="test.invalid-default-scans", kind="invalid-default-scans")
+    @sc.experiment(id="test.invalid-default-scans", kind="invalid-default-scans")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.scan(
             sc.axis(first, (1.0, 2.0)),
@@ -119,7 +119,7 @@ def test_compile_validates_default_scan_axes() -> None:
 def test_compile_rejects_repeated_scan_overrides_before_merging() -> None:
     point = sc.coordinate("point", sc.ScalarType(sc.FloatType()))
 
-    @sc.template(id="test.repeated-scan-overrides", kind="repeated-scan-overrides")
+    @sc.experiment(id="test.repeated-scan-overrides", kind="repeated-scan-overrides")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.scan(sc.axis(point, (1.0,)))
 
@@ -161,7 +161,7 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
     )
 
     assert result.preview is not None
-    assert result.preview.experiment_id == simple_template().definition.id
+    assert result.preview.experiment_id == simple_template().id
 
 
 def _module_consuming_input() -> sc.ExperimentModule[None, ...]:
@@ -202,7 +202,7 @@ def test_unused_child_binding_accepts_an_explicit_outer_value() -> None:
     def outer(context: sc.ModuleContext, outer_value: float) -> None:
         context.use(child.instantiate("unused-child", child_value=outer_value))
 
-    @sc.template(id="test.unused-child", kind="input")
+    @sc.experiment(id="test.unused-child", kind="input")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(outer(1.0))
 
@@ -223,7 +223,7 @@ def test_unused_child_expression_binding_accepts_an_explicit_outer_value() -> No
             )
         )
 
-    @sc.template(id="test.unused-child-expression", kind="input")
+    @sc.experiment(id="test.unused-child-expression", kind="input")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(outer(1.0))
 
@@ -236,7 +236,7 @@ def test_scan_point_does_not_implicitly_bind_consumed_module_input() -> None:
 
     with pytest.raises(TypeError, match="missing a required argument: 'value'"):
 
-        @sc.template(id="test.point-input", kind="input")
+        @sc.experiment(id="test.point-input", kind="input")
         def template(experiment: sc.ExperimentContext) -> None:
             experiment.use(module())
             experiment.scan(sc.axis(point, (1.0,)))

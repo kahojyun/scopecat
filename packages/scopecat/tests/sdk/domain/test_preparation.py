@@ -91,7 +91,7 @@ def _preparation_context(
         },
     )
 
-    @sc.template(
+    @sc.experiment(
         id=f"test.sdk.preparation.{namespace}",
         kind="domain_preparation",
     )

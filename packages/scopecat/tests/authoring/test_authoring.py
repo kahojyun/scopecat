@@ -144,7 +144,7 @@ def test_module_invoke_rejects_argument_from_another_operation() -> None:
 
 def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
     template = simple_template()
-    assert template.definition.metadata == {"assembled_by": "template"}
+    assert template.bind().definition.metadata == {"assembled_by": "template"}
 
     resolved = bind_invocation(
         template.bind(subject="q0"),
@@ -212,7 +212,7 @@ def test_compute_inputs_close_template_inputs_before_logical_verification() -> N
             arguments={_PLAY_PULSE_PROGRAM_ARGUMENT: build},
         )
 
-    @sc.template(id="test.compute_provenance", kind="compute_provenance")
+    @sc.experiment(id="test.compute_provenance", kind="compute_provenance")
     def template(
         experiment: sc.ExperimentContext,
         qubit: _EntityInput,
@@ -404,7 +404,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         )
         return signal
 
-    @sc.template(id="test.runtime_entity_scan", kind="runtime_entity_scan")
+    @sc.experiment(id="test.runtime_entity_scan", kind="runtime_entity_scan")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.use(
             module(
@@ -524,7 +524,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
 
     drive_length = sc.coordinate("drive_length", _QUANTITY_VALUE)
 
-    @sc.template(
+    @sc.experiment(
         id="test.runtime_entity_dependent_points",
         kind="runtime_entity_dependent_points",
     )
@@ -620,7 +620,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
             )
         )
 
-    @sc.template(id="test.invocation-expression", kind="expression")
+    @sc.experiment(id="test.invocation-expression", kind="expression")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(
             parent(
@@ -675,7 +675,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
             )
         )
 
-    @sc.template(id="test.invocation-deferred", kind="deferred")
+    @sc.experiment(id="test.invocation-deferred", kind="deferred")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(
             parent.instantiate(
@@ -903,7 +903,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         )
         return signal
 
-    @sc.template(id="test.scripted_scan", kind="simple_scan")
+    @sc.experiment(id="test.scripted_scan", kind="simple_scan")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(prelude())
         call = experiment.use(scan(DRIVE_FREQUENCY_POINT))
@@ -998,7 +998,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
             value=drive_frequency,
         )
 
-    @sc.template(
+    @sc.experiment(
         id="test.entity_selected_resource",
         kind="entity_selected_resource",
     )
@@ -1044,7 +1044,7 @@ def test_explicit_config_binds_experiment() -> None:
             value=Quantity(value=5.0, unit="GHz"),
         )
 
-    @sc.template(id="test.explicit-config-source", kind="config-source")
+    @sc.experiment(id="test.explicit-config-source", kind="config-source")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
 

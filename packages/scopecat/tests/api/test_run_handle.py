@@ -9,8 +9,8 @@ import scopecat as sc
 import scopecat.authoring as authoring
 from scopecat.api.run import RunHandle
 from scopecat.authoring import (
+    Experiment,
     ExperimentInvocation,
-    ExperimentTemplate,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import Dataset
@@ -82,7 +82,7 @@ def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
     return simple_frequency_scan_template().bind(subject=subject)
 
 
-def simple_frequency_scan_template() -> ExperimentTemplate[...]:
+def simple_frequency_scan_template() -> Experiment[...]:
     def definition(
         experiment: authoring.ExperimentContext,
         subject: Annotated[
@@ -107,7 +107,7 @@ def simple_frequency_scan_template() -> ExperimentTemplate[...]:
         )
         experiment.record(module_call.result, record_id="signal")
 
-    return authoring.template(
+    return authoring.experiment(
         id="test.session.simple_frequency_scan",
         kind="simple_frequency_scan",
     )(definition)
@@ -135,7 +135,7 @@ def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
 def test_in_process_lab_records_compute_value_without_instruments(
     tmp_path: Path,
 ) -> None:
-    @sc.template(id="test.session.compute-only", kind="compute-only")
+    @sc.experiment(id="test.session.compute-only", kind="compute-only")
     def compute_only(experiment: sc.ExperimentContext) -> None:
         score = experiment.compute(
             "score",
@@ -208,7 +208,7 @@ def test_measurement_batches_page_a_real_run_and_preserve_point_identity(
 def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
     tmp_path: Path,
 ) -> None:
-    @sc.template(id="test.session.empty-points", kind="empty-points")
+    @sc.experiment(id="test.session.empty-points", kind="empty-points")
     def empty_points(experiment: sc.ExperimentContext) -> None:
         experiment.points((), coordinates=(DRIVE_FREQUENCY_POINT,))
         experiment.record(DRIVE_FREQUENCY_POINT, record_id="observed_frequency")

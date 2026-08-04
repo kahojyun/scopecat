@@ -67,7 +67,7 @@ def _derive_signal(value: MeasurementValue) -> dict[str, MeasurementValue]:
 
 
 def test_template_authors_root_device_operations_without_a_module() -> None:
-    @sc.template(id="test.experiment-context.direct", kind="direct")
+    @sc.experiment(id="test.experiment-context.direct", kind="direct")
     def direct(
         experiment: sc.ExperimentContext,
         level: Annotated[sc.Input[float], _LEVEL_TYPE] = 1.5,
@@ -151,8 +151,9 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
     ] == ["level", "enabled"]
 
 
-def test_template_and_experiment_factory_share_direct_root_authoring() -> None:
-    def body(experiment: sc.ExperimentContext) -> None:
+def test_experiment_supports_direct_root_authoring() -> None:
+    @sc.experiment(id="test.direct", kind="direct")
+    def direct(experiment: sc.ExperimentContext) -> None:
         device = experiment._resource("device", requires=(_DEVICE,))
         signal = experiment._product("signal")
         experiment._acquire(
@@ -162,26 +163,20 @@ def test_template_and_experiment_factory_share_direct_root_authoring() -> None:
         )
         experiment.record(signal)
 
-    template = sc.template(id="test.direct.template", kind="direct")(body)
-    factory = sc.experiment_factory(id="test.direct.factory", kind="direct")(body)
+    program = compile_invocation(direct()).program.program
 
-    template_program = compile_invocation(template()).program.program
-    factory_program = compile_invocation(factory()).program.program
-
-    assert template_program.resource_ports == factory_program.resource_ports
-    assert template_program.product_declarations == factory_program.product_declarations
-    assert template_program.effects == factory_program.effects
-    template_records = [
-        selection.product_id for selection in template_program.product_record_selections
+    assert [port.id for port in program.resource_ports] == ["device"]
+    assert [product.qualified_id for product in program.product_declarations] == [
+        "signal"
     ]
-    factory_records = [
-        selection.product_id for selection in factory_program.product_record_selections
-    ]
-    assert template_records == factory_records
+    assert [
+        selection.product_id.qualified_name
+        for selection in program.product_record_selections
+    ] == ["signal"]
 
 
 def test_template_records_a_compute_result_as_a_named_dataset_value() -> None:
-    @sc.template(id="test.direct.value-record", kind="direct")
+    @sc.experiment(id="test.direct.value-record", kind="direct")
     def direct(experiment: sc.ExperimentContext) -> None:
         score = experiment.compute(
             "score",
@@ -208,7 +203,7 @@ def test_template_derives_value_record_id_after_resolving_a_module_result() -> N
             output_type=sc.ScalarType(sc.FloatType()),
         )
 
-    @sc.template(id="test.module-value-record", kind="direct")
+    @sc.experiment(id="test.module-value-record", kind="direct")
     def direct(experiment: sc.ExperimentContext) -> None:
         call = experiment.use(value_source())
         trace = experiment._product("trace")
@@ -225,7 +220,7 @@ def test_template_derives_value_record_id_after_resolving_a_module_result() -> N
 
 
 def test_value_record_namespaces_preserve_segment_identity() -> None:
-    @sc.template(id="test.value-record.namespace", kind="direct")
+    @sc.experiment(id="test.value-record.namespace", kind="direct")
     def direct(experiment: sc.ExperimentContext) -> None:
         score = experiment.compute(
             "score",

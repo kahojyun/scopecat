@@ -151,7 +151,10 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
     @sc.module(id="test.domain.table-leaf")
     def leaf(
         context: sc.ModuleContext,
-        rows: Annotated[list[dict[str, object]], _domain_table_type()],
+        rows: Annotated[
+            sc.Input[list[dict[str, object]]],
+            _domain_table_type(),
+        ],
     ) -> None:
         context.use(
             domain_call(
@@ -164,23 +167,32 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
     @sc.module(id="test.domain.table-middle")
     def middle(
         context: sc.ModuleContext,
-        rows: Annotated[list[dict[str, object]], _domain_table_type()],
+        rows: Annotated[
+            sc.Input[list[dict[str, object]]],
+            _domain_table_type(),
+        ],
     ) -> None:
         context.use(leaf.instantiate("leaf", rows=sc.input_ref(rows)))
 
     @sc.module(id="test.domain.table-root")
     def root(
         context: sc.ModuleContext,
-        rows: Annotated[list[dict[str, object]], _domain_table_type()],
+        rows: Annotated[
+            sc.Input[list[dict[str, object]]],
+            _domain_table_type(),
+        ],
     ) -> None:
         context.use(middle.instantiate("middle", rows=sc.input_ref(rows)))
 
-    @sc.template(id="test.domain.table-forwarding", kind="domain")
+    @sc.experiment(id="test.domain.table-forwarding", kind="domain")
     def template(
         experiment: sc.ExperimentContext,
-        rows: Annotated[list[dict[str, object]], _domain_table_type()],
+        rows: Annotated[
+            sc.Input[list[dict[str, object]]],
+            _domain_table_type(),
+        ],
     ) -> None:
-        experiment.use(root(rows))
+        experiment.use(root(sc.input_ref(rows)))
 
     bound = bind_invocation(
         template(rows=[{"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}]),
@@ -396,7 +408,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         "outer/inner/call/counts"
     )
 
-    @sc.template(id="test.domain", kind="domain")
+    @sc.experiment(id="test.domain", kind="domain")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.use(root_module(point_x_count))
         selected_product = call.result

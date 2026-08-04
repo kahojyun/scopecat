@@ -48,7 +48,7 @@ _SET_GAIN_VALUE = _SET_GAIN.property("value")
 
 
 def _resolve(module: sc.ExperimentModule[None, ...]) -> None:
-    @sc.template(id="test.graph", kind="graph")
+    @sc.experiment(id="test.graph", kind="graph")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
 
@@ -190,7 +190,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
         compiler_inputs={"value": value_type},
     )
 
-    @sc.template(id="test.graph.record-schema", kind="record-schema")
+    @sc.experiment(id="test.graph.record-schema", kind="record-schema")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
         experiment.use(
@@ -304,7 +304,7 @@ def test_product_axis_rejects_point_dependent_value() -> None:
             axes=(product_axis("sample", size=sc.input_ref(size)),),
         )
 
-    @sc.template(id="test.stage.record-point", kind="graph")
+    @sc.experiment(id="test.stage.record-point", kind="graph")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(module(size))
         experiment.scan(sc.axis(size, (2, 3)))
@@ -339,7 +339,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
             output_type=value_type,
         )
 
-    @sc.template(id="test.graph.direct-edge", kind="graph")
+    @sc.experiment(id="test.graph.direct-edge", kind="graph")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
 
@@ -354,7 +354,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
 
 
 def test_compile_preserves_request_input_and_normalizes_logical_input() -> None:
-    @sc.template(id="test.graph.verified-source", kind="graph")
+    @sc.experiment(id="test.graph.verified-source", kind="graph")
     def template(
         experiment: sc.ExperimentContext,
         subject: Annotated[sc.Input[sc.EntityRef | str], sc.EntityType()],
@@ -368,7 +368,7 @@ def test_compile_preserves_request_input_and_normalizes_logical_input() -> None:
 
 
 def test_compile_invocation_projects_request_metadata() -> None:
-    @sc.template(id="test.graph.prepared-request", kind="graph")
+    @sc.experiment(id="test.graph.prepared-request", kind="graph")
     def template(
         experiment: sc.ExperimentContext,
         subject: Annotated[sc.Input[sc.EntityRef | str], sc.EntityType()],

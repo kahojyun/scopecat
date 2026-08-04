@@ -59,7 +59,7 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
             child.instantiate("second-consumer", program=produce),
         )
 
-    @sc.template(id="test.compiler.graph", kind="compiler_graph")
+    @sc.experiment(id="test.compiler.graph", kind="compiler_graph")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(parent())
 

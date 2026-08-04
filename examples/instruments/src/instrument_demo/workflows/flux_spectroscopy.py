@@ -33,7 +33,7 @@ DC_BIAS = sc.coordinate(
 )
 
 
-@sc.template(
+@sc.experiment(
     id=FLUX_SPECTROSCOPY_TEMPLATE_ID,
     kind=FLUX_SPECTROSCOPY_EXPERIMENT_ID,
 )

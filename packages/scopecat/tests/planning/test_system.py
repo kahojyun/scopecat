@@ -625,7 +625,7 @@ def test_unified_planning_rejects_missing_local_catalog_before_effects() -> None
 
 
 def test_recorded_compute_runs_without_an_instrument_provider() -> None:
-    @sc.template(id="test.recorded-compute", kind="compute")
+    @sc.experiment(id="test.recorded-compute", kind="compute")
     def definition(experiment: sc.ExperimentContext) -> None:
         score = experiment.compute(
             "score",
@@ -655,7 +655,7 @@ def test_recorded_compute_runs_without_an_instrument_provider() -> None:
 
 
 def test_plan_stage_value_record_is_materialized_per_point() -> None:
-    @sc.template(id="test.recorded-input", kind="compute")
+    @sc.experiment(id="test.recorded-input", kind="compute")
     def definition(
         experiment: sc.ExperimentContext,
         threshold: Annotated[

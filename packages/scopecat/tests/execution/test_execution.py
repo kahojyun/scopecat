@@ -912,7 +912,7 @@ def test_downstream_compute_receives_result_in_its_declared_type(
         )
         context.use(consumer.instantiate("consumer", frequency=frequency))
 
-    @sc.template(id="test.compute-result-type", kind="compute-result-type")
+    @sc.experiment(id="test.compute-result-type", kind="compute-result-type")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(root())
 

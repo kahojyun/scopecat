@@ -14,9 +14,9 @@ from scopecat.authoring import (
     ScalarType,
     coordinate,
     each,
+    experiment,
     module,
     one,
-    template,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
@@ -279,8 +279,8 @@ def test_generated_rf_group_aligns_state_and_finalization() -> None:
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
 
-    @template(id="test.symbolic.generated-rf-state", kind="symbolic_root")
-    def experiment(context: ExperimentContext) -> None:
+    @experiment(id="test.symbolic.generated-rf-state", kind="symbolic_root")
+    def authored(context: ExperimentContext) -> None:
         outputs = rf_output(context, "drive", for_=each(q0, q1))
         assert_type(outputs, SymbolicRFOutputGroup)
         outputs.ensure(
@@ -293,7 +293,7 @@ def test_generated_rf_group_aligns_state_and_finalization() -> None:
         )
         context.finalize(outputs, RFOutputGroupTarget(output_enabled=False))
 
-    definition = experiment.definition
+    definition = authored.bind().definition
     ensures = tuple(
         effect
         for effect in definition.body.effects
@@ -360,14 +360,14 @@ def test_group_per_entity_operation_argument_requires_exact_identity_join() -> N
 
 
 def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
-    @template(id="test.symbolic.root", kind="symbolic_root")
-    def experiment(context: ExperimentContext) -> None:
+    @experiment(id="test.symbolic.root", kind="symbolic_root")
+    def authored(context: ExperimentContext) -> None:
         vna = network_sweep(context, "readout")
         vna.ensure(points=11)
         trace = vna.sweep()
         context.record(trace)
 
-    definition = experiment.definition
+    definition = authored.bind().definition
     assert [product.id for product in definition.body.products] == [
         "frequency",
         "s_parameter",
@@ -512,12 +512,12 @@ def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
 
 
 def test_root_finalization_accepts_a_typed_symbolic_client_and_declared_state() -> None:
-    @template(id="test.symbolic.typed-finalization", kind="symbolic_root")
-    def experiment(context: ExperimentContext) -> None:
+    @experiment(id="test.symbolic.typed-finalization", kind="symbolic_root")
+    def authored(context: ExperimentContext) -> None:
         source = dc_source(context, "flux")
         context.finalize(source, DCSourceTarget(output_enabled=False))
 
-    definition = experiment.definition
+    definition = authored.bind().definition
     assert definition.final_state is not None
     [assignment] = definition.final_state.assignments
     [resource] = definition.interface.resources
@@ -534,11 +534,11 @@ def test_root_finalization_accepts_group_broadcast_and_per_entity_state(
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
 
-    @template(
+    @experiment(
         id=f"test.symbolic.typed-group-finalization.{per_entity}",
         kind="symbolic_root",
     )
-    def experiment(context: ExperimentContext) -> None:
+    def authored(context: ExperimentContext) -> None:
         sources = dc_source(context, "flux", for_=each(q0, q1))
         target: DCSourceGroupTarget | PerEntity[DCSourceTarget]
         if per_entity:
@@ -552,7 +552,7 @@ def test_root_finalization_accepts_group_broadcast_and_per_entity_state(
             target = DCSourceGroupTarget(output_enabled=False)
         context.finalize(sources, target)
 
-    definition = experiment.definition
+    definition = authored.bind().definition
     assert definition.final_state is not None
     assert [
         assignment.port_id for assignment in definition.final_state.assignments

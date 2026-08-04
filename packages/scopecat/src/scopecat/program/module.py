@@ -9,7 +9,7 @@ instantiation can alpha-rename private identities without changing producer
 identity.
 
 Reusable modules own typed dataflow, resources, and available products.
-Templates own workflow policy such as exposed defaults, scans, and durable
+Experiments own workflow policy such as exposed defaults, scans, and durable
 record selection; that policy must not leak into a reusable module instance.
 """
 

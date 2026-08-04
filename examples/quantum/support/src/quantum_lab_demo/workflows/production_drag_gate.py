@@ -52,7 +52,7 @@ def production_drag_program(
     )
 
 
-@sc.template(
+@sc.experiment(
     id=PRODUCTION_DRAG_GATE_TEMPLATE_ID,
     kind=PRODUCTION_DRAG_GATE_EXPERIMENT_ID,
 )

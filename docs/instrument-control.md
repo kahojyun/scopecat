@@ -146,7 +146,7 @@ import scopecat as sc
 from scopecat_instruments import network_sweep
 
 
-@sc.template(id="resonator.capture", kind="resonator")
+@sc.experiment(id="resonator.capture", kind="resonator")
 def capture(experiment: sc.ExperimentContext) -> None:
     vna = network_sweep(experiment, "readout")
     vna.ensure(
@@ -165,12 +165,12 @@ Omitted fields remain unspecified. Consecutive ensures remain ordered effects;
 they are not merged into an unordered desired-state bag.
 
 The symbolic `sweep()` records an acquisition and returns a typed product
-bundle. Defining the template touches no hardware. A reusable `@module` is an
+bundle. Defining the experiment touches no hardware. A reusable `@module` is an
 optional extraction for shared or composed work, not a prerequisite for using
 an instrument.
 
-The template is the orchestration boundary, not a single-device runner. One
-template may coordinate several typed instrument clients, reusable modules,
+The experiment is the orchestration boundary, not a single-device runner. One
+experiment may coordinate several typed instrument clients, reusable modules,
 and domain calls; their value and effect dependencies determine the executable
 order while the lab configuration supplies physical resources.
 

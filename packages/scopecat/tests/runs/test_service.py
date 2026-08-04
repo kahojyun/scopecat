@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 import tests.testkit.planning as run_workflows
-from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
     compile_invocation,

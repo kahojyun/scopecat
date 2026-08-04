@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.planning.service import plan_experiment_invocation

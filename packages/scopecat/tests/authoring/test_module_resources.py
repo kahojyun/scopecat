@@ -118,7 +118,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     ]
     call = root()
 
-    @sc.template(id="test.resources.root", kind="resources")
+    @sc.experiment(id="test.resources.root", kind="resources")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
@@ -269,7 +269,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         ("acquire", "root-read"),
     ]
 
-    @sc.template(id="test.effects.root", kind="effects")
+    @sc.experiment(id="test.effects.root", kind="effects")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(module.instantiate("root"))
 
@@ -412,7 +412,7 @@ def test_state_binding_keeps_interface_and_property_ids_structured() -> None:
 
     call = root()
 
-    @sc.template(id="test.resources.structured-state", kind="resources")
+    @sc.experiment(id="test.resources.structured-state", kind="resources")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 

@@ -12,13 +12,12 @@ from scopecat.authoring._module_invocation import (
 )
 from scopecat.authoring._module_results import ProductBundle
 from scopecat.authoring.definitions import (
+    Experiment,
     ExperimentContext,
-    ExperimentFactory,
     Input,
-    experiment_factory,
+    experiment,
     input_ref,
     module,
-    template,
 )
 from scopecat.authoring.entity_parameters import (
     ConcreteEntityInput,
@@ -36,15 +35,14 @@ from scopecat.authoring.entity_parameters import (
     one,
     parameter_column,
 )
+from scopecat.authoring.experiments import (
+    ExperimentInvocation,
+)
 from scopecat.authoring.finalization import (
     Finalizable,
     FinalizationTarget,
 )
 from scopecat.authoring.scans import PointRow, Scan, axis, param_axis, points
-from scopecat.authoring.templates import (
-    ExperimentInvocation,
-    ExperimentTemplate,
-)
 from scopecat.program.products import (
     ProductRef,
 )
@@ -102,11 +100,10 @@ __all__ = [
     "EntityKey",
     "EntitySelection",
     "EntityType",
+    "Experiment",
     "ExperimentContext",
-    "ExperimentFactory",
     "ExperimentInvocation",
     "ExperimentModule",
-    "ExperimentTemplate",
     "Finalizable",
     "FinalizationTarget",
     "FloatType",
@@ -141,7 +138,7 @@ __all__ = [
     "coordinate",
     "each",
     "entity_key",
-    "experiment_factory",
+    "experiment",
     "input_ref",
     "module",
     "one",
@@ -150,5 +147,4 @@ __all__ = [
     "parameter_column",
     "parameter_lookup",
     "points",
-    "template",
 ]

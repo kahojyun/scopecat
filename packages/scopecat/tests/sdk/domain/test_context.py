@@ -87,7 +87,7 @@ def _domain_scenario(
         module.use(call)
         return _DomainProducts(raw=call.results.raw, summary=summary)
 
-    @sc.template(
+    @sc.experiment(
         id=f"test.sdk.context.{namespace}",
         kind="domain_context",
     )

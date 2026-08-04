@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import scopecat.authoring as authoring
-from scopecat.authoring import ExperimentTemplate
+from scopecat.authoring import Experiment
 from scopecat.authoring.scans import axis
 from scopecat.compiler.bind import BoundPlan, bind_program
 from scopecat.compiler.frontend.resolution import compile_invocation
@@ -86,7 +86,7 @@ def simple_template(
     *,
     id: str = "test.simple_scan",
     kind: str = "simple_scan",
-) -> ExperimentTemplate[...]:
+) -> Experiment[...]:
     def definition(
         experiment: authoring.ExperimentContext,
         subject: Annotated[
@@ -113,7 +113,7 @@ def simple_template(
         )
         experiment.record(module_call.result, record_id="signal")
 
-    return authoring.template(
+    return authoring.experiment(
         id=id,
         kind=kind,
         metadata={"assembled_by": "template"},

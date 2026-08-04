@@ -44,7 +44,7 @@ def _drag_beta_experiment_body(
     experiment.scan(*scans)
 
 
-@sc.template(
+@sc.experiment(
     id=DRAG_BETA_TEMPLATE_ID,
     kind=DRAG_BETA_EXPERIMENT_ID,
 )

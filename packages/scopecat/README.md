@@ -34,7 +34,7 @@ with project.connect() as lab:
 Interactive closures may execute in the notebook process:
 
 ```python
-@sc.experiment_factory
+@sc.experiment
 def local_value(experiment: sc.ExperimentContext) -> None:
     value = experiment.compute(
         "value",

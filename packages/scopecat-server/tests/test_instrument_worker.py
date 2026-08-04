@@ -26,8 +26,8 @@ from scopecat.authoring import (
     ProductRef,
     ScalarType,
     coordinate,
+    experiment,
     module,
-    template,
 )
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
@@ -103,7 +103,7 @@ def _ragged_capture(
     return trace
 
 
-@template(id="tests.worker.ragged_point_cloud", kind="ragged_point_cloud")
+@experiment(id="tests.worker.ragged_point_cloud", kind="ragged_point_cloud")
 def _ragged_point_cloud(experiment: ExperimentContext) -> None:
     experiment.points(
         (

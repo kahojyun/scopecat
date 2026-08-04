@@ -98,7 +98,7 @@ def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
             _source_assignments(level=1.5, enabled=True),
         )
 
-    @sc.template(id="test.coherent-target", kind="state-effect")
+    @sc.experiment(id="test.coherent-target", kind="state-effect")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
 
@@ -142,7 +142,7 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
             _source_assignments(level=2.0, enabled=False),
         )
 
-    @sc.template(id="test.sequential-targets", kind="state-effect")
+    @sc.experiment(id="test.sequential-targets", kind="state-effect")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
 
@@ -168,10 +168,10 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
 
 
 def test_root_final_state_is_materialized_outside_point_effects() -> None:
-    @sc.template(id="test.final_state", kind="state-effect")
+    @sc.experiment(id="test.final_state", kind="state-effect")
     def experiment_definition(
         experiment: sc.ExperimentContext,
-        level: float = 0.0,
+        level: sc.Input[float] = 0.0,
     ) -> None:
         source = experiment._resource("source", requires=(_SOURCE,))
         experiment.finalize(
@@ -208,7 +208,7 @@ def test_root_final_state_is_materialized_outside_point_effects() -> None:
 
 
 def test_root_final_state_accepts_a_typed_finalization_adapter() -> None:
-    @sc.template(id="test.typed-final-state", kind="state-effect")
+    @sc.experiment(id="test.typed-final-state", kind="state-effect")
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
         source = experiment._resource("source", requires=(_SOURCE,))
         typed_source: Finalizable[_DeclaredSourceState] = _TypedSource(source)
@@ -217,7 +217,7 @@ def test_root_final_state_accepts_a_typed_finalization_adapter() -> None:
             _DeclaredSourceState(level=0.0, enabled=False),
         )
 
-    final_state = experiment_definition.definition.final_state
+    final_state = experiment_definition.bind().definition.final_state
     assert final_state is not None
     assert [assignment.property_id for assignment in final_state.assignments] == [
         "level",
@@ -233,7 +233,7 @@ def test_root_final_state_rejects_scan_coordinates() -> None:
         match="final_state cannot depend on scan coordinates",
     ):
 
-        @sc.template(id="test.final_state-coordinate", kind="state-effect")
+        @sc.experiment(id="test.final_state-coordinate", kind="state-effect")
         def experiment_definition(experiment: sc.ExperimentContext) -> None:
             source = experiment._resource("source", requires=(_SOURCE,))
             experiment.finalize(

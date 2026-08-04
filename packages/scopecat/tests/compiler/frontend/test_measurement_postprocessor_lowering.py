@@ -67,7 +67,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         )
         return derived
 
-    @sc.template(id="test.postprocessor.lowering", kind="postprocessor")
+    @sc.experiment(id="test.postprocessor.lowering", kind="postprocessor")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.use(module())
         experiment.record(call.result, record_id="first")
@@ -134,7 +134,7 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
         context.use(right)
         return _DerivedProducts(left=left.result, right=right.result)
 
-    @sc.template(id="test.postprocessor.hidden-id", kind="postprocessor")
+    @sc.experiment(id="test.postprocessor.hidden-id", kind="postprocessor")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.use(root())
         experiment.record(call.result.left, record_id="left")
@@ -169,7 +169,7 @@ def test_recorded_product_requires_a_producer() -> None:
     def module(context: sc.ModuleContext) -> sc.ProductRef:
         return context._product("orphan")
 
-    @sc.template(id="test.product.owner", kind="product-owner")
+    @sc.experiment(id="test.product.owner", kind="product-owner")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.use(module())
         experiment.record(call.result)

@@ -82,7 +82,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
 
     call = module()
 
-    @sc.template(id="test.products.metadata", kind="module_products")
+    @sc.experiment(id="test.products.metadata", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
         experiment.record(call.result)
@@ -121,7 +121,7 @@ def test_product_axes_use_product_local_dimensions_by_default() -> None:
 
     call = module()
 
-    @sc.template(id="test.products.local-axis", kind="module_products")
+    @sc.experiment(id="test.products.local-axis", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
@@ -165,7 +165,7 @@ def test_product_axes_share_dimensions_only_when_explicit() -> None:
 
     call = module()
 
-    @sc.template(id="test.products.shared-axis", kind="module_products")
+    @sc.experiment(id="test.products.shared-axis", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
@@ -205,7 +205,7 @@ def test_categorical_product_axis_lowers_to_its_label_count() -> None:
 
     call = module()
 
-    @sc.template(id="test.products.categorical-axis", kind="module_products")
+    @sc.experiment(id="test.products.categorical-axis", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
@@ -228,7 +228,7 @@ def test_variable_product_axis_lowers_without_inventing_a_fixed_extent() -> None
             axes=(product_axis("sample", size=None),),
         )
 
-    @sc.template(id="test.products.ragged-axis", kind="module_products")
+    @sc.experiment(id="test.products.ragged-axis", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
 
@@ -283,7 +283,7 @@ def test_conflicting_explicitly_shared_product_axes_are_rejected() -> None:
 
     call = module()
 
-    @sc.template(id="test.products.shared-axis-conflict", kind="module_products")
+    @sc.experiment(id="test.products.shared-axis-conflict", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
@@ -373,7 +373,7 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
 
     call = module()
 
-    @sc.template(id="test.products.result-mapping", kind="module_products")
+    @sc.experiment(id="test.products.result-mapping", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
         experiment.record(
@@ -492,7 +492,7 @@ def test_explicit_instances_select_same_named_products_independently(
     ]
     call = root()
 
-    @sc.template(id="test.products.root", kind="module_products")
+    @sc.experiment(id="test.products.root", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
         experiment.record(
@@ -583,7 +583,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     call = root()
     nested_product = call.result
 
-    @sc.template(id="test.products.nested", kind="module_products")
+    @sc.experiment(id="test.products.nested", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
         experiment.record(
@@ -631,7 +631,7 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
 
     call = root()
 
-    @sc.template(id="test.products.repeated-use", kind="module_products")
+    @sc.experiment(id="test.products.repeated-use", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
         experiment.record(
@@ -659,12 +659,12 @@ def test_root_module_products_are_typed_template_refs() -> None:
     source = _product_module()
     call = source()
 
-    @sc.template(id="test.products.root-ref", kind="module_products")
+    @sc.experiment(id="test.products.root-ref", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
         experiment.record(call.result)
 
-    [selection] = template_definition.definition.record_selections
+    [selection] = template_definition.bind().definition.record_selections
     assert isinstance(selection, RecordSelection)
     assert selection.product_id == ProductId(
         SymbolId(scope=("source",), local_id="signal")
@@ -682,7 +682,7 @@ def test_product_refs_are_nominally_owned_by_the_selected_instance() -> None:
         experiment.use(selected)
         experiment.record(foreign.result)
 
-    template = sc.template(id="test.products.nominal", kind="module_products")(
+    template = sc.experiment(id="test.products.nominal", kind="module_products")(
         template_definition
     )
 

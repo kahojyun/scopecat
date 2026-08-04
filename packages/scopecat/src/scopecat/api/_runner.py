@@ -9,7 +9,7 @@ from typing import override
 from uuid import uuid4
 
 from scopecat.authoring import MetadataValue
-from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.control.models import (
     RunDomainTargetRequirement,
     RunPlanSummary,

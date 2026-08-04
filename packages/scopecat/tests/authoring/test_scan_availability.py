@@ -43,7 +43,7 @@ def test_default_scan_center_rejects_external_operation() -> None:
             )
         )
 
-    template = sc.template(id="test.scan-stage.default", kind="scan-stage")(
+    template = sc.experiment(id="test.scan-stage.default", kind="scan-stage")(
         template_definition
     )
 
@@ -75,7 +75,7 @@ def test_invocation_scan_center_rejects_external_operation() -> None:
     call = module()
     center = call.result
 
-    @sc.template(id="test.scan-stage.invocation", kind="scan-stage")
+    @sc.experiment(id="test.scan-stage.invocation", kind="scan-stage")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
@@ -108,7 +108,7 @@ def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
     call = module(value=sc.Quantity(value=5.0, unit="GHz"))
     target = _quantity_scan_target()
 
-    @sc.template(id="test.scan-stage.input", kind="scan-stage")
+    @sc.experiment(id="test.scan-stage.input", kind="scan-stage")
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
         experiment.scan(

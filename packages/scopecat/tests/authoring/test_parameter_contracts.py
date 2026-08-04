@@ -51,7 +51,7 @@ def _resolve_root_domain_dependency(
         compiler_inputs={"value": value.value_type},
     )
 
-    @sc.template(id="test.parameter-contract", kind="parameter_contract")
+    @sc.experiment(id="test.parameter-contract", kind="parameter_contract")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(
             domain_call(
@@ -74,7 +74,7 @@ def _empty_module(id: str) -> sc.ExperimentModule[None, ...]:
 def _scan_invocation(id: str, *scans: sc.Scan) -> sc.ExperimentInvocation:
     module = _empty_module(id)
 
-    @sc.template(id=id, kind="parameter_contract")
+    @sc.experiment(id=id, kind="parameter_contract")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
         experiment.scan(*scans)
@@ -242,7 +242,7 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
         sc.ScalarType(sc.StringType()),
     )
 
-    @sc.template(id="test.parameter-contract", kind="parameter_contract")
+    @sc.experiment(id="test.parameter-contract", kind="parameter_contract")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(parent(frequency=parameter))
 
@@ -448,7 +448,7 @@ def test_parameter_scan_specializes_consumers_against_its_point_column() -> None
         inputs={"frequency": frequency_type},
     )
 
-    @sc.template(id="test.parameter-scan-consumer", kind="parameter_contract")
+    @sc.experiment(id="test.parameter-scan-consumer", kind="parameter_contract")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(domain_call(program, inputs={"frequency": lookup}))
         experiment.scan(
@@ -556,7 +556,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
             output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
         )
 
-    @sc.template(id="test.typed-parameter-key", kind="parameter_contract")
+    @sc.experiment(id="test.typed-parameter-key", kind="parameter_contract")
     def template(
         experiment: sc.ExperimentContext,
         device: Annotated[
@@ -607,7 +607,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
                 output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
             )
 
-        @sc.template(id="test.wrong-parameter-key", kind="parameter_contract")
+        @sc.experiment(id="test.wrong-parameter-key", kind="parameter_contract")
         def wrong_template(
             experiment: sc.ExperimentContext,
             device: Annotated[

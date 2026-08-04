@@ -216,7 +216,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
             )
         )
 
-    @sc.template(
+    @sc.experiment(
         id="tests.compute_schedule",
         kind="characterization",
     )

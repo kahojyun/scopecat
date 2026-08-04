@@ -10,7 +10,7 @@ and functions that enforce it.
 ## Program Boundaries
 
 ```text
-@module / @template / @experiment_factory contexts
+@module / @experiment contexts
     | close definitions
     v
 program model           shared symbolic ModuleDef, values, products, scans
@@ -53,10 +53,11 @@ The public authoring model follows four rules:
    sole composition result; an invocation exposes that value as `.result`, while
    `context.use(...)` places the invocation's effects at either authoring boundary.
    There is no second user-authored output or product-export declaration.
-2. `@template` is for a graph shape fixed by typed symbolic inputs and defaults.
-   `@experiment_factory` is for ordinary Python arguments that may change graph
-   structure on each call. Both author complete experiments and may coordinate
-   any number of local devices, reusable modules, and domain calls.
+2. `@experiment` authors a complete experiment. Parameters annotated as
+   `Input[T]` are typed runtime inputs and may have definition defaults; plain
+   Python parameters are structural values that rebuild the graph for that
+   invocation. An experiment may coordinate any number of local devices,
+   reusable modules, and domain calls.
 3. A domain call is one effect in that experiment, not the experiment boundary.
    A lab-owned runner may add compiler inputs, auxiliary-device work,
    postprocessing, and recording without requiring a wrapper module. Hardware
@@ -81,8 +82,7 @@ Product declaration, acquisition, and recording are distinct:
 2. An acquisition places instrument realization at an exact effect position
    and names one logical port, one versioned interface, one acquisition, and
    its result ids.
-3. A template or experiment factory selects products and values that become
-   records.
+3. An experiment selects products and values that become records.
 
 Products created by domain execution or pure transforms retain those explicit
 producers and do not create instrument acquisitions. Provider acquisition
@@ -92,7 +92,7 @@ id.
 A domain program owns opaque dialect data with typed inputs and result products.
 Scopecat owns the surrounding identities, typed bindings, effect order, and
 result correlation; the accepted system configuration owns the domain target's
-physical footprint. Templates own invocation policy: defaults, scans, durable
+physical footprint. Experiments own invocation policy: defaults, scans, durable
 record selection, labels, and metadata.
 
 ## Semantic Invariants

@@ -457,7 +457,7 @@ def test_composed_module_input_keeps_its_declared_compute_input_type() -> None:
             arguments={program_argument: program},
         )
 
-    @sc.template(id="test.compute-input-type", kind="compute-input-type")
+    @sc.experiment(id="test.compute-input-type", kind="compute-input-type")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(child(frequency_input=frequency))
         experiment.scan(sc.axis(frequency, (5_000.0,), unit="MHz"))
@@ -493,7 +493,7 @@ def test_composed_state_expression_keeps_its_declared_value_type() -> None:
             value=sc.input_ref(frequency_input) + Quantity(0.0, "GHz"),
         )
 
-    @sc.template(id="test.state-value-type", kind="state-value-type")
+    @sc.experiment(id="test.state-value-type", kind="state-value-type")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(child(frequency_input=frequency))
         experiment.scan(sc.axis(frequency, (5_000.0,), unit="MHz"))

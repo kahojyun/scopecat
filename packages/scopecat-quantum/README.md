@@ -57,9 +57,8 @@ call = x90_count(
 Program inputs may bind directly to Scopecat values such as
 `scopecat.parameter_lookup(...)`. A `Program` call is a native domain
 occurrence that owns its effect, execution options, and named result products.
-Place it with `ModuleContext.call(call)` inside `@sc.module`, or with
-`ExperimentContext.run(call)` inside `@sc.template` or
-`@sc.experiment_factory`. A lab can own a fixed experiment-factory runner that
+Place it with `context.use(call)` inside either `@sc.module` or
+`@sc.experiment`. A lab can own a fixed experiment that
 injects compiler inputs, measurement postprocessing, recording policy, and
 independent auxiliary-device work; the program call remains one domain effect
 rather than becoming the whole experiment. The

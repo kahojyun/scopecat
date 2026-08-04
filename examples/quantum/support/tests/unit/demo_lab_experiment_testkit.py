@@ -8,7 +8,7 @@ from scopecat.api.run import (
     RunOperations,
     run_handle_id,
 )
-from scopecat.authoring import ExperimentInvocation, ExperimentTemplate
+from scopecat.authoring import Experiment, ExperimentInvocation
 from scopecat.authoring.scans import Scan
 from scopecat.config.candidates import (
     CandidateConfig,
@@ -128,15 +128,13 @@ class InProcessQuantumLab:
 
     def prepare(
         self,
-        experiment: ExperimentInvocation | ExperimentTemplate[...],
+        experiment: ExperimentInvocation | Experiment[...],
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         system: ExperimentSystem | None = None,
     ) -> InProcessPreparedExperiment:
         invocation = (
-            experiment.bind()
-            if isinstance(experiment, ExperimentTemplate)
-            else experiment
+            experiment.bind() if isinstance(experiment, Experiment) else experiment
         )
         selected_config = self.config if config is None else config
         return InProcessPreparedExperiment(
