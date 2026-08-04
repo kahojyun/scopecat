@@ -6,18 +6,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   MeasurementDatasetSchema,
   MeasurementRecord,
+  MeasurementTracePreview,
   MeasurementValue,
 } from "../../api-contract";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
 import {
   measurementSlicePlan,
-  measurementSliceRecords,
   measurementTable,
   measurementTraceChart,
   measurementTraceQueryPlans,
   measurementTraceStatus,
   planMeasurementCharts,
-  type MeasurementTracePreviewData,
 } from "./measurement-visualization";
 
 afterEach(cleanup);
@@ -128,25 +127,6 @@ describe("measurement visualization", () => {
       }),
     ]);
     expect(measurementTable(items, schema).rows[1]?.cells).toEqual(["1", "0.1 V", "2 ratio"]);
-  });
-
-  it("does not build point-local traces from loaded full records", () => {
-    const schema = traceSchema();
-    const items = [
-      record(
-        0,
-        { bias: scalar(0, "V"), frequency: array([4, 5, 6], "GHz") },
-        {
-          response: complexArray([
-            { real: 3, imag: 4 },
-            { real: 0, imag: 2 },
-            { real: 1, imag: 0 },
-          ]),
-        },
-      ),
-    ];
-
-    expect(planMeasurementCharts(items, schema)).toEqual([]);
   });
 
   it("maps server numeric trace series to a complex chart without reprocessing samples", () => {
@@ -463,42 +443,34 @@ describe("measurement visualization", () => {
     }
   });
 
-  it("creates one explicit heatmap candidate per authored high-dimensional grid slice", () => {
+  it("renders one requested high-dimensional heatmap slice", () => {
     const schema = threeDimensionalGridSchema();
     const items = slicedGridRecords();
+    const selected = slicedGridRecords([0]);
 
-    const heatmaps = planMeasurementCharts(items, schema).filter(
+    const heatmaps = planMeasurementCharts(selected, schema, { bias: 0 }).filter(
       (chart) => chart.kind === "heatmap",
     );
 
-    expect(heatmaps).toHaveLength(2);
     expect(heatmaps).toEqual([
       expect.objectContaining({
-        id: "heatmap:temperature:row:column:value:fixed:bias=0",
+        id: "heatmap:temperature:row:column:value:fixed:bias=0%40index%3A0",
         xLabel: "Row [mm]",
         yLabel: "Column [mm]",
-        fixedCoordinates: [{ id: "bias", label: "Bias", unit: "V", value: 0 }],
-        grid: { xValues: [10, 20], yValues: [1, 2, 3] },
-      }),
-      expect.objectContaining({
-        id: "heatmap:temperature:row:column:value:fixed:bias=1",
-        xLabel: "Row [mm]",
-        yLabel: "Column [mm]",
-        fixedCoordinates: [{ id: "bias", label: "Bias", unit: "V", value: 1 }],
+        fixedCoordinates: [
+          expect.objectContaining({ id: "bias", label: "Bias", unit: "V", value: 0, index: 0 }),
+        ],
         grid: { xValues: [10, 20], yValues: [1, 2, 3] },
       }),
     ]);
     expect(heatmaps[0]?.series[0]?.points.map((point) => point.color)).toEqual([
       10, 11, 12, 13, 14, 15,
     ]);
-    expect(heatmaps[1]?.series[0]?.points.map((point) => point.color)).toEqual([
-      110, 111, 112, 113, 114, 115,
-    ]);
 
     render(
       <MeasurementDataPreview
         preview={{ schema, items }}
-        slice={slicePreview(schema, slicedGridRecords([0]))}
+        slice={slicePreview(schema, selected)}
         sliceError={null}
         slicePending={false}
         fixedAxisIndices={{ bias: 0 }}
@@ -582,16 +554,14 @@ describe("measurement visualization", () => {
   it("keeps fixed-axis selection and a bounded server trace for a ragged trace-only grid", () => {
     const schema = traceOnlyRaggedGridSchema();
     const previewItems = traceOnlyRaggedGridRecords();
-    const selectedItems = measurementSliceRecords(previewItems, schema, { bias: 0 }).map(
-      (item) => ({
-        ...item,
-        coordinates: {
-          column: item.coordinates.column!,
-          row: item.coordinates.row!,
-        },
-        observables: {},
-      }),
-    );
+    const selectedItems = traceOnlyRaggedGridRecords([0]).map((item) => ({
+      ...item,
+      coordinates: {
+        column: item.coordinates.column!,
+        row: item.coordinates.row!,
+      },
+      observables: {},
+    }));
     const plan = measurementSlicePlan(schema);
     const tracePlans = measurementTraceQueryPlans(schema);
     const boundedTrace = tracePreview({
@@ -728,11 +698,6 @@ describe("measurement visualization", () => {
       coordinates: { column: item.coordinates.column!, row: item.coordinates.row! },
       observables: { temperature: item.observables.temperature! },
     }));
-    const tracePreviewItems = measurementSliceRecords(previewItems, schema, { bias: 0 });
-    expect(tracePreviewItems.map((item) => item.point_index)).toEqual([0, 2, 4, 6, 8, 10]);
-    expect(planMeasurementCharts(tracePreviewItems, schema)).not.toContainEqual(
-      expect.objectContaining({ id: expect.stringMatching(/^trace:/) }),
-    );
     const tracePlans = measurementTraceQueryPlans(schema);
     const boundedTrace = tracePreview({
       observable_id: "spectrum",
@@ -879,63 +844,30 @@ describe("measurement visualization", () => {
     expect(screen.getByText("The selected product-grid slice could not be read.")).toBeVisible();
   });
 
-  it("keeps complete high-dimensional slices when another slice is missing or duplicated", () => {
-    const schema = threeDimensionalGridSchema();
-    const complete = slicedGridRecords();
-    const missing = complete.slice(0, -1);
-    const duplicate = [...missing, complete[10]!];
-
-    for (const records of [missing, duplicate]) {
-      const heatmaps = planMeasurementCharts(records, schema).filter(
-        (chart) => chart.kind === "heatmap",
-      );
-      expect(heatmaps).toHaveLength(1);
-      expect(heatmaps[0]).toMatchObject({
-        id: "heatmap:temperature:row:column:value:fixed:bias=0",
-        fixedCoordinates: [{ id: "bias", value: 0 }],
-      });
-    }
-  });
-
-  it("preserves fixed slices in their first materialized appearance order", () => {
-    const heatmaps = planMeasurementCharts(
-      slicedGridRecords([10, 2]),
-      threeDimensionalGridSchema(),
-    ).filter((chart) => chart.kind === "heatmap");
-
-    expect(heatmaps.map((chart) => chart.fixedCoordinates[0]?.value)).toEqual([10, 2]);
-  });
-
   it("uses authored entity-string and boolean axes as safely labeled fixed coordinates", () => {
     const schema = entitySlicedGridSchema();
-    const items = entitySlicedGridRecords();
+    const items = entitySlicedGridRecords().slice(0, 6);
 
-    const heatmaps = planMeasurementCharts(items, schema).filter(
+    const heatmaps = planMeasurementCharts(items, schema, { device: 0, enabled: 0 }).filter(
       (chart) => chart.kind === "heatmap",
     );
 
-    expect(heatmaps).toHaveLength(2);
-    expect(heatmaps[0]).toMatchObject({
-      id: "heatmap:temperature:row:column:value:fixed:device=%22q1%22&enabled=true",
-      xLabel: "Row [mm]",
-      yLabel: "Column [mm]",
-      fixedCoordinates: [
-        { id: "device", label: "Device", value: "q1" },
-        { id: "enabled", label: "Enabled", value: true },
-      ],
-    });
-    expect(heatmaps[1]).toMatchObject({
-      id: "heatmap:temperature:row:column:value:fixed:device=%22q2%22&enabled=true",
-      fixedCoordinates: [
-        { id: "device", label: "Device", value: "q2" },
-        { id: "enabled", label: "Enabled", value: true },
-      ],
-    });
+    expect(heatmaps).toEqual([
+      expect.objectContaining({
+        id: "heatmap:temperature:row:column:value:fixed:device=%22q1%22%40index%3A0&enabled=true%40index%3A0",
+        xLabel: "Row [mm]",
+        yLabel: "Column [mm]",
+        fixedCoordinates: [
+          expect.objectContaining({ id: "device", label: "Device", value: "q1", index: 0 }),
+          expect.objectContaining({ id: "enabled", label: "Enabled", value: true, index: 0 }),
+        ],
+      }),
+    ]);
 
     render(
       <MeasurementDataPreview
         preview={{ schema, items }}
-        slice={slicePreview(schema, items.slice(0, 6))}
+        slice={slicePreview(schema, items)}
         sliceError={null}
         slicePending={false}
         fixedAxisIndices={{ device: 0, enabled: 0 }}
@@ -952,22 +884,6 @@ describe("measurement visualization", () => {
     ).toHaveValue(
       "heatmap:temperature:row:column:value:fixed:device=%22q1%22%40index%3A0&enabled=true%40index%3A0",
     );
-  });
-
-  it("disables the entire automatic heatmap group above the fixed-slice limit", () => {
-    const schema = manySliceGridSchema();
-    const items = Array.from({ length: 33 }, (_item, bias) =>
-      record(
-        bias,
-        { bias: scalar(bias, "V"), column: scalar(0, "mm"), row: scalar(0, "mm") },
-        { temperature: scalar(bias, "K") },
-      ),
-    );
-
-    const charts = planMeasurementCharts(items, schema);
-
-    expect(charts.some((chart) => chart.kind === "heatmap")).toBe(false);
-    expect(charts).toEqual([expect.objectContaining({ kind: "scatter", title: "Temperature" })]);
   });
 
   it("keeps a valid unsupported rank-two value in the table", () => {
@@ -1195,9 +1111,7 @@ function realTraceSchema(): MeasurementDatasetSchema {
   };
 }
 
-function tracePreview(
-  overrides: Partial<MeasurementTracePreviewData> = {},
-): MeasurementTracePreviewData {
+function tracePreview(overrides: Partial<MeasurementTracePreview> = {}): MeasurementTracePreview {
   return {
     coordinate_id: "frequency",
     coordinate_label: "Frequency",
@@ -1225,7 +1139,7 @@ function traceSeries(
   x: number[],
   y: number[],
   sourceSampleCount = y.length,
-): MeasurementTracePreviewData["series"][number] {
+): MeasurementTracePreview["series"][number] {
   return {
     point_index: pointIndex,
     logical_point_id: `point-${pointIndex}`,
@@ -1521,25 +1435,6 @@ function entitySlicedGridRecords(): MeasurementRecord[] {
   );
 }
 
-function manySliceGridSchema(): MeasurementDatasetSchema {
-  const schema = threeDimensionalGridSchema();
-  return {
-    ...schema,
-    dimensions: [{ id: "point", kind: "point", size: 33 }],
-    point_domain: {
-      kind: "product_grid",
-      axes: [
-        gridAxis("row", [scalar(10, "mm")]),
-        gridAxis("column", [scalar(1, "mm")]),
-        gridAxis(
-          "bias",
-          Array.from({ length: 33 }, (_value, index) => scalar(index, "V")),
-        ),
-      ],
-    },
-  };
-}
-
 function slicedGridRecords(biasValues: number[] = [0, 1]): MeasurementRecord[] {
   return biasValues.flatMap((bias, biasIndex) =>
     [10, 20].flatMap((row, rowIndex) =>
@@ -1575,8 +1470,8 @@ function mixedGridRecords(biasValues: number[] = [0, 1]): MeasurementRecord[] {
   }));
 }
 
-function traceOnlyRaggedGridRecords(): MeasurementRecord[] {
-  return mixedGridRecords().map((item) => ({
+function traceOnlyRaggedGridRecords(biasValues: number[] = [0, 1]): MeasurementRecord[] {
+  return mixedGridRecords(biasValues).map((item) => ({
     ...item,
     observables: { spectrum: item.observables.spectrum! },
   }));
@@ -1643,16 +1538,4 @@ function boolScalar(value: boolean): Extract<MeasurementValue, { kind: "scalar" 
 
 function array(values: number[], unit: string): Extract<MeasurementValue, { kind: "array" }> {
   return { kind: "array", dtype: "float64", unit, shape: [values.length], values };
-}
-
-function complexArray(
-  values: Array<{ real: number; imag: number }>,
-): Extract<MeasurementValue, { kind: "array" }> {
-  return {
-    kind: "array",
-    dtype: "complex128",
-    unit: "ratio",
-    shape: [values.length],
-    values,
-  };
 }

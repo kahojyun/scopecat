@@ -594,7 +594,7 @@ describe("config provenance navigation", () => {
       Array.from({ length: 500 }, (_, index) => ({
         id: index + 1,
         runId: "run-1",
-        kind: "transition_committed",
+        kind: "execution_transition_committed",
         payload: { point_index: index },
       })),
     );
@@ -605,6 +605,7 @@ describe("config provenance navigation", () => {
     expect(
       screen.getByText("Showing the latest 500 events; older events are not loaded."),
     ).toBeVisible();
+    expect(screen.getAllByText("Execution transition")).toHaveLength(500);
   });
 });
 

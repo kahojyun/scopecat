@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass, is_dataclass
-from typing import Literal, NoReturn, cast
-
-from pydantic import BaseModel, JsonValue
+from dataclasses import dataclass
+from typing import Literal, NoReturn
 
 from scopecat.config.changes import (
     parameter_change_proposal_record_ref,
@@ -23,6 +21,7 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.project_state import ProjectStateServices
+from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
     AnalysisFigure,
     AnalysisFigureRecordOutput,
@@ -200,9 +199,7 @@ def _analysis_record_inputs(
                 role=input_ref.role,
                 title=input_ref.title,
                 metadata=(
-                    _json_mapping(cast("Mapping[object, object]", metadata))
-                    if metadata is not None
-                    else None
+                    validate_json_metadata(metadata) if metadata is not None else None
                 ),
             )
         )
@@ -214,7 +211,7 @@ def _analysis_record_outputs(
 ) -> list[AnalysisRecordOutput]:
     selected: list[AnalysisRecordOutput] = []
     for output in outputs:
-        metadata = _json_mapping(cast("Mapping[object, object]", output.metadata))
+        metadata = validate_json_metadata(output.metadata)
         if isinstance(output, AnalysisTableOutput):
             selected.append(
                 AnalysisTableRecordOutput(
@@ -265,21 +262,3 @@ def _raise_analysis_problem(
             )
         ]
     )
-
-
-def _json_safe(value: object) -> JsonValue:
-    if isinstance(value, BaseModel):
-        return cast("JsonValue", value.model_dump(mode="json"))
-    if is_dataclass(value) and not isinstance(value, type):
-        return _json_mapping(cast("Mapping[object, object]", asdict(value)))
-    if isinstance(value, Mapping):
-        return _json_mapping(cast("Mapping[object, object]", value))
-    if isinstance(value, tuple | list):
-        return [_json_safe(item) for item in cast("Sequence[object]", value)]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
-
-
-def _json_mapping(value: Mapping[object, object]) -> dict[str, JsonValue]:
-    return {str(key): _json_safe(item) for key, item in value.items()}

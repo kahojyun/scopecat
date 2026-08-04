@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { LoaderCircle } from "lucide-react";
+import type { MeasurementTracePreview } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
 import type { MeasurementPreview, MeasurementSlicePreview } from "../../types";
 import { classes, secondaryButton } from "../../ui/styles";
@@ -11,7 +12,6 @@ import {
   planMeasurementCharts,
   type MeasurementChartPlan,
   type MeasurementSliceAxis,
-  type MeasurementTracePreviewData,
   type MeasurementTraceQueryPlan,
 } from "./measurement-visualization";
 
@@ -76,7 +76,7 @@ export function MeasurementDataPreview({
   onFixedAxisIndexChange: (axisId: string, index: number) => void;
   tracePlans?: MeasurementTraceQueryPlan[];
   selectedTracePlanId?: string;
-  tracePreview?: MeasurementTracePreviewData;
+  tracePreview?: MeasurementTracePreview;
   tracePending?: boolean;
   traceError?: Error | null;
   onTracePlanChange?: (planId: string) => void;
@@ -337,7 +337,7 @@ export function MeasurementDataPreview({
 }
 
 function tracePreviewStatus(
-  preview: MeasurementTracePreviewData | undefined,
+  preview: MeasurementTracePreview | undefined,
   error: Error | null,
   pending: boolean,
 ): string {

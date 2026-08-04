@@ -51,18 +51,6 @@ export async function getInstruments(signal?: AbortSignal): Promise<InstrumentLi
   return apiData(apiClient.GET("/api/v1/instruments", { signal }));
 }
 
-export async function getInstrument(
-  instrumentId: string,
-  signal?: AbortSignal,
-): Promise<InstrumentView> {
-  return apiData(
-    apiClient.GET("/api/v1/instruments/{instrument_id}", {
-      params: { path: { instrument_id: instrumentId } },
-      signal,
-    }),
-  );
-}
-
 export async function getDriverCatalog(signal?: AbortSignal): Promise<DriverCatalog> {
   return apiData(apiClient.GET("/api/v1/instrument-drivers", { signal }));
 }

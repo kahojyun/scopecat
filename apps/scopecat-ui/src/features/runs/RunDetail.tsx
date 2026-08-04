@@ -1012,10 +1012,10 @@ function humanizeEvent(kind: string): string {
   const specific: Record<string, string> = {
     run_admitted: "Run admitted",
     run_state_changed: "Run state changed",
-    resource_claims_acquired: "Resources acquired",
-    executor_lease_acquired: "Executor connected",
-    executor_lease_expired: "Executor lost",
-    transition_committed: "Execution transition",
+    resources_claimed: "Resources acquired",
+    executor_lease_granted: "Executor connected",
+    executor_lease_lost: "Executor lost",
+    execution_transition_committed: "Execution transition",
   };
   return specific[kind] ?? titleCase(kind);
 }

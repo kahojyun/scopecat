@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from pydantic import JsonValue, TypeAdapter
+from pydantic import JsonValue
 
 from scopecat.analysis.service import (
     AnalysisFigureOutput,
@@ -28,6 +28,7 @@ from scopecat.daemon.wire import (
     AnalysisTableOutputPayload,
     RunAttachmentCommand,
 )
+from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -40,8 +41,6 @@ from scopecat.runs.data import (
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
-
-_JSON_MAPPING = TypeAdapter(dict[str, JsonValue])
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,15 +213,13 @@ def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
         role=value.role,
         title=value.title,
         metadata=(
-            None
-            if value.metadata is None
-            else _JSON_MAPPING.validate_python(value.metadata)
+            None if value.metadata is None else validate_json_metadata(value.metadata)
         ),
     )
 
 
 def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
-    metadata = _JSON_MAPPING.validate_python(value.metadata)
+    metadata = validate_json_metadata(value.metadata)
     if isinstance(value, AnalysisTableOutput):
         return AnalysisTableOutputPayload(
             kind="table",

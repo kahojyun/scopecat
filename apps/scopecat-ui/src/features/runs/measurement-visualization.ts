@@ -34,7 +34,6 @@ export type NumericValueMode = "imag" | "magnitude" | "phase" | "real" | "value"
 export type MeasurementTraceComplexMode = Exclude<NumericValueMode, "value">;
 
 const COMPLEX_VALUE_MODES: MeasurementTraceComplexMode[] = ["magnitude", "phase", "real", "imag"];
-const MAX_AUTO_HEATMAP_SLICES = 32;
 
 export interface MeasurementChartSeries {
   id: string;
@@ -87,8 +86,6 @@ export interface MeasurementTraceQueryPlan {
   valueMode: NumericValueMode;
   complexMode: MeasurementTraceComplexMode;
 }
-
-export type MeasurementTracePreviewData = MeasurementTracePreview;
 
 interface MeasurementChartPlanBase {
   id: string;
@@ -246,7 +243,7 @@ function compatibleRecordingGroups(left?: string, right?: string): boolean {
 }
 
 export function measurementTraceChart(
-  preview?: MeasurementTracePreviewData,
+  preview?: MeasurementTracePreview,
 ): MeasurementChartPlan | undefined {
   if (!preview || preview.series.length === 0) return undefined;
   const observable: VariableDescriptor = {
@@ -279,36 +276,13 @@ export function measurementTraceChart(
   };
 }
 
-export function measurementTraceStatus(preview: MeasurementTracePreviewData): string {
+export function measurementTraceStatus(preview: MeasurementTracePreview): string {
   const series = `${preview.returned_series_count.toLocaleString()} of ${preview.selected_series_count.toLocaleString()} selected series returned`;
   const truncation = preview.truncated_series ? "series limit applied" : undefined;
   const samples = preview.samples_reduced
     ? `${preview.returned_sample_count.toLocaleString()} of ${preview.source_sample_count.toLocaleString()} source samples plotted · evenly downsampled`
     : `${preview.returned_sample_count.toLocaleString()} source samples plotted`;
   return [series, truncation, samples].filter((item) => item !== undefined).join(" · ");
-}
-
-export function measurementSliceRecords(
-  records: MeasurementRecord[],
-  schema: MeasurementDatasetSchema,
-  fixedAxisIndices: Readonly<Record<string, number>>,
-): MeasurementRecord[] {
-  if (schema.point_domain.kind !== "product_grid") return records;
-  const axes = schema.point_domain.axes;
-  const selectors = axes.flatMap((axis, axisIndex) => {
-    const selectedIndex = fixedAxisIndices[axis.id];
-    if (selectedIndex === undefined) return [];
-    const stride = axes
-      .slice(axisIndex + 1)
-      .reduce((value, following) => value * following.size, 1);
-    return [{ selectedIndex, size: axis.size, stride }];
-  });
-  return records.filter((record) =>
-    selectors.every(
-      ({ selectedIndex, size, stride }) =>
-        Math.floor(record.point_index / stride) % size === selectedIndex,
-    ),
-  );
 }
 
 function sliceAxisDescriptor({ axis, variable }: ProductGridAxis): MeasurementSliceAxis {
@@ -410,24 +384,15 @@ function productGridHeatmaps(
   if (!xAxis || !yAxis) return [];
   if (!hasRealNumericVariable(xAxis) || !hasRealNumericVariable(yAxis)) return [];
   const fixedAxes = axes.filter((axis) => axis !== xAxis && axis !== yAxis);
-  const selectedCoordinates =
-    fixedAxisIndices === undefined
-      ? undefined
-      : selectedFixedCoordinates(fixedAxes, fixedAxisIndices);
-  if (fixedAxisIndices !== undefined && selectedCoordinates === undefined) return [];
-  const recordedFixedAxes = fixedAxes.filter(hasCoordinateVariable);
-  if (fixedAxisIndices === undefined && recordedFixedAxes.length !== fixedAxes.length) return [];
-  const slices = selectedCoordinates
-    ? [{ records, fixedCoordinates: selectedCoordinates }]
-    : productGridSlices(records, recordedFixedAxes);
-  if (!slices) return [];
+  const selectedCoordinates = selectedFixedCoordinates(fixedAxes, fixedAxisIndices ?? {});
+  if (selectedCoordinates === undefined) return [];
 
   const heatmapObservableIds = new Set(heatmap.observableIds);
   return observables
     .filter((observable) => heatmapObservableIds.has(observable.id))
     .flatMap((observable) =>
       valueModes(observable).flatMap((mode) =>
-        slices.flatMap((slice) => {
+        [{ records, fixedCoordinates: selectedCoordinates }].flatMap((slice) => {
           const grid = completeGrid(
             slice.records,
             xAxis.variable,
@@ -461,56 +426,6 @@ function productGridHeatmaps(
 interface ProductGridAxis {
   axis: ProductGridSchemaAxis;
   variable?: VariableDescriptor;
-}
-
-interface RecordedProductGridAxis extends ProductGridAxis {
-  variable: VariableDescriptor;
-}
-
-interface ProductGridSlice {
-  records: MeasurementRecord[];
-  fixedCoordinates: MeasurementChartFixedCoordinate[];
-}
-
-function productGridSlices(
-  records: MeasurementRecord[],
-  fixedAxes: RecordedProductGridAxis[],
-): ProductGridSlice[] | undefined {
-  if (fixedAxes.length === 0) return [{ records, fixedCoordinates: [] }];
-  const distinctValues = fixedAxes.map(() => new Set<string>());
-  const groups = new Map<string, ProductGridSlice>();
-  for (const record of records) {
-    const values: MeasurementScalarValue[] = [];
-    const keys: string[] = [];
-    for (const [index, axis] of fixedAxes.entries()) {
-      const value = scalarValue(valueFor(record, axis.variable));
-      if (value === undefined) return undefined;
-      const key = scalarValueKey(value);
-      distinctValues[index]!.add(key);
-      values.push(value);
-      keys.push(key);
-    }
-    const key = JSON.stringify(keys);
-    if (!groups.has(key) && groups.size === MAX_AUTO_HEATMAP_SLICES) return undefined;
-    const slice: ProductGridSlice = groups.get(key) ?? {
-      records: [],
-      fixedCoordinates: values.map((value, index) => {
-        const axis = fixedAxes[index]!;
-        return {
-          id: axis.axis.id,
-          label: axis.variable.label,
-          unit: axis.variable.unit,
-          value,
-        };
-      }),
-    };
-    slice.records.push(record);
-    groups.set(key, slice);
-  }
-  if (distinctValues.some((values, index) => values.size > fixedAxes[index]!.axis.size)) {
-    return undefined;
-  }
-  return [...groups.values()];
 }
 
 function selectedFixedCoordinates(
@@ -548,11 +463,9 @@ function selectedFixedCoordinates(
   return selected;
 }
 
-function hasCoordinateVariable(axis: ProductGridAxis): axis is RecordedProductGridAxis {
-  return axis.variable !== undefined;
-}
-
-function hasRealNumericVariable(axis: ProductGridAxis): axis is RecordedProductGridAxis {
+function hasRealNumericVariable(
+  axis: ProductGridAxis,
+): axis is ProductGridAxis & { variable: VariableDescriptor } {
   return axis.variable !== undefined && isRealNumericVariable(axis.variable);
 }
 
@@ -736,17 +649,6 @@ function numericScalar(
   mode: NumericValueMode = "value",
 ): number | undefined {
   return value?.kind === "scalar" ? numericLeaf(value.value, mode) : undefined;
-}
-
-function scalarValue(value: MeasurementValue | undefined): MeasurementScalarValue | undefined {
-  return value?.kind === "scalar" ? value.value : undefined;
-}
-
-function scalarValueKey(value: MeasurementScalarValue): string {
-  if (typeof value === "boolean") return `bool:${value}`;
-  if (typeof value === "number") return `number:${value}`;
-  if (typeof value === "string") return `string:${value}`;
-  return `complex:${value.real}:${value.imag}`;
 }
 
 function scalarValueId(value: MeasurementScalarValue): string {
