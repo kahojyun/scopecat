@@ -469,7 +469,6 @@ def test_worker_rejects_invalid_collect_array_without_poisoning_protocol(
     assert valid.readback.values["signal"] == MeasurementArray.create(
         dtype="complex128",
         unit="ratio",
-        shape=(1,),
         values=(complex(1.0, -0.5),),
     )
 

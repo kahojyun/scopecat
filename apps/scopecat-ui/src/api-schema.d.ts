@@ -660,6 +660,12 @@ export interface components {
             /** Unit */
             unit?: string | null;
         };
+        _FrozenAcquisitionEvidence: {
+            [key: string]: components["schemas"]["InstrumentAcquisitionEvidence"];
+        };
+        "_FrozenMeasurementValues-Output": {
+            [key: string]: components["schemas"]["MeasurementValue-Output"];
+        };
         _InstrumentOperationScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"] | components["schemas"]["_PayloadWire"];
         _InstrumentPropertyScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"];
         /** _IntWire */
@@ -1523,6 +1529,9 @@ export interface components {
             /** Uri */
             uri: string;
         };
+        "FrozenJsonMetadata-Output": {
+            [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -2005,7 +2014,7 @@ export interface components {
              * @enum {string}
              */
             kind: "array";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["FrozenJsonMetadata-Output"];
             /** Shape */
             shape: number[];
             /** Unit */
@@ -2022,7 +2031,7 @@ export interface components {
         /** MeasurementDataset */
         MeasurementDataset: {
             dataset_schema: components["schemas"]["MeasurementDatasetSchema-Output"];
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["FrozenJsonMetadata-Output"];
             /** Records */
             records: components["schemas"]["MeasurementRecord-Output"][];
         };
@@ -2038,7 +2047,7 @@ export interface components {
              * @constant
              */
             format_version: "scopecat.measurement_dataset_schema.v8";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["FrozenJsonMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
@@ -2064,7 +2073,7 @@ export interface components {
             kind: string;
             /** Label */
             label?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["FrozenJsonMetadata-Output"];
             /** Size */
             size: number | null;
         };
@@ -2131,21 +2140,12 @@ export interface components {
         };
         /** MeasurementRecord */
         "MeasurementRecord-Output": {
-            /** Acquisition Evidence */
-            acquisition_evidence?: {
-                [key: string]: components["schemas"]["InstrumentAcquisitionEvidence"];
-            };
-            /** Coordinates */
-            coordinates: {
-                [key: string]: components["schemas"]["MeasurementValue-Output"];
-            };
+            acquisition_evidence?: components["schemas"]["_FrozenAcquisitionEvidence"];
+            coordinates: components["schemas"]["_FrozenMeasurementValues-Output"];
             /** Logical Point Id */
             logical_point_id?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
-            /** Observables */
-            observables: {
-                [key: string]: components["schemas"]["MeasurementValue-Output"];
-            };
+            metadata?: components["schemas"]["FrozenJsonMetadata-Output"];
+            observables: components["schemas"]["_FrozenMeasurementValues-Output"];
             /** Point Index */
             point_index: number;
             /** Run Id */
@@ -2164,7 +2164,7 @@ export interface components {
              * @enum {string}
              */
             kind: "scalar";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["FrozenJsonMetadata-Output"];
             /** Unit */
             unit?: string | null;
             /** Value */
@@ -2336,7 +2336,7 @@ export interface components {
              * @enum {string}
              */
             kind: "unavailable";
-            metadata: components["schemas"]["JsonMetadata-Output"];
+            metadata: components["schemas"]["FrozenJsonMetadata-Output"];
             /**
              * Reason
              * @enum {string}
@@ -2364,7 +2364,7 @@ export interface components {
             id: string;
             /** Label */
             label?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["FrozenJsonMetadata-Output"];
             recording_group_id?: components["schemas"]["_NonEmptyText"] | null;
             /**
              * Role

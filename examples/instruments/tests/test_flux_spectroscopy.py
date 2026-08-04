@@ -141,29 +141,29 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         TEMPERATURE_RECORD_ID,
     )
     assert preview.schema is not None
-    assert preview.schema.primary_coordinates == ["dc_bias", FREQUENCY_RECORD_ID]
+    assert preview.schema.primary_coordinates == ("dc_bias", FREQUENCY_RECORD_ID)
     dimensions = {dimension.id: dimension for dimension in preview.schema.dimensions}
     assert dimensions["shared/readout-vna/frequency"].label == "frequency"
     variables = {variable.id: variable for variable in preview.schema.variables}
     assert variables["dc_bias"].role == "coordinate"
-    assert variables["dc_bias"].dims == ["point"]
+    assert variables["dc_bias"].dims == ("point",)
     assert variables[FREQUENCY_RECORD_ID].role == "coordinate"
     assert variables[FREQUENCY_RECORD_ID].recording_group_id == "readout-vna/sweep"
-    assert variables[FREQUENCY_RECORD_ID].dims == [
+    assert variables[FREQUENCY_RECORD_ID].dims == (
         "point",
         "shared/readout-vna/frequency",
-    ]
+    )
     assert variables[S_PARAMETER_RECORD_ID].role == "observable"
     assert variables[S_PARAMETER_RECORD_ID].recording_group_id == "readout-vna/sweep"
-    assert variables[S_PARAMETER_RECORD_ID].dims == [
+    assert variables[S_PARAMETER_RECORD_ID].dims == (
         "point",
         "shared/readout-vna/frequency",
-    ]
+    )
     assert variables[TEMPERATURE_RECORD_ID].role == "observable"
     assert (
         variables[TEMPERATURE_RECORD_ID].recording_group_id == "mixing-chamber/sample"
     )
-    assert variables[TEMPERATURE_RECORD_ID].dims == ["point"]
+    assert variables[TEMPERATURE_RECORD_ID].dims == ("point",)
     preview_records = {record.id: record for record in preview.records}
     assert preview_records[FREQUENCY_RECORD_ID].role == "coordinate"
     assert (

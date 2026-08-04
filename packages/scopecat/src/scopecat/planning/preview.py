@@ -20,7 +20,7 @@ def build_run_program_preview(
     return ExperimentPreview(
         experiment_id=catalog.experiment_id,
         experiment_kind=catalog.experiment_kind,
-        schema=selected.schema_for(catalog.points),
+        schema=selected.schema,
         coordinate_ids=tuple(selected.coordinate_ids),
         points=tuple(
             ExperimentPreviewPoint(

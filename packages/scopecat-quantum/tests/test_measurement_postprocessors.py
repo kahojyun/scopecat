@@ -35,7 +35,6 @@ def _iq_shots(*values: complex) -> MeasurementArray:
     return MeasurementArray.create(
         dtype="complex128",
         unit="ratio",
-        shape=[len(values)],
         values=values,
     )
 

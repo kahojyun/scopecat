@@ -112,12 +112,6 @@ def _shape_compatible(
     )
 
 
-def validated_measurement_value_copy(value: MeasurementValue) -> MeasurementValue:
-    """Detach a measurement value without repeating its construction checks."""
-
-    return value.model_copy(deep=True)
-
-
 def _measurement_value_dtype(
     value: MeasurementValue,
 ) -> MeasurementDType:

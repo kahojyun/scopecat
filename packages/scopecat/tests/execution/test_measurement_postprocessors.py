@@ -390,7 +390,6 @@ def test_postprocessor_propagates_mixed_fixed_and_ragged_output_shape() -> None:
             MeasurementArray.create(
                 dtype="float64",
                 unit="ratio",
-                shape=[1],
                 values=[1.0],
             ),
             "measurement_postprocessor_output_shape_mismatch",

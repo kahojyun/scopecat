@@ -12,6 +12,8 @@ from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementPointCloudPointDomain,
+    MeasurementPointDomainAxis,
+    MeasurementPointDomainColumn,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
@@ -153,6 +155,33 @@ def test_measurement_dataset_schema_discriminates_point_domain_wire_shapes() -> 
         "kind": "point_cloud",
         "columns": [{"id": "x"}, {"id": "y"}],
     }
+
+
+def test_product_grid_cardinality_must_match_the_planned_point_count() -> None:
+    with pytest.raises(ValidationError, match="product-grid cardinality"):
+        MeasurementDatasetSchema(
+            dataset_id="bad-grid",
+            point_domain=MeasurementProductGridPointDomain(
+                axes=[
+                    MeasurementPointDomainAxis(
+                        id="x",
+                        size=2,
+                        values=[
+                            MeasurementScalar.create(dtype="int64", value=1),
+                            MeasurementScalar.create(dtype="int64", value=2),
+                        ],
+                    )
+                ]
+            ),
+            dimensions=[MeasurementDimension(id="point", kind="point", size=3)],
+        )
+
+    with pytest.raises(ValidationError, match="product-grid cardinality"):
+        MeasurementDatasetSchema(
+            dataset_id="empty-grid",
+            point_domain=_empty_grid(),
+            dimensions=[MeasurementDimension(id="point", kind="point", size=0)],
+        )
 
 
 @pytest.mark.parametrize(
@@ -326,7 +355,6 @@ def test_validate_schema_accepts_point_local_arrays() -> None:
             "i0": MeasurementArray.create(
                 dtype="float64",
                 unit="ratio",
-                shape=[3],
                 values=[0.1, 0.2, 0.3],
             )
         },
@@ -368,7 +396,6 @@ def test_validate_schema_derives_inner_shape_from_dimensions() -> None:
             "i0": MeasurementArray.create(
                 dtype="float64",
                 unit="ratio",
-                shape=[2],
                 values=[0.1, 0.2],
             )
         },
@@ -409,7 +436,6 @@ def test_variable_extent_preserves_array_rank_validation() -> None:
         observables={
             "trace": MeasurementArray.create(
                 dtype="float64",
-                shape=(2, 2),
                 values=((0.1, 0.2), (0.3, 0.4)),
             )
         },
@@ -428,7 +454,12 @@ def test_variable_extent_preserves_array_rank_validation() -> None:
 def test_validate_measurement_records_against_schema_reports_contract_errors() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
-        point_domain=_empty_grid(),
+        point_domain=MeasurementPointCloudPointDomain(
+            columns=[
+                MeasurementPointDomainColumn(id="drive_frequency"),
+                MeasurementPointDomainColumn(id="shot_index"),
+            ]
+        ),
         dimensions=[MeasurementDimension(id="point", kind="point", size=2)],
         variables=[
             MeasurementVariable(

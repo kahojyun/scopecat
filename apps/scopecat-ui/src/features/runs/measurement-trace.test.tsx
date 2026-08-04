@@ -57,32 +57,39 @@ describe("measurement trace visualization", () => {
     ]);
   });
 
-  it("uses explicit variable ids for a partially grouped trace pair", () => {
-    const schema = traceSchema();
-    const coordinate = schema.variables?.find((variable) => variable.id === "frequency");
-    if (!coordinate) throw new Error("trace fixture has no frequency coordinate");
-    delete coordinate.recording_group_id;
+  it("omits a trace pair when only one variable has a recording group", () => {
+    const source = traceSchema();
+    const schema = {
+      ...source,
+      variables: source.variables?.map((variable) =>
+        variable.id === "frequency" ? { ...variable, recording_group_id: undefined } : variable,
+      ),
+    };
 
-    expect(measurementTraceQueryPlans(schema)[0]).toMatchObject({
-      observableId: "response",
-      coordinateId: "frequency",
-      valueMode: "magnitude",
-    });
+    expect(measurementTraceQueryPlans(schema)).toEqual([]);
   });
 
   it("lists each explicit trace coordinate when several pairs are safe", () => {
-    const schema = traceSchema();
-    const coordinate = schema.variables?.find((variable) => variable.id === "frequency");
-    const observable = schema.variables?.find((variable) => variable.id === "response");
+    const source = traceSchema();
+    const coordinate = source.variables?.find((variable) => variable.id === "frequency");
+    const observable = source.variables?.find((variable) => variable.id === "response");
     if (!coordinate || !observable) throw new Error("trace fixture variables are incomplete");
-    delete coordinate.recording_group_id;
-    delete observable.recording_group_id;
-    schema.variables?.push({
-      ...coordinate,
-      id: "time",
-      label: "Time",
-      unit: "ns",
-    });
+    const schema = {
+      ...source,
+      variables: [
+        ...(source.variables ?? []).map((variable) => ({
+          ...variable,
+          recording_group_id: undefined,
+        })),
+        {
+          ...coordinate,
+          id: "time",
+          label: "Time",
+          unit: "ns",
+          recording_group_id: undefined,
+        },
+      ],
+    };
 
     const plans = measurementTraceQueryPlans(schema);
 

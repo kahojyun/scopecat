@@ -41,6 +41,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement_recording import MeasurementDatasetHeader
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import upsert_contents
 from scopecat.runs.admission import RunSkeleton
@@ -321,6 +322,11 @@ class SQLiteRunRepository:
         ref: str,
     ) -> list[MeasurementRecord]:
         _validate_identity(run_id, ref)
+        header = self.read_model(
+            run_id,
+            f"{ref}/header.json",
+            MeasurementDatasetHeader,
+        )
         prefix = f"{ref}/chunks/"
         try:
             with closing(self._connect()) as connection:
@@ -340,7 +346,10 @@ class SQLiteRunRepository:
         for row in rows:
             chunk_ref = _text(row, "ref")
             try:
-                append = decode_measurement_append(self.read_bytes(run_id, chunk_ref))
+                append = decode_measurement_append(
+                    self.read_bytes(run_id, chunk_ref),
+                    header.dataset_schema,
+                )
             except MeasurementArrowCodecError as error:
                 raise _invalid_ref(run_id, chunk_ref) from error
             records.extend(append.records)

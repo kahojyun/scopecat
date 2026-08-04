@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Mapping
+from typing import Literal, Self, override
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -18,7 +19,38 @@ CANONICAL_MEASUREMENT_DATASET_REF: _MeasurementDatasetRef = (
 )
 
 
-class MeasurementDatasetHeader(BaseModel):
+class _FrozenRecordingModel(BaseModel):
+    """Validation-preserving copy semantics for immutable recording writes."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @override
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, object] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if not update:
+            return self
+        values: dict[str, object] = {
+            name: getattr(self, name) for name in type(self).model_fields
+        }
+        values.update(update)
+        return type(self).model_validate(values)
+
+    @override
+    def __copy__(self) -> Self:
+        return self
+
+    @override
+    def __deepcopy__(self, memo: dict[int, object] | None = None) -> Self:
+        if memo is not None:
+            memo[id(self)] = self
+        return self
+
+
+class MeasurementDatasetHeader(_FrozenRecordingModel):
     """Canonical schema and recording identity for one run dataset."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -64,7 +96,7 @@ class MeasurementDatasetHeader(BaseModel):
         return model_wire_content_hash(self)
 
 
-class MeasurementDatasetAppend(BaseModel):
+class MeasurementDatasetAppend(_FrozenRecordingModel):
     """One idempotent append to a canonical run dataset."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -116,7 +148,7 @@ class MeasurementDatasetAppend(BaseModel):
         return model_wire_content_hash(self)
 
 
-class MeasurementDatasetReceipt(BaseModel):
+class MeasurementDatasetReceipt(_FrozenRecordingModel):
     """Durable evidence for one dataset append or seal operation."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -133,7 +165,7 @@ class MeasurementDatasetReceipt(BaseModel):
         return value
 
 
-class MeasurementDatasetSeal(BaseModel):
+class MeasurementDatasetSeal(_FrozenRecordingModel):
     """Seal one append-only dataset after its admitted point range is complete."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)

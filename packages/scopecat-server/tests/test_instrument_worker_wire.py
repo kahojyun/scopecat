@@ -230,31 +230,26 @@ def test_collect_wire_uses_canonical_binary_for_every_array_dtype() -> None:
         {
             "string": MeasurementArray.create(
                 dtype="string",
-                shape=(2,),
                 values=("猫", "ready"),
                 metadata={"encoding": "labels"},
             ),
             "float": MeasurementArray.create(
                 dtype="float64",
                 unit="V",
-                shape=(2,),
                 values=(1.25, -2.5),
             ),
             "bool": MeasurementArray.create(
                 dtype="bool",
-                shape=(3,),
                 values=(True, False, True),
             ),
             "int": MeasurementArray.create(
                 dtype="int64",
                 unit="count",
-                shape=(2,),
                 values=(-1, 2),
             ),
             "complex": MeasurementArray.create(
                 dtype="complex128",
                 unit="ratio",
-                shape=(2,),
                 values=(
                     complex(1.0, -0.5),
                     complex(-2.0, 3.25),
@@ -295,7 +290,6 @@ def test_collect_wire_keeps_scalars_in_header_and_arrays_in_attachments() -> Non
             "trace": MeasurementArray.create(
                 dtype="float64",
                 unit="V",
-                shape=(1, 2),
                 values=((0.5, 1.5),),
                 metadata={"channel": 2},
             ),
@@ -404,7 +398,6 @@ def test_collect_wire_round_trips_mixed_inline_and_array_values() -> None:
             "trace": MeasurementArray.create(
                 dtype="float64",
                 unit="V",
-                shape=(2,),
                 values=(0.5, 1.5),
             ),
         }
@@ -468,7 +461,7 @@ def test_collect_wire_rejects_duplicate_inline_and_array_request_ids() -> None:
                     reason="missing",
                     metadata={},
                 ),
-                "trace": MeasurementArray.create(shape=(1,), values=(1.0,)),
+                "trace": MeasurementArray.create(values=(1.0,)),
             }
         )
     )
@@ -499,7 +492,6 @@ def test_collect_wire_rejects_missing_or_extra_attachments(change: str) -> None:
         _collected(
             {
                 "signal": MeasurementArray.create(
-                    shape=(1,),
                     values=(1.0,),
                 )
             }
@@ -519,8 +511,8 @@ def test_collect_wire_rejects_manifest_order_size_and_hash_tampering() -> None:
     frames = split_collect_receipt(
         _collected(
             {
-                "alpha": MeasurementArray.create(shape=(1,), values=(1.0,)),
-                "zeta": MeasurementArray.create(shape=(1,), values=(2.0,)),
+                "alpha": MeasurementArray.create(values=(1.0,)),
+                "zeta": MeasurementArray.create(values=(2.0,)),
             }
         )
     )
@@ -558,7 +550,6 @@ def test_collect_wire_rejects_shapes_that_expand_beyond_frame_limits(
     receipt = _collected(
         {
             "empty": MeasurementArray.create(
-                shape=(1, 0),
                 values=((),),
             )
         }
@@ -577,8 +568,8 @@ def test_collect_wire_enforces_attachment_limits_when_splitting_and_joining() ->
     frames = split_collect_receipt(
         _collected(
             {
-                "alpha": MeasurementArray.create(shape=(1,), values=(1.0,)),
-                "zeta": MeasurementArray.create(shape=(1,), values=(2.0,)),
+                "alpha": MeasurementArray.create(values=(1.0,)),
+                "zeta": MeasurementArray.create(values=(2.0,)),
             }
         )
     )
@@ -608,7 +599,6 @@ def test_collect_wire_rejects_invalid_string_offsets_and_utf8() -> None:
             {
                 "labels": MeasurementArray.create(
                     dtype="string",
-                    shape=(1,),
                     values=("valid",),
                 )
             }

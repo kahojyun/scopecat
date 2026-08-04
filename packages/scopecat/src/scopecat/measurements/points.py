@@ -36,10 +36,15 @@ class RunPointContract:
 
     experiment_id: str
     experiment_kind: str
+    point_count: int
     coordinate_columns: tuple[TableColumn, ...]
     domain_layout: PointDomainLayout = "product_grid"
     domain_axis_sizes: tuple[tuple[str, int], ...] = ()
     domain_axis_values: tuple[tuple[str, tuple[CellValue, ...]], ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.point_count < 0:
+            raise ValueError("run point count must be non-negative")
 
     @property
     def coordinate_ids(self) -> tuple[str, ...]:

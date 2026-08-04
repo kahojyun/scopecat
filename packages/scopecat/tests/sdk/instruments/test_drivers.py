@@ -2017,7 +2017,6 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
                     "signal": MeasurementArray.create(
                         dtype="float64",
                         unit="Hz",
-                        shape=(2,),
                         values=(1.0, 2.0),
                     )
                 }
@@ -2031,7 +2030,6 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
                 values={
                     "unexpected": MeasurementArray.create(
                         dtype="string",
-                        shape=(1,),
                         values=("bad",),
                     )
                 }
@@ -2045,7 +2043,6 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
                 values={
                     "signal": MeasurementArray.create(
                         dtype="string",
-                        shape=(1,),
                         values=("bad",),
                     )
                 }
@@ -2060,7 +2057,6 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
                     "signal": MeasurementArray.create(
                         dtype="float64",
                         unit="GHz",
-                        shape=(2,),
                         values=(1.0, 2.0),
                     )
                 }
@@ -2089,7 +2085,6 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
         MeasurementArray.create(
             dtype="float64",
             unit="Hz",
-            shape=(3,),
             values=(1.0, 2.0, 3.0),
         ),
         MeasurementUnavailable.create(

@@ -208,18 +208,13 @@ export function measurementTraceQueryPlans(
     const compatibleCoordinates = coordinates.filter(
       (coordinate) =>
         coordinate.dims.every((dimension, index) => dimension === observable.dims[index]) &&
-        compatibleRecordingGroups(coordinate.recordingGroupId, observable.recordingGroupId),
+        coordinate.recordingGroupId === observable.recordingGroupId,
     );
-    const exactGroupCoordinates = compatibleCoordinates.filter(
-      (coordinate) => coordinate.recordingGroupId === observable.recordingGroupId,
-    );
-    const selectedCoordinates =
-      exactGroupCoordinates.length > 0 ? exactGroupCoordinates : compatibleCoordinates;
-    return selectedCoordinates.flatMap((coordinate) =>
+    return compatibleCoordinates.flatMap((coordinate) =>
       valueModes(observable).map((valueMode) => ({
         id: `trace:${observable.id}:${coordinate.id}:${valueMode}`,
         label:
-          selectedCoordinates.length === 1
+          compatibleCoordinates.length === 1
             ? chartTitle(observable, valueMode)
             : `${chartTitle(observable, valueMode)} by ${coordinate.label}`,
         observableId: observable.id,
@@ -228,10 +223,6 @@ export function measurementTraceQueryPlans(
       })),
     );
   });
-}
-
-function compatibleRecordingGroups(left?: string, right?: string): boolean {
-  return left === undefined || right === undefined || left === right;
 }
 
 export function measurementTraceChart(
@@ -306,9 +297,7 @@ export function measurementTable(
       id: `${record.logical_point_id ?? record.point_index}:${index}`,
       cells: [
         String(record.point_index),
-        ...variables.map((variable) =>
-          formatMeasurementValue(valueFor(record, variable), variable.unit),
-        ),
+        ...variables.map((variable) => formatMeasurementValue(valueFor(record, variable))),
       ],
     })),
   };
@@ -677,17 +666,14 @@ function complexComponents(value: unknown): ComplexComponents | undefined {
   return { real: value.real, imag: value.imag };
 }
 
-function formatMeasurementValue(
-  value: MeasurementValue | undefined,
-  fallbackUnit?: string,
-): string {
+function formatMeasurementValue(value: MeasurementValue | undefined): string {
   if (!value) return "—";
   if (value.kind === "unavailable") return `Unavailable · ${value.reason}`;
   if (value.kind === "array") {
     const size = value.shape.length > 0 ? value.shape.join(" × ") : "?";
-    return `${size} samples${unitSuffix(value.unit ?? fallbackUnit)}`;
+    return `${size} samples${unitSuffix(value.unit)}`;
   }
-  return `${formatScalar(value.value)}${unitSuffix(value.unit ?? fallbackUnit)}`;
+  return `${formatScalar(value.value)}${unitSuffix(value.unit)}`;
 }
 
 function formatScalar(value: unknown): string {

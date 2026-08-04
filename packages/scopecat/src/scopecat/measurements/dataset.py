@@ -21,11 +21,14 @@ import numpy as np
 import pyarrow as pa
 import xarray as xr
 
+from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.arrow_values import measurement_values_to_arrow_array
 from scopecat.measurements.traces import Trace, measurement_traces
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
+    MeasurementArrayData,
     MeasurementDataset,
     MeasurementDatasetSchema,
     MeasurementDType,
@@ -42,7 +45,7 @@ if TYPE_CHECKING:
     import pandas as pd  # pyright: ignore[reportMissingImports]
 
 type NativeScalar = bool | int | float | complex | str
-type NativeValue = NativeScalar | tuple[NativeValue, ...] | None
+type NativeValue = NativeScalar | MeasurementArrayData | None
 type GroupKey = NativeScalar | None
 type DimensionIndexer = int | slice | Sequence[int] | Sequence[bool]
 type PointIndexer = DimensionIndexer
@@ -204,13 +207,13 @@ class Variable:
 
     @property
     def metadata(self) -> Mapping[str, object]:
-        return MappingProxyType(deepcopy(dict(self._definition.metadata)))
+        return self._definition.metadata
 
     @property
     def definition(self) -> MeasurementVariable:
-        """Return a detached copy of the durable schema definition."""
+        """Return the deeply immutable durable schema definition."""
 
-        return self._definition.model_copy(deep=True)
+        return self._definition
 
     @property
     def xarray(self) -> xr.DataArray:
@@ -220,9 +223,9 @@ class Variable:
 
     @property
     def raw_values(self) -> tuple[MeasurementValue, ...]:
-        """Return detached copies of this variable's durable values."""
+        """Return the deeply immutable durable values."""
 
-        return tuple(value.model_copy(deep=True) for value in self._raw_values)
+        return self._raw_values
 
     @property
     def _raw_values(self) -> tuple[MeasurementValue, ...]:
@@ -233,7 +236,7 @@ class Variable:
 
     @property
     def values(self) -> tuple[NativeValue, ...]:
-        """Return Python-native values, using ``None`` for unavailable points."""
+        """Return native scalars or read-only ndarrays; unavailable points are None."""
 
         return tuple(_native_value(value) for value in self._raw_values)
 
@@ -362,7 +365,7 @@ class Dataset:
         *,
         view_dimensions: Mapping[str, int | None] | None = None,
     ) -> None:
-        object.__setattr__(self, "_raw", raw.model_copy(deep=True))
+        object.__setattr__(self, "_raw", raw)
         object.__setattr__(self, "_entry", entry.model_copy(deep=True))
         dimensions = {
             dimension.id: dimension.size
@@ -401,21 +404,21 @@ class Dataset:
 
     @property
     def raw(self) -> MeasurementDataset:
-        """Return a detached copy of the durable snapshot."""
+        """Return the deeply immutable durable snapshot."""
 
-        return self._raw.model_copy(deep=True)
+        return self._raw
 
     @property
     def schema(self) -> MeasurementDatasetSchema:
-        return self._schema.model_copy(deep=True)
+        return self._schema
 
     @property
     def records(self) -> tuple[MeasurementRecord, ...]:
-        return tuple(record.model_copy(deep=True) for record in self._records)
+        return self._records
 
     @property
     def metadata(self) -> Mapping[str, object]:
-        return MappingProxyType(deepcopy(dict(self._raw.metadata)))
+        return self._raw.metadata
 
     @property
     def xarray(self) -> xr.Dataset:
@@ -429,7 +432,7 @@ class Dataset:
 
     @property
     def _records(self) -> tuple[MeasurementRecord, ...]:
-        return tuple(self._raw.records)
+        return cast("tuple[MeasurementRecord, ...]", self._raw.records)
 
     @property
     def point_indices(self) -> tuple[int, ...]:
@@ -1089,9 +1092,10 @@ class Dataset:
             ),
         }
         for variable in self.variables.values():
-            columns[variable.id] = pa.array(
-                (_arrow_value(value) for value in variable._raw_values),
-                type=_arrow_variable_type(variable),
+            columns[variable.id] = measurement_values_to_arrow_array(
+                variable._raw_values,
+                dtype=variable.dtype,
+                shape=variable.shape[1:],
             )
             if any(reason is not None for reason in variable.availability):
                 columns[_unavailable_reason_name(variable.id)] = pa.array(
@@ -1104,9 +1108,7 @@ class Dataset:
             {
                 b"scopecat.dataset_id": self._schema.dataset_id.encode(),
                 b"scopecat.schema": self._schema.model_dump_json().encode(),
-                b"scopecat.metadata": json.dumps(
-                    dict(self.metadata), separators=(",", ":"), sort_keys=True
-                ).encode(),
+                b"scopecat.metadata": _stable_json(self.metadata).encode(),
             }
         )
         return table.replace_schema_metadata(metadata)
@@ -1124,7 +1126,7 @@ class Dataset:
         frame.attrs["scopecat"] = {
             "dataset_id": self._schema.dataset_id,
             "schema": self._schema.model_dump(mode="json"),
-            "metadata": dict(self.metadata),
+            "metadata": thaw_json_value(self.metadata),
             "layout": layout,
         }
         return frame
@@ -1143,8 +1145,8 @@ class Dataset:
         selected_records = [self._raw.records[index] for index in indices]
         raw = MeasurementDataset(
             dataset_schema=self._schema,
-            records=selected_records,
-            metadata=dict(self._raw.metadata),
+            records=tuple(selected_records),
+            metadata=self._raw.metadata,
         )
         return type(self)(
             raw,
@@ -1241,8 +1243,8 @@ class Dataset:
     ) -> Self:
         raw = MeasurementDataset(
             dataset_schema=self._schema,
-            records=list(records),
-            metadata=dict(self._raw.metadata),
+            records=tuple(records),
+            metadata=self._raw.metadata,
         )
         return type(self)(raw, self._entry, view_dimensions=view_dimensions)
 
@@ -1268,7 +1270,7 @@ class Dataset:
                     value.reason if isinstance(value, MeasurementUnavailable) else None
                 )
                 if isinstance(value, MeasurementArray):
-                    flattened = _flatten_native_array(_native_value(value))
+                    flattened = _flatten_native_array(value.values)
                 else:
                     flattened = (((), _native_value(value)),)
                 for local_index, native in flattened:
@@ -1292,62 +1294,15 @@ def _native_value(value: MeasurementValue) -> NativeValue:
         return None
     if isinstance(value, MeasurementScalar):
         return cast("NativeValue", _native_leaf(value.value))
-    return cast(
-        "NativeValue",
-        _native_leaf(cast("object", value.values.tolist())),
-    )
+    return value.values
 
 
 def _native_leaf(value: object) -> object:
+    if isinstance(value, np.generic):
+        return value.item()
     if isinstance(value, list | tuple):
         return tuple(_native_leaf(item) for item in value)
     return value
-
-
-def _arrow_value(value: MeasurementValue) -> object:
-    if isinstance(value, MeasurementUnavailable):
-        return None
-    if isinstance(value, MeasurementScalar):
-        return _arrow_leaf(value.value)
-    return _arrow_leaf(cast("object", value.values.tolist()))
-
-
-def _arrow_leaf(value: object) -> object:
-    if isinstance(value, complex):
-        return {"real": value.real, "imag": value.imag}
-    if isinstance(value, list | tuple):
-        return [_arrow_leaf(item) for item in value]
-    return value
-
-
-def _arrow_variable_type(variable: Variable) -> pa.DataType:
-    """Derive a stable Arrow type from the declared measurement contract."""
-
-    selected = _arrow_scalar_type(variable.dtype)
-    for extent in reversed(variable.shape[1:]):
-        selected = (
-            pa.large_list(selected)
-            if extent is None
-            else pa.list_(selected, list_size=extent)
-        )
-    return selected
-
-
-def _arrow_scalar_type(dtype: MeasurementDType) -> pa.DataType:
-    if dtype == "bool":
-        return pa.bool_()
-    if dtype == "int64":
-        return pa.int64()
-    if dtype == "float64":
-        return pa.float64()
-    if dtype == "string":
-        return pa.large_string()
-    return pa.struct(
-        [
-            pa.field("real", pa.float64(), nullable=False),
-            pa.field("imag", pa.float64(), nullable=False),
-        ]
-    )
 
 
 def _reshape_point_data_array(
@@ -1432,15 +1387,12 @@ def _array_values_equal(left: np.ndarray, right: np.ndarray) -> bool:
 
 
 def _flatten_native_array(
-    value: NativeValue,
-    prefix: tuple[int, ...] = (),
+    value: MeasurementArrayData,
 ) -> tuple[tuple[tuple[int, ...], NativeValue], ...]:
-    if not isinstance(value, tuple):
-        return ((prefix, value),)
-    flattened: list[tuple[tuple[int, ...], NativeValue]] = []
-    for index, item in enumerate(value):
-        flattened.extend(_flatten_native_array(item, (*prefix, index)))
-    return tuple(flattened)
+    return tuple(
+        (tuple(index), cast("NativeValue", _native_leaf(item)))
+        for index, item in np.ndenumerate(value)
+    )
 
 
 def _slice_record_local_values(
@@ -1472,7 +1424,6 @@ def _slice_record_local_values(
             "coordinates": coordinates,
             "observables": observables,
         },
-        deep=True,
     )
 
 
@@ -1505,7 +1456,7 @@ def _slice_measurement_value(
             dtype=value.dtype,
             unit=value.unit,
             shape=selected_shape,
-            metadata=dict(value.metadata),
+            metadata=value.metadata,
         )
     selected_values = value.values
     for axis, indices in sorted(indices_by_axis.items()):
@@ -1513,9 +1464,8 @@ def _slice_measurement_value(
     return MeasurementArray.create(
         dtype=value.dtype,
         unit=value.unit,
-        shape=cast("tuple[int, ...]", selected_shape),
         values=selected_values,
-        metadata=dict(value.metadata),
+        metadata=value.metadata,
     )
 
 
@@ -1931,7 +1881,7 @@ def _variable_attrs(variable: Variable) -> dict[str, object]:
         "scopecat_role": variable.role,
         "scopecat_dtype": variable.dtype,
         "scopecat_dims_json": _stable_json(variable.dims),
-        "scopecat_metadata_json": _stable_json(dict(variable.metadata)),
+        "scopecat_metadata_json": _stable_json(variable.metadata),
     }
     if variable.unit is not None:
         attrs["units"] = variable.unit
@@ -1951,12 +1901,16 @@ def _dataset_attrs(dataset: Dataset) -> dict[str, object]:
         "scopecat_entry_kind": dataset._entry.kind,
         "scopecat_content_hash": dataset._entry.content_hash,
         "scopecat_schema_json": _stable_json(dataset._schema.model_dump(mode="json")),
-        "scopecat_metadata_json": _stable_json(dict(dataset._raw.metadata)),
+        "scopecat_metadata_json": _stable_json(dataset._raw.metadata),
     }
 
 
 def _stable_json(value: object) -> str:
-    return json.dumps(value, separators=(",", ":"), sort_keys=True)
+    return json.dumps(
+        thaw_json_value(value),
+        separators=(",", ":"),
+        sort_keys=True,
+    )
 
 
 def _unavailable_reason_name(variable_id: str) -> str:

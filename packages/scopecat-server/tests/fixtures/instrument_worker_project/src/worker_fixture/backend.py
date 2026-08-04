@@ -233,14 +233,12 @@ def _measurement_value(result_id: str, *, gain: float = 0.0) -> MeasurementValue
         return MeasurementArray.create(
             dtype="float64",
             unit="V",
-            shape=(length,),
             values=tuple(gain + index / 10 for index in range(length)),
         )
     if result_id == "complex_array":
         return MeasurementArray.create(
             dtype="complex128",
             unit="ratio",
-            shape=(1,),
             values=(complex(1.0, -0.5),),
         )
     if result_id == "invalid_array":
@@ -255,7 +253,6 @@ def _measurement_value(result_id: str, *, gain: float = 0.0) -> MeasurementValue
     if result_id == "large_array":
         return MeasurementArray.create(
             dtype="string",
-            shape=(1,),
             values=("x" * (2 * 1024 * 1024),),
         )
     if result_id == "unavailable":

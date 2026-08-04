@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass, field
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
@@ -100,16 +99,15 @@ class MeasurementProjection:
     def coordinate_ids(self) -> tuple[str, ...]:
         return self.catalog.point_contract.coordinate_ids
 
-    def schema_for(
-        self,
-        points: Sequence[RunPoint],
-    ) -> MeasurementDatasetSchema | None:
-        selected = tuple(points)
+    @property
+    def schema(self) -> MeasurementDatasetSchema | None:
+        """Return the complete planned dataset schema for this projection."""
+
         if not self.records:
             return None
         return expected_dataset_schema(
             experiment_id=self.catalog.point_contract.experiment_id,
-            point_count=len(selected),
+            point_count=self.catalog.point_contract.point_count,
             records=self.records,
             point_coordinate_columns=self.catalog.point_contract.coordinate_columns,
             point_domain_layout=self.catalog.point_contract.domain_layout,
@@ -125,33 +123,20 @@ class ProjectedMeasurementDataset:
     projection: MeasurementProjection = field(repr=False)
     run_id: str
     _records: tuple[MeasurementRecord, ...] = field(repr=False)
-    _schema: MeasurementDatasetSchema | None = field(repr=False)
 
     def __init__(
         self,
         projection: MeasurementProjection,
         run_id: str,
         records: tuple[MeasurementRecord, ...],
-        *,
-        points: Sequence[RunPoint],
     ) -> None:
         object.__setattr__(self, "projection", projection)
         object.__setattr__(self, "run_id", run_id)
-        selected_records = _snapshot_measurement_records(records)
-        object.__setattr__(self, "_records", selected_records)
-        object.__setattr__(
-            self,
-            "_schema",
-            projection.schema_for(points),
-        )
+        object.__setattr__(self, "_records", tuple(records))
 
     @property
     def records(self) -> tuple[MeasurementRecord, ...]:
-        return tuple(record.model_copy(deep=True) for record in self._records)
-
-    @property
-    def schema(self) -> MeasurementDatasetSchema | None:
-        return None if self._schema is None else self._schema.model_copy(deep=True)
+        return self._records
 
     @property
     def recording_contract_fingerprint(self) -> str:
@@ -284,7 +269,6 @@ def project_measurement_records(
         projection,
         run_id,
         records,
-        points=points,
     )
 
 
@@ -366,12 +350,6 @@ def _projected_acquisition_evidence(
         if evidence is not None:
             acquisition_evidence[record.id] = evidence
     return acquisition_evidence
-
-
-def _snapshot_measurement_records(
-    records: Sequence[MeasurementRecord],
-) -> tuple[MeasurementRecord, ...]:
-    return tuple(deepcopy(record) for record in records)
 
 
 def _record_product_exists(

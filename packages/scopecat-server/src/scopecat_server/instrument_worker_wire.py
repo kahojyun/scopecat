@@ -19,6 +19,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import Problem
 from scopecat.records._metadata import JsonMetadata
@@ -389,7 +390,7 @@ def split_collect_receipt(
                 dtype=value.dtype,
                 unit=value.unit,
                 shape=tuple(value.shape),
-                metadata=value.metadata,
+                metadata=cast("JsonMetadata", thaw_json_value(value.metadata)),
             )
         )
         manifests.append(
@@ -580,7 +581,6 @@ def _decode_measurement_array(
         return MeasurementArray.create(
             dtype=descriptor.dtype,
             unit=descriptor.unit,
-            shape=descriptor.shape,
             values=leaves.reshape(descriptor.shape),
             metadata=descriptor.metadata,
         )

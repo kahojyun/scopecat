@@ -88,7 +88,7 @@ def measurement_traces(
 
     A recording group is the preferred selector when several acquisitions use
     compatible dimensions; explicit variable ids remain available for custom
-    or partially grouped datasets.
+    ungrouped datasets.
     """
 
     coordinate_variable, observable_variable = _trace_variables(
@@ -101,7 +101,7 @@ def measurement_traces(
         dataset.records,
         coordinate_variable,
         observable_variable,
-        skip_unavailable=False,
+        skip_unusable=False,
     )
 
 
@@ -116,12 +116,14 @@ def project_measurement_trace_preview(
     value_mode: TraceValueMode | None = None,
     downsampling: TraceDownsampling = "minmax",
 ) -> MeasurementTraceProjection:
-    """Project a bounded numeric preview without scanning past its series cap.
+    """Project a bounded numeric preview from up to ``max_series`` usable records.
 
     ``max_samples`` is one total response budget shared evenly by the returned
     series. Min/max bucket sampling preserves endpoints and narrow extrema.
-    Unavailable selected points are omitted; callers can compare the returned
-    count with their separate domain-selection count.
+    Unavailable and empty selected points are omitted while later records are
+    considered until the usable-series cap is reached or records are exhausted.
+    Callers can compare the returned count with their separate domain-selection
+    count.
     """
 
     if max_series < 1:
@@ -137,15 +139,12 @@ def project_measurement_trace_preview(
         group=group,
     )
     series_limit = min(max_series, max_samples // 2)
-    traces = tuple(
-        trace
-        for trace in _measurement_traces(
-            dataset.records[:series_limit],
-            coordinate_variable,
-            observable_variable,
-            skip_unavailable=True,
-        )
-        if trace.y.size > 0
+    traces = _measurement_traces(
+        dataset.records,
+        coordinate_variable,
+        observable_variable,
+        skip_unusable=True,
+        limit=series_limit,
     )
     if observable_variable.dtype == "complex128":
         actual_mode: TraceValueMode = value_mode or "magnitude"
@@ -168,10 +167,7 @@ def project_measurement_trace_preview(
     returned_sample_count = sum(len(item.y) for item in projected)
     return MeasurementTraceProjection(
         dimension_id=observable_variable.dims[1],
-        recording_group_id=(
-            coordinate_variable.recording_group_id
-            or observable_variable.recording_group_id
-        ),
+        recording_group_id=coordinate_variable.recording_group_id,
         coordinate_id=coordinate_variable.id,
         observable_id=observable_variable.id,
         coordinate_label=coordinate_variable.label,
@@ -210,11 +206,7 @@ def _trace_variables(
         raise ValueError(f"trace observable {observable!r} is not an observable")
     coordinate_group = coordinate_variable.recording_group_id
     observable_group = observable_variable.recording_group_id
-    if (
-        coordinate_group is not None
-        and observable_group is not None
-        and coordinate_group != observable_group
-    ):
+    if coordinate_group != observable_group:
         raise ValueError(
             "trace coordinate and observable must belong to one recording group"
         )
@@ -237,26 +229,26 @@ def _measurement_traces(
     coordinate_variable: MeasurementVariable,
     observable_variable: MeasurementVariable,
     *,
-    skip_unavailable: bool,
+    skip_unusable: bool,
+    limit: int | None = None,
 ) -> tuple[Trace, ...]:
     coordinate = coordinate_variable.id
     observable = observable_variable.id
     coordinate_group = coordinate_variable.recording_group_id
-    observable_group = observable_variable.recording_group_id
     dimension_id = coordinate_variable.dims[1]
     traces: list[Trace] = []
     for record in records:
         x_value = record.coordinates[coordinate]
         y_value = record.observables[observable]
         if isinstance(x_value, MeasurementUnavailable):
-            if skip_unavailable:
+            if skip_unusable:
                 continue
             raise ValueError(
                 f"trace coordinate {coordinate!r} is unavailable at point "
                 f"{record.point_index}: {x_value.reason}"
             )
         if isinstance(y_value, MeasurementUnavailable):
-            if skip_unavailable:
+            if skip_unusable:
                 continue
             raise ValueError(
                 f"trace observable {observable!r} is unavailable at point "
@@ -273,12 +265,14 @@ def _measurement_traces(
             raise ValueError(
                 f"trace arrays differ in length at point {record.point_index}"
             )
+        if skip_unusable and y.size == 0:
+            continue
         traces.append(
             Trace(
                 point_index=record.point_index,
                 logical_point_id=record.logical_point_id,
                 dimension_id=dimension_id,
-                recording_group_id=coordinate_group or observable_group,
+                recording_group_id=coordinate_group,
                 coordinate_id=coordinate,
                 observable_id=observable,
                 coordinate_label=coordinate_variable.label,
@@ -289,6 +283,8 @@ def _measurement_traces(
                 y=y,
             )
         )
+        if limit is not None and len(traces) == limit:
+            break
     return tuple(traces)
 
 

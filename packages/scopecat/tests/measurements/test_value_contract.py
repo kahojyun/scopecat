@@ -6,7 +6,6 @@ from pydantic import ValidationError
 from scopecat.measurements.contracts import (
     MeasurementValueContractIssueCode,
     measurement_value_contract_issues,
-    validated_measurement_value_copy,
 )
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -25,7 +24,6 @@ def test_complex_array_satisfies_exact_dtype_unit_shape_and_leaf_contract() -> N
     value = MeasurementArray.create(
         dtype="complex128",
         unit="ratio",
-        shape=[2],
         values=[complex(0.25, -0.5), complex(0.75, 0.125)],
     )
 
@@ -40,21 +38,10 @@ def test_complex_array_satisfies_exact_dtype_unit_shape_and_leaf_contract() -> N
     )
 
 
-def test_validated_array_copy_remains_detached_and_read_only() -> None:
-    value = MeasurementArray.create(shape=(2,), values=[1.0, 2.0])
-
-    copied = validated_measurement_value_copy(value)
-
-    assert isinstance(copied, MeasurementArray)
-    assert copied.values is not value.values
-    assert not copied.values.flags.writeable
-
-
 def test_contract_reports_typed_top_level_mismatches() -> None:
     value = MeasurementArray.create(
         dtype="float64",
         unit="V",
-        shape=[2],
         values=[0.25, 0.75],
     )
 
@@ -193,7 +180,6 @@ def test_complex_array_normalizes_numeric_and_wire_component_inputs() -> None:
     value = MeasurementArray.create(
         dtype="complex128",
         unit="ratio",
-        shape=[2],
         values=[
             {"real": 0.25, "imag": -0.5},
             0.75,
@@ -313,7 +299,6 @@ def test_array_leaf_types_follow_the_array_dtype_tag(
     value = MeasurementArray.create(
         dtype=dtype,
         unit=unit,
-        shape=[len(values)],
         values=values,
     )
 
@@ -345,7 +330,6 @@ def test_array_dtype_tags_reject_other_leaf_types(
         MeasurementArray.create(
             dtype=dtype,
             unit=None,
-            shape=[1],
             values=[value],
         )
 
@@ -431,7 +415,6 @@ def test_persisted_numeric_dtype_requires_an_exact_match() -> None:
     integer_array = MeasurementArray.create(
         dtype="int64",
         unit=None,
-        shape=[2],
         values=[1, 2],
     )
     floating = MeasurementScalar.create(dtype="float64", unit=None, value=2.0)
@@ -482,7 +465,6 @@ def test_non_finite_numeric_values_are_rejected(value: complex) -> None:
         MeasurementArray.create(
             dtype=scalar_dtype,
             unit=None,
-            shape=[1],
             values=[value],
         )
     if isinstance(value, float):
@@ -496,7 +478,6 @@ def test_non_finite_numeric_values_are_rejected(value: complex) -> None:
             MeasurementArray.create(
                 dtype="complex128",
                 unit=None,
-                shape=[1],
                 values=[{"real": value, "imag": 0.0}],
             )
 

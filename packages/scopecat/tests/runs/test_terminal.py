@@ -15,7 +15,7 @@ from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
-    MeasurementProductGridPointDomain,
+    MeasurementPointCloudPointDomain,
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
@@ -87,7 +87,7 @@ def test_terminal_contents_publish_a_sealed_empty_measurement_dataset() -> None:
     outcome = _successful_outcome("run-empty-dataset")
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
-        point_domain=MeasurementProductGridPointDomain(axes=[]),
+        point_domain=MeasurementPointCloudPointDomain(columns=()),
         dimensions=[MeasurementDimension(id="point", kind="point", size=0)],
     )
 

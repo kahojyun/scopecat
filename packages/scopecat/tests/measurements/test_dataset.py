@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 import pyarrow as pa
@@ -22,11 +22,14 @@ from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementDType,
+    MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
+    MeasurementPointDomainColumn,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementUnavailable,
+    MeasurementValue,
     MeasurementVariable,
 )
 
@@ -44,14 +47,28 @@ def test_dataset_exposes_labeled_variables_and_raw_records() -> None:
     assert dataset["bias"].values == (0.0, 1.0, 2.0)
     assert dataset["bias"].shape == (3,)
     assert dataset["frequency"].shape == (3, 2)
-    assert dataset["frequency"][1] == (12.0, 13.0)
-    assert dataset["signal"][0] == (complex(1.0, 0.0), complex(0.5, -0.1))
+    frequency = dataset["frequency"][1]
+    signal = dataset["signal"][0]
+    assert isinstance(frequency, np.ndarray)
+    assert isinstance(signal, np.ndarray)
+    np.testing.assert_array_equal(frequency, np.array([12.0, 13.0]))
+    np.testing.assert_array_equal(
+        signal,
+        np.array([complex(1.0, 0.0), complex(0.5, -0.1)]),
+    )
+    assert not frequency.flags.writeable
+    assert not signal.flags.writeable
+    with pytest.raises(ValueError, match="cannot set WRITEABLE flag"):
+        frequency.flags.writeable = True
+    raw_frequency = dataset.records[1].coordinates["frequency"]
+    assert isinstance(raw_frequency, MeasurementArray)
+    assert frequency is raw_frequency.values
     assert dataset["temperature"].values == (0.05, None, 0.2)
     assert dataset["temperature"].availability == (None, "invalid", None)
     assert dataset.point_indices == (0, 1, 2)
     assert dataset.logical_point_ids == ("logical-0", "logical-1", "logical-2")
     assert dataset.raw.records[2] == dataset.records[2]
-    assert dataset.raw.records[2] is not dataset.records[2]
+    assert dataset.raw.records[2] is dataset.records[2]
 
     with pytest.raises(KeyError, match="no variable 'missing'"):
         _ = dataset["missing"]
@@ -133,9 +150,9 @@ def test_dataset_isel_selects_fixed_local_dimensions_without_dropping_them(
         )
         == 2
     )
-    assert selected["frequency"].values == expected_frequency
+    _assert_array_values(selected["frequency"].values, expected_frequency)
     assert all(
-        len(cast("tuple[complex, ...]", value)) == expected_size
+        isinstance(value, np.ndarray) and len(value) == expected_size
         for value in selected["signal"].values
     )
 
@@ -145,7 +162,7 @@ def test_dataset_isel_combines_point_and_fixed_local_selection() -> None:
 
     assert [record.point_index for record in selected.records] == [2, 0]
     assert selected.dims == {"point": 2, "sample": 1}
-    assert selected["frequency"].values == ((15.0,), (11.0,))
+    _assert_array_values(selected["frequency"].values, ((15.0,), (11.0,)))
 
 
 def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() -> None:
@@ -186,7 +203,10 @@ def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() ->
     points = dataset.to_pandas()
     assert isinstance(points, pd.DataFrame)
     assert list(points["point_index"]) == [0, 1, 2]
-    assert points.loc[0, "signal"] == (complex(1.0, 0.0), complex(0.5, -0.1))
+    np.testing.assert_array_equal(
+        points.loc[0, "signal"],
+        np.array([complex(1.0, 0.0), complex(0.5, -0.1)]),
+    )
     assert points.loc[1, "temperature__unavailable_reason"] == "invalid"
     assert points.attrs["scopecat"]["layout"] == "points"
 
@@ -199,9 +219,7 @@ def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() ->
 
 def test_empty_arrow_export_keeps_declared_scientific_types() -> None:
     base = _dataset()
-    raw = base.raw
-    raw.records = []
-    raw.dataset_schema.dimensions[0].size = 0
+    raw = base.raw.model_copy(update={"records": ()})
 
     table = Dataset(raw, base.entry).to_arrow()
     complex_type = pa.struct(
@@ -222,15 +240,24 @@ def test_empty_arrow_export_keeps_declared_scientific_types() -> None:
 
 def test_all_unavailable_arrow_column_keeps_declared_nested_type() -> None:
     base = _dataset()
-    raw = base.raw
-    for record in raw.records:
-        record.observables["signal"] = MeasurementUnavailable.create(
-            reason="missing",
-            dtype="complex128",
-            unit="ratio",
-            shape=(2,),
-            metadata={},
-        )
+    unavailable = MeasurementUnavailable.create(
+        reason="missing",
+        dtype="complex128",
+        unit="ratio",
+        shape=(2,),
+        metadata={},
+    )
+    raw = base.raw.model_copy(
+        update={
+            "records": tuple(
+                _replace_record_values(
+                    record,
+                    observables={"signal": unavailable},
+                )
+                for record in base.records
+            )
+        }
+    )
 
     table = Dataset(raw, base.entry).to_arrow()
 
@@ -281,53 +308,54 @@ def test_product_grid_xarray_layout_rejects_partial_or_inconsistent_grids() -> N
     with pytest.raises(ValueError, match="every product-grid point exactly once"):
         dataset.isel(point=slice(0, 5)).to_xarray(layout="grid")
 
-    raw = dataset.raw
-    raw.records[0].coordinates["x"] = MeasurementScalar.create(
-        value=99.0,
-        dtype="float64",
-        unit="V",
+    raw = dataset.raw.model_copy(
+        update={
+            "records": (
+                _replace_record_values(
+                    dataset.records[0],
+                    coordinates={
+                        "x": MeasurementScalar.create(
+                            value=99.0,
+                            dtype="float64",
+                            unit="V",
+                        )
+                    },
+                ),
+                *dataset.records[1:],
+            )
+        }
     )
     inconsistent = Dataset(raw, dataset.entry)
     with pytest.raises(ValueError, match="does not match its product-grid axis"):
         inconsistent.to_xarray(layout="grid")
 
 
-def test_dataset_detaches_input_and_public_pydantic_models() -> None:
+def test_dataset_shares_immutable_models_and_detaches_mutable_entry() -> None:
     original = _dataset()
     source = original.raw
     entry = original.entry
     dataset = Dataset(source, entry)
 
-    source.records[0].coordinates["bias"] = MeasurementScalar.create(
-        value=9.0,
-        dtype="float64",
-        unit="V",
+    assert dataset.raw is source
+    assert dataset.schema is source.dataset_schema
+    assert dataset.records is source.records
+    assert dataset["bias"].definition is source.dataset_schema.variables[0]
+    assert (
+        dataset["temperature"].raw_values[1]
+        is source.records[1].observables["temperature"]
     )
-    source.dataset_schema.variables[0].label = "mutated input"
-    cast("dict[str, object]", source.metadata["context"])["operator"] = "mutated"
+    assert dataset.metadata is source.metadata
+    assert dataset["bias"].metadata is source.dataset_schema.variables[0].metadata
+
     entry.id = "mutated-entry"
-
-    detached_raw = dataset.raw
-    detached_raw.records[0].point_index = 99
-    detached_schema = dataset.schema
-    detached_schema.variables[0].label = "mutated output"
-    detached_records = dataset.records
-    detached_records[0].logical_point_id = "mutated-output"
-    detached_definition = dataset["bias"].definition
-    detached_definition.label = "mutated definition"
-    detached_values = dataset["temperature"].raw_values
-    detached_values[1].metadata["cause"] = "mutated value"
-
-    assert dataset.point_indices == (0, 1, 2)
-    assert dataset.logical_point_ids[0] == "logical-0"
-    assert dataset["bias"].values[0] == 0.0
-    assert dataset["bias"].label == "DC bias"
+    assert dataset.entry.id == "raw-measurements"
+    detached_entry = dataset.entry
+    detached_entry.id = "mutated-output"
     assert dataset.entry.id == "raw-measurements"
     assert dataset.metadata["context"] == {
         "operator": "test",
-        "tags": ["xarray", "netcdf"],
+        "tags": ("xarray", "netcdf"),
     }
-    assert dataset["temperature"].raw_values[1].metadata["cause"] == "sensor settling"
 
 
 def test_xarray_exports_are_independent_copies_of_cached_snapshot() -> None:
@@ -430,13 +458,24 @@ def test_ragged_dataset_exports_indexed_xarray_observations() -> None:
 
 def test_ragged_unavailable_unknown_extent_uses_recording_group_layout() -> None:
     dataset = _ragged_dataset()
-    raw = dataset.raw
-    raw.records[1].observables["signal"] = MeasurementUnavailable.create(
+    unavailable = MeasurementUnavailable.create(
         reason="missing",
         dtype="complex128",
         unit="ratio",
         shape=(None,),
         metadata={},
+    )
+    raw = dataset.raw.model_copy(
+        update={
+            "records": (
+                dataset.records[0],
+                _replace_record_values(
+                    dataset.records[1],
+                    observables={"signal": unavailable},
+                ),
+                dataset.records[2],
+            )
+        }
     )
     dataset = Dataset(raw, dataset.entry)
 
@@ -483,21 +522,36 @@ def test_ragged_non_nullable_dtypes_mark_filled_observations_invalid(
     dtype_kind: str,
 ) -> None:
     base = _ragged_dataset()
-    raw = base.raw
     signal = next(
-        variable for variable in raw.dataset_schema.variables if variable.id == "signal"
+        variable for variable in base.schema.variables if variable.id == "signal"
     )
-    signal.dtype = dtype
-    signal.unit = None
-    for position, record in enumerate(raw.records):
+    schema = base.schema.model_copy(
+        update={
+            "variables": tuple(
+                variable.model_copy(update={"dtype": dtype, "unit": None})
+                if variable.id == signal.id
+                else variable
+                for variable in base.schema.variables
+            )
+        }
+    )
+    records: list[MeasurementRecord] = []
+    for position, record in enumerate(base.records):
         length = (2, 1, 3)[position]
         if position == 1:
-            record.observables["signal"] = MeasurementUnavailable.create(
-                reason="missing",
-                dtype=dtype,
-                unit=None,
-                shape=(None,),
-                metadata={},
+            records.append(
+                _replace_record_values(
+                    record,
+                    observables={
+                        "signal": MeasurementUnavailable.create(
+                            reason="missing",
+                            dtype=dtype,
+                            unit=None,
+                            shape=(None,),
+                            metadata={},
+                        )
+                    },
+                )
             )
             continue
         if dtype == "int64":
@@ -506,14 +560,23 @@ def test_ragged_non_nullable_dtypes_mark_filled_observations_invalid(
             values = tuple(index % 2 == 0 for index in range(length))
         else:
             values = tuple(f"value-{position}-{index}" for index in range(length))
-        record.observables["signal"] = MeasurementArray.create(
-            shape=(length,),
-            values=values,
-            dtype=dtype,
-            unit=None,
-            metadata={},
+        records.append(
+            _replace_record_values(
+                record,
+                observables={
+                    "signal": MeasurementArray.create(
+                        values=values,
+                        dtype=dtype,
+                        unit=None,
+                        metadata={},
+                    )
+                },
+            )
         )
 
+    raw = base.raw.model_copy(
+        update={"dataset_schema": schema, "records": tuple(records)}
+    )
     xarray_dataset = Dataset(raw, base.entry).to_xarray()
 
     assert xarray_dataset["signal"].dtype.kind == dtype_kind
@@ -533,16 +596,35 @@ def test_ragged_non_nullable_dtypes_mark_filled_observations_invalid(
 
 def test_ungrouped_ragged_unavailable_preserves_unknown_extent_in_xarray() -> None:
     dataset = _ragged_dataset()
-    raw = dataset.raw
-    for variable in raw.dataset_schema.variables:
-        if variable.id == "signal":
-            variable.recording_group_id = None
-    raw.records[1].observables["signal"] = MeasurementUnavailable.create(
+    schema = dataset.schema.model_copy(
+        update={
+            "variables": tuple(
+                variable.model_copy(update={"recording_group_id": None})
+                if variable.id == "signal"
+                else variable
+                for variable in dataset.schema.variables
+            )
+        }
+    )
+    unavailable = MeasurementUnavailable.create(
         reason="missing",
         dtype="complex128",
         unit="ratio",
         shape=(None,),
         metadata={},
+    )
+    raw = dataset.raw.model_copy(
+        update={
+            "dataset_schema": schema,
+            "records": (
+                dataset.records[0],
+                _replace_record_values(
+                    dataset.records[1],
+                    observables={"signal": unavailable},
+                ),
+                dataset.records[2],
+            ),
+        }
     )
     dataset = Dataset(raw, dataset.entry)
 
@@ -561,10 +643,17 @@ def test_ungrouped_ragged_unavailable_preserves_unknown_extent_in_xarray() -> No
 
 def test_ungrouped_ragged_variables_keep_independent_xarray_observations() -> None:
     dataset = _ragged_dataset()
-    raw = dataset.raw
-    for variable in raw.dataset_schema.variables:
-        if variable.id in {"frequency", "signal"}:
-            variable.recording_group_id = None
+    schema = dataset.schema.model_copy(
+        update={
+            "variables": tuple(
+                variable.model_copy(update={"recording_group_id": None})
+                if variable.id in {"frequency", "signal"}
+                else variable
+                for variable in dataset.schema.variables
+            )
+        }
+    )
+    raw = dataset.raw.model_copy(update={"dataset_schema": schema})
     dataset = Dataset(raw, dataset.entry)
 
     xarray_dataset = dataset.to_xarray()
@@ -578,15 +667,25 @@ def test_ungrouped_ragged_variables_keep_independent_xarray_observations() -> No
 
 def test_grouped_ragged_xarray_rejects_misaligned_point_local_shapes() -> None:
     dataset = _ragged_dataset()
-    raw = dataset.raw
-    raw.records[1].observables["signal"] = MeasurementArray.create(
-        shape=(2,),
+    misaligned = MeasurementArray.create(
         values=(
             complex(1.0, 0.0),
             complex(1.0, 1.0),
         ),
         dtype="complex128",
         unit="ratio",
+    )
+    raw = dataset.raw.model_copy(
+        update={
+            "records": (
+                dataset.records[0],
+                _replace_record_values(
+                    dataset.records[1],
+                    observables={"signal": misaligned},
+                ),
+                dataset.records[2],
+            )
+        }
     )
 
     with pytest.raises(
@@ -608,12 +707,18 @@ def test_ragged_sample_selection_applies_independently_per_point_and_group() -> 
     )
 
     assert selected.dims["sample"] is None
+    frequency_values = selected["frequency"].values
+    signal_values = selected["signal"].values
+    assert all(isinstance(value, np.ndarray) for value in frequency_values)
+    assert all(isinstance(value, np.ndarray) for value in signal_values)
     assert [
-        len(cast("tuple[float, ...]", value)) for value in selected["frequency"].values
+        len(value) for value in frequency_values if isinstance(value, np.ndarray)
     ] == [2, 1, 2]
-    assert [
-        len(cast("tuple[complex, ...]", value)) for value in selected["signal"].values
-    ] == [2, 1, 2]
+    assert [len(value) for value in signal_values if isinstance(value, np.ndarray)] == [
+        2,
+        1,
+        2,
+    ]
     with pytest.raises(
         IndexError,
         match=r"point_index 20, variable 'frequency'.*sample index 1",
@@ -623,30 +728,77 @@ def test_ragged_sample_selection_applies_independently_per_point_and_group() -> 
         dataset.isel_ragged(sample=slice(0, 1), variable="signal")
 
 
+def _assert_array_values(
+    actual: tuple[object, ...],
+    expected: tuple[tuple[object, ...], ...],
+) -> None:
+    assert len(actual) == len(expected)
+    for value, expected_value in zip(actual, expected, strict=True):
+        assert isinstance(value, np.ndarray)
+        np.testing.assert_array_equal(value, np.asarray(expected_value))
+        assert not value.flags.writeable
+
+
+def _replace_record_values(
+    record: MeasurementRecord,
+    *,
+    coordinates: Mapping[str, MeasurementValue] | None = None,
+    observables: Mapping[str, MeasurementValue] | None = None,
+    point_index: int | None = None,
+) -> MeasurementRecord:
+    updates: dict[str, object] = {}
+    if coordinates is not None:
+        updates["coordinates"] = {**record.coordinates, **coordinates}
+    if observables is not None:
+        updates["observables"] = {**record.observables, **observables}
+    if point_index is not None:
+        updates["point_index"] = point_index
+    return record.model_copy(update=updates)
+
+
 def _ragged_dataset() -> Dataset:
     dataset = _dataset()
-    raw = dataset.raw
-    raw.dataset_schema.dimensions[1].size = None
-    for variable in raw.dataset_schema.variables:
-        if variable.id == "frequency":
-            variable.recording_group_id = "readout"
-    lengths = (2, 1, 3)
-    for point, length in enumerate(lengths):
-        raw.records[point].point_index = (10, 20, 40)[point]
-        raw.records[point].coordinates["frequency"] = MeasurementArray.create(
-            shape=(length,),
-            values=tuple(10.0 * point + index for index in range(length)),
-            dtype="float64",
-            unit="Hz",
-        )
-        raw.records[point].observables["signal"] = MeasurementArray.create(
-            shape=(length,),
-            values=tuple(
-                complex(float(point), float(index)) for index in range(length)
+    schema = dataset.schema.model_copy(
+        update={
+            "dimensions": (
+                dataset.schema.dimensions[0],
+                dataset.schema.dimensions[1].model_copy(update={"size": None}),
             ),
-            dtype="complex128",
-            unit="ratio",
+            "variables": tuple(
+                variable.model_copy(update={"recording_group_id": "readout"})
+                if variable.id == "frequency"
+                else variable
+                for variable in dataset.schema.variables
+            ),
+        }
+    )
+    lengths = (2, 1, 3)
+    records = tuple(
+        _replace_record_values(
+            record,
+            point_index=(10, 20, 40)[point],
+            coordinates={
+                "frequency": MeasurementArray.create(
+                    values=tuple(10.0 * point + index for index in range(length)),
+                    dtype="float64",
+                    unit="Hz",
+                )
+            },
+            observables={
+                "signal": MeasurementArray.create(
+                    values=tuple(
+                        complex(float(point), float(index)) for index in range(length)
+                    ),
+                    dtype="complex128",
+                    unit="ratio",
+                )
+            },
         )
+        for point, (record, length) in enumerate(
+            zip(dataset.records, lengths, strict=True)
+        )
+    )
+    raw = dataset.raw.model_copy(update={"dataset_schema": schema, "records": records})
     return Dataset(raw, dataset.entry)
 
 
@@ -762,7 +914,9 @@ def _product_grid_dataset() -> Dataset:
 def _dataset() -> Dataset:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
-        point_domain=MeasurementProductGridPointDomain(axes=[]),
+        point_domain=MeasurementPointCloudPointDomain(
+            columns=(MeasurementPointDomainColumn(id="bias"),)
+        ),
         dimensions=[
             MeasurementDimension(id="point", kind="point", size=3),
             MeasurementDimension(id="sample", kind="frequency", size=2),
@@ -818,7 +972,6 @@ def _dataset() -> Dataset:
                     value=float(point_index), dtype="float64", unit="V"
                 ),
                 "frequency": MeasurementArray.create(
-                    shape=(2,),
                     values=(
                         10.0 + 2.0 * point_index,
                         11.0 + 2.0 * point_index,
@@ -844,7 +997,6 @@ def _dataset() -> Dataset:
                     )
                 ),
                 "signal": MeasurementArray.create(
-                    shape=(2,),
                     values=(
                         complex(1.0 + point_index, 0.0),
                         complex(0.5 + point_index, -0.1),

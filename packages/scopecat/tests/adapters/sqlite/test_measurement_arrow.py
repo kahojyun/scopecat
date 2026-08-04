@@ -19,9 +19,14 @@ from scopecat.adapters.sqlite.measurement_arrow import (
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
+    MeasurementDatasetSchema,
+    MeasurementDimension,
+    MeasurementPointCloudPointDomain,
+    MeasurementPointDomainColumn,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementUnavailable,
+    MeasurementVariable,
 )
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 
@@ -68,30 +73,30 @@ def _append() -> MeasurementDatasetAppend:
             "trace": MeasurementArray.create(
                 dtype="float64",
                 unit="V",
-                shape=(2, 2),
                 values=np.array([[1.0, 2.0], [3.0, 4.0]]),
                 metadata={"calibrated": True},
             ),
             "counts": MeasurementArray.create(
                 dtype="int64",
-                shape=(2,),
                 values=[3, 5],
             ),
             "mask": MeasurementArray.create(
                 dtype="bool",
-                shape=(2,),
                 values=[True, False],
             ),
             "labels": MeasurementArray.create(
                 dtype="string",
-                shape=(2,),
                 values=["准备", "done"],
             ),
             "complex_trace": MeasurementArray.create(
                 dtype="complex128",
                 unit="ratio",
-                shape=(2,),
                 values=np.array([1 + 2j, 3 - 4j]),
+            ),
+            "ragged_trace": MeasurementArray.create(
+                dtype="float64",
+                unit="V",
+                values=np.array([0.5, 1.5, 2.5]),
             ),
             "missing": MeasurementUnavailable.create(
                 reason="overload",
@@ -112,14 +117,88 @@ def _append() -> MeasurementDatasetAppend:
     )
 
 
+def _schema(*, point_count: int = 1) -> MeasurementDatasetSchema:
+    return MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        point_domain=MeasurementPointCloudPointDomain(
+            columns=(MeasurementPointDomainColumn(id="shot"),)
+        ),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=point_count),
+            MeasurementDimension(id="row", kind="record_axis", size=2),
+            MeasurementDimension(id="column", kind="record_axis", size=2),
+            MeasurementDimension(id="sample", kind="record_axis", size=2),
+            MeasurementDimension(id="ragged", kind="record_axis", size=None),
+        ),
+        variables=(
+            MeasurementVariable(
+                id="shot", role="coordinate", dtype="int64", dims=("point",)
+            ),
+            MeasurementVariable(
+                id="estimate", role="observable", dtype="float64", dims=("point",)
+            ),
+            MeasurementVariable(
+                id="iq", role="observable", dtype="complex128", dims=("point",)
+            ),
+            MeasurementVariable(
+                id="trace",
+                role="observable",
+                dtype="float64",
+                unit="V",
+                dims=("point", "row", "column"),
+            ),
+            MeasurementVariable(
+                id="counts",
+                role="observable",
+                dtype="int64",
+                dims=("point", "sample"),
+            ),
+            MeasurementVariable(
+                id="mask",
+                role="observable",
+                dtype="bool",
+                dims=("point", "sample"),
+            ),
+            MeasurementVariable(
+                id="labels",
+                role="observable",
+                dtype="string",
+                dims=("point", "sample"),
+            ),
+            MeasurementVariable(
+                id="complex_trace",
+                role="observable",
+                dtype="complex128",
+                unit="ratio",
+                dims=("point", "sample"),
+            ),
+            MeasurementVariable(
+                id="ragged_trace",
+                role="observable",
+                dtype="float64",
+                unit="V",
+                dims=("point", "ragged"),
+            ),
+            MeasurementVariable(
+                id="missing",
+                role="observable",
+                dtype="float64",
+                unit="V",
+                dims=("point", "ragged"),
+            ),
+        ),
+    )
+
+
 def test_measurement_append_round_trips_as_typed_arrow_ipc() -> None:
     append = _append()
+    schema = _schema()
 
-    content = encode_measurement_append(append)
-    restored = decode_measurement_append(content)
+    content = encode_measurement_append(append, schema)
+    restored = decode_measurement_append(content, schema)
 
     assert content.startswith(b"ARROW1")
-    assert encode_measurement_append(append) == content
+    assert encode_measurement_append(append, schema) == content
     assert restored == append
     assert restored.operation_id == append.operation_id
     assert restored.content_hash == append.content_hash
@@ -143,13 +222,31 @@ def test_measurement_append_round_trips_as_typed_arrow_ipc() -> None:
     assert reader.schema.metadata[b"scopecat.content_hash"] == (
         append.content_hash.encode()
     )
-    value_type = reader.schema.field("observables").type.item_type
-    assert value_type.field("complex128_values").type.value_type == pa.struct(
+    assert "coordinates" not in reader.schema.names
+    assert "observables" not in reader.schema.names
+    assert reader.schema.field("value:trace").type == pa.list_(
+        pa.field(
+            "item",
+            pa.list_(
+                pa.field("item", pa.float64(), nullable=False),
+                2,
+            ),
+            nullable=False,
+        ),
+        2,
+    )
+    assert reader.schema.field("value:missing").type == pa.large_list(
+        pa.field("item", pa.float64(), nullable=False)
+    )
+    assert reader.schema.field("value:complex_trace").type.value_type == pa.struct(
         [
             pa.field("real", pa.float64(), nullable=False),
             pa.field("imag", pa.float64(), nullable=False),
         ]
     )
+    ragged_trace = restored.records[0].observables["ragged_trace"]
+    assert isinstance(ragged_trace, MeasurementArray)
+    assert ragged_trace.shape == (3,)
 
 
 def test_measurement_arrow_selection_decodes_only_requested_rows() -> None:
@@ -168,17 +265,28 @@ def test_measurement_arrow_selection_decodes_only_requested_rows() -> None:
             )
         }
     )
-    content = encode_measurement_append(append)
+    schema = _schema(point_count=3)
+    content = encode_measurement_append(append, schema)
 
-    page = decode_measurement_record_slice(content, offset=1, length=2)
-    selected = decode_measurement_record_indices(content, (2, 0))
+    page = decode_measurement_record_slice(
+        content,
+        schema,
+        offset=1,
+        length=2,
+        variable_ids=("trace",),
+    )
+    selected = decode_measurement_record_indices(content, schema, (2, 0))
 
     assert [record.point_index for record in page] == [1, 2]
+    assert page[0].coordinates == {}
+    assert set(page[0].observables) == {"trace"}
+    assert set(page[0].acquisition_evidence) == {"trace"}
     assert [record.point_index for record in selected] == [2, 0]
 
 
 def test_measurement_arrow_encoding_is_independent_of_mapping_insertion_order() -> None:
     append = _append()
+    schema = _schema()
     record = append.records[0]
     reordered = record.model_copy(
         update={
@@ -188,11 +296,15 @@ def test_measurement_arrow_encoding_is_independent_of_mapping_insertion_order() 
     reordered_append = append.model_copy(update={"records": (reordered,)})
 
     assert reordered_append.content_hash == append.content_hash
-    assert encode_measurement_append(reordered_append) == encode_measurement_append(
-        append
+    assert encode_measurement_append(
+        reordered_append,
+        schema,
+    ) == encode_measurement_append(
+        append,
+        schema,
     )
 
 
 def test_measurement_arrow_rejects_non_ipc_payloads() -> None:
     with pytest.raises(MeasurementArrowCodecError, match="invalid measurement Arrow"):
-        decode_measurement_append(b'{"records": []}')
+        decode_measurement_append(b'{"records": []}', _schema())

@@ -22,10 +22,7 @@ from scopecat.kernel.product_identity import (
     ProductUse,
     ProductUseId,
 )
-from scopecat.measurements.contracts import (
-    measurement_value_contract_issues,
-    validated_measurement_value_copy,
-)
+from scopecat.measurements.contracts import measurement_value_contract_issues
 from scopecat.measurements.products import ProductDef
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
@@ -301,7 +298,7 @@ def seal_domain_output_values[
         MeasurementValueCandidate(
             result.logical_point_id,
             product_use_id,
-            validated_measurement_value_copy(by_address[result.result_address].value),
+            by_address[result.result_address].value,
         )
         for result in mapping.results
         for product_use_id in result.product_use_ids

@@ -3,7 +3,8 @@ from __future__ import annotations
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
-    MeasurementProductGridPointDomain,
+    MeasurementPointCloudPointDomain,
+    MeasurementPointDomainColumn,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementVariable,
@@ -44,7 +45,9 @@ def signal_point_schema(
 ) -> MeasurementDatasetSchema:
     return MeasurementDatasetSchema(
         dataset_id=dataset_id,
-        point_domain=MeasurementProductGridPointDomain(axes=[]),
+        point_domain=MeasurementPointCloudPointDomain(
+            columns=[MeasurementPointDomainColumn(id="drive_frequency")]
+        ),
         dimensions=[MeasurementDimension(id="point", kind="point", size=size)],
         variables=[
             MeasurementVariable(

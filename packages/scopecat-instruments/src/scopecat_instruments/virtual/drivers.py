@@ -581,13 +581,11 @@ class VirtualNetworkAnalyzer(NetworkSweepDriverAdapter):
                 frequency=MeasurementArray.create(
                     dtype="float64",
                     unit="Hz",
-                    shape=[len(trace.frequencies_hz)],
                     values=np.asarray(trace.frequencies_hz, dtype=np.float64),
                 ),
                 s_parameter=MeasurementArray.create(
                     dtype="complex128",
                     unit="ratio",
-                    shape=[len(trace.values)],
                     values=np.asarray(trace.values, dtype=np.complex128),
                 ),
                 metadata={"mode": "virtual", "world_seed": self.world.seed},

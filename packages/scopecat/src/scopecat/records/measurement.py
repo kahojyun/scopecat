@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from copy import deepcopy
 from typing import (
     Annotated,
     Literal,
@@ -19,11 +18,13 @@ from typing import (
 import numpy as np
 from numpy.typing import NDArray
 from pydantic import (
+    AfterValidator,
     AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
     GetJsonSchemaHandler,
+    PlainSerializer,
     TypeAdapter,
     ValidationInfo,
     WithJsonSchema,
@@ -34,8 +35,9 @@ from pydantic import (
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema
 
+from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
-from scopecat.records._metadata import JsonMetadata
+from scopecat.records._metadata import FrozenJsonMetadata
 from scopecat.records._schema_utils import (
     ensure_unique_ids,
     missing_references,
@@ -93,33 +95,68 @@ MeasurementArrayData = Annotated[
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
-class MeasurementDimension(BaseModel):
+def _empty_metadata() -> Mapping[str, object]:
+    return FrozenMapping()
+
+
+class _FrozenMeasurementModel(BaseModel):
+    """Validation-preserving copy semantics for immutable measurement models."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @override
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, object] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if not update:
+            return self
+        values: dict[str, object] = {
+            name: getattr(self, name) for name in type(self).model_fields
+        }
+        values.update(update)
+        return type(self).model_validate(values)
+
+    @override
+    def __copy__(self) -> Self:
+        return self
+
+    @override
+    def __deepcopy__(self, memo: dict[int, object] | None = None) -> Self:
+        if memo is not None:
+            memo[id(self)] = self
+        return self
+
+
+class MeasurementDimension(_FrozenMeasurementModel):
     """One logical extent; ``None`` denotes a point-local ragged extent."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(min_length=1)
     kind: str = Field(min_length=1)
     label: str | None = None
     size: Annotated[int, Field(ge=0)] | None
-    metadata: JsonMetadata = Field(default_factory=dict)
+    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
 
 
-class MeasurementVariable(BaseModel):
+class MeasurementVariable(_FrozenMeasurementModel):
     """A point-local variable whose shape is derived from its dimensions."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(min_length=1)
     role: MeasurementVariableRole
     dtype: MeasurementDType
     unit: str | None = None
-    dims: list[str] = Field(min_length=1)
+    dims: Sequence[str] = Field(min_length=1)
     label: str | None = None
     source_product_id: _NonEmptyText | None = None
     source_value_id: _NonEmptyText | None = None
     recording_group_id: _NonEmptyText | None = None
-    metadata: JsonMetadata = Field(default_factory=dict)
+    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
 
     @field_validator("unit")
     @classmethod
@@ -128,14 +165,14 @@ class MeasurementVariable(BaseModel):
 
     @field_validator("dims")
     @classmethod
-    def validate_dims(cls, value: list[str]) -> list[str]:
+    def validate_dims(cls, value: Sequence[str]) -> Sequence[str]:
         ensure_unique_ids(
             value,
             "measurement variable dimensions must be unique",
         )
         if value[0] != "point":
             raise ValueError("measurement variables must use point as first dimension")
-        return value
+        return tuple(value)
 
     @model_validator(mode="after")
     def validate_unitless_dtype(self) -> MeasurementVariable:
@@ -144,14 +181,22 @@ class MeasurementVariable(BaseModel):
         return self
 
 
-class MeasurementPointDomainAxis(BaseModel):
+class MeasurementPointDomainAxis(_FrozenMeasurementModel):
     """One ordered independent axis in a product-grid point domain."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(min_length=1)
     size: Annotated[int, Field(ge=0)]
-    values: list[MeasurementScalar | None]
+    values: Sequence[MeasurementScalar | None]
+
+    @field_validator("values")
+    @classmethod
+    def freeze_values(
+        cls,
+        value: Sequence[MeasurementScalar | None],
+    ) -> Sequence[MeasurementScalar | None]:
+        return tuple(value)
 
     @model_validator(mode="after")
     def validate_values(self) -> MeasurementPointDomainAxis:
@@ -160,54 +205,54 @@ class MeasurementPointDomainAxis(BaseModel):
         return self
 
 
-class MeasurementProductGridPointDomain(BaseModel):
+class MeasurementProductGridPointDomain(_FrozenMeasurementModel):
     """A point domain formed from the ordered product of independent axes."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["product_grid"] = "product_grid"
-    axes: list[MeasurementPointDomainAxis]
+    axes: Sequence[MeasurementPointDomainAxis]
 
     @field_validator("axes")
     @classmethod
     def validate_axes(
         cls,
-        value: list[MeasurementPointDomainAxis],
-    ) -> list[MeasurementPointDomainAxis]:
+        value: Sequence[MeasurementPointDomainAxis],
+    ) -> Sequence[MeasurementPointDomainAxis]:
         ensure_unique_ids(
             [axis.id for axis in value],
             "measurement point-domain axis ids must be unique",
         )
-        return value
+        return tuple(value)
 
 
-class MeasurementPointDomainColumn(BaseModel):
+class MeasurementPointDomainColumn(_FrozenMeasurementModel):
     """One ordered coordinate column in a point-cloud domain."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(min_length=1)
 
 
-class MeasurementPointCloudPointDomain(BaseModel):
+class MeasurementPointCloudPointDomain(_FrozenMeasurementModel):
     """A point domain whose coordinate columns form explicit ordered rows."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["point_cloud"] = "point_cloud"
-    columns: list[MeasurementPointDomainColumn]
+    columns: Sequence[MeasurementPointDomainColumn]
 
     @field_validator("columns")
     @classmethod
     def validate_columns(
         cls,
-        value: list[MeasurementPointDomainColumn],
-    ) -> list[MeasurementPointDomainColumn]:
+        value: Sequence[MeasurementPointDomainColumn],
+    ) -> Sequence[MeasurementPointDomainColumn]:
         ensure_unique_ids(
             [column.id for column in value],
             "measurement point-domain column ids must be unique",
         )
-        return value
+        return tuple(value)
 
 
 type MeasurementPointDomain = Annotated[
@@ -216,8 +261,8 @@ type MeasurementPointDomain = Annotated[
 ]
 
 
-class MeasurementDatasetSchema(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class MeasurementDatasetSchema(_FrozenMeasurementModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     format_version: Literal["scopecat.measurement_dataset_schema.v8"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
@@ -227,11 +272,21 @@ class MeasurementDatasetSchema(BaseModel):
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
     point_domain: MeasurementPointDomain
-    dimensions: list[MeasurementDimension]
-    variables: list[MeasurementVariable] = Field(default_factory=list)
-    primary_coordinates: list[str] = Field(default_factory=list)
-    primary_observables: list[str] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
+    dimensions: Sequence[MeasurementDimension]
+    variables: Sequence[MeasurementVariable] = Field(default_factory=tuple)
+    primary_coordinates: Sequence[str] = Field(default_factory=tuple)
+    primary_observables: Sequence[str] = Field(default_factory=tuple)
+    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
+
+    @field_validator(
+        "dimensions",
+        "variables",
+        "primary_coordinates",
+        "primary_observables",
+    )
+    @classmethod
+    def freeze_sequences[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
 
     @model_validator(mode="after")
     def validate_references(self) -> MeasurementDatasetSchema:
@@ -265,6 +320,13 @@ class MeasurementDatasetSchema(BaseModel):
             )
         if point_dimensions[0].size is None:
             raise ValueError("measurement point dimension must have a fixed size")
+        if isinstance(self.point_domain, MeasurementProductGridPointDomain):
+            grid_size = math.prod(axis.size for axis in self.point_domain.axes)
+            if grid_size != point_dimensions[0].size:
+                raise ValueError(
+                    "measurement product-grid cardinality must match the point "
+                    "dimension size"
+                )
 
         for variable in self.variables:
             missing_dims = missing_references(variable.dims, dimension_id_set)
@@ -328,14 +390,14 @@ MeasurementScalarData = Annotated[
 ]
 
 
-class MeasurementScalar(BaseModel):
+class MeasurementScalar(_FrozenMeasurementModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["scalar"]
     dtype: MeasurementDType = "float64"
     unit: str | None = None
     value: MeasurementScalarData
-    metadata: JsonMetadata = Field(default_factory=dict)
+    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
 
     @classmethod
     def create(
@@ -344,7 +406,7 @@ class MeasurementScalar(BaseModel):
         value: object,
         dtype: MeasurementDType = "float64",
         unit: str | None = None,
-        metadata: JsonMetadata | None = None,
+        metadata: Mapping[str, object] | None = None,
     ) -> Self:
         """Construct a scalar while keeping the wire discriminator required."""
 
@@ -394,7 +456,7 @@ class MeasurementScalar(BaseModel):
         return self
 
 
-class MeasurementArray(BaseModel):
+class MeasurementArray(_FrozenMeasurementModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         extra="forbid",
@@ -406,17 +468,16 @@ class MeasurementArray(BaseModel):
     unit: str | None = None
     shape: tuple[Annotated[int, Field(ge=0)], ...] = Field(min_length=1)
     values: MeasurementArrayData
-    metadata: JsonMetadata = Field(default_factory=dict)
+    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
 
     @classmethod
     def create(
         cls,
         *,
         values: object,
-        shape: Sequence[int] | None = None,
         dtype: MeasurementDType = "float64",
         unit: str | None = None,
-        metadata: JsonMetadata | None = None,
+        metadata: Mapping[str, object] | None = None,
     ) -> Self:
         """Construct an array while keeping the wire discriminator required."""
 
@@ -427,8 +488,6 @@ class MeasurementArray(BaseModel):
             "values": values,
             "metadata": {} if metadata is None else metadata,
         }
-        if shape is not None:
-            data["shape"] = shape
         return cls.model_validate(
             data,
             context=_MEASUREMENT_ARRAY_CREATE_CONTEXT,
@@ -452,7 +511,7 @@ class MeasurementArray(BaseModel):
             else "float64",
         )
         selected = _measurement_ndarray(data["values"], dtype=dtype)
-        data.setdefault("shape", selected.shape)
+        data["shape"] = selected.shape
         data["values"] = selected
         return data
 
@@ -494,7 +553,6 @@ class MeasurementArray(BaseModel):
             and math.prod(cast("tuple[int, ...]", expected_shape)) == 0
         ):
             selected = selected.reshape(cast("tuple[int, ...]", expected_shape))
-        selected.flags.writeable = False
         return selected
 
     @field_serializer("values")
@@ -526,21 +584,8 @@ class MeasurementArray(BaseModel):
             and np.array_equal(self.values, other.values)
         )
 
-    @override
-    def __deepcopy__(self, memo: dict[int, object] | None = None) -> Self:
-        selected = type(self).create(
-            dtype=self.dtype,
-            unit=self.unit,
-            shape=self.shape,
-            values=self.values,
-            metadata=deepcopy(self.metadata, memo),
-        )
-        if memo is not None:
-            memo[id(self)] = selected
-        return selected
 
-
-class MeasurementUnavailable(BaseModel):
+class MeasurementUnavailable(_FrozenMeasurementModel):
     """A complete scalar or array result with no usable value.
 
     ``None`` preserves an unknown extent for a ragged product axis when no
@@ -554,7 +599,7 @@ class MeasurementUnavailable(BaseModel):
     dtype: MeasurementDType
     unit: str | None
     shape: tuple[Annotated[int, Field(ge=0)] | None, ...]
-    metadata: JsonMetadata
+    metadata: FrozenJsonMetadata
 
     @classmethod
     def create(
@@ -564,7 +609,7 @@ class MeasurementUnavailable(BaseModel):
         dtype: MeasurementDType,
         unit: str | None,
         shape: Sequence[int | None],
-        metadata: JsonMetadata,
+        metadata: Mapping[str, object],
     ) -> Self:
         """Construct an unavailable result with its complete value contract."""
 
@@ -597,7 +642,7 @@ type MeasurementValue = Annotated[
 ]
 
 
-class InstrumentAcquisitionEvidence(BaseModel):
+class InstrumentAcquisitionEvidence(_FrozenMeasurementModel):
     """Daemon-observed interval and physical target for one collected result."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -618,18 +663,66 @@ class InstrumentAcquisitionEvidence(BaseModel):
         return self
 
 
-class MeasurementRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+def _empty_acquisition_evidence() -> Mapping[str, InstrumentAcquisitionEvidence]:
+    return FrozenMapping()
+
+
+def _freeze_measurement_values(
+    value: Mapping[str, MeasurementValue],
+) -> Mapping[str, MeasurementValue]:
+    return FrozenMapping(value.items())
+
+
+def _serialize_measurement_values(
+    value: Mapping[str, MeasurementValue],
+) -> dict[str, MeasurementValue]:
+    return dict(value)
+
+
+type _FrozenMeasurementValues = Annotated[
+    Mapping[str, MeasurementValue],
+    AfterValidator(_freeze_measurement_values),
+    PlainSerializer(
+        _serialize_measurement_values,
+        return_type=dict[str, MeasurementValue],
+    ),
+]
+
+
+def _freeze_acquisition_evidence(
+    value: Mapping[str, InstrumentAcquisitionEvidence],
+) -> Mapping[str, InstrumentAcquisitionEvidence]:
+    return FrozenMapping(value.items())
+
+
+def _serialize_acquisition_evidence(
+    value: Mapping[str, InstrumentAcquisitionEvidence],
+) -> dict[str, InstrumentAcquisitionEvidence]:
+    return dict(value)
+
+
+type _FrozenAcquisitionEvidence = Annotated[
+    Mapping[str, InstrumentAcquisitionEvidence],
+    AfterValidator(_freeze_acquisition_evidence),
+    PlainSerializer(
+        _serialize_acquisition_evidence,
+        return_type=dict[str, InstrumentAcquisitionEvidence],
+    ),
+]
+
+
+class MeasurementRecord(_FrozenMeasurementModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
     logical_point_id: str | None = None
     point_index: int
-    coordinates: dict[str, MeasurementValue]
-    observables: dict[str, MeasurementValue]
-    acquisition_evidence: dict[str, InstrumentAcquisitionEvidence] = Field(
-        default_factory=dict
+    coordinates: _FrozenMeasurementValues
+    observables: _FrozenMeasurementValues
+    acquisition_evidence: _FrozenAcquisitionEvidence = Field(
+        default_factory=_empty_acquisition_evidence
     )
-    metadata: JsonMetadata = Field(default_factory=dict)
+    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
 
     @model_validator(mode="after")
     def validate_acquisition_evidence_variables(self) -> MeasurementRecord:
@@ -644,12 +737,20 @@ class MeasurementRecord(BaseModel):
         return self
 
 
-class MeasurementDataset(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class MeasurementDataset(_FrozenMeasurementModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     dataset_schema: MeasurementDatasetSchema
-    records: list[MeasurementRecord]
-    metadata: JsonMetadata = Field(default_factory=dict)
+    records: Sequence[MeasurementRecord]
+    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
+
+    @field_validator("records")
+    @classmethod
+    def freeze_records(
+        cls,
+        value: Sequence[MeasurementRecord],
+    ) -> Sequence[MeasurementRecord]:
+        return tuple(value)
 
 
 def _measurement_ndarray(
@@ -684,7 +785,11 @@ def _measurement_ndarray(
 
     if dtype in {"float64", "complex128"} and not np.isfinite(selected).all():
         raise ValueError("measurement values must be finite")
-    return cast("MeasurementArrayData", selected)
+    immutable_buffer = selected.tobytes(order="C")
+    immutable = np.frombuffer(immutable_buffer, dtype=selected.dtype).reshape(
+        selected.shape
+    )
+    return cast("MeasurementArrayData", immutable)
 
 
 def _measurement_scalar_data(

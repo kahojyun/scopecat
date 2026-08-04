@@ -109,7 +109,6 @@ def _realize_integrated_iq_value(
     return MeasurementArray.create(
         dtype="complex128",
         unit=_FAKE_RESPONSE_UNIT,
-        shape=[len(frames)],
         values=np.asarray(
             [frame.value for frame in frames],
             dtype=np.complex128,
