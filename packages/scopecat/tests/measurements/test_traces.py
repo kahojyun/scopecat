@@ -11,7 +11,6 @@ from scopecat.measurements.traces import (
     project_measurement_trace_preview,
 )
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetSchema,
@@ -169,8 +168,8 @@ def test_trace_view_and_schema_accept_different_lengths_at_each_point() -> None:
         unit="ratio",
         shape=(2,),
         values=(
-            ComplexComponents(real=1.0, imag=0.0),
-            ComplexComponents(real=0.2, imag=-0.1),
+            complex(1.0, 0.0),
+            complex(0.2, -0.1),
         ),
     )
 
@@ -371,9 +370,9 @@ def _trace_dataset() -> MeasurementDataset:
                         unit="ratio",
                         shape=(3,),
                         values=(
-                            ComplexComponents(real=1.0, imag=0.0),
-                            ComplexComponents(real=0.2, imag=-0.1),
-                            ComplexComponents(real=0.9, imag=0.1),
+                            complex(1.0, 0.0),
+                            complex(0.2, -0.1),
+                            complex(0.9, 0.1),
                         ),
                     )
                 },

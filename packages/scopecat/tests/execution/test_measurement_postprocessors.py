@@ -17,7 +17,6 @@ from scopecat.kernel.errors import MeasurementPostprocessorExecutionError
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.products import ProductAxisDef
 from scopecat.measurements.results import (
-    ComplexComponents,
     InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementScalar,
@@ -378,7 +377,7 @@ def test_postprocessor_propagates_mixed_fixed_and_ragged_output_shape() -> None:
         (
             MeasurementScalar.create(
                 dtype="complex128",
-                value=ComplexComponents(real=1.0, imag=0.0),
+                value=complex(1.0, 0.0),
                 unit="ratio",
             ),
             "measurement_postprocessor_output_dtype_mismatch",

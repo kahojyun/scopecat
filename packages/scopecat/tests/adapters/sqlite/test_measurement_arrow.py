@@ -17,7 +17,6 @@ from scopecat.adapters.sqlite.measurement_arrow import (
     encode_measurement_append,
 )
 from scopecat.records.measurement import (
-    ComplexComponents,
     InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementRecord,
@@ -61,12 +60,10 @@ def _append() -> MeasurementDatasetAppend:
             "shot": MeasurementScalar.create(dtype="int64", value=2),
         },
         observables={
-            # The scalar union retains the input Python type independently of
-            # the declared measurement dtype; the durable codec must do so too.
             "estimate": MeasurementScalar.create(dtype="float64", value=1),
             "iq": MeasurementScalar.create(
                 dtype="complex128",
-                value=ComplexComponents(real=0.25, imag=-0.5),
+                value=complex(0.25, -0.5),
             ),
             "trace": MeasurementArray.create(
                 dtype="float64",
@@ -146,9 +143,8 @@ def test_measurement_append_round_trips_as_typed_arrow_ipc() -> None:
     assert reader.schema.metadata[b"scopecat.content_hash"] == (
         append.content_hash.encode()
     )
-    assert reader.schema.field("observables").type.item_type.field(
-        "complex128_values"
-    ).type.value_type == pa.struct(
+    value_type = reader.schema.field("observables").type.item_type
+    assert value_type.field("complex128_values").type.value_type == pa.struct(
         [
             pa.field("real", pa.float64(), nullable=False),
             pa.field("imag", pa.float64(), nullable=False),

@@ -87,7 +87,6 @@ from scopecat.records.config import (
 )
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDimension,
@@ -2022,8 +2021,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
                         unit="ratio",
                         shape=(5,),
                         values=tuple(
-                            ComplexComponents(real=point_index + 1.0, imag=index)
-                            for index in range(5)
+                            complex(point_index + 1.0, index) for index in range(5)
                         ),
                     ),
                 },

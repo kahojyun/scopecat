@@ -10,7 +10,6 @@ import pytest
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -257,8 +256,8 @@ def test_collect_wire_uses_canonical_binary_for_every_array_dtype() -> None:
                 unit="ratio",
                 shape=(2,),
                 values=(
-                    ComplexComponents(real=1.0, imag=-0.5),
-                    ComplexComponents(real=-2.0, imag=3.25),
+                    complex(1.0, -0.5),
+                    complex(-2.0, 3.25),
                 ),
             ),
         }

@@ -125,7 +125,7 @@ such as `axis(size="points")` when configuration determines one fixed extent.
 Ragged arrays retain an explicit point-local shape and are never padded with
 sentinel values. Durable Arrow IPC chunks keep their elements in dtype-specific
 variable-length lists alongside that shape; complex elements are `{real, imag}`
-structs. The canonical Xarray view uses an indexed observation dimension with
+structs. Each Xarray snapshot uses an indexed observation dimension with
 parent-point and local-index coordinates, making the flattening explicit and
 reversible.
 Pandas point layout keeps each array in one cell; `layout="long"` emits one row
@@ -134,6 +134,9 @@ per local sample.
 In Python, available `MeasurementArray.values` is a read-only, C-contiguous
 NumPy array with the declared dtype. JSON and API representations remain nested;
 complex leaves use `{real, imag}` objects.
+`MeasurementScalar.value` is likewise normalized to its declared Python type;
+`complex128` is a native `complex` at runtime and the same `{real, imag}` object
+on the wire.
 
 If an unavailable value propagates through a postprocessor before a ragged
 extent can be observed, its shape keeps `None` for that unknown axis rather
@@ -153,7 +156,7 @@ before entering the measurement stream.
 ```python
 data = run.measurements()
 
-data.xarray                    # canonical xr.Dataset analysis view
+data.xarray                    # fresh independent xr.Dataset snapshot
 data.coords                    # coordinate variables by id
 data.data_vars                 # observable variables by id
 data.point_indices             # durable identities in current row order
@@ -207,8 +210,9 @@ Xarray and Arrow are core dependencies and are available on every measurement
 view. Install the `scopecat[pandas]` extra only for explicit pandas exports:
 
 ```python
-xds = data.xarray                          # canonical, cached xr.Dataset
-assert xds is data.to_xarray()             # explicit export spelling
+xds = data.to_xarray()                     # explicit conversion spelling
+another = data.xarray                      # equivalent property shorthand
+assert xds is not another                  # snapshots never share identity
 table = data.to_arrow()
 frame = data.to_pandas()                  # one row per experiment point
 long_frame = data.to_pandas(layout="long")
@@ -220,11 +224,15 @@ share one Xarray observation dimension and retain `parent_point_index` and local
 index coordinates; ungrouped ragged variables remain independent. Unavailable
 values remain null or missing and gain a companion `__unavailable_reason`
 variable or column. The durable Pydantic dataset remains available through
-`data.raw` when low-level inspection is actually needed. Treat it as source
-evidence rather than a mutation API: the canonical Xarray view is materialized
-when the facade is created so every labeled operation sees one consistent
-snapshot. Dataset attrs retain the Scopecat entry id, content hash, format
-version, schema, and dataset metadata.
+`data.raw` when low-level inspection is actually needed. Every access to
+`data.xarray` and every `to_xarray()` call reads the current durable model into
+a new snapshot. In-memory edits through the mutable `raw` escape hatch therefore
+appear in the next snapshot, while edits to a returned Xarray object never
+pollute the facade or a later export. Dataset attrs retain entry provenance;
+schema and dataset metadata use the stable JSON-string attrs
+`scopecat_schema_json` and `scopecat_metadata_json`. Variable metadata uses the
+same `scopecat_metadata_json` name on each DataArray, keeping nested metadata
+NetCDF-safe.
 
 ## Let the GUI use experiment knowledge
 

@@ -265,24 +265,28 @@ class MeasurementDatasetSchema(BaseModel):
         return self
 
 
-class ComplexComponents(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    real: float
-    imag: float
-
-    @field_validator("real", "imag", mode="before")
-    @classmethod
-    def validate_component(cls, value: object) -> float:
-        if not isinstance(value, int | float) or isinstance(value, bool):
-            raise ValueError("complex components must be numeric")
-        selected = float(value)
-        if not math.isfinite(selected):
-            raise ValueError("complex components must be finite")
-        return selected
-
-
-type MeasurementScalarData = bool | int | float | str | ComplexComponents
+MeasurementScalarData = Annotated[
+    bool | int | float | complex | str,
+    WithJsonSchema(
+        {
+            "anyOf": [
+                {"type": "boolean"},
+                {"type": "integer"},
+                {"type": "number"},
+                {"type": "string"},
+                {
+                    "type": "object",
+                    "properties": {
+                        "real": {"type": "number"},
+                        "imag": {"type": "number"},
+                    },
+                    "required": ["real", "imag"],
+                    "additionalProperties": False,
+                },
+            ]
+        }
+    ),
+]
 
 
 class MeasurementScalar(BaseModel):
@@ -298,19 +302,21 @@ class MeasurementScalar(BaseModel):
     def create(
         cls,
         *,
-        value: MeasurementScalarData,
+        value: object,
         dtype: MeasurementDType = "float64",
         unit: str | None = None,
         metadata: JsonMetadata | None = None,
     ) -> Self:
         """Construct a scalar while keeping the wire discriminator required."""
 
-        return cls(
-            kind="scalar",
-            dtype=dtype,
-            unit=unit,
-            value=value,
-            metadata={} if metadata is None else metadata,
+        return cls.model_validate(
+            {
+                "kind": "scalar",
+                "dtype": dtype,
+                "unit": unit,
+                "value": value,
+                "metadata": {} if metadata is None else metadata,
+            }
         )
 
     @field_validator("unit")
@@ -318,13 +324,28 @@ class MeasurementScalar(BaseModel):
     def validate_unit(cls, value: str | None) -> str | None:
         return validate_supported_unit(value)
 
-    @field_validator("value")
+    @field_validator("value", mode="before")
     @classmethod
-    def validate_finite_value(
+    def normalize_value(
         cls,
-        value: MeasurementScalarData,
+        value: object,
+        info: ValidationInfo,
     ) -> MeasurementScalarData:
-        _validate_finite_numbers(value)
+        raw_dtype = cast("object", info.data.get("dtype", "float64"))
+        dtype = cast(
+            "MeasurementDType",
+            raw_dtype
+            if raw_dtype in {"float64", "int64", "complex128", "bool", "string"}
+            else "float64",
+        )
+        return _measurement_scalar_data(value, dtype=dtype)
+
+    @field_serializer("value")
+    def serialize_value(self, value: MeasurementScalarData) -> object:
+        if self.dtype == "complex128":
+            if not isinstance(value, complex):
+                raise TypeError("complex scalar serialization requires a complex value")
+            return {"real": value.real, "imag": value.imag}
         return value
 
     @model_validator(mode="after")
@@ -598,18 +619,95 @@ def _measurement_ndarray(
     return cast("MeasurementArrayData", selected)
 
 
+def _measurement_scalar_data(
+    value: object,
+    *,
+    dtype: MeasurementDType,
+) -> MeasurementScalarData:
+    is_boolean = isinstance(value, bool | np.bool_)
+    if dtype == "float64":
+        if is_boolean or not isinstance(value, int | float | np.integer | np.floating):
+            raise ValueError("float64 measurement scalar value must be numeric")
+        try:
+            selected_float = float(cast("SupportsFloat", value))
+        except (OverflowError, TypeError, ValueError) as error:
+            raise ValueError("measurement scalar value does not fit float64") from error
+        if not math.isfinite(selected_float):
+            raise ValueError("measurement values must be finite")
+        return selected_float
+    if dtype == "int64":
+        if is_boolean or not isinstance(value, int | np.integer):
+            raise ValueError("int64 measurement scalar value must be an integer")
+        selected_int = int(cast("SupportsIndex", value))
+        if not np.iinfo(np.int64).min <= selected_int <= np.iinfo(np.int64).max:
+            raise ValueError("measurement scalar value does not fit int64")
+        return selected_int
+    if dtype == "complex128":
+        if isinstance(value, Mapping):
+            selected_complex = _complex_from_mapping(
+                cast("Mapping[object, object]", value)
+            )
+        else:
+            if is_boolean or not isinstance(
+                value,
+                int | float | complex | np.number,
+            ):
+                raise ValueError("complex128 measurement scalar value must be numeric")
+            try:
+                selected_complex = complex(cast("SupportsComplex", value))
+            except (OverflowError, TypeError, ValueError) as error:
+                raise ValueError(
+                    "measurement scalar value does not fit complex128"
+                ) from error
+        if not (
+            math.isfinite(selected_complex.real)
+            and math.isfinite(selected_complex.imag)
+        ):
+            raise ValueError("measurement values must be finite")
+        return selected_complex
+    if dtype == "bool":
+        if not is_boolean:
+            raise ValueError("bool measurement scalar value must be a boolean")
+        return bool(value)
+    if not isinstance(value, str):
+        raise ValueError("string measurement scalar value must be a string")
+    return value
+
+
+def _complex_from_mapping(value: Mapping[object, object]) -> complex:
+    if set(value) != {"real", "imag"}:
+        raise ValueError(
+            "complex measurement value must contain only real and imag components"
+        )
+    real = _complex_component(value["real"])
+    imag = _complex_component(value["imag"])
+    return complex(real, imag)
+
+
+def _complex_component(value: object) -> float:
+    if isinstance(value, bool | np.bool_) or not isinstance(
+        value,
+        int | float | np.integer | np.floating,
+    ):
+        raise ValueError("complex measurement components must be real numeric values")
+    try:
+        selected = float(cast("SupportsFloat", value))
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(
+            "complex measurement component does not fit float64"
+        ) from error
+    if not math.isfinite(selected):
+        raise ValueError("measurement values must be finite")
+    return selected
+
+
 def _normalize_array_tree(value: object, *, dtype: MeasurementDType) -> object:
     if isinstance(value, list | tuple):
         selected = cast("list[object] | tuple[object, ...]", value)
         return tuple(_normalize_array_tree(item, dtype=dtype) for item in selected)
 
     if dtype == "complex128" and isinstance(value, Mapping):
-        components = ComplexComponents.model_validate(
-            cast("Mapping[str, object]", value)
-        )
-        return complex(components.real, components.imag)
-    if dtype == "complex128" and isinstance(value, ComplexComponents):
-        return complex(value.real, value.imag)
+        return _complex_from_mapping(cast("Mapping[object, object]", value))
 
     is_boolean = isinstance(value, bool | np.bool_)
     if dtype == "float64":
@@ -674,23 +772,3 @@ def _complex_array_json(value: object) -> object:
         raise TypeError("complex array serialization requires complex values")
     selected = value
     return {"real": selected.real, "imag": selected.imag}
-
-
-def _validate_finite_numbers(value: object) -> None:
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError("measurement values must be finite")
-    if isinstance(value, complex) and not (
-        math.isfinite(value.real) and math.isfinite(value.imag)
-    ):
-        raise ValueError("measurement values must be finite")
-    if isinstance(value, ComplexComponents):
-        return
-    if isinstance(value, Mapping):
-        selected = cast("Mapping[object, object]", value)
-        for item in selected.values():
-            _validate_finite_numbers(item)
-        return
-    if isinstance(value, list | tuple):
-        selected = cast("list[object] | tuple[object, ...]", value)
-        for item in selected:
-            _validate_finite_numbers(item)

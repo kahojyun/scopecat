@@ -9,7 +9,6 @@ from scopecat.measurements.contracts import (
     validated_measurement_value_copy,
 )
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementDType,
     MeasurementScalar,
@@ -26,10 +25,7 @@ def test_complex_array_satisfies_exact_dtype_unit_shape_and_leaf_contract() -> N
         dtype="complex128",
         unit="ratio",
         shape=[2],
-        values=[
-            ComplexComponents(real=0.25, imag=-0.5),
-            ComplexComponents(real=0.75, imag=0.125),
-        ],
+        values=[complex(0.25, -0.5), complex(0.75, 0.125)],
     )
 
     assert (
@@ -192,13 +188,13 @@ def test_unavailable_value_still_checks_dtype_unit_and_shape() -> None:
     )
 
 
-def test_complex_array_normalizes_numeric_and_component_inputs() -> None:
+def test_complex_array_normalizes_numeric_and_wire_component_inputs() -> None:
     value = MeasurementArray.create(
         dtype="complex128",
         unit="ratio",
         shape=[2],
         values=[
-            ComplexComponents(real=0.25, imag=-0.5),
+            {"real": 0.25, "imag": -0.5},
             0.75,
         ],
     )
@@ -215,25 +211,88 @@ def test_complex_array_normalizes_numeric_and_component_inputs() -> None:
     )
 
 
-def test_scalar_tag_requires_a_matching_value_type() -> None:
+@pytest.mark.parametrize(
+    ("dtype", "raw", "expected", "expected_type"),
+    (
+        ("float64", 1, 1.0, float),
+        ("float64", 1.5, 1.5, float),
+        ("int64", 2, 2, int),
+        ("complex128", 2, complex(2.0, 0.0), complex),
+        ("complex128", 2.5, complex(2.5, 0.0), complex),
+        ("complex128", 2.5 - 0.25j, 2.5 - 0.25j, complex),
+        (
+            "complex128",
+            {"real": 0.25, "imag": -0.5},
+            complex(0.25, -0.5),
+            complex,
+        ),
+        ("bool", True, True, bool),
+        ("string", "ready", "ready", str),
+    ),
+)
+def test_scalar_values_normalize_strictly_at_the_model_boundary(
+    dtype: MeasurementDType,
+    raw: object,
+    expected: object,
+    expected_type: type[object],
+) -> None:
+    value = MeasurementScalar.create(dtype=dtype, value=raw)
+
+    assert value.value == expected
+    assert type(value.value) is expected_type
+    assert (
+        measurement_value_contract_issues(
+            value,
+            expected_dtype=dtype,
+            expected_unit=None,
+            expected_shape=(),
+        )
+        == ()
+    )
+
+
+@pytest.mark.parametrize(
+    ("dtype", "raw"),
+    (
+        ("float64", True),
+        ("float64", 1 + 0j),
+        ("int64", True),
+        ("int64", 1.0),
+        ("int64", 2**63),
+        ("complex128", True),
+        ("complex128", "1+2j"),
+        ("complex128", {"real": 1.0}),
+        ("complex128", {"real": 1.0, "imag": 2.0, "extra": 3.0}),
+        ("complex128", {"real": True, "imag": 0.0}),
+        ("bool", 1),
+        ("bool", "true"),
+        ("string", True),
+        ("string", 1),
+    ),
+)
+def test_scalar_values_reject_cross_dtype_coercion(
+    dtype: MeasurementDType,
+    raw: object,
+) -> None:
+    with pytest.raises(ValidationError):
+        MeasurementScalar.create(dtype=dtype, value=raw)
+
+
+def test_complex_scalar_uses_native_runtime_and_component_object_wire_value() -> None:
     value = MeasurementScalar.create(
-        dtype="int64",
-        unit=None,
-        value=1.5,
+        dtype="complex128",
+        unit="ratio",
+        value=complex(0.25, -0.5),
     )
 
-    issues = measurement_value_contract_issues(
-        value,
-        expected_dtype="int64",
-        expected_unit=None,
-        expected_shape=(),
-    )
-
-    assert tuple(issue.code for issue in issues) == (
-        MeasurementValueContractIssueCode.VALUE_TYPE_MISMATCH,
-    )
-    assert issues[0].path == ("value",)
-    assert (issues[0].expected, issues[0].actual) == ("int", "float")
+    assert type(value.value) is complex
+    assert value.model_dump(mode="json")["value"] == {
+        "real": 0.25,
+        "imag": -0.5,
+    }
+    restored = MeasurementScalar.model_validate_json(value.model_dump_json())
+    assert type(restored.value) is complex
+    assert restored == value
 
 
 @pytest.mark.parametrize(
@@ -301,7 +360,7 @@ def test_array_dtype_tags_reject_other_leaf_types(
             MeasurementScalar.create(
                 dtype="complex128",
                 unit=None,
-                value=ComplexComponents(real=1.0, imag=-0.5),
+                value=complex(1.0, -0.5),
             ),
             "complex128",
         ),
@@ -395,19 +454,25 @@ def test_top_level_numeric_dtype_widening_is_preserved() -> None:
     ],
 )
 def test_non_finite_numeric_values_are_rejected(value: complex) -> None:
-    if isinstance(value, float):
-        with pytest.raises(ValidationError, match="finite"):
-            MeasurementScalar.create(dtype="float64", unit=None, value=value)
+    scalar_dtype: MeasurementDType = (
+        "complex128" if isinstance(value, complex) else "float64"
+    )
+    with pytest.raises(ValidationError, match="finite"):
+        MeasurementScalar.create(dtype=scalar_dtype, unit=None, value=value)
     with pytest.raises(ValidationError, match="finite"):
         MeasurementArray.create(
-            dtype="complex128" if isinstance(value, complex) else "float64",
+            dtype=scalar_dtype,
             unit=None,
             shape=[1],
             values=[value],
         )
     if isinstance(value, float):
         with pytest.raises(ValidationError, match="finite"):
-            ComplexComponents(real=value, imag=0.0)
+            MeasurementScalar.create(
+                dtype="complex128",
+                unit=None,
+                value={"real": value, "imag": 0.0},
+            )
         with pytest.raises(ValidationError, match="finite"):
             MeasurementArray.create(
                 dtype="complex128",
@@ -417,47 +482,24 @@ def test_non_finite_numeric_values_are_rejected(value: complex) -> None:
             )
 
 
-def test_scalar_bool_and_int_values_preserve_wire_types_across_tags() -> None:
-    readback = InstrumentReadback.model_validate(
-        {
-            "values": {
-                "claimed_bool": {
-                    "kind": "scalar",
-                    "dtype": "bool",
-                    "unit": None,
-                    "value": 1,
-                },
-                "claimed_int": {
-                    "kind": "scalar",
-                    "dtype": "int64",
-                    "unit": None,
-                    "value": True,
-                },
+@pytest.mark.parametrize(
+    ("dtype", "raw"),
+    (("bool", 1), ("int64", True), ("string", False)),
+)
+def test_nested_instrument_readback_rejects_invalid_scalar_wire_values(
+    dtype: MeasurementDType,
+    raw: object,
+) -> None:
+    with pytest.raises(ValidationError):
+        InstrumentReadback.model_validate(
+            {
+                "values": {
+                    "invalid": {
+                        "kind": "scalar",
+                        "dtype": dtype,
+                        "unit": None,
+                        "value": raw,
+                    }
+                }
             }
-        }
-    )
-
-    claimed_bool = readback.values["claimed_bool"]
-    claimed_int = readback.values["claimed_int"]
-    assert isinstance(claimed_bool, MeasurementScalar)
-    assert isinstance(claimed_int, MeasurementScalar)
-    assert type(claimed_bool.value) is int
-    assert type(claimed_int.value) is bool
-    assert [
-        issue.code
-        for issue in measurement_value_contract_issues(
-            claimed_bool,
-            expected_dtype="bool",
-            expected_unit=None,
-            expected_shape=(),
         )
-    ] == [MeasurementValueContractIssueCode.VALUE_TYPE_MISMATCH]
-    assert [
-        issue.code
-        for issue in measurement_value_contract_issues(
-            claimed_int,
-            expected_dtype="int64",
-            expected_unit=None,
-            expected_shape=(),
-        )
-    ] == [MeasurementValueContractIssueCode.VALUE_TYPE_MISMATCH]

@@ -14,12 +14,10 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.units import compatible_units
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDType,
     MeasurementRecord,
-    MeasurementScalar,
     MeasurementUnavailable,
     MeasurementValue,
     MeasurementVariable,
@@ -36,7 +34,6 @@ class MeasurementValueContractIssueCode(StrEnum):
     DTYPE_MISMATCH = "dtype_mismatch"
     UNIT_MISMATCH = "unit_mismatch"
     SHAPE_MISMATCH = "shape_mismatch"
-    VALUE_TYPE_MISMATCH = "value_type_mismatch"
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,8 +55,9 @@ def measurement_value_contract_issues(
 ) -> tuple[MeasurementValueContractIssue, ...]:
     """Check one value against a logical product's point-local contract.
 
-    Top-level dtype compatibility permits numeric widening. Available scalar
-    and array leaves must match their value's own dtype tag.
+    Top-level dtype compatibility permits numeric widening. Available values
+    already match their own dtype tag because their models normalize at the
+    construction boundary.
     """
 
     selected_shape = tuple(expected_shape)
@@ -100,15 +98,6 @@ def measurement_value_contract_issues(
             )
         )
 
-    if isinstance(value, MeasurementUnavailable):
-        return tuple(issues)
-    if isinstance(value, MeasurementScalar):
-        _validate_value_type(
-            value.value,
-            dtype=value.dtype,
-            path=("value",),
-            issues=issues,
-        )
     return tuple(issues)
 
 
@@ -127,10 +116,7 @@ def _shape_compatible(
 def validated_measurement_value_copy(value: MeasurementValue) -> MeasurementValue:
     """Detach a measurement value without repeating its construction checks."""
 
-    selected = value.model_copy(deep=True)
-    if isinstance(selected, MeasurementArray):
-        selected.values.flags.writeable = False
-    return selected
+    return value.model_copy(deep=True)
 
 
 def _measurement_value_dtype(
@@ -171,42 +157,6 @@ def _unit_compatible(expected: str | None, actual: str | None) -> bool:
         return compatible_units(expected, actual)
     except ValueError:
         return False
-
-
-def _validate_value_type(
-    value: object,
-    *,
-    dtype: MeasurementDType,
-    path: tuple[MeasurementValueContractPathItem, ...],
-    issues: list[MeasurementValueContractIssue],
-) -> None:
-    valid = False
-    expected_type = ""
-    if dtype == "complex128":
-        expected_type = "ComplexComponents"
-        valid = isinstance(value, ComplexComponents)
-    elif dtype == "float64":
-        expected_type = "float or int"
-        valid = isinstance(value, int | float) and not isinstance(value, bool)
-    elif dtype == "int64":
-        expected_type = "int"
-        valid = isinstance(value, int) and not isinstance(value, bool)
-    elif dtype == "bool":
-        expected_type = "bool"
-        valid = isinstance(value, bool)
-    elif dtype == "string":
-        expected_type = "str"
-        valid = isinstance(value, str)
-
-    if not valid:
-        issues.append(
-            MeasurementValueContractIssue(
-                code=MeasurementValueContractIssueCode.VALUE_TYPE_MISMATCH,
-                path=path,
-                expected=expected_type,
-                actual=type(value).__name__,
-            )
-        )
 
 
 def validate_measurement_records_against_schema(
@@ -373,12 +323,9 @@ def _record_contract_problem(
     elif issue.code is MeasurementValueContractIssueCode.UNIT_MISMATCH:
         code = "measurement_record_unit_mismatch"
         dimension = "unit"
-    elif issue.code is MeasurementValueContractIssueCode.SHAPE_MISMATCH:
+    else:
         code = "measurement_record_shape_mismatch"
         dimension = "shape"
-    else:
-        code = "measurement_record_value_invalid"
-        dimension = "value"
     return _problem(
         code,
         f"measurement record {record.point_index} variable {variable_id} has "

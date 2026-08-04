@@ -15,7 +15,6 @@ import pyarrow as pa
 
 from scopecat.records._metadata import JsonMetadata, validate_json_metadata
 from scopecat.records.measurement import (
-    ComplexComponents,
     InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementDType,
@@ -28,7 +27,7 @@ from scopecat.records.measurement import (
 )
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 
-MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v1"
+MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v2"
 
 _FORMAT_KEY = b"scopecat.format"
 _RUN_ID_KEY = b"scopecat.run_id"
@@ -48,7 +47,6 @@ _VALUE_TYPE = pa.struct(
     [
         pa.field("kind", pa.string(), nullable=False),
         pa.field("dtype", pa.string(), nullable=False),
-        pa.field("storage_dtype", pa.string()),
         pa.field("unit", pa.string()),
         pa.field("reason", pa.string()),
         pa.field(
@@ -300,7 +298,6 @@ def _encode_value(value: MeasurementValue) -> dict[str, object]:
     encoded: dict[str, object] = {
         "kind": value.kind,
         "dtype": value.dtype,
-        "storage_dtype": None,
         "unit": value.unit,
         "reason": None,
         "shape": [],
@@ -318,18 +315,15 @@ def _encode_value(value: MeasurementValue) -> dict[str, object]:
 
     if isinstance(value, MeasurementScalar):
         values: Sequence[object] = (value.value,)
-        storage_dtype = _scalar_storage_dtype(value.value)
     else:
         encoded["shape"] = list(value.shape)
         values = cast(
             "Sequence[object]",
             np.asarray(value.values).reshape(-1).tolist(),
         )
-        storage_dtype = value.dtype
-    encoded["storage_dtype"] = storage_dtype
-    encoded[_value_column(storage_dtype)] = _encode_typed_values(
+    encoded[_value_column(value.dtype)] = _encode_typed_values(
         values,
-        dtype=storage_dtype,
+        dtype=value.dtype,
     )
     return encoded
 
@@ -355,29 +349,11 @@ def _encode_typed_values(
 
 
 def _as_complex(value: object) -> complex:
-    if isinstance(value, ComplexComponents):
-        return complex(value.real, value.imag)
     if isinstance(value, complex):
         return value
-    if isinstance(value, Mapping):
-        selected = cast("Mapping[str, object]", value)
-        return complex(
-            float(cast("float", selected["real"])),
-            float(cast("float", selected["imag"])),
-        )
-    return complex(cast("float", value))
-
-
-def _scalar_storage_dtype(value: object) -> MeasurementDType:
-    if isinstance(value, bool):
-        return "bool"
-    if isinstance(value, int):
-        return "int64"
-    if isinstance(value, float):
-        return "float64"
-    if isinstance(value, str):
-        return "string"
-    return "complex128"
+    raise MeasurementArrowCodecError(
+        "complex128 measurement Arrow values must be native complex numbers"
+    )
 
 
 def _value_column(dtype: MeasurementDType) -> str:
@@ -458,24 +434,17 @@ def _decode_value(encoded: dict[str, object]) -> MeasurementValue:
             metadata=metadata,
         )
 
-    storage_dtype = cast("MeasurementDType", encoded["storage_dtype"])
     values = _decode_typed_values(
-        encoded[_value_column(storage_dtype)],
-        dtype=storage_dtype,
+        encoded[_value_column(dtype)],
+        dtype=dtype,
     )
     if kind == "scalar":
         if len(values) != 1:
             raise MeasurementArrowCodecError(
                 "measurement Arrow scalar must contain exactly one value"
             )
-        selected = values[0]
-        scalar = (
-            ComplexComponents(real=selected.real, imag=selected.imag)
-            if isinstance(selected, complex)
-            else cast("MeasurementScalarData", selected)
-        )
         return MeasurementScalar.create(
-            value=scalar,
+            value=cast("MeasurementScalarData", values[0]),
             dtype=dtype,
             unit=unit,
             metadata=metadata,

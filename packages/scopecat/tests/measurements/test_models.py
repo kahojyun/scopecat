@@ -8,7 +8,6 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.records.measurement import (
-    ComplexComponents,
     InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementDataset,
@@ -48,7 +47,7 @@ def test_measurement_values_round_trip_through_one_record() -> None:
             "raw_iq": MeasurementScalar.create(
                 dtype="complex128",
                 unit="ratio",
-                value=ComplexComponents(real=0.3, imag=-0.4),
+                value=complex(0.3, -0.4),
             ),
             "enabled": MeasurementScalar.create(dtype="bool", unit=None, value=True),
             "label": MeasurementScalar.create(dtype="string", unit=None, value="ready"),
@@ -62,12 +61,7 @@ def test_measurement_values_round_trip_through_one_record() -> None:
                 dtype="complex128",
                 unit="ratio",
                 shape=[1, 2],
-                values=[
-                    [
-                        ComplexComponents(real=0.1, imag=-0.2),
-                        ComplexComponents(real=0.3, imag=-0.4),
-                    ]
-                ],
+                values=[[complex(0.1, -0.2), complex(0.3, -0.4)]],
             ),
             "probability": MeasurementArray.create(
                 dtype="float64",
@@ -85,10 +79,8 @@ def test_measurement_values_round_trip_through_one_record() -> None:
     assert isinstance(restored.coordinates["shot"], MeasurementScalar)
     assert isinstance(restored.observables["signal"], MeasurementScalar)
     assert isinstance(restored.observables["raw_iq"], MeasurementScalar)
-    assert isinstance(
-        restored.observables["raw_iq"].value,
-        ComplexComponents,
-    )
+    assert type(restored.observables["raw_iq"].value) is complex
+    assert restored.observables["raw_iq"].value == complex(0.3, -0.4)
     assert isinstance(restored.observables["samples"], MeasurementArray)
     assert isinstance(restored.observables["iq"], MeasurementArray)
     assert isinstance(restored.observables["probability"], MeasurementArray)

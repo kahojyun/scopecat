@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 from typing import cast
 
+import pyarrow as pa
 import pytest
 import xarray as xr
 
@@ -13,7 +16,6 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import Dataset, PointMask, Variable
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetSchema,
@@ -128,12 +130,11 @@ def test_dataset_isel_combines_point_and_fixed_local_selection() -> None:
 
 def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() -> None:
     pd = pytest.importorskip("pandas")
-    pa = pytest.importorskip("pyarrow")
     dataset = _dataset()
 
     xarray_dataset = dataset.to_xarray()
     assert isinstance(xarray_dataset, xr.Dataset)
-    assert xarray_dataset is dataset.xarray
+    assert xarray_dataset is not dataset.xarray
     assert dataset["signal"].xarray.identical(xarray_dataset["signal"])
     assert xarray_dataset.sizes == {"point": 3, "sample": 2}
     assert tuple(xarray_dataset["frequency"].dims) == ("point", "sample")
@@ -143,10 +144,14 @@ def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() ->
     assert xarray_dataset["temperature__unavailable_reason"].values[1] == "invalid"
     assert xarray_dataset.attrs["scopecat_entry_id"] == dataset.entry.id
     assert xarray_dataset.attrs["scopecat_content_hash"] == dataset.entry.content_hash
-    assert (
-        xarray_dataset.attrs["scopecat_schema"]["dataset_id"]
-        == dataset.schema.dataset_id
+    schema = json.loads(xarray_dataset.attrs["scopecat_schema_json"])
+    assert schema["dataset_id"] == dataset.schema.dataset_id
+    metadata = json.loads(xarray_dataset.attrs["scopecat_metadata_json"])
+    assert metadata["context"]["tags"] == ["xarray", "netcdf"]
+    variable_metadata = json.loads(
+        xarray_dataset["bias"].attrs["scopecat_metadata_json"]
     )
+    assert variable_metadata == {"calibration": {"revision": 2, "source": "smu"}}
 
     arrow_table = dataset.to_arrow()
     assert isinstance(arrow_table, pa.Table)
@@ -172,8 +177,50 @@ def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() ->
     assert signal_rows.iloc[1]["value"] == complex(0.5, -0.1)
 
 
+def test_xarray_exports_are_independent_and_reflect_raw_updates() -> None:
+    dataset = _dataset()
+    first = dataset.xarray
+
+    first["bias"].values[0] = -100.0
+    assert float(dataset.xarray["bias"].values[0]) == 0.0
+
+    dataset.raw.records[0].coordinates["bias"] = MeasurementScalar.create(
+        value=9.0,
+        dtype="float64",
+        unit="V",
+    )
+
+    refreshed = dataset.to_xarray()
+    assert refreshed is not first
+    assert float(refreshed["bias"].values[0]) == 9.0
+    assert float(first["bias"].values[0]) == -100.0
+
+
+def test_xarray_snapshot_round_trips_through_netcdf(tmp_path: Path) -> None:
+    dataset = _dataset()
+    path = tmp_path / "measurements.nc"
+
+    serializable = dataset.to_xarray().drop_vars("signal")
+    serializable.to_netcdf(path)
+    restored = xr.load_dataset(path)
+
+    schema = json.loads(restored.attrs["scopecat_schema_json"])
+    assert schema["dataset_id"] == dataset.schema.dataset_id
+    assert json.loads(restored.attrs["scopecat_metadata_json"])["context"] == {
+        "operator": "test",
+        "tags": ["xarray", "netcdf"],
+    }
+    assert (
+        json.loads(restored["bias"].attrs["scopecat_metadata_json"])["calibration"][
+            "revision"
+        ]
+        == 2
+    )
+    assert restored.attrs["scopecat_entry_id"] == dataset.entry.id
+    assert float(restored["frequency"].values[0, 1]) == 11.0
+
+
 def test_ragged_dataset_exports_nested_arrow_lists() -> None:
-    pa = pytest.importorskip("pyarrow")
     dataset = _ragged_dataset()
 
     arrow = dataset.to_arrow()
@@ -210,7 +257,6 @@ def test_ragged_dataset_exports_indexed_xarray_observations() -> None:
 
 
 def test_ragged_unavailable_unknown_extent_uses_recording_group_layout() -> None:
-    pa = pytest.importorskip("pyarrow")
     dataset = _ragged_dataset()
     dataset.raw.records[1].observables["signal"] = MeasurementUnavailable.create(
         reason="missing",
@@ -219,7 +265,6 @@ def test_ragged_unavailable_unknown_extent_uses_recording_group_layout() -> None
         shape=(None,),
         metadata={},
     )
-    dataset = Dataset(dataset.raw, dataset.entry)
 
     arrow = dataset.to_arrow()
     xarray_dataset = dataset.to_xarray()
@@ -251,7 +296,6 @@ def test_ungrouped_ragged_unavailable_preserves_unknown_extent_in_xarray() -> No
         shape=(None,),
         metadata={},
     )
-    dataset = Dataset(dataset.raw, dataset.entry)
 
     xarray_dataset = dataset.to_xarray()
 
@@ -271,7 +315,6 @@ def test_ungrouped_ragged_variables_keep_independent_xarray_observations() -> No
     for variable in dataset.raw.dataset_schema.variables:
         if variable.id in {"frequency", "signal"}:
             variable.recording_group_id = None
-    dataset = Dataset(dataset.raw, dataset.entry)
 
     xarray_dataset = dataset.to_xarray()
 
@@ -287,8 +330,8 @@ def test_grouped_ragged_xarray_rejects_misaligned_point_local_shapes() -> None:
     dataset.raw.records[1].observables["signal"] = MeasurementArray.create(
         shape=(2,),
         values=(
-            ComplexComponents(real=1.0, imag=0.0),
-            ComplexComponents(real=1.0, imag=1.0),
+            complex(1.0, 0.0),
+            complex(1.0, 1.0),
         ),
         dtype="complex128",
         unit="ratio",
@@ -298,7 +341,7 @@ def test_grouped_ragged_xarray_rejects_misaligned_point_local_shapes() -> None:
         ValueError,
         match=r"recording group 'readout'.*do not share one point-local",
     ):
-        Dataset(dataset.raw, dataset.entry)
+        dataset.to_xarray()
 
 
 def test_ragged_sample_selection_applies_independently_per_point_and_group() -> None:
@@ -346,13 +389,12 @@ def _ragged_dataset() -> Dataset:
         dataset.raw.records[point].observables["signal"] = MeasurementArray.create(
             shape=(length,),
             values=tuple(
-                ComplexComponents(real=float(point), imag=float(index))
-                for index in range(length)
+                complex(float(point), float(index)) for index in range(length)
             ),
             dtype="complex128",
             unit="ratio",
         )
-    return Dataset(dataset.raw, dataset.entry)
+    return dataset
 
 
 def _dataset() -> Dataset:
@@ -371,6 +413,12 @@ def _dataset() -> Dataset:
                 unit="V",
                 dims=["point"],
                 label="DC bias",
+                metadata={
+                    "calibration": {
+                        "source": "smu",
+                        "revision": 2,
+                    }
+                },
             ),
             MeasurementVariable(
                 id="frequency",
@@ -436,8 +484,8 @@ def _dataset() -> Dataset:
                 "signal": MeasurementArray.create(
                     shape=(2,),
                     values=(
-                        ComplexComponents(real=1.0 + point_index, imag=0.0),
-                        ComplexComponents(real=0.5 + point_index, imag=-0.1),
+                        complex(1.0 + point_index, 0.0),
+                        complex(0.5 + point_index, -0.1),
                     ),
                     dtype="complex128",
                     unit="ratio",
@@ -449,7 +497,13 @@ def _dataset() -> Dataset:
     raw = MeasurementDataset(
         dataset_schema=schema,
         records=records,
-        metadata={"experiment": "facade-test"},
+        metadata={
+            "experiment": "facade-test",
+            "context": {
+                "operator": "test",
+                "tags": ["xarray", "netcdf"],
+            },
+        },
     )
     entry = RunContentEntry(
         role="dataset",

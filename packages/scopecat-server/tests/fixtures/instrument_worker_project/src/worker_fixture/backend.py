@@ -10,7 +10,6 @@ import numpy as np
 from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Scalar
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -242,7 +241,7 @@ def _measurement_value(result_id: str, *, gain: float = 0.0) -> MeasurementValue
             dtype="complex128",
             unit="ratio",
             shape=(1,),
-            values=(ComplexComponents(real=1.0, imag=-0.5),),
+            values=(complex(1.0, -0.5),),
         )
     if result_id == "invalid_array":
         return MeasurementArray.model_construct(

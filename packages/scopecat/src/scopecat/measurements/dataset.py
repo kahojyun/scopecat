@@ -23,7 +23,6 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.traces import Trace, measurement_traces
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetSchema,
@@ -237,11 +236,13 @@ class Variable:
         )
 
     def is_available(self) -> PointMask:
-        reason = self._availability_array()
+        source = self._dataset.to_xarray()
+        reason_name = _unavailable_reason_name(self.id)
+        reason = source.get(reason_name)
         if reason is None:
             return PointMask(
                 self._dataset,
-                xr.ones_like(self._dataset.xarray.coords["point"], dtype=np.bool_),
+                xr.ones_like(source.coords["point"], dtype=np.bool_),
             )
         return PointMask(self._dataset, reason.isnull())
 
@@ -249,10 +250,12 @@ class Variable:
         self,
         reason: MeasurementUnavailableReason | None = None,
     ) -> PointMask:
-        availability = self._availability_array()
+        source = self._dataset.to_xarray()
+        reason_name = _unavailable_reason_name(self.id)
+        availability = source.get(reason_name)
         if availability is None:
             selected = xr.zeros_like(
-                self._dataset.xarray.coords["point"],
+                source.coords["point"],
                 dtype=np.bool_,
             )
         elif reason is None:
@@ -318,12 +321,6 @@ class Variable:
         )
         return PointMask(self._dataset, selected.fillna(False))
 
-    def _availability_array(self) -> xr.DataArray | None:
-        name = _unavailable_reason_name(self.id)
-        if name not in self._dataset.xarray:
-            return None
-        return self._dataset.xarray[name]
-
     def require_point_scalar(self) -> None:
         if self.dims != ("point",):
             raise ValueError(
@@ -344,7 +341,6 @@ class Dataset:
     _raw: MeasurementDataset
     entry: RunContentEntry
     _variables: Mapping[str, Variable] = field(init=False, repr=False)
-    _xarray: xr.Dataset = field(init=False, repr=False)
 
     def __init__(self, raw: MeasurementDataset, entry: RunContentEntry) -> None:
         object.__setattr__(self, "_raw", raw)
@@ -357,7 +353,6 @@ class Dataset:
             for definition in self._raw.dataset_schema.variables
         }
         object.__setattr__(self, "_variables", MappingProxyType(variables))
-        object.__setattr__(self, "_xarray", self._build_xarray())
 
     @property
     def raw(self) -> MeasurementDataset:
@@ -379,9 +374,9 @@ class Dataset:
 
     @property
     def xarray(self) -> xr.Dataset:
-        """Return the canonical labeled analysis view for this durable dataset."""
+        """Return a fresh labeled snapshot of the current durable dataset."""
 
-        return self._xarray
+        return self.to_xarray()
 
     @property
     def point_indices(self) -> tuple[int, ...]:
@@ -641,7 +636,8 @@ class Dataset:
     ) -> Self:
         """Keep point rows selected by an Xarray-aligned boolean condition."""
 
-        selected = condition(self.xarray) if callable(condition) else condition
+        source = self.to_xarray()
+        selected = condition(source) if callable(condition) else condition
         if isinstance(selected, PointMask):
             if not selected.belongs_to(self):
                 raise ValueError("point mask belongs to a different dataset view")
@@ -652,13 +648,13 @@ class Dataset:
             mask = xr.DataArray(
                 np.asarray(selected, dtype=np.bool_),
                 dims=("point",),
-                coords={"point": self.xarray.coords["point"]},
+                coords={"point": source.coords["point"]},
             )
         if mask.dims != ("point",) or mask.sizes["point"] != len(self):
             raise ValueError(
                 "where condition must align exactly with the point dimension"
             )
-        selected_xarray = self.xarray.where(mask.astype(np.bool_), drop=True)
+        selected_xarray = source.where(mask.astype(np.bool_), drop=True)
         return self._select_indices(
             _point_positions(self, selected_xarray),
         )
@@ -696,12 +692,12 @@ class Dataset:
         )
 
     def to_xarray(self) -> xr.Dataset:
-        """Return the canonical Xarray dataset, retaining Scopecat provenance."""
+        """Build an independent Xarray snapshot with Scopecat provenance."""
 
-        return self.xarray
+        return self._build_xarray()
 
     def _build_xarray(self) -> xr.Dataset:
-        """Materialize the canonical Xarray view once at the facade boundary."""
+        """Materialize a labeled snapshot from the current durable records."""
 
         coords: dict[str, object] = {
             "point": (
@@ -1123,8 +1119,6 @@ def _native_value(value: MeasurementValue) -> NativeValue:
 
 
 def _native_leaf(value: object) -> object:
-    if isinstance(value, ComplexComponents):
-        return complex(value.real, value.imag)
     if isinstance(value, list | tuple):
         return tuple(_native_leaf(item) for item in value)
     return value
@@ -1139,8 +1133,6 @@ def _arrow_value(value: MeasurementValue) -> object:
 
 
 def _arrow_leaf(value: object) -> object:
-    if isinstance(value, ComplexComponents):
-        return {"real": value.real, "imag": value.imag}
     if isinstance(value, complex):
         return {"real": value.real, "imag": value.imag}
     if isinstance(value, list | tuple):
@@ -1602,7 +1594,8 @@ def _variable_attrs(variable: Variable) -> dict[str, object]:
     attrs: dict[str, object] = {
         "scopecat_role": variable.role,
         "scopecat_dtype": variable.dtype,
-        "scopecat_dims": variable.dims,
+        "scopecat_dims_json": _stable_json(variable.dims),
+        "scopecat_metadata_json": _stable_json(dict(variable.metadata)),
     }
     if variable.unit is not None:
         attrs["units"] = variable.unit
@@ -1610,7 +1603,6 @@ def _variable_attrs(variable: Variable) -> dict[str, object]:
         attrs["long_name"] = variable.label
     if variable.recording_group_id is not None:
         attrs["scopecat_recording_group_id"] = variable.recording_group_id
-    attrs.update(variable.metadata)
     return attrs
 
 
@@ -1622,9 +1614,13 @@ def _dataset_attrs(dataset: Dataset) -> dict[str, object]:
         "scopecat_entry_role": dataset.entry.role,
         "scopecat_entry_kind": dataset.entry.kind,
         "scopecat_content_hash": dataset.entry.content_hash,
-        "scopecat_schema": dataset.schema.model_dump(mode="json"),
-        **dict(dataset.metadata),
+        "scopecat_schema_json": _stable_json(dataset.schema.model_dump(mode="json")),
+        "scopecat_metadata_json": _stable_json(dict(dataset.metadata)),
     }
+
+
+def _stable_json(value: object) -> str:
+    return json.dumps(value, separators=(",", ":"), sort_keys=True)
 
 
 def _unavailable_reason_name(variable_id: str) -> str:

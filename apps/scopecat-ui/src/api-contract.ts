@@ -68,7 +68,6 @@ export type InstrumentState =
   GetResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state">;
 export type InstrumentStateValue = components["schemas"]["StateValue"];
 export type InstrumentView = GetResponse<"/api/v1/instruments/{instrument_id}">;
-export type ComplexComponents = components["schemas"]["ComplexComponents"];
 export type AnalysisFigure = components["schemas"]["AnalysisFigure"];
 export type AnalysisRecordInput = components["schemas"]["AnalysisRecordInput"];
 export type AnalysisRecordOutput = components["schemas"]["AnalysisRecordOutput"];
@@ -81,6 +80,11 @@ export type MeasurementSlice = components["schemas"]["MeasurementSlice"];
 export type MeasurementTracePreview = components["schemas"]["MeasurementTracePreview"];
 export type MeasurementTracePreviewQuery = components["schemas"]["MeasurementTracePreviewQuery"];
 export type MeasurementValue = components["schemas"]["MeasurementValue-Output"];
+/** Complex scalar representation on the JSON wire. */
+export type ComplexComponents = Extract<
+  Extract<MeasurementValue, { kind: "scalar" }>["value"],
+  { imag: number; real: number }
+>;
 export type ActiveConfig = GetResponse<"/api/v1/config-registry/active">;
 export type InstrumentList = GetResponse<"/api/v1/instruments">;
 export type ParameterProposalList = GetResponse<"/api/v1/runs/{run_id}/parameter-proposals">;

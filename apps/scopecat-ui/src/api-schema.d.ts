@@ -1064,13 +1064,6 @@ export interface components {
             size_bytes: number;
         };
         CommandPayloadBody: components["schemas"]["InlinePayloadBody"] | components["schemas"]["BlobPayloadBody"];
-        /** ComplexComponents */
-        ComplexComponents: {
-            /** Imag */
-            imag: number;
-            /** Real */
-            real: number;
-        };
         /**
          * ComponentSpec
          * @description One stable role nested below an interface endpoint.
@@ -2168,9 +2161,12 @@ export interface components {
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Unit */
             unit?: string | null;
-            value: components["schemas"]["MeasurementScalarData"];
+            /** Value */
+            value: boolean | number | string | {
+                imag: number;
+                real: number;
+            };
         };
-        MeasurementScalarData: boolean | number | string | components["schemas"]["ComplexComponents"];
         /**
          * MeasurementSlice
          * @description Records for one semantic product-grid slice.

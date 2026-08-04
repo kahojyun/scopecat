@@ -228,7 +228,6 @@ def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
 
 
 def test_measurement_batch_converts_directly_to_arrow(tmp_path: Path) -> None:
-    pytest.importorskip("pyarrow")
     [first, second] = _run_signal_scan(tmp_path).measurement_batches(batch_size=2)
 
     first_table = cast(
