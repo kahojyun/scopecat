@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from runpy import run_path
+from typing import Protocol, TypedDict, cast
 
 import pytest
 from tests.testkit.in_process_lab import in_process_lab
@@ -40,6 +42,18 @@ from scopecat.sdk.instruments import (
     DriverReadback,
 )
 from scopecat_instruments.virtual import VirtualNetworkAnalyzer
+
+
+class _DemoDaemon(Protocol):
+    url: str
+
+
+class _FluxNotebookSummary(TypedDict):
+    status: str
+    point_count: int
+    measurement_records: int
+    analysis_id: str
+    candidate_config_id: str
 
 
 def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
@@ -136,23 +150,25 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         }
         for record in records
     )
-    assert all(
-        isinstance(record.coordinates[FREQUENCY_RECORD_ID], MeasurementArray)
-        and record.coordinates[FREQUENCY_RECORD_ID].shape == (TRACE_POINTS,)
-        and record.coordinates[FREQUENCY_RECORD_ID].dtype == "float64"
-        and record.coordinates[FREQUENCY_RECORD_ID].unit == "Hz"
-        and isinstance(record.observables[S_PARAMETER_RECORD_ID], MeasurementArray)
-        and record.observables[S_PARAMETER_RECORD_ID].shape == (TRACE_POINTS,)
-        and record.observables[S_PARAMETER_RECORD_ID].dtype == "complex128"
-        and record.observables[S_PARAMETER_RECORD_ID].unit == "ratio"
-        and all(
-            isinstance(sample, ComplexComponents)
-            for sample in record.observables[S_PARAMETER_RECORD_ID].values
+    for record in records:
+        frequency = record.coordinates[FREQUENCY_RECORD_ID]
+        assert isinstance(frequency, MeasurementArray)
+        assert frequency.shape == (TRACE_POINTS,)
+        assert frequency.dtype == "float64"
+        assert frequency.unit == "Hz"
+
+        s_parameter = record.observables[S_PARAMETER_RECORD_ID]
+        assert isinstance(s_parameter, MeasurementArray)
+        assert s_parameter.shape == (TRACE_POINTS,)
+        assert s_parameter.dtype == "complex128"
+        assert s_parameter.unit == "ratio"
+        assert all(
+            isinstance(sample, ComplexComponents) for sample in s_parameter.values
         )
-        and isinstance(record.observables[TEMPERATURE_RECORD_ID], MeasurementScalar)
-        and record.observables[TEMPERATURE_RECORD_ID].unit == "K"
-        for record in records
-    )
+
+        temperature = record.observables[TEMPERATURE_RECORD_ID]
+        assert isinstance(temperature, MeasurementScalar)
+        assert temperature.unit == "K"
     first_evidence = records[0].acquisition_evidence
     assert first_evidence[FREQUENCY_RECORD_ID].instrument_id == "readout-vna"
     assert first_evidence[FREQUENCY_RECORD_ID].result_id == "frequency"
@@ -210,6 +226,43 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         RESONANCE_FREQUENCY_PARAMETER_ID,
     )
     assert float(active_frequency.to("GHz").value) == pytest.approx(5.0)
+
+
+def test_direct_control_notebook_completes_through_the_project_daemon(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    result = run_path(
+        str(Path(__file__).parents[1] / "notebooks" / "01_direct_control.py")
+    )
+
+    inventory = cast("list[tuple[str, str]]", result["inventory"])
+    trace_results = cast("dict[str, dict[str, object]]", result["trace_results"])
+    assert {instrument_id for instrument_id, _availability in inventory} >= {
+        "flux-source",
+        "mixing-chamber",
+        "readout-vna",
+    }
+    assert trace_results["frequency"]["shape"] == [201]
+    assert trace_results["s_parameter"]["shape"] == [201]
+
+
+def test_flux_spectroscopy_notebook_completes_through_the_project_daemon(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    result = run_path(
+        str(Path(__file__).parents[1] / "notebooks" / "02_flux_spectroscopy.py")
+    )
+
+    summary = cast("_FluxNotebookSummary", result["summary"])
+    assert summary["status"] == "completed"
+    assert summary["point_count"] == BIAS_POINTS
+    assert summary["measurement_records"] == BIAS_POINTS
+    assert summary["analysis_id"] == (
+        "analysis-instrument_demo-flux_spectroscopy-analysis"
+    )
+    assert summary["candidate_config_id"] == "candidate-readout-resonator-fit"
 
 
 def test_flux_spectroscopy_failure_aborts_with_bias_disabled(
