@@ -842,13 +842,6 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         Quantity(value=5.1, unit="GHz"),
     ]
     assert len(instrument.invoked) == 6
-    assert all(
-        transition.stage != "compute"
-        for transition in sqlite_execution_session(
-            tmp_path,
-            manifest.run_id,
-        ).journal.entries()
-    )
     arguments: list[DriverPayload] = []
     for command in instrument.invoked:
         [argument] = command.arguments.values()

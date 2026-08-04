@@ -335,8 +335,8 @@ def _transition() -> ExecutionTransition:
     return ExecutionTransition(
         run_id="run-1",
         operation_id="operation-1",
-        stage="collect",
-        effect="acquisition",
+        stage="domain_fetch",
+        effect="read",
         state="completed",
     )
 

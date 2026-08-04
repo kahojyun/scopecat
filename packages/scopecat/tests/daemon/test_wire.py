@@ -91,8 +91,8 @@ def _transition(
         sequence=sequence,
         run_id=run_id,
         operation_id="op-1",
-        stage="apply_state",
-        effect="state_write",
+        stage="domain_fetch",
+        effect="read",
         state="completed",
     )
 

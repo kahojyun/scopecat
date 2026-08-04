@@ -2177,9 +2177,9 @@ def test_effect_is_fenced_and_terminal_updates_control(
         )
         transition = ExecutionTransition(
             run_id=run_id,
-            operation_id="collect-1",
-            stage="collect",
-            effect="acquisition",
+            operation_id="fetch-1",
+            stage="domain_fetch",
+            effect="read",
             state="completed",
             timestamp=datetime(2026, 7, 23, 9, 0, 1, tzinfo=UTC),
             point_index=0,
@@ -2283,9 +2283,9 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert transition_event.occurred_at == committed_transition.timestamp
         assert transition_event.payload == {
             "sequence": 0,
-            "operation_id": "collect-1",
-            "stage": "collect",
-            "effect": "acquisition",
+            "operation_id": "fetch-1",
+            "stage": "domain_fetch",
+            "effect": "read",
             "state": "completed",
             "point_index": 0,
             "instrument_id": "scope-1",
