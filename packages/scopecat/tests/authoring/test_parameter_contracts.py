@@ -264,7 +264,7 @@ def test_parameter_contract_survives_scan_lowering() -> None:
                 "drive_frequency",
                 sc.ScalarType(sc.QuantityType(unit="ns")),
             ),
-            span=sc.Quantity(value=100, unit="MHz"),
+            span=sc.Quantity(value=100, unit="ns"),
             points=3,
         ),
     )
@@ -391,6 +391,44 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
     stored = config.parameter_snapshot.get("device_parameters")
     assert isinstance(stored, TableParameterValue)
     assert stored.rows[0]["frequency"] == sc.Quantity(5.0, "GHz")
+
+
+def test_parameter_range_scan_materializes_literal_endpoints() -> None:
+    config = _config_with_parameter_table()
+    frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
+    frequency = sc.coordinate("scanned_frequency", frequency_type)
+    invocation = _scan_invocation(
+        "test.parameter-range-scan",
+        sc.param_axis(
+            frequency,
+            sc.parameter_lookup(
+                "device_parameters",
+                key={"device": "q0"},
+                column="frequency",
+                value_type=frequency_type,
+            ),
+            start=4.8,
+            stop=5.2,
+            unit="GHz",
+            points=3,
+        ),
+    )
+
+    resolved = bind_invocation(invocation, config_profile=config)
+    materialized = materialized_effects_contract(
+        resolved,
+        resolved.environment.parameters,
+        config=config,
+    )
+
+    assert [
+        point.coordinates["scanned_frequency"] for point in materialized.points
+    ] == [
+        sc.Quantity(4.8, "GHz"),
+        sc.Quantity(5.0, "GHz"),
+        sc.Quantity(5.2, "GHz"),
+    ]
+    assert len(resolved.bindings.parameter_overlays) == 1
 
 
 def test_parameter_scan_specializes_consumers_against_its_point_column() -> None:

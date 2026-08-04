@@ -8,7 +8,6 @@ from scopecat.measurements.contracts import (
 from scopecat.measurements.dataset import Dataset, PointMask, Variable
 from scopecat.measurements.traces import Trace
 from scopecat.records.measurement import (
-    ComplexComponents,
     InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementDataset,
@@ -30,7 +29,6 @@ from scopecat.records.measurement import (
 )
 
 __all__ = [
-    "ComplexComponents",
     "Dataset",
     "InstrumentAcquisitionEvidence",
     "MeasurementArray",

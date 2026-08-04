@@ -17,6 +17,8 @@ import {
 } from "./measurement-visualization";
 import { tracePreview, traceSeries } from "./measurement-trace.test-support";
 
+vi.mock("../../ui/EChartRuntime", () => ({ EChartRuntime: () => null }));
+
 afterEach(cleanup);
 
 describe("measurement visualization", () => {
@@ -44,6 +46,18 @@ describe("measurement visualization", () => {
       }),
     ]);
     expect(measurementTable(items, schema).rows[1]?.cells).toEqual(["1", "0.1 V", "2 ratio"]);
+  });
+
+  it("does not fill missing persisted value units from the schema", () => {
+    const items = [
+      record(
+        0,
+        { bias: { kind: "scalar", dtype: "float64", value: 0.1 } },
+        { signal: { kind: "scalar", dtype: "float64", value: 2 } },
+      ),
+    ];
+
+    expect(measurementTable(items, scalarSchema()).rows[0]?.cells).toEqual(["0", "0.1", "2"]);
   });
 
   it("always uses scatter for a one-dimensional point cloud", () => {
@@ -146,7 +160,6 @@ describe("measurement visualization", () => {
         onLoadMore={vi.fn()}
       />,
     );
-    expect(screen.getAllByTestId("heatmap-cell")).toHaveLength(6);
     expect(
       screen.getByRole("img", {
         name: "Temperature heatmap: Column [mm] by Row [mm], colored by Temperature [K]",
@@ -289,8 +302,6 @@ describe("measurement visualization", () => {
     expect(screen.getByRole("option", { name: "0 V" })).toBeVisible();
     expect(screen.getByRole("option", { name: "1 V" })).toBeVisible();
     expect(screen.getByText("6 of 6 slice points durable")).toBeVisible();
-    expect(screen.getAllByTestId("heatmap-cell")).toHaveLength(6);
-
     fireEvent.change(selector, { target: { value: "1" } });
     expect(onFixedAxisIndexChange).toHaveBeenCalledWith("bias", 1);
   });
@@ -358,7 +369,6 @@ describe("measurement visualization", () => {
     expect(
       screen.getByRole("img", { name: "Spectrum: Spectrum [ratio] by Frequency [GHz]" }),
     ).toBeVisible();
-    expect(screen.queryByTestId("heatmap-cell")).not.toBeInTheDocument();
   });
 
   it("uses the first authored opaque axis when no numeric domain axis exists", () => {
@@ -776,7 +786,7 @@ function baseSchema(): MeasurementDatasetSchema {
     format_version: "scopecat.measurement_dataset_schema.v8",
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4",
-    point_domain: { kind: "product_grid", axes: [] },
+    point_domain: { kind: "point_cloud", columns: [] },
     dimensions: [{ id: "point", kind: "point", size: 3 }],
     variables: [],
   };

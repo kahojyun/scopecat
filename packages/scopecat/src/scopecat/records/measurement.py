@@ -4,21 +4,40 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Literal, Self, cast
+from typing import (
+    Annotated,
+    Literal,
+    Self,
+    SupportsComplex,
+    SupportsFloat,
+    SupportsIndex,
+    cast,
+    override,
+)
 
+import numpy as np
+from numpy.typing import NDArray
 from pydantic import (
+    AfterValidator,
     AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
-    ValidationError,
+    GetJsonSchemaHandler,
+    PlainSerializer,
+    TypeAdapter,
     ValidationInfo,
+    WithJsonSchema,
+    field_serializer,
     field_validator,
     model_validator,
 )
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema
 
+from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
-from scopecat.records._metadata import JsonMetadata
+from scopecat.records._metadata import MeasurementMetadata
 from scopecat.records._schema_utils import (
     ensure_unique_ids,
     missing_references,
@@ -31,37 +50,113 @@ MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v8"
 MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
-MeasurementArrayData = Sequence[object]
+type MeasurementArrayElement = (
+    np.bool_ | np.int64 | np.float64 | np.complex128 | np.str_
+)
+
+type MeasurementComplexJson = Annotated[
+    dict[str, float],
+    WithJsonSchema(
+        {
+            "type": "object",
+            "properties": {
+                "real": {"type": "number"},
+                "imag": {"type": "number"},
+            },
+            "required": ["real", "imag"],
+            "additionalProperties": False,
+        }
+    ),
+]
+type MeasurementArrayJsonLeaf = bool | int | float | str | MeasurementComplexJson
+type MeasurementArrayJsonItem = (
+    MeasurementArrayJsonLeaf | list[MeasurementArrayJsonItem]
+)
+type MeasurementArrayJson = list[MeasurementArrayJsonItem]
+
+_MEASUREMENT_ARRAY_JSON_CORE_SCHEMA = TypeAdapter(MeasurementArrayJson).core_schema
+_MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
+
+
+class _MeasurementArrayJsonSchema:
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls,
+        _core_schema: CoreSchema,
+        handler: GetJsonSchemaHandler,
+    ) -> JsonSchemaValue:
+        return handler(_MEASUREMENT_ARRAY_JSON_CORE_SCHEMA)
+
+
+MeasurementArrayData = Annotated[
+    NDArray[MeasurementArrayElement],
+    _MeasurementArrayJsonSchema,
+]
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
-class MeasurementDimension(BaseModel):
+def _empty_metadata() -> Mapping[str, object]:
+    return FrozenMapping()
+
+
+class _FrozenMeasurementModel(BaseModel):
+    """Validation-preserving copy semantics for immutable measurement models."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @override
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, object] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if not update:
+            return self
+        values: dict[str, object] = {
+            name: getattr(self, name) for name in type(self).model_fields
+        }
+        values.update(update)
+        return type(self).model_validate(values)
+
+    @override
+    def __copy__(self) -> Self:
+        return self
+
+    @override
+    def __deepcopy__(self, memo: dict[int, object] | None = None) -> Self:
+        if memo is not None:
+            memo[id(self)] = self
+        return self
+
+
+class MeasurementDimension(_FrozenMeasurementModel):
     """One logical extent; ``None`` denotes a point-local ragged extent."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(min_length=1)
     kind: str = Field(min_length=1)
     label: str | None = None
     size: Annotated[int, Field(ge=0)] | None
-    metadata: JsonMetadata = Field(default_factory=dict)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
 
-class MeasurementVariable(BaseModel):
+class MeasurementVariable(_FrozenMeasurementModel):
     """A point-local variable whose shape is derived from its dimensions."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(min_length=1)
     role: MeasurementVariableRole
     dtype: MeasurementDType
     unit: str | None = None
-    dims: list[str] = Field(min_length=1)
+    dims: Sequence[str] = Field(min_length=1)
     label: str | None = None
     source_product_id: _NonEmptyText | None = None
     source_value_id: _NonEmptyText | None = None
     recording_group_id: _NonEmptyText | None = None
-    metadata: JsonMetadata = Field(default_factory=dict)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @field_validator("unit")
     @classmethod
@@ -70,14 +165,14 @@ class MeasurementVariable(BaseModel):
 
     @field_validator("dims")
     @classmethod
-    def validate_dims(cls, value: list[str]) -> list[str]:
+    def validate_dims(cls, value: Sequence[str]) -> Sequence[str]:
         ensure_unique_ids(
             value,
             "measurement variable dimensions must be unique",
         )
         if value[0] != "point":
             raise ValueError("measurement variables must use point as first dimension")
-        return value
+        return tuple(value)
 
     @model_validator(mode="after")
     def validate_unitless_dtype(self) -> MeasurementVariable:
@@ -86,14 +181,22 @@ class MeasurementVariable(BaseModel):
         return self
 
 
-class MeasurementPointDomainAxis(BaseModel):
+class MeasurementPointDomainAxis(_FrozenMeasurementModel):
     """One ordered independent axis in a product-grid point domain."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(min_length=1)
     size: Annotated[int, Field(ge=0)]
-    values: list[MeasurementScalar | None]
+    values: Sequence[MeasurementScalar | None]
+
+    @field_validator("values")
+    @classmethod
+    def freeze_values(
+        cls,
+        value: Sequence[MeasurementScalar | None],
+    ) -> Sequence[MeasurementScalar | None]:
+        return tuple(value)
 
     @model_validator(mode="after")
     def validate_values(self) -> MeasurementPointDomainAxis:
@@ -102,54 +205,54 @@ class MeasurementPointDomainAxis(BaseModel):
         return self
 
 
-class MeasurementProductGridPointDomain(BaseModel):
+class MeasurementProductGridPointDomain(_FrozenMeasurementModel):
     """A point domain formed from the ordered product of independent axes."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["product_grid"] = "product_grid"
-    axes: list[MeasurementPointDomainAxis]
+    axes: Sequence[MeasurementPointDomainAxis]
 
     @field_validator("axes")
     @classmethod
     def validate_axes(
         cls,
-        value: list[MeasurementPointDomainAxis],
-    ) -> list[MeasurementPointDomainAxis]:
+        value: Sequence[MeasurementPointDomainAxis],
+    ) -> Sequence[MeasurementPointDomainAxis]:
         ensure_unique_ids(
             [axis.id for axis in value],
             "measurement point-domain axis ids must be unique",
         )
-        return value
+        return tuple(value)
 
 
-class MeasurementPointDomainColumn(BaseModel):
+class MeasurementPointDomainColumn(_FrozenMeasurementModel):
     """One ordered coordinate column in a point-cloud domain."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(min_length=1)
 
 
-class MeasurementPointCloudPointDomain(BaseModel):
+class MeasurementPointCloudPointDomain(_FrozenMeasurementModel):
     """A point domain whose coordinate columns form explicit ordered rows."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["point_cloud"] = "point_cloud"
-    columns: list[MeasurementPointDomainColumn]
+    columns: Sequence[MeasurementPointDomainColumn]
 
     @field_validator("columns")
     @classmethod
     def validate_columns(
         cls,
-        value: list[MeasurementPointDomainColumn],
-    ) -> list[MeasurementPointDomainColumn]:
+        value: Sequence[MeasurementPointDomainColumn],
+    ) -> Sequence[MeasurementPointDomainColumn]:
         ensure_unique_ids(
             [column.id for column in value],
             "measurement point-domain column ids must be unique",
         )
-        return value
+        return tuple(value)
 
 
 type MeasurementPointDomain = Annotated[
@@ -158,8 +261,10 @@ type MeasurementPointDomain = Annotated[
 ]
 
 
-class MeasurementDatasetSchema(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class MeasurementDatasetSchema(_FrozenMeasurementModel):
+    """Complete planned shape and variable contract for one measurement dataset."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     format_version: Literal["scopecat.measurement_dataset_schema.v8"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
@@ -169,11 +274,21 @@ class MeasurementDatasetSchema(BaseModel):
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
     point_domain: MeasurementPointDomain
-    dimensions: list[MeasurementDimension]
-    variables: list[MeasurementVariable] = Field(default_factory=list)
-    primary_coordinates: list[str] = Field(default_factory=list)
-    primary_observables: list[str] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
+    dimensions: Sequence[MeasurementDimension]
+    variables: Sequence[MeasurementVariable] = Field(default_factory=tuple)
+    primary_coordinates: Sequence[str] = Field(default_factory=tuple)
+    primary_observables: Sequence[str] = Field(default_factory=tuple)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+
+    @field_validator(
+        "dimensions",
+        "variables",
+        "primary_coordinates",
+        "primary_observables",
+    )
+    @classmethod
+    def freeze_sequences[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
 
     @model_validator(mode="after")
     def validate_references(self) -> MeasurementDatasetSchema:
@@ -207,6 +322,13 @@ class MeasurementDatasetSchema(BaseModel):
             )
         if point_dimensions[0].size is None:
             raise ValueError("measurement point dimension must have a fixed size")
+        if isinstance(self.point_domain, MeasurementProductGridPointDomain):
+            grid_size = math.prod(axis.size for axis in self.point_domain.axes)
+            if grid_size != point_dimensions[0].size:
+                raise ValueError(
+                    "measurement product-grid cardinality must match the point "
+                    "dimension size"
+                )
 
         for variable in self.variables:
             missing_dims = missing_references(variable.dims, dimension_id_set)
@@ -246,52 +368,60 @@ class MeasurementDatasetSchema(BaseModel):
         return self
 
 
-class ComplexComponents(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+MeasurementScalarData = Annotated[
+    bool | int | float | complex | str,
+    WithJsonSchema(
+        {
+            "anyOf": [
+                {"type": "boolean"},
+                {"type": "integer"},
+                {"type": "number"},
+                {"type": "string"},
+                {
+                    "type": "object",
+                    "properties": {
+                        "real": {"type": "number"},
+                        "imag": {"type": "number"},
+                    },
+                    "required": ["real", "imag"],
+                    "additionalProperties": False,
+                },
+            ]
+        }
+    ),
+]
 
-    real: float
-    imag: float
 
-    @field_validator("real", "imag", mode="before")
-    @classmethod
-    def validate_component(cls, value: object) -> float:
-        if not isinstance(value, int | float) or isinstance(value, bool):
-            raise ValueError("complex components must be numeric")
-        selected = float(value)
-        if not math.isfinite(selected):
-            raise ValueError("complex components must be finite")
-        return selected
+class MeasurementScalar(_FrozenMeasurementModel):
+    """One normalized, typed scalar measurement value."""
 
-
-type MeasurementScalarData = bool | int | float | str | ComplexComponents
-
-
-class MeasurementScalar(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["scalar"]
     dtype: MeasurementDType = "float64"
     unit: str | None = None
     value: MeasurementScalarData
-    metadata: JsonMetadata = Field(default_factory=dict)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @classmethod
     def create(
         cls,
         *,
-        value: MeasurementScalarData,
+        value: object,
         dtype: MeasurementDType = "float64",
         unit: str | None = None,
-        metadata: JsonMetadata | None = None,
+        metadata: Mapping[str, object] | None = None,
     ) -> Self:
         """Construct a scalar while keeping the wire discriminator required."""
 
-        return cls(
-            kind="scalar",
-            dtype=dtype,
-            unit=unit,
-            value=value,
-            metadata={} if metadata is None else metadata,
+        return cls.model_validate(
+            {
+                "kind": "scalar",
+                "dtype": dtype,
+                "unit": unit,
+                "value": value,
+                "metadata": {} if metadata is None else metadata,
+            }
         )
 
     @field_validator("unit")
@@ -299,13 +429,28 @@ class MeasurementScalar(BaseModel):
     def validate_unit(cls, value: str | None) -> str | None:
         return validate_supported_unit(value)
 
-    @field_validator("value")
+    @field_validator("value", mode="before")
     @classmethod
-    def validate_finite_value(
+    def normalize_value(
         cls,
-        value: MeasurementScalarData,
+        value: object,
+        info: ValidationInfo,
     ) -> MeasurementScalarData:
-        _validate_finite_numbers(value)
+        raw_dtype = cast("object", info.data.get("dtype", "float64"))
+        dtype = cast(
+            "MeasurementDType",
+            raw_dtype
+            if raw_dtype in {"float64", "int64", "complex128", "bool", "string"}
+            else "float64",
+        )
+        return _measurement_scalar_data(value, dtype=dtype)
+
+    @field_serializer("value")
+    def serialize_value(self, value: MeasurementScalarData) -> object:
+        if self.dtype == "complex128":
+            if not isinstance(value, complex):
+                raise TypeError("complex scalar serialization requires a complex value")
+            return {"real": value.real, "imag": value.imag}
         return value
 
     @model_validator(mode="after")
@@ -315,57 +460,66 @@ class MeasurementScalar(BaseModel):
         return self
 
 
-def _restore_measurement_array_leaves(
-    value: object,
-    *,
-    dtype: object,
-) -> object:
-    if isinstance(value, list | tuple):
-        selected = cast("list[object] | tuple[object, ...]", value)
-        return tuple(
-            _restore_measurement_array_leaves(item, dtype=dtype) for item in selected
-        )
-    if isinstance(value, Mapping):
-        selected_mapping = cast("Mapping[str, object]", value)
-        try:
-            if dtype == "complex128":
-                return ComplexComponents.model_validate(selected_mapping)
-        except ValidationError:
-            pass
-        return selected_mapping
-    return value
+class MeasurementArray(_FrozenMeasurementModel):
+    """One typed array backed by an immutable, read-only NumPy buffer."""
 
-
-class MeasurementArray(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+    )
 
     kind: Literal["array"]
     dtype: MeasurementDType = "float64"
     unit: str | None = None
-    shape: Sequence[int] = Field(min_length=1)
+    shape: tuple[Annotated[int, Field(ge=0)], ...] = Field(min_length=1)
     values: MeasurementArrayData
-    metadata: JsonMetadata = Field(default_factory=dict)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @classmethod
     def create(
         cls,
         *,
-        shape: Sequence[int],
-        values: MeasurementArrayData,
+        values: object,
         dtype: MeasurementDType = "float64",
         unit: str | None = None,
-        metadata: JsonMetadata | None = None,
+        metadata: Mapping[str, object] | None = None,
     ) -> Self:
-        """Construct an array while keeping the wire discriminator required."""
+        """Construct an immutable array and infer its wire shape from ``values``."""
 
-        return cls(
-            kind="array",
-            dtype=dtype,
-            unit=unit,
-            shape=shape,
-            values=values,
-            metadata={} if metadata is None else metadata,
+        data: dict[str, object] = {
+            "kind": "array",
+            "dtype": dtype,
+            "unit": unit,
+            "values": values,
+            "metadata": {} if metadata is None else metadata,
+        }
+        return cls.model_validate(
+            data,
+            context=_MEASUREMENT_ARRAY_CREATE_CONTEXT,
         )
+
+    @model_validator(mode="before")
+    @classmethod
+    def prepare_create_values(
+        cls,
+        value: object,
+        info: ValidationInfo,
+    ) -> object:
+        if info.context is not _MEASUREMENT_ARRAY_CREATE_CONTEXT:
+            return value
+        data = dict(cast("Mapping[str, object]", value))
+        raw_dtype = data.get("dtype", "float64")
+        dtype = cast(
+            "MeasurementDType",
+            raw_dtype
+            if raw_dtype in {"float64", "int64", "complex128", "bool", "string"}
+            else "float64",
+        )
+        selected = _measurement_ndarray(data["values"], dtype=dtype)
+        data["shape"] = selected.shape
+        data["values"] = selected
+        return data
 
     @field_validator("unit")
     @classmethod
@@ -374,31 +528,48 @@ class MeasurementArray(BaseModel):
 
     @field_validator("shape")
     @classmethod
-    def freeze_shape(cls, value: Sequence[int]) -> Sequence[int]:
+    def freeze_shape(cls, value: Sequence[int]) -> tuple[int, ...]:
         return tuple(value)
 
-    @field_validator("values")
+    @field_validator("values", mode="before")
     @classmethod
-    def restore_and_freeze_values(
+    def normalize_values(
         cls,
-        value: MeasurementArrayData,
+        value: object,
         info: ValidationInfo,
     ) -> MeasurementArrayData:
-        """Restore typed leaves and freeze nested sequences in one pass."""
+        """Own one contiguous, typed, read-only array at the model boundary."""
 
-        _validate_finite_numbers(value)
-        dtype = info.data.get("dtype")
-        return cast(
-            "MeasurementArrayData",
-            _restore_measurement_array_leaves(
-                value,
-                dtype=dtype if isinstance(dtype, str) else "float64",
-            ),
+        raw_dtype = cast("object", info.data.get("dtype", "float64"))
+        dtype = cast(
+            "MeasurementDType",
+            raw_dtype
+            if raw_dtype in {"float64", "int64", "complex128", "bool", "string"}
+            else "float64",
         )
+        selected = (
+            cast("MeasurementArrayData", value)
+            if info.context is _MEASUREMENT_ARRAY_CREATE_CONTEXT
+            else _measurement_ndarray(value, dtype=dtype)
+        )
+        expected_shape = cast("object", info.data.get("shape"))
+        if (
+            selected.size == 0
+            and isinstance(expected_shape, tuple)
+            and math.prod(cast("tuple[int, ...]", expected_shape)) == 0
+        ):
+            selected = selected.reshape(cast("tuple[int, ...]", expected_shape))
+        return selected
+
+    @field_serializer("values")
+    def serialize_values(self, value: MeasurementArrayData) -> object:
+        if self.dtype == "complex128":
+            return _complex_array_json(cast("object", value.tolist()))
+        return cast("object", value.tolist())
 
     @model_validator(mode="after")
     def validate_values_shape(self) -> MeasurementArray:
-        actual_shape = _array_shape(self.values)
+        actual_shape = self.values.shape
         if actual_shape != self.shape:
             msg = f"measurement array shape {actual_shape} does not match {self.shape}"
             raise ValueError(msg)
@@ -406,8 +577,21 @@ class MeasurementArray(BaseModel):
             raise ValueError(f"{self.dtype} measurement arrays cannot have a unit")
         return self
 
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MeasurementArray):
+            return NotImplemented
+        return (
+            self.kind == other.kind
+            and self.dtype == other.dtype
+            and self.unit == other.unit
+            and self.shape == other.shape
+            and self.metadata == other.metadata
+            and np.array_equal(self.values, other.values)
+        )
 
-class MeasurementUnavailable(BaseModel):
+
+class MeasurementUnavailable(_FrozenMeasurementModel):
     """A complete scalar or array result with no usable value.
 
     ``None`` preserves an unknown extent for a ragged product axis when no
@@ -421,7 +605,7 @@ class MeasurementUnavailable(BaseModel):
     dtype: MeasurementDType
     unit: str | None
     shape: tuple[Annotated[int, Field(ge=0)] | None, ...]
-    metadata: JsonMetadata
+    metadata: MeasurementMetadata
 
     @classmethod
     def create(
@@ -431,7 +615,7 @@ class MeasurementUnavailable(BaseModel):
         dtype: MeasurementDType,
         unit: str | None,
         shape: Sequence[int | None],
-        metadata: JsonMetadata,
+        metadata: Mapping[str, object],
     ) -> Self:
         """Construct an unavailable result with its complete value contract."""
 
@@ -464,7 +648,7 @@ type MeasurementValue = Annotated[
 ]
 
 
-class InstrumentAcquisitionEvidence(BaseModel):
+class InstrumentAcquisitionEvidence(_FrozenMeasurementModel):
     """Daemon-observed interval and physical target for one collected result."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -485,18 +669,68 @@ class InstrumentAcquisitionEvidence(BaseModel):
         return self
 
 
-class MeasurementRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+def _empty_acquisition_evidence() -> Mapping[str, InstrumentAcquisitionEvidence]:
+    return FrozenMapping()
+
+
+def _freeze_measurement_values(
+    value: Mapping[str, MeasurementValue],
+) -> Mapping[str, MeasurementValue]:
+    return FrozenMapping(value.items())
+
+
+def _serialize_measurement_values(
+    value: Mapping[str, MeasurementValue],
+) -> dict[str, MeasurementValue]:
+    return dict(value)
+
+
+type MeasurementValueMap = Annotated[
+    Mapping[str, MeasurementValue],
+    AfterValidator(_freeze_measurement_values),
+    PlainSerializer(
+        _serialize_measurement_values,
+        return_type=dict[str, MeasurementValue],
+    ),
+]
+
+
+def _freeze_acquisition_evidence(
+    value: Mapping[str, InstrumentAcquisitionEvidence],
+) -> Mapping[str, InstrumentAcquisitionEvidence]:
+    return FrozenMapping(value.items())
+
+
+def _serialize_acquisition_evidence(
+    value: Mapping[str, InstrumentAcquisitionEvidence],
+) -> dict[str, InstrumentAcquisitionEvidence]:
+    return dict(value)
+
+
+type InstrumentAcquisitionEvidenceMap = Annotated[
+    Mapping[str, InstrumentAcquisitionEvidence],
+    AfterValidator(_freeze_acquisition_evidence),
+    PlainSerializer(
+        _serialize_acquisition_evidence,
+        return_type=dict[str, InstrumentAcquisitionEvidence],
+    ),
+]
+
+
+class MeasurementRecord(_FrozenMeasurementModel):
+    """One durable point row with immutable values, evidence, and metadata."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
     logical_point_id: str | None = None
     point_index: int
-    coordinates: dict[str, MeasurementValue]
-    observables: dict[str, MeasurementValue]
-    acquisition_evidence: dict[str, InstrumentAcquisitionEvidence] = Field(
-        default_factory=dict
+    coordinates: MeasurementValueMap
+    observables: MeasurementValueMap
+    acquisition_evidence: InstrumentAcquisitionEvidenceMap = Field(
+        default_factory=_empty_acquisition_evidence
     )
-    metadata: JsonMetadata = Field(default_factory=dict)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @model_validator(mode="after")
     def validate_acquisition_evidence_variables(self) -> MeasurementRecord:
@@ -511,43 +745,213 @@ class MeasurementRecord(BaseModel):
         return self
 
 
-class MeasurementDataset(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class MeasurementDataset(_FrozenMeasurementModel):
+    """A complete planned schema paired with its current ordered record set."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     dataset_schema: MeasurementDatasetSchema
-    records: list[MeasurementRecord]
-    metadata: JsonMetadata = Field(default_factory=dict)
+    records: Sequence[MeasurementRecord]
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
+
+    @field_validator("records")
+    @classmethod
+    def freeze_records(
+        cls,
+        value: Sequence[MeasurementRecord],
+    ) -> Sequence[MeasurementRecord]:
+        return tuple(value)
 
 
-def _array_shape(values: object) -> tuple[int, ...]:
-    if not isinstance(values, tuple):
-        return ()
-    items = cast("tuple[object, ...]", values)
-    if not items:
-        return (0,)
-    first_shape = _array_shape(items[0])
-    for value in items[1:]:
-        if _array_shape(value) != first_shape:
-            msg = "measurement array values must be rectangular"
-            raise ValueError(msg)
-    return (len(items), *first_shape)
+def _measurement_ndarray(
+    value: object,
+    *,
+    dtype: MeasurementDType,
+) -> MeasurementArrayData:
+    try:
+        candidate = cast("NDArray[MeasurementArrayElement]", np.asarray(value))
+    except ValueError as error:
+        raise ValueError("measurement array values must be rectangular") from error
 
+    if candidate.dtype.kind == "O":
+        normalized = _normalize_array_tree(
+            cast("object", candidate.tolist()), dtype=dtype
+        )
+        candidate = cast(
+            "NDArray[MeasurementArrayElement]",
+            np.asarray(normalized),
+        )
 
-def _validate_finite_numbers(value: object) -> None:
-    if isinstance(value, float) and not math.isfinite(value):
+    _validate_array_kind(candidate, dtype=dtype)
+    try:
+        selected = np.array(
+            candidate,
+            dtype=_numpy_dtype(dtype),
+            order="C",
+            copy=True,
+        )
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(f"measurement array values do not fit {dtype}") from error
+
+    if dtype in {"float64", "complex128"} and not np.isfinite(selected).all():
         raise ValueError("measurement values must be finite")
-    if isinstance(value, complex) and not (
-        math.isfinite(value.real) and math.isfinite(value.imag)
+    immutable_buffer = selected.tobytes(order="C")
+    immutable = np.frombuffer(immutable_buffer, dtype=selected.dtype).reshape(
+        selected.shape
+    )
+    return cast("MeasurementArrayData", immutable)
+
+
+def _measurement_scalar_data(
+    value: object,
+    *,
+    dtype: MeasurementDType,
+) -> MeasurementScalarData:
+    is_boolean = isinstance(value, bool | np.bool_)
+    if dtype == "float64":
+        if is_boolean or not isinstance(value, int | float | np.integer | np.floating):
+            raise ValueError("float64 measurement scalar value must be numeric")
+        try:
+            selected_float = float(cast("SupportsFloat", value))
+        except (OverflowError, TypeError, ValueError) as error:
+            raise ValueError("measurement scalar value does not fit float64") from error
+        if not math.isfinite(selected_float):
+            raise ValueError("measurement values must be finite")
+        return selected_float
+    if dtype == "int64":
+        if is_boolean or not isinstance(value, int | np.integer):
+            raise ValueError("int64 measurement scalar value must be an integer")
+        selected_int = int(cast("SupportsIndex", value))
+        if not np.iinfo(np.int64).min <= selected_int <= np.iinfo(np.int64).max:
+            raise ValueError("measurement scalar value does not fit int64")
+        return selected_int
+    if dtype == "complex128":
+        if isinstance(value, Mapping):
+            selected_complex = _complex_from_mapping(
+                cast("Mapping[object, object]", value)
+            )
+        else:
+            if is_boolean or not isinstance(
+                value,
+                int | float | complex | np.number,
+            ):
+                raise ValueError("complex128 measurement scalar value must be numeric")
+            try:
+                selected_complex = complex(cast("SupportsComplex", value))
+            except (OverflowError, TypeError, ValueError) as error:
+                raise ValueError(
+                    "measurement scalar value does not fit complex128"
+                ) from error
+        if not (
+            math.isfinite(selected_complex.real)
+            and math.isfinite(selected_complex.imag)
+        ):
+            raise ValueError("measurement values must be finite")
+        return selected_complex
+    if dtype == "bool":
+        if not is_boolean:
+            raise ValueError("bool measurement scalar value must be a boolean")
+        return bool(value)
+    if not isinstance(value, str):
+        raise ValueError("string measurement scalar value must be a string")
+    return value
+
+
+def _complex_from_mapping(value: Mapping[object, object]) -> complex:
+    if set(value) != {"real", "imag"}:
+        raise ValueError(
+            "complex measurement value must contain only real and imag components"
+        )
+    real = _complex_component(value["real"])
+    imag = _complex_component(value["imag"])
+    return complex(real, imag)
+
+
+def _complex_component(value: object) -> float:
+    if isinstance(value, bool | np.bool_) or not isinstance(
+        value,
+        int | float | np.integer | np.floating,
     ):
+        raise ValueError("complex measurement components must be real numeric values")
+    try:
+        selected = float(cast("SupportsFloat", value))
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError(
+            "complex measurement component does not fit float64"
+        ) from error
+    if not math.isfinite(selected):
         raise ValueError("measurement values must be finite")
-    if isinstance(value, ComplexComponents):
-        return
-    if isinstance(value, Mapping):
-        selected_mapping = cast("Mapping[object, object]", value)
-        for item in selected_mapping.values():
-            _validate_finite_numbers(item)
-        return
+    return selected
+
+
+def _normalize_array_tree(value: object, *, dtype: MeasurementDType) -> object:
     if isinstance(value, list | tuple):
-        selected_sequence = cast("list[object] | tuple[object, ...]", value)
-        for item in selected_sequence:
-            _validate_finite_numbers(item)
+        selected = cast("list[object] | tuple[object, ...]", value)
+        return tuple(_normalize_array_tree(item, dtype=dtype) for item in selected)
+
+    if dtype == "complex128" and isinstance(value, Mapping):
+        return _complex_from_mapping(cast("Mapping[object, object]", value))
+
+    is_boolean = isinstance(value, bool | np.bool_)
+    if dtype == "float64":
+        if is_boolean or not isinstance(value, int | float | np.integer | np.floating):
+            raise ValueError("float64 measurement array values must be numeric")
+        return float(cast("SupportsFloat", value))
+    if dtype == "int64":
+        if is_boolean or not isinstance(value, int | np.integer):
+            raise ValueError("int64 measurement array values must be integers")
+        return int(cast("SupportsIndex", value))
+    if dtype == "complex128":
+        if is_boolean or not isinstance(value, int | float | complex | np.number):
+            raise ValueError("complex128 measurement array values must be numeric")
+        return complex(cast("SupportsComplex", value))
+    if dtype == "bool":
+        if not is_boolean:
+            raise ValueError("bool measurement array values must be booleans")
+        return bool(value)
+    if not isinstance(value, str):
+        raise ValueError("string measurement array values must be strings")
+    return value
+
+
+def _validate_array_kind(
+    value: NDArray[MeasurementArrayElement],
+    *,
+    dtype: MeasurementDType,
+) -> None:
+    if value.size == 0:
+        return
+    allowed_kinds = {
+        "float64": "iuf",
+        "int64": "iu",
+        "complex128": "iufc",
+        "bool": "b",
+        "string": "U",
+    }
+    if value.dtype.kind not in allowed_kinds[dtype]:
+        raise ValueError(f"measurement array values do not match {dtype}")
+    if dtype == "int64" and value.dtype.kind == "u":
+        items = cast("list[int]", value.reshape(-1).tolist())
+        if max(items) > np.iinfo(np.int64).max:
+            raise ValueError("measurement array values do not fit int64")
+
+
+def _numpy_dtype(dtype: MeasurementDType) -> np.dtype[np.generic]:
+    if dtype == "float64":
+        return np.dtype(np.float64)
+    if dtype == "int64":
+        return np.dtype(np.int64)
+    if dtype == "complex128":
+        return np.dtype(np.complex128)
+    if dtype == "bool":
+        return np.dtype(np.bool_)
+    return np.dtype(np.str_)
+
+
+def _complex_array_json(value: object) -> object:
+    if isinstance(value, list):
+        return [_complex_array_json(item) for item in cast("list[object]", value)]
+    if not isinstance(value, complex):
+        raise TypeError("complex array serialization requires complex values")
+    selected = value
+    return {"real": selected.real, "imag": selected.imag}

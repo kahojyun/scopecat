@@ -16,12 +16,14 @@ from scopecat.program.point_domain import (
     PointAxes,
     PointAxis,
     point_axis_linear,
+    point_axis_range,
     point_axis_values,
 )
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
     PointRowsSpec,
+    RangeScanSource,
     ScanValue,
     ValuesScanSource,
     parameter_cell_lookup,
@@ -34,9 +36,11 @@ from scopecat.program.value_refs import (
 from scopecat.records.run_request import (
     AroundScanRecord,
     ParameterAroundScanRecord,
+    ParameterRangeScanRecord,
     ParameterScanRecord,
     PointRowsRecord,
     PointScanRecord,
+    RangeScanRecord,
     ScanRecord,
 )
 
@@ -54,6 +58,14 @@ def _lower_scan_axis(
             axis.id,
             axis.value_type,
             source.values,
+        )
+    if isinstance(source, RangeScanSource):
+        return point_axis_range(
+            axis.id,
+            axis.value_type,
+            source.start,
+            source.stop,
+            source.points,
         )
     return point_axis_linear(
         axis.id,
@@ -103,6 +115,15 @@ def project_scan_record(
                     ],
                 }
             )
+        if isinstance(source, RangeScanSource):
+            return RangeScanRecord.model_validate(
+                {
+                    "axis_id": axis.id,
+                    "start": _request_scalar_value(source.start, inputs=inputs),
+                    "stop": _request_scalar_value(source.stop, inputs=inputs),
+                    "points": source.points,
+                }
+            )
         return AroundScanRecord.model_validate(
             {
                 "axis_id": axis.id,
@@ -122,6 +143,15 @@ def project_scan_record(
                     _request_scalar_value(value, inputs=inputs)
                     for value in source.values
                 ],
+            }
+        )
+    if isinstance(source, RangeScanSource):
+        return ParameterRangeScanRecord.model_validate(
+            {
+                **common,
+                "start": _request_scalar_value(source.start, inputs=inputs),
+                "stop": _request_scalar_value(source.stop, inputs=inputs),
+                "points": source.points,
             }
         )
     return ParameterAroundScanRecord.model_validate(

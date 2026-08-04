@@ -42,6 +42,7 @@ from scopecat.program.point_domain import (
     PointAxes,
     PointAxis,
     PointAxisLinear,
+    PointAxisRange,
     PointAxisValues,
 )
 from scopecat.program.scans import (
@@ -348,6 +349,16 @@ def _lower_point_axis(
             id=axis.id,
             value_type=axis.value_type,
             source=PointAxisValues(values=tuple(source.values)),
+        )
+    if isinstance(source, PointAxisRange):
+        return PointAxis(
+            id=axis.id,
+            value_type=axis.value_type,
+            source=PointAxisRange(
+                start=source.start,
+                stop=source.stop,
+                count=source.count,
+            ),
         )
     center = verify_scalar_expression(
         bind_scalar_input_refs(

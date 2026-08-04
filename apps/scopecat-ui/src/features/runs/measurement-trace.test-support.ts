@@ -68,7 +68,7 @@ export function tracePreview(
     coordinate_label: "Frequency",
     coordinate_unit: "GHz",
     dimension_id: "sample",
-    downsampling: "even",
+    downsampling: "minmax",
     observable_id: "response",
     observable_label: "S21",
     observable_unit: "ratio",

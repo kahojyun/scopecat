@@ -418,7 +418,6 @@ class _StateSizedAxisDriver(_Driver):
             DriverReadback(
                 values={
                     result: MeasurementArray.create(
-                        shape=(points,),
                         values=tuple(float(index) for index in range(points)),
                         unit="V",
                     )

@@ -1,6 +1,7 @@
 # pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
 # pyright: reportUnknownParameterType=false, reportUnknownVariableType=false
 # pyright: reportUnnecessaryTypeIgnoreComment=false
+# pyright: reportPrivateUsage=false
 """Notebook-facing labeled views over durable measurement records."""
 
 from __future__ import annotations
@@ -9,22 +10,29 @@ import json
 import math
 import operator
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 from importlib import import_module
 from itertools import product as cartesian_product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Protocol, Self, cast, overload, override
 
+import numpy as np
+import pyarrow as pa
+import xarray as xr
+
+from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.arrow_values import measurement_values_to_arrow_array
 from scopecat.measurements.traces import Trace, measurement_traces
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
+    MeasurementArrayData,
     MeasurementDataset,
     MeasurementDatasetSchema,
-    MeasurementDimension,
     MeasurementDType,
+    MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -35,17 +43,16 @@ from scopecat.records.measurement import (
 
 if TYPE_CHECKING:
     import pandas as pd  # pyright: ignore[reportMissingImports]
-    import pyarrow as pa  # pyright: ignore[reportMissingImports]
-    import xarray as xr  # pyright: ignore[reportMissingImports]
 
 type NativeScalar = bool | int | float | complex | str
-type NativeValue = NativeScalar | tuple[NativeValue, ...] | None
+type NativeValue = NativeScalar | MeasurementArrayData | None
 type GroupKey = NativeScalar | None
 type DimensionIndexer = int | slice | Sequence[int] | Sequence[bool]
 type PointIndexer = DimensionIndexer
-type PointCondition = PointMask | Sequence[bool]
+type PointCondition = PointMask | xr.DataArray | Sequence[bool]
 type SelectionMethod = Literal["exact", "nearest"]
 type PandasLayout = Literal["points", "long"]
+type XarrayLayout = Literal["points", "grid"]
 
 
 class _PandasFrameFactory(Protocol):
@@ -54,35 +61,6 @@ class _PandasFrameFactory(Protocol):
 
 class _PandasModule(Protocol):
     DataFrame: _PandasFrameFactory
-
-
-class _ArrowModule(Protocol):
-    def table(self, data: Mapping[str, Sequence[object]]) -> pa.Table: ...
-
-
-class _XarrayDatasetFactory(Protocol):
-    def __call__(
-        self,
-        data_vars: Mapping[str, object] = ...,
-        coords: Mapping[str, object] = ...,
-        attrs: Mapping[str, object] = ...,
-    ) -> xr.Dataset: ...
-
-
-class _XarrayModule(Protocol):
-    Dataset: _XarrayDatasetFactory
-
-
-class _NumpyModule(Protocol):
-    float64: object
-    int64: object
-    complex128: object
-    bool_: object
-    object_: object
-
-    def asarray(self, value: object, *, dtype: object = ...) -> object: ...
-
-    def empty(self, shape: Sequence[int], *, dtype: object = ...) -> object: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +74,8 @@ class _RaggedXarrayLayout:
 @dataclass(frozen=True, slots=True)
 class _RaggedXarrayValues:
     values: object
+    valid: object
+    unavailable_reasons: object
     layout: _RaggedXarrayLayout
 
 
@@ -107,13 +87,34 @@ class _RaggedAlignmentKey:
 
 
 class PointMask(Sequence[bool]):
-    """A point-aligned boolean selection returned by variable comparisons."""
+    """A point-aligned Xarray boolean selection tied to one dataset view."""
 
-    __slots__ = ("_dataset", "_values")
+    __slots__ = ("_data", "_dataset")
 
-    def __init__(self, dataset: Dataset, values: Sequence[bool]) -> None:
+    def __init__(
+        self,
+        dataset: Dataset,
+        values: xr.DataArray | Sequence[bool],
+    ) -> None:
         self._dataset = dataset
-        self._values = tuple(values)
+        data = (
+            values
+            if isinstance(values, xr.DataArray)
+            else xr.DataArray(
+                np.asarray(values, dtype=np.bool_),
+                dims=("point",),
+                coords={"point": dataset._xarray.coords["point"]},
+            )
+        )
+        if data.dims != ("point",) or data.sizes["point"] != len(dataset):
+            raise ValueError("point masks must align exactly with the point dimension")
+        self._data = data.astype(np.bool_).copy(deep=True)
+
+    @property
+    def xarray(self) -> xr.DataArray:
+        """Return an independent copy of the labeled boolean array."""
+
+        return self._data.copy(deep=True)
 
     @overload
     def __getitem__(self, index: int) -> bool: ...
@@ -127,7 +128,7 @@ class PointMask(Sequence[bool]):
 
     @override
     def __len__(self) -> int:
-        return len(self._values)
+        return self._data.sizes["point"]
 
     @override
     def __iter__(self) -> Iterator[bool]:
@@ -135,20 +136,14 @@ class PointMask(Sequence[bool]):
 
     def __and__(self, other: PointMask) -> PointMask:
         self._require_same_dataset(other)
-        return PointMask(
-            self._dataset,
-            tuple(left and right for left, right in zip(self, other, strict=True)),
-        )
+        return PointMask(self._dataset, self._data & other._data)
 
     def __or__(self, other: PointMask) -> PointMask:
         self._require_same_dataset(other)
-        return PointMask(
-            self._dataset,
-            tuple(left or right for left, right in zip(self, other, strict=True)),
-        )
+        return PointMask(self._dataset, self._data | other._data)
 
     def __invert__(self) -> PointMask:
-        return PointMask(self._dataset, tuple(not value for value in self))
+        return PointMask(self._dataset, ~self._data)
 
     def __bool__(self) -> bool:
         raise TypeError("a PointMask has no single truth value; pass it to where()")
@@ -156,6 +151,10 @@ class PointMask(Sequence[bool]):
     @override
     def __repr__(self) -> str:
         return f"PointMask({self._values!r})"
+
+    @property
+    def _values(self) -> tuple[bool, ...]:
+        return tuple(cast("list[bool]", self._data.values.tolist()))
 
     def belongs_to(self, dataset: Dataset) -> bool:
         return self._dataset is dataset
@@ -208,26 +207,38 @@ class Variable:
 
     @property
     def metadata(self) -> Mapping[str, object]:
-        return MappingProxyType(dict(self._definition.metadata))
+        return self._definition.metadata
 
     @property
     def definition(self) -> MeasurementVariable:
-        """Return the durable schema definition for low-level inspection."""
+        """Return the deeply immutable durable schema definition."""
 
         return self._definition
 
     @property
+    def xarray(self) -> xr.DataArray:
+        """Return an independent Xarray copy of this variable."""
+
+        return self._dataset._xarray[self.id].copy(deep=True)
+
+    @property
     def raw_values(self) -> tuple[MeasurementValue, ...]:
+        """Return the deeply immutable durable values."""
+
+        return self._raw_values
+
+    @property
+    def _raw_values(self) -> tuple[MeasurementValue, ...]:
         field = "coordinates" if self.role == "coordinate" else "observables"
         return tuple(
-            getattr(record, field)[self.id] for record in self._dataset.records
+            getattr(record, field)[self.id] for record in self._dataset._records
         )
 
     @property
     def values(self) -> tuple[NativeValue, ...]:
-        """Return Python-native values, using ``None`` for unavailable points."""
+        """Return native scalars or read-only ndarrays; unavailable points are None."""
 
-        return tuple(_native_value(value) for value in self.raw_values)
+        return tuple(_native_value(value) for value in self._raw_values)
 
     @property
     def availability(
@@ -235,23 +246,36 @@ class Variable:
     ) -> tuple[MeasurementUnavailableReason | None, ...]:
         return tuple(
             value.reason if isinstance(value, MeasurementUnavailable) else None
-            for value in self.raw_values
+            for value in self._raw_values
         )
 
     def is_available(self) -> PointMask:
-        return PointMask(
-            self._dataset,
-            tuple(reason is None for reason in self.availability),
-        )
+        source = self._dataset._xarray
+        reason_name = _unavailable_reason_name(self.id)
+        reason = source.get(reason_name)
+        if reason is None:
+            return PointMask(
+                self._dataset,
+                xr.ones_like(source.coords["point"], dtype=np.bool_),
+            )
+        return PointMask(self._dataset, reason.isnull())
 
     def is_unavailable(
         self,
         reason: MeasurementUnavailableReason | None = None,
     ) -> PointMask:
-        if reason is None:
-            selected = tuple(value is not None for value in self.availability)
+        source = self._dataset._xarray
+        reason_name = _unavailable_reason_name(self.id)
+        availability = source.get(reason_name)
+        if availability is None:
+            selected = xr.zeros_like(
+                source.coords["point"],
+                dtype=np.bool_,
+            )
+        elif reason is None:
+            selected = availability.notnull()
         else:
-            selected = tuple(value == reason for value in self.availability)
+            selected = availability == reason
         return PointMask(self._dataset, selected)
 
     def __getitem__(self, index: int | slice) -> NativeValue | tuple[NativeValue, ...]:
@@ -259,12 +283,12 @@ class Variable:
 
     def __lt__(self, other: object) -> PointMask:
         return self._compare(
-            other, cast("Callable[[object, object], bool]", operator.lt)
+            other, cast("Callable[[object, object], object]", operator.lt)
         )
 
     def __le__(self, other: object) -> PointMask:
         return self._compare(
-            other, cast("Callable[[object, object], bool]", operator.le)
+            other, cast("Callable[[object, object], object]", operator.le)
         )
 
     @override
@@ -272,7 +296,7 @@ class Variable:
         self, other: object
     ) -> PointMask:
         return self._compare(
-            other, cast("Callable[[object, object], bool]", operator.eq)
+            other, cast("Callable[[object, object], object]", operator.eq)
         )
 
     @override
@@ -280,17 +304,17 @@ class Variable:
         self, other: object
     ) -> PointMask:
         return self._compare(
-            other, cast("Callable[[object, object], bool]", operator.ne)
+            other, cast("Callable[[object, object], object]", operator.ne)
         )
 
     def __gt__(self, other: object) -> PointMask:
         return self._compare(
-            other, cast("Callable[[object, object], bool]", operator.gt)
+            other, cast("Callable[[object, object], object]", operator.gt)
         )
 
     def __ge__(self, other: object) -> PointMask:
         return self._compare(
-            other, cast("Callable[[object, object], bool]", operator.ge)
+            other, cast("Callable[[object, object], object]", operator.ge)
         )
 
     @override
@@ -301,15 +325,15 @@ class Variable:
     def _compare(
         self,
         other: object,
-        comparison: Callable[[object, object], bool],
+        comparison: Callable[[object, object], object],
     ) -> PointMask:
         self.require_point_scalar()
         query = _selection_value(other, self)
-        selected = tuple(
-            False if value is None else comparison(value, query)
-            for value in self.values
+        selected = cast(
+            "xr.DataArray",
+            comparison(self._dataset._xarray[self.id], query),
         )
-        return PointMask(self._dataset, selected)
+        return PointMask(self._dataset, selected.fillna(False))
 
     def require_point_scalar(self) -> None:
         if self.dims != ("point",):
@@ -329,12 +353,39 @@ class Dataset:
     """
 
     _raw: MeasurementDataset
-    entry: RunContentEntry
+    _entry: RunContentEntry
+    _view_dimensions: Mapping[str, int | None] = field(init=False, repr=False)
     _variables: Mapping[str, Variable] = field(init=False, repr=False)
+    _xarray: xr.Dataset = field(init=False, repr=False)
 
-    def __init__(self, raw: MeasurementDataset, entry: RunContentEntry) -> None:
+    def __init__(
+        self,
+        raw: MeasurementDataset,
+        entry: RunContentEntry,
+        *,
+        view_dimensions: Mapping[str, int | None] | None = None,
+    ) -> None:
         object.__setattr__(self, "_raw", raw)
-        object.__setattr__(self, "entry", entry)
+        object.__setattr__(self, "_entry", entry.model_copy(deep=True))
+        dimensions = {
+            dimension.id: dimension.size
+            for dimension in self._raw.dataset_schema.dimensions
+        }
+        dimensions["point"] = len(self._raw.records)
+        if view_dimensions is not None:
+            unknown = set(view_dimensions) - set(dimensions)
+            if unknown:
+                raise ValueError(
+                    "dataset view references unknown dimensions: "
+                    + ", ".join(sorted(unknown))
+                )
+            dimensions.update(view_dimensions)
+            dimensions["point"] = len(self._raw.records)
+        object.__setattr__(
+            self,
+            "_view_dimensions",
+            MappingProxyType(dimensions),
+        )
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -343,42 +394,65 @@ class Dataset:
             for definition in self._raw.dataset_schema.variables
         }
         object.__setattr__(self, "_variables", MappingProxyType(variables))
+        object.__setattr__(self, "_xarray", self._build_xarray())
+
+    @property
+    def entry(self) -> RunContentEntry:
+        """Return detached run-entry provenance for this snapshot."""
+
+        return self._entry.model_copy(deep=True)
 
     @property
     def raw(self) -> MeasurementDataset:
-        """Return the selected durable record model as an explicit escape hatch."""
+        """Return the deeply immutable durable snapshot."""
 
         return self._raw
 
     @property
     def schema(self) -> MeasurementDatasetSchema:
-        return self._raw.dataset_schema
+        """Return the complete planned schema, independent of current view rows."""
+
+        return self._schema
 
     @property
     def records(self) -> tuple[MeasurementRecord, ...]:
-        return tuple(self._raw.records)
+        return self._records
 
     @property
     def metadata(self) -> Mapping[str, object]:
-        return MappingProxyType(dict(self._raw.metadata))
+        return self._raw.metadata
+
+    @property
+    def xarray(self) -> xr.Dataset:
+        """Return an independent copy of the cached Xarray snapshot."""
+
+        return self._xarray.copy(deep=True)
+
+    @property
+    def _schema(self) -> MeasurementDatasetSchema:
+        return self._raw.dataset_schema
+
+    @property
+    def _records(self) -> tuple[MeasurementRecord, ...]:
+        return cast("tuple[MeasurementRecord, ...]", self._raw.records)
 
     @property
     def point_indices(self) -> tuple[int, ...]:
         """Return durable point indices in this view's row order."""
 
-        return tuple(record.point_index for record in self._raw.records)
+        return tuple(record.point_index for record in self._records)
 
     @property
     def logical_point_ids(self) -> tuple[str | None, ...]:
         """Return logical point identities in this view's row order."""
 
-        return tuple(record.logical_point_id for record in self._raw.records)
+        return tuple(record.logical_point_id for record in self._records)
 
     @property
     def dims(self) -> Mapping[str, int | None]:
-        return MappingProxyType(
-            {dimension.id: dimension.size for dimension in self.schema.dimensions}
-        )
+        """Return dimensions of this view, independent of the planned schema."""
+
+        return self._view_dimensions
 
     @property
     def variables(self) -> Mapping[str, Variable]:
@@ -413,7 +487,7 @@ class Dataset:
             ) from error
 
     def __len__(self) -> int:
-        return len(self.records)
+        return len(self._records)
 
     def __iter__(self) -> Iterator[str]:
         return iter(self.variables)
@@ -423,7 +497,7 @@ class Dataset:
         coordinates = ", ".join(self.coords)
         observables = ", ".join(self.data_vars)
         return (
-            f"Dataset(id={self.schema.dataset_id!r}, points={len(self)}, "
+            f"Dataset(id={self._schema.dataset_id!r}, points={len(self)}, "
             f"coords=[{coordinates}], data_vars=[{observables}])"
         )
 
@@ -458,21 +532,25 @@ class Dataset:
                 "recording group or variable"
             )
 
-        point_indexer = selected.pop("point", None)
+        selected_xarray = self._xarray.isel(
+            {
+                dimension_id: _preserving_xarray_indexer(indexer)
+                for dimension_id, indexer in selected.items()
+            }
+        )
+        point_indexer = selected.get("point")
         result = (
             self
             if point_indexer is None
-            else self._select_indices(
-                _dimension_indices(point_indexer, size=len(self), label="point")
-            )
+            else self._select_indices(_point_positions(self, selected_xarray))
         )
         local_indices = {
-            dimension_id: _dimension_indices(
-                indexer,
-                size=cast("int", result.dims[dimension_id]),
-                label=dimension_id,
+            dimension_id: _selected_dimension_positions(
+                selected_xarray,
+                dimension_id,
             )
-            for dimension_id, indexer in selected.items()
+            for dimension_id in selected
+            if dimension_id != "point"
         }
         return result._select_fixed_local_dimensions(local_indices)
 
@@ -568,12 +646,7 @@ class Dataset:
         tolerance: float | Quantity | None = None,
         **indexer_kwargs: object,
     ) -> Self:
-        """Select point rows by scalar coordinates or logical point identity.
-
-        Exact selection keeps every matching row, including repeated coordinate
-        values. ``method="nearest"`` accepts one numeric coordinate and keeps all
-        equally near rows.
-        """
+        """Select point rows through Xarray's coordinate indexes."""
 
         selected = _merge_indexers(indexers, indexer_kwargs)
         if not selected:
@@ -586,71 +659,83 @@ class Dataset:
                 raise ValueError(
                     "nearest selection requires exactly one scalar coordinate"
                 )
-            variable_id, query = next(iter(selected.items()))
-            variable = self._require_scalar_coordinate(variable_id)
-            normalized = _selection_value(query, variable)
-            indices = _nearest_indices(
-                variable,
-                normalized,
-                tolerance=_selection_tolerance(tolerance, variable),
+        elif tolerance is not None:
+            raise ValueError("sel tolerance is only valid with method='nearest'")
+
+        selected_xarray = self._xarray
+        for variable_id, query in selected.items():
+            if variable_id == "point" and isinstance(query, str):
+                coordinate_id = "logical_point_id"
+                normalized = query
+                selected_tolerance = None
+            elif variable_id == "point":
+                coordinate_id = "point"
+                normalized = query
+                selected_tolerance = None
+            else:
+                variable = self._require_scalar_coordinate(variable_id)
+                coordinate_id = variable_id
+                normalized = _selection_value(query, variable)
+                selected_tolerance = _selection_tolerance(tolerance, variable)
+            if coordinate_id not in selected_xarray.xindexes:
+                selected_xarray = selected_xarray.set_xindex(coordinate_id)
+            selected_xarray = selected_xarray.sel(
+                {coordinate_id: normalized},
+                method=None if selected_method == "exact" else selected_method,
+                tolerance=selected_tolerance,
             )
-        else:
-            if tolerance is not None:
-                raise ValueError("sel tolerance is only valid with method='nearest'")
-            mask = [True] * len(self)
-            for variable_id, query in selected.items():
-                if variable_id == "point":
-                    matches = _point_identity_matches(self.records, query)
-                else:
-                    variable = self._require_scalar_coordinate(variable_id)
-                    normalized = _selection_value(query, variable)
-                    matches = tuple(
-                        value is not None and value == normalized
-                        for value in variable.values
-                    )
-                mask = [
-                    current and matches[index] for index, current in enumerate(mask)
-                ]
-            indices = tuple(index for index, keep in enumerate(mask) if keep)
-        if not indices:
-            rendered = ", ".join(f"{key}={value!r}" for key, value in selected.items())
-            raise KeyError(f"no measurement points match {rendered}")
-        return self._select_indices(indices)
+            if "point" not in selected_xarray.dims:
+                selected_xarray = selected_xarray.expand_dims("point")
+        return self._select_indices(_point_positions(self, selected_xarray))
 
     def where(
         self,
-        condition: PointCondition | Callable[[Dataset], PointCondition],
+        condition: PointCondition | Callable[[xr.Dataset], xr.DataArray],
     ) -> Self:
-        """Keep rows selected by a point mask or a callable producing one."""
+        """Keep point rows selected by an Xarray-aligned boolean condition."""
 
-        selected = condition(self) if callable(condition) else condition
+        if callable(condition):
+            source = self.xarray
+            selected = condition(source)
+        else:
+            source = self._xarray
+            selected = condition
         if isinstance(selected, PointMask):
             if not selected.belongs_to(self):
                 raise ValueError("point mask belongs to a different dataset view")
-            mask = tuple(selected)
+            mask = selected._data
+        elif isinstance(selected, xr.DataArray):
+            mask = selected
         else:
-            mask = tuple(selected)
-        if len(mask) != len(self):
-            raise ValueError(f"point mask has length {len(mask)}; expected {len(self)}")
-        if any(type(value) is not bool for value in mask):
-            raise TypeError("point mask values must be bool")
+            mask = xr.DataArray(
+                np.asarray(selected, dtype=np.bool_),
+                dims=("point",),
+                coords={"point": source.coords["point"]},
+            )
+        if mask.dims != ("point",) or mask.sizes["point"] != len(self):
+            raise ValueError(
+                "where condition must align exactly with the point dimension"
+            )
+        selected_xarray = source.where(mask.astype(np.bool_), drop=True)
         return self._select_indices(
-            tuple(index for index, keep in enumerate(mask) if keep)
+            _point_positions(self, selected_xarray),
         )
 
     def groupby(self, variable_id: str) -> Mapping[GroupKey, Self]:
-        """Group point rows by a scalar variable, preserving first-seen order."""
+        """Group point rows with Xarray's labeled grouping semantics."""
 
         variable = self[variable_id]
         variable.require_point_scalar()
-        positions: dict[GroupKey, list[int]] = {}
-        for position, value in enumerate(variable.values):
-            key = cast("GroupKey", value)
-            positions.setdefault(key, []).append(position)
+        groups = cast(
+            "Mapping[object, Sequence[int] | slice]",
+            cast("object", self._xarray.groupby(variable_id).groups),
+        )
         return MappingProxyType(
             {
-                key: self._select_indices(group_positions)
-                for key, group_positions in positions.items()
+                _native_group_key(key): self._select_indices(
+                    _group_positions(group_positions, size=len(self))
+                )
+                for key, group_positions in groups.items()
             }
         )
 
@@ -661,24 +746,133 @@ class Dataset:
         coordinate: str | None = None,
         group: str | None = None,
     ) -> tuple[Trace, ...]:
+        """Select trace series by observable and optional coordinate or group."""
+
         return measurement_traces(
-            self.raw,
+            self._raw,
             observable,
             coordinate=coordinate,
             group=group,
         )
 
-    def to_xarray(self) -> xr.Dataset:
-        """Convert to an xarray Dataset while retaining Scopecat schema attrs."""
+    def to_xarray(self, *, layout: XarrayLayout = "points") -> xr.Dataset:
+        """Return a point-row or complete product-grid Xarray snapshot."""
 
-        xr_module = cast("_XarrayModule", _optional_module("xarray"))
-        np_module = cast("_NumpyModule", _optional_module("numpy"))
+        if layout == "points":
+            return self._xarray.copy(deep=True)
+        if layout == "grid":
+            return self._product_grid_xarray()
+        raise ValueError("Xarray layout must be 'points' or 'grid'")
+
+    def _product_grid_xarray(self) -> xr.Dataset:
+        domain = self._schema.point_domain
+        if not isinstance(domain, MeasurementProductGridPointDomain):
+            raise ValueError("grid Xarray layout requires a product-grid point domain")
+
+        axis_ids = tuple(axis.id for axis in domain.axes)
+        local_dimensions = set(self.dims) - {"point"}
+        conflicts = sorted(set(axis_ids) & ({"point"} | local_dimensions))
+        if conflicts:
+            raise ValueError(
+                "product-grid axes conflict with measurement dimensions: "
+                + ", ".join(conflicts)
+            )
+
+        axis_shape = tuple(axis.size for axis in domain.axes)
+        cardinality = math.prod(axis_shape)
+        point_indices = self.point_indices
+        if len(self) != cardinality or sorted(point_indices) != list(
+            range(cardinality)
+        ):
+            raise ValueError(
+                "grid Xarray layout requires every product-grid point exactly once"
+            )
+        ordered_positions = tuple(
+            position
+            for position, _point_index in sorted(
+                enumerate(point_indices),
+                key=operator.itemgetter(1),
+            )
+        )
+        source = self._xarray.isel(point=list(ordered_positions))
+
+        axis_coordinates: dict[str, object] = {}
+        for axis_index, axis in enumerate(domain.axes):
+            variable = self.variables.get(axis.id)
+            if variable is not None:
+                if variable.role != "coordinate" or variable.dims != ("point",):
+                    raise ValueError(
+                        f"product-grid axis {axis.id!r} conflicts with a non-scalar "
+                        "measurement variable"
+                    )
+                expected = _product_axis_flat_values(
+                    domain,
+                    axis_index=axis_index,
+                    variable=variable,
+                )
+                if not _array_values_equal(source[axis.id].values, expected):
+                    raise ValueError(
+                        f"measurement coordinate {axis.id!r} does not match its "
+                        "product-grid axis"
+                    )
+                attrs = {
+                    **_variable_attrs(variable),
+                    "scopecat_product_grid_axis": True,
+                }
+            else:
+                if axis.id in source.variables:
+                    raise ValueError(
+                        f"product-grid axis {axis.id!r} conflicts with an Xarray "
+                        "variable"
+                    )
+                attrs = _product_axis_attrs(axis.values)
+            axis_coordinates[axis.id] = (
+                (axis.id,),
+                _product_axis_values(axis.values, variable=variable),
+                attrs,
+            )
+
+        coords: dict[str, object] = dict(axis_coordinates)
+        data_vars: dict[str, object] = {}
+        for raw_name, array in source.coords.items():
+            name = cast("str", raw_name)
+            if name in axis_coordinates:
+                continue
+            coords[name] = _reshape_point_data_array(
+                array,
+                axis_ids=axis_ids,
+                axis_shape=axis_shape,
+            )
+        for raw_name, array in source.data_vars.items():
+            name = cast("str", raw_name)
+            if name in axis_coordinates:
+                raise ValueError(
+                    f"product-grid axis {name!r} conflicts with an Xarray data variable"
+                )
+            data_vars[name] = _reshape_point_data_array(
+                array,
+                axis_ids=axis_ids,
+                axis_shape=axis_shape,
+            )
+
+        return xr.Dataset(
+            data_vars=data_vars,
+            coords=coords,
+            attrs={
+                **deepcopy(dict(source.attrs)),
+                "scopecat_xarray_layout": "product_grid",
+            },
+        )
+
+    def _build_xarray(self) -> xr.Dataset:
+        """Materialize the private canonical Xarray snapshot once."""
+
         coords: dict[str, object] = {
             "point": (
                 ("point",),
-                np_module.asarray(
-                    tuple(record.point_index for record in self.records),
-                    dtype=np_module.int64,
+                np.asarray(
+                    tuple(record.point_index for record in self._records),
+                    dtype=np.int64,
                 ),
                 {
                     "long_name": "durable measurement point_index",
@@ -687,14 +881,29 @@ class Dataset:
                 },
             )
         }
+        for dimension in self._schema.dimensions:
+            view_size = self.dims[dimension.id]
+            if (
+                dimension.id != "point"
+                and view_size is not None
+                and dimension.id not in self.variables
+            ):
+                coords[dimension.id] = (
+                    (dimension.id,),
+                    np.arange(view_size, dtype=np.int64),
+                    {
+                        "long_name": f"positional index for {dimension.id}",
+                        "scopecat_role": "dimension_index",
+                    },
+                )
         if "logical_point_id" not in self.variables and any(
-            record.logical_point_id is not None for record in self.records
+            record.logical_point_id is not None for record in self._records
         ):
             coords["logical_point_id"] = (
                 ("point",),
-                np_module.asarray(
-                    tuple(record.logical_point_id for record in self.records),
-                    dtype=np_module.object_,
+                np.asarray(
+                    tuple(record.logical_point_id for record in self._records),
+                    dtype=np.object_,
                 ),
                 {"long_name": "Scopecat logical point id"},
             )
@@ -706,7 +915,7 @@ class Dataset:
             alignment = _ragged_alignment_key(variable)
             variable_layout = _ragged_xarray_layout(
                 variable,
-                records=self.records,
+                records=self._records,
             )
             existing_layout = ragged_layouts.get(alignment)
             if existing_layout is None:
@@ -716,7 +925,7 @@ class Dataset:
                 ragged_layouts[alignment] = _merge_ragged_xarray_layouts(
                     existing_layout,
                     variable_layout,
-                    records=self.records,
+                    records=self._records,
                 )
             except ValueError as error:
                 owner = (
@@ -731,13 +940,13 @@ class Dataset:
         emitted_ragged_layouts: set[_RaggedAlignmentKey] = set()
         for variable in self.variables.values():
             target = coords if variable.role == "coordinate" else data_vars
+            availability = variable.availability
             if _variable_is_ragged(variable):
                 alignment = _ragged_alignment_key(variable)
                 alignment_id = _ragged_alignment_id(alignment)
                 observation_dim = _ragged_observation_dim(alignment_id)
                 ragged = _xarray_ragged_values(
                     variable,
-                    np_module,
                     layout=ragged_layouts[alignment],
                 )
                 target[variable.id] = (
@@ -749,14 +958,36 @@ class Dataset:
                         "scopecat_ragged_alignment": alignment_id,
                     },
                 )
+                data_vars[_ragged_valid_name(variable.id)] = (
+                    (observation_dim,),
+                    ragged.valid,
+                    {
+                        "long_name": f"valid observations for {variable.id}",
+                        "scopecat_role": "ragged_observation_validity",
+                        "source_variable": variable.id,
+                    },
+                )
+                if any(reason is not None for reason in availability):
+                    data_vars[_ragged_unavailable_reason_name(variable.id)] = (
+                        (observation_dim,),
+                        ragged.unavailable_reasons,
+                        {
+                            "long_name": (
+                                "unavailable reason for each observation of "
+                                f"{variable.id}"
+                            ),
+                            "scopecat_role": ("ragged_observation_unavailable_reason"),
+                            "source_variable": variable.id,
+                        },
+                    )
                 if alignment not in emitted_ragged_layouts:
                     emitted_ragged_layouts.add(alignment)
                     source_attrs = _ragged_alignment_attrs(alignment)
                     coords[_ragged_parent_point_index_name(alignment_id)] = (
                         (observation_dim,),
-                        np_module.asarray(
+                        np.asarray(
                             ragged.layout.parent_point_indices,
-                            dtype=np_module.int64,
+                            dtype=np.int64,
                         ),
                         {
                             "long_name": (
@@ -770,9 +1001,9 @@ class Dataset:
                     )
                     coords[_ragged_row_size_name(alignment_id)] = (
                         ("point",),
-                        np_module.asarray(
+                        np.asarray(
                             ragged.layout.row_sizes,
-                            dtype=np_module.int64,
+                            dtype=np.int64,
                         ),
                         {
                             "long_name": (
@@ -785,9 +1016,9 @@ class Dataset:
                     for local_axis, dimension_id in enumerate(variable.dims[1:]):
                         coords[_ragged_local_index_name(alignment_id, dimension_id)] = (
                             (observation_dim,),
-                            np_module.asarray(
+                            np.asarray(
                                 ragged.layout.local_indices[local_axis],
-                                dtype=np_module.int64,
+                                dtype=np.int64,
                             ),
                             {
                                 "long_name": (
@@ -803,17 +1034,17 @@ class Dataset:
                             _ragged_local_extent_name(alignment_id, dimension_id)
                         ] = (
                             ("point",),
-                            np_module.asarray(
+                            np.asarray(
                                 ragged.layout.local_extents[local_axis],
                                 dtype=(
-                                    np_module.object_
+                                    np.object_
                                     if any(
                                         extent is None
                                         for extent in ragged.layout.local_extents[
                                             local_axis
                                         ]
                                     )
-                                    else np_module.int64
+                                    else np.int64
                                 ),
                             ),
                             {
@@ -829,15 +1060,15 @@ class Dataset:
             else:
                 target[variable.id] = (
                     variable.dims,
-                    _xarray_values(variable, np_module),
+                    _xarray_values(variable),
                     _variable_attrs(variable),
                 )
-            if any(reason is not None for reason in variable.availability):
+            if any(reason is not None for reason in availability):
                 data_vars[_unavailable_reason_name(variable.id)] = (
                     ("point",),
-                    np_module.asarray(
-                        variable.availability,
-                        dtype=np_module.object_,
+                    np.asarray(
+                        availability,
+                        dtype=np.object_,
                     ),
                     {
                         "long_name": f"unavailable reason for {variable.id}",
@@ -845,7 +1076,7 @@ class Dataset:
                         "source_variable": variable.id,
                     },
                 )
-        return xr_module.Dataset(
+        return xr.Dataset(
             data_vars=data_vars,
             coords=coords,
             attrs=_dataset_attrs(self),
@@ -854,28 +1085,34 @@ class Dataset:
     def to_arrow(self) -> pa.Table:
         """Convert to a point-row Arrow table with nested point-local arrays."""
 
-        pa_module = cast("_ArrowModule", _optional_module("pyarrow"))
-        columns: dict[str, Sequence[object]] = {
-            "point_index": tuple(record.point_index for record in self.records),
-            "logical_point_id": tuple(
-                record.logical_point_id for record in self.records
+        columns: dict[str, pa.Array] = {
+            "point_index": pa.array(
+                (record.point_index for record in self._records),
+                type=pa.int64(),
+            ),
+            "logical_point_id": pa.array(
+                (record.logical_point_id for record in self._records),
+                type=pa.string(),
             ),
         }
         for variable in self.variables.values():
-            columns[variable.id] = tuple(
-                _arrow_value(value) for value in variable.raw_values
+            columns[variable.id] = measurement_values_to_arrow_array(
+                variable._raw_values,
+                dtype=variable.dtype,
+                shape=variable.shape[1:],
             )
             if any(reason is not None for reason in variable.availability):
-                columns[_unavailable_reason_name(variable.id)] = variable.availability
-        table = pa_module.table(columns)
+                columns[_unavailable_reason_name(variable.id)] = pa.array(
+                    variable.availability,
+                    type=pa.string(),
+                )
+        table = pa.table(columns)
         metadata = dict(table.schema.metadata or {})
         metadata.update(
             {
-                b"scopecat.dataset_id": self.schema.dataset_id.encode(),
-                b"scopecat.schema": self.schema.model_dump_json().encode(),
-                b"scopecat.metadata": json.dumps(
-                    dict(self.metadata), separators=(",", ":"), sort_keys=True
-                ).encode(),
+                b"scopecat.dataset_id": self._schema.dataset_id.encode(),
+                b"scopecat.schema": self._schema.model_dump_json().encode(),
+                b"scopecat.metadata": _stable_json(self.metadata).encode(),
             }
         )
         return table.replace_schema_metadata(metadata)
@@ -891,9 +1128,9 @@ class Dataset:
         else:
             raise ValueError("pandas layout must be 'points' or 'long'")
         frame.attrs["scopecat"] = {
-            "dataset_id": self.schema.dataset_id,
-            "schema": self.schema.model_dump(mode="json"),
-            "metadata": dict(self.metadata),
+            "dataset_id": self._schema.dataset_id,
+            "schema": self._schema.model_dump(mode="json"),
+            "metadata": thaw_json_value(self.metadata),
             "layout": layout,
         }
         return frame
@@ -910,22 +1147,16 @@ class Dataset:
 
     def _select_indices(self, indices: Sequence[int]) -> Self:
         selected_records = [self._raw.records[index] for index in indices]
-        dimensions = [
-            dimension.model_copy(update={"size": len(selected_records)})
-            if dimension.id == "point"
-            else dimension.model_copy(deep=True)
-            for dimension in self.schema.dimensions
-        ]
-        schema = self.schema.model_copy(
-            update={"dimensions": dimensions},
-            deep=True,
-        )
         raw = MeasurementDataset(
-            dataset_schema=schema,
-            records=selected_records,
-            metadata=self._raw.metadata.copy(),
+            dataset_schema=self._schema,
+            records=tuple(selected_records),
+            metadata=self._raw.metadata,
         )
-        return type(self)(raw, self.entry)
+        return type(self)(
+            raw,
+            self._entry,
+            view_dimensions={**self.dims, "point": len(selected_records)},
+        )
 
     def _select_fixed_local_dimensions(
         self,
@@ -945,17 +1176,16 @@ class Dataset:
                     if dimension_id in variable.dims[1:]
                 },
             )
-            for record in self.records
+            for record in self._records
         ]
-        dimensions = [
-            dimension.model_copy(
-                update={"size": len(indices_by_dimension[dimension.id])}
-            )
-            if dimension.id in indices_by_dimension
-            else dimension.model_copy(deep=True)
-            for dimension in self.schema.dimensions
-        ]
-        return self._copy_with(records=records, dimensions=dimensions)
+        dimensions = {
+            **self.dims,
+            **{
+                dimension_id: len(indices)
+                for dimension_id, indices in indices_by_dimension.items()
+            },
+        }
+        return self._copy_with(records=records, view_dimensions=dimensions)
 
     def _select_ragged_local_dimensions(
         self,
@@ -1002,37 +1232,31 @@ class Dataset:
                 target_variable_ids=target_variable_ids,
                 indices_for=indices_for,
             )
-            for record in self.records
+            for record in self._records
         ]
         return self._copy_with(
             records=records,
-            dimensions=[
-                dimension.model_copy(deep=True) for dimension in self.schema.dimensions
-            ],
+            view_dimensions=self.dims,
         )
 
     def _copy_with(
         self,
         *,
         records: Sequence[MeasurementRecord],
-        dimensions: Sequence[MeasurementDimension],
+        view_dimensions: Mapping[str, int | None],
     ) -> Self:
-        schema = self.schema.model_copy(
-            update={"dimensions": list(dimensions)},
-            deep=True,
-        )
         raw = MeasurementDataset(
-            dataset_schema=schema,
-            records=list(records),
-            metadata=self._raw.metadata.copy(),
+            dataset_schema=self._schema,
+            records=tuple(records),
+            metadata=self._raw.metadata,
         )
-        return type(self)(raw, self.entry)
+        return type(self)(raw, self._entry, view_dimensions=view_dimensions)
 
     def _point_columns(self) -> Mapping[str, Sequence[object]]:
         columns: dict[str, Sequence[object]] = {
-            "point_index": tuple(record.point_index for record in self.records),
+            "point_index": tuple(record.point_index for record in self._records),
             "logical_point_id": tuple(
-                record.logical_point_id for record in self.records
+                record.logical_point_id for record in self._records
             ),
         }
         for variable in self.variables.values():
@@ -1043,14 +1267,14 @@ class Dataset:
 
     def _long_rows(self) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
-        for record_position, record in enumerate(self.records):
+        for record_position, record in enumerate(self._records):
             for variable in self.variables.values():
-                value = variable.raw_values[record_position]
+                value = variable._raw_values[record_position]
                 reason = (
                     value.reason if isinstance(value, MeasurementUnavailable) else None
                 )
                 if isinstance(value, MeasurementArray):
-                    flattened = _flatten_native_array(_native_value(value))
+                    flattened = _flatten_native_array(value.values)
                 else:
                     flattened = (((), _native_value(value)),)
                 for local_index, native in flattened:
@@ -1074,45 +1298,105 @@ def _native_value(value: MeasurementValue) -> NativeValue:
         return None
     if isinstance(value, MeasurementScalar):
         return cast("NativeValue", _native_leaf(value.value))
-    return cast("NativeValue", _native_leaf(value.values))
+    return value.values
 
 
 def _native_leaf(value: object) -> object:
-    if isinstance(value, ComplexComponents):
-        return complex(value.real, value.imag)
-    if isinstance(value, tuple):
-        selected = cast("tuple[object, ...]", value)
-        return tuple(_native_leaf(item) for item in selected)
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, list | tuple):
+        return tuple(_native_leaf(item) for item in value)
     return value
 
 
-def _arrow_value(value: MeasurementValue) -> object:
-    if isinstance(value, MeasurementUnavailable):
-        return None
-    if isinstance(value, MeasurementScalar):
-        return _arrow_leaf(value.value)
-    return _arrow_leaf(value.values)
+def _reshape_point_data_array(
+    array: xr.DataArray,
+    *,
+    axis_ids: tuple[str, ...],
+    axis_shape: tuple[int, ...],
+) -> object:
+    attrs = deepcopy(dict(array.attrs))
+    if "point" not in array.dims:
+        return (array.dims, np.array(array.values, copy=True), attrs)
+
+    remaining_dims = tuple(dim for dim in array.dims if dim != "point")
+    ordered = array.transpose("point", *remaining_dims)
+    remaining_shape = tuple(ordered.sizes[dim] for dim in remaining_dims)
+    values = np.asarray(ordered.values).reshape((*axis_shape, *remaining_shape))
+    return ((*axis_ids, *remaining_dims), values, attrs)
 
 
-def _arrow_leaf(value: object) -> object:
-    if isinstance(value, ComplexComponents):
-        return {"real": value.real, "imag": value.imag}
-    if isinstance(value, tuple):
-        selected = cast("tuple[object, ...]", value)
-        return [_arrow_leaf(item) for item in selected]
-    return value
+def _product_axis_values(
+    values: Sequence[MeasurementScalar | None],
+    *,
+    variable: Variable | None,
+) -> np.ndarray:
+    native = tuple(
+        None if value is None else _native_leaf(value.value) for value in values
+    )
+    if variable is None:
+        return np.asarray(native, dtype=np.object_ if not native else None)
+    return np.asarray(
+        native,
+        dtype=_xarray_dtype(
+            variable.dtype,
+            nullable=any(value is None for value in values),
+        ),
+    )
+
+
+def _product_axis_flat_values(
+    domain: MeasurementProductGridPointDomain,
+    *,
+    axis_index: int,
+    variable: Variable,
+) -> np.ndarray:
+    axis = domain.axes[axis_index]
+    values = _product_axis_values(axis.values, variable=variable)
+    repeated = np.repeat(
+        values,
+        math.prod(item.size for item in domain.axes[axis_index + 1 :]),
+    )
+    return np.tile(
+        repeated,
+        math.prod(item.size for item in domain.axes[:axis_index]),
+    )
+
+
+def _product_axis_attrs(
+    values: Sequence[MeasurementScalar | None],
+) -> dict[str, object]:
+    attrs: dict[str, object] = {
+        "scopecat_role": "point_domain_axis",
+        "scopecat_product_grid_axis": True,
+    }
+    available = tuple(value for value in values if value is not None)
+    units = {value.unit for value in available}
+    dtypes = {value.dtype for value in available}
+    if len(units) == 1:
+        [unit] = units
+        if unit is not None:
+            attrs["units"] = unit
+    if len(dtypes) == 1:
+        [dtype] = dtypes
+        attrs["scopecat_dtype"] = dtype
+    return attrs
+
+
+def _array_values_equal(left: np.ndarray, right: np.ndarray) -> bool:
+    try:
+        return bool(np.array_equal(left, right, equal_nan=True))
+    except TypeError:
+        return bool(np.array_equal(left, right))
 
 
 def _flatten_native_array(
-    value: NativeValue,
-    prefix: tuple[int, ...] = (),
+    value: MeasurementArrayData,
 ) -> tuple[tuple[tuple[int, ...], NativeValue], ...]:
-    if not isinstance(value, tuple):
-        return ((prefix, value),)
-    flattened: list[tuple[tuple[int, ...], NativeValue]] = []
-    for index, item in enumerate(value):
-        flattened.extend(_flatten_native_array(item, (*prefix, index)))
-    return tuple(flattened)
+    return tuple(
+        (tuple(index), cast("NativeValue", _native_leaf(item)))
+        for index, item in np.ndenumerate(value)
+    )
 
 
 def _slice_record_local_values(
@@ -1144,7 +1428,6 @@ def _slice_record_local_values(
             "coordinates": coordinates,
             "observables": observables,
         },
-        deep=True,
     )
 
 
@@ -1177,43 +1460,16 @@ def _slice_measurement_value(
             dtype=value.dtype,
             unit=value.unit,
             shape=selected_shape,
-            metadata=dict(value.metadata),
+            metadata=value.metadata,
         )
+    selected_values = value.values
+    for axis, indices in sorted(indices_by_axis.items()):
+        selected_values = np.take(selected_values, indices, axis=axis)
     return MeasurementArray.create(
         dtype=value.dtype,
         unit=value.unit,
-        shape=cast("tuple[int, ...]", selected_shape),
-        values=cast(
-            "Sequence[object]",
-            _slice_nested_array(
-                value.values,
-                rank=len(shape),
-                indices_by_axis=indices_by_axis,
-            ),
-        ),
-        metadata=dict(value.metadata),
-    )
-
-
-def _slice_nested_array(
-    value: object,
-    *,
-    rank: int,
-    indices_by_axis: Mapping[int, tuple[int, ...]],
-    axis: int = 0,
-) -> object:
-    if axis == rank:
-        return value
-    items = cast("Sequence[object]", value)
-    indices = indices_by_axis.get(axis, tuple(range(len(items))))
-    return tuple(
-        _slice_nested_array(
-            items[index],
-            rank=rank,
-            indices_by_axis=indices_by_axis,
-            axis=axis + 1,
-        )
-        for index in indices
+        values=selected_values,
+        metadata=value.metadata,
     )
 
 
@@ -1229,6 +1485,60 @@ def _merge_indexers[T](
         )
     selected.update(kwargs)
     return selected
+
+
+def _preserving_xarray_indexer(indexer: DimensionIndexer) -> object:
+    """Use Xarray indexing while retaining durable dataset dimensions."""
+
+    if isinstance(indexer, bool):
+        raise TypeError("dimension indexers must not be a single bool")
+    if isinstance(indexer, int):
+        return [indexer]
+    if isinstance(indexer, slice):
+        return indexer
+    selected = tuple(indexer)
+    if not selected:
+        return np.empty((0,), dtype=np.int64)
+    return list(selected)
+
+
+def _point_positions(dataset: Dataset, selected: xr.Dataset) -> tuple[int, ...]:
+    positions = {
+        record.point_index: position for position, record in enumerate(dataset._records)
+    }
+    point_indices = cast(
+        "list[int]",
+        selected.coords["point"].values.tolist(),
+    )
+    return tuple(positions[point_index] for point_index in point_indices)
+
+
+def _selected_dimension_positions(
+    selected: xr.Dataset,
+    dimension_id: str,
+) -> tuple[int, ...]:
+    return tuple(
+        cast(
+            "list[int]",
+            selected.coords[dimension_id].values.tolist(),
+        )
+    )
+
+
+def _group_positions(
+    positions: Sequence[int] | slice,
+    *,
+    size: int,
+) -> tuple[int, ...]:
+    if isinstance(positions, slice):
+        return tuple(range(size)[positions])
+    return tuple(positions)
+
+
+def _native_group_key(value: object) -> GroupKey:
+    if isinstance(value, np.generic):
+        value = value.item()
+    return cast("GroupKey", value)
 
 
 def _dimension_indices(
@@ -1300,72 +1610,39 @@ def _selection_tolerance(
     return numeric
 
 
-def _nearest_indices(
-    variable: Variable,
-    query: object,
-    *,
-    tolerance: float | None,
-) -> tuple[int, ...]:
-    if not isinstance(query, int | float) or isinstance(query, bool):
-        raise TypeError("nearest selection requires a numeric coordinate value")
-    candidates: list[tuple[int, float]] = []
-    for index, value in enumerate(variable.values):
-        if not isinstance(value, int | float) or isinstance(value, bool):
-            if value is None:
-                continue
-            raise TypeError("nearest selection requires a numeric coordinate")
-        distance = abs(float(value) - float(query))
-        candidates.append((index, distance))
-    if not candidates:
-        return ()
-    nearest = min(distance for _, distance in candidates)
-    if tolerance is not None and nearest > tolerance:
-        return ()
-    return tuple(
-        index
-        for index, distance in candidates
-        if math.isclose(distance, nearest, rel_tol=1e-12, abs_tol=0.0)
-    )
-
-
-def _point_identity_matches(
-    records: Sequence[MeasurementRecord],
-    query: object,
-) -> tuple[bool, ...]:
-    if isinstance(query, str):
-        return tuple(record.logical_point_id == query for record in records)
-    if isinstance(query, int) and not isinstance(query, bool):
-        return tuple(record.point_index == query for record in records)
-    raise TypeError("point selection requires a logical point id or point index")
-
-
-def _xarray_values(variable: Variable, np_module: _NumpyModule) -> object:
+def _xarray_values(variable: Variable) -> object:
     fixed_shape = tuple(cast("int", extent) for extent in variable.shape)
-    dtype = {
-        "float64": np_module.float64,
-        "int64": np_module.int64,
-        "complex128": np_module.complex128,
-        "bool": np_module.bool_,
-        "string": np_module.object_,
-    }[variable.dtype]
-    if any(reason is not None for reason in variable.availability):
-        if variable.dtype == "float64":
-            fill: object = math.nan
-        elif variable.dtype == "complex128":
-            fill = complex(math.nan, math.nan)
+    raw_values = variable._raw_values
+    has_unavailable = any(
+        isinstance(value, MeasurementUnavailable) for value in raw_values
+    )
+    dtype = _xarray_dtype(variable.dtype, nullable=has_unavailable)
+    if not raw_values:
+        return np.empty(fixed_shape, dtype=dtype)
+
+    local_shape = fixed_shape[1:]
+    if not local_shape:
+        values: list[object] = []
+        for value in raw_values:
+            if isinstance(value, MeasurementUnavailable):
+                values.append(_xarray_nullable_fill(variable.dtype))
+            else:
+                values.append(cast("MeasurementScalar", value).value)
+        return np.asarray(values, dtype=dtype)
+
+    arrays: list[np.ndarray] = []
+    for value in raw_values:
+        if isinstance(value, MeasurementUnavailable):
+            arrays.append(
+                np.full(
+                    local_shape,
+                    _xarray_nullable_fill(variable.dtype),
+                    dtype=dtype,
+                )
+            )
         else:
-            fill = None
-            dtype = np_module.object_
-        local_shape = fixed_shape[1:]
-        values = tuple(
-            _filled_value(local_shape, fill) if value is None else value
-            for value in variable.values
-        )
-    else:
-        values = variable.values
-    if not values:
-        return np_module.empty(fixed_shape, dtype=dtype)
-    return np_module.asarray(values, dtype=dtype)
+            arrays.append(cast("MeasurementArray", value).values)
+    return np.stack(arrays, axis=0).astype(dtype, copy=False)
 
 
 def _variable_is_ragged(variable: Variable) -> bool:
@@ -1374,35 +1651,19 @@ def _variable_is_ragged(variable: Variable) -> bool:
 
 def _xarray_ragged_values(
     variable: Variable,
-    np_module: _NumpyModule,
     *,
     layout: _RaggedXarrayLayout,
 ) -> _RaggedXarrayValues:
     """Flatten point-local arrays without constructing a NumPy object array."""
 
-    dtype = {
-        "float64": np_module.float64,
-        "int64": np_module.int64,
-        "complex128": np_module.complex128,
-        "bool": np_module.bool_,
-        "string": np_module.object_,
-    }[variable.dtype]
-    fill: object
-    if variable.dtype == "float64":
-        fill = math.nan
-    elif variable.dtype == "complex128":
-        fill = complex(math.nan, math.nan)
-    elif variable.dtype == "int64":
-        fill = 0
-    elif variable.dtype == "bool":
-        fill = False
-    else:
-        fill = ""
-
-    flattened_values: list[object] = []
+    raw_values = variable._raw_values
+    dtype = _xarray_dtype(variable.dtype, nullable=False)
+    chunks: list[np.ndarray[tuple[int], np.dtype[np.generic]]] = []
+    valid_chunks: list[np.ndarray[tuple[int], np.dtype[np.bool_]]] = []
+    reason_chunks: list[np.ndarray[tuple[int], np.dtype[np.object_]]] = []
     for row_size, raw_value in zip(
         layout.row_sizes,
-        variable.raw_values,
+        raw_values,
         strict=True,
     ):
         if isinstance(raw_value, MeasurementScalar):
@@ -1410,24 +1671,76 @@ def _xarray_ragged_values(
                 f"ragged variable {variable.id!r} must contain point-local arrays"
             )
         if isinstance(raw_value, MeasurementUnavailable):
-            flattened_values.extend(fill for _index in range(row_size))
+            chunks.append(np.full(row_size, _xarray_fill(variable.dtype), dtype=dtype))
+            valid_chunks.append(np.zeros(row_size, dtype=np.bool_))
+            reason_chunks.append(np.full(row_size, raw_value.reason, dtype=np.object_))
         else:
-            flattened_values.extend(
-                value
-                for _local_index, value in _flatten_native_array(
-                    _native_value(raw_value)
+            flattened = raw_value.values.reshape(-1)
+            if flattened.size != row_size:
+                raise ValueError(
+                    f"ragged variable {variable.id!r} contributes "
+                    f"{flattened.size} values to a {row_size}-observation row"
                 )
-            )
+            chunks.append(flattened)
+            valid_chunks.append(np.ones(row_size, dtype=np.bool_))
+            reason_chunks.append(np.full(row_size, None, dtype=np.object_))
 
-    values = (
-        np_module.asarray(tuple(flattened_values), dtype=dtype)
-        if flattened_values
-        else np_module.empty((0,), dtype=dtype)
+    values = _concatenate_or_empty(chunks, dtype=dtype)
+    valid = _concatenate_or_empty(valid_chunks, dtype=np.dtype(np.bool_))
+    unavailable_reasons = _concatenate_or_empty(
+        reason_chunks,
+        dtype=np.dtype(np.object_),
     )
     return _RaggedXarrayValues(
         values=values,
+        valid=valid,
+        unavailable_reasons=unavailable_reasons,
         layout=layout,
     )
+
+
+def _xarray_dtype(
+    dtype: MeasurementDType,
+    *,
+    nullable: bool,
+) -> np.dtype[np.generic]:
+    if nullable and dtype in {"int64", "bool", "string"}:
+        return np.dtype(np.object_)
+    return {
+        "float64": np.dtype(np.float64),
+        "int64": np.dtype(np.int64),
+        "complex128": np.dtype(np.complex128),
+        "bool": np.dtype(np.bool_),
+        "string": np.dtype(np.str_),
+    }[dtype]
+
+
+def _xarray_fill(dtype: MeasurementDType) -> object:
+    if dtype == "float64":
+        return math.nan
+    if dtype == "complex128":
+        return complex(math.nan, math.nan)
+    if dtype == "int64":
+        return 0
+    if dtype == "bool":
+        return False
+    return ""
+
+
+def _xarray_nullable_fill(dtype: MeasurementDType) -> object:
+    if dtype in {"int64", "bool", "string"}:
+        return None
+    return _xarray_fill(dtype)
+
+
+def _concatenate_or_empty(
+    chunks: Sequence[np.ndarray],
+    *,
+    dtype: np.dtype[np.generic],
+) -> np.ndarray:
+    if not chunks:
+        return np.empty((0,), dtype=dtype)
+    return np.concatenate(chunks).astype(dtype, copy=False)
 
 
 def _ragged_xarray_layout(
@@ -1436,7 +1749,7 @@ def _ragged_xarray_layout(
     records: Sequence[MeasurementRecord],
 ) -> _RaggedXarrayLayout:
     local_extents: list[list[int | None]] = [[] for _dimension_id in variable.dims[1:]]
-    for raw_value in variable.raw_values:
+    for raw_value in variable._raw_values:
         if isinstance(raw_value, MeasurementScalar):
             raise ValueError(
                 f"ragged variable {variable.id!r} must contain point-local arrays"
@@ -1559,17 +1872,20 @@ def _ragged_local_extent_name(variable_id: str, dimension_id: str) -> str:
     return f"{variable_id}__{dimension_id}_extent"
 
 
-def _filled_value(shape: Sequence[int], fill: object) -> object:
-    if not shape:
-        return fill
-    return tuple(_filled_value(shape[1:], fill) for _ in range(shape[0]))
+def _ragged_valid_name(variable_id: str) -> str:
+    return f"{variable_id}__observation_valid"
+
+
+def _ragged_unavailable_reason_name(variable_id: str) -> str:
+    return f"{variable_id}__observation_unavailable_reason"
 
 
 def _variable_attrs(variable: Variable) -> dict[str, object]:
     attrs: dict[str, object] = {
         "scopecat_role": variable.role,
         "scopecat_dtype": variable.dtype,
-        "scopecat_dims": variable.dims,
+        "scopecat_dims_json": _stable_json(variable.dims),
+        "scopecat_metadata_json": _stable_json(variable.metadata),
     }
     if variable.unit is not None:
         attrs["units"] = variable.unit
@@ -1577,16 +1893,28 @@ def _variable_attrs(variable: Variable) -> dict[str, object]:
         attrs["long_name"] = variable.label
     if variable.recording_group_id is not None:
         attrs["scopecat_recording_group_id"] = variable.recording_group_id
-    attrs.update(variable.metadata)
     return attrs
 
 
 def _dataset_attrs(dataset: Dataset) -> dict[str, object]:
     return {
-        "scopecat_dataset_id": dataset.schema.dataset_id,
-        "scopecat_format_version": dataset.schema.format_version,
-        **dict(dataset.metadata),
+        "scopecat_dataset_id": dataset._schema.dataset_id,
+        "scopecat_format_version": dataset._schema.format_version,
+        "scopecat_entry_id": dataset._entry.id,
+        "scopecat_entry_role": dataset._entry.role,
+        "scopecat_entry_kind": dataset._entry.kind,
+        "scopecat_content_hash": dataset._entry.content_hash,
+        "scopecat_schema_json": _stable_json(dataset._schema.model_dump(mode="json")),
+        "scopecat_metadata_json": _stable_json(dataset._raw.metadata),
     }
+
+
+def _stable_json(value: object) -> str:
+    return json.dumps(
+        thaw_json_value(value),
+        separators=(",", ":"),
+        sort_keys=True,
+    )
 
 
 def _unavailable_reason_name(variable_id: str) -> str:
@@ -1600,7 +1928,7 @@ def _optional_module(name: str) -> object:
         if error.name != name:
             raise
         raise ModuleNotFoundError(
-            f"{name} is required for this conversion; install scopecat[data]"
+            f"{name} is required for this conversion; install scopecat[pandas]"
         ) from error
 
 

@@ -170,18 +170,18 @@ def test_table_primary_keys_use_entity_and_quantity_semantic_identity() -> None:
     quantity_table = Table(
         columns=(
             TableColumn(
-                "frequency",
-                Scalar(Quantity(dimension="frequency")),
+                "current",
+                Scalar(Quantity(dimension="current")),
             ),
         ),
-        primary_key=("frequency",),
+        primary_key=("current",),
     )
     with pytest.raises(ValueValidationError, match="duplicates row 0"):
         coerce_literal(
             quantity_table,
             [
-                {"frequency": QuantityValue(1e-13, "GHz")},
-                {"frequency": QuantityValue(1e-4, "Hz")},
+                {"current": QuantityValue(100.0, "uA")},
+                {"current": QuantityValue(0.0001, "A")},
             ],
         )
 

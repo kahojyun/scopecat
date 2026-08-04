@@ -29,10 +29,11 @@ from scopecat.records.execution_journal import (
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
-    MeasurementProductGridPointDomain,
+    MeasurementPointCloudPointDomain,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementUnavailable,
+    MeasurementVariable,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -88,10 +89,20 @@ def _header(
         recording_contract_fingerprint="recording.v1",
         dataset_schema=MeasurementDatasetSchema(
             dataset_id="raw-measurements",
-            point_domain=MeasurementProductGridPointDomain(axes=[]),
+            point_domain=MeasurementPointCloudPointDomain(columns=()),
             dimensions=[
                 MeasurementDimension(id="point", kind="point", size=point_count)
             ],
+            variables=(
+                MeasurementVariable(
+                    id="signal",
+                    role="observable",
+                    dtype="float64",
+                    unit="ratio",
+                    dims=("point",),
+                ),
+            ),
+            primary_observables=("signal",),
         ),
         expected_record_count=point_count,
     )
@@ -305,7 +316,10 @@ def test_in_transaction_primitives_report_created_and_replay_durable_values(
     append = _append(header)
     seal = _seal(header, append)
     prepared_header = measurements.prepare_header(header)
-    prepared_append = measurements.prepare_append(append)
+    prepared_append = measurements.prepare_append(
+        append,
+        dataset_schema=header.dataset_schema,
+    )
     prepared_seal = measurements.prepare_seal(seal)
 
     with _sqlite_transaction(runs) as connection:
@@ -429,7 +443,7 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
         repository: SQLiteMeasurementDatasetRepository,
     ) -> tuple[str, bool]:
         barrier.wait()
-        prepared = repository.prepare_append(append.model_copy(deep=True))
+        prepared = repository.prepare_append(append)
         with _sqlite_transaction(runs) as connection:
             receipt, created = repository.append_prepared_in_transaction(
                 connection,
@@ -562,8 +576,8 @@ def test_unavailable_measurement_round_trips_through_dataset_storage(
     unavailable = MeasurementUnavailable.create(
         reason="overload",
         dtype="float64",
-        unit="V",
-        shape=(2,),
+        unit="ratio",
+        shape=(),
         metadata={"status_register": 4},
     )
     header = _header("run-unavailable")

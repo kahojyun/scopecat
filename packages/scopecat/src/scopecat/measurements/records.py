@@ -107,6 +107,8 @@ class ValueRecordUse:
 
 @dataclass(frozen=True, slots=True)
 class RecordAxisPlan:
+    """Config-independent projection of one product-local measurement axis."""
+
     id: str
     label: str | None
     kind: str
@@ -126,6 +128,8 @@ class RecordAxisPlan:
 
 @dataclass(frozen=True, slots=True)
 class RecordPlan:
+    """Dataset variable plan derived from one recorded product use."""
+
     id: str
     product_use_id: ProductUseId
     product_id: ProductId
@@ -198,6 +202,8 @@ def plan_records(
     product_uses: Sequence[ProductUse],
     record_uses: Sequence[RecordUse],
 ) -> list[RecordPlan]:
+    """Project verified product record uses into dataset variable plans."""
+
     products_by_id = {product.id: product for product in products}
     uses_by_id = {use.id: use for use in product_uses}
     plans: list[RecordPlan] = []
@@ -227,6 +233,8 @@ def plan_records(
 def plan_value_records(
     record_uses: Sequence[ValueRecordUse],
 ) -> list[ValueRecordPlan]:
+    """Project scalar value record uses into dataset variable plans."""
+
     return [
         ValueRecordPlan(
             id=record.id,
@@ -372,13 +380,19 @@ def expected_dataset_schema(
     point_domain_axis_sizes: Sequence[tuple[str, int]] = (),
     point_domain_axis_values: Sequence[tuple[str, Sequence[CellValue]]] = (),
 ) -> MeasurementDatasetSchema | None:
+    """Build the complete planned dataset schema from points and record plans."""
+
     if not records:
         return None
     dimensions = [
         MeasurementDimension(id="point", kind="point", size=point_count),
         *_record_axes(records),
     ]
-    point_coordinates = _coordinate_variables(point_coordinate_columns)
+    axis_values_by_id = dict(point_domain_axis_values)
+    point_coordinates = _coordinate_variables(
+        point_coordinate_columns,
+        axis_values_by_id=axis_values_by_id,
+    )
     record_variables = [_record_variable(record) for record in records]
     record_coordinates = [
         variable for variable in record_variables if variable.role == "coordinate"
@@ -387,7 +401,6 @@ def expected_dataset_schema(
         variable for variable in record_variables if variable.role == "observable"
     ]
     coordinates = [*point_coordinates, *record_coordinates]
-    axis_values_by_id = dict(point_domain_axis_values)
     return MeasurementDatasetSchema(
         dataset_id=dataset_id,
         point_domain=(
@@ -544,12 +557,22 @@ def _axes_are_compatible(left: RecordAxisPlan, right: RecordAxisPlan) -> bool:
 
 def _coordinate_variables(
     columns: Sequence[TableColumn],
+    *,
+    axis_values_by_id: Mapping[str, Sequence[CellValue]],
 ) -> list[MeasurementVariable]:
-    return [_coordinate_variable(column) for column in columns]
+    return [
+        _coordinate_variable(
+            column,
+            axis_values=axis_values_by_id.get(column.id, ()),
+        )
+        for column in columns
+    ]
 
 
 def _coordinate_variable(
     column: TableColumn,
+    *,
+    axis_values: Sequence[CellValue],
 ) -> MeasurementVariable:
     atom = column.value_type.atom
     metadata: dict[str, WireJsonValue] = {}
@@ -559,10 +582,32 @@ def _coordinate_variable(
         id=column.id,
         role="coordinate",
         dtype=_value_record_dtype(column.value_type),
-        unit=_value_record_unit(column.value_type),
+        unit=_coordinate_unit(column, axis_values=axis_values),
         dims=["point"],
         metadata=metadata,
     )
+
+
+def _coordinate_unit(
+    column: TableColumn,
+    *,
+    axis_values: Sequence[CellValue],
+) -> str | None:
+    declared = _value_record_unit(column.value_type)
+    observed = {value.unit for value in axis_values if isinstance(value, Quantity)}
+    if len(observed) > 1:
+        raise ValueError(
+            f"point-domain axis {column.id} uses inconsistent quantity units"
+        )
+    if not observed:
+        return declared
+    selected = next(iter(observed))
+    if declared is not None and selected != declared:
+        raise ValueError(
+            f"point-domain axis {column.id} unit {selected} does not match "
+            f"its declared unit {declared}"
+        )
+    return selected
 
 
 def _wire_metadata(metadata: Mapping[str, JsonValue]) -> dict[str, WireJsonValue]:

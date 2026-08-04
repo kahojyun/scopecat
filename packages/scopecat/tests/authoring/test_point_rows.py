@@ -7,7 +7,6 @@ from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.measurements.projection import select_measurement_projection
 from scopecat.planning.measurement_projection import (
     project_measurement_catalog,
-    project_run_point_catalog,
     project_static_value_record_candidates,
 )
 from scopecat.planning.point_materialization import materialize_bound_points
@@ -66,8 +65,7 @@ def test_point_rows_compile_materialize_and_persist_layout() -> None:
         bound.bindings.record_uses,
         static_value_candidates=project_static_value_record_candidates(bound_points),
     )
-    run_points = project_run_point_catalog(bound_points).points
-    schema = projection.schema_for(run_points)
+    schema = projection.schema
     assert schema is not None
     assert schema.point_domain == MeasurementPointCloudPointDomain(
         columns=[
@@ -107,7 +105,7 @@ def test_empty_point_rows_are_a_zero_point_domain() -> None:
         bound.bindings.record_uses,
         static_value_candidates=project_static_value_record_candidates(bound_points),
     )
-    schema = projection.schema_for(project_run_point_catalog(bound_points).points)
+    schema = projection.schema
     assert schema is not None
     assert schema.point_domain == MeasurementPointCloudPointDomain(
         columns=[
@@ -115,7 +113,7 @@ def test_empty_point_rows_are_a_zero_point_domain() -> None:
             MeasurementPointDomainColumn(id="y"),
         ]
     )
-    assert schema.variables[:2] == [
+    assert schema.variables[:2] == (
         MeasurementVariable(
             id="x",
             role="coordinate",
@@ -129,7 +127,7 @@ def test_empty_point_rows_are_a_zero_point_domain() -> None:
             unit="GHz",
             dims=["point"],
         ),
-    ]
+    )
 
 
 def test_point_rows_require_the_same_typed_coordinate_columns() -> None:

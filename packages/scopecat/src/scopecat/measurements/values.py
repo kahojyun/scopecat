@@ -70,9 +70,10 @@ class MeasurementValueCatalog:
             stable_content_hash(
                 content_fingerprint(
                     {
-                        "schema": "scopecat.measurement_value_contract.v5",
+                        "schema": "scopecat.measurement_value_contract.v6",
                         "experiment_id": self.point_contract.experiment_id,
                         "experiment_kind": self.point_contract.experiment_kind,
+                        "point_count": self.point_contract.point_count,
                         "coordinate_columns": self.point_contract.coordinate_columns,
                         "domain_layout": self.point_contract.domain_layout,
                         "domain_axis_sizes": self.point_contract.domain_axis_sizes,

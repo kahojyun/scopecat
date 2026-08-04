@@ -1,23 +1,11 @@
+import { useMemo } from "react";
 import type { RunAnalysisOutput } from "../../types";
-
-const SERIES_COLORS = [
-  "#8ab4f8",
-  "#c7a6ff",
-  "#67d8b5",
-  "#f2c66d",
-  "#ff8c88",
-  "#83d2f0",
-  "#f69bc8",
-  "#a9d66e",
-  "#f4a261",
-  "#9fa8ff",
-  "#5fd1c8",
-  "#d5a6bd",
-  "#b8c0ff",
-  "#ffb86b",
-  "#76c893",
-  "#e5989b",
-];
+import { EChart } from "../../ui/EChart";
+import {
+  analysisAxisLabel,
+  analysisFigureOption,
+  type AnalysisFigureContent,
+} from "./chart-options";
 
 export function AnalysisOutputView({ output }: { output: RunAnalysisOutput }) {
   let content;
@@ -96,26 +84,14 @@ function AnalysisTableView({ content, title }: { content: TableContent; title: s
   );
 }
 
-type FigureContent = Extract<RunAnalysisOutput, { kind: "figure" }>["content"];
-
-function AnalysisFigureView({ content, title }: { content: FigureContent; title: string }) {
-  const width = 640;
-  const height = 250;
-  const margin = { top: 18, right: 20, bottom: 43, left: 58 };
+function AnalysisFigureView({ content, title }: { content: AnalysisFigureContent; title: string }) {
   const points = content.series.flatMap((series) =>
     series.x.map((x, index) => ({ x, y: series.y[index]! })),
   );
-  const [xMin, xMax] = paddedExtent(points.map((point) => point.x));
-  const [yMin, yMax] = paddedExtent(points.map((point) => point.y));
-  const x = (value: number) =>
-    margin.left + normalizedPosition(value, xMin, xMax) * (width - margin.left - margin.right);
-  const y = (value: number) =>
-    height -
-    margin.bottom -
-    normalizedPosition(value, yMin, yMax) * (height - margin.top - margin.bottom);
-  const xLabel = axisLabel(content.x_axis);
-  const yLabel = axisLabel(content.y_axis);
+  const xLabel = analysisAxisLabel(content.x_axis);
+  const yLabel = analysisAxisLabel(content.y_axis);
   const description = `${title}: ${yLabel} by ${xLabel}`;
+  const option = useMemo(() => analysisFigureOption(content), [content]);
 
   return (
     <figure className="m-0 p-[9px]" data-testid="analysis-figure">
@@ -127,101 +103,16 @@ function AnalysisFigureView({ content, title }: { content: FigureContent; title:
           {content.kind}
         </span>
       </figcaption>
-      <svg
-        aria-label={description}
-        className="block h-auto w-full rounded-md bg-panel-soft"
-        role="img"
-        viewBox={`0 0 ${width} ${height}`}
-      >
-        <title>{description}</title>
-        {ticks(xMin, xMax).map((tick) => (
-          <g key={`x:${tick}`}>
-            <line
-              stroke="var(--color-line)"
-              strokeWidth="1"
-              x1={x(tick)}
-              x2={x(tick)}
-              y1={margin.top}
-              y2={height - margin.bottom}
-            />
-            <text
-              fill="var(--color-text-dim)"
-              fontSize="10"
-              textAnchor="middle"
-              x={x(tick)}
-              y={height - 22}
-            >
-              {shortNumber(tick)}
-            </text>
-          </g>
-        ))}
-        {ticks(yMin, yMax).map((tick) => (
-          <g key={`y:${tick}`}>
-            <line
-              stroke="var(--color-line)"
-              strokeWidth="1"
-              x1={margin.left}
-              x2={width - margin.right}
-              y1={y(tick)}
-              y2={y(tick)}
-            />
-            <text
-              dominantBaseline="middle"
-              fill="var(--color-text-dim)"
-              fontSize="10"
-              textAnchor="end"
-              x={margin.left - 7}
-              y={y(tick)}
-            >
-              {shortNumber(tick)}
-            </text>
-          </g>
-        ))}
-        {content.series.map((series, seriesIndex) => {
-          const color = SERIES_COLORS[seriesIndex % SERIES_COLORS.length]!;
-          const seriesPoints = series.x.map((xValue, pointIndex) => ({
-            x: xValue,
-            y: series.y[pointIndex]!,
-          }));
-          const path = seriesPoints
-            .map(
-              (point, pointIndex) => `${pointIndex === 0 ? "M" : "L"}${x(point.x)},${y(point.y)}`,
-            )
-            .join(" ");
-          return (
-            <g data-testid="analysis-figure-series" key={series.id}>
-              {content.kind === "line" && seriesPoints.length > 1 ? (
-                <path d={path} fill="none" stroke={color} strokeWidth="2" />
-              ) : null}
-              {seriesPoints.map((point, pointIndex) => (
-                <circle
-                  cx={x(point.x)}
-                  cy={y(point.y)}
-                  fill={color}
-                  key={`${series.id}:${pointIndex}`}
-                  r={content.kind === "line" ? 2.5 : 3.75}
-                >
-                  <title>{`${series.label ?? series.id}: ${shortNumber(point.x)}, ${shortNumber(point.y)}`}</title>
-                </circle>
-              ))}
-            </g>
-          );
-        })}
-      </svg>
-      {content.series.length > 1 ? (
-        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[0.55rem] text-text-dim">
-          {content.series.map((series, index) => (
-            <span className="inline-flex items-center gap-1" key={series.id}>
-              <span
-                aria-hidden="true"
-                className="inline-block size-2 rounded-full"
-                style={{ background: SERIES_COLORS[index % SERIES_COLORS.length] }}
-              />
-              {series.label ?? series.id}
-            </span>
-          ))}
-        </div>
-      ) : null}
+      <div className="rounded-md bg-panel-soft">
+        <EChart
+          ariaLabel={description}
+          height={270}
+          option={option}
+          pointCount={points.length}
+          seriesLabels={content.series.map((series) => series.label ?? series.id)}
+          seriesCount={content.series.length}
+        />
+      </div>
     </figure>
   );
 }
@@ -234,46 +125,6 @@ function formatCell(value: boolean | number | string | null): string {
 
 function exactNumber(value: number): string {
   return Object.is(value, -0) ? "-0" : String(value);
-}
-
-function axisLabel(axis: FigureContent["x_axis"]): string {
-  return axis.unit ? `${axis.label} (${axis.unit})` : axis.label;
-}
-
-function paddedExtent(values: number[]): [number, number] {
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-  if (minimum !== maximum) return [minimum, maximum];
-  const padding = Math.abs(minimum) * 0.05 || 1;
-  const lower = minimum - padding;
-  const upper = maximum + padding;
-  if (Number.isFinite(lower) && Number.isFinite(upper)) return [lower, upper];
-  const inward = minimum * 0.95;
-  return minimum < 0 ? [minimum, inward] : [inward, minimum];
-}
-
-function ticks(minimum: number, maximum: number): number[] {
-  return Array.from({ length: 5 }, (_, index) => interpolate(minimum, maximum, index / 4));
-}
-
-function normalizedPosition(value: number, minimum: number, maximum: number): number {
-  const scale = Math.max(Math.abs(minimum), Math.abs(maximum));
-  if (scale === 0) return 0.5;
-  const scaledMinimum = minimum / scale;
-  return (value / scale - scaledMinimum) / (maximum / scale - scaledMinimum);
-}
-
-function interpolate(minimum: number, maximum: number, ratio: number): number {
-  const scale = Math.max(Math.abs(minimum), Math.abs(maximum));
-  if (scale === 0) return 0;
-  return ((minimum / scale) * (1 - ratio) + (maximum / scale) * ratio) * scale;
-}
-
-function shortNumber(value: number): string {
-  if (value === 0) return "0";
-  const magnitude = Math.abs(value);
-  if (magnitude >= 10_000 || magnitude < 0.001) return value.toExponential(2);
-  return Number(value.toPrecision(4)).toString();
 }
 
 export function AnalysisMetadataView({ metadata }: { metadata: Record<string, unknown> }) {

@@ -63,6 +63,8 @@ class Quantity(BaseModel):
         if not is_supported_unit(unit):
             msg = f"unsupported unit: {unit}"
             raise ValueError(msg)
+        if self.unit == unit:
+            return self
         if not compatible_units(self.unit, unit):
             msg = f"cannot convert {self.unit!r} to {unit!r}"
             raise ValueError(msg)
@@ -71,24 +73,24 @@ class Quantity(BaseModel):
         if converted is None:
             msg = f"unit conversion is not linear: {self.unit!r} to {unit!r}"
             raise ValueError(msg)
-        return Quantity(value=round(converted, 12), unit=unit)
+        return Quantity(value=converted, unit=unit)
 
     def __add__(self, other: object) -> Quantity:
         if not isinstance(other, Quantity):
             return NotImplemented
         converted = other.to(self.unit)
-        return Quantity(value=round(self.value + converted.value, 12), unit=self.unit)
+        return Quantity(value=self.value + converted.value, unit=self.unit)
 
     def __sub__(self, other: object) -> Quantity:
         if not isinstance(other, Quantity):
             return NotImplemented
         converted = other.to(self.unit)
-        return Quantity(value=round(self.value - converted.value, 12), unit=self.unit)
+        return Quantity(value=self.value - converted.value, unit=self.unit)
 
     def __mul__(self, other: object) -> Quantity:
         if not isinstance(other, int | float) or isinstance(other, bool):
             return NotImplemented
-        return Quantity(value=round(self.value * float(other), 12), unit=self.unit)
+        return Quantity(value=self.value * float(other), unit=self.unit)
 
     def __rmul__(self, other: object) -> Quantity:
         return self.__mul__(other)
@@ -99,4 +101,4 @@ class Quantity(BaseModel):
         if other == 0:
             msg = "cannot divide quantity by zero"
             raise ZeroDivisionError(msg)
-        return Quantity(value=round(self.value / float(other), 12), unit=self.unit)
+        return Quantity(value=self.value / float(other), unit=self.unit)

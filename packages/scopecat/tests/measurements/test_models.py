@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, cast
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
 from scopecat.records.measurement import (
-    ComplexComponents,
     InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementDataset,
@@ -47,31 +48,23 @@ def test_measurement_values_round_trip_through_one_record() -> None:
             "raw_iq": MeasurementScalar.create(
                 dtype="complex128",
                 unit="ratio",
-                value=ComplexComponents(real=0.3, imag=-0.4),
+                value=complex(0.3, -0.4),
             ),
             "enabled": MeasurementScalar.create(dtype="bool", unit=None, value=True),
             "label": MeasurementScalar.create(dtype="string", unit=None, value="ready"),
             "samples": MeasurementArray.create(
                 dtype="float64",
                 unit="ratio",
-                shape=[3],
                 values=[0.1, 0.2, 0.3],
             ),
             "iq": MeasurementArray.create(
                 dtype="complex128",
                 unit="ratio",
-                shape=[1, 2],
-                values=[
-                    [
-                        ComplexComponents(real=0.1, imag=-0.2),
-                        ComplexComponents(real=0.3, imag=-0.4),
-                    ]
-                ],
+                values=[[complex(0.1, -0.2), complex(0.3, -0.4)]],
             ),
             "probability": MeasurementArray.create(
                 dtype="float64",
                 unit="ratio",
-                shape=[2],
                 values=[0.25, 0.75],
             ),
         },
@@ -84,14 +77,111 @@ def test_measurement_values_round_trip_through_one_record() -> None:
     assert isinstance(restored.coordinates["shot"], MeasurementScalar)
     assert isinstance(restored.observables["signal"], MeasurementScalar)
     assert isinstance(restored.observables["raw_iq"], MeasurementScalar)
-    assert isinstance(
-        restored.observables["raw_iq"].value,
-        ComplexComponents,
-    )
+    assert type(restored.observables["raw_iq"].value) is complex
+    assert restored.observables["raw_iq"].value == complex(0.3, -0.4)
     assert isinstance(restored.observables["samples"], MeasurementArray)
     assert isinstance(restored.observables["iq"], MeasurementArray)
     assert isinstance(restored.observables["probability"], MeasurementArray)
     assert restored.acquisition_evidence == {"signal": evidence}
+
+
+def test_measurement_array_owns_a_contiguous_read_only_numpy_copy() -> None:
+    source = np.arange(6, dtype=np.float64).reshape(3, 2).T
+
+    value = MeasurementArray.create(values=source)
+    source[0, 0] = 99.0
+
+    assert value.shape == (2, 3)
+    assert value.values.dtype == np.dtype(np.float64)
+    assert value.values.flags.c_contiguous
+    assert not value.values.flags.writeable
+    assert value.values[0, 0] == 0.0
+    with pytest.raises(ValueError, match="read-only"):
+        value.values[0, 0] = 1.0
+    with pytest.raises(ValueError, match="WRITEABLE"):
+        value.values.flags.writeable = True
+    assert deepcopy(value) is value
+
+
+def test_measurement_snapshots_are_recursively_immutable() -> None:
+    source_metadata = {"context": [{"operator": "alice"}]}
+    record = MeasurementRecord(
+        run_id="run-immutable",
+        point_index=0,
+        coordinates={},
+        observables={
+            "signal": MeasurementScalar.create(
+                value=0.5,
+                metadata=source_metadata,
+            )
+        },
+        metadata=source_metadata,
+    )
+    source_metadata["context"][0]["operator"] = "changed"
+
+    assert record.metadata == {"context": ({"operator": "alice"},)}
+    with pytest.raises(TypeError, match="frozen mapping is immutable"):
+        cast("dict[str, object]", record.observables)["other"] = (
+            MeasurementScalar.create(value=1.0)
+        )
+    with pytest.raises(TypeError, match="frozen mapping is immutable"):
+        nested = cast("tuple[object, ...]", record.metadata["context"])[0]
+        cast("dict[str, object]", nested)["operator"] = "changed"
+
+    renumbered = record.model_copy(update={"point_index": 1})
+    assert renumbered.metadata == record.metadata
+    updated = record.model_copy(update={"metadata": {"context": [{"operator": "bob"}]}})
+    with pytest.raises(TypeError, match="frozen mapping is immutable"):
+        cast("dict[str, object]", updated.metadata)["changed"] = True
+
+
+def test_measurement_array_explicit_shape_remains_a_wire_contract() -> None:
+    with pytest.raises(ValidationError, match="Field required"):
+        MeasurementArray.model_validate(
+            {
+                "kind": "array",
+                "dtype": "float64",
+                "values": [[1.0, 2.0]],
+            }
+        )
+    with pytest.raises(ValidationError, match="does not match"):
+        MeasurementArray.model_validate(
+            {
+                "kind": "array",
+                "dtype": "float64",
+                "shape": [3],
+                "values": [1.0, 2.0],
+            }
+        )
+
+
+def test_measurement_array_schema_exposes_recursive_typed_json_values() -> None:
+    schema = MeasurementArray.model_json_schema(mode="serialization")
+
+    assert schema["properties"]["values"] == {"$ref": "#/$defs/MeasurementArrayJson"}
+    assert schema["$defs"]["MeasurementArrayJson"] == {
+        "items": {"$ref": "#/$defs/MeasurementArrayJsonItem"},
+        "type": "array",
+    }
+    item_options = schema["$defs"]["MeasurementArrayJsonItem"]["anyOf"]
+    assert {option.get("type") for option in item_options} == {None, "array"}
+    leaf_options = schema["$defs"]["MeasurementArrayJsonLeaf"]["anyOf"]
+    assert {option.get("type") for option in leaf_options} == {
+        None,
+        "boolean",
+        "integer",
+        "number",
+        "string",
+    }
+    assert schema["$defs"]["MeasurementComplexJson"] == {
+        "additionalProperties": False,
+        "properties": {
+            "real": {"type": "number"},
+            "imag": {"type": "number"},
+        },
+        "required": ["real", "imag"],
+        "type": "object",
+    }
 
 
 def test_instrument_acquisition_evidence_requires_an_aware_ordered_interval() -> None:
@@ -173,7 +263,9 @@ def test_measurement_record_discriminator_restores_value_models() -> None:
     assert isinstance(record.coordinates["label"], MeasurementScalar)
     iq = record.observables["iq"]
     assert isinstance(iq, MeasurementArray)
-    assert isinstance(iq.values[0], ComplexComponents)
+    assert iq.values.dtype == np.dtype(np.complex128)
+    assert iq.values.tolist() == [complex(0.25, -0.5)]
+    assert not iq.values.flags.writeable
     assert isinstance(record.observables["temperature"], MeasurementUnavailable)
 
 
@@ -191,7 +283,7 @@ def test_measurement_record_wire_requires_value_discriminators() -> None:
         "metadata",
     }
     assert MeasurementScalar.create(value=1.0).kind == "scalar"
-    assert MeasurementArray.create(shape=[1], values=[1.0]).kind == "array"
+    assert MeasurementArray.create(values=[1.0]).kind == "array"
     assert (
         MeasurementUnavailable.create(
             reason="missing",
@@ -302,7 +394,6 @@ def test_bool_and_string_measurements_reject_units(
             MeasurementArray.create(
                 dtype=dtype,
                 unit="ratio",
-                shape=[1],
                 values=[True if dtype == "bool" else "ready"],
             )
         else:
@@ -359,6 +450,7 @@ def test_measurement_dataset_and_schema_round_trip() -> None:
     restored = assert_model_round_trip(dataset)
 
     assert restored.dataset_schema.dataset_id == "raw-measurements"
-    assert restored.dataset_schema.primary_coordinates == ["drive_frequency"]
-    assert restored.dataset_schema.primary_observables == ["signal"]
+    assert restored.dataset_schema.primary_coordinates == ("drive_frequency",)
+    assert restored.dataset_schema.primary_observables == ("signal",)
+    assert restored.records == (record,)
     assert restored == dataset

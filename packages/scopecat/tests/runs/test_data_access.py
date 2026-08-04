@@ -4,8 +4,11 @@ from pathlib import Path
 
 import pytest
 
+from scopecat.adapters.sqlite.measurement_arrow import (
+    decode_measurement_append,
+    encode_measurement_append,
+)
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
-from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.runs.access import (
     dataset_storage_ref,
     list_payload_entries,
@@ -132,17 +135,30 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
         dataset for dataset in run.datasets if dataset.id == "raw-measurements"
     )
     measurement_ref = (
-        f"{dataset_storage_ref(raw_dataset_entry)}/chunks/00000000000000000000.json"
+        f"{dataset_storage_ref(raw_dataset_entry)}/chunks/00000000000000000000.arrow"
     )
-    append = storage.read_model(
+    schema = raw_dataset.dataset.dataset_schema
+    append = decode_measurement_append(
+        storage.read_bytes(run.run_id, measurement_ref),
+        schema,
+    )
+    invalid_schema = schema.model_copy(
+        update={
+            "variables": tuple(
+                variable
+                for variable in schema.variables
+                if variable.role != "observable"
+            ),
+            "primary_observables": (),
+        }
+    )
+    storage.write_bytes(
         run.run_id,
         measurement_ref,
-        MeasurementDatasetAppend,
-    )
-    storage.write_model(
-        run.run_id,
-        measurement_ref,
-        append.model_copy(update={"records": (invalid_measurement,)}),
+        encode_measurement_append(
+            append.model_copy(update={"records": (invalid_measurement,)}),
+            invalid_schema,
+        ),
     )
     with pytest.raises(DataIntegrityError) as invalid_scalar_row:
         read_run_measurement_dataset(
@@ -150,6 +166,6 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
             services=sqlite_project_services(tmp_path),
         )
 
-    assert invalid_scalar_row.value.problems[0].code == (
-        "run.measurement_dataset.schema_invalid"
+    assert (
+        invalid_scalar_row.value.problems[0].code == "run.measurement_dataset.invalid"
     )

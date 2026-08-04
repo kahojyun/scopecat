@@ -30,7 +30,9 @@ from scopecat.records.parameter import (
 from scopecat.records.run import RunStageLineage
 from scopecat.records.run_request import (
     AroundScanRecord,
+    ParameterRangeScanRecord,
     PointScanRecord,
+    RangeScanRecord,
     RunRequest,
     RunRequestEntityRef,
     RunRequestParameterValue,
@@ -164,6 +166,96 @@ def test_run_request_records_canonical_scans_only() -> None:
                     }
                 ],
             }
+        )
+
+
+def test_range_scan_records_round_trip_numeric_and_quantity_endpoints() -> None:
+    request = RunRequest(
+        scans=[
+            RangeScanRecord(
+                axis_id="power",
+                start=Quantity(value=-30.0, unit="dBm"),
+                stop=Quantity(value=0.0, unit="dBm"),
+                points=61,
+            ),
+            ParameterRangeScanRecord(
+                table_id="device_parameters",
+                key={"device": "q0"},
+                column="gain",
+                axis_id="gain",
+                start=-1,
+                stop=1.0,
+                points=3,
+            ),
+        ]
+    )
+
+    restored = assert_model_round_trip(request)
+
+    assert restored == request
+    assert restored.model_dump(mode="json")["scans"] == [
+        {
+            "kind": "range",
+            "axis_id": "power",
+            "start": {"value": -30.0, "unit": "dBm"},
+            "stop": {"value": 0.0, "unit": "dBm"},
+            "points": 61,
+        },
+        {
+            "kind": "parameter_range",
+            "table_id": "device_parameters",
+            "key": {"device": "q0"},
+            "column": "gain",
+            "axis_id": "gain",
+            "start": -1,
+            "stop": 1.0,
+            "points": 3,
+        },
+    ]
+
+
+def test_generated_scan_records_require_quantity_spans_and_two_points() -> None:
+    with pytest.raises(ValidationError):
+        AroundScanRecord.model_validate(
+            {
+                "axis_id": "power",
+                "center": Quantity(value=-20.0, unit="dBm"),
+                "span": 6.0,
+                "points": 3,
+            }
+        )
+    with pytest.raises(ValidationError):
+        RangeScanRecord(
+            axis_id="power",
+            start=Quantity(value=-30.0, unit="dBm"),
+            stop=Quantity(value=0.0, unit="dBm"),
+            points=1,
+        )
+    with pytest.raises(ValidationError):
+        RangeScanRecord.model_validate(
+            {
+                "axis_id": "power",
+                "start": "-30",
+                "stop": "0",
+                "points": 3,
+            }
+        )
+    with pytest.raises(ValidationError, match="both be quantities"):
+        RangeScanRecord(
+            axis_id="power",
+            start=Quantity(value=-30.0, unit="dBm"),
+            stop=0.0,
+            points=3,
+        )
+    with pytest.raises(ValidationError, match="compatible units"):
+        ParameterRangeScanRecord(
+            table_id="device_parameters",
+            key={"device": "q0"},
+            column="value",
+            axis_id="value",
+            start=Quantity(value=0.0, unit="V"),
+            stop=Quantity(value=1.0, unit="s"),
+            points=3,
         )
 
 

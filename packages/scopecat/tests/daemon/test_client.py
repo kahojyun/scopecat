@@ -644,7 +644,7 @@ def _trace_preview() -> MeasurementTracePreview:
         observable_id="signal",
         value_mode="phase",
         value_unit="rad",
-        downsampling="even",
+        downsampling="minmax",
         series=(series,),
         selected_series_count=1,
         returned_series_count=1,

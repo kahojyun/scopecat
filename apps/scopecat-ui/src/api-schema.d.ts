@@ -1064,13 +1064,6 @@ export interface components {
             size_bytes: number;
         };
         CommandPayloadBody: components["schemas"]["InlinePayloadBody"] | components["schemas"]["BlobPayloadBody"];
-        /** ComplexComponents */
-        ComplexComponents: {
-            /** Imag */
-            imag: number;
-            /** Real */
-            real: number;
-        };
         /**
          * ComponentSpec
          * @description One stable role nested below an interface endpoint.
@@ -1590,6 +1583,9 @@ export interface components {
              */
             started_at: string;
         };
+        InstrumentAcquisitionEvidenceMap: {
+            [key: string]: components["schemas"]["InstrumentAcquisitionEvidence"];
+        };
         /**
          * InstrumentBindingSpec
          * @description Provider-visible identity and connection for one configured instrument.
@@ -1999,7 +1995,10 @@ export interface components {
              */
             kind: "manual_parameter_updates";
         };
-        /** MeasurementArray */
+        /**
+         * MeasurementArray
+         * @description One typed array backed by an immutable, read-only NumPy buffer.
+         */
         "MeasurementArray-Output": {
             /**
              * Dtype
@@ -2012,22 +2011,34 @@ export interface components {
              * @enum {string}
              */
             kind: "array";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
             /** Shape */
             shape: number[];
             /** Unit */
             unit?: string | null;
-            /** Values */
-            values: unknown[];
+            values: components["schemas"]["MeasurementArrayJson-Output"];
         };
-        /** MeasurementDataset */
+        "MeasurementArrayJson-Output": components["schemas"]["MeasurementArrayJsonItem-Output"][];
+        "MeasurementArrayJsonItem-Output": components["schemas"]["MeasurementArrayJsonLeaf"] | components["schemas"]["MeasurementArrayJsonItem-Output"][];
+        MeasurementArrayJsonLeaf: boolean | number | string | components["schemas"]["MeasurementComplexJson"];
+        MeasurementComplexJson: {
+            imag: number;
+            real: number;
+        };
+        /**
+         * MeasurementDataset
+         * @description A complete planned schema paired with its current ordered record set.
+         */
         MeasurementDataset: {
             dataset_schema: components["schemas"]["MeasurementDatasetSchema-Output"];
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
             /** Records */
             records: components["schemas"]["MeasurementRecord-Output"][];
         };
-        /** MeasurementDatasetSchema */
+        /**
+         * MeasurementDatasetSchema
+         * @description Complete planned shape and variable contract for one measurement dataset.
+         */
         "MeasurementDatasetSchema-Output": {
             /** Dataset Id */
             dataset_id: string;
@@ -2039,7 +2050,7 @@ export interface components {
              * @constant
              */
             format_version: "scopecat.measurement_dataset_schema.v8";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
             point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
@@ -2065,9 +2076,12 @@ export interface components {
             kind: string;
             /** Label */
             label?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
             /** Size */
             size: number | null;
+        };
+        "MeasurementMetadata-Output": {
+            [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
         /**
          * MeasurementPage
@@ -2130,29 +2144,26 @@ export interface components {
              */
             kind: "product_grid";
         };
-        /** MeasurementRecord */
+        /**
+         * MeasurementRecord
+         * @description One durable point row with immutable values, evidence, and metadata.
+         */
         "MeasurementRecord-Output": {
-            /** Acquisition Evidence */
-            acquisition_evidence?: {
-                [key: string]: components["schemas"]["InstrumentAcquisitionEvidence"];
-            };
-            /** Coordinates */
-            coordinates: {
-                [key: string]: components["schemas"]["MeasurementValue-Output"];
-            };
+            acquisition_evidence?: components["schemas"]["InstrumentAcquisitionEvidenceMap"];
+            coordinates: components["schemas"]["MeasurementValueMap-Output"];
             /** Logical Point Id */
             logical_point_id?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
-            /** Observables */
-            observables: {
-                [key: string]: components["schemas"]["MeasurementValue-Output"];
-            };
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
+            observables: components["schemas"]["MeasurementValueMap-Output"];
             /** Point Index */
             point_index: number;
             /** Run Id */
             run_id: string;
         };
-        /** MeasurementScalar */
+        /**
+         * MeasurementScalar
+         * @description One normalized, typed scalar measurement value.
+         */
         "MeasurementScalar-Output": {
             /**
              * Dtype
@@ -2165,12 +2176,15 @@ export interface components {
              * @enum {string}
              */
             kind: "scalar";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
             /** Unit */
             unit?: string | null;
-            value: components["schemas"]["MeasurementScalarData"];
+            /** Value */
+            value: boolean | number | string | {
+                imag: number;
+                real: number;
+            };
         };
-        MeasurementScalarData: boolean | number | string | components["schemas"]["ComplexComponents"];
         /**
          * MeasurementSlice
          * @description Records for one semantic product-grid slice.
@@ -2276,7 +2290,7 @@ export interface components {
         MeasurementTracePreviewQuery: {
             /** Coordinate Id */
             coordinate_id?: string | null;
-            /** @default even */
+            /** @default minmax */
             downsampling: components["schemas"]["TraceDownsampling"];
             /** Fixed Axis Indices */
             fixed_axis_indices?: {
@@ -2334,7 +2348,7 @@ export interface components {
              * @enum {string}
              */
             kind: "unavailable";
-            metadata: components["schemas"]["JsonMetadata-Output"];
+            metadata: components["schemas"]["MeasurementMetadata-Output"];
             /**
              * Reason
              * @enum {string}
@@ -2346,6 +2360,9 @@ export interface components {
             unit: string | null;
         };
         "MeasurementValue-Output": components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray-Output"] | components["schemas"]["MeasurementUnavailable-Output"];
+        "MeasurementValueMap-Output": {
+            [key: string]: components["schemas"]["MeasurementValue-Output"];
+        };
         /**
          * MeasurementVariable
          * @description A point-local variable whose shape is derived from its dimensions.
@@ -2362,7 +2379,7 @@ export interface components {
             id: string;
             /** Label */
             label?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
+            metadata?: components["schemas"]["MeasurementMetadata-Output"];
             recording_group_id?: components["schemas"]["_NonEmptyText"] | null;
             /**
              * Role
@@ -3117,7 +3134,7 @@ export interface components {
             entities?: components["schemas"]["EntityRef-Output"][];
         };
         /** @constant */
-        TraceDownsampling: "even";
+        TraceDownsampling: "minmax";
         /** @enum {string} */
         TraceValueMode: "value" | "magnitude" | "phase" | "real" | "imag";
         /**

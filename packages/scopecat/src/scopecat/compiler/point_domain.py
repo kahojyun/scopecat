@@ -30,6 +30,7 @@ from scopecat.program.point_domain import (
     PointAxes,
     PointAxis,
     PointAxisLinear,
+    PointAxisRange,
     PointAxisValues,
     PointDomainPath,
     PointDomainShape,
@@ -37,6 +38,8 @@ from scopecat.program.point_domain import (
     analyze_point_domain,
     is_point_coordinate_type,
     point_axis_linear_value,
+    point_axis_range_values,
+    point_axis_size,
 )
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
@@ -124,9 +127,7 @@ class VerifiedPointDomain:
         return tuple(
             (
                 axis.id,
-                axis.source.count
-                if isinstance(axis.source, PointAxisLinear)
-                else len(axis.source.values),
+                point_axis_size(axis.source),
             )
             for axis in self.axes
         )
@@ -318,6 +319,18 @@ def _axis_values(
     source = axis.source
     if isinstance(source, PointAxisValues):
         return source.values
+    if isinstance(source, PointAxisRange):
+        try:
+            return point_axis_range_values(
+                source.start,
+                source.stop,
+                source.count,
+            )
+        except (ArithmeticError, TypeError, ValueError) as error:
+            raise PointDomainEvaluationError(
+                (*path, "source"),
+                error,
+            ) from error
     try:
         center = evaluate_scalar(
             source.center,

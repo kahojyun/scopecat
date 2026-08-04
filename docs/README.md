@@ -15,6 +15,8 @@ simpler design better serves the workflows in the charter.
 - [Measurement data workflows](measurement-data.md): recording intent, product
   grids and point clouds, ragged axes, notebook slicing and ecosystem exports,
   and schema-driven GUI visualization.
+- [Adaptive experiments](adaptive-experiments.md): bounded, durable notebook
+  loops whose next stage depends on earlier measurements.
 
 Keep implementation architecture, package inventories, completed migration
 plans, and current interface lists close to the code and tests that own them.

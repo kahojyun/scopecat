@@ -5,6 +5,7 @@ description = "Real and virtual laboratory instrument drivers for Scopecat."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+  "numpy>=2",
   "pydantic>=2,<3",
   "scopecat",
 ]

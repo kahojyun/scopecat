@@ -36,7 +36,6 @@ from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.program.products import product_axis
 from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementPointCloudPointDomain,
     MeasurementScalar,
@@ -470,8 +469,7 @@ def test_worker_rejects_invalid_collect_array_without_poisoning_protocol(
     assert valid.readback.values["signal"] == MeasurementArray.create(
         dtype="complex128",
         unit="ratio",
-        shape=(1,),
-        values=(ComplexComponents(real=1.0, imag=-0.5),),
+        values=(complex(1.0, -0.5),),
     )
 
     with pytest.raises(InstrumentBackendError, match="request failed"):

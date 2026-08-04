@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import override
+from typing import cast, override
 
 import pytest
 
@@ -55,18 +55,18 @@ def _seal(
 
 
 def _header(projected: ProjectedMeasurementDataset) -> MeasurementDatasetHeader:
-    assert projected.schema is not None
+    schema = projected.projection.schema
+    assert schema is not None
     return MeasurementDatasetHeader(
         run_id=projected.run_id,
         recording_contract_fingerprint=projected.recording_contract_fingerprint,
-        dataset_schema=projected.schema,
-        expected_record_count=len(projected.records),
+        dataset_schema=schema,
+        expected_record_count=projected.projection.catalog.point_contract.point_count,
     )
 
 
 def test_recording_appends_and_seals_one_canonical_dataset() -> None:
     projected = _projected()
-    assert projected.schema is not None
     writer = FakeMeasurementDatasetRepository()
     journal = FakeExecutionJournal()
     header = _header(projected)
@@ -125,6 +125,27 @@ def test_append_identity_is_stable_and_content_detects_conflict() -> None:
     assert changed_header.content_hash != header.content_hash
 
 
+def test_header_and_append_content_hashes_cannot_change_after_construction() -> None:
+    projected = _projected()
+    header = _header(projected)
+    append = MeasurementDatasetAppend(
+        run_id=projected.run_id,
+        header_content_hash=header.content_hash,
+        start_index=0,
+        records=projected.records,
+    )
+    header_hash = header.content_hash
+    append_hash = append.content_hash
+
+    with pytest.raises(TypeError, match="frozen mapping is immutable"):
+        cast("dict[str, object]", header.dataset_schema.metadata)["revision"] = 2
+    with pytest.raises(TypeError, match="frozen mapping is immutable"):
+        cast("dict[str, object]", append.records[0].metadata)["changed"] = True
+
+    assert header.content_hash == header_hash
+    assert append.content_hash == append_hash
+
+
 class _InvalidReceiptWriter(FakeMeasurementDatasetRepository):
     @override
     def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
@@ -152,7 +173,6 @@ def test_invalid_append_receipt_terminalizes_uncertain_operation() -> None:
 
 def test_append_and_seal_replay_are_idempotent() -> None:
     projected = _projected()
-    assert projected.schema is not None
     writer = FakeMeasurementDatasetRepository()
     header = _header(projected)
     initialize_measurement_dataset(header, writer, FakeExecutionJournal())

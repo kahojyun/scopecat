@@ -302,7 +302,7 @@ def _initialize_dataset_header(
     program: RunProgram,
     session: ExecutionSession,
 ) -> tuple[MeasurementDatasetHeader | None, MeasurementRecordingError | None]:
-    schema = program.measurements.schema_for(program.points.points)
+    schema = program.measurements.schema
     if schema is None:
         return None, None
     header = MeasurementDatasetHeader(

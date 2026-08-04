@@ -22,8 +22,8 @@ TEMPERATURE_RECORD_ID = f"{TEMPERATURE_RESOURCE}/temperature"
 
 TRACE_POINTS = 751
 BIAS_POINTS = 11
-BIAS_CENTER = sc.Quantity(0.0, "V")
-BIAS_SPAN = sc.Quantity(0.5, "V")
+BIAS_START = sc.Quantity(-0.25, "V")
+BIAS_STOP = sc.Quantity(0.25, "V")
 SWEEP_START = sc.Quantity(4.93, "GHz")
 SWEEP_STOP = sc.Quantity(5.08, "GHz")
 
@@ -43,8 +43,8 @@ def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
     experiment.scan(
         sc.axis(
             DC_BIAS,
-            center=BIAS_CENTER,
-            span=BIAS_SPAN,
+            start=BIAS_START,
+            stop=BIAS_STOP,
             points=BIAS_POINTS,
         )
     )
@@ -79,9 +79,9 @@ def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
 
 
 __all__ = [
-    "BIAS_CENTER",
     "BIAS_POINTS",
-    "BIAS_SPAN",
+    "BIAS_START",
+    "BIAS_STOP",
     "DC_BIAS",
     "FLUX_SPECTROSCOPY_EXPERIMENT_ID",
     "FLUX_SPECTROSCOPY_TEMPLATE_ID",

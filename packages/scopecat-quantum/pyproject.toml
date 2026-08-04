@@ -5,6 +5,7 @@ description = "Hardware-independent quantum domain building blocks for Scopecat.
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+  "numpy>=2",
   "scopecat",
 ]
 

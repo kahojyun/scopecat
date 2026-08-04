@@ -6,10 +6,10 @@ import time
 from dataclasses import dataclass, fields
 from pathlib import Path
 
+import numpy as np
 from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Scalar
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -233,27 +233,26 @@ def _measurement_value(result_id: str, *, gain: float = 0.0) -> MeasurementValue
         return MeasurementArray.create(
             dtype="float64",
             unit="V",
-            shape=(length,),
             values=tuple(gain + index / 10 for index in range(length)),
         )
     if result_id == "complex_array":
         return MeasurementArray.create(
             dtype="complex128",
             unit="ratio",
-            shape=(1,),
-            values=(ComplexComponents(real=1.0, imag=-0.5),),
+            values=(complex(1.0, -0.5),),
         )
     if result_id == "invalid_array":
-        return MeasurementArray.create(
+        return MeasurementArray.model_construct(
+            kind="array",
             dtype="complex128",
             unit="ratio",
             shape=(1,),
-            values=(1.0 - 0.5j,),
+            values=np.asarray([complex(float("inf"), -0.5)]),
+            metadata={},
         )
     if result_id == "large_array":
         return MeasurementArray.create(
             dtype="string",
-            shape=(1,),
             values=("x" * (2 * 1024 * 1024),),
         )
     if result_id == "unavailable":

@@ -31,9 +31,45 @@ A product grid is appropriate when independent axes should form a Cartesian
 scan:
 
 ```python
-experiment.scan(sc.axis(bias, (-0.2, 0.0, 0.2)))
-experiment.scan(sc.axis(power, (-30.0, -20.0)))
+import numpy as np
+
+bias = sc.coordinate(
+    "bias",
+    sc.ScalarType(sc.QuantityType(unit="V")),
+)
+power = sc.coordinate(
+    "source_power",
+    sc.ScalarType(sc.QuantityType(unit="dBm")),
+)
+
+experiment.scan(
+    sc.axis(bias, (-0.2, 0.0, 0.2), unit="V"),
+    sc.axis(power, np.linspace(-30.0, -20.0, 21), unit="dBm"),
+)
 ```
+
+For generated axes, choose either inclusive start and stop coordinates or a
+center and full coordinate width:
+
+```python
+start_stop_power = sc.axis(
+    power,
+    start=sc.Quantity(-30.0, "dBm"),
+    stop=sc.Quantity(-10.0, "dBm"),
+    points=41,
+)
+centered_power = sc.axis(
+    power,
+    center=sc.Quantity(-20.0, "dBm"),
+    span=sc.Quantity(6.0, "dBm"),
+    points=13,
+)
+```
+
+Both generated forms include their endpoints and space coordinates evenly in
+the selected coordinate unit. A dBm axis stays in dBm rather than being
+converted to W. In the centered form, `span` is the full coordinate width, so
+the example above runs from -23 dBm through -17 dBm.
 
 Use explicit rows when points are correlated, sparse, duplicated, or otherwise
 do not form a rectangular product:
@@ -41,10 +77,22 @@ do not form a rectangular product:
 ```python
 experiment.points(
     (
-        {bias: -0.20, power: -30.0},
-        {bias: -0.05, power: -24.0},
-        {bias: -0.05, power: -24.0},  # repeated measurements are valid
-        {bias: 0.18, power: -17.0},
+        {
+            bias: sc.Quantity(-0.20, "V"),
+            power: sc.Quantity(-30.0, "dBm"),
+        },
+        {
+            bias: sc.Quantity(-0.05, "V"),
+            power: sc.Quantity(-24.0, "dBm"),
+        },
+        {  # repeated measurements are valid
+            bias: sc.Quantity(-0.05, "V"),
+            power: sc.Quantity(-24.0, "dBm"),
+        },
+        {
+            bias: sc.Quantity(0.18, "V"),
+            power: sc.Quantity(-17.0, "dBm"),
+        },
     )
 )
 ```
@@ -55,54 +103,10 @@ Grid axes and explicit point rows cannot be mixed in one experiment because
 they describe two different domain semantics. For an empty explicit domain,
 pass its columns with `experiment.points((), coordinates=(bias, power))`.
 
-Explicit rows are materialized before execution. When the next point depends on
-measurements from an earlier point, use a bounded staged experiment:
-
-```python
-def choose_next(stage):
-    data = stage.run.measurements()
-    candidate = optimizer.ask(data)
-    return None if candidate is None else point_experiment(candidate)
-
-sequence = lab.run_staged(
-    point_experiment(initial_point),
-    next_stage=choose_next,
-    max_stages=20,
-)
-```
-
-Each stage is an ordinary durable run. It uses the same resolved configuration
-snapshot and records typed sequence id, stage index, and predecessor run id in
-both its request and manifest. The callback may inspect the current run and all
-prior runs through `stage.run` and `stage.history`; returning `None` finishes
-naturally, while `max_stages` bounds an optimizer that keeps proposing points.
-Reaching that bound does not call the callback for the final completed stage,
-so a stateful optimizer is not advanced past durable work.
-
-Sequences can be rediscovered after restarting a notebook. Discovery pages
-through run manifests rather than loading every run request:
-
-```python
-sequences = lab.staged_experiments()  # newest sequence first
-sequence = lab.get_staged_experiment(sequences[0].sequence_id)
-
-continued = lab.resume_staged(
-    sequence.sequence_id,
-    next_stage=choose_next,
-    max_stages=10,  # bounds newly executed stages
-)
-```
-
-For a rediscovered sequence, `stopped_by_limit` is `None`: individual runs and
-their lineage are durable, but the earlier notebook loop's stop reason is not.
-
-Resume calls `choose_next` with the latest durable stage before executing new
-work, including the callback deferred when the earlier execution reached
-`max_stages`. Its own limit again defers the callback for its final stage until
-another resume. New stages inherit the latest accepted config snapshot and
-source, ordinary request metadata, and operator. Resuming requires the latest
-run to have completed successfully. This workflow deliberately favors
-notebook-driven adaptive work over a hidden intra-run control loop.
+Explicit rows are materialized before execution. When each new point depends on
+earlier measurements, use a bounded, resumable
+[staged experiment](adaptive-experiments.md) instead of a hidden intra-run
+control loop.
 
 The schema records whether the domain is a `product_grid` or `point_cloud`.
 Consumers should use that semantic layout instead of trying to infer a grid
@@ -122,11 +126,18 @@ the declared rank, data type, and unit; only the extent of the ragged dimension
 is allowed to vary. Use `axis(size=1024)` for a fixed extent or a state field
 such as `axis(size="points")` when configuration determines one fixed extent.
 
-Ragged arrays stay nested per point in durable records and Arrow. They are not
-silently padded with sentinel values. Xarray export uses an indexed observation
-dimension with parent-point and local-index coordinates, making the flattening
-explicit and reversible. Pandas point layout keeps each array in one cell;
-`layout="long"` emits one row per local sample.
+Ragged arrays retain an explicit point-local shape and are never padded with
+sentinel values. Their Xarray observation dimension carries parent-point and
+local-index coordinates, so flattening remains explicit and reversible.
+Pandas point layout keeps each array in one cell; `layout="long"` emits one row
+per local sample.
+
+In Python, available `MeasurementArray.values` is a read-only, C-contiguous
+NumPy array with the declared dtype. JSON and API representations remain nested;
+complex leaves use `{real, imag}` objects.
+`MeasurementScalar.value` is likewise normalized to its declared Python type;
+`complex128` is a native `complex` at runtime and the same `{real, imag}` object
+on the wire.
 
 If an unavailable value propagates through a postprocessor before a ragged
 extent can be observed, its shape keeps `None` for that unknown axis rather
@@ -146,6 +157,7 @@ before entering the measurement stream.
 ```python
 data = run.measurements()
 
+data.xarray                    # independent copy of the cached xr.Dataset
 data.coords                    # coordinate variables by id
 data.data_vars                 # observable variables by id
 data.point_indices             # durable identities in current row order
@@ -174,7 +186,15 @@ optional nearest tolerance. `isel(...)` accepts the point dimension and any
 fixed local dimension without dropping dimensions. `isel_ragged(...)` applies
 the indexer independently inside each point and requires either a recording
 group, which keeps its variables aligned, or one ungrouped variable. Boolean
-masks compose with `&`, `|`, and `~`.
+masks compose with `&`, `|`, and `~`. Fixed-shape `isel`, `sel`, `where`, and
+`groupby` use Xarray's indexing, alignment, nearest-selection, and grouping
+semantics, then map the selected positions back to durable records. Direct
+Xarray operations are suitable when the result should stay entirely inside the
+Xarray ecosystem and all dimensions are fixed. Indexed ragged observations are
+different: `data.xarray.isel(point=...)` selects point-aligned metadata but does
+not cascade to the separate observation dimension. Use the facade's
+`data.isel(point=...)` before exporting, and use `isel_ragged(...)` for local
+ragged dimensions, so parent observations stay aligned.
 
 Large runs can be consumed without materializing every record at once:
 
@@ -186,28 +206,46 @@ for batch in run.measurement_batches(batch_size=500):
 Each batch is the same labeled `Dataset` facade, so slicing and ecosystem
 exports work unchanged. Its `point` dimension is the number of records in that
 batch, while durable `point_index` values remain absolute. Metadata exposes
-`scopecat_batch_offset` and `scopecat_planned_point_count`. An empty run yields
-one zero-row, schema-bearing batch so callers can still inspect variables and
-initialize downstream tables.
+`scopecat_batch_offset`; the immutable schema continues to describe the complete
+planned point domain and its point count. An empty run yields one zero-row,
+schema-bearing batch so callers can still inspect variables and initialize
+downstream tables.
 
-The same view connects to common analysis ecosystems:
-
-Install the `scopecat[data]` extra to enable these optional adapters.
+Xarray and Arrow are core dependencies and are available on every measurement
+view. Install the `scopecat[pandas]` extra only for explicit pandas exports:
 
 ```python
-xds = data.to_xarray()
+xds = data.to_xarray()                     # explicit conversion spelling
+another = data.xarray                      # equivalent property shorthand
+assert xds is not another                  # snapshots never share identity
+grid = data.to_xarray(layout="grid")       # complete product grids only
 table = data.to_arrow()
 frame = data.to_pandas()                  # one row per experiment point
 long_frame = data.to_pandas(layout="long")
 ```
 
+The default Xarray layout keeps the durable `point` row dimension, which also
+works for point clouds, live batches, partial selections, and ragged results.
+For a complete product-grid dataset, `layout="grid"` restores the authored
+product axes as dimensions in C/product order and reshapes point-aligned scalar
+and array variables onto them. It rejects partial grids, duplicate or missing
+point ordinals, and coordinates that disagree with their declared grid axis
+instead of silently reshaping the wrong rows.
+
 Complex values remain complex in Xarray and pandas and become explicit
 `{real, imag}` structs in Arrow. Ragged variables in the same recording group
 share one Xarray observation dimension and retain `parent_point_index` and local
-index coordinates; ungrouped ragged variables remain independent. Unavailable
-values remain null or missing and gain a companion `__unavailable_reason`
-variable or column. The durable Pydantic dataset remains available through
-`data.raw` when low-level inspection is actually needed.
+index coordinates; ungrouped ragged variables remain independent. Every ragged
+variable has an observation-aligned `<variable>__observation_valid` mask. When
+values are unavailable, `<variable>__observation_unavailable_reason` identifies
+the affected observations, while the existing `<variable>__unavailable_reason`
+retains the point-level reason. This makes integer, boolean, and string fill
+values unambiguous.
+
+Durable measurement values and metadata are deeply immutable. Each
+`data.xarray` or `to_xarray()` result is an independent snapshot, so caller
+edits cannot affect later selections or exports. Empty and entirely unavailable
+columns still retain their declared Arrow types.
 
 ## Let the GUI use experiment knowledge
 
@@ -235,19 +273,11 @@ or opaque fixed-axis values remain selectable by their authored index. Axes with
 more than 256 values use a one-based index input instead of rendering thousands
 of browser options.
 
-Automatic product-grid plots request only the selected slice and only the
-coordinate/observable variables needed for heatmaps. The paged table and raw
-view remain an independent run-wide browser, clearly labeled as such. Trace
-previews independently request bounded numeric series for the selected authored
-domain instead of depending on whichever table pages happen to be loaded. Later
-table pages omit the already-cached schema, and slice responses do not repeat it
-unless explicitly requested. A requested heatmap slice is still validated
-before rendering: it must contain exactly one cell for every x/y pair, with no
-missing or duplicate coordinates. Incomplete live data is labeled as incomplete
-instead of presenting a misleading surface. Automatic slice plots are bounded
-to 4,096 points; trace previews are separately bounded to 32 series and 4,096
-plotted samples, with even downsampling that preserves endpoints. Larger data
-remains available through notebook batch reads. Complex heatmaps offer
+Automatic product-grid plots load only the selected slice. Heatmaps require
+exactly one value for every x/y cell; incomplete live data is labeled instead
+of being presented as a complete surface. Automatic slices are bounded to 4,096
+points, while trace previews are bounded to 32 series and 4,096 plotted samples.
+Larger data remains available through notebook batch reads. Complex heatmaps offer
 magnitude, phase, real, and imaginary color modes. When several safe views
 exist, the GUI lists every candidate in a selector instead of silently
 truncating them. Shapes that do not have a safe automatic visual remain in the
@@ -255,21 +285,11 @@ typed table, with raw records available as a secondary expandable view. This
 keeps automatic plotting useful without pretending that every tensor has one
 obvious chart.
 
-The daemon trace-preview query returns numeric `x`/`y` series rather than raw
-measurement records. It selects one recording group or observable, optionally
-fixes authored product-grid axes by index, applies the requested `value_mode`,
-and enforces both the series count and total returned-sample budget before
-serialization. Complex values accept magnitude, phase, real, or imaginary;
-real observables use `value`. The response reports that same effective
-`value_mode`; when omitted, the daemon selects magnitude for complex values and
-value for real values. Its
-`selected_series_count` is the authored domain-selection size; live or
-unavailable points need not produce a returned series, and the daemon does not
-scan beyond the requested bound looking for replacements. The current durable
-format stores JSON append chunks, so the repository may still decode a complete
-intersecting chunk before extracting these bounded series. This response bound
-is therefore a network and rendering bound, not yet a columnar storage-read
-guarantee.
+Trace previews select one recording group or observable and may fix authored
+product-grid axes by index. Complex values support magnitude, phase, real, and
+imaginary modes; real values use their direct value. Unavailable points are
+skipped until the requested number of usable series is reached or the selection
+is exhausted.
 
 ## Save analysis results as typed views
 

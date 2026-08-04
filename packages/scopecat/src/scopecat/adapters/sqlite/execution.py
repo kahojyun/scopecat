@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from bisect import bisect_left
+from collections.abc import Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,6 +15,12 @@ from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
 from scopecat.adapters.sqlite.connection import connect
+from scopecat.adapters.sqlite.measurement_arrow import (
+    MeasurementArrowCodecError,
+    decode_measurement_record_indices,
+    decode_measurement_record_slice,
+    encode_measurement_append,
+)
 from scopecat.adapters.sqlite.object_store import ObjectStoreError, StoredObject
 from scopecat.adapters.sqlite.run_repository import SQLiteRunRepository
 from scopecat.records.execution_journal import (
@@ -168,7 +175,7 @@ class SQLiteMeasurementDatasetRepository:
     ) -> PreparedExecutionRecord[MeasurementDatasetHeader]:
         """Publish the immutable dataset contract before entering a transaction."""
 
-        durable = header.model_copy(deep=True)
+        durable = header
         if durable.run_id != self._run_id:
             raise ExecutionJournalConflict(
                 "measurement run_id does not match its execution repository"
@@ -243,22 +250,33 @@ class SQLiteMeasurementDatasetRepository:
     def prepare_append(
         self,
         append: MeasurementDatasetAppend,
+        *,
+        dataset_schema: MeasurementDatasetSchema | None = None,
     ) -> PreparedExecutionRecord[MeasurementDatasetAppend]:
         """Publish immutable append content before entering the write transaction."""
 
-        durable = append.model_copy(deep=True)
+        durable = append
         if durable.run_id != self._run_id:
             raise ExecutionJournalConflict(
                 "measurement run_id does not match its execution repository"
             )
         ref = (
             f"{CANONICAL_MEASUREMENT_DATASET_REF}/chunks/"
-            f"{durable.start_index:020d}.json"
+            f"{durable.start_index:020d}.arrow"
         )
+        selected_schema = dataset_schema or self.measurement_schema()
+        if selected_schema is None:
+            raise ExecutionJournalConflict(
+                "measurement dataset append requires a registered schema"
+            )
         return PreparedExecutionRecord(
             durable=durable,
             ref=ref,
-            stored=_store_model(self._runs, durable),
+            stored=_store_measurement_append(
+                self._runs,
+                durable,
+                dataset_schema=selected_schema,
+            ),
         )
 
     def append_prepared_in_transaction(
@@ -527,46 +545,43 @@ class SQLiteMeasurementDatasetRepository:
                         (self._run_id, offset + limit, offset),
                     )
                 )
-                header_row = (
-                    _measurement_header_row(connection, self._run_id)
-                    if include_schema
-                    else None
-                )
+                header_row = _measurement_header_row(connection, self._run_id)
                 total = _measurement_record_count(connection, self._run_id)
 
-            if include_schema and header_row is None:
+            if header_row is None:
                 return (), None, None
 
-            dataset_schema = (
-                None
-                if header_row is None
-                else self._runs.read_model(
-                    self._run_id,
-                    _text(header_row, "ref"),
-                    MeasurementDatasetHeader,
-                ).dataset_schema
-            )
-            appends: dict[str, MeasurementDatasetAppend] = {}
-            for row in rows:
-                ref = _text(row, "ref")
-                appends[ref] = self._runs.read_model(
-                    self._run_id,
-                    ref,
-                    MeasurementDatasetAppend,
-                )
+            dataset_schema = self._runs.read_model(
+                self._run_id,
+                _text(header_row, "ref"),
+                MeasurementDatasetHeader,
+            ).dataset_schema
             page_end = offset + limit
             items: list[MeasurementRecord] = []
             for row in rows:
                 start_index = _integer(row, "start_index")
-                chunk = appends[_text(row, "ref")]
                 chunk_start = max(0, offset - start_index)
                 chunk_end = min(
                     _integer(row, "record_count"),
                     page_end - start_index,
                 )
-                items.extend(chunk.records[chunk_start:chunk_end])
+                items.extend(
+                    decode_measurement_record_slice(
+                        self._runs.read_bytes(
+                            self._run_id,
+                            _text(row, "ref"),
+                        ),
+                        dataset_schema,
+                        offset=chunk_start,
+                        length=chunk_end - chunk_start,
+                    )
+                )
             next_offset = offset + len(items) if offset + len(items) < total else None
-            return tuple(items), next_offset, dataset_schema
+            return (
+                tuple(items),
+                next_offset,
+                dataset_schema if include_schema else None,
+            )
         except Exception as error:
             raise ExecutionJournalError(
                 f"failed to read measurement dataset page: {error}"
@@ -575,13 +590,10 @@ class SQLiteMeasurementDatasetRepository:
     def measurement_records_at(
         self,
         point_indices: tuple[int, ...],
+        *,
+        variable_ids: Sequence[str] | None = None,
     ) -> tuple[MeasurementRecord, ...]:
-        """Read selected point indices without materializing unrelated chunks.
-
-        Measurement appends are currently immutable JSON objects, so every
-        intersecting append is decoded in full before selected records are
-        extracted. Response bounds therefore do not yet imply columnar reads.
-        """
+        """Read selected point indices from intersecting Arrow record batches."""
 
         selected = tuple(sorted(set(point_indices)))
         try:
@@ -592,6 +604,14 @@ class SQLiteMeasurementDatasetRepository:
                 )
             ) as connection:
                 rows = _measurement_rows(connection, self._run_id)
+                header_row = _measurement_header_row(connection, self._run_id)
+            if header_row is None:
+                return ()
+            dataset_schema = self._runs.read_model(
+                self._run_id,
+                _text(header_row, "ref"),
+                MeasurementDatasetHeader,
+            ).dataset_schema
             records_by_index: dict[int, MeasurementRecord] = {}
             for row in rows:
                 start = _integer(row, "start_index")
@@ -600,13 +620,19 @@ class SQLiteMeasurementDatasetRepository:
                 last = bisect_left(selected, end)
                 if first == last:
                     continue
-                chunk = self._runs.read_model(
-                    self._run_id,
-                    _text(row, "ref"),
-                    MeasurementDatasetAppend,
+                local_indices = tuple(
+                    point_index - start for point_index in selected[first:last]
                 )
-                for point_index in selected[first:last]:
-                    records_by_index[point_index] = chunk.records[point_index - start]
+                records = decode_measurement_record_indices(
+                    self._runs.read_bytes(
+                        self._run_id,
+                        _text(row, "ref"),
+                    ),
+                    dataset_schema,
+                    local_indices,
+                    variable_ids=variable_ids,
+                )
+                records_by_index.update(zip(selected[first:last], records, strict=True))
             return tuple(
                 records_by_index[point_index]
                 for point_index in point_indices
@@ -731,6 +757,20 @@ def _store_model(runs: SQLiteRunRepository, model: BaseModel) -> StoredObject:
     ) as error:
         raise ExecutionJournalError(
             f"execution record is not durably serializable: {error}"
+        ) from error
+
+
+def _store_measurement_append(
+    runs: SQLiteRunRepository,
+    append: MeasurementDatasetAppend,
+    *,
+    dataset_schema: MeasurementDatasetSchema,
+) -> StoredObject:
+    try:
+        return runs.objects.put(encode_measurement_append(append, dataset_schema))
+    except (MeasurementArrowCodecError, ObjectStoreError) as error:
+        raise ExecutionJournalError(
+            f"measurement append is not durably serializable: {error}"
         ) from error
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import NoReturn, cast
 
-from scopecat.kernel.value_identity import scalar_identity
 from scopecat.kernel.value_types import (
     Bool,
     Entity,
@@ -174,9 +173,3 @@ def _raise_shape_mismatch(
         msg,
         path=path,
     )
-
-
-def parameter_table_key_part(value: object) -> str:
-    """Build a stable, hashable identity component from a normalized cell."""
-
-    return repr(scalar_identity(value))

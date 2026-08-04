@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from base64 import b64decode, b64encode
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 
 from scopecat.adapters.sqlite import (
@@ -73,7 +73,10 @@ from scopecat.measurements.datasets import (
     product_grid_slice_indices,
 )
 from scopecat.measurements.results import MeasurementDatasetSchema
-from scopecat.measurements.traces import project_measurement_trace_preview
+from scopecat.measurements.traces import (
+    MeasurementTraceProjection,
+    project_measurement_trace_preview,
+)
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
@@ -569,18 +572,20 @@ class RunService:
             )
         except ValueError as error:
             raise BackendConflict(str(error)) from error
-        with self._config_errors():
-            records = repository.measurement_records_at(point_indices)
         response_schema = schema
         if query.variable_ids is not None:
             try:
-                records, response_schema = _select_measurement_variables(
-                    records,
+                response_schema = _select_measurement_schema(
                     response_schema,
                     query.variable_ids,
                 )
             except ValueError as error:
                 raise BackendConflict(str(error)) from error
+        with self._config_errors():
+            records = repository.measurement_records_at(
+                point_indices,
+                variable_ids=query.variable_ids,
+            )
         return MeasurementSlice(
             items=records,
             dataset_schema=response_schema if query.include_schema else None,
@@ -602,29 +607,39 @@ class RunService:
         if schema is None:
             raise BackendConflict("measurement dataset has no registered schema")
         series_read_limit = min(query.max_series, query.max_samples // 2)
-        try:
-            point_indices, selected_series_count = _trace_preview_point_indices(
-                schema,
-                query.fixed_axis_indices,
-                limit=series_read_limit,
+        selection_offset = 0
+        selected_series_count = 0
+        records: list[MeasurementRecord] = []
+        projection = _project_trace_records(schema, (), query)
+        trace_variable_ids = (projection.coordinate_id, projection.observable_id)
+        while len(records) < series_read_limit:
+            remaining_series = series_read_limit - len(records)
+            try:
+                point_indices, selected_series_count = _trace_preview_point_indices(
+                    schema,
+                    query.fixed_axis_indices,
+                    offset=selection_offset,
+                    limit=remaining_series,
+                )
+            except ValueError as error:
+                raise BackendConflict(str(error)) from error
+            if not point_indices:
+                break
+            with self._config_errors():
+                batch = repository.measurement_records_at(
+                    point_indices,
+                    variable_ids=trace_variable_ids,
+                )
+            selection_offset += len(point_indices)
+            batch_projection = _project_trace_records(schema, batch, query)
+            batch_by_point = {record.point_index: record for record in batch}
+            records.extend(
+                batch_by_point[series.point_index] for series in batch_projection.series
             )
-        except ValueError as error:
-            raise BackendConflict(str(error)) from error
-        with self._config_errors():
-            records = repository.measurement_records_at(point_indices)
-        try:
-            projection = project_measurement_trace_preview(
-                MeasurementDataset(dataset_schema=schema, records=list(records)),
-                query.observable_id,
-                coordinate=query.coordinate_id,
-                group=query.recording_group_id,
-                max_series=query.max_series,
-                max_samples=query.max_samples,
-                value_mode=query.value_mode,
-                downsampling=query.downsampling,
-            )
-        except ValueError as error:
-            raise BackendConflict(str(error)) from error
+            if selection_offset == selected_series_count:
+                break
+        if records:
+            projection = _project_trace_records(schema, records, query)
         series = tuple(
             MeasurementTraceSeries(
                 point_index=item.point_index,
@@ -652,7 +667,7 @@ class RunService:
             series=series,
             selected_series_count=selected_series_count,
             returned_series_count=len(series),
-            truncated_series=selected_series_count > len(point_indices),
+            truncated_series=selection_offset < selected_series_count,
             source_sample_count=projection.source_sample_count,
             returned_sample_count=projection.returned_sample_count,
             samples_reduced=projection.samples_reduced,
@@ -683,56 +698,31 @@ class RunService:
         )
 
 
-def _select_measurement_variables(
-    records: tuple[MeasurementRecord, ...],
+def _select_measurement_schema(
     schema: MeasurementDatasetSchema,
     variable_ids: list[str],
-) -> tuple[tuple[MeasurementRecord, ...], MeasurementDatasetSchema]:
+) -> MeasurementDatasetSchema:
     selected = set(variable_ids)
     available = {variable.id for variable in schema.variables}
     unknown = selected - available
     if unknown:
         raise ValueError(f"unknown measurement variables: {', '.join(sorted(unknown))}")
-    return (
-        tuple(
-            record.model_copy(
-                update={
-                    "coordinates": {
-                        variable_id: value
-                        for variable_id, value in record.coordinates.items()
-                        if variable_id in selected
-                    },
-                    "observables": {
-                        variable_id: value
-                        for variable_id, value in record.observables.items()
-                        if variable_id in selected
-                    },
-                    "acquisition_evidence": {
-                        variable_id: value
-                        for variable_id, value in record.acquisition_evidence.items()
-                        if variable_id in selected
-                    },
-                }
-            )
-            for record in records
-        ),
-        schema.model_copy(
-            update={
-                "variables": [
-                    variable for variable in schema.variables if variable.id in selected
-                ],
-                "primary_coordinates": [
-                    variable_id
-                    for variable_id in schema.primary_coordinates
-                    if variable_id in selected
-                ],
-                "primary_observables": [
-                    variable_id
-                    for variable_id in schema.primary_observables
-                    if variable_id in selected
-                ],
-            }
-        ),
+    return schema.model_copy(
+        update={
+            "variables": [
+                variable for variable in schema.variables if variable.id in selected
+            ],
+            "primary_coordinates": [
+                variable_id
+                for variable_id in schema.primary_coordinates
+                if variable_id in selected
+            ],
+            "primary_observables": [
+                variable_id
+                for variable_id in schema.primary_observables
+                if variable_id in selected
+            ],
+        }
     )
 
 
@@ -740,19 +730,44 @@ def _trace_preview_point_indices(
     schema: MeasurementDatasetSchema,
     fixed_axis_indices: dict[str, int],
     *,
+    offset: int,
     limit: int,
 ) -> tuple[tuple[int, ...], int]:
     domain = schema.point_domain
     if isinstance(domain, MeasurementProductGridPointDomain):
-        return product_grid_slice_indices(
+        point_indices, selected_count = product_grid_slice_indices(
             domain,
             fixed_axis_indices,
-            limit=limit,
+            limit=offset + limit,
         )
+        return point_indices[offset:], selected_count
     if fixed_axis_indices:
         raise ValueError("trace fixed-axis selection requires a product-grid domain")
     point_dimension = next(
         dimension for dimension in schema.dimensions if dimension.id == "point"
     )
     assert point_dimension.size is not None
-    return tuple(range(min(point_dimension.size, limit))), point_dimension.size
+    return (
+        tuple(range(offset, min(point_dimension.size, offset + limit))),
+        point_dimension.size,
+    )
+
+
+def _project_trace_records(
+    schema: MeasurementDatasetSchema,
+    records: Sequence[MeasurementRecord],
+    query: MeasurementTracePreviewQuery,
+) -> MeasurementTraceProjection:
+    try:
+        return project_measurement_trace_preview(
+            MeasurementDataset(dataset_schema=schema, records=tuple(records)),
+            query.observable_id,
+            coordinate=query.coordinate_id,
+            group=query.recording_group_id,
+            max_series=query.max_series,
+            max_samples=query.max_samples,
+            value_mode=query.value_mode,
+            downsampling=query.downsampling,
+        )
+    except ValueError as error:
+        raise BackendConflict(str(error)) from error

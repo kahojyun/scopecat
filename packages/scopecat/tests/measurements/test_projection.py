@@ -3,11 +3,20 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 
+import pytest
+
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Float, Scalar
+from scopecat.kernel.value_types import (
+    Float,
+    Scalar,
+    TableColumn,
+)
+from scopecat.kernel.value_types import (
+    Quantity as QuantityType,
+)
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.products import ProductAxisDef
 from scopecat.measurements.projection import (
@@ -15,7 +24,11 @@ from scopecat.measurements.projection import (
     project_measurement_records,
     select_measurement_projection,
 )
-from scopecat.measurements.records import ValueRecordCandidate, ValueRecordUse
+from scopecat.measurements.records import (
+    ValueRecordCandidate,
+    ValueRecordUse,
+    expected_dataset_schema,
+)
 from scopecat.measurements.results import (
     InstrumentAcquisitionEvidence,
     MeasurementPointDomainAxis,
@@ -83,7 +96,7 @@ def test_projection_records_symbolic_scalar_values_without_product_provenance() 
         MeasurementScalar.create(dtype="float64", value=1.0),
         MeasurementScalar.create(dtype="float64", value=2.0),
     ]
-    schema = projection.schema_for(scenario.points)
+    schema = projection.schema
     assert schema is not None
     variable = next(item for item in schema.variables if item.id == "score")
     assert variable.source_product_id is None
@@ -97,7 +110,7 @@ def test_projection_schema_persists_ordered_product_grid_axes() -> None:
     )
     projection = select_measurement_projection(scenario.catalog, scenario.records)
 
-    schema = projection.schema_for(scenario.points)
+    schema = projection.schema
 
     assert schema is not None
     assert schema.point_domain == MeasurementProductGridPointDomain(
@@ -113,6 +126,59 @@ def test_projection_schema_persists_ordered_product_grid_axes() -> None:
         ]
     )
     assert schema.metadata == {"experiment_id": "test.bound-program"}
+
+
+def test_product_grid_schema_infers_coordinate_unit_from_axis_values() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0, 1.0), use_count=1)
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+
+    schema = expected_dataset_schema(
+        experiment_id="quantity-axis",
+        point_count=2,
+        records=projection.records,
+        point_coordinate_columns=(TableColumn("frequency", Scalar(QuantityType())),),
+        point_domain_axis_sizes=(("frequency", 2),),
+        point_domain_axis_values=(
+            (
+                "frequency",
+                (
+                    Quantity(value=4.9, unit="GHz"),
+                    Quantity(value=5.1, unit="GHz"),
+                ),
+            ),
+        ),
+    )
+
+    assert schema is not None
+    frequency = next(
+        variable for variable in schema.variables if variable.id == "frequency"
+    )
+    assert frequency.unit == "GHz"
+
+
+def test_product_grid_schema_rejects_inconsistent_coordinate_units() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0, 1.0), use_count=1)
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+
+    with pytest.raises(ValueError, match="inconsistent quantity units"):
+        expected_dataset_schema(
+            experiment_id="quantity-axis",
+            point_count=2,
+            records=projection.records,
+            point_coordinate_columns=(
+                TableColumn("frequency", Scalar(QuantityType())),
+            ),
+            point_domain_axis_sizes=(("frequency", 2),),
+            point_domain_axis_values=(
+                (
+                    "frequency",
+                    (
+                        Quantity(value=4.9, unit="GHz"),
+                        Quantity(value=5_100.0, unit="MHz"),
+                    ),
+                ),
+            ),
+        )
 
 
 def test_projection_preserves_order_across_product_and_value_records() -> None:
@@ -160,10 +226,10 @@ def test_value_projection_contract_uses_stable_semantic_source_identity() -> Non
     second = projection_for("second-runtime-value")
 
     assert first.contract_fingerprint == second.contract_fingerprint
-    assert first.schema_for(scenario.points) == second.schema_for(scenario.points)
+    assert first.schema == second.schema
 
 
-def test_projection_schema_uses_the_selected_point_batch() -> None:
+def test_projection_schema_keeps_the_complete_planned_point_count() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0, 1.0, 2.0), use_count=2)
     projection = select_measurement_projection(
         scenario.catalog,
@@ -174,13 +240,13 @@ def test_projection_schema_uses_the_selected_point_batch() -> None:
     ordinals = tuple(point.ordinal for point in selected_points)
     assert ordinals == (1, 2)
     assert projection.coordinate_ids == ("x",)
-    schema = projection.schema_for(selected_points)
+    schema = projection.schema
     assert schema is not None
     assert (
         next(
             dimension for dimension in schema.dimensions if dimension.id == "point"
         ).size
-        == 2
+        == 3
     )
 
 
@@ -237,7 +303,7 @@ def test_recording_group_is_part_of_the_projection_contract_and_schema() -> None
     grouped = select_measurement_projection(scenario.catalog, grouped_records)
 
     assert grouped.contract_fingerprint != ungrouped.contract_fingerprint
-    schema = grouped.schema_for(scenario.points)
+    schema = grouped.schema
     assert schema is not None
     assert {variable.recording_group_id for variable in schema.variables} == {
         None,
@@ -289,12 +355,13 @@ def test_record_coordinates_project_as_inner_coordinate_variables() -> None:
         points=scenario.points,
     )
 
-    assert projected.schema is not None
-    assert projected.schema.primary_coordinates == ["x", "primary"]
-    assert projected.schema.primary_observables == ["alias", "secondary"]
-    variables = {variable.id: variable for variable in projected.schema.variables}
+    schema = projection.schema
+    assert schema is not None
+    assert schema.primary_coordinates == ("x", "primary")
+    assert schema.primary_observables == ("alias", "secondary")
+    variables = {variable.id: variable for variable in schema.variables}
     assert variables["primary"].role == "coordinate"
-    assert variables["primary"].dims == ["point"]
+    assert variables["primary"].dims == ("point",)
     for record in projected.records:
         assert set(record.coordinates) == {"x", "primary"}
         assert set(record.observables) == {"alias", "secondary"}
@@ -322,19 +389,14 @@ def test_projection_filters_non_coordinate_point_values() -> None:
 def test_record_metadata_changes_schema_not_product_value_assembly() -> None:
     scenario, assembled = assembled_measurement_values_for_all_uses()
     projection = select_measurement_projection(scenario.catalog, scenario.records)
-    projected = project_measurement_records(
-        projection,
-        assembled,
-        run_id="record-metadata-run",
-        points=scenario.points,
-    )
 
     assert len(assembled.values) == 6
     first_value = assembled.values[0]
     assert first_value.product.metadata == {"definition": 0}
     assert "projection" not in first_value.product.metadata
-    assert projected.schema is not None
-    variables = {variable.id: variable for variable in projected.schema.variables}
+    schema = projection.schema
+    assert schema is not None
+    variables = {variable.id: variable for variable in schema.variables}
     assert variables["primary"].metadata == {
         "definition": 0,
         "projection": "primary",
@@ -405,13 +467,13 @@ def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> No
         {"x": MeasurementScalar.create(dtype="float64", value=4.0)},
         {"x": MeasurementScalar.create(dtype="float64", value=4.0)},
     ]
-    schema = projected.schema
+    schema = projection.schema
     assert schema is not None
     assert isinstance(schema.point_domain, MeasurementProductGridPointDomain)
-    assert schema.point_domain.axes[0].values == [
+    assert schema.point_domain.axes[0].values == (
         MeasurementScalar.create(dtype="float64", value=4.0),
         MeasurementScalar.create(dtype="float64", value=4.0),
-    ]
+    )
     assert (
         scenario.bound_points.point_domain.points[0].logical_id
         != scenario.bound_points.point_domain.points[1].logical_id

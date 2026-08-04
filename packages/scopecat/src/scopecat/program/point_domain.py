@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from math import prod
-from typing import Generic, Never, TypeVar
+from math import isfinite, prod
+from typing import Generic, Never, TypeVar, cast
+
+import numpy as np
+from numpy.typing import NDArray
 
 from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.quantity import Quantity
@@ -23,6 +26,7 @@ from scopecat.kernel.value_types import (
 from scopecat.kernel.value_types import (
     Quantity as QuantityType,
 )
+from scopecat.program.scans import ScanRangeValue
 
 type PointDomainPath = tuple[str | int, ...]
 
@@ -47,12 +51,85 @@ def point_axis_linear_value(
     """Return one exact value from a fixed-count linear point axis."""
 
     converted_span = span.to(center.unit)
-    start = center.value - converted_span.value / 2
-    step = converted_span.value / (count - 1)
+    last_index = count - 1
+    half_span = converted_span.value / 2
+    if index == 0:
+        value = center.value - half_span
+    elif index == last_index:
+        value = center.value + half_span
+    else:
+        centered_index = 2 * index - last_index
+        value = center.value + (
+            converted_span.value * centered_index / (2 * last_index)
+        )
     return Quantity(
-        value=round(start + index * step, 12),
+        value=value,
         unit=center.unit,
     )
+
+
+def point_axis_range_values(
+    start: ScanRangeValue,
+    stop: ScanRangeValue,
+    count: int,
+) -> tuple[ScanRangeValue, ...]:
+    """Generate one inclusive coordinate range with NumPy linspace semantics."""
+
+    if isinstance(start, Quantity):
+        if not isinstance(stop, Quantity):
+            msg = "range endpoints must both be quantities or both be numeric"
+            raise TypeError(msg)
+        converted_stop = stop.to(start.unit)
+        return tuple(
+            Quantity(value=value, unit=start.unit)
+            for value in _float_linspace(
+                start.value,
+                converted_stop.value,
+                count,
+            )
+        )
+    if isinstance(stop, Quantity):
+        msg = "range endpoints must both be quantities or both be numeric"
+        raise TypeError(msg)
+    if isinstance(start, bool) or isinstance(stop, bool):
+        msg = "range endpoints must be numeric, not bool"
+        raise TypeError(msg)
+    if isinstance(start, int) and isinstance(stop, int):
+        last_index = count - 1
+        difference = stop - start
+        if difference % last_index != 0:
+            msg = "integer point axis range must have an integral step"
+            raise ValueError(msg)
+        step = difference // last_index
+        return tuple(start + step * index for index in range(count))
+    return _float_linspace(float(start), float(stop), count)
+
+
+def _float_linspace(
+    start: float,
+    stop: float,
+    count: int,
+) -> tuple[float, ...]:
+    """Interpolate finite endpoints without overflowing their difference."""
+
+    if isfinite(stop - start):
+        values: NDArray[np.float64] = np.linspace(
+            start,
+            stop,
+            num=count,
+            dtype=np.float64,
+        )
+    else:
+        weights: NDArray[np.float64] = np.linspace(
+            0.0,
+            1.0,
+            num=count,
+            dtype=np.float64,
+        )
+        values = start * (1.0 - weights) + stop * weights
+    values[0] = start
+    values[-1] = stop
+    return tuple(float(cast("np.float64", values[index])) for index in range(count))
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +153,23 @@ class PointAxisLinear(Generic[CenterT_co]):
             raise ValueError(msg)
 
 
-type PointAxisSource[CenterT] = PointAxisValues | PointAxisLinear[CenterT]
+@dataclass(frozen=True, slots=True)
+class PointAxisRange:
+    """One fixed-count linear axis between literal coordinate endpoints."""
+
+    start: ScanRangeValue
+    stop: ScanRangeValue
+    count: int
+
+    def __post_init__(self) -> None:
+        if self.count < 2:
+            msg = "range point axis count must be at least 2"
+            raise ValueError(msg)
+
+
+type PointAxisSource[CenterT] = (
+    PointAxisValues | PointAxisLinear[CenterT] | PointAxisRange
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +211,28 @@ def point_axis_linear[CenterT](
         value_type,
         PointAxisLinear(center=center, span=span, count=count),
     )
+
+
+def point_axis_range(
+    axis_id: str,
+    value_type: Scalar,
+    start: ScanRangeValue,
+    stop: ScanRangeValue,
+    count: int,
+) -> PointAxis[Never]:
+    """Build one fixed-count linear coordinate range."""
+
+    return PointAxis[Never](
+        axis_id,
+        value_type,
+        PointAxisRange(start=start, stop=stop, count=count),
+    )
+
+
+def point_axis_size[CenterT](source: PointAxisSource[CenterT]) -> int:
+    """Return the exact number of values generated by one point axis source."""
+
+    return len(source.values) if isinstance(source, PointAxisValues) else source.count
 
 
 def iter_point_axis_linear[CenterT](
@@ -205,18 +320,13 @@ def analyze_point_domain[CenterT](
             "point-domain composition produces duplicate columns: "
             + ", ".join(duplicates),
         )
-    axis_sizes = tuple(
-        axis.source.count
-        if isinstance(axis.source, PointAxisLinear)
-        else len(axis.source.values)
-        for axis in axes
-    )
+    axis_sizes = tuple(point_axis_size(axis.source) for axis in axes)
     if layout == "point_cloud":
         linear_index = next(
             (
                 index
                 for index, axis in enumerate(axes)
-                if isinstance(axis.source, PointAxisLinear)
+                if not isinstance(axis.source, PointAxisValues)
             ),
             None,
         )

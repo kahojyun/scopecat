@@ -41,7 +41,7 @@ jobs:
 
       - name: Test data ecosystem adapters
         run: >-
-          uv run --locked --package scopecat --extra data pytest -q
+          uv run --locked --package scopecat --extra pandas pytest -q
           packages/scopecat/tests/measurements/test_dataset.py
 
   python-quality:

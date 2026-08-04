@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from itertools import pairwise
+from typing import Literal, cast
+
+import numpy as np
+from numpy.typing import NDArray
 
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetSchema,
@@ -18,9 +20,10 @@ from scopecat.records.measurement import (
 )
 
 type TraceCoordinate = int | float
-type TraceSample = int | float | complex
+type TraceCoordinateArray = NDArray[np.int64] | NDArray[np.float64]
+type TraceSampleArray = NDArray[np.int64] | NDArray[np.float64] | NDArray[np.complex128]
 type TraceValueMode = Literal["value", "magnitude", "phase", "real", "imag"]
-type TraceDownsampling = Literal["even"]
+type TraceDownsampling = Literal["minmax"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,8 +40,8 @@ class Trace:
     observable_label: str | None
     coordinate_unit: str | None
     observable_unit: str | None
-    x: tuple[TraceCoordinate, ...]
-    y: tuple[TraceSample, ...]
+    x: TraceCoordinateArray
+    y: TraceSampleArray
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +88,7 @@ def measurement_traces(
 
     A recording group is the preferred selector when several acquisitions use
     compatible dimensions; explicit variable ids remain available for custom
-    or partially grouped datasets.
+    ungrouped datasets.
     """
 
     coordinate_variable, observable_variable = _trace_variables(
@@ -98,7 +101,7 @@ def measurement_traces(
         dataset.records,
         coordinate_variable,
         observable_variable,
-        skip_unavailable=False,
+        skip_unusable=False,
     )
 
 
@@ -111,21 +114,23 @@ def project_measurement_trace_preview(
     max_series: int = 32,
     max_samples: int = 4096,
     value_mode: TraceValueMode | None = None,
-    downsampling: TraceDownsampling = "even",
+    downsampling: TraceDownsampling = "minmax",
 ) -> MeasurementTraceProjection:
-    """Project a bounded numeric preview without scanning past its series cap.
+    """Project a bounded numeric preview from up to ``max_series`` usable records.
 
     ``max_samples`` is one total response budget shared evenly by the returned
-    series. Even sampling preserves both endpoints whenever a source trace has
-    at least two samples. Unavailable selected points are omitted; callers can
-    compare the returned count with their separate domain-selection count.
+    series. Min/max bucket sampling preserves endpoints and narrow extrema.
+    Unavailable and empty selected points are omitted while later records are
+    considered until the usable-series cap is reached or records are exhausted.
+    Callers can compare the returned count with their separate domain-selection
+    count.
     """
 
     if max_series < 1:
         raise ValueError("trace preview max_series must be positive")
     if max_samples < 2:
         raise ValueError("trace preview max_samples must be at least two")
-    if downsampling != "even":
+    if downsampling != "minmax":
         raise ValueError(f"unsupported trace downsampling: {downsampling}")
     coordinate_variable, observable_variable = _trace_variables(
         dataset.dataset_schema,
@@ -134,15 +139,12 @@ def project_measurement_trace_preview(
         group=group,
     )
     series_limit = min(max_series, max_samples // 2)
-    traces = tuple(
-        trace
-        for trace in _measurement_traces(
-            dataset.records[:series_limit],
-            coordinate_variable,
-            observable_variable,
-            skip_unavailable=True,
-        )
-        if trace.y
+    traces = _measurement_traces(
+        dataset.records,
+        coordinate_variable,
+        observable_variable,
+        skip_unusable=True,
+        limit=series_limit,
     )
     if observable_variable.dtype == "complex128":
         actual_mode: TraceValueMode = value_mode or "magnitude"
@@ -165,10 +167,7 @@ def project_measurement_trace_preview(
     returned_sample_count = sum(len(item.y) for item in projected)
     return MeasurementTraceProjection(
         dimension_id=observable_variable.dims[1],
-        recording_group_id=(
-            coordinate_variable.recording_group_id
-            or observable_variable.recording_group_id
-        ),
+        recording_group_id=coordinate_variable.recording_group_id,
         coordinate_id=coordinate_variable.id,
         observable_id=observable_variable.id,
         coordinate_label=coordinate_variable.label,
@@ -207,11 +206,7 @@ def _trace_variables(
         raise ValueError(f"trace observable {observable!r} is not an observable")
     coordinate_group = coordinate_variable.recording_group_id
     observable_group = observable_variable.recording_group_id
-    if (
-        coordinate_group is not None
-        and observable_group is not None
-        and coordinate_group != observable_group
-    ):
+    if coordinate_group != observable_group:
         raise ValueError(
             "trace coordinate and observable must belong to one recording group"
         )
@@ -234,26 +229,26 @@ def _measurement_traces(
     coordinate_variable: MeasurementVariable,
     observable_variable: MeasurementVariable,
     *,
-    skip_unavailable: bool,
+    skip_unusable: bool,
+    limit: int | None = None,
 ) -> tuple[Trace, ...]:
     coordinate = coordinate_variable.id
     observable = observable_variable.id
     coordinate_group = coordinate_variable.recording_group_id
-    observable_group = observable_variable.recording_group_id
     dimension_id = coordinate_variable.dims[1]
     traces: list[Trace] = []
     for record in records:
         x_value = record.coordinates[coordinate]
         y_value = record.observables[observable]
         if isinstance(x_value, MeasurementUnavailable):
-            if skip_unavailable:
+            if skip_unusable:
                 continue
             raise ValueError(
                 f"trace coordinate {coordinate!r} is unavailable at point "
                 f"{record.point_index}: {x_value.reason}"
             )
         if isinstance(y_value, MeasurementUnavailable):
-            if skip_unavailable:
+            if skip_unusable:
                 continue
             raise ValueError(
                 f"trace observable {observable!r} is unavailable at point "
@@ -270,12 +265,14 @@ def _measurement_traces(
             raise ValueError(
                 f"trace arrays differ in length at point {record.point_index}"
             )
+        if skip_unusable and y.size == 0:
+            continue
         traces.append(
             Trace(
                 point_index=record.point_index,
                 logical_point_id=record.logical_point_id,
                 dimension_id=dimension_id,
-                recording_group_id=coordinate_group or observable_group,
+                recording_group_id=coordinate_group,
                 coordinate_id=coordinate,
                 observable_id=observable,
                 coordinate_label=coordinate_variable.label,
@@ -286,6 +283,8 @@ def _measurement_traces(
                 y=y,
             )
         )
+        if limit is not None and len(traces) == limit:
+            break
     return tuple(traces)
 
 
@@ -295,36 +294,89 @@ def _project_trace(
     limit: int,
     value_mode: TraceValueMode,
 ) -> ProjectedTraceSeries:
-    indices = _even_sample_indices(len(trace.y), limit)
+    projected_values = _project_samples(trace.y, value_mode)
+    indices = _minmax_sample_indices(projected_values, limit)
     return ProjectedTraceSeries(
         point_index=trace.point_index,
         logical_point_id=trace.logical_point_id,
         label=trace.logical_point_id or f"Point {trace.point_index}",
-        x=tuple(trace.x[index] for index in indices),
-        y=tuple(_project_sample(trace.y[index], value_mode) for index in indices),
+        x=tuple(
+            _native_coordinate(cast("np.integer | np.floating", trace.x[index]))
+            for index in indices
+        ),
+        y=tuple(
+            cast("np.float64", projected_values[index]).item() for index in indices
+        ),
         source_sample_count=len(trace.y),
     )
 
 
-def _even_sample_indices(size: int, limit: int) -> tuple[int, ...]:
+def _minmax_sample_indices(
+    values: NDArray[np.float64],
+    limit: int,
+) -> tuple[int, ...]:
+    size = values.size
     if size <= limit:
         return tuple(range(size))
+
+    interior_budget = limit - 2
+    bucket_count = (interior_budget + 1) // 2
+    edges = np.linspace(1, size - 1, bucket_count + 1, dtype=np.int64)
+    selected = {0, size - 1}
+    remaining_slots = interior_budget
+    for start_value, end_value in pairwise(edges):
+        start = int(start_value)
+        end = int(end_value)
+        bucket = values[start:end]
+        slots = min(2, remaining_slots)
+        if slots == 1:
+            positions = np.arange(start, end, dtype=np.float64)
+            first = cast("np.float64", values[0]).item()
+            last = cast("np.float64", values[-1]).item()
+            baseline: NDArray[np.float64] = first + (last - first) * positions / (
+                size - 1
+            )
+            selected.add(start + int(np.argmax(np.abs(bucket - baseline))))
+        else:
+            selected.add(start + int(np.argmin(bucket)))
+            selected.add(start + int(np.argmax(bucket)))
+        remaining_slots -= slots
+
+    for index in _uniform_sample_indices(size, limit):
+        if len(selected) == limit:
+            break
+        selected.add(index)
+    if len(selected) < limit:
+        for index in range(1, size - 1):
+            selected.add(index)
+            if len(selected) == limit:
+                break
+    return tuple(sorted(selected))
+
+
+def _uniform_sample_indices(size: int, limit: int) -> tuple[int, ...]:
     return tuple(round(index * (size - 1) / (limit - 1)) for index in range(limit))
 
 
-def _project_sample(sample: TraceSample, mode: TraceValueMode) -> float:
+def _native_coordinate(value: np.integer | np.floating) -> TraceCoordinate:
+    return int(value) if isinstance(value, np.integer) else float(value)
+
+
+def _project_samples(
+    samples: TraceSampleArray,
+    mode: TraceValueMode,
+) -> NDArray[np.float64]:
     if mode == "value":
-        if isinstance(sample, complex):
-            raise ValueError("complex trace samples require an explicit display mode")
-        return float(sample)
-    selected = sample if isinstance(sample, complex) else complex(sample, 0.0)
+        return np.asarray(samples, dtype=np.float64)
     if mode == "magnitude":
-        return abs(selected)
-    if mode == "phase":
-        return math.atan2(selected.imag, selected.real)
-    if mode == "real":
-        return selected.real
-    return selected.imag
+        selected = np.abs(samples)
+    elif mode == "phase":
+        selected = np.angle(samples)
+    elif mode == "real":
+        selected = np.real(samples)
+    else:
+        selected = np.imag(samples)
+    return np.asarray(selected, dtype=np.float64)
 
 
 def _select_trace_variables(
@@ -430,25 +482,18 @@ def _require_variable(
         ) from error
 
 
-def _coordinate_values(value: MeasurementArray) -> tuple[TraceCoordinate, ...]:
-    selected: list[TraceCoordinate] = []
-    for item in value.values:
-        if isinstance(item, bool) or not isinstance(item, int | float):
-            raise ValueError("trace coordinate array contains a non-numeric value")
-        selected.append(item)
-    return tuple(selected)
+def _coordinate_values(value: MeasurementArray) -> TraceCoordinateArray:
+    if value.dtype == "int64":
+        return cast("NDArray[np.int64]", value.values)
+    return cast("NDArray[np.float64]", value.values)
 
 
-def _sample_values(value: MeasurementArray) -> tuple[TraceSample, ...]:
-    selected: list[TraceSample] = []
-    for item in value.values:
-        if isinstance(item, ComplexComponents):
-            selected.append(complex(item.real, item.imag))
-        elif not isinstance(item, bool) and isinstance(item, int | float):
-            selected.append(item)
-        else:
-            raise ValueError("trace observable array contains a non-numeric value")
-    return tuple(selected)
+def _sample_values(value: MeasurementArray) -> TraceSampleArray:
+    if value.dtype == "complex128":
+        return cast("NDArray[np.complex128]", value.values)
+    if value.dtype == "int64":
+        return cast("NDArray[np.int64]", value.values)
+    return cast("NDArray[np.float64]", value.values)
 
 
 __all__ = ["Trace"]

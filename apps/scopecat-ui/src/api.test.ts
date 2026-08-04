@@ -484,7 +484,7 @@ describe("project daemon reads", () => {
     const response = {
       coordinate_id: "frequency",
       dimension_id: "sample",
-      downsampling: "even" as const,
+      downsampling: "minmax" as const,
       fixed_axis_indices: { bias: 1 },
       observable_id: "signal",
       recording_group_id: "readout",
@@ -521,7 +521,7 @@ describe("project daemon reads", () => {
     expect(request).toBeInstanceOf(Request);
     await expect((request as Request).clone().json()).resolves.toEqual({
       coordinate_id: "frequency",
-      downsampling: "even",
+      downsampling: "minmax",
       fixed_axis_indices: { bias: 1 },
       max_samples: 4096,
       max_series: 32,

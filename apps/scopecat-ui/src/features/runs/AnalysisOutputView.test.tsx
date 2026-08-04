@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RunAnalysisOutput } from "../../types";
 import { AnalysisOutputView } from "./AnalysisOutputView";
+import { analysisFigureOption } from "./chart-options";
+
+vi.mock("../../ui/EChartRuntime", () => ({ EChartRuntime: () => null }));
+
+afterEach(cleanup);
 
 describe("AnalysisOutputView", () => {
   it("renders a typed table with authored labels, units, and scalar cells", () => {
@@ -49,7 +54,7 @@ describe("AnalysisOutputView", () => {
     expect(screen.getByText("5000000002")).toHaveAttribute("title", "5000000002");
   });
 
-  it("renders embedded multi-series figure data as an accessible SVG", () => {
+  it("renders embedded multi-series figure data as an accessible ECharts figure", () => {
     const output: RunAnalysisOutput = {
       kind: "figure",
       title: "Resonance fit",
@@ -65,21 +70,17 @@ describe("AnalysisOutputView", () => {
       },
     };
 
-    const { container } = render(<AnalysisOutputView output={output} />);
+    render(<AnalysisOutputView output={output} />);
 
     expect(
       screen.getByRole("img", {
         name: "Resonance fit: Frequency (GHz) by Bias (V)",
       }),
     ).toBeVisible();
-    expect(screen.getAllByTestId("analysis-figure-series")).toHaveLength(2);
-    expect(container.querySelectorAll("path")).toHaveLength(2);
-    expect(container.querySelectorAll("circle")).toHaveLength(5);
-    expect(screen.getByText("Fit")).toBeVisible();
-    expect(screen.getByText("Reference")).toBeVisible();
+    expect(screen.getByText(/Series: Fit, Reference/)).toBeInTheDocument();
   });
 
-  it("scales opposite finite float extremes without invalid SVG coordinates", () => {
+  it("preserves opposite finite float extremes in the ECharts option", () => {
     const output: RunAnalysisOutput = {
       kind: "figure",
       title: "Extreme range",
@@ -92,9 +93,14 @@ describe("AnalysisOutputView", () => {
       },
     };
 
-    const { container } = render(<AnalysisOutputView output={output} />);
+    const option = analysisFigureOption(output.content);
+    const [series] = option.series as Array<{ data: number[][]; type: string }>;
 
-    expect(container.innerHTML).not.toMatch(/NaN|Infinity/);
-    expect(container.querySelectorAll("circle")).toHaveLength(2);
+    expect(series).toMatchObject({ type: "line" });
+    expect(series?.data).toEqual([
+      [-1e308, 1e308],
+      [1e308, -1e308],
+    ]);
+    expect(series?.data.flat().every(Number.isFinite)).toBe(true);
   });
 });

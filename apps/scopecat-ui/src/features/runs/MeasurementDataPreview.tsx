@@ -3,7 +3,9 @@ import { LoaderCircle } from "lucide-react";
 import type { MeasurementTracePreview } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
 import type { MeasurementPreview, MeasurementSlicePreview } from "../../types";
+import { EChart } from "../../ui/EChart";
 import { classes, secondaryButton } from "../../ui/styles";
+import { measurementChartOption } from "./chart-options";
 import {
   measurementTable,
   measurementSlicePlan,
@@ -15,40 +17,6 @@ import {
   type MeasurementTraceQueryPlan,
 } from "./measurement-visualization";
 
-const SERIES_COLORS = [
-  "var(--color-accent)",
-  "var(--color-yellow)",
-  "var(--color-purple)",
-  "var(--color-red)",
-  "var(--color-text-soft)",
-  "#77b6a8",
-  "#83d2f0",
-  "#f69bc8",
-  "#a9d66e",
-  "#f4a261",
-  "#9fa8ff",
-  "#5fd1c8",
-  "#d5a6bd",
-  "#b8c0ff",
-  "#ffb86b",
-  "#76c893",
-  "#e5989b",
-  "#8ab4f8",
-  "#c7a6ff",
-  "#67d8b5",
-  "#f2c66d",
-  "#ff8c88",
-  "#4cc9f0",
-  "#b8de6f",
-  "#f28482",
-  "#90caf9",
-  "#ce93d8",
-  "#80cbc4",
-  "#ffcc80",
-  "#ef9a9a",
-  "#9fa8da",
-  "#a5d6a7",
-];
 const MAX_SLICE_SELECT_OPTIONS = 256;
 
 export function MeasurementDataPreview({
@@ -409,28 +377,8 @@ function sliceAxisOption(axis: MeasurementSliceAxis, index: number): string {
 }
 
 function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
-  const width = 640;
-  const height = 230;
-  const margin = { top: 16, right: 18, bottom: 38, left: 54 };
   const points = chart.series.flatMap((series) => series.points);
-  const xBoundaries = chart.kind === "heatmap" ? cellBoundaries(chart.grid.xValues) : undefined;
-  const yBoundaries = chart.kind === "heatmap" ? cellBoundaries(chart.grid.yValues) : undefined;
-  const [xMin, xMax] = xBoundaries
-    ? [xBoundaries[0]!, xBoundaries.at(-1)!]
-    : paddedExtent(points.map((point) => point.x));
-  const [yMin, yMax] = yBoundaries
-    ? [yBoundaries[0]!, yBoundaries.at(-1)!]
-    : paddedExtent(points.map((point) => point.y));
-  const x = (value: number) =>
-    margin.left + ((value - xMin) / (xMax - xMin)) * (width - margin.left - margin.right);
-  const y = (value: number) =>
-    height -
-    margin.bottom -
-    ((value - yMin) / (yMax - yMin)) * (height - margin.top - margin.bottom);
-  const xTicks = ticks(xMin, xMax);
-  const yTicks = ticks(yMin, yMax);
-  const colorValues = points.flatMap((point) => (point.color === undefined ? [] : [point.color]));
-  const colorExtent = colorValues.length > 0 ? rawExtent(colorValues) : undefined;
+  const option = useMemo(() => measurementChartOption(chart), [chart]);
   const fixedCoordinates =
     chart.kind === "heatmap" ? fixedCoordinatesLabel(chart.fixedCoordinates) : undefined;
   const chartDescription = chart.colorLabel
@@ -454,154 +402,14 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
           {chart.kind.replace("-", " ")}
         </span>
       </figcaption>
-      <svg
-        aria-label={accessibleTitle}
-        className="block h-auto w-full"
-        role="img"
-        viewBox={`0 0 ${width} ${height}`}
-      >
-        <title>{accessibleTitle}</title>
-        {xTicks.map((tick) => (
-          <g key={`x:${tick}`}>
-            <line
-              stroke="var(--color-line)"
-              strokeWidth="1"
-              x1={x(tick)}
-              x2={x(tick)}
-              y1={margin.top}
-              y2={height - margin.bottom}
-            />
-            <text
-              fill="var(--color-text-dim)"
-              fontSize="10"
-              textAnchor="middle"
-              x={x(tick)}
-              y={height - 18}
-            >
-              {shortNumber(tick)}
-            </text>
-          </g>
-        ))}
-        {yTicks.map((tick) => (
-          <g key={`y:${tick}`}>
-            <line
-              stroke="var(--color-line)"
-              strokeWidth="1"
-              x1={margin.left}
-              x2={width - margin.right}
-              y1={y(tick)}
-              y2={y(tick)}
-            />
-            <text
-              dominantBaseline="middle"
-              fill="var(--color-text-dim)"
-              fontSize="10"
-              textAnchor="end"
-              x={margin.left - 7}
-              y={y(tick)}
-            >
-              {shortNumber(tick)}
-            </text>
-          </g>
-        ))}
-        {chart.series.map((series, index) => {
-          const color = SERIES_COLORS[index % SERIES_COLORS.length] ?? "var(--color-accent)";
-          const path = series.points
-            .map(
-              (point, pointIndex) => `${pointIndex === 0 ? "M" : "L"}${x(point.x)},${y(point.y)}`,
-            )
-            .join(" ");
-          return (
-            <g key={series.id}>
-              {chart.kind === "line" && series.points.length > 1 && (
-                <path d={path} fill="none" stroke={color} strokeWidth="2" />
-              )}
-              {chart.kind === "heatmap" &&
-                colorExtent &&
-                series.points.map((point, pointIndex) => {
-                  const xIndex = chart.grid.xValues.indexOf(point.x);
-                  const yIndex = chart.grid.yValues.indexOf(point.y);
-                  const xStart = xBoundaries?.[xIndex];
-                  const xEnd = xBoundaries?.[xIndex + 1];
-                  const yStart = yBoundaries?.[yIndex];
-                  const yEnd = yBoundaries?.[yIndex + 1];
-                  if (
-                    point.color === undefined ||
-                    xStart === undefined ||
-                    xEnd === undefined ||
-                    yStart === undefined ||
-                    yEnd === undefined
-                  ) {
-                    return null;
-                  }
-                  return (
-                    <rect
-                      data-testid="heatmap-cell"
-                      fill={colorScale(point.color, colorExtent[0], colorExtent[1])}
-                      height={y(yStart) - y(yEnd)}
-                      key={`${series.id}:${pointIndex}`}
-                      stroke="var(--color-panel-soft)"
-                      strokeWidth="1"
-                      width={x(xEnd) - x(xStart)}
-                      x={x(xStart)}
-                      y={y(yEnd)}
-                    >
-                      <title>
-                        {`${series.label}: ${shortNumber(point.x)}, ${shortNumber(point.y)}, ${chart.colorLabel}: ${shortNumber(point.color)}`}
-                      </title>
-                    </rect>
-                  );
-                })}
-              {chart.kind !== "heatmap" &&
-                series.points.map((point, pointIndex) => (
-                  <circle
-                    cx={x(point.x)}
-                    cy={y(point.y)}
-                    fill={
-                      colorExtent && point.color !== undefined
-                        ? colorScale(point.color, colorExtent[0], colorExtent[1])
-                        : color
-                    }
-                    key={`${series.id}:${pointIndex}`}
-                    r={chart.kind === "line" ? 2.5 : chart.kind === "color-scatter" ? 4 : 3.5}
-                  >
-                    <title>
-                      {`${series.label}: ${shortNumber(point.x)}, ${shortNumber(point.y)}${point.color === undefined || !chart.colorLabel ? "" : `, ${chart.colorLabel}: ${shortNumber(point.color)}`}`}
-                    </title>
-                  </circle>
-                ))}
-            </g>
-          );
-        })}
-      </svg>
-      {colorExtent && chart.colorLabel && (
-        <div className="mt-1 flex items-center gap-2 text-[0.55rem] text-text-dim">
-          <span>{shortNumber(colorExtent[0])}</span>
-          <span
-            aria-hidden="true"
-            className="h-2 min-w-20 flex-1 rounded-sm"
-            style={{
-              background:
-                "linear-gradient(90deg, hsl(260 70% 52%), hsl(155 65% 42%), hsl(50 85% 52%))",
-            }}
-          />
-          <span>{shortNumber(colorExtent[1])}</span>
-          <span className="font-medium text-text-soft">{chart.colorLabel}</span>
-        </div>
-      )}
-      {chart.series.length > 1 && (
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[0.55rem] text-text-dim">
-          {chart.series.map((series, index) => (
-            <span className="inline-flex items-center gap-1" key={series.id}>
-              <span
-                className="inline-block size-2 rounded-full"
-                style={{ background: SERIES_COLORS[index % SERIES_COLORS.length] }}
-              />
-              {series.label}
-            </span>
-          ))}
-        </div>
-      )}
+      <EChart
+        ariaLabel={accessibleTitle}
+        height={chart.colorLabel ? 270 : 240}
+        option={option}
+        pointCount={points.length}
+        seriesLabels={chart.series.map((series) => series.label)}
+        seriesCount={chart.series.length}
+      />
       {chart.note && <p className="mt-1.5 mb-0 text-[0.56rem] text-text-dim">{chart.note}</p>}
     </figure>
   );
@@ -644,50 +452,6 @@ function fixedCoordinateValueLabel(
           ? JSON.stringify(value)
           : `${shortNumber(value.real)} ${value.imag < 0 ? "−" : "+"} ${shortNumber(Math.abs(value.imag))}i`;
   return coordinate.disambiguateIndex ? `${rendered} (Index ${coordinate.index! + 1})` : rendered;
-}
-
-function rawExtent(values: number[]): [number, number] {
-  return [Math.min(...values), Math.max(...values)];
-}
-
-function colorScale(value: number, minimum: number, maximum: number): string {
-  const position = maximum === minimum ? 0.5 : (value - minimum) / (maximum - minimum);
-  const bounded = Math.min(1, Math.max(0, position));
-  const hue = bounded < 0.5 ? 260 - bounded * 210 : 155 - (bounded - 0.5) * 210;
-  const saturation = bounded < 0.5 ? 70 - bounded * 10 : 65 + (bounded - 0.5) * 40;
-  const lightness = bounded < 0.5 ? 52 - bounded * 20 : 42 + (bounded - 0.5) * 20;
-  return `hsl(${hue} ${saturation}% ${lightness}%)`;
-}
-
-function paddedExtent(values: number[]): [number, number] {
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-  if (minimum !== maximum) {
-    const padding = (maximum - minimum) * 0.04;
-    return [minimum - padding, maximum + padding];
-  }
-  const padding = Math.abs(minimum) * 0.04 || 1;
-  return [minimum - padding, maximum + padding];
-}
-
-function cellBoundaries(values: number[]): number[] {
-  const first = values[0]!;
-  if (values.length === 1) {
-    const halfWidth = Math.abs(first) * 0.04 || 1;
-    return [first - halfWidth, first + halfWidth];
-  }
-  const second = values[1]!;
-  const last = values.at(-1)!;
-  const beforeLast = values.at(-2)!;
-  return [
-    first - (second - first) / 2,
-    ...values.slice(0, -1).map((value, index) => (value + values[index + 1]!) / 2),
-    last + (last - beforeLast) / 2,
-  ];
-}
-
-function ticks(minimum: number, maximum: number): number[] {
-  return Array.from({ length: 4 }, (_item, index) => minimum + ((maximum - minimum) * index) / 3);
 }
 
 function shortNumber(value: number): string {

@@ -150,7 +150,7 @@ export async function getMeasurementTracePreview(
       params: { path: { run_id: runId } },
       body: {
         coordinate_id: selection.coordinateId,
-        downsampling: "even",
+        downsampling: "minmax",
         fixed_axis_indices: selection.fixedAxisIndices,
         max_samples: 4096,
         max_series: 32,

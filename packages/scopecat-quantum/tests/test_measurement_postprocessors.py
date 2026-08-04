@@ -7,7 +7,6 @@ import pytest
 import scopecat as sc
 from pydantic import ValidationError
 from scopecat.measurements.results import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
 )
@@ -36,10 +35,7 @@ def _iq_shots(*values: complex) -> MeasurementArray:
     return MeasurementArray.create(
         dtype="complex128",
         unit="ratio",
-        shape=[len(values)],
-        values=[
-            ComplexComponents(real=value.real, imag=value.imag) for value in values
-        ],
+        values=values,
     )
 
 

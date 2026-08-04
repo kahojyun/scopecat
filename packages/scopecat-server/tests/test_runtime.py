@@ -87,7 +87,6 @@ from scopecat.records.config import (
 )
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDimension,
@@ -95,6 +94,7 @@ from scopecat.records.measurement import (
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
+    MeasurementUnavailable,
     MeasurementVariable,
 )
 from scopecat.records.measurement_recording import (
@@ -2007,7 +2007,6 @@ def test_effect_is_fenced_and_terminal_updates_control(
                     "frequency": MeasurementArray.create(
                         dtype="float64",
                         unit="Hz",
-                        shape=(5,),
                         values=tuple(float(index) for index in range(5)),
                     )
                 },
@@ -2017,14 +2016,22 @@ def test_effect_is_fenced_and_terminal_updates_control(
                         value=point_index + 1.25,
                         unit="ratio",
                     ),
-                    "trace": MeasurementArray.create(
-                        dtype="complex128",
-                        unit="ratio",
-                        shape=(5,),
-                        values=tuple(
-                            ComplexComponents(real=point_index + 1.0, imag=index)
-                            for index in range(5)
-                        ),
+                    "trace": (
+                        MeasurementUnavailable.create(
+                            reason="overload",
+                            dtype="complex128",
+                            unit="ratio",
+                            shape=(5,),
+                            metadata={},
+                        )
+                        if point_index == 0
+                        else MeasurementArray.create(
+                            dtype="complex128",
+                            unit="ratio",
+                            values=tuple(
+                                complex(point_index + 1.0, index) for index in range(5)
+                            ),
+                        )
                     ),
                 },
             )
@@ -2081,6 +2088,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
                         dtype="complex128",
                         unit="ratio",
                         dims=["point", "sample"],
+                        recording_group_id="readout",
                     ),
                 ],
                 primary_coordinates=["frequency"],
@@ -2151,6 +2159,16 @@ def test_effect_is_fenced_and_terminal_updates_control(
                 "coordinate_id": "frequency",
                 "max_series": 1,
                 "max_samples": 2,
+            },
+        )
+        exhausted_trace_preview = client.post(
+            f"/api/v1/runs/{run_id}/measurements/traces/query",
+            json={
+                "observable_id": "trace",
+                "coordinate_id": "frequency",
+                "fixed_axis_indices": {"x": 0},
+                "max_series": 2,
+                "max_samples": 4,
             },
         )
         invalid_trace_preview = client.post(
@@ -2242,6 +2260,12 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert truncated_trace_preview.json()["selected_series_count"] == 4
         assert truncated_trace_preview.json()["returned_series_count"] == 1
         assert truncated_trace_preview.json()["truncated_series"]
+        assert truncated_trace_preview.json()["series"][0]["point_index"] == 1
+        assert exhausted_trace_preview.status_code == 200
+        assert exhausted_trace_preview.json()["selected_series_count"] == 2
+        assert exhausted_trace_preview.json()["returned_series_count"] == 1
+        assert not exhausted_trace_preview.json()["truncated_series"]
+        assert exhausted_trace_preview.json()["series"][0]["point_index"] == 1
         assert committed.status_code == 200
         assert committed.json()["sequence"] == 0
         committed_transition = ExecutionTransition.model_validate(committed.json())
@@ -2358,6 +2382,15 @@ def test_effect_and_terminal_publication_roll_back_with_control(
                 dataset_id="raw-measurements",
                 point_domain=MeasurementProductGridPointDomain(axes=[]),
                 dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+                variables=[
+                    MeasurementVariable(
+                        id="signal",
+                        role="observable",
+                        dtype="float64",
+                        unit="ratio",
+                        dims=["point"],
+                    )
+                ],
             ),
             expected_record_count=1,
         )

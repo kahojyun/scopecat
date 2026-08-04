@@ -28,6 +28,7 @@ def project_measurement_catalog(
         RunPointContract(
             experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
+            point_count=len(point_domain.points),
             coordinate_columns=coordinate_columns,
             domain_layout=point_domain.layout,
             domain_axis_sizes=point_domain.axis_sizes,
@@ -60,6 +61,7 @@ def project_run_point_catalog(
         contract=RunPointContract(
             experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
+            point_count=len(all_points),
             coordinate_columns=coordinate_columns,
             domain_layout=point_domain.layout,
             domain_axis_sizes=point_domain.axis_sizes,

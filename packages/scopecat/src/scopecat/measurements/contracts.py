@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import cast
 
 from scopecat.kernel.problems import (
     Problem,
@@ -13,14 +12,11 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.kernel.units import compatible_units
 from scopecat.records.measurement import (
-    ComplexComponents,
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDType,
     MeasurementRecord,
-    MeasurementScalar,
     MeasurementUnavailable,
     MeasurementValue,
     MeasurementVariable,
@@ -37,7 +33,6 @@ class MeasurementValueContractIssueCode(StrEnum):
     DTYPE_MISMATCH = "dtype_mismatch"
     UNIT_MISMATCH = "unit_mismatch"
     SHAPE_MISMATCH = "shape_mismatch"
-    VALUE_TYPE_MISMATCH = "value_type_mismatch"
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,14 +54,15 @@ def measurement_value_contract_issues(
 ) -> tuple[MeasurementValueContractIssue, ...]:
     """Check one value against a logical product's point-local contract.
 
-    Top-level dtype compatibility permits numeric widening. Available scalar
-    and array leaves must match their value's own dtype tag.
+    Persisted dtype tags must match exactly because this layer does not convert
+    the stored value. Available values already match their own dtype tag because
+    their models normalize at the construction boundary.
     """
 
     selected_shape = tuple(expected_shape)
     issues: list[MeasurementValueContractIssue] = []
     actual_dtype = _measurement_value_dtype(value)
-    if not _dtype_compatible(expected_dtype, actual_dtype):
+    if expected_dtype != actual_dtype:
         issues.append(
             MeasurementValueContractIssue(
                 code=MeasurementValueContractIssueCode.DTYPE_MISMATCH,
@@ -101,22 +97,6 @@ def measurement_value_contract_issues(
             )
         )
 
-    if isinstance(value, MeasurementUnavailable):
-        return tuple(issues)
-    if isinstance(value, MeasurementScalar):
-        _validate_value_type(
-            value.value,
-            dtype=value.dtype,
-            path=("value",),
-            issues=issues,
-        )
-    else:
-        _validate_array_values(
-            value.values,
-            dtype=value.dtype,
-            path=("values",),
-            issues=issues,
-        )
     return tuple(issues)
 
 
@@ -130,12 +110,6 @@ def _shape_compatible(
         expected_extent is None or expected_extent == actual_extent
         for expected_extent, actual_extent in zip(expected, actual, strict=True)
     )
-
-
-def validated_measurement_value_copy(value: MeasurementValue) -> MeasurementValue:
-    """Detach a measurement value without repeating its construction checks."""
-
-    return value.model_copy(deep=True)
 
 
 def _measurement_value_dtype(
@@ -158,86 +132,10 @@ def _measurement_value_shape(
     return ()
 
 
-def _dtype_compatible(
-    expected: MeasurementDType,
-    actual: MeasurementDType,
-) -> bool:
-    if actual == expected:
-        return True
-    if expected == "float64" and actual == "int64":
-        return True
-    return expected == "complex128" and actual in {"float64", "int64"}
-
-
 def _unit_compatible(expected: str | None, actual: str | None) -> bool:
-    if expected is None or actual is None:
-        return expected is actual
-    try:
-        return compatible_units(expected, actual)
-    except ValueError:
-        return False
+    """Require exact persisted units because this layer never converts values."""
 
-
-def _validate_array_values(
-    value: object,
-    *,
-    dtype: MeasurementDType,
-    path: tuple[MeasurementValueContractPathItem, ...],
-    issues: list[MeasurementValueContractIssue],
-) -> None:
-    if isinstance(value, tuple):
-        selected = cast("tuple[object, ...]", value)
-        for index, item in enumerate(selected):
-            _validate_array_values(
-                item,
-                dtype=dtype,
-                path=(*path, index),
-                issues=issues,
-            )
-        return
-
-    _validate_value_type(
-        value,
-        dtype=dtype,
-        path=path,
-        issues=issues,
-    )
-
-
-def _validate_value_type(
-    value: object,
-    *,
-    dtype: MeasurementDType,
-    path: tuple[MeasurementValueContractPathItem, ...],
-    issues: list[MeasurementValueContractIssue],
-) -> None:
-    valid = False
-    expected_type = ""
-    if dtype == "complex128":
-        expected_type = "ComplexComponents"
-        valid = isinstance(value, ComplexComponents)
-    elif dtype == "float64":
-        expected_type = "float or int"
-        valid = isinstance(value, int | float) and not isinstance(value, bool)
-    elif dtype == "int64":
-        expected_type = "int"
-        valid = isinstance(value, int) and not isinstance(value, bool)
-    elif dtype == "bool":
-        expected_type = "bool"
-        valid = isinstance(value, bool)
-    elif dtype == "string":
-        expected_type = "str"
-        valid = isinstance(value, str)
-
-    if not valid:
-        issues.append(
-            MeasurementValueContractIssue(
-                code=MeasurementValueContractIssueCode.VALUE_TYPE_MISMATCH,
-                path=path,
-                expected=expected_type,
-                actual=type(value).__name__,
-            )
-        )
+    return expected == actual
 
 
 def validate_measurement_records_against_schema(
@@ -404,12 +302,9 @@ def _record_contract_problem(
     elif issue.code is MeasurementValueContractIssueCode.UNIT_MISMATCH:
         code = "measurement_record_unit_mismatch"
         dimension = "unit"
-    elif issue.code is MeasurementValueContractIssueCode.SHAPE_MISMATCH:
+    else:
         code = "measurement_record_shape_mismatch"
         dimension = "shape"
-    else:
-        code = "measurement_record_value_invalid"
-        dimension = "value"
     return _problem(
         code,
         f"measurement record {record.point_index} variable {variable_id} has "

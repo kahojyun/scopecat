@@ -364,7 +364,7 @@ class MeasurementTracePreviewQuery(_ViewModel):
         Field(ge=2, le=MAX_MEASUREMENT_TRACE_SAMPLES),
     ] = MAX_MEASUREMENT_TRACE_SAMPLES
     value_mode: TraceValueMode | None = None
-    downsampling: TraceDownsampling = "even"
+    downsampling: TraceDownsampling = "minmax"
 
     @model_validator(mode="after")
     def validate_selection(self) -> MeasurementTracePreviewQuery:

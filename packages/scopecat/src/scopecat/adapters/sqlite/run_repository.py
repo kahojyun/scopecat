@@ -15,6 +15,10 @@ from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 
 from scopecat.adapters.sqlite.connection import connect, immediate_transaction
+from scopecat.adapters.sqlite.measurement_arrow import (
+    MeasurementArrowCodecError,
+    decode_measurement_append,
+)
 from scopecat.adapters.sqlite.object_store import (
     ImmutableObjectStore,
     ObjectCorruptError,
@@ -37,7 +41,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import MeasurementRecord
-from scopecat.records.measurement_recording import MeasurementDatasetAppend
+from scopecat.records.measurement_recording import MeasurementDatasetHeader
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import upsert_contents
 from scopecat.runs.admission import RunSkeleton
@@ -318,6 +322,11 @@ class SQLiteRunRepository:
         ref: str,
     ) -> list[MeasurementRecord]:
         _validate_identity(run_id, ref)
+        header = self.read_model(
+            run_id,
+            f"{ref}/header.json",
+            MeasurementDatasetHeader,
+        )
         prefix = f"{ref}/chunks/"
         try:
             with closing(self._connect()) as connection:
@@ -333,15 +342,18 @@ class SQLiteRunRepository:
                 )
         except sqlite3.Error as error:
             raise _storage_failure(run_id=run_id, ref=ref) from error
-        return [
-            record
-            for row in rows
-            for record in self.read_model(
-                run_id,
-                _text(row, "ref"),
-                MeasurementDatasetAppend,
-            ).records
-        ]
+        records: list[MeasurementRecord] = []
+        for row in rows:
+            chunk_ref = _text(row, "ref")
+            try:
+                append = decode_measurement_append(
+                    self.read_bytes(run_id, chunk_ref),
+                    header.dataset_schema,
+                )
+            except MeasurementArrowCodecError as error:
+                raise _invalid_ref(run_id, chunk_ref) from error
+            records.extend(append.records)
+        return records
 
     def read_text(self, run_id: str, ref: str) -> str:
         content = self._read_ref(run_id, ref)

@@ -18,11 +18,11 @@ from pydantic import (
 from scopecat.config.validation import (
     coerce_parameter_table_cell,
     coerce_stored_parameter_value,
-    parameter_table_key_part,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_identity import scalar_values_equal
 from scopecat.kernel.value_types import Scalar, Table
 from scopecat.records.parameter import (
     ParameterAtomValue,
@@ -459,8 +459,7 @@ def _row_matches_key(
         path=("current_row_key",),
     )
     return all(
-        parameter_table_key_part(normalized_row_key[column_id])
-        == parameter_table_key_part(value)
+        scalar_values_equal(normalized_row_key[column_id], value)
         for column_id, value in key.items()
     )
 

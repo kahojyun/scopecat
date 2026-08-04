@@ -40,6 +40,7 @@ def test_catalog_fingerprint_ignores_unserializable_opaque_axis_values() -> None
             point_contract=RunPointContract(
                 experiment_id="opaque-axis",
                 experiment_kind="test",
+                point_count=1,
                 coordinate_columns=(),
                 domain_axis_sizes=(("opaque", 1),),
                 domain_axis_values=(

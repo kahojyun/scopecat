@@ -32,14 +32,19 @@ class RunPoint:
 
 @dataclass(frozen=True, slots=True)
 class RunPointContract:
-    """Point identity and coordinate contract independent of admitted values."""
+    """Complete planned point identity and coordinate contract for one run."""
 
     experiment_id: str
     experiment_kind: str
+    point_count: int
     coordinate_columns: tuple[TableColumn, ...]
     domain_layout: PointDomainLayout = "product_grid"
     domain_axis_sizes: tuple[tuple[str, int], ...] = ()
     domain_axis_values: tuple[tuple[str, tuple[CellValue, ...]], ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.point_count < 0:
+            raise ValueError("run point count must be non-negative")
 
     @property
     def coordinate_ids(self) -> tuple[str, ...]:
@@ -48,7 +53,7 @@ class RunPointContract:
 
 @dataclass(frozen=True, slots=True)
 class RunPointCatalog:
-    """Run-owned logical identity and coordinate inventory."""
+    """Run-owned point inventory, which may project a subset of the full contract."""
 
     contract: RunPointContract
     points: tuple[RunPoint, ...]

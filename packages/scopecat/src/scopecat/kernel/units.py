@@ -48,6 +48,7 @@ UNIT_SCALE_TO_BASE: dict[str, float] = {
     "mK": 1e-3,
     "Ohm": 1.0,
     "kOhm": 1e3,
+    "W": 1.0,
     "rad": 1.0,
     "deg": 3.141592653589793 / 180.0,
     "arb": 1.0,
@@ -65,7 +66,23 @@ def unit_kind(unit: str) -> str | None:
 
 
 def compatible_units(left: str, right: str) -> bool:
-    return unit_kind(left) == unit_kind(right)
+    """Return whether values can be compared without changing semantics.
+
+    Equal registered units never require conversion. Distinct units are
+    compatible only when both have a linear conversion into the same
+    dimension's base unit.
+    """
+
+    left_kind = unit_kind(left)
+    if left_kind is None:
+        return False
+    if left == right:
+        return True
+    return (
+        left_kind == unit_kind(right)
+        and left in UNIT_SCALE_TO_BASE
+        and right in UNIT_SCALE_TO_BASE
+    )
 
 
 def to_base_value(value: float, unit: str) -> float | None:

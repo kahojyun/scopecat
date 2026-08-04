@@ -67,7 +67,7 @@ class FakeMeasurementDatasetRepository:
         self,
         header: MeasurementDatasetHeader,
     ) -> MeasurementDatasetReceipt:
-        durable = header.model_copy(deep=True)
+        durable = header
         if (
             self._header is not None
             and self._header.content_hash != durable.content_hash
@@ -82,7 +82,7 @@ class FakeMeasurementDatasetRepository:
         return self._receipts[durable.operation_id]
 
     def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
-        durable = append.model_copy(deep=True)
+        durable = append
         if (
             self._header is None
             or self._header.content_hash != durable.header_content_hash

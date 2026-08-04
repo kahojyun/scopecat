@@ -746,7 +746,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
     point_type = TableType(
         columns=(*slow_axis_type.columns, *fast_axis_type.columns),
     )
-    product = observable_product("signal")
+    product = observable_product("signal", unit="ratio")
     acquisition = instrument_acquisition(
         product,
         resource_port_id="source",
