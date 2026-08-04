@@ -146,7 +146,7 @@ describe("measurement visualization", () => {
         onLoadMore={vi.fn()}
       />,
     );
-    expect(screen.getAllByTestId("heatmap-cell")).toHaveLength(6);
+    expect(screen.getByTestId("measurement-echart")).toHaveAttribute("data-point-count", "6");
     expect(
       screen.getByRole("img", {
         name: "Temperature heatmap: Column [mm] by Row [mm], colored by Temperature [K]",
@@ -289,7 +289,7 @@ describe("measurement visualization", () => {
     expect(screen.getByRole("option", { name: "0 V" })).toBeVisible();
     expect(screen.getByRole("option", { name: "1 V" })).toBeVisible();
     expect(screen.getByText("6 of 6 slice points durable")).toBeVisible();
-    expect(screen.getAllByTestId("heatmap-cell")).toHaveLength(6);
+    expect(screen.getByTestId("measurement-echart")).toHaveAttribute("data-point-count", "6");
 
     fireEvent.change(selector, { target: { value: "1" } });
     expect(onFixedAxisIndexChange).toHaveBeenCalledWith("bias", 1);
@@ -358,7 +358,7 @@ describe("measurement visualization", () => {
     expect(
       screen.getByRole("img", { name: "Spectrum: Spectrum [ratio] by Frequency [GHz]" }),
     ).toBeVisible();
-    expect(screen.queryByTestId("heatmap-cell")).not.toBeInTheDocument();
+    expect(screen.getByTestId("measurement-echart")).toHaveAttribute("data-chart-kind", "line");
   });
 
   it("uses the first authored opaque axis when no numeric domain axis exists", () => {
