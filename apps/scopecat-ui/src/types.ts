@@ -82,6 +82,13 @@ export interface MeasurementPreview {
   nextOffset?: number;
 }
 
+export interface MeasurementSlicePreview {
+  items: MeasurementRecord[];
+  schema?: MeasurementDatasetSchema;
+  selectedPointCount: number;
+  truncated: boolean;
+}
+
 export interface RunAnalysisOutput {
   kind: "table" | "figure" | "parameter_change_proposal";
   title: string;

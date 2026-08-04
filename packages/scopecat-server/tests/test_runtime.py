@@ -82,6 +82,7 @@ from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementPointDomainAxis,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
@@ -1964,34 +1965,60 @@ def test_effect_is_fenced_and_terminal_updates_control(
             ).model_dump(mode="json"),
         )
         lease = ExecutorLease.model_validate(lease_response.json())
-        measurement = MeasurementRecord(
-            run_id=run_id,
-            logical_point_id="point-0",
-            point_index=0,
-            coordinates={},
-            observables={
-                "signal": MeasurementScalar.create(
-                    dtype="float64",
-                    value=1.25,
-                    unit="ratio",
-                )
-            },
+        measurement_records = tuple(
+            MeasurementRecord(
+                run_id=run_id,
+                logical_point_id=f"point-{point_index}",
+                point_index=point_index,
+                coordinates={},
+                observables={
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        value=point_index + 1.25,
+                        unit="ratio",
+                    )
+                },
+            )
+            for point_index in range(4)
         )
         measurement_header = MeasurementDatasetHeader(
             run_id=run_id,
             recording_contract_fingerprint="test.recording.v1",
             dataset_schema=MeasurementDatasetSchema(
                 dataset_id="raw-measurements",
-                point_domain=MeasurementProductGridPointDomain(axes=[]),
-                dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+                point_domain=MeasurementProductGridPointDomain(
+                    axes=[
+                        MeasurementPointDomainAxis(
+                            id="x",
+                            size=2,
+                            values=[
+                                MeasurementScalar.create(dtype="int64", value=value)
+                                for value in (10, 20)
+                            ],
+                        ),
+                        MeasurementPointDomainAxis(
+                            id="bias",
+                            size=2,
+                            values=[
+                                MeasurementScalar.create(dtype="int64", value=value)
+                                for value in (0, 1)
+                            ],
+                        ),
+                    ]
+                ),
+                dimensions=[MeasurementDimension(id="point", kind="point", size=4)],
             ),
-            expected_record_count=1,
+            expected_record_count=4,
         )
         measurement_append = MeasurementDatasetAppend(
             run_id=run_id,
             header_content_hash=measurement_header.content_hash,
             start_index=0,
-            records=(measurement,),
+            records=measurement_records,
+        )
+        missing_schema_slice = client.post(
+            f"/api/v1/runs/{run_id}/measurements/query",
+            json={"fixed_axis_indices": {"bias": 1}},
         )
         header_response = client.post(
             f"/api/v1/runs/{run_id}/measurements/header",
@@ -2011,6 +2038,18 @@ def test_effect_is_fenced_and_terminal_updates_control(
         measurements = client.get(
             f"/api/v1/runs/{run_id}/measurements",
             params={"limit": 100},
+        )
+        measurement_slice = client.post(
+            f"/api/v1/runs/{run_id}/measurements/query",
+            json={
+                "fixed_axis_indices": {"bias": 1},
+                "limit": 1,
+                "include_schema": True,
+            },
+        )
+        invalid_measurement_slice = client.post(
+            f"/api/v1/runs/{run_id}/measurements/query",
+            json={"fixed_axis_indices": {"missing": 0}},
         )
         transition = ExecutionTransition(
             run_id=run_id,
@@ -2066,6 +2105,15 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert detail.json()["resources"][0]["status"] == "active"
         assert measurements.json()["items"][0]["point_index"] == 0
         assert measurements.json()["dataset_schema"]["dataset_id"] == "raw-measurements"
+        assert measurement_slice.status_code == 200
+        assert missing_schema_slice.status_code == 409
+        assert measurement_slice.json()["items"][0]["point_index"] == 1
+        assert measurement_slice.json()["selected_point_count"] == 2
+        assert measurement_slice.json()["truncated"]
+        assert measurement_slice.json()["dataset_schema"]["dataset_id"] == (
+            "raw-measurements"
+        )
+        assert invalid_measurement_slice.status_code == 409
         assert committed.status_code == 200
         assert committed.json()["sequence"] == 0
         committed_transition = ExecutionTransition.model_validate(committed.json())

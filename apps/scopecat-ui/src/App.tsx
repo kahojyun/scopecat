@@ -76,6 +76,7 @@ export default function App() {
     const refreshAfterConnection = () => {
       invalidateCanonicalQueries();
       void queryClient.resetQueries({ queryKey: ["measurements"] });
+      void queryClient.resetQueries({ queryKey: ["measurement-slice"] });
     };
     const refresh = (event: Event) => {
       const measurementRunId = measurementEventRunId(event);
@@ -92,6 +93,9 @@ export default function App() {
           void queryClient.resetQueries({
             queryKey: ["measurements", runId],
             exact: true,
+          });
+          void queryClient.resetQueries({
+            queryKey: ["measurement-slice", runId],
           });
         }
       }, 100);
@@ -375,7 +379,11 @@ function measurementEventRunId(event: Event): string | undefined {
     const payload: unknown = JSON.parse(event.data);
     if (typeof payload !== "object" || payload === null) return undefined;
     const source = payload as Record<string, unknown>;
-    if (source.kind !== "measurements_appended" && source.kind !== "measurements_sealed") {
+    if (
+      source.kind !== "measurement_dataset_initialized" &&
+      source.kind !== "measurements_appended" &&
+      source.kind !== "measurements_sealed"
+    ) {
       return undefined;
     }
     return typeof source.run_id === "string" ? source.run_id : undefined;

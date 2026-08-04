@@ -72,6 +72,7 @@ export type InstrumentView = GetResponse<"/api/v1/instruments/{instrument_id}">;
 export type ComplexComponents = components["schemas"]["ComplexComponents"];
 export type MeasurementDatasetSchema = components["schemas"]["MeasurementDatasetSchema-Output"];
 export type MeasurementRecord = components["schemas"]["MeasurementRecord-Output"];
+export type MeasurementSlice = components["schemas"]["MeasurementSlice"];
 export type MeasurementValue = components["schemas"]["MeasurementValue-Output"];
 export type ActiveConfig = GetResponse<"/api/v1/config-registry/active">;
 export type InstrumentList = GetResponse<"/api/v1/instruments">;

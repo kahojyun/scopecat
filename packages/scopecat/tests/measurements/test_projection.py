@@ -102,8 +102,14 @@ def test_projection_schema_persists_ordered_product_grid_axes() -> None:
     assert schema is not None
     assert schema.point_domain == MeasurementProductGridPointDomain(
         axes=[
-            MeasurementPointDomainAxis(id="x", size=3),
-            MeasurementPointDomainAxis(id="opaque", size=1),
+            MeasurementPointDomainAxis(
+                id="x",
+                size=3,
+                values=[
+                    MeasurementScalar.create(value=value) for value in (0.0, 1.0, 2.0)
+                ],
+            ),
+            MeasurementPointDomainAxis(id="opaque", size=1, values=[None]),
         ]
     )
     assert schema.metadata == {"experiment_id": "test.bound-program"}
@@ -398,6 +404,13 @@ def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> No
     assert [record.coordinates for record in projected.records] == [
         {"x": MeasurementScalar.create(dtype="float64", value=4.0)},
         {"x": MeasurementScalar.create(dtype="float64", value=4.0)},
+    ]
+    schema = projected.schema
+    assert schema is not None
+    assert isinstance(schema.point_domain, MeasurementProductGridPointDomain)
+    assert schema.point_domain.axes[0].values == [
+        MeasurementScalar.create(dtype="float64", value=4.0),
+        MeasurementScalar.create(dtype="float64", value=4.0),
     ]
     assert (
         scenario.bound_points.point_domain.points[0].logical_id

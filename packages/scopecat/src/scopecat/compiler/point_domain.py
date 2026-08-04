@@ -152,6 +152,7 @@ class MaterializedPointDomain:
     points: tuple[MaterializedPoint, ...]
     layout: PointDomainLayout = "product_grid"
     axis_sizes: tuple[tuple[str, int], ...] = ()
+    axis_values: tuple[tuple[str, tuple[CellValue, ...]], ...] = ()
 
 
 def verify_point_domain(
@@ -195,9 +196,17 @@ def materialize_point_domain(
 ) -> MaterializedPointDomain:
     """Materialize the exact domain and assign canonical ordinal identities."""
 
+    factor_values = tuple(
+        _axis_values(
+            axis,
+            params=params,
+            path=("axes", index),
+        )
+        for index, axis in enumerate(verified.axes)
+    )
     rows = _materialize_axes(
         verified.axes,
-        params=params,
+        factor_values=factor_values,
         layout=verified.layout,
     )
     normalized_rows: Sequence[Mapping[str, object]] = rows
@@ -215,34 +224,89 @@ def materialize_point_domain(
         )
         for ordinal, row in enumerate(typed_rows)
     )
+    axis_values = (
+        _materialized_product_axis_values(
+            verified.axes,
+            verified.axis_sizes,
+            factor_values,
+            typed_rows,
+        )
+        if verified.layout == "product_grid"
+        else ()
+    )
     return MaterializedPointDomain(
         verified.id,
         points,
         layout=verified.layout,
         axis_sizes=verified.axis_sizes,
+        axis_values=axis_values,
     )
 
 
 def _materialize_axes(
     axes: CompilerPointAxes,
     *,
-    params: ParameterRelationData,
+    factor_values: Sequence[Sequence[CellValue]],
     layout: PointDomainLayout,
 ) -> list[Row]:
     factor_rows = tuple(
-        [
-            {axis.id: value}
-            for value in _axis_values(
-                axis,
-                params=params,
-                path=("axes", index),
-            )
-        ]
-        for index, axis in enumerate(axes)
+        [{axis.id: value} for value in values]
+        for axis, values in zip(axes, factor_values, strict=True)
     )
     if layout == "point_cloud":
         return [_merge_rows(group) for group in zip(*factor_rows, strict=True)]
     return [_merge_rows(group) for group in product(*factor_rows)]
+
+
+def _coerce_axis_value(
+    axis: PointAxis[ScalarExpr],
+    value: CellValue,
+    *,
+    index: int,
+) -> CellValue:
+    return cast(
+        "CellValue",
+        coerce_literal(
+            axis.value_type,
+            value,
+            path=("axes", axis.id, "values", index),
+        ),
+    )
+
+
+def _materialized_product_axis_values(
+    axes: CompilerPointAxes,
+    axis_sizes: tuple[tuple[str, int], ...],
+    factor_values: Sequence[Sequence[CellValue]],
+    typed_rows: Sequence[Row],
+) -> tuple[tuple[str, tuple[CellValue, ...]], ...]:
+    if typed_rows:
+        selected: list[tuple[str, tuple[CellValue, ...]]] = []
+        sizes = tuple(size for _axis_id, size in axis_sizes)
+        for axis_index, (axis_id, size) in enumerate(axis_sizes):
+            stride = 1
+            for following_size in sizes[axis_index + 1 :]:
+                stride *= following_size
+            selected.append(
+                (
+                    axis_id,
+                    tuple(
+                        typed_rows[value_index * stride][axis_id]
+                        for value_index in range(size)
+                    ),
+                )
+            )
+        return tuple(selected)
+    return tuple(
+        (
+            axis.id,
+            tuple(
+                _coerce_axis_value(axis, value, index=value_index)
+                for value_index, value in enumerate(values)
+            ),
+        )
+        for axis, values in zip(axes, factor_values, strict=True)
+    )
 
 
 def _axis_values(

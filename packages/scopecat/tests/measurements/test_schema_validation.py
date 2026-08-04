@@ -124,7 +124,16 @@ def test_measurement_dataset_schema_discriminates_point_domain_wire_shapes() -> 
             **common,
             "point_domain": {
                 "kind": "product_grid",
-                "axes": [{"id": "x", "size": 2}],
+                "axes": [
+                    {
+                        "id": "x",
+                        "size": 2,
+                        "values": [
+                            {"kind": "scalar", "dtype": "int64", "value": 1},
+                            {"kind": "scalar", "dtype": "int64", "value": 2},
+                        ],
+                    }
+                ],
             },
         }
     )

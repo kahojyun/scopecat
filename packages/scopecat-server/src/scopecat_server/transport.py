@@ -25,6 +25,8 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementPage,
+    MeasurementSlice,
+    MeasurementSliceQuery,
     ParameterProposalListView,
     RunAnalysisListView,
     RunAnalysisView,
@@ -480,8 +482,21 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         limit: Annotated[int, Query(ge=1, le=MAX_MEASUREMENT_PAGE_SIZE)] = 100,
         offset: Annotated[int, Query(ge=0)] = 0,
+        include_schema: bool = True,
     ) -> MeasurementPage:
-        return application.runs.measurements(run_id, limit=limit, offset=offset)
+        return application.runs.measurements(
+            run_id,
+            limit=limit,
+            offset=offset,
+            include_schema=include_schema,
+        )
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/query")
+    def query_measurements(
+        run_id: str,
+        query: MeasurementSliceQuery,
+    ) -> MeasurementSlice:
+        return application.runs.measurement_slice(run_id, query)
 
     @app.get(f"{_API_PREFIX}/events")
     def list_events(

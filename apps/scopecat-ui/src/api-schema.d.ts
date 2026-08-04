@@ -532,6 +532,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/measurements/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Query Measurements */
+        post: operations["query_measurements_api_v1_runs__run_id__measurements_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/parameter-proposals": {
         parameters: {
             query?: never;
@@ -1914,12 +1931,12 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v7
+             * @default scopecat.measurement_dataset_schema.v8
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v7";
+            format_version: "scopecat.measurement_dataset_schema.v8";
             metadata?: components["schemas"]["JsonMetadata-Output"];
-            point_domain: components["schemas"]["MeasurementPointDomain"];
+            point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
             /** Primary Observables */
@@ -1975,16 +1992,18 @@ export interface components {
              */
             kind: "point_cloud";
         };
-        MeasurementPointDomain: components["schemas"]["MeasurementProductGridPointDomain"] | components["schemas"]["MeasurementPointCloudPointDomain"];
+        "MeasurementPointDomain-Output": components["schemas"]["MeasurementProductGridPointDomain-Output"] | components["schemas"]["MeasurementPointCloudPointDomain"];
         /**
          * MeasurementPointDomainAxis
          * @description One ordered independent axis in a product-grid point domain.
          */
-        MeasurementPointDomainAxis: {
+        "MeasurementPointDomainAxis-Output": {
             /** Id */
             id: string;
             /** Size */
             size: number;
+            /** Values */
+            values: (components["schemas"]["MeasurementScalar-Output"] | null)[];
         };
         /**
          * MeasurementPointDomainColumn
@@ -1998,9 +2017,9 @@ export interface components {
          * MeasurementProductGridPointDomain
          * @description A point domain formed from the ordered product of independent axes.
          */
-        MeasurementProductGridPointDomain: {
+        "MeasurementProductGridPointDomain-Output": {
             /** Axes */
-            axes: components["schemas"]["MeasurementPointDomainAxis"][];
+            axes: components["schemas"]["MeasurementPointDomainAxis-Output"][];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2048,6 +2067,47 @@ export interface components {
             value: components["schemas"]["MeasurementScalarData"];
         };
         MeasurementScalarData: boolean | number | string | components["schemas"]["ComplexComponents"];
+        /**
+         * MeasurementSlice
+         * @description Records for one semantic product-grid slice.
+         */
+        MeasurementSlice: {
+            dataset_schema?: components["schemas"]["MeasurementDatasetSchema-Output"] | null;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["MeasurementRecord-Output"][];
+            /** Selected Point Count */
+            selected_point_count: number;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /**
+         * MeasurementSliceQuery
+         * @description One bounded product-grid slice selected by authored axis indices.
+         */
+        MeasurementSliceQuery: {
+            /** Fixed Axis Indices */
+            fixed_axis_indices?: {
+                [key: string]: number;
+            };
+            /**
+             * Include Schema
+             * @default false
+             */
+            include_schema: boolean;
+            /**
+             * Limit
+             * @default 4096
+             */
+            limit: number;
+            /** Variable Ids */
+            variable_ids?: string[] | null;
+        };
         /**
          * MeasurementUnavailable
          * @description A complete scalar or array result with no usable value.
@@ -3865,6 +3925,7 @@ export interface operations {
     measurements_api_v1_runs__run_id__measurements_get: {
         parameters: {
             query?: {
+                include_schema?: boolean;
                 limit?: number;
                 offset?: number;
             };
@@ -3883,6 +3944,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeasurementPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_measurements_api_v1_runs__run_id__measurements_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeasurementSliceQuery"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementSlice"];
                 };
             };
             /** @description Validation Error */

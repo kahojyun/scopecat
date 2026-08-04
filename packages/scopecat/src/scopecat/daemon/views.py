@@ -19,6 +19,7 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.kernel.problems import Problem
+from scopecat.measurements.datasets import MAX_MEASUREMENT_SLICE_SIZE
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
@@ -309,6 +310,34 @@ class MeasurementPage(_ViewModel):
     dataset_schema: MeasurementDatasetSchema | None = None
 
 
+class MeasurementSliceQuery(_ViewModel):
+    """One bounded product-grid slice selected by authored axis indices."""
+
+    fixed_axis_indices: dict[str, Annotated[int, Field(ge=0)]] = Field(
+        default_factory=dict
+    )
+    limit: Annotated[int, Field(ge=1, le=MAX_MEASUREMENT_SLICE_SIZE)] = (
+        MAX_MEASUREMENT_SLICE_SIZE
+    )
+    variable_ids: list[Annotated[str, Field(min_length=1)]] | None = None
+    include_schema: bool = False
+
+    @model_validator(mode="after")
+    def validate_axis_ids(self) -> MeasurementSliceQuery:
+        if any(not axis_id for axis_id in self.fixed_axis_indices):
+            raise ValueError("measurement slice axis ids must be non-empty")
+        return self
+
+
+class MeasurementSlice(_ViewModel):
+    """Records for one semantic product-grid slice."""
+
+    items: tuple[MeasurementRecord, ...] = ()
+    dataset_schema: MeasurementDatasetSchema | None = None
+    selected_point_count: Annotated[int, Field(ge=0)]
+    truncated: bool = False
+
+
 def _require_entry_role(
     entry: RunContentEntry,
     role: Literal["artifact", "dataset", "record"],
@@ -335,6 +364,8 @@ __all__ = [
     "InstrumentListView",
     "InstrumentView",
     "MeasurementPage",
+    "MeasurementSlice",
+    "MeasurementSliceQuery",
     "ParameterProposalListView",
     "ParameterProposalView",
     "RunAdmissionView",

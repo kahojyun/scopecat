@@ -30,6 +30,8 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     MeasurementPage,
+    MeasurementSlice,
+    MeasurementSliceQuery,
     ParameterProposalListView,
     ParameterProposalView,
     RunAdmissionView,
@@ -58,11 +60,18 @@ from scopecat.kernel.errors import (
     DataIntegrityError,
     NotFound,
 )
-from scopecat.measurements.datasets import RAW_MEASUREMENTS_DATASET_ID
+from scopecat.measurements.datasets import (
+    RAW_MEASUREMENTS_DATASET_ID,
+    product_grid_slice_indices,
+)
 from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
+from scopecat.records.measurement import (
+    MeasurementProductGridPointDomain,
+    MeasurementRecord,
+)
 from scopecat.runs.access import list_records
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
@@ -481,13 +490,18 @@ class RunService:
         *,
         limit: int,
         offset: int,
+        include_schema: bool = True,
     ) -> MeasurementPage:
         with self._config_errors():
             manifest = self._runs.read_manifest(run_id)
             items, next_offset, live_schema = SQLiteMeasurementDatasetRepository(
                 self._runs,
                 run_id=run_id,
-            ).measurement_page(limit=limit, offset=offset)
+            ).measurement_page(
+                limit=limit,
+                offset=offset,
+                include_schema=include_schema,
+            )
         dataset = next(
             (
                 entry
@@ -498,13 +512,56 @@ class RunService:
         )
         terminal_schema = (
             None
-            if dataset is None or dataset.data_schema is None
+            if not include_schema or dataset is None or dataset.data_schema is None
             else MeasurementDatasetSchema.model_validate(dataset.data_schema)
         )
         return MeasurementPage(
             items=items,
             next_offset=next_offset,
             dataset_schema=terminal_schema or live_schema,
+        )
+
+    def measurement_slice(
+        self,
+        run_id: str,
+        query: MeasurementSliceQuery,
+    ) -> MeasurementSlice:
+        """Read one bounded product-grid slice by authored axis indices."""
+
+        with self._config_errors():
+            self._runs.read_manifest(run_id)
+            repository = SQLiteMeasurementDatasetRepository(self._runs, run_id=run_id)
+            schema = repository.measurement_schema()
+        if schema is None:
+            raise BackendConflict("measurement dataset has no registered schema")
+        domain = schema.point_domain
+        if not isinstance(domain, MeasurementProductGridPointDomain):
+            raise BackendConflict("measurement slices require a product-grid domain")
+        try:
+            point_indices, selected_point_count = product_grid_slice_indices(
+                domain,
+                query.fixed_axis_indices,
+                limit=query.limit,
+            )
+        except ValueError as error:
+            raise BackendConflict(str(error)) from error
+        with self._config_errors():
+            records = repository.measurement_records_at(point_indices)
+        response_schema = schema
+        if query.variable_ids is not None:
+            try:
+                records, response_schema = _select_measurement_variables(
+                    records,
+                    response_schema,
+                    query.variable_ids,
+                )
+            except ValueError as error:
+                raise BackendConflict(str(error)) from error
+        return MeasurementSlice(
+            items=records,
+            dataset_schema=response_schema if query.include_schema else None,
+            selected_point_count=selected_point_count,
+            truncated=selected_point_count > len(point_indices),
         )
 
     @contextmanager
@@ -530,3 +587,56 @@ class RunService:
             run_id=run_id,
             latest=latest,
         )
+
+
+def _select_measurement_variables(
+    records: tuple[MeasurementRecord, ...],
+    schema: MeasurementDatasetSchema,
+    variable_ids: list[str],
+) -> tuple[tuple[MeasurementRecord, ...], MeasurementDatasetSchema]:
+    selected = set(variable_ids)
+    available = {variable.id for variable in schema.variables}
+    unknown = selected - available
+    if unknown:
+        raise ValueError(f"unknown measurement variables: {', '.join(sorted(unknown))}")
+    return (
+        tuple(
+            record.model_copy(
+                update={
+                    "coordinates": {
+                        variable_id: value
+                        for variable_id, value in record.coordinates.items()
+                        if variable_id in selected
+                    },
+                    "observables": {
+                        variable_id: value
+                        for variable_id, value in record.observables.items()
+                        if variable_id in selected
+                    },
+                    "acquisition_evidence": {
+                        variable_id: value
+                        for variable_id, value in record.acquisition_evidence.items()
+                        if variable_id in selected
+                    },
+                }
+            )
+            for record in records
+        ),
+        schema.model_copy(
+            update={
+                "variables": [
+                    variable for variable in schema.variables if variable.id in selected
+                ],
+                "primary_coordinates": [
+                    variable_id
+                    for variable_id in schema.primary_coordinates
+                    if variable_id in selected
+                ],
+                "primary_observables": [
+                    variable_id
+                    for variable_id in schema.primary_observables
+                    if variable_id in selected
+                ],
+            }
+        ),
+    )

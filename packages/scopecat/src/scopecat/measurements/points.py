@@ -39,6 +39,7 @@ class RunPointContract:
     coordinate_columns: tuple[TableColumn, ...]
     domain_layout: PointDomainLayout = "product_grid"
     domain_axis_sizes: tuple[tuple[str, int], ...] = ()
+    domain_axis_values: tuple[tuple[str, tuple[CellValue, ...]], ...] = ()
 
     @property
     def coordinate_ids(self) -> tuple[str, ...]:

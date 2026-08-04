@@ -473,7 +473,7 @@ describe("config provenance navigation", () => {
     });
 
     act(() => {
-      emitProjectEvent("run-2", "measurements_appended");
+      emitProjectEvent("run-2", "measurement_dataset_initialized");
     });
     await waitFor(() =>
       expect(queryClient.getQueryData(["measurements", "run-2"])).toBeUndefined(),

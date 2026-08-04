@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import {
   getMeasurementPreview,
+  getMeasurementSlice,
   getOlderRuns,
   getRun,
   getRunAnalyses,
@@ -23,6 +24,7 @@ import type { MeasurementPreview, ProjectHealth, ProjectRun, ProjectRunPage } fr
 import { useConfirmationDialog, type ConfirmationRequest } from "../../ui/ConfirmationDialog";
 import { classes, eyebrow, secondaryButton } from "../../ui/styles";
 import { RunDetail } from "./RunDetail";
+import { measurementGridQuery } from "./measurement-visualization";
 
 type FilterKey = "all" | "active" | "attention" | "complete";
 interface OlderRunHistory {
@@ -61,6 +63,10 @@ export function RunsWorkspace({
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [olderRunHistory, setOlderRunHistory] = useState<OlderRunHistory>();
+  const [requestedMeasurementSlice, setRequestedMeasurementSlice] = useState<{
+    runId: string;
+    fixedAxisIndices: Record<string, number>;
+  }>();
   const latestRunHeadCursor = useRef<number | undefined>(undefined);
   const runsQuery = useQuery({
     queryKey: ["runs"],
@@ -133,6 +139,35 @@ export function RunsWorkspace({
     () => mergeMeasurementPages(measurementsQuery.data?.pages ?? []),
     [measurementsQuery.data?.pages],
   );
+  const gridQuery = useMemo(
+    () => measurementGridQuery(measurements?.schema),
+    [measurements?.schema],
+  );
+  const measurementFixedAxisIndices = useMemo(
+    () =>
+      Object.fromEntries(
+        (gridQuery?.fixedAxes ?? []).map((axis) => {
+          const requested =
+            requestedMeasurementSlice?.runId === selectedRunId
+              ? requestedMeasurementSlice?.fixedAxisIndices[axis.id]
+              : undefined;
+          return [axis.id, requested !== undefined && requested < axis.size ? requested : 0];
+        }),
+      ),
+    [gridQuery, requestedMeasurementSlice, selectedRunId],
+  );
+  const measurementSliceKey = JSON.stringify(measurementFixedAxisIndices);
+  const measurementSliceQuery = useQuery({
+    queryKey: ["measurement-slice", selectedRunId, measurementSliceKey],
+    queryFn: ({ signal }) =>
+      getMeasurementSlice(
+        selectedRunId!,
+        measurementFixedAxisIndices,
+        gridQuery!.variableIds,
+        signal,
+      ),
+    enabled: selectedRunId !== undefined && gridQuery !== undefined,
+  });
   const filteredRuns = useMemo(() => filterRuns(runs, filter, search), [runs, filter, search]);
 
   useEffect(() => {
@@ -352,6 +387,19 @@ export function RunsWorkspace({
               measurementsPending={measurementsQuery.isPending}
               measurementsHasMore={measurementsQuery.hasNextPage}
               measurementsLoadingMore={measurementsQuery.isFetchingNextPage}
+              measurementSlice={measurementSliceQuery.data}
+              measurementSliceError={measurementSliceQuery.error}
+              measurementSlicePending={measurementSliceQuery.isFetching}
+              measurementFixedAxisIndices={measurementFixedAxisIndices}
+              onMeasurementFixedAxisIndexChange={(axisId, index) => {
+                setRequestedMeasurementSlice({
+                  runId: selectedRunId!,
+                  fixedAxisIndices: {
+                    ...measurementFixedAxisIndices,
+                    [axisId]: index,
+                  },
+                });
+              }}
               onLoadMoreMeasurements={() => {
                 void measurementsQuery.fetchNextPage();
               }}

@@ -9,7 +9,12 @@ import type {
   MeasurementValue,
 } from "../../api-contract";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
-import { measurementTable, planMeasurementCharts } from "./measurement-visualization";
+import {
+  measurementGridQuery,
+  measurementGridSliceRecords,
+  measurementTable,
+  planMeasurementCharts,
+} from "./measurement-visualization";
 
 afterEach(cleanup);
 
@@ -106,6 +111,46 @@ describe("measurement visualization", () => {
     expect(charts[3]?.series[0]?.points.map((point) => point.y)).toEqual([0, 0]);
   });
 
+  it("bounds automatic trace series and plotted samples while preserving endpoints", () => {
+    const samples = Array.from({ length: 1_000 }, (_value, index) => index);
+    const items = Array.from({ length: 40 }, (_value, point) =>
+      record(
+        point,
+        { bias: scalar(point, "V"), frequency: array(samples, "GHz") },
+        { response: array(samples, "ratio") },
+      ),
+    );
+
+    const [chart] = planMeasurementCharts(items, traceSchema());
+
+    expect(chart?.series).toHaveLength(32);
+    expect(
+      chart?.series.reduce((total, series) => total + series.points.length, 0),
+    ).toBeLessThanOrEqual(4_096);
+    expect(chart?.series[0]?.points.at(0)).toEqual({ x: 0, y: 0 });
+    expect(chart?.series[0]?.points.at(-1)).toEqual({ x: 999, y: 999 });
+    expect(chart?.note).toContain("at most 32 point traces");
+    expect(chart?.note).toContain("at most 4,096 plotted points");
+  });
+
+  it("decides trace line safety before downsampling can hide a reversal", () => {
+    const samples = Array.from({ length: 5_000 }, (_value, index) => index);
+    const frequency = [...samples];
+    frequency[3] = -1;
+    const items = [
+      record(
+        0,
+        { bias: scalar(0, "V"), frequency: array(frequency, "GHz") },
+        { response: array(samples, "ratio") },
+      ),
+    ];
+
+    const [chart] = planMeasurementCharts(items, traceSchema());
+
+    expect(chart).toMatchObject({ kind: "scatter" });
+    expect(chart?.series[0]?.points).toHaveLength(4_096);
+  });
+
   it("always uses scatter for a one-dimensional point cloud", () => {
     const schema: MeasurementDatasetSchema = {
       ...scalarSchema(),
@@ -153,6 +198,10 @@ describe("measurement visualization", () => {
     render(
       <MeasurementDataPreview
         preview={{ schema, items }}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{}}
+        onFixedAxisIndexChange={vi.fn()}
         hasMore={false}
         loadingMore={false}
         onLoadMore={vi.fn()}
@@ -192,6 +241,11 @@ describe("measurement visualization", () => {
     render(
       <MeasurementDataPreview
         preview={{ schema, items }}
+        slice={slicePreview(schema, items)}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{}}
+        onFixedAxisIndexChange={vi.fn()}
         hasMore={false}
         loadingMore={false}
         onLoadMore={vi.fn()}
@@ -284,36 +338,248 @@ describe("measurement visualization", () => {
     render(
       <MeasurementDataPreview
         preview={{ schema, items }}
+        slice={slicePreview(schema, slicedGridRecords([0]))}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 0 }}
+        onFixedAxisIndexChange={vi.fn()}
         hasMore={false}
         loadingMore={false}
         onLoadMore={vi.fn()}
       />,
     );
-    const selector = screen.getByRole("combobox", { name: "Measurement chart" });
     expect(
       screen.getByRole("option", {
         name: "Temperature heatmap — x: Row [mm] · y: Column [mm] · color: Temperature [K] · fixed: Bias=0 V",
       }),
-    ).toHaveValue("heatmap:temperature:row:column:value:fixed:bias=0");
-    expect(
-      screen.getByRole("option", {
-        name: "Temperature heatmap — x: Row [mm] · y: Column [mm] · color: Temperature [K] · fixed: Bias=1 V",
-      }),
-    ).toHaveValue("heatmap:temperature:row:column:value:fixed:bias=1");
+    ).toHaveValue("heatmap:temperature:row:column:value:fixed:bias=0%40index%3A0");
     expect(
       screen.getByRole("img", {
         name: "Temperature heatmap: Column [mm] by Row [mm], colored by Temperature [K], fixed at Bias=0 V",
       }),
     ).toBeVisible();
+  });
 
-    fireEvent.change(selector, {
-      target: { value: "heatmap:temperature:row:column:value:fixed:bias=1" },
+  it("queries one high-dimensional grid slice using canonical axis values", () => {
+    const schema = threeDimensionalGridSchema();
+    const items = slicedGridRecords();
+    const selected = slicedGridRecords([0]);
+    const onFixedAxisIndexChange = vi.fn();
+
+    expect(measurementGridQuery(schema)).toMatchObject({
+      xAxis: { id: "row" },
+      yAxis: { id: "column" },
+      fixedAxes: [
+        {
+          id: "bias",
+          size: 2,
+          values: [scalar(0, "V"), scalar(1, "V")],
+        },
+      ],
     });
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items }}
+        slice={slicePreview(schema, selected)}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 0 }}
+        onFixedAxisIndexChange={onFixedAxisIndexChange}
+        hasMore
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    const selector = screen.getByRole("combobox", { name: "Bias slice" });
+    expect(selector).toHaveValue("0");
+    expect(screen.getByRole("option", { name: "0 V" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "1 V" })).toBeVisible();
+    expect(screen.getByText("6 of 6 slice points durable")).toBeVisible();
+    expect(screen.getAllByTestId("heatmap-cell")).toHaveLength(6);
+
+    fireEvent.change(selector, { target: { value: "1" } });
+    expect(onFixedAxisIndexChange).toHaveBeenCalledWith("bias", 1);
+  });
+
+  it("selects opaque fixed axes by authored index", () => {
+    const schema = opaqueSlicedGridSchema();
+    const items = gridRecords((point) => scalar(point + 10, "K"));
+
+    expect(measurementGridQuery(schema)).toMatchObject({
+      fixedAxes: [{ id: "opaque", values: [null, null] }],
+      variableIds: ["row", "column", "temperature"],
+    });
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items }}
+        slice={slicePreview(schema, items)}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ opaque: 1 }}
+        onFixedAxisIndexChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("option", { name: "Index 1" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "Index 2" })).toBeVisible();
     expect(
       screen.getByRole("img", {
-        name: "Temperature heatmap: Column [mm] by Row [mm], colored by Temperature [K], fixed at Bias=1 V",
+        name: "Temperature heatmap: Column [mm] by Row [mm], colored by Temperature [K], fixed at Opaque=Index 2",
       }),
     ).toBeVisible();
+  });
+
+  it("keeps bounded trace previews when a grid query projects heatmap variables", () => {
+    const schema = mixedGridSchema();
+    const previewItems = mixedGridRecords();
+    const selectedItems = mixedGridRecords([0]).map((item) => ({
+      ...item,
+      coordinates: { column: item.coordinates.column!, row: item.coordinates.row! },
+      observables: { temperature: item.observables.temperature! },
+    }));
+    const tracePreviewItems = measurementGridSliceRecords(previewItems, schema, { bias: 0 });
+    expect(tracePreviewItems.map((item) => item.point_index)).toEqual([0, 2, 4, 6, 8, 10]);
+    expect(
+      planMeasurementCharts(tracePreviewItems, schema).find((chart) =>
+        chart.id.startsWith("trace:spectrum"),
+      )?.series,
+    ).toHaveLength(6);
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: previewItems }}
+        slice={slicePreview(schema, selectedItems)}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 0 }}
+        onFixedAxisIndexChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("option", {
+        name: /Temperature heatmap — x: Row \[mm\] · y: Column \[mm\]/,
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("option", {
+        name: "Spectrum — x: Frequency [GHz] · y: Spectrum [ratio]",
+      }),
+    ).toBeVisible();
+  });
+
+  it("disambiguates duplicate fixed-axis values with authored indices", () => {
+    const schema = duplicateFixedGridSchema();
+    const items = slicedGridRecords([0]).map((item) => ({
+      ...item,
+      logical_point_id: `point-${item.point_index + 1}`,
+      point_index: item.point_index + 1,
+    }));
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items }}
+        slice={slicePreview(schema, items)}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 1 }}
+        onFixedAxisIndexChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("option", { name: "0 V · Index 1" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "0 V · Index 2" })).toBeVisible();
+    expect(
+      screen.getByRole("img", {
+        name: "Temperature heatmap: Column [mm] by Row [mm], colored by Temperature [K], fixed at Bias=0 (Index 2) V",
+      }),
+    ).toBeVisible();
+  });
+
+  it("uses an index input instead of rendering thousands of slice options", () => {
+    const schema = largeFixedGridSchema();
+    const items = slicedGridRecords([0]);
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items }}
+        slice={slicePreview(schema, items)}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 0 }}
+        onFixedAxisIndexChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("spinbutton", { name: "Bias slice index" })).toHaveValue(1);
+    expect(screen.queryByRole("combobox", { name: "Bias slice" })).not.toBeInTheDocument();
+    expect(screen.getByText("0 V · 300 values")).toBeVisible();
+  });
+
+  it("explains that a live selected slice is not complete yet", () => {
+    const schema = threeDimensionalGridSchema();
+    const selected = slicedGridRecords([0]);
+    const partial = selected.slice(0, 5).map((item) => ({
+      ...item,
+      observables: {},
+    }));
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: selected }}
+        slice={{
+          ...slicePreview(schema, partial),
+          selectedPointCount: 6,
+        }}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 0 }}
+        onFixedAxisIndexChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "The selected slice is incomplete: 5 of 6 points are durable. The plot will appear when the grid is complete.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("reports selected-slice read failures instead of blaming variable shapes", () => {
+    const schema = threeDimensionalGridSchema();
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: slicedGridRecords([0]) }}
+        sliceError={new Error("offline")}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 0 }}
+        onFixedAxisIndexChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("The selected product-grid slice could not be read.")).toBeVisible();
   });
 
   it("keeps complete high-dimensional slices when another slice is missing or duplicated", () => {
@@ -372,6 +638,11 @@ describe("measurement visualization", () => {
     render(
       <MeasurementDataPreview
         preview={{ schema, items }}
+        slice={slicePreview(schema, items.slice(0, 6))}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ device: 0, enabled: 0 }}
+        onFixedAxisIndexChange={vi.fn()}
         hasMore={false}
         loadingMore={false}
         onLoadMore={vi.fn()}
@@ -381,7 +652,9 @@ describe("measurement visualization", () => {
       screen.getByRole("option", {
         name: 'Temperature heatmap — x: Row [mm] · y: Column [mm] · color: Temperature [K] · fixed: Device="q1", Enabled=true',
       }),
-    ).toHaveValue("heatmap:temperature:row:column:value:fixed:device=%22q1%22&enabled=true");
+    ).toHaveValue(
+      "heatmap:temperature:row:column:value:fixed:device=%22q1%22%40index%3A0&enabled=true%40index%3A0",
+    );
   });
 
   it("disables the entire automatic heatmap group above the fixed-slice limit", () => {
@@ -461,6 +734,10 @@ describe("measurement visualization", () => {
             record(1, { bias: scalar(1, "V") }, { signal: scalar(2, "ratio") }),
           ],
         }}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{}}
+        onFixedAxisIndexChange={vi.fn()}
         hasMore={false}
         loadingMore={false}
         onLoadMore={vi.fn()}
@@ -502,6 +779,10 @@ describe("measurement visualization", () => {
     render(
       <MeasurementDataPreview
         preview={{ schema, items }}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{}}
+        onFixedAxisIndexChange={vi.fn()}
         hasMore={false}
         loadingMore={false}
         onLoadMore={vi.fn()}
@@ -522,7 +803,7 @@ describe("measurement visualization", () => {
 
 function baseSchema(): MeasurementDatasetSchema {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v7",
+    format_version: "scopecat.measurement_dataset_schema.v8",
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4",
     point_domain: { kind: "product_grid", axes: [] },
@@ -534,7 +815,10 @@ function baseSchema(): MeasurementDatasetSchema {
 function scalarSchema(): MeasurementDatasetSchema {
   return {
     ...baseSchema(),
-    point_domain: { kind: "product_grid", axes: [{ id: "bias", size: 3 }] },
+    point_domain: {
+      kind: "product_grid",
+      axes: [gridAxis("bias", [scalar(0, "V"), scalar(0.1, "V"), scalar(0.2, "V")])],
+    },
     variables: [
       {
         id: "bias",
@@ -565,7 +849,10 @@ function traceSchema(): MeasurementDatasetSchema {
       { id: "point", kind: "point", size: 2 },
       { id: "sample", kind: "sample", size: 3 },
     ],
-    point_domain: { kind: "product_grid", axes: [{ id: "bias", size: 2 }] },
+    point_domain: {
+      kind: "product_grid",
+      axes: [gridAxis("bias", [scalar(0, "V"), scalar(1, "V")])],
+    },
     variables: [
       {
         id: "bias",
@@ -646,8 +933,8 @@ function twoDimensionalGridSchema(
     point_domain: {
       kind: "product_grid",
       axes: [
-        { id: "row", size: 2 },
-        { id: "column", size: 3 },
+        gridAxis("row", [scalar(10, "mm"), scalar(20, "mm")]),
+        gridAxis("column", [scalar(1, "mm"), scalar(2, "mm"), scalar(3, "mm")]),
       ],
     },
     variables: [
@@ -689,9 +976,9 @@ function threeDimensionalGridSchema(): MeasurementDatasetSchema {
     point_domain: {
       kind: "product_grid",
       axes: [
-        { id: "row", size: 2 },
-        { id: "column", size: 3 },
-        { id: "bias", size: 2 },
+        gridAxis("row", [scalar(10, "mm"), scalar(20, "mm")]),
+        gridAxis("column", [scalar(1, "mm"), scalar(2, "mm"), scalar(3, "mm")]),
+        gridAxis("bias", [scalar(0, "V"), scalar(1, "V")]),
       ],
     },
     variables: [
@@ -709,6 +996,90 @@ function threeDimensionalGridSchema(): MeasurementDatasetSchema {
   };
 }
 
+function opaqueSlicedGridSchema(): MeasurementDatasetSchema {
+  const schema = twoDimensionalGridSchema();
+  return {
+    ...schema,
+    dimensions: [{ id: "point", kind: "point", size: 12 }],
+    point_domain: {
+      kind: "product_grid",
+      axes: [
+        ...(schema.point_domain.kind === "product_grid" ? schema.point_domain.axes : []),
+        gridAxis("opaque", [null, null]),
+      ],
+    },
+  };
+}
+
+function duplicateFixedGridSchema(): MeasurementDatasetSchema {
+  const schema = threeDimensionalGridSchema();
+  return {
+    ...schema,
+    point_domain: {
+      kind: "product_grid",
+      axes:
+        schema.point_domain.kind === "product_grid"
+          ? schema.point_domain.axes.map((axis) =>
+              axis.id === "bias" ? gridAxis("bias", [scalar(0, "V"), scalar(0, "V")]) : axis,
+            )
+          : [],
+    },
+  };
+}
+
+function largeFixedGridSchema(): MeasurementDatasetSchema {
+  const schema = threeDimensionalGridSchema();
+  return {
+    ...schema,
+    dimensions: [{ id: "point", kind: "point", size: 1_800 }],
+    point_domain: {
+      kind: "product_grid",
+      axes:
+        schema.point_domain.kind === "product_grid"
+          ? schema.point_domain.axes.map((axis) =>
+              axis.id === "bias"
+                ? gridAxis(
+                    "bias",
+                    Array.from({ length: 300 }, (_value, index) => scalar(index, "V")),
+                  )
+                : axis,
+            )
+          : [],
+    },
+  };
+}
+
+function mixedGridSchema(): MeasurementDatasetSchema {
+  const schema = threeDimensionalGridSchema();
+  return {
+    ...schema,
+    dimensions: [...schema.dimensions, { id: "sample", kind: "sample", size: 3 }],
+    variables: [
+      ...schema.variables!,
+      {
+        id: "frequency",
+        label: "Frequency",
+        role: "coordinate",
+        dtype: "float64",
+        unit: "GHz",
+        dims: ["point", "sample"],
+        recording_group_id: "spectrum",
+      },
+      {
+        id: "spectrum",
+        label: "Spectrum",
+        role: "observable",
+        dtype: "float64",
+        unit: "ratio",
+        dims: ["point", "sample"],
+        recording_group_id: "spectrum",
+      },
+    ],
+    primary_coordinates: [...schema.primary_coordinates!, "frequency"],
+    primary_observables: [...schema.primary_observables!, "spectrum"],
+  };
+}
+
 function entitySlicedGridSchema(): MeasurementDatasetSchema {
   const schema = twoDimensionalGridSchema();
   return {
@@ -717,10 +1088,10 @@ function entitySlicedGridSchema(): MeasurementDatasetSchema {
     point_domain: {
       kind: "product_grid",
       axes: [
-        { id: "device", size: 2 },
-        { id: "enabled", size: 1 },
-        { id: "row", size: 2 },
-        { id: "column", size: 3 },
+        gridAxis("device", [stringScalar("q1"), stringScalar("q2")]),
+        gridAxis("enabled", [boolScalar(true)]),
+        gridAxis("row", [scalar(10, "mm"), scalar(20, "mm")]),
+        gridAxis("column", [scalar(1, "mm"), scalar(2, "mm"), scalar(3, "mm")]),
       ],
     },
     variables: [
@@ -772,9 +1143,12 @@ function manySliceGridSchema(): MeasurementDatasetSchema {
     point_domain: {
       kind: "product_grid",
       axes: [
-        { id: "row", size: 1 },
-        { id: "column", size: 1 },
-        { id: "bias", size: 33 },
+        gridAxis("row", [scalar(10, "mm")]),
+        gridAxis("column", [scalar(1, "mm")]),
+        gridAxis(
+          "bias",
+          Array.from({ length: 33 }, (_value, index) => scalar(index, "V")),
+        ),
       ],
     },
   };
@@ -782,9 +1156,11 @@ function manySliceGridSchema(): MeasurementDatasetSchema {
 
 function slicedGridRecords(biasValues: number[] = [0, 1]): MeasurementRecord[] {
   return biasValues.flatMap((bias, biasIndex) =>
-    [10, 20].flatMap((row) =>
+    [10, 20].flatMap((row, rowIndex) =>
       [1, 2, 3].map((column, columnIndex) => {
-        const point = biasIndex * 6 + (row === 10 ? 0 : 3) + columnIndex;
+        const cellIndex = rowIndex * 3 + columnIndex;
+        const authoredBiasIndex = bias === 0 ? 0 : bias === 1 ? 1 : biasIndex;
+        const point = cellIndex * 2 + authoredBiasIndex;
         return record(
           point,
           {
@@ -792,11 +1168,25 @@ function slicedGridRecords(biasValues: number[] = [0, 1]): MeasurementRecord[] {
             column: scalar(column, "mm"),
             row: scalar(row, "mm"),
           },
-          { temperature: scalar(bias * 100 + (point % 6) + 10, "K") },
+          { temperature: scalar(bias * 100 + cellIndex + 10, "K") },
         );
       }),
     ),
   );
+}
+
+function mixedGridRecords(biasValues: number[] = [0, 1]): MeasurementRecord[] {
+  return slicedGridRecords(biasValues).map((item) => ({
+    ...item,
+    coordinates: {
+      ...item.coordinates,
+      frequency: array([4, 5, 6], "GHz"),
+    },
+    observables: {
+      ...item.observables,
+      spectrum: array([item.point_index, item.point_index + 1, item.point_index + 2], "ratio"),
+    },
+  }));
 }
 
 function gridRecords(observable: (point: number) => MeasurementValue): MeasurementRecord[] {
@@ -827,6 +1217,19 @@ function record(
 
 function scalar(value: number, unit: string): Extract<MeasurementValue, { kind: "scalar" }> {
   return { kind: "scalar", dtype: "float64", unit, value };
+}
+
+function gridAxis(id: string, values: Array<Extract<MeasurementValue, { kind: "scalar" }> | null>) {
+  return { id, size: values.length, values };
+}
+
+function slicePreview(schema: MeasurementDatasetSchema, items: MeasurementRecord[]) {
+  return {
+    items,
+    schema,
+    selectedPointCount: items.length,
+    truncated: false,
+  };
 }
 
 function complexScalar(

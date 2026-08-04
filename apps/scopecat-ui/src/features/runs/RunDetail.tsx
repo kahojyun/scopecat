@@ -22,6 +22,7 @@ import { classes, countBadge, detailCard } from "../../ui/styles";
 import type {
   ContentEntry,
   MeasurementPreview,
+  MeasurementSlicePreview,
   ProjectEvent,
   ProjectRun,
   RunAnalysis,
@@ -39,6 +40,11 @@ export function RunDetail({
   measurementsPending,
   measurementsHasMore,
   measurementsLoadingMore,
+  measurementSlice,
+  measurementSliceError,
+  measurementSlicePending,
+  measurementFixedAxisIndices,
+  onMeasurementFixedAxisIndexChange,
   onLoadMoreMeasurements,
   analyses,
   analysesError,
@@ -57,6 +63,11 @@ export function RunDetail({
   measurementsPending: boolean;
   measurementsHasMore: boolean;
   measurementsLoadingMore: boolean;
+  measurementSlice?: MeasurementSlicePreview;
+  measurementSliceError: Error | null;
+  measurementSlicePending: boolean;
+  measurementFixedAxisIndices: Record<string, number>;
+  onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
   onLoadMoreMeasurements: () => void;
   analyses?: RunAnalysis[];
   analysesError: Error | null;
@@ -195,6 +206,11 @@ export function RunDetail({
           pending={measurementsPending}
           hasMoreMeasurements={measurementsHasMore}
           loadingMoreMeasurements={measurementsLoadingMore}
+          measurementSlice={measurementSlice}
+          measurementSliceError={measurementSliceError}
+          measurementSlicePending={measurementSlicePending}
+          measurementFixedAxisIndices={measurementFixedAxisIndices}
+          onMeasurementFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
           onLoadMoreMeasurements={onLoadMoreMeasurements}
         />
       </div>
@@ -476,6 +492,11 @@ function DataCard({
   pending,
   hasMoreMeasurements,
   loadingMoreMeasurements,
+  measurementSlice,
+  measurementSliceError,
+  measurementSlicePending,
+  measurementFixedAxisIndices,
+  onMeasurementFixedAxisIndexChange,
   onLoadMoreMeasurements,
 }: {
   run: ProjectRun;
@@ -484,6 +505,11 @@ function DataCard({
   pending: boolean;
   hasMoreMeasurements: boolean;
   loadingMoreMeasurements: boolean;
+  measurementSlice?: MeasurementSlicePreview;
+  measurementSliceError: Error | null;
+  measurementSlicePending: boolean;
+  measurementFixedAxisIndices: Record<string, number>;
+  onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
   onLoadMoreMeasurements: () => void;
 }) {
   const [selectedContentKey, setSelectedContentKey] = useState<string>();
@@ -596,6 +622,11 @@ function DataCard({
         pending={pending}
         hasMore={hasMoreMeasurements}
         loadingMore={loadingMoreMeasurements}
+        slice={measurementSlice}
+        sliceError={measurementSliceError}
+        slicePending={measurementSlicePending}
+        fixedAxisIndices={measurementFixedAxisIndices}
+        onFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
         onLoadMore={onLoadMoreMeasurements}
       />
     </article>
@@ -660,6 +691,11 @@ function RunContentPanel({
 
 function MeasurementRecords({
   preview,
+  slice,
+  sliceError,
+  slicePending,
+  fixedAxisIndices,
+  onFixedAxisIndexChange,
   error,
   pending,
   hasMore,
@@ -667,6 +703,11 @@ function MeasurementRecords({
   onLoadMore,
 }: {
   preview?: MeasurementPreview;
+  slice?: MeasurementSlicePreview;
+  sliceError: Error | null;
+  slicePending: boolean;
+  fixedAxisIndices: Record<string, number>;
+  onFixedAxisIndexChange: (axisId: string, index: number) => void;
   error: Error | null;
   pending: boolean;
   hasMore: boolean;
@@ -686,7 +727,7 @@ function MeasurementRecords({
       />
     );
   }
-  if (!preview || preview.items.length === 0) {
+  if (!preview || (preview.items.length === 0 && preview.schema === undefined)) {
     return (
       <InlineEmpty
         title="No measurement records"
@@ -697,6 +738,11 @@ function MeasurementRecords({
   return (
     <MeasurementDataPreview
       preview={preview}
+      slice={slice}
+      sliceError={sliceError}
+      slicePending={slicePending}
+      fixedAxisIndices={fixedAxisIndices}
+      onFixedAxisIndexChange={onFixedAxisIndexChange}
       hasMore={hasMore}
       loadingMore={loadingMore}
       onLoadMore={onLoadMore}

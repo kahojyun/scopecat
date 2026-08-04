@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getHealth,
   getMeasurementPreview,
+  getMeasurementSlice,
   getOlderRuns,
   getRun,
   getRunAnalyses,
@@ -419,14 +420,44 @@ describe("project daemon reads", () => {
       nextOffset: 200,
     });
     expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
-      "/api/v1/runs/run%2F1/measurements?limit=100&offset=100",
+      "/api/v1/runs/run%2F1/measurements?limit=100&offset=100&include_schema=false",
     );
+  });
+
+  it("requests one semantic product-grid slice", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL) =>
+      Promise.resolve(
+        jsonResponse({
+          items: [measurementRecord("run/1", 3)],
+          dataset_schema: measurementSchema(),
+          selected_point_count: 6,
+          truncated: false,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getMeasurementSlice("run/1", { bias: 1 }, ["x", "y", "signal"])).resolves.toEqual({
+      items: [measurementRecord("run/1", 3)],
+      schema: measurementSchema(),
+      selectedPointCount: 6,
+      truncated: false,
+    });
+    const request = fetchMock.mock.calls[0]?.[0];
+    expect(requestPath(request)).toBe("/api/v1/runs/run%2F1/measurements/query");
+    expect(request).toBeInstanceOf(Request);
+    await expect((request as Request).clone().json()).resolves.toEqual({
+      fixed_axis_indices: { bias: 1 },
+      include_schema: false,
+      limit: 4096,
+      variable_ids: ["x", "y", "signal"],
+    });
   });
 });
 
 function measurementSchema() {
   return {
-    format_version: "scopecat.measurement_dataset_schema.v7" as const,
+    format_version: "scopecat.measurement_dataset_schema.v8" as const,
     dataset_id: "raw-measurements",
     record_schema: "scopecat.measurement_record.v4" as const,
     point_domain: { kind: "product_grid" as const, axes: [] },

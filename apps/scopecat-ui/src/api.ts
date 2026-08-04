@@ -11,6 +11,7 @@ import { ApiError, apiClient, apiData } from "./api-client";
 import type {
   ContentEntry,
   MeasurementPreview,
+  MeasurementSlicePreview,
   ProjectEvent,
   ProjectHealth,
   ProjectRun,
@@ -92,7 +93,7 @@ export async function getMeasurementPreview(
     apiClient.GET("/api/v1/runs/{run_id}/measurements", {
       params: {
         path: { run_id: runId },
-        query: { limit: 100, offset },
+        query: { limit: 100, offset, include_schema: offset === 0 },
       },
       signal,
     }),
@@ -101,6 +102,32 @@ export async function getMeasurementPreview(
     items: response.items ?? [],
     schema: response.dataset_schema ?? undefined,
     nextOffset: response.next_offset ?? undefined,
+  };
+}
+
+export async function getMeasurementSlice(
+  runId: string,
+  fixedAxisIndices: Record<string, number>,
+  variableIds: string[],
+  signal?: AbortSignal,
+): Promise<MeasurementSlicePreview> {
+  const response = await apiData(
+    apiClient.POST("/api/v1/runs/{run_id}/measurements/query", {
+      params: { path: { run_id: runId } },
+      body: {
+        fixed_axis_indices: fixedAxisIndices,
+        include_schema: false,
+        limit: 4096,
+        variable_ids: variableIds,
+      },
+      signal,
+    }),
+  );
+  return {
+    items: response.items,
+    schema: response.dataset_schema ?? undefined,
+    selectedPointCount: response.selected_point_count,
+    truncated: response.truncated,
   };
 }
 

@@ -8,9 +8,11 @@ from typing import cast
 
 from pydantic import JsonValue as WireJsonValue
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainLayout
 from scopecat.kernel.problems import (
     Problem,
@@ -19,6 +21,7 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import (
     Bool,
@@ -41,6 +44,7 @@ from scopecat.measurements.results import (
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
     MeasurementProductGridPointDomain,
+    MeasurementScalar,
     MeasurementVariable,
     MeasurementVariableRole,
 )
@@ -366,6 +370,7 @@ def expected_dataset_schema(
     point_coordinate_columns: Sequence[TableColumn] = (),
     point_domain_layout: PointDomainLayout = "product_grid",
     point_domain_axis_sizes: Sequence[tuple[str, int]] = (),
+    point_domain_axis_values: Sequence[tuple[str, Sequence[CellValue]]] = (),
 ) -> MeasurementDatasetSchema | None:
     if not records:
         return None
@@ -382,12 +387,20 @@ def expected_dataset_schema(
         variable for variable in record_variables if variable.role == "observable"
     ]
     coordinates = [*point_coordinates, *record_coordinates]
+    axis_values_by_id = dict(point_domain_axis_values)
     return MeasurementDatasetSchema(
         dataset_id=dataset_id,
         point_domain=(
             MeasurementProductGridPointDomain(
                 axes=[
-                    MeasurementPointDomainAxis(id=axis_id, size=size)
+                    MeasurementPointDomainAxis(
+                        id=axis_id,
+                        size=size,
+                        values=[
+                            measurement_axis_scalar(value)
+                            for value in axis_values_by_id[axis_id]
+                        ],
+                    )
                     for axis_id, size in point_domain_axis_sizes
                 ]
             )
@@ -405,6 +418,48 @@ def expected_dataset_schema(
         primary_observables=[variable.id for variable in observables],
         metadata={"experiment_id": experiment_id},
     )
+
+
+def measurement_scalar(value: CellValue) -> MeasurementScalar:
+    """Encode one typed scalar in the durable measurement representation."""
+
+    if isinstance(value, Quantity):
+        return MeasurementScalar.create(
+            dtype="float64",
+            unit=value.unit,
+            value=value.value,
+        )
+    if isinstance(value, EntityRef):
+        entity: dict[str, WireJsonValue] = {}
+        if value.kind is not None:
+            entity["kind"] = value.kind
+        if value.metadata:
+            entity["metadata"] = cast(
+                "WireJsonValue",
+                thaw_json_value(value.metadata),
+            )
+        return MeasurementScalar.create(
+            dtype="string",
+            value=value.id,
+            metadata={"entity": entity},
+        )
+    if isinstance(value, bool):
+        return MeasurementScalar.create(dtype="bool", value=value)
+    if isinstance(value, int):
+        return MeasurementScalar.create(dtype="int64", value=value)
+    if isinstance(value, float):
+        return MeasurementScalar.create(dtype="float64", value=value)
+    if isinstance(value, str):
+        return MeasurementScalar.create(dtype="string", value=value)
+    raise TypeError(f"unsupported persisted scalar: {type(value).__name__}")
+
+
+def measurement_axis_scalar(value: CellValue) -> MeasurementScalar | None:
+    """Encode a displayable point-axis value, leaving opaque values unlabeled."""
+
+    if value is None or isinstance(value, PayloadValue | dict):
+        return None
+    return measurement_scalar(value)
 
 
 def _record_axes(records: Sequence[DatasetRecordPlan]) -> list[MeasurementDimension]:

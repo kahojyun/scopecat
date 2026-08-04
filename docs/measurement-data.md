@@ -229,14 +229,27 @@ Point-scalar observables become coordinate plots; point-local rank-one arrays
 become trace series. A point cloud with two scalar coordinate columns also gets
 an x/y scatter whose color encodes each scalar observable. For a
 higher-dimensional product grid, every remaining authored axis becomes a fixed
-slice shown in the selector and caption. Each observed slice is validated
-independently: it must contain exactly one cell for every x/y pair, with no
-missing or duplicate coordinates. An invalid slice falls back to scalar/table
-views instead of presenting a misleading surface. If a candidate produces more
-than 32 actual slices, the GUI disables heatmaps for the whole candidate and
-uses the same scalar/table fallback. Complex heatmaps offer magnitude, phase,
-real, and imaginary color modes. When several safe views exist, the GUI lists
-every candidate in a selector instead of silently truncating them. Shapes that
-do not have a safe automatic visual remain in the typed table, with raw records
-available as a secondary expandable view. This keeps automatic plotting useful
-without pretending that every tensor has one obvious chart.
+slice selector. Axis values are persisted in the canonical header, so selectors
+are available before a run completes and show typed values with units. Duplicate
+or opaque fixed-axis values remain selectable by their authored index. Axes with
+more than 256 values use a one-based index input instead of rendering thousands
+of browser options.
+
+Automatic product-grid plots request only the selected slice and only the
+coordinate/observable variables needed for heatmaps. The paged table and raw
+view remain an independent run-wide browser, clearly labeled as such. Trace
+previews use the currently loaded records whose durable point indices belong to
+the same authored slice. Later table pages omit the already-cached schema, and
+slice responses do not repeat it unless explicitly requested. A requested slice
+is still validated before rendering: it must contain exactly one cell for every
+x/y pair, with no missing or duplicate coordinates. Incomplete live data is
+labeled as incomplete instead of presenting a misleading surface. Automatic
+slice plots are bounded to 4,096 points; trace previews are separately bounded
+to 32 series and 4,096 plotted samples, with even downsampling that preserves
+endpoints. Larger data remains available through notebook batch reads. Complex
+heatmaps offer magnitude, phase, real, and imaginary color modes. When several
+safe views exist, the GUI lists every candidate in a selector instead of
+silently truncating them. Shapes that do not have a safe automatic visual remain
+in the typed table, with raw records available as a secondary expandable view.
+This keeps automatic plotting useful without pretending that every tensor has
+one obvious chart.

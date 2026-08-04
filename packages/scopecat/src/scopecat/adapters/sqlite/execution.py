@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from bisect import bisect_left
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -470,11 +471,35 @@ class SQLiteMeasurementDatasetRepository:
                 f"failed to read measurement dataset: {error}"
             ) from error
 
+    def measurement_schema(self) -> MeasurementDatasetSchema | None:
+        """Read the canonical schema without loading any measurement append."""
+
+        try:
+            with closing(
+                connect(
+                    self._runs.database,
+                    busy_timeout_seconds=self._runs.busy_timeout_seconds,
+                )
+            ) as connection:
+                header_row = _measurement_header_row(connection, self._run_id)
+            if header_row is None:
+                return None
+            return self._runs.read_model(
+                self._run_id,
+                _text(header_row, "ref"),
+                MeasurementDatasetHeader,
+            ).dataset_schema
+        except Exception as error:
+            raise ExecutionJournalError(
+                f"failed to read measurement dataset schema: {error}"
+            ) from error
+
     def measurement_page(
         self,
         *,
         limit: int,
         offset: int,
+        include_schema: bool = True,
     ) -> tuple[
         tuple[MeasurementRecord, ...],
         int | None,
@@ -502,16 +527,24 @@ class SQLiteMeasurementDatasetRepository:
                         (self._run_id, offset + limit, offset),
                     )
                 )
-                header_row = _measurement_header_row(connection, self._run_id)
+                header_row = (
+                    _measurement_header_row(connection, self._run_id)
+                    if include_schema
+                    else None
+                )
                 total = _measurement_record_count(connection, self._run_id)
 
-            if header_row is None:
+            if include_schema and header_row is None:
                 return (), None, None
 
-            header = self._runs.read_model(
-                self._run_id,
-                _text(header_row, "ref"),
-                MeasurementDatasetHeader,
+            dataset_schema = (
+                None
+                if header_row is None
+                else self._runs.read_model(
+                    self._run_id,
+                    _text(header_row, "ref"),
+                    MeasurementDatasetHeader,
+                ).dataset_schema
             )
             appends: dict[str, MeasurementDatasetAppend] = {}
             for row in rows:
@@ -533,10 +566,50 @@ class SQLiteMeasurementDatasetRepository:
                 )
                 items.extend(chunk.records[chunk_start:chunk_end])
             next_offset = offset + len(items) if offset + len(items) < total else None
-            return tuple(items), next_offset, header.dataset_schema
+            return tuple(items), next_offset, dataset_schema
         except Exception as error:
             raise ExecutionJournalError(
                 f"failed to read measurement dataset page: {error}"
+            ) from error
+
+    def measurement_records_at(
+        self,
+        point_indices: tuple[int, ...],
+    ) -> tuple[MeasurementRecord, ...]:
+        """Read selected durable point indices without materializing other chunks."""
+
+        selected = tuple(sorted(set(point_indices)))
+        try:
+            with closing(
+                connect(
+                    self._runs.database,
+                    busy_timeout_seconds=self._runs.busy_timeout_seconds,
+                )
+            ) as connection:
+                rows = _measurement_rows(connection, self._run_id)
+            records_by_index: dict[int, MeasurementRecord] = {}
+            for row in rows:
+                start = _integer(row, "start_index")
+                end = start + _integer(row, "record_count")
+                first = bisect_left(selected, start)
+                last = bisect_left(selected, end)
+                if first == last:
+                    continue
+                chunk = self._runs.read_model(
+                    self._run_id,
+                    _text(row, "ref"),
+                    MeasurementDatasetAppend,
+                )
+                for point_index in selected[first:last]:
+                    records_by_index[point_index] = chunk.records[point_index - start]
+            return tuple(
+                records_by_index[point_index]
+                for point_index in point_indices
+                if point_index in records_by_index
+            )
+        except Exception as error:
+            raise ExecutionJournalError(
+                f"failed to read selected measurement records: {error}"
             ) from error
 
 

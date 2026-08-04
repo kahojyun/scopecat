@@ -467,6 +467,7 @@ def test_measurement_page_reads_intersecting_chunks_and_live_schema(
     later, later_offset, later_schema = repository.measurement_page(
         limit=1,
         offset=1,
+        include_schema=False,
     )
 
     assert [record.point_index for record in items] == [0]
@@ -474,7 +475,39 @@ def test_measurement_page_reads_intersecting_chunks_and_live_schema(
     assert [record.point_index for record in later] == [1]
     assert later_offset is None
     assert schema == header.dataset_schema
-    assert later_schema == header.dataset_schema
+    assert later_schema is None
+
+
+def test_measurement_records_at_reads_only_selected_durable_points(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-selection")
+    header = _header("run-selection", point_count=5)
+    _commit_header(runs, repository, header)
+    for start_index in (0, 2):
+        append = MeasurementDatasetAppend(
+            run_id=header.run_id,
+            header_content_hash=header.content_hash,
+            start_index=start_index,
+            records=tuple(
+                _append(
+                    header,
+                    point_index=point_index,
+                    value=point_index,
+                ).records[0]
+                for point_index in range(start_index, start_index + 2)
+            ),
+        )
+        _commit_append(runs, repository, append)
+
+    records = repository.measurement_records_at((3, 1, 4))
+
+    assert [record.point_index for record in records] == [3, 1]
+    assert [record.observables["signal"] for record in records] == [
+        MeasurementScalar.create(dtype="float64", value=3, unit="ratio"),
+        MeasurementScalar.create(dtype="float64", value=1, unit="ratio"),
+    ]
 
 
 def test_measurement_header_makes_an_empty_dataset_readable(tmp_path: Path) -> None:

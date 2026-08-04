@@ -26,7 +26,7 @@ from scopecat.records._schema_utils import (
 )
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v4"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v7"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v8"
 
 MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
@@ -93,6 +93,13 @@ class MeasurementPointDomainAxis(BaseModel):
 
     id: str = Field(min_length=1)
     size: Annotated[int, Field(ge=0)]
+    values: list[MeasurementScalar | None]
+
+    @model_validator(mode="after")
+    def validate_values(self) -> MeasurementPointDomainAxis:
+        if len(self.values) != self.size:
+            raise ValueError("measurement point-domain axis values must match its size")
+        return self
 
 
 class MeasurementProductGridPointDomain(BaseModel):
@@ -154,7 +161,7 @@ type MeasurementPointDomain = Annotated[
 class MeasurementDatasetSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v7"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v8"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
