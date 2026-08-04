@@ -112,7 +112,7 @@ def _ragged_point_cloud(experiment: ExperimentContext) -> None:
             {_RAGGED_GAIN: 1.0},
         )
     )
-    capture = experiment.run(_ragged_capture(gain=_RAGGED_GAIN))
+    capture = experiment.use(_ragged_capture(gain=_RAGGED_GAIN))
     experiment.record(capture.result, record_id="trace")
 
 

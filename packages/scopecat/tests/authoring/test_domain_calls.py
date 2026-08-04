@@ -69,7 +69,7 @@ def _domain_module() -> tuple[
                 )
             },
         )
-        context.call(call)
+        context.use(call)
         return call.results.counts
 
     return module, program, body
@@ -118,7 +118,7 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
 
     @sc.module(id="test.domain.compiler-inputs")
     def module(context: sc.ModuleContext) -> None:
-        context.call(
+        context.use(
             domain_call(
                 program,
                 inputs={"value": 3},
@@ -153,7 +153,7 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         context: sc.ModuleContext,
         rows: Annotated[list[dict[str, object]], _domain_table_type()],
     ) -> None:
-        context.call(
+        context.use(
             domain_call(
                 program,
                 id="compile",
@@ -166,21 +166,21 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         context: sc.ModuleContext,
         rows: Annotated[list[dict[str, object]], _domain_table_type()],
     ) -> None:
-        context.call(leaf.instantiate("leaf", rows=sc.input_ref(rows)))
+        context.use(leaf.instantiate("leaf", rows=sc.input_ref(rows)))
 
     @sc.module(id="test.domain.table-root")
     def root(
         context: sc.ModuleContext,
         rows: Annotated[list[dict[str, object]], _domain_table_type()],
     ) -> None:
-        context.call(middle.instantiate("middle", rows=sc.input_ref(rows)))
+        context.use(middle.instantiate("middle", rows=sc.input_ref(rows)))
 
     @sc.template(id="test.domain.table-forwarding", kind="domain")
     def template(
         experiment: sc.ExperimentContext,
         rows: Annotated[list[dict[str, object]], _domain_table_type()],
     ) -> None:
-        experiment.run(root(rows))
+        experiment.use(root(rows))
 
     bound = bind_invocation(
         template(rows=[{"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}]),
@@ -261,7 +261,7 @@ def test_native_domain_call_owns_its_result_products() -> None:
 
     @sc.module(id="test.domain.local")
     def local(context: sc.ModuleContext) -> sc.ProductRef:
-        context.call(call)
+        context.use(call)
         return call.results.result
 
     [declaration] = call.product_declarations
@@ -280,8 +280,8 @@ def test_module_preserves_ordered_domain_executions() -> None:
 
     @sc.module(id="test.domain.single")
     def module(context: sc.ModuleContext) -> None:
-        context.call(domain_call(program, id="first"))
-        context.call(domain_call(program, id="second"))
+        context.use(domain_call(program, id="first"))
+        context.use(domain_call(program, id="second"))
 
     assert tuple(call.id for call in module.definition.body.domain_executions) == (
         "first/program",
@@ -300,7 +300,7 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
 
     @sc.module(id="test.domain.reusable")
     def child(context: sc.ModuleContext) -> None:
-        context.call(
+        context.use(
             domain_call(
                 program,
                 id="call",
@@ -312,8 +312,8 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
 
     @sc.module(id="test.domain.composed")
     def root(context: sc.ModuleContext) -> None:
-        context.call(right)
-        context.call(left)
+        context.use(right)
+        context.use(left)
 
     assembly = compose_module(root.definition)
 
@@ -345,7 +345,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
             fn=lambda: 1,
             output_type=value_type,
         )
-        context.call(
+        context.use(
             domain_call(
                 program,
                 inputs={"value": compute},
@@ -369,7 +369,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         context: sc.ModuleContext,
         x_count: Annotated[sc.Input[int], sc.IntType(minimum=0)],
     ) -> sc.ProductRef:
-        inner = context.call(child.instantiate("inner", x_count=x_count))
+        inner = context.use(child.instantiate("inner", x_count=x_count))
         return inner.result
 
     point_x_count = sc.coordinate(
@@ -383,7 +383,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         x_count: Annotated[sc.Input[int], sc.IntType(minimum=0)],
     ) -> sc.ProductRef:
         outer = wrapper.instantiate("outer", x_count=x_count)
-        context.call(outer)
+        context.use(outer)
         return outer.result
 
     assembly = compose_module(root_module.definition, x_count=point_x_count)
@@ -398,7 +398,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
 
     @sc.template(id="test.domain", kind="domain")
     def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(root_module(point_x_count))
+        call = experiment.use(root_module(point_x_count))
         selected_product = call.result
         experiment.scan(sc.axis(point_x_count, (1, 2)))
         experiment.record(selected_product, record_id="counts_first")
@@ -445,7 +445,7 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
             inputs={"value": 1},
             output_type=value_type,
         )
-        context.call(
+        context.use(
             domain_call(
                 program,
                 inputs={"value": 2},

@@ -459,7 +459,7 @@ def test_composed_module_input_keeps_its_declared_compute_input_type() -> None:
 
     @sc.template(id="test.compute-input-type", kind="compute-input-type")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(child(frequency_input=frequency))
+        experiment.use(child(frequency_input=frequency))
         experiment.scan(sc.axis(frequency, (5_000.0,), unit="MHz"))
 
     config = config_with_physical_resources({"drive-a": (play_interface.interface_id,)})
@@ -495,7 +495,7 @@ def test_composed_state_expression_keeps_its_declared_value_type() -> None:
 
     @sc.template(id="test.state-value-type", kind="state-value-type")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(child(frequency_input=frequency))
+        experiment.use(child(frequency_input=frequency))
         experiment.scan(sc.axis(frequency, (5_000.0,), unit="MHz"))
 
     config = load_config()

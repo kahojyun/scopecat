@@ -63,14 +63,14 @@ def test_nested_module_requires_explicit_input_forwarding() -> None:
 
     @authoring.module(id="test.nested_port.root")
     def root(context: authoring.ModuleContext, outer_value: float) -> None:
-        context.call(child.instantiate("child", value=outer_value))
+        context.use(child.instantiate("child", value=outer_value))
 
     @authoring.template(id="test.nested_port", kind="nested_port")
     def template(
         experiment: authoring.ExperimentContext,
         outer_value: float,
     ) -> None:
-        experiment.run(root(outer_value))
+        experiment.use(root(outer_value))
 
     bind_invocation(
         template(outer_value=1),
@@ -185,7 +185,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
             authoring.PayloadType("pulse"),
         ],
     ) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "compute-child",
                 program=authoring.input_ref(program),
@@ -199,7 +199,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
             fn=_empty_payload,
             output_type=pulse,
         )
-        context.call(middle.instantiate("compute-middle", program=produce))
+        context.use(middle.instantiate("compute-middle", program=produce))
 
     assembly = compose_module(
         parent.definition,
@@ -219,7 +219,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
 
     @authoring.template(id="test.compute_edge", kind="compute_edge")
     def template(experiment: authoring.ExperimentContext) -> None:
-        experiment.run(parent())
+        experiment.use(parent())
 
     program = _bind_program(template(), load_config())
     bound_consumer = next(

@@ -69,7 +69,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
 
     @sc.template(id="test.postprocessor.lowering", kind="postprocessor")
     def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(module())
+        call = experiment.use(module())
         experiment.record(call.result, record_id="first")
         experiment.record(call.result, record_id="second")
 
@@ -130,13 +130,13 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
 
     @sc.module(id="test.postprocessor.hidden-id.root")
     def root(context: sc.ModuleContext) -> _DerivedProducts:
-        context.call(left)
-        context.call(right)
+        context.use(left)
+        context.use(right)
         return _DerivedProducts(left=left.result, right=right.result)
 
     @sc.template(id="test.postprocessor.hidden-id", kind="postprocessor")
     def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(root())
+        call = experiment.use(root())
         experiment.record(call.result.left, record_id="left")
         experiment.record(call.result.right, record_id="right")
 
@@ -171,7 +171,7 @@ def test_recorded_product_requires_a_producer() -> None:
 
     @sc.template(id="test.product.owner", kind="product-owner")
     def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(module())
+        call = experiment.use(module())
         experiment.record(call.result)
 
     with pytest.raises(CheckFailed) as error:

@@ -100,7 +100,7 @@ def test_template_infers_identity_description_and_defaults() -> None:
     ) -> None:
         """Run one count experiment."""
 
-        experiment.run(count_source(count=count))
+        experiment.use(count_source(count=count))
 
     assert count_experiment.definition.id.endswith(".count_experiment")
     assert count_experiment.definition.kind == "count_experiment"
@@ -164,7 +164,7 @@ def test_template_and_experiment_factory_share_the_context_protocol() -> None:
         module._bind_property(counter, _COUNTER_COUNT, value=value)
 
     def body(experiment: sc.ExperimentContext) -> None:
-        experiment.run(count_source(value=count))
+        experiment.use(count_source(value=count))
         experiment.scan(sc.axis(count, (1, 2, 3)))
 
     template = sc.template(id="test.function.template", kind="count")(body)
@@ -195,7 +195,7 @@ def test_experiment_factory_preserves_typed_call_contract() -> None:
         experiment: sc.ExperimentContext,
         count: int = 2,
     ) -> None:
-        experiment.run(count_source(count=count))
+        experiment.use(count_source(count=count))
 
     signature = inspect.signature(count_experiment)
     assert signature.parameters["count"].default == 2
@@ -231,15 +231,15 @@ def test_repeated_default_module_calls_require_explicit_instances() -> None:
         del module
 
     def repeated(experiment: sc.ExperimentContext) -> None:
-        experiment.run(source())
-        experiment.run(source())
+        experiment.use(source())
+        experiment.use(source())
 
     with pytest.raises(ValueError, match="duplicate module instance ids"):
         sc.template(id="test.repeated-defaults")(repeated)
 
     @sc.template(id="test.explicit-instances")
     def explicit(experiment: sc.ExperimentContext) -> None:
-        experiment.run(source.instantiate("left"))
-        experiment.run(source.instantiate("right"))
+        experiment.use(source.instantiate("left"))
+        experiment.use(source.instantiate("right"))
 
     compile_invocation(explicit())

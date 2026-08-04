@@ -64,7 +64,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
 
     @sc.module(id="test.postprocessor.parent")
     def module(context: sc.ModuleContext) -> None:
-        context.call(nested)
+        context.use(nested)
         derived = context._product("derived")
         context._postprocess(
             "derive",
@@ -90,7 +90,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
 
     @sc.module(id="test.postprocessor.root")
     def root(context: sc.ModuleContext) -> None:
-        context.call(nested_module.instantiate("nested"))
+        context.use(nested_module.instantiate("nested"))
 
     [scoped] = compose_module(root.definition).measurement_postprocessors
     assert scoped.id.qualified_name == "nested/derive"
@@ -143,7 +143,7 @@ def test_domain_and_postprocessor_cannot_own_the_same_product() -> None:
             outputs={"result": call.results.raw},
             kernel=_identity,
         )
-        context.call(call)
+        context.use(call)
 
     with pytest.raises(CheckFailed) as error:
         verify_logical_program(compose_module(module.definition))

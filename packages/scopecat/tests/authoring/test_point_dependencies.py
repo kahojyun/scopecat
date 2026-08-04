@@ -46,7 +46,7 @@ def _resolve(
 
     @sc.template(id="test.point-dependency", kind="point_dependency")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
         if scan is not None:
             experiment.scan(scan)
 
@@ -113,11 +113,11 @@ def test_nested_module_preserves_bound_point_dependency() -> None:
         context: sc.ModuleContext,
         frequency: Annotated[sc.Input[sc.Quantity], _FREQUENCY_TYPE],
     ) -> None:
-        context.call(child.instantiate("point-child", frequency=frequency))
+        context.use(child.instantiate("point-child", frequency=frequency))
 
     @sc.template(id="test.point-parent", kind="point_dependency")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(parent(parent_frequency))
+        experiment.use(parent(parent_frequency))
         experiment.scan(sc.axis(parent_frequency, (5.0,), unit="GHz"))
 
     assembly = compile_invocation(template()).program.program

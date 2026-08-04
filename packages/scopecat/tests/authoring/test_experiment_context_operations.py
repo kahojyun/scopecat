@@ -210,7 +210,7 @@ def test_template_derives_value_record_id_after_resolving_a_module_result() -> N
 
     @sc.template(id="test.module-value-record", kind="direct")
     def direct(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(value_source())
+        call = experiment.use(value_source())
         trace = experiment._product("trace")
         experiment.record(call.result, trace)
 

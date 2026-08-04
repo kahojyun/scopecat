@@ -238,28 +238,28 @@ class ExperimentContext:
         )
 
     @overload
-    def run[ResultT](
+    def use[ResultT](
         self,
         part: ExperimentModule[ResultT, ...],
     ) -> ModuleInvocation[ResultT]: ...
 
     @overload
-    def run[ResultT](
+    def use[ResultT](
         self,
         part: ModuleInvocation[ResultT],
     ) -> ModuleInvocation[ResultT]: ...
 
     @overload
-    def run(self, part: DomainCall) -> DomainCall: ...
+    def use(self, part: DomainCall) -> DomainCall: ...
 
     @overload
-    def run[T: DomainCallProvider](self, part: T) -> T: ...
+    def use[T: DomainCallProvider](self, part: T) -> T: ...
 
-    def run(
+    def use(
         self,
         part: object,
     ) -> object:
-        """Append one module or domain occurrence to the root experiment."""
+        """Place one module or domain occurrence in the root experiment."""
 
         if isinstance(part, DomainCall) or isinstance(
             getattr(part, "domain_call", None),
@@ -959,7 +959,7 @@ def _module_invocation(value: object) -> ModuleInvocation[object]:
         return module_use_invocation(value)
     except TypeError as error:
         raise TypeError(
-            "ExperimentContext.run() requires a module or domain call"
+            "ExperimentContext.use() requires a module or domain call"
         ) from error
 
 

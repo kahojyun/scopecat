@@ -94,7 +94,7 @@ def simple_template(
             authoring.ScalarType(authoring.EntityType()),
         ],
     ) -> None:
-        module_call = experiment.run(
+        module_call = experiment.use(
             SIMPLE_MODULE(
                 subject=subject,
                 drive_frequency=DRIVE_FREQUENCY_POINT,

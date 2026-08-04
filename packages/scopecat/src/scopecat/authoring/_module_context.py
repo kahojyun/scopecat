@@ -214,22 +214,22 @@ class ModuleContext:
         )
 
     @overload
-    def call[ResultT](
+    def use[ResultT](
         self,
         part: ModuleInvocation[ResultT],
     ) -> ModuleInvocation[ResultT]: ...
 
     @overload
-    def call(self, part: DomainCall) -> DomainCall: ...
+    def use(self, part: DomainCall) -> DomainCall: ...
 
     @overload
-    def call[T: DomainCallProvider](self, part: T) -> T: ...
+    def use[T: DomainCallProvider](self, part: T) -> T: ...
 
-    def call(
+    def use(
         self,
         part: object,
     ) -> object:
-        """Append one explicitly constructed module or domain occurrence."""
+        """Place one explicitly constructed module or domain occurrence."""
 
         if isinstance(part, ModuleInvocation):
             invocation = cast("ModuleInvocation[object]", part)

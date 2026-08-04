@@ -26,7 +26,7 @@ def author_quantum_experiment(
     """Apply lab policy to an integrated-IQ call exposing ``iq_shots``."""
 
     configured = call.with_compiler_inputs(qubits=qubit_parameters())
-    placed = experiment.run(configured)
+    placed = experiment.use(configured)
     probabilities = binary_iq_probabilities(
         experiment,
         placed.results.iq_shots,

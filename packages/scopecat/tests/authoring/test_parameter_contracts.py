@@ -53,7 +53,7 @@ def _resolve_root_domain_dependency(
 
     @sc.template(id="test.parameter-contract", kind="parameter_contract")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(
+        experiment.use(
             domain_call(
                 program,
                 compiler_inputs={"value": value},
@@ -76,7 +76,7 @@ def _scan_invocation(id: str, *scans: sc.Scan) -> sc.ExperimentInvocation:
 
     @sc.template(id=id, kind="parameter_contract")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+        experiment.use(module())
         experiment.scan(*scans)
 
     return template()
@@ -230,7 +230,7 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
         context: sc.ModuleContext,
         frequency: Annotated[sc.Input[str], sc.StringType()],
     ) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "parameter-contract-child",
                 frequency=frequency,
@@ -244,7 +244,7 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
 
     @sc.template(id="test.parameter-contract", kind="parameter_contract")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(parent(frequency=parameter))
+        experiment.use(parent(frequency=parameter))
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(template(), config_profile=load_config())
@@ -450,7 +450,7 @@ def test_parameter_scan_specializes_consumers_against_its_point_column() -> None
 
     @sc.template(id="test.parameter-scan-consumer", kind="parameter_contract")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(domain_call(program, inputs={"frequency": lookup}))
+        experiment.use(domain_call(program, inputs={"frequency": lookup}))
         experiment.scan(
             sc.param_axis(
                 frequency,
@@ -564,7 +564,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
             sc.EntityType(entity_kind="logical_device"),
         ],
     ) -> None:
-        experiment.run(
+        experiment.use(
             module(
                 frequency=sc.parameter_lookup(
                     "device_parameters",
@@ -615,7 +615,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
                 sc.EntityType(entity_kind="logical_coupler"),
             ],
         ) -> None:
-            experiment.run(
+            experiment.use(
                 wrong_module(
                     frequency=sc.parameter_lookup(
                         "device_parameters",

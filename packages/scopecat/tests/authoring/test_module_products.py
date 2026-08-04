@@ -84,7 +84,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
 
     @sc.template(id="test.products.metadata", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
         experiment.record(call.result)
 
     resolved = bind_invocation(
@@ -123,7 +123,7 @@ def test_product_axes_use_product_local_dimensions_by_default() -> None:
 
     @sc.template(id="test.products.local-axis", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
 
     resolved = bind_invocation(
         template_definition(),
@@ -167,7 +167,7 @@ def test_product_axes_share_dimensions_only_when_explicit() -> None:
 
     @sc.template(id="test.products.shared-axis", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
 
     resolved = bind_invocation(
         template_definition(),
@@ -207,7 +207,7 @@ def test_categorical_product_axis_lowers_to_its_label_count() -> None:
 
     @sc.template(id="test.products.categorical-axis", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
 
     resolved = bind_invocation(
         template_definition(),
@@ -230,7 +230,7 @@ def test_variable_product_axis_lowers_without_inventing_a_fixed_extent() -> None
 
     @sc.template(id="test.products.ragged-axis", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+        experiment.use(module())
 
     resolved = bind_invocation(
         template_definition(),
@@ -285,7 +285,7 @@ def test_conflicting_explicitly_shared_product_axes_are_rejected() -> None:
 
     @sc.template(id="test.products.shared-axis-conflict", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
 
     with pytest.raises(CheckFailed) as error:
         compile_invocation(template_definition())
@@ -375,7 +375,7 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
 
     @sc.template(id="test.products.result-mapping", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
         experiment.record(
             call.result.first,
             call.result.second,
@@ -473,8 +473,8 @@ def test_explicit_instances_select_same_named_products_independently(
 
     @sc.module(id="test.products.root")
     def root(context: sc.ModuleContext) -> _InstanceProducts:
-        context.call(left)
-        context.call(right)
+        context.use(left)
+        context.use(right)
         return _InstanceProducts(left.result, right.result)
 
     assert isinstance(left.result, sc.ProductRef)
@@ -494,7 +494,7 @@ def test_explicit_instances_select_same_named_products_independently(
 
     @sc.template(id="test.products.root", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
         experiment.record(
             call.result.left,
             record_id="left_signal",
@@ -560,7 +560,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
 
     @sc.module(id="test.products.wrapper")
     def wrapper(context: sc.ModuleContext) -> sc.ProductRef:
-        context.call(inner)
+        context.use(inner)
         return inner.result
 
     projected = wrapper.definition.products[0]
@@ -571,7 +571,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
 
     @sc.module(id="test.products.nested-root")
     def root(context: sc.ModuleContext) -> sc.ProductRef:
-        context.call(outer)
+        context.use(outer)
         return outer.result
 
     nested_product = outer.result
@@ -585,7 +585,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
 
     @sc.template(id="test.products.nested", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
         experiment.record(
             nested_product,
             record_id="nested_signal",
@@ -626,14 +626,14 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
 
     @sc.module(id="test.products.repeated-use")
     def root(context: sc.ModuleContext) -> sc.ProductRef:
-        context.call(selected)
+        context.use(selected)
         return selected.result
 
     call = root()
 
     @sc.template(id="test.products.repeated-use", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
         experiment.record(
             call.result,
             record_id="first",
@@ -661,7 +661,7 @@ def test_root_module_products_are_typed_template_refs() -> None:
 
     @sc.template(id="test.products.root-ref", kind="module_products")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
         experiment.record(call.result)
 
     [selection] = template_definition.definition.record_selections
@@ -679,7 +679,7 @@ def test_product_refs_are_nominally_owned_by_the_selected_instance() -> None:
     selected = right_definition.instantiate("same")
 
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(selected)
+        experiment.use(selected)
         experiment.record(foreign.result)
 
     template = sc.template(id="test.products.nominal", kind="module_products")(

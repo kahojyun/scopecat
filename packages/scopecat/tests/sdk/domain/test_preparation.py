@@ -96,7 +96,7 @@ def _preparation_context(
         kind="domain_preparation",
     )
     def selected(experiment: sc.ExperimentContext) -> None:
-        placed = experiment.run(authored_call)
+        placed = experiment.use(authored_call)
         experiment.scan(sc.axis(count, (1, 3)))
         experiment.record(
             placed.results.raw,

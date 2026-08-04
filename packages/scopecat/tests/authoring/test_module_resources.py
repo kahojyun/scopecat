@@ -94,8 +94,8 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
 
     @sc.module(id="test.resources.root")
     def root(context: sc.ModuleContext) -> None:
-        context.call(left)
-        context.call(right)
+        context.use(left)
+        context.use(right)
 
     assembly = compose_module(root.definition)
     verify_logical_program(assembly)
@@ -120,7 +120,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
 
     @sc.template(id="test.resources.root", kind="resources")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
 
     resolved = bind_invocation(
         template_definition(),
@@ -153,7 +153,7 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
     @sc.module(id="test.resources.bound-root")
     def root(context: sc.ModuleContext) -> None:
         context._resource("shared", requires=(_SET_FREQUENCY,))
-        context.call(child)
+        context.use(child)
 
     assembly = compose_module(root.definition)
 
@@ -171,13 +171,13 @@ def test_nested_instances_prefix_resource_references_once_per_level() -> None:
 
     @sc.module(id="test.resources.wrapper")
     def wrapper(context: sc.ModuleContext) -> None:
-        context.call(inner)
+        context.use(inner)
 
     outer = wrapper.instantiate("outer")
 
     @sc.module(id="test.resources.nested-root")
     def root(context: sc.ModuleContext) -> None:
-        context.call(outer)
+        context.use(outer)
 
     assembly = compose_module(root.definition)
     verify_logical_program(assembly)
@@ -211,7 +211,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
             _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
-        context.call(domain_call(program, id="call"))
+        context.use(domain_call(program, id="call"))
         signal = context._product("signal")
         context._acquire(
             "read-signal",
@@ -232,13 +232,13 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
             _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
-        context.call(child)
+        context.use(child)
         context._bind_property(
             drive,
             _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
-        context.call(domain_call(program, id="root-call"))
+        context.use(domain_call(program, id="root-call"))
         root_signal = context._product("root-signal")
         context._acquire(
             "root-read",
@@ -271,7 +271,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
 
     @sc.template(id="test.effects.root", kind="effects")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module.instantiate("root"))
+        experiment.use(module.instantiate("root"))
 
     bound = bind_invocation(template(), config_profile=load_config())
     assert [
@@ -317,14 +317,14 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
 
     @sc.module(id="test.resources.wrapper")
     def wrapper(context: sc.ModuleContext) -> None:
-        context.call(nested_child)
+        context.use(nested_child)
 
     nested = wrapper.instantiate("outer")
 
     @sc.module(id="test.resources.identity-root")
     def root(context: sc.ModuleContext) -> None:
-        context.call(direct)
-        context.call(nested)
+        context.use(direct)
+        context.use(nested)
 
     assembly = compose_module(root.definition)
     verify_logical_program(assembly)
@@ -408,13 +408,13 @@ def test_state_binding_keeps_interface_and_property_ids_structured() -> None:
 
     @sc.module(id="test.resources.structured-state-root")
     def root(context: sc.ModuleContext) -> None:
-        context.call(instance)
+        context.use(instance)
 
     call = root()
 
     @sc.template(id="test.resources.structured-state", kind="resources")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
 
     resolved = bind_invocation(
         template_definition(),

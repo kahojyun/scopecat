@@ -91,7 +91,7 @@ def simple_frequency_scan_template() -> ExperimentTemplate[...]:
         ],
     ) -> None:
         del subject
-        module_call = experiment.run(
+        module_call = experiment.use(
             SIMPLE_FREQUENCY_SCAN(frequency=DRIVE_FREQUENCY_POINT)
         )
         experiment.scan(

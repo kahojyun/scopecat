@@ -450,7 +450,7 @@ def test_typed_result_recording_semantics_survive_a_module_boundary() -> None:
     frequency = call.result.frequency
 
     context = ExperimentContext()
-    context.run(call)
+    context.use(call)
     context.record(frequency)
     definition = context.close_definition_internal(
         id="test.symbolic.record-module-member",

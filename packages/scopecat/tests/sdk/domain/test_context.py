@@ -84,7 +84,7 @@ def _domain_scenario(
             outputs={"summary": summary},
             kernel=summarize,
         )
-        module.call(call)
+        module.use(call)
         return _DomainProducts(raw=call.results.raw, summary=summary)
 
     @sc.template(
@@ -92,7 +92,7 @@ def _domain_scenario(
         kind="domain_context",
     )
     def template(experiment: sc.ExperimentContext) -> None:
-        module_call = experiment.run(domain_module(count_input=count))
+        module_call = experiment.use(domain_module(count_input=count))
         experiment.scan(sc.axis(count, (1, 3, 5)))
         if record_raw:
             experiment.record(module_call.result.raw, record_id="raw")

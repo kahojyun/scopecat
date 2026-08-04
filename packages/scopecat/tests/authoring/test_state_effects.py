@@ -100,7 +100,7 @@ def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
 
     @sc.template(id="test.coherent-target", kind="state-effect")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+        experiment.use(module())
 
     bound = bind_invocation(
         template(),
@@ -144,7 +144,7 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
 
     @sc.template(id="test.sequential-targets", kind="state-effect")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+        experiment.use(module())
 
     bound = bind_invocation(
         template(),

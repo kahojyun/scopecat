@@ -50,7 +50,7 @@ _SET_GAIN_VALUE = _SET_GAIN.property("value")
 def _resolve(module: sc.ExperimentModule[None, ...]) -> None:
     @sc.template(id="test.graph", kind="graph")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+        experiment.use(module())
 
     bind_invocation(
         template(),
@@ -192,8 +192,8 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
 
     @sc.template(id="test.graph.record-schema", kind="record-schema")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
-        experiment.run(
+        experiment.use(module())
+        experiment.use(
             domain_call(
                 program,
                 compiler_inputs={"value": missing_parameter},
@@ -243,7 +243,7 @@ def test_resource_selector_rejects_external_operation_value() -> None:
             fn=lambda: "q0",
             output_type=sc.ScalarType(sc.EntityType()),
         )
-        context.call(
+        context.use(
             child.instantiate(
                 "resource-child",
                 subject=produce_subject,
@@ -306,7 +306,7 @@ def test_product_axis_rejects_point_dependent_value() -> None:
 
     @sc.template(id="test.stage.record-point", kind="graph")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module(size))
+        experiment.use(module(size))
         experiment.scan(sc.axis(size, (2, 3)))
 
     with pytest.raises(CheckFailed) as error:
@@ -341,7 +341,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
 
     @sc.template(id="test.graph.direct-edge", kind="graph")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+        experiment.use(module())
 
     compiled = compile_invocation(template())
 

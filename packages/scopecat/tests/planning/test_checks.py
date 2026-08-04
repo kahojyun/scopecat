@@ -123,11 +123,11 @@ def _domain_invocation() -> sc.ExperimentInvocation:
 
     @sc.module(id="test.check-domain")
     def module(context: sc.ModuleContext) -> None:
-        context.call(domain_call(program))
+        context.use(domain_call(program))
 
     @sc.template(id="test.check-domain", kind="check-domain")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+        experiment.use(module())
 
     return template()
 

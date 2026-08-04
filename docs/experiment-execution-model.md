@@ -51,7 +51,7 @@ The public authoring model follows four rules:
 
 1. `@module` defines a reusable graph fragment. Its Python return value is its
    sole composition result; an invocation exposes that value as `.result`, while
-   `context.call(...)` or `experiment.run(...)` places the invocation's effects.
+   `context.use(...)` places the invocation's effects at either authoring boundary.
    There is no second user-authored output or product-export declaration.
 2. `@template` is for a graph shape fixed by typed symbolic inputs and defaults.
    `@experiment_factory` is for ordinary Python arguments that may change graph

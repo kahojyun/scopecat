@@ -219,7 +219,7 @@ def test_compute_inputs_close_template_inputs_before_logical_verification() -> N
         pulse_length: _QuantityInput,
     ) -> None:
         qubit_ref = sc.input_ref(qubit)
-        experiment.run(
+        experiment.use(
             module(
                 qubit=qubit,
                 pulse_length=pulse_length,
@@ -406,7 +406,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
 
     @sc.template(id="test.runtime_entity_scan", kind="runtime_entity_scan")
     def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(
+        call = experiment.use(
             module(
                 qubit_input=qubit,
                 drive_frequency=authoring.parameter_lookup(
@@ -532,7 +532,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
         experiment: sc.ExperimentContext,
         qubit: _LogicalDeviceInput,
     ) -> None:
-        call = experiment.run(module(qubit=qubit))
+        call = experiment.use(module(qubit=qubit))
         experiment.scan(
             sc.axis(
                 drive_length,
@@ -577,7 +577,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
 
     @sc.module(id="test.invocation_defaults.parent")
     def parent(context: sc.ModuleContext) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "defaults-child",
                 drive_frequency=Quantity(value=5.0, unit="GHz"),
@@ -613,7 +613,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
         context: sc.ModuleContext,
         drive_frequency: _QuantityInput,
     ) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "expression-child",
                 drive_frequency=drive_frequency,
@@ -622,7 +622,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
 
     @sc.template(id="test.invocation-expression", kind="expression")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(
+        experiment.use(
             parent(
                 drive_frequency=authoring.parameter(
                     "drive_frequency",
@@ -666,7 +666,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
         unused_point: _FloatInput,
     ) -> None:
         parent_ref = sc.input_ref(parent_value)
-        context.call(
+        context.use(
             child.instantiate(
                 "deferred-child",
                 child_value=parent_ref + 0.25,
@@ -677,7 +677,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
 
     @sc.template(id="test.invocation-deferred", kind="deferred")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(
+        experiment.use(
             parent.instantiate(
                 "deferred-parent",
                 parent_value=1.5,
@@ -763,7 +763,7 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
         context: sc.ModuleContext,
         outer_frequency: _QuantityInput,
     ) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "parent-input-child",
                 drive_frequency=outer_frequency,
@@ -807,13 +807,13 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
 
     @sc.module(id="test.invocation_sibling.parent")
     def module(context: sc.ModuleContext) -> None:
-        context.call(
+        context.use(
             first.instantiate(
                 "first",
                 drive_frequency=Quantity(value=5.0, unit="GHz"),
             )
         )
-        context.call(
+        context.use(
             second.instantiate(
                 "second",
                 drive_frequency=Quantity(value=5.1, unit="GHz"),
@@ -853,7 +853,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
 
     @sc.module(id="test.invocation_entity.parent")
     def parent(context: sc.ModuleContext) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "entity-child",
                 qubit="q0",
@@ -905,8 +905,8 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
 
     @sc.template(id="test.scripted_scan", kind="simple_scan")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(prelude())
-        call = experiment.run(scan(DRIVE_FREQUENCY_POINT))
+        experiment.use(prelude())
+        call = experiment.use(scan(DRIVE_FREQUENCY_POINT))
         experiment.record(call.result)
 
     resolved = bind_invocation(
@@ -1006,7 +1006,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         experiment: sc.ExperimentContext,
         qubit: _EntityInput,
     ) -> None:
-        experiment.run(
+        experiment.use(
             module(
                 qubit=qubit,
                 drive_frequency=authoring.parameter(
@@ -1046,7 +1046,7 @@ def test_explicit_config_binds_experiment() -> None:
 
     @sc.template(id="test.explicit-config-source", kind="config-source")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+        experiment.use(module())
 
     resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(

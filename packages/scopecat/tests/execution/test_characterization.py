@@ -209,7 +209,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
             fn=produce,
             output_type=source_program_type,
         )
-        context.call(
+        context.use(
             child.instantiate(
                 "compute-schedule-child",
                 program=produced,
@@ -221,7 +221,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
         kind="characterization",
     )
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(parent())
+        experiment.use(parent())
 
     driver = SignalInstrumentDriver()
     payload_codecs = json_payload_codecs("pulse_program")

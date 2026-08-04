@@ -33,7 +33,7 @@ def test_default_scan_center_rejects_external_operation() -> None:
     center = call.result
 
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
         experiment.scan(
             sc.axis(
                 target,
@@ -77,7 +77,7 @@ def test_invocation_scan_center_rejects_external_operation() -> None:
 
     @sc.template(id="test.scan-stage.invocation", kind="scan-stage")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
 
     invocation = template_definition().scan(
         sc.axis(
@@ -110,7 +110,7 @@ def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
 
     @sc.template(id="test.scan-stage.input", kind="scan-stage")
     def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+        experiment.use(call)
         experiment.scan(
             sc.axis(
                 target,

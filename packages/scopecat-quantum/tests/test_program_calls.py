@@ -292,7 +292,7 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
 
     @sc.template(id="test.quantum.call-template", kind="x_count")
     def experiment(context: sc.ExperimentContext) -> None:
-        placed = assert_type(context.run(call), authoring.QuantumProgramCall)
+        placed = assert_type(context.use(call), authoring.QuantumProgramCall)
         context.record(placed.results.iq_shots)
 
     invocation = experiment()
@@ -327,7 +327,7 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
 
     @sc.template(id="test.quantum.multi-result", kind="quantum")
     def experiment(context: sc.ExperimentContext) -> None:
-        context.run(call)
+        context.use(call)
         context.record(
             call.results.first_iq,
             call.results.second_iq,
@@ -395,16 +395,16 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
         def repeated_defaults(  # pyright: ignore[reportUnusedFunction]
             context: sc.ExperimentContext,
         ) -> None:
-            context.run(declaration("q0").with_shots(8))
-            context.run(declaration("q0").with_shots(8))
+            context.use(declaration("q0").with_shots(8))
+            context.use(declaration("q0").with_shots(8))
 
     left = declaration.call("left", "q0").with_shots(8)
     right = declaration.call("right", "q0").with_shots(8)
 
     @sc.template(id="test.quantum.repeated-explicit")
     def repeated_explicit(context: sc.ExperimentContext) -> None:
-        context.run(left)
-        context.run(right)
+        context.use(left)
+        context.use(right)
 
     compile_invocation(repeated_explicit())
     assert left.results.iq.id == "left/iq"
@@ -419,7 +419,7 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
     @sc.module
     def discriminate(module: sc.ModuleContext) -> None:
         call = declaration("q0").with_shots(16)
-        placed = assert_type(module.call(call), authoring.QuantumProgramCall)
+        placed = assert_type(module.use(call), authoring.QuantumProgramCall)
         assert_type(
             binary_iq_probabilities(
                 module,

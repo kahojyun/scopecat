@@ -200,11 +200,11 @@ def test_unused_child_binding_accepts_an_explicit_outer_value() -> None:
 
     @sc.module(id="test.unused-child-root")
     def outer(context: sc.ModuleContext, outer_value: float) -> None:
-        context.call(child.instantiate("unused-child", child_value=outer_value))
+        context.use(child.instantiate("unused-child", child_value=outer_value))
 
     @sc.template(id="test.unused-child", kind="input")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(outer(1.0))
+        experiment.use(outer(1.0))
 
     bind_invocation(template(), config_profile=load_config())
 
@@ -216,7 +216,7 @@ def test_unused_child_expression_binding_accepts_an_explicit_outer_value() -> No
 
     @sc.module(id="test.unused-child-expression-root")
     def outer(context: sc.ModuleContext, outer_value: float) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "unused-child",
                 child_value=outer_value + 1.0,
@@ -225,7 +225,7 @@ def test_unused_child_expression_binding_accepts_an_explicit_outer_value() -> No
 
     @sc.template(id="test.unused-child-expression", kind="input")
     def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(outer(1.0))
+        experiment.use(outer(1.0))
 
     bind_invocation(template(), config_profile=load_config())
 
@@ -238,7 +238,7 @@ def test_scan_point_does_not_implicitly_bind_consumed_module_input() -> None:
 
         @sc.template(id="test.point-input", kind="input")
         def template(experiment: sc.ExperimentContext) -> None:
-            experiment.run(module())
+            experiment.use(module())
             experiment.scan(sc.axis(point, (1.0,)))
 
 

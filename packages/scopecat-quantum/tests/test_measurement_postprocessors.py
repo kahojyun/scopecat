@@ -67,7 +67,7 @@ def test_binary_iq_postprocessor_classifies_one_point(
     @sc.module(id="test.binary-iq.kernel")
     def discriminate(module: sc.ModuleContext) -> BinaryIqProbabilityProducts:
         call = acquire_iq("q0").with_shots(4)
-        module.call(call)
+        module.use(call)
         return assert_type(
             binary_iq_probabilities(
                 module,
@@ -129,7 +129,7 @@ def test_binary_iq_postprocessor_rejects_non_iq_input() -> None:
     @sc.module(id="test.binary-iq.invalid-input")
     def discriminate(module: sc.ModuleContext) -> None:
         call = acquire_iq("q0").with_shots(1)
-        module.call(call)
+        module.use(call)
         binary_iq_probabilities(
             module,
             call.results.iq_shots,
