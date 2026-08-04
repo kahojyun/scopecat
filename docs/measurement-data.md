@@ -103,54 +103,10 @@ Grid axes and explicit point rows cannot be mixed in one experiment because
 they describe two different domain semantics. For an empty explicit domain,
 pass its columns with `experiment.points((), coordinates=(bias, power))`.
 
-Explicit rows are materialized before execution. When the next point depends on
-measurements from an earlier point, use a bounded staged experiment:
-
-```python
-def choose_next(stage):
-    data = stage.run.measurements()
-    candidate = optimizer.ask(data)
-    return None if candidate is None else point_experiment(candidate)
-
-sequence = lab.run_staged(
-    point_experiment(initial_point),
-    next_stage=choose_next,
-    max_stages=20,
-)
-```
-
-Each stage is an ordinary durable run. It uses the same resolved configuration
-snapshot and records typed sequence id, stage index, and predecessor run id in
-both its request and manifest. The callback may inspect the current run and all
-prior runs through `stage.run` and `stage.history`; returning `None` finishes
-naturally, while `max_stages` bounds an optimizer that keeps proposing points.
-Reaching that bound does not call the callback for the final completed stage,
-so a stateful optimizer is not advanced past durable work.
-
-Sequences can be rediscovered after restarting a notebook. Discovery pages
-through run manifests rather than loading every run request:
-
-```python
-sequences = lab.staged_experiments()  # newest sequence first
-sequence = lab.get_staged_experiment(sequences[0].sequence_id)
-
-continued = lab.resume_staged(
-    sequence.sequence_id,
-    next_stage=choose_next,
-    max_stages=10,  # bounds newly executed stages
-)
-```
-
-For a rediscovered sequence, `stopped_by_limit` is `None`: individual runs and
-their lineage are durable, but the earlier notebook loop's stop reason is not.
-
-Resume calls `choose_next` with the latest durable stage before executing new
-work, including the callback deferred when the earlier execution reached
-`max_stages`. Its own limit again defers the callback for its final stage until
-another resume. New stages inherit the latest accepted config snapshot and
-source, ordinary request metadata, and operator. Resuming requires the latest
-run to have completed successfully. This workflow deliberately favors
-notebook-driven adaptive work over a hidden intra-run control loop.
+Explicit rows are materialized before execution. When each new point depends on
+earlier measurements, use a bounded, resumable
+[staged experiment](adaptive-experiments.md) instead of a hidden intra-run
+control loop.
 
 The schema records whether the domain is a `product_grid` or `point_cloud`.
 Consumers should use that semantic layout instead of trying to infer a grid
@@ -171,14 +127,8 @@ is allowed to vary. Use `axis(size=1024)` for a fixed extent or a state field
 such as `axis(size="points")` when configuration determines one fixed extent.
 
 Ragged arrays retain an explicit point-local shape and are never padded with
-sentinel values. Durable Arrow IPC chunks give every measurement variable its
-own schema-derived column: fixed arrays use nested fixed-size lists, ragged
-arrays use nested large lists with a shape sidecar, and complex elements are
-`{real, imag}` structs. Unavailability, metadata, and acquisition evidence use
-explicit sidecar columns; dtype, unit, and dimensions live once in the registered
-header instead of being repeated in every row. Each Xarray snapshot uses an
-indexed observation dimension with parent-point and local-index coordinates,
-making the flattening explicit and reversible.
+sentinel values. Their Xarray observation dimension carries parent-point and
+local-index coordinates, so flattening remains explicit and reversible.
 Pandas point layout keeps each array in one cell; `layout="long"` emits one row
 per local sample.
 
@@ -292,19 +242,10 @@ the affected observations, while the existing `<variable>__unavailable_reason`
 retains the point-level reason. This makes integer, boolean, and string fill
 values unambiguous.
 
-Durable measurement models are deeply immutable: nested metadata and mappings
-are frozen, and arrays use immutable byte buffers whose write flag cannot be
-re-enabled. The facade can therefore share `raw`, `schema`, `records`, variable
-definitions, and raw values without copying them. Each `data.xarray` or
-`to_xarray()` result remains a deep copy of the cached snapshot, so caller edits
-cannot pollute wrapper selections or later exports. Arrow column types come from
-the declared variable dtype and dimensions, so empty datasets and entirely
-unavailable columns retain numeric, complex, and nested-list types instead of
-degrading to Arrow `null`. Dataset attrs retain entry provenance; schema and
-dataset metadata use the stable JSON-string attrs `scopecat_schema_json` and
-`scopecat_metadata_json`. Variable metadata uses the same
-`scopecat_metadata_json` name on each DataArray, keeping nested metadata
-NetCDF-safe.
+Durable measurement values and metadata are deeply immutable. Each
+`data.xarray` or `to_xarray()` result is an independent snapshot, so caller
+edits cannot affect later selections or exports. Empty and entirely unavailable
+columns still retain their declared Arrow types.
 
 ## Let the GUI use experiment knowledge
 
@@ -332,20 +273,11 @@ or opaque fixed-axis values remain selectable by their authored index. Axes with
 more than 256 values use a one-based index input instead of rendering thousands
 of browser options.
 
-Automatic product-grid plots request only the selected slice and only the
-coordinate/observable variables needed for heatmaps. The paged table and raw
-view remain an independent run-wide browser, clearly labeled as such. Trace
-previews independently request bounded numeric series for the selected authored
-domain instead of depending on whichever table pages happen to be loaded. Later
-table pages omit the already-cached schema, and slice responses do not repeat it
-unless explicitly requested. A requested heatmap slice is still validated
-before rendering: it must contain exactly one cell for every x/y pair, with no
-missing or duplicate coordinates. Incomplete live data is labeled as incomplete
-instead of presenting a misleading surface. Automatic slice plots are bounded
-to 4,096 points; trace previews are separately bounded to 32 series and 4,096
-plotted samples, with min/max bucket downsampling that preserves endpoints and
-narrow extrema. Larger data remains available through notebook batch reads.
-Complex heatmaps offer
+Automatic product-grid plots load only the selected slice. Heatmaps require
+exactly one value for every x/y cell; incomplete live data is labeled instead
+of being presented as a complete surface. Automatic slices are bounded to 4,096
+points, while trace previews are bounded to 32 series and 4,096 plotted samples.
+Larger data remains available through notebook batch reads. Complex heatmaps offer
 magnitude, phase, real, and imaginary color modes. When several safe views
 exist, the GUI lists every candidate in a selector instead of silently
 truncating them. Shapes that do not have a safe automatic visual remain in the
@@ -353,24 +285,11 @@ typed table, with raw records available as a secondary expandable view. This
 keeps automatic plotting useful without pretending that every tensor has one
 obvious chart.
 
-The daemon trace-preview query returns numeric `x`/`y` series rather than raw
-measurement records. It selects one recording group or observable, optionally
-fixes authored product-grid axes by index, applies the requested `value_mode`,
-and enforces both the series count and total returned-sample budget before
-serialization. Complex values accept magnitude, phase, real, or imaginary;
-real observables use `value`. The response reports that same effective
-`value_mode`; when omitted, the daemon selects magnitude for complex values and
-value for real values. Its
-`selected_series_count` is the authored domain-selection size; live or
-unavailable points need not produce a returned series. The daemon continues
-through that selection until it has the requested number of usable series or
-the selection is exhausted. Durable measurement
-appends are single-batch Arrow IPC files. Page and point-selection reads apply
-Arrow `slice` or `take` and select requested variable columns before rebuilding
-public measurement records, so unselected rows and variables are not
-materialized as Pydantic objects. The content-addressed object store still
-verifies and reads each intersecting chunk as one immutable file, so the response
-bound is not a byte-range I/O guarantee.
+Trace previews select one recording group or observable and may fix authored
+product-grid axes by index. Complex values support magnitude, phase, real, and
+imaginary modes; real values use their direct value. Unavailable points are
+skipped until the requested number of usable series is reached or the selection
+is exhausted.
 
 ## Save analysis results as typed views
 
