@@ -104,6 +104,7 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
     project_instrument_state,
     resolve_interactive_collect,
+    state_assignment_satisfied,
     validate_collect_command,
     validate_collect_plan,
     validate_invoke_command,
@@ -133,7 +134,6 @@ from .instrument_command_executor import (
     execute_instrument_collect,
     execute_instrument_invoke,
     observe_instrument,
-    state_assignment_satisfied,
 )
 from .payload_service import CommandPayloadService
 

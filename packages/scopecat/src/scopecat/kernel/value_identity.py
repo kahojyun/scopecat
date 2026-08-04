@@ -7,6 +7,8 @@ quantity unit normalization without importing one another.
 
 from __future__ import annotations
 
+import math
+
 from scopecat.kernel.entity import (
     EntityRef,
     entity_identity,
@@ -65,3 +67,24 @@ def quantity_comparison_values(
         return left.value, right.value
     msg = f"cannot compare quantity units {left.unit!r} and {right.unit!r}"
     raise ValueError(msg)
+
+
+def scalar_values_equal(left: object, right: object) -> bool:
+    """Compare closed scalar values with unit-conversion noise removed.
+
+    Quantity tolerance here is deliberately limited to floating-point
+    representation error. Instrument-specific resolution remains a separate
+    contract rather than becoming part of scalar identity.
+    """
+
+    if isinstance(left, Quantity) or isinstance(right, Quantity):
+        if not isinstance(left, Quantity) or not isinstance(right, Quantity):
+            return False
+        left_value, right_value = quantity_comparison_values(left, right)
+        return math.isclose(
+            left_value,
+            right_value,
+            rel_tol=1.0e-12,
+            abs_tol=0.0,
+        )
+    return scalar_identity(left) == scalar_identity(right)

@@ -94,6 +94,10 @@ def test_runtime_key_equality_normalizes_quantity_units_symmetrically() -> None:
 
     assert runtime_values_equal(tiny_ghz, tiny_hz)
     assert runtime_values_equal(tiny_hz, tiny_ghz)
+    assert runtime_values_equal(
+        sc.Quantity(100.0, "uA"),
+        sc.Quantity(0.0001, "A"),
+    )
 
 
 def test_runtime_key_equality_uses_stable_entity_identity() -> None:

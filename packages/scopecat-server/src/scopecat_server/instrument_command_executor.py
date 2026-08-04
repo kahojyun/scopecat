@@ -6,11 +6,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 from scopecat.kernel.problems import Problem
-from scopecat.kernel.value_identity import scalar_identity
-from scopecat.records.instrument import (
-    InstrumentStateSnapshot,
-    property_target_identity,
-)
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
@@ -24,6 +20,7 @@ from scopecat.sdk.instruments.commands import (
     InvokeReceipt,
 )
 from scopecat.sdk.instruments.contracts import (
+    state_assignment_satisfied,
     validate_collect_receipt,
     validate_state_snapshot,
 )
@@ -189,30 +186,3 @@ def _confirmed_applied_state(
     ):
         raise BackendConflict("instrument apply readback did not match requested state")
     return state
-
-
-def state_assignment_satisfied(
-    state: InstrumentStateSnapshot,
-    assignment: InstrumentStateAssignment,
-) -> bool:
-    identity = property_target_identity(
-        assignment.interface_id,
-        assignment.component_path,
-        assignment.property_id,
-    )
-    actual = next(
-        (
-            item.value
-            for item in state.properties
-            if property_target_identity(
-                item.interface_id,
-                item.component_path,
-                item.property_id,
-            )
-            == identity
-        ),
-        None,
-    )
-    return actual is not None and (
-        scalar_identity(actual.root) == scalar_identity(assignment.value.root)
-    )

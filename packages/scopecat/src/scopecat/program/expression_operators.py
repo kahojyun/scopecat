@@ -17,7 +17,10 @@ from scopecat.kernel.entity import (
 )
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.units import compatible_units, unit_kind
-from scopecat.kernel.value_identity import quantity_comparison_values
+from scopecat.kernel.value_identity import (
+    quantity_comparison_values,
+    scalar_values_equal,
+)
 from scopecat.kernel.value_types import (
     AtomType,
     Float,
@@ -98,8 +101,11 @@ def runtime_values_equal(left: object, right: object) -> bool:
     if isinstance(left, QuantityValue) or isinstance(right, QuantityValue):
         if not isinstance(left, QuantityValue) or not isinstance(right, QuantityValue):
             raise _unsupported_runtime_equality(left, right)
-        left_value, right_value = _quantity_comparison_values(left, right)
-        return left_value == right_value
+        try:
+            return scalar_values_equal(left, right)
+        except ValueError as error:
+            msg = f"cannot compare quantity units {left.unit!r} and {right.unit!r}"
+            raise TypeError(msg) from error
     if isinstance(left, EntityRef) or isinstance(right, EntityRef):
         if not isinstance(left, EntityRef) or not isinstance(right, EntityRef):
             raise _unsupported_runtime_equality(left, right)
