@@ -21,7 +21,7 @@ from pydantic import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units
 from scopecat.records._run_request_values import (
-    _DurableRunRequestModel,
+    DurableRunRequestModel,
     normalize_json_value,
     normalize_run_request_value,
 )
@@ -39,7 +39,7 @@ type RunRequestJsonValue = Annotated[
 ]
 
 
-class _RunRequestModel(_DurableRunRequestModel):
+class _RunRequestModel(DurableRunRequestModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
