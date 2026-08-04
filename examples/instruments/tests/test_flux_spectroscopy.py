@@ -33,6 +33,8 @@ from instrument_demo.configuration import (
 from instrument_demo.provider import FLUX_SOURCE_ID, InstrumentDemoProvider
 from instrument_demo.workflows.flux_spectroscopy import (
     BIAS_POINTS,
+    BIAS_START,
+    BIAS_STOP,
     FREQUENCY_RECORD_ID,
     S_PARAMETER_RECORD_ID,
     TEMPERATURE_RECORD_ID,
@@ -132,6 +134,8 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
 
     assert preview.point_count == BIAS_POINTS
     assert preview.coordinate_ids == ("dc_bias",)
+    assert preview.points[0].coordinates["dc_bias"] == BIAS_START
+    assert preview.points[-1].coordinates["dc_bias"] == BIAS_STOP
     assert preview.primary_observables == (
         S_PARAMETER_RECORD_ID,
         TEMPERATURE_RECORD_ID,

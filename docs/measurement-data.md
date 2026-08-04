@@ -31,9 +31,45 @@ A product grid is appropriate when independent axes should form a Cartesian
 scan:
 
 ```python
-experiment.scan(sc.axis(bias, (-0.2, 0.0, 0.2)))
-experiment.scan(sc.axis(power, (-30.0, -20.0)))
+import numpy as np
+
+bias = sc.coordinate(
+    "bias",
+    sc.ScalarType(sc.QuantityType(unit="V")),
+)
+power = sc.coordinate(
+    "source_power",
+    sc.ScalarType(sc.QuantityType(unit="dBm")),
+)
+
+experiment.scan(
+    sc.axis(bias, (-0.2, 0.0, 0.2), unit="V"),
+    sc.axis(power, np.linspace(-30.0, -20.0, 21), unit="dBm"),
+)
 ```
+
+For generated axes, choose either inclusive start and stop coordinates or a
+center and full coordinate width:
+
+```python
+start_stop_power = sc.axis(
+    power,
+    start=sc.Quantity(-30.0, "dBm"),
+    stop=sc.Quantity(-10.0, "dBm"),
+    points=41,
+)
+centered_power = sc.axis(
+    power,
+    center=sc.Quantity(-20.0, "dBm"),
+    span=sc.Quantity(6.0, "dBm"),
+    points=13,
+)
+```
+
+Both generated forms include their endpoints and space coordinates evenly in
+the selected coordinate unit. A dBm axis stays in dBm rather than being
+converted to W. In the centered form, `span` is the full coordinate width, so
+the example above runs from -23 dBm through -17 dBm.
 
 Use explicit rows when points are correlated, sparse, duplicated, or otherwise
 do not form a rectangular product:
@@ -41,10 +77,22 @@ do not form a rectangular product:
 ```python
 experiment.points(
     (
-        {bias: -0.20, power: -30.0},
-        {bias: -0.05, power: -24.0},
-        {bias: -0.05, power: -24.0},  # repeated measurements are valid
-        {bias: 0.18, power: -17.0},
+        {
+            bias: sc.Quantity(-0.20, "V"),
+            power: sc.Quantity(-30.0, "dBm"),
+        },
+        {
+            bias: sc.Quantity(-0.05, "V"),
+            power: sc.Quantity(-24.0, "dBm"),
+        },
+        {  # repeated measurements are valid
+            bias: sc.Quantity(-0.05, "V"),
+            power: sc.Quantity(-24.0, "dBm"),
+        },
+        {
+            bias: sc.Quantity(0.18, "V"),
+            power: sc.Quantity(-17.0, "dBm"),
+        },
     )
 )
 ```

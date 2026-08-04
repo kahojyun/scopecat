@@ -48,12 +48,13 @@ uv run python examples/instruments/notebooks/02_flux_spectroscopy.py
 ```
 
 It builds one invocation, previews it with `lab.preview(invocation)`, and runs
-it with `lab.run(invocation, ...)`. The experiment scans eleven DC-bias points
-and stores a VNA frequency axis, complex S21 trace, and mixing-chamber
-temperature at every point. Its NumPy/SciPy analysis performs a robust nonlinear
-fit of the complex S21 notch, including the cable phase slope, to extract the
-resonance frequency and loaded linewidth. It saves typed fit tables with the
-complex residual, embeds a resonance-versus-flux plot, and creates a reviewable
+it with `lab.run(invocation, ...)`. The experiment scans eleven evenly spaced
+DC-bias points from -0.25 V through +0.25 V, including both endpoints, and
+stores a VNA frequency axis, complex S21 trace, and mixing-chamber temperature
+at every point. Its NumPy/SciPy analysis performs a robust nonlinear fit of the
+complex S21 notch, including the cable phase slope, to extract the resonance
+frequency and loaded linewidth. It saves typed fit tables with the complex
+residual, embeds a resonance-versus-flux plot, and creates a reviewable
 configuration proposal for
 `readout_resonance_frequency` and `readout_resonator_linewidth`. The notebook
 does not accept that proposal automatically.
