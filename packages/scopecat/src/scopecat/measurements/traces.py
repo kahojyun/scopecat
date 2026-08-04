@@ -7,6 +7,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, cast
 
+import numpy as np
+from numpy.typing import NDArray
+
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDataset,
@@ -18,6 +21,8 @@ from scopecat.records.measurement import (
 
 type TraceCoordinate = int | float
 type TraceSample = int | float | complex
+type TraceCoordinateArray = NDArray[np.int64] | NDArray[np.float64]
+type TraceSampleArray = NDArray[np.int64] | NDArray[np.float64] | NDArray[np.complex128]
 type TraceValueMode = Literal["value", "magnitude", "phase", "real", "imag"]
 type TraceDownsampling = Literal["even"]
 
@@ -36,8 +41,8 @@ class Trace:
     observable_label: str | None
     coordinate_unit: str | None
     observable_unit: str | None
-    x: tuple[TraceCoordinate, ...]
-    y: tuple[TraceSample, ...]
+    x: TraceCoordinateArray
+    y: TraceSampleArray
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,7 +146,7 @@ def project_measurement_trace_preview(
             observable_variable,
             skip_unavailable=True,
         )
-        if trace.y
+        if trace.y.size > 0
     )
     if observable_variable.dtype == "complex128":
         actual_mode: TraceValueMode = value_mode or "magnitude"
@@ -299,8 +304,20 @@ def _project_trace(
         point_index=trace.point_index,
         logical_point_id=trace.logical_point_id,
         label=trace.logical_point_id or f"Point {trace.point_index}",
-        x=tuple(trace.x[index] for index in indices),
-        y=tuple(_project_sample(trace.y[index], value_mode) for index in indices),
+        x=tuple(
+            _native_coordinate(cast("np.integer | np.floating", trace.x[index]))
+            for index in indices
+        ),
+        y=tuple(
+            _project_sample(
+                cast(
+                    "np.integer | np.floating | np.complexfloating",
+                    trace.y[index],
+                ),
+                value_mode,
+            )
+            for index in indices
+        ),
         source_sample_count=len(trace.y),
     )
 
@@ -311,7 +328,20 @@ def _even_sample_indices(size: int, limit: int) -> tuple[int, ...]:
     return tuple(round(index * (size - 1) / (limit - 1)) for index in range(limit))
 
 
-def _project_sample(sample: TraceSample, mode: TraceValueMode) -> float:
+def _native_coordinate(value: np.integer | np.floating) -> TraceCoordinate:
+    return int(value) if isinstance(value, np.integer) else float(value)
+
+
+def _project_sample(
+    sample: TraceSample | np.integer | np.floating | np.complexfloating,
+    mode: TraceValueMode,
+) -> float:
+    if isinstance(sample, np.integer):
+        sample = int(sample)
+    elif isinstance(sample, np.floating):
+        sample = float(sample)
+    elif isinstance(sample, np.complexfloating):
+        sample = complex(sample)
     if mode == "value":
         if isinstance(sample, complex):
             raise ValueError("complex trace samples require an explicit display mode")
@@ -429,18 +459,18 @@ def _require_variable(
         ) from error
 
 
-def _coordinate_values(value: MeasurementArray) -> tuple[TraceCoordinate, ...]:
+def _coordinate_values(value: MeasurementArray) -> TraceCoordinateArray:
     if value.dtype == "int64":
-        return tuple(cast("list[int]", value.values.tolist()))
-    return tuple(cast("list[float]", value.values.tolist()))
+        return cast("NDArray[np.int64]", value.values)
+    return cast("NDArray[np.float64]", value.values)
 
 
-def _sample_values(value: MeasurementArray) -> tuple[TraceSample, ...]:
+def _sample_values(value: MeasurementArray) -> TraceSampleArray:
     if value.dtype == "complex128":
-        return tuple(cast("list[complex]", value.values.tolist()))
+        return cast("NDArray[np.complex128]", value.values)
     if value.dtype == "int64":
-        return tuple(cast("list[int]", value.values.tolist()))
-    return tuple(cast("list[float]", value.values.tolist()))
+        return cast("NDArray[np.int64]", value.values)
+    return cast("NDArray[np.float64]", value.values)
 
 
 __all__ = ["Trace"]

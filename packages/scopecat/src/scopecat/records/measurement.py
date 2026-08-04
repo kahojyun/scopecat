@@ -23,12 +23,16 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    GetJsonSchemaHandler,
+    TypeAdapter,
     ValidationInfo,
     WithJsonSchema,
     field_serializer,
     field_validator,
     model_validator,
 )
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema
 
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.records._metadata import JsonMetadata
@@ -47,9 +51,44 @@ MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 type MeasurementArrayElement = (
     np.bool_ | np.int64 | np.float64 | np.complex128 | np.str_
 )
+
+type MeasurementComplexJson = Annotated[
+    dict[str, float],
+    WithJsonSchema(
+        {
+            "type": "object",
+            "properties": {
+                "real": {"type": "number"},
+                "imag": {"type": "number"},
+            },
+            "required": ["real", "imag"],
+            "additionalProperties": False,
+        }
+    ),
+]
+type MeasurementArrayJsonLeaf = bool | int | float | str | MeasurementComplexJson
+type MeasurementArrayJsonItem = (
+    MeasurementArrayJsonLeaf | list[MeasurementArrayJsonItem]
+)
+type MeasurementArrayJson = list[MeasurementArrayJsonItem]
+
+_MEASUREMENT_ARRAY_JSON_CORE_SCHEMA = TypeAdapter(MeasurementArrayJson).core_schema
+_MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
+
+
+class _MeasurementArrayJsonSchema:
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls,
+        _core_schema: CoreSchema,
+        handler: GetJsonSchemaHandler,
+    ) -> JsonSchemaValue:
+        return handler(_MEASUREMENT_ARRAY_JSON_CORE_SCHEMA)
+
+
 MeasurementArrayData = Annotated[
     NDArray[MeasurementArrayElement],
-    WithJsonSchema({"type": "array", "items": {}, "title": "Values"}),
+    _MeasurementArrayJsonSchema,
 ]
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
@@ -373,24 +412,49 @@ class MeasurementArray(BaseModel):
     def create(
         cls,
         *,
-        shape: Sequence[int],
         values: object,
+        shape: Sequence[int] | None = None,
         dtype: MeasurementDType = "float64",
         unit: str | None = None,
         metadata: JsonMetadata | None = None,
     ) -> Self:
         """Construct an array while keeping the wire discriminator required."""
 
+        data: dict[str, object] = {
+            "kind": "array",
+            "dtype": dtype,
+            "unit": unit,
+            "values": values,
+            "metadata": {} if metadata is None else metadata,
+        }
+        if shape is not None:
+            data["shape"] = shape
         return cls.model_validate(
-            {
-                "kind": "array",
-                "dtype": dtype,
-                "unit": unit,
-                "shape": shape,
-                "values": values,
-                "metadata": {} if metadata is None else metadata,
-            }
+            data,
+            context=_MEASUREMENT_ARRAY_CREATE_CONTEXT,
         )
+
+    @model_validator(mode="before")
+    @classmethod
+    def prepare_create_values(
+        cls,
+        value: object,
+        info: ValidationInfo,
+    ) -> object:
+        if info.context is not _MEASUREMENT_ARRAY_CREATE_CONTEXT:
+            return value
+        data = dict(cast("Mapping[str, object]", value))
+        raw_dtype = data.get("dtype", "float64")
+        dtype = cast(
+            "MeasurementDType",
+            raw_dtype
+            if raw_dtype in {"float64", "int64", "complex128", "bool", "string"}
+            else "float64",
+        )
+        selected = _measurement_ndarray(data["values"], dtype=dtype)
+        data.setdefault("shape", selected.shape)
+        data["values"] = selected
+        return data
 
     @field_validator("unit")
     @classmethod
@@ -418,7 +482,11 @@ class MeasurementArray(BaseModel):
             if raw_dtype in {"float64", "int64", "complex128", "bool", "string"}
             else "float64",
         )
-        selected = _measurement_ndarray(value, dtype=dtype)
+        selected = (
+            cast("MeasurementArrayData", value)
+            if info.context is _MEASUREMENT_ARRAY_CREATE_CONTEXT
+            else _measurement_ndarray(value, dtype=dtype)
+        )
         expected_shape = cast("object", info.data.get("shape"))
         if (
             selected.size == 0

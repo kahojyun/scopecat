@@ -90,15 +90,58 @@ def test_measurement_values_round_trip_through_one_record() -> None:
 def test_measurement_array_owns_a_contiguous_read_only_numpy_copy() -> None:
     source = np.arange(6, dtype=np.float64).reshape(3, 2).T
 
-    value = MeasurementArray.create(shape=(2, 3), values=source)
+    value = MeasurementArray.create(values=source)
     source[0, 0] = 99.0
 
+    assert value.shape == (2, 3)
     assert value.values.dtype == np.dtype(np.float64)
     assert value.values.flags.c_contiguous
     assert not value.values.flags.writeable
     assert value.values[0, 0] == 0.0
     with pytest.raises(ValueError, match="read-only"):
         value.values[0, 0] = 1.0
+
+
+def test_measurement_array_explicit_shape_remains_a_wire_contract() -> None:
+    with pytest.raises(ValidationError, match="Field required"):
+        MeasurementArray.model_validate(
+            {
+                "kind": "array",
+                "dtype": "float64",
+                "values": [[1.0, 2.0]],
+            }
+        )
+    with pytest.raises(ValidationError, match="does not match"):
+        MeasurementArray.create(shape=(3,), values=[1.0, 2.0])
+
+
+def test_measurement_array_schema_exposes_recursive_typed_json_values() -> None:
+    schema = MeasurementArray.model_json_schema(mode="serialization")
+
+    assert schema["properties"]["values"] == {"$ref": "#/$defs/MeasurementArrayJson"}
+    assert schema["$defs"]["MeasurementArrayJson"] == {
+        "items": {"$ref": "#/$defs/MeasurementArrayJsonItem"},
+        "type": "array",
+    }
+    item_options = schema["$defs"]["MeasurementArrayJsonItem"]["anyOf"]
+    assert {option.get("type") for option in item_options} == {None, "array"}
+    leaf_options = schema["$defs"]["MeasurementArrayJsonLeaf"]["anyOf"]
+    assert {option.get("type") for option in leaf_options} == {
+        None,
+        "boolean",
+        "integer",
+        "number",
+        "string",
+    }
+    assert schema["$defs"]["MeasurementComplexJson"] == {
+        "additionalProperties": False,
+        "properties": {
+            "real": {"type": "number"},
+            "imag": {"type": "number"},
+        },
+        "required": ["real", "imag"],
+        "type": "object",
+    }
 
 
 def test_instrument_acquisition_evidence_requires_an_aware_ordered_interval() -> None:

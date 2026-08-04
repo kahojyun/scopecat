@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 
 from scopecat.measurements.results import validate_measurement_records_against_schema
@@ -33,12 +34,23 @@ def test_trace_view_selects_one_shared_point_local_dimension() -> None:
     assert traces[0].observable_label == "S21"
     assert traces[0].coordinate_unit == "Hz"
     assert traces[0].observable_unit == "ratio"
-    assert traces[0].x == (4.9e9, 5.0e9, 5.1e9)
-    assert traces[0].y == (
-        complex(1.0, 0.0),
-        complex(0.2, -0.1),
-        complex(0.9, 0.1),
+    np.testing.assert_array_equal(
+        traces[0].x,
+        np.array([4.9e9, 5.0e9, 5.1e9], dtype=np.float64),
     )
+    np.testing.assert_array_equal(
+        traces[0].y,
+        np.array(
+            [
+                complex(1.0, 0.0),
+                complex(0.2, -0.1),
+                complex(0.9, 0.1),
+            ],
+            dtype=np.complex128,
+        ),
+    )
+    assert not traces[0].x.flags.writeable
+    assert not traces[0].y.flags.writeable
 
 
 def test_trace_view_infers_the_coordinate_for_one_selected_observable() -> None:

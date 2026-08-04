@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol, SupportsFloat, cast
 
 import numpy as np
 import scopecat as sc
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 from scipy.optimize import least_squares  # pyright: ignore[reportUnknownVariableType]
 from scopecat.measurements.results import Dataset, Trace, Variable
 
@@ -67,8 +66,8 @@ class _LeastSquaresResult(Protocol):
 
 
 def fit_resonator_trace(
-    frequencies_hz: Sequence[float],
-    samples: Sequence[complex],
+    frequencies_hz: ArrayLike,
+    samples: ArrayLike,
     *,
     dc_bias: sc.Quantity,
     temperature: sc.Quantity,
@@ -319,8 +318,8 @@ def _fit_point(
     temperature: Variable,
 ) -> ResonatorTraceFit:
     return fit_resonator_trace(
-        tuple(float(value) for value in trace.x),
-        tuple(complex(value) for value in trace.y),
+        trace.x,
+        trace.y,
         dc_bias=_variable_quantity(dc_bias, dc_bias_value, "dc_bias"),
         temperature=_variable_quantity(
             temperature,

@@ -226,7 +226,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert traces[0].coordinate_unit == "Hz"
     assert traces[0].observable_unit == "ratio"
     assert len(traces[0].x) == TRACE_POINTS
-    assert all(isinstance(sample, complex) for sample in traces[0].y)
+    assert np.iscomplexobj(traces[0].y)
 
     fits = fit_flux_spectroscopy(run.measurements())
     sweet_spot = max(

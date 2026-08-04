@@ -2010,8 +2010,14 @@ export interface components {
             shape: number[];
             /** Unit */
             unit?: string | null;
-            /** Values */
-            values: unknown[];
+            values: components["schemas"]["MeasurementArrayJson-Output"];
+        };
+        "MeasurementArrayJson-Output": components["schemas"]["MeasurementArrayJsonItem-Output"][];
+        "MeasurementArrayJsonItem-Output": components["schemas"]["MeasurementArrayJsonLeaf"] | components["schemas"]["MeasurementArrayJsonItem-Output"][];
+        MeasurementArrayJsonLeaf: boolean | number | string | components["schemas"]["MeasurementComplexJson"];
+        MeasurementComplexJson: {
+            imag: number;
+            real: number;
         };
         /** MeasurementDataset */
         MeasurementDataset: {
