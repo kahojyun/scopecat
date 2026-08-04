@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { HeatmapChart, LineChart, ScatterChart } from "echarts/charts";
+import { CustomChart, LineChart, ScatterChart } from "echarts/charts";
 import {
   DataZoomInsideComponent,
   GridComponent,
@@ -11,9 +11,9 @@ import { init, use, type EChartsCoreOption } from "echarts/core";
 import { SVGRenderer } from "echarts/renderers";
 
 use([
+  CustomChart,
   DataZoomInsideComponent,
   GridComponent,
-  HeatmapChart,
   LegendScrollComponent,
   LineChart,
   ScatterChart,

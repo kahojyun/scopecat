@@ -3,8 +3,9 @@ import { LoaderCircle } from "lucide-react";
 import type { MeasurementTracePreview } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
 import type { MeasurementPreview, MeasurementSlicePreview } from "../../types";
-import { EChart, ECHARTS_SERIES_COLORS, type EChartsCoreOption } from "../../ui/EChart";
+import { EChart } from "../../ui/EChart";
 import { classes, secondaryButton } from "../../ui/styles";
+import { measurementChartOption } from "./chart-options";
 import {
   measurementTable,
   measurementSlicePlan,
@@ -403,168 +404,15 @@ function MeasurementChart({ chart }: { chart: MeasurementChartPlan }) {
       </figcaption>
       <EChart
         ariaLabel={accessibleTitle}
-        chartKind={chart.kind}
         height={chart.colorLabel ? 270 : 240}
         option={option}
         pointCount={points.length}
         seriesLabels={chart.series.map((series) => series.label)}
         seriesCount={chart.series.length}
-        testId="measurement-echart"
       />
       {chart.note && <p className="mt-1.5 mb-0 text-[0.56rem] text-text-dim">{chart.note}</p>}
     </figure>
   );
-}
-
-function measurementChartOption(chart: MeasurementChartPlan): EChartsCoreOption {
-  const heatmap = chart.kind === "heatmap";
-  const points = chart.series.flatMap((series) => series.points);
-  const colorValues = points.flatMap((point) => (point.color === undefined ? [] : [point.color]));
-  const colorExtent = colorValues.length > 0 ? rawExtent(colorValues) : undefined;
-  const multipleSeries = chart.series.length > 1;
-  const valueAxis = (name: string) => ({
-    axisLabel: { color: "#818b94", formatter: numericAxisLabel },
-    axisLine: { lineStyle: { color: "#3b444d" } },
-    axisPointer: { label: { formatter: numericAxisPointerLabel } },
-    name,
-    nameGap: 34,
-    nameLocation: "middle" as const,
-    nameTextStyle: { color: "#818b94", fontSize: 10 },
-    scale: true,
-    splitLine: { lineStyle: { color: "#2b3137" } },
-    type: "value" as const,
-  });
-
-  return {
-    animation: false,
-    color: ECHARTS_SERIES_COLORS,
-    dataZoom: heatmap
-      ? undefined
-      : [
-          {
-            filterMode: "none",
-            moveOnMouseWheel: false,
-            type: "inside",
-            xAxisIndex: 0,
-            zoomOnMouseWheel: "shift",
-          },
-          {
-            filterMode: "none",
-            moveOnMouseWheel: false,
-            type: "inside",
-            yAxisIndex: 0,
-            zoomOnMouseWheel: "shift",
-          },
-        ],
-    grid: {
-      bottom: colorExtent ? 82 : 50,
-      left: 64,
-      right: 20,
-      top: multipleSeries ? 42 : 16,
-    },
-    legend: multipleSeries
-      ? {
-          data: chart.series.map((series) => series.label),
-          itemHeight: 8,
-          itemWidth: 12,
-          pageTextStyle: { color: "#818b94" },
-          textStyle: { color: "#818b94", fontSize: 10 },
-          top: 0,
-          type: "scroll",
-        }
-      : { show: false },
-    series: chart.series.map((series, seriesIndex) => {
-      const color = ECHARTS_SERIES_COLORS[seriesIndex % ECHARTS_SERIES_COLORS.length];
-      if (chart.kind === "heatmap") {
-        return {
-          data: series.points.flatMap((point) => {
-            const xIndex = chart.grid.xValues.indexOf(point.x);
-            const yIndex = chart.grid.yValues.indexOf(point.y);
-            return point.color === undefined || xIndex < 0 || yIndex < 0
-              ? []
-              : [[xIndex, yIndex, point.color]];
-          }),
-          emphasis: { itemStyle: { borderColor: "#edf0f2", borderWidth: 1 } },
-          id: series.id,
-          itemStyle: { borderColor: "#14181b", borderWidth: 1 },
-          name: series.label,
-          progressive: 2_000,
-          type: "heatmap",
-        };
-      }
-      return {
-        data: series.points.map((point) =>
-          point.color === undefined ? [point.x, point.y] : [point.x, point.y, point.color],
-        ),
-        id: series.id,
-        itemStyle: chart.kind === "color-scatter" ? undefined : { color },
-        lineStyle: { color, width: 2 },
-        name: series.label,
-        showSymbol: true,
-        symbolSize: chart.kind === "line" ? 5 : chart.kind === "color-scatter" ? 8 : 7,
-        type: chart.kind === "line" ? "line" : "scatter",
-      };
-    }),
-    tooltip: {
-      axisPointer: { type: "cross" },
-      confine: true,
-      trigger: chart.kind === "line" ? "axis" : "item",
-    },
-    visualMap:
-      colorExtent && chart.colorLabel
-        ? {
-            calculable: true,
-            bottom: 0,
-            dimension: 2,
-            inRange: { color: ["#7041c8", "#269c78", "#d2b11b"] },
-            left: "center",
-            max: colorExtent[1],
-            min: colorExtent[0],
-            orient: "horizontal",
-            precision: 4,
-            text: [chart.colorLabel, ""],
-            textStyle: { color: "#818b94", fontSize: 9 },
-          }
-        : undefined,
-    xAxis: heatmap
-      ? {
-          axisLabel: { color: "#818b94", formatter: numericCategoryAxisLabel },
-          axisLine: { lineStyle: { color: "#3b444d" } },
-          data: chart.grid.xValues,
-          name: chart.xLabel,
-          nameGap: 34,
-          nameLocation: "middle",
-          nameTextStyle: { color: "#818b94", fontSize: 10 },
-          splitArea: { show: true },
-          type: "category",
-        }
-      : valueAxis(chart.xLabel),
-    yAxis: heatmap
-      ? {
-          axisLabel: { color: "#818b94", formatter: numericCategoryAxisLabel },
-          axisLine: { lineStyle: { color: "#3b444d" } },
-          data: chart.grid.yValues,
-          name: chart.yLabel,
-          nameGap: 48,
-          nameLocation: "middle",
-          nameTextStyle: { color: "#818b94", fontSize: 10 },
-          splitArea: { show: true },
-          type: "category",
-        }
-      : valueAxis(chart.yLabel),
-  };
-}
-
-function numericAxisLabel(value: number): string {
-  return shortNumber(value);
-}
-
-function numericCategoryAxisLabel(value: string | number): string {
-  return shortNumber(typeof value === "number" ? value : Number(value));
-}
-
-function numericAxisPointerLabel({ value }: { value: number }): string {
-  return shortNumber(value);
 }
 
 function chartOptionLabel(chart: MeasurementChartPlan): string {
@@ -604,10 +452,6 @@ function fixedCoordinateValueLabel(
           ? JSON.stringify(value)
           : `${shortNumber(value.real)} ${value.imag < 0 ? "−" : "+"} ${shortNumber(Math.abs(value.imag))}i`;
   return coordinate.disambiguateIndex ? `${rendered} (Index ${coordinate.index! + 1})` : rendered;
-}
-
-function rawExtent(values: number[]): [number, number] {
-  return [Math.min(...values), Math.max(...values)];
 }
 
 function shortNumber(value: number): string {

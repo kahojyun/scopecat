@@ -16,6 +16,8 @@ import {
   traceSeries,
 } from "./measurement-trace.test-support";
 
+vi.mock("../../ui/EChartRuntime", () => ({ EChartRuntime: () => null }));
+
 afterEach(cleanup);
 
 describe("measurement trace visualization", () => {

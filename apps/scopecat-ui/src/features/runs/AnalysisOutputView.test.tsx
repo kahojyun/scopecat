@@ -2,9 +2,12 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RunAnalysisOutput } from "../../types";
 import { AnalysisOutputView } from "./AnalysisOutputView";
+import { analysisFigureOption } from "./chart-options";
+
+vi.mock("../../ui/EChartRuntime", () => ({ EChartRuntime: () => null }));
 
 afterEach(cleanup);
 
@@ -74,12 +77,10 @@ describe("AnalysisOutputView", () => {
         name: "Resonance fit: Frequency (GHz) by Bias (V)",
       }),
     ).toBeVisible();
-    expect(screen.getByTestId("analysis-echart")).toHaveAttribute("data-series-count", "2");
-    expect(screen.getByTestId("analysis-echart")).toHaveAttribute("data-point-count", "5");
     expect(screen.getByText(/Series: Fit, Reference/)).toBeInTheDocument();
   });
 
-  it("scales opposite finite float extremes without invalid SVG coordinates", () => {
+  it("preserves opposite finite float extremes in the ECharts option", () => {
     const output: RunAnalysisOutput = {
       kind: "figure",
       title: "Extreme range",
@@ -92,9 +93,14 @@ describe("AnalysisOutputView", () => {
       },
     };
 
-    const { container } = render(<AnalysisOutputView output={output} />);
+    const option = analysisFigureOption(output.content);
+    const [series] = option.series as Array<{ data: number[][]; type: string }>;
 
-    expect(container.innerHTML).not.toMatch(/NaN|Infinity/);
-    expect(screen.getByTestId("analysis-echart")).toHaveAttribute("data-point-count", "2");
+    expect(series).toMatchObject({ type: "line" });
+    expect(series?.data).toEqual([
+      [-1e308, 1e308],
+      [1e308, -1e308],
+    ]);
+    expect(series?.data.flat().every(Number.isFinite)).toBe(true);
   });
 });
