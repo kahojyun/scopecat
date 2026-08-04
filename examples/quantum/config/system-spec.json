@@ -1,8 +1,8 @@
 {
-  "id": "templates-system",
+  "id": "quantum-demo-system",
   "primary_entity_id": "q0",
   "parameter_catalog": {
-    "id": "templates-parameter-definitions-catalog",
+    "id": "quantum-demo-parameter-definitions-catalog",
     "definitions": [
       {
         "id": "qubits",

@@ -18,7 +18,7 @@ from scopecat.kernel.problems import (
 from tests.testkit.authoring import (
     bind_invocation,
     load_config,
-    simple_template,
+    simple_experiment,
 )
 from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.runtime import check_experiment, sqlite_project_services
@@ -29,12 +29,12 @@ def test_missing_experiment_input_and_unknown_subject_report_stable_problems(
     tmp_path: Path,
 ) -> None:
     config = load_config()
-    missing_subject = simple_template().bind()
+    missing_subject = simple_experiment().bind()
     with pytest.raises(CheckFailed) as missing_error:
         bind_invocation(missing_subject, config_profile=config)
     assert missing_error.value.problems[0].code == ("experiment_missing_input")
 
-    unknown_subject = simple_template().bind(subject="missing")
+    unknown_subject = simple_experiment().bind(subject="missing")
     with pytest.raises(CheckFailed) as subject_error:
         bind_invocation(unknown_subject, config_profile=config)
     assert subject_error.value.problems[0].code == "unknown_authoring_entity"
@@ -44,7 +44,7 @@ def test_unknown_experiment_inputs_are_reported_together_in_stable_order(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(CheckFailed) as error:
-        simple_template().bind(subject="q0").bind(zeta=1, alpha=2)
+        simple_experiment().bind(subject="q0").bind(zeta=1, alpha=2)
 
     problem = error.value.problems[0]
     assert problem.code == "experiment_unknown_input"
@@ -129,7 +129,7 @@ def test_repeated_axis_overrides_use_the_latest_value() -> None:
 def test_authoring_compile_precedes_config_binding(tmp_path: Path) -> None:
     del tmp_path
     with pytest.raises(CheckFailed) as error:
-        compiled = compile_invocation(simple_template().bind())
+        compiled = compile_invocation(simple_experiment().bind())
         bind_program(
             compiled.program,
             build_config_environment(load_config()),
@@ -147,14 +147,14 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
         provider=TestSignalInstrumentProvider(),
     )
     result = check_experiment(
-        simple_template().bind(subject="q0"),
+        simple_experiment().bind(subject="q0"),
         system=composition.system,
         services=sqlite_project_services(tmp_path),
         config=config,
     )
 
     assert result.preview is not None
-    assert result.preview.experiment_id == simple_template().id
+    assert result.preview.experiment_id == simple_experiment().id
 
 
 def _module_consuming_input() -> sc.ExperimentModule[None, ...]:

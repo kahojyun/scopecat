@@ -14,13 +14,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
     # Connecting loads this project's ``src`` tree before workflow imports.
     from instrument_demo.workflows.flux_spectroscopy import (
-        flux_spectroscopy_template,
+        flux_spectroscopy,
     )
     from instrument_demo.workflows.flux_spectroscopy_analysis import (
         flux_spectroscopy_analysis,
     )
 
-    invocation = flux_spectroscopy_template()
+    invocation = flux_spectroscopy()
     preview = lab.preview(invocation)
     run = lab.run(
         invocation,

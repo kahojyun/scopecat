@@ -16,8 +16,8 @@ from quantum_lab_demo.workflows.drag_beta_calibration import (
     drag_readout_pulse,
 )
 
-PRODUCTION_DRAG_GATE_TEMPLATE_ID = "quantum_lab_demo.production.drag_x90"
-PRODUCTION_DRAG_GATE_EXPERIMENT_ID = "production-drag-x90"
+PRODUCTION_DRAG_GATE_ID = "quantum_lab_demo.production.drag_x90"
+PRODUCTION_DRAG_GATE_KIND = "production-drag-x90"
 PRODUCTION_DRAG_GATE_SHOTS = 32
 
 
@@ -53,10 +53,10 @@ def production_drag_program(
 
 
 @sc.experiment(
-    id=PRODUCTION_DRAG_GATE_TEMPLATE_ID,
-    kind=PRODUCTION_DRAG_GATE_EXPERIMENT_ID,
+    id=PRODUCTION_DRAG_GATE_ID,
+    kind=PRODUCTION_DRAG_GATE_KIND,
 )
-def production_drag_template(experiment: sc.ExperimentContext) -> None:
+def production_drag_experiment(experiment: sc.ExperimentContext) -> None:
     author_quantum_experiment(
         experiment,
         production_drag_program(
@@ -67,10 +67,10 @@ def production_drag_template(experiment: sc.ExperimentContext) -> None:
 
 
 __all__ = [
-    "PRODUCTION_DRAG_GATE_EXPERIMENT_ID",
+    "PRODUCTION_DRAG_GATE_ID",
+    "PRODUCTION_DRAG_GATE_KIND",
     "PRODUCTION_DRAG_GATE_SHOTS",
-    "PRODUCTION_DRAG_GATE_TEMPLATE_ID",
+    "production_drag_experiment",
     "production_drag_program",
-    "production_drag_template",
     "production_x90",
 ]

@@ -58,6 +58,7 @@ if TYPE_CHECKING:
         TableType,
         ValueRef,
         ValueType,
+        axis,
         coordinate,
         each,
         experiment,
@@ -66,9 +67,6 @@ if TYPE_CHECKING:
         one,
         parameter,
         parameter_lookup,
-    )
-    from scopecat.authoring.scans import (
-        axis,
     )
     from scopecat.config.parameters import (
         delete_parameter_rows,
@@ -125,7 +123,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "one": ("scopecat.authoring", "one"),
     "parameter": ("scopecat.authoring", "parameter"),
     "parameter_lookup": ("scopecat.authoring", "parameter_lookup"),
-    "axis": ("scopecat.authoring.scans", "axis"),
+    "axis": ("scopecat.authoring", "axis"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
     "PayloadCodec": ("scopecat.sdk.payloads", "PayloadCodec"),
     "PayloadCodecCatalog": ("scopecat.sdk.payloads", "PayloadCodecCatalog"),

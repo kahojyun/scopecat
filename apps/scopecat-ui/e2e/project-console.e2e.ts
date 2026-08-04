@@ -65,7 +65,7 @@ import scopecat as sc
 from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 from quantum_lab_demo.lab import quantum_lab_system
 from quantum_lab_demo.workflows.drag_beta_experiment import (
-    drag_beta_template,
+    drag_beta_experiment,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -104,7 +104,7 @@ with project.connect(build_experiment_system=build_system) as lab:
     original_start = client.start_executor
     original_append = client.append_measurements
     prepared = lab.prepare(
-        drag_beta_template(),
+        drag_beta_experiment(),
         config=config,
     )
 

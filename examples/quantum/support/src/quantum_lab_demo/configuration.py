@@ -29,7 +29,7 @@ def quantum_lab_bootstrap_config(
         (root / "system-spec.json").read_text(encoding="utf-8")
     )
     return snapshot_config_profile(
-        profile_id="templates-profile",
+        profile_id="quantum-demo-profile",
         system=system,
         parameter_snapshot=quantum_lab_parameter_snapshot(),
     )

@@ -12,7 +12,7 @@ from quantum_lab_demo.configuration import (
     quantum_lab_bootstrap_config,
 )
 from quantum_lab_demo.workflows.drag_beta_analysis import drag_beta_analysis
-from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
+from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_experiment
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.config import config_content_hash, instrument_bindings
 from scopecat.sdk.instruments import InstrumentProviderContext
@@ -81,7 +81,9 @@ def test_drag_beta_candidate_accept_and_undo_round_trip_through_shared_daemon(
     demo_daemon: _DemoDaemon,
 ) -> None:
     with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as lab:
-        run = lab.prepare(drag_beta_template()).run(name="DRAG beta daemon round trip")
+        run = lab.prepare(drag_beta_experiment()).run(
+            name="DRAG beta daemon round trip"
+        )
         analysis = run.analyze(drag_beta_analysis())
         saved = analysis.save()
         candidate = analysis.candidate_config()

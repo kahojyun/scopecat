@@ -28,7 +28,7 @@ uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
 
 The file can also be run cell by cell in an editor. It:
 
-1. prepares and runs `drag_beta_template()`;
+1. prepares and runs `drag_beta_experiment()`;
 2. runs `run.analyze(drag_beta_analysis())` against the measurement dataset;
 3. saves table and figure evidence plus one parameter proposal;
 4. runs once with the candidate without changing the default;
@@ -54,7 +54,7 @@ target/compiler contract.
 | Path | Responsibility |
 |---|---|
 | `notebooks/calibration/01_drag_beta.py` | The only user-facing golden workflow. |
-| `support/src/quantum_lab_demo/workflows/drag_beta_experiment.py` | DRAG template and scan definition. |
+| `support/src/quantum_lab_demo/workflows/drag_beta_experiment.py` | DRAG experiment and point-plan definition. |
 | `support/src/quantum_lab_demo/workflows/drag_beta_analysis.py` | Measurement fitting and candidate proposal. |
 | `support/src/quantum_lab_demo/workflows/production_drag_gate.py` | Production use of the accepted parameter. |
 | `support/src/quantum_lab_demo/quantum_runner.py` | Lab-owned program placement, compiler inputs, postprocess, and recording policy. |

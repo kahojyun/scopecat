@@ -11,8 +11,8 @@ from quantum_lab_demo.workflows.drag_beta_calibration import (
     drag_beta_program,
 )
 
-DRAG_BETA_TEMPLATE_ID = "quantum_lab_demo.workflows.drag_beta"
-DRAG_BETA_EXPERIMENT_ID = "drag-beta-calibration"
+DRAG_BETA_ID = "quantum_lab_demo.workflows.drag_beta"
+DRAG_BETA_KIND = "drag-beta-calibration"
 DRAG_BETA_SHOTS = 64
 DRAG_BETA_SPAN = Quantity(1.0, "ns")
 DRAG_BETA_POINTS = 5
@@ -45,10 +45,10 @@ def _drag_beta_experiment_body(
 
 
 @sc.experiment(
-    id=DRAG_BETA_TEMPLATE_ID,
-    kind=DRAG_BETA_EXPERIMENT_ID,
+    id=DRAG_BETA_ID,
+    kind=DRAG_BETA_KIND,
 )
-def drag_beta_template(experiment: sc.ExperimentContext) -> None:
+def drag_beta_experiment(experiment: sc.ExperimentContext) -> None:
     """Scan pulse DRAG beta against gate amplification in one program."""
 
     _drag_beta_experiment_body(
@@ -67,13 +67,13 @@ __all__ = [
     "AMPLIFICATION",
     "BETA",
     "DEFAULT_AMPLIFICATIONS",
-    "DRAG_BETA_EXPERIMENT_ID",
+    "DRAG_BETA_ID",
+    "DRAG_BETA_KIND",
     "DRAG_BETA_POINTS",
     "DRAG_BETA_SHOTS",
     "DRAG_BETA_SPAN",
-    "DRAG_BETA_TEMPLATE_ID",
     "PROBABILITY_0_RECORD_ID",
     "PROBABILITY_1_RECORD_ID",
+    "drag_beta_experiment",
     "drag_beta_program",
-    "drag_beta_template",
 ]

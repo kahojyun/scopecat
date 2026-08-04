@@ -10,8 +10,7 @@ from scopecat.api.run import (
     RunOperations,
     run_handle_id,
 )
-from scopecat.authoring.experiments import Experiment, ExperimentInvocation
-from scopecat.authoring.scans import Axis
+from scopecat.authoring import Axis, Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.execution.interpreter import execute_admitted_run

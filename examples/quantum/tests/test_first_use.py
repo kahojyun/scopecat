@@ -5,7 +5,7 @@ from typing import Protocol
 import scopecat as sc
 from quantum_lab_demo.configuration import EXAMPLE_ROOT
 from quantum_lab_demo.workflows.drag_beta_analysis import drag_beta_analysis
-from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
+from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_experiment
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
     ConfigRegistryRunConfigSource,
@@ -22,7 +22,7 @@ def test_drag_beta_first_use_closes_config_provenance_loop(
     """Exercise run, candidate, accept, history, and undo through one daemon."""
 
     with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as lab:
-        baseline = lab.prepare(drag_beta_template()).run(
+        baseline = lab.prepare(drag_beta_experiment()).run(
             name="first-use smoke",
             tags=("first-use",),
         )
@@ -30,7 +30,7 @@ def test_drag_beta_first_use_closes_config_provenance_loop(
         saved = analysis.save()
         candidate = analysis.candidate_config()
         candidate_run = lab.prepare(
-            drag_beta_template(),
+            drag_beta_experiment(),
             config=candidate,
         ).run(
             name="first-use candidate",
@@ -40,7 +40,7 @@ def test_drag_beta_first_use_closes_config_provenance_loop(
             candidate,
             note="accept the first-use fit",
         )
-        default_run = lab.prepare(drag_beta_template()).run(
+        default_run = lab.prepare(drag_beta_experiment()).run(
             name="first-use accepted default",
             tags=("first-use", "default"),
         )

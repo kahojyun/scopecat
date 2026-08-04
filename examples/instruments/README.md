@@ -48,13 +48,13 @@ uv run python examples/instruments/notebooks/02_flux_spectroscopy.py
 ```
 
 It builds one invocation, previews it with `lab.preview(invocation)`, and runs
-it with `lab.run(invocation, ...)`. The experiment scans eleven evenly spaced
-DC-bias points from -0.25 V through +0.25 V, including both endpoints, and
-stores a VNA frequency axis, complex S21 trace, and mixing-chamber temperature
-at every point. Its NumPy/SciPy analysis performs a robust nonlinear fit of the
-complex S21 notch, including the cable phase slope, to extract the resonance
-frequency and loaded linewidth. It saves typed fit tables with the complex
-residual, embeds a resonance-versus-flux plot, and creates a reviewable
+it with `lab.run(invocation, ...)`. The experiment's point plan covers eleven
+evenly spaced DC-bias values from -0.25 V through +0.25 V, including both
+endpoints, and stores a VNA frequency axis, complex S21 trace, and mixing-chamber
+temperature at every point. Its NumPy/SciPy analysis performs a robust nonlinear
+fit of the complex S21 notch, including the cable phase slope, to extract the
+resonance frequency and loaded linewidth. It saves typed fit tables with the
+complex residual, embeds a resonance-versus-flux plot, and creates a reviewable
 configuration proposal for
 `readout_resonance_frequency` and `readout_resonator_linewidth`. The notebook
 does not accept that proposal automatically.
@@ -63,7 +63,7 @@ The experiment uses typed symbolic clients to declare only the logical resources
 `flux-source`, `mixing-chamber`, and `readout-vna`; interface contracts provide
 the acquisition product schemas automatically. It has no driver, vendor, or
 low-level interface-member imports, so the same experiment can be routed to
-compatible real instruments. After all scan points complete successfully, the
+compatible real instruments. After all points complete successfully, the
 experiment's success state disables the flux output once. The demo provider also
 enforces bias-off during abort, which covers a failure before the success state
 can be applied.

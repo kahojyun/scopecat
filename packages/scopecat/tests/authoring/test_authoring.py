@@ -46,7 +46,7 @@ from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
     bind_invocation,
     load_config,
-    simple_template,
+    simple_experiment,
 )
 from tests.testkit.expressions import evaluate_scalar
 from tests.testkit.materialized_effects import (
@@ -143,11 +143,13 @@ def test_module_invoke_rejects_argument_from_another_operation() -> None:
 
 
 def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
-    template = simple_template()
-    assert template.bind().definition.metadata == {"assembled_by": "template"}
+    experiment_definition = simple_experiment()
+    assert experiment_definition.bind().definition.metadata == {
+        "assembled_by": "experiment"
+    }
 
     resolved = bind_invocation(
-        template.bind(subject="q0"),
+        experiment_definition.bind(subject="q0"),
         config_profile=load_config(),
     )
 

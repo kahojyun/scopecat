@@ -4,8 +4,8 @@ Hardware-independent quantum building blocks for Scopecat.
 
 The package provides logical gates, mixed gate-and-pulse programs,
 implementation binding, and the checked target-compiler boundary. Laboratory
-templates, parameters, wiring, artifacts, runtimes, and response models remain
-in the integrating project.
+experiment definitions, parameters, wiring, artifacts, runtimes, and response
+models remain in the integrating project.
 
 The package root exports the `authoring` facade. Target integrations import
 their contracts from the owning submodules so those boundaries stay explicit.
@@ -66,5 +66,5 @@ rather than becoming the whole experiment. The
 
 Compiler-owned defaults can use the pure row maps in
 `scopecat_quantum.pulse_recipes`. The complete supported example is the
-[DRAG-beta workflow](../../examples/quantum/README.md), including parameter
-scanning, analysis, candidate acceptance, target lowering, and production use.
+[DRAG-beta workflow](../../examples/quantum/README.md), including parameter-axis
+overlays, analysis, candidate acceptance, target lowering, and production use.

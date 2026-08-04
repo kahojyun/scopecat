@@ -5,7 +5,7 @@ from scopecat.compiler.frontend.resolution import compile_invocation
 
 from quantum_lab_demo.quantum_runner import run_quantum
 from quantum_lab_demo.workflows.drag_beta_calibration import drag_beta_program
-from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
+from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_experiment
 
 
 def test_lab_runner_accepts_a_program_call_without_a_wrapper_module() -> None:
@@ -32,7 +32,7 @@ def test_lab_runner_accepts_a_program_call_without_a_wrapper_module() -> None:
     ] == ["binary-iq-probability"]
 
 
-def test_fixed_template_and_structural_runner_share_lab_measurement_policy() -> None:
+def test_fixed_experiment_and_structural_runner_share_lab_measurement_policy() -> None:
     direct = compile_invocation(
         run_quantum(
             drag_beta_program(
@@ -42,7 +42,7 @@ def test_fixed_template_and_structural_runner_share_lab_measurement_policy() -> 
             ).with_shots(7)
         )
     ).program.program
-    fixed = compile_invocation(drag_beta_template()).program.program
+    fixed = compile_invocation(drag_beta_experiment()).program.program
 
     assert [record.record_id for record in direct.product_record_selections] == [
         record.record_id for record in fixed.product_record_selections

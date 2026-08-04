@@ -15,7 +15,7 @@ def quantum_lab_parameter_snapshot() -> ParameterSnapshot:
     """Build the initial scalar and calibration tables reviewed in source."""
 
     return ParameterSnapshot(
-        id="templates-parameter-snapshot",
+        id="quantum-demo-parameter-snapshot",
         values=(
             TableParameterValue(
                 id="qubits",

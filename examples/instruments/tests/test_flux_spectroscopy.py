@@ -39,7 +39,7 @@ from instrument_demo.workflows.flux_spectroscopy import (
     S_PARAMETER_RECORD_ID,
     TEMPERATURE_RECORD_ID,
     TRACE_POINTS,
-    flux_spectroscopy_template,
+    flux_spectroscopy,
 )
 from instrument_demo.workflows.flux_spectroscopy_analysis import (
     fit_flux_spectroscopy,
@@ -112,7 +112,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         instrument_backend=composition.backend,
     )
 
-    invocation = flux_spectroscopy_template()
+    invocation = flux_spectroscopy()
     definition = invocation.definition
     success_state = definition.success_state
     assert isinstance(success_state, EnsureStateIntent)
@@ -333,7 +333,7 @@ def test_flux_spectroscopy_failure_aborts_with_bias_disabled(
     )
 
     with pytest.raises(RunIndeterminate):
-        lab.prepare(flux_spectroscopy_template()).run()
+        lab.prepare(flux_spectroscopy()).run()
 
     [run] = lab.runs()
     assert run.manifest.status == "unknown"

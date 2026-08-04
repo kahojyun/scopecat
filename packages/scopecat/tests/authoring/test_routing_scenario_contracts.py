@@ -8,7 +8,7 @@ from scopecat_instruments import NetworkSweepGroupTarget, network_sweep
 from scopecat_instruments.members import NETWORK_SWEEP
 
 import scopecat.authoring as authoring
-from scopecat.authoring.scans import axis
+from scopecat.authoring import axis
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,

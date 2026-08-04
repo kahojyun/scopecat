@@ -6,9 +6,9 @@ from scopecat.authoring import (
     ExperimentInvocation,
     QuantityType,
     ScalarType,
+    axis,
     parameter,
 )
-from scopecat.authoring.scans import axis
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.artifact import RunContentEntry
@@ -19,7 +19,7 @@ from scopecat.runs.access import (
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
     bind_invocation,
-    simple_template,
+    simple_experiment,
 )
 from tests.testkit.bound_program import ProgramFixture
 from tests.testkit.paths import CORE_FIXTURE_DIR as WORKFLOW_FIXTURE_DIR
@@ -42,7 +42,7 @@ def load_experiment() -> ProgramFixture:
 
 def load_invocation() -> ExperimentInvocation:
     return (
-        simple_template(id="test.workflow_scan")
+        simple_experiment(id="test.workflow_scan")
         .bind(subject="q0")
         .grid(
             axis(

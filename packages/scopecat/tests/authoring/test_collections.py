@@ -5,8 +5,8 @@ from typing import Annotated
 import pytest
 
 import scopecat.authoring as authoring
+from scopecat.authoring import axis
 from scopecat.authoring.experiments import ExperimentInvocation
-from scopecat.authoring.scans import axis
 from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.value_resolution import resolve_bound_value

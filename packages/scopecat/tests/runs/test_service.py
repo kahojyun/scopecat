@@ -21,7 +21,7 @@ from scopecat.records.config import (
 )
 from scopecat.runs.service import load_run_request
 from scopecat.sdk.instruments.provider import InstrumentProviderContext
-from tests.testkit.authoring import simple_template
+from tests.testkit.authoring import simple_experiment
 from tests.testkit.execution import execute_invocation_run
 from tests.testkit.instrument_host import (
     compose_test_instruments,
@@ -170,7 +170,7 @@ def test_check_compiles_authoring_before_config_source_io(
         "resolve_test_config",
         unexpected_config_read,
     )
-    invalid = simple_template().bind()
+    invalid = simple_experiment().bind()
 
     result = check_experiment(invalid, services=sqlite_project_services(tmp_path))
     problem = result.problems[0]
@@ -203,7 +203,7 @@ def test_experiment_invocation_planning_compiles_authoring_before_config_validat
     with pytest.raises(CheckFailed) as error:
         plan_experiment_invocation(
             config=config,
-            experiment=simple_template().bind(),
+            experiment=simple_experiment().bind(),
             system=composition.system,
         )
 
