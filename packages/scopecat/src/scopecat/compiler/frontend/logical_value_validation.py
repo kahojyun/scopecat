@@ -177,7 +177,8 @@ def verify_success_state_values(
             problems.append(
                 compiler_problem(
                     "experiment_success_state_requires_execution",
-                    "experiment success_state cannot depend on point-local compute",
+                    "experiment on_success state cannot depend on point-local "
+                    "computation",
                     location,
                     phase=ProblemPhase.AUTHORING,
                 )
@@ -188,7 +189,7 @@ def verify_success_state_values(
             problems.append(
                 compiler_problem(
                     "experiment_success_state_depends_on_point",
-                    "experiment success_state cannot depend on scan coordinates",
+                    "experiment on_success state cannot depend on point coordinates",
                     location,
                     phase=ProblemPhase.AUTHORING,
                 )

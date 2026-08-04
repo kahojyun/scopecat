@@ -12,6 +12,8 @@ class InstrumentStateEvidence(BaseModel):
 
     ``observed_state`` is the fresh read after ownership is acquired.
     ``prepared_state`` is the execution baseline after the run policy.
+    ``final_state`` is best-effort terminal readback gathered during hardware
+    release. It may be incomplete and does not imply a successful run.
     """
 
     model_config = ConfigDict(extra="forbid")

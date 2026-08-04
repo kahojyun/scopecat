@@ -13,7 +13,7 @@ and functions that enforce it.
 @module / @experiment contexts
     | close definitions
     v
-program model           shared symbolic ModuleDef, values, products, scans
+program model           shared symbolic modules, values, products, point plans
     | elaborate and verify
     v
 VerifiedLogicalProgram  config-free experiment proof
@@ -70,6 +70,35 @@ The public authoring model follows four rules:
    demanded record roots determine the live compute and postprocessor DAG, whose
    dependencies determine execution order.
 
+### Point plans and invocation edits
+
+Every experiment resolves to one `PointPlan`: one domain, one repeat policy,
+and one traversal policy. The authoring rules are deliberately small:
+
+1. `experiment.grid(...)` declares a Cartesian product; `experiment.points(...)`
+   declares explicit ordered rows. A definition may declare its domain once.
+   No declaration means the unit grid with one point; an empty point cloud has
+   zero points.
+2. Calling the decorated experiment with plain Python arguments rebuilds its
+   structural graph. `Input[T]` arguments are runtime values; invocation
+   `.bind(...)` and `.unbind(...)` only edit those values.
+3. Invocation `.grid(...)` and `.points(...)` replace the domain.
+   `.with_axis(...)` and `.without_axis(...)` edit only a grid;
+   `.with_repeat(count, mode=...)` and `.with_traversal(...)` edit their
+   independent policies. `.reset_points()` discards the whole invocation
+   point-plan override. Explicit points always use their row order, so replacing
+   a snake grid with `.points(...)` restores forward traversal.
+4. A repeat count greater than one adds the canonical `repeat` coordinate.
+   `mode="point"` keeps repeats of one base point adjacent; `mode="sweep"`
+   keeps complete sweeps adjacent. `traversal="snake"` changes only physical
+   product-grid execution order. Logical point ids, dataset point indices, and
+   durable measurement rows stay in canonical order.
+
+Use explicit point rows for correlated, sparse, filtered, duplicated, or
+deterministically shuffled work. Use a staged experiment when the next point
+depends on an earlier measurement. There is no second filtering, randomization,
+or adaptive-loop DSL hidden inside a point plan.
+
 Logical resource ports and interface requirements form the reusable boundary
 between a module and the physical configuration selected for a run. Authoring
 never names an instrument or channel. It may select logical entities from
@@ -84,13 +113,23 @@ indeterminate outcome, or interruption. It is a normal-completion operation,
 not an unconditional cleanup hook; final dataset sealing and the durable
 terminal commit may still occur afterward.
 
+The runtime state names describe different facts. `observed_state` is the
+initial readback after exclusive acquisition; `prepared_state` is the baseline
+after run-start policy. Authored `on_success` state is then applied only after
+coverage succeeds. Runtime `final_state` is terminal readback evidence gathered
+while finishing and releasing hardware. It is not an authored target, does not
+prove the run succeeded, and may be empty or incomplete when terminal readback
+fails.
+
 Failure cleanup belongs at the layer that can still command the hardware:
 
 - the instrument driver owns `abort()` and is the only cleanup attempted after
   an unknown hardware outcome;
 - accepted instrument configuration may select `abort_then_safe_state` to add
   a sparse safe state after abort while the device remains commandable;
-- a domain runtime owns abort and cleanup for domain-controlled hardware.
+- the current domain runtime ABI exposes only `submit` and `fetch`, not a
+  core-driven abort hook. A target that requires cancellation must contain it
+  inside its runtime contract; otherwise Scopecat cannot promise domain cleanup.
 
 Authoring deliberately exposes no arbitrary Python `finally` callback or
 promised-always state. Workflows that require stronger cleanup must first move
@@ -113,8 +152,8 @@ id.
 A domain program owns opaque dialect data with typed inputs and result products.
 Scopecat owns the surrounding identities, typed bindings, effect order, and
 result correlation; the accepted system configuration owns the domain target's
-physical footprint. Experiments own invocation policy: defaults, scans, durable
-record selection, labels, and metadata.
+physical footprint. Experiments own invocation policy: input defaults, point
+plans, durable record selection, labels, and metadata.
 
 ## Semantic Invariants
 
@@ -152,12 +191,12 @@ Point composition remains symbolic through verification and specialization.
 Linking materializes one ordered point sequence; host lowering, parameter
 overlays, entity selection, and domain projection consume those same point rows.
 
-Partial evaluation binds accepted inputs and configuration values, applies
-the invocation's point-plan override, folds pure subgraphs, removes undemanded work, and
-leaves residual host and domain computation. It is pure: reads, state mutation,
-acquisitions, low-level driver actions, and other external effects execute only
-from a `RunProgram`. Any concrete fallback is bounded by an explicit
-materialization limit.
+Partial evaluation binds accepted inputs and configuration values, applies the
+invocation's point-plan override, folds pure subgraphs, removes undemanded work,
+and leaves residual host and domain computation. It is pure: reads, state
+mutation, acquisitions, low-level driver actions, and other external effects
+execute only from a `RunProgram`. Any concrete fallback is bounded by an
+explicit materialization limit.
 
 A parameter overlay is one specialization path: `parameter_lookup` selects a
 cell from the accepted snapshot, and `axis(..., overlay=lookup)` supplies its
@@ -174,16 +213,17 @@ its complete physical footprint. Planning verifies the configured compiler's
 target identity once, and the run claims that footprint once. The compiler
 participates through one `compile_batch` boundary. Planning first partitions
 the logical point space by the compiler's declared capacity, then resolves all
-program and compiler inputs for each contiguous batch. `compile_batch` closes
+program and compiler inputs for each execution-ordered bounded batch.
+`compile_batch` closes
 the target artifact, exact point/product mapping, runtime invocation, and
 result realization into one prepared execution.
 
 A domain program has two typed input namespaces. Program inputs are part of
 its runtime semantics. Compiler inputs configure lowering itself. Both are
 resolved from the same snapshot-plus-overlay parameter model before the domain
-compiler is called. This lets experiments scan compiler parameter collections
-without disguising them as a small set of program arguments or injecting
-mutable compiler state.
+compiler is called. This lets experiments vary compiler parameter collections
+by point without disguising them as a small set of program arguments or
+injecting mutable compiler state.
 
 A domain compiler may call a lower-level target compiler after inputs have been
 resolved and a program has been lowered to target IR. That is an internal
@@ -194,8 +234,8 @@ lowering stage, not another compiler selected on the `ExperimentSystem`.
 Provider instruments are provisioned for the run. Physical binding is a pure
 projection of the accepted snapshot: it does not inspect live availability,
 choose by load or cost, or fail over after execution starts. A point-local
-entity scan may select different configured endpoints, but it cannot construct
-a new physical route.
+entity coordinate may select different configured endpoints, but it cannot
+construct a new physical route.
 
 Desired state may be split by static entity ownership so different instruments
 maintain explicit values for their devices. A single low-level action or

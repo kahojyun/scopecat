@@ -479,6 +479,55 @@ class _DisconnectFailureDriver(_FinalizationTrackingDriver):
         raise RuntimeError("socket disconnect failed")
 
 
+class _RejectOnSuccessStateDriver(_FinalizationTrackingDriver):
+    @override
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        if not self.applied:
+            return super().apply_state(request)
+        self.applied.append(request)
+        return DriverRejected(
+            problems=(
+                problem(
+                    "instrument_on_success_state_rejected",
+                    "driver rejected normal-completion state",
+                    phase=ProblemPhase.EXECUTION,
+                    location=model_location("instrument", self.instrument_id),
+                ),
+            ),
+        )
+
+
+def test_rejected_on_success_state_aborts_hardware_finish() -> None:
+    driver = _RejectOnSuccessStateDriver(instrument_id="source-0")
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("rejected-on-success-point"), {}),
+        (_gain_operation("source-0", 1.0),),
+        resource_order=("source-0",),
+        resource_requirements=_requirements("source-0"),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="rejected-on-success-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost((driver,)),
+        journal=FakeExecutionJournal(),
+    ).run(
+        complete_coverage_operations(program),
+        points=program.points,
+        success_state=(_gain_operation("source-0", 0.0),),
+    )
+
+    assert [item.code for item in result.problems] == [
+        "instrument_on_success_state_rejected"
+    ]
+    assert not result.indeterminate
+    assert len(driver.applied) == 2
+    assert driver.abort_count == 1
+
+
 def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
     driver = SignalInstrumentDriver()
     point = RunPoint(_logical_point_id("shared-readback-point"), {})

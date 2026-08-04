@@ -406,7 +406,7 @@ def _select_coordinate_unit(
     )
     selected = unit if unit is not None else target_type.unit or inferred_unit
     if selected is None:
-        msg = "numeric quantity scan coordinates require unit or typed endpoints"
+        msg = "numeric quantity axis coordinates require unit or typed endpoints"
         raise TypeError(msg)
     Quantity(0.0, selected)
     _require_quantity_unit(target_type, selected, path="scan.unit")

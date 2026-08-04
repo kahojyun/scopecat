@@ -28,7 +28,7 @@ it in each variable's dimension list.
 ## Choose the point-domain shape explicitly
 
 A product grid is appropriate when independent axes should form a Cartesian
-scan:
+point domain:
 
 ```python
 import numpy as np
@@ -111,6 +111,55 @@ control loop.
 The schema records whether the domain is a `product_grid` or `point_cloud`.
 Consumers should use that semantic layout instead of trying to infer a grid
 from coincidentally regular values.
+
+## Repeat, traverse, and edit a point plan
+
+Grid definitions can declare repeat and physical traversal policy alongside
+their axes:
+
+```python
+experiment.grid(
+    sc.axis(bias, (-0.2, 0.0, 0.2), unit="V"),
+    sc.axis(power, (-30.0, -25.0, -20.0), unit="dBm"),
+    repeat=4,
+    repeat_mode="point",
+    traversal="snake",
+)
+```
+
+`repeat_mode="point"` measures each base point four times before moving on.
+`repeat_mode="sweep"` repeats the complete sweep. Counts above one add a typed
+`repeat` coordinate, so repeated measurements remain distinct. Snake traversal
+reduces product-grid retracing: with sweep repeats, a one-dimensional sweep
+alternates direction, while a multidimensional grid reverses adjacent paths. It
+changes physical execution order only; logical point ids and durable dataset
+rows stay canonical.
+
+An invocation exposes orthogonal immutable edits:
+
+```python
+edited = (
+    spectroscopy()
+    .bind(sample="q0")
+    .with_axis(sc.axis(power, (-35.0, -30.0, -25.0), unit="dBm"))
+    .without_axis(bias)
+    .with_repeat(3, mode="sweep")
+    .with_traversal("snake")
+)
+
+definition_default = edited.reset_points()
+```
+
+`.grid(...)` and `.points(...)` replace the complete domain while retaining the
+repeat policy. Grid replacement retains traversal; explicit points always run
+in row order and therefore restore forward traversal. `.with_axis(...)` replaces
+an axis in place or appends a new one; `.without_axis(...)` applies only to a
+grid. `reset_points()` discards all invocation point-plan edits and restores the
+definition default.
+
+For a deterministic randomized order, shuffle rows with an explicit seed and
+pass them to `.points(...)`. For measurement-dependent point selection, use a
+staged experiment rather than adding another point-plan control language.
 
 ## Represent variable-length results without padding
 

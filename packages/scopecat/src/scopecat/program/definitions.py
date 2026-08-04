@@ -155,6 +155,7 @@ class ExperimentInvocation:
             point_override=replace(
                 self.point_plan,
                 domain=points_spec(rows, coordinates=coordinates),
+                traversal="forward",
             ),
         )
 

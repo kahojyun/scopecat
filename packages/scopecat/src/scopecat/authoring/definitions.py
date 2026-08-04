@@ -446,15 +446,14 @@ class ExperimentContext:
         coordinates: Sequence[ValueRef] = (),
         repeat: int = 1,
         repeat_mode: RepeatMode = "point",
-        traversal: PointTraversal = "forward",
     ) -> None:
-        """Declare the complete ordered point cloud for this experiment."""
+        """Declare the complete point cloud in its explicit row order."""
 
         self._declare_point_domain(
             points_spec(rows, coordinates=coordinates),
             repeat=repeat,
             repeat_mode=repeat_mode,
-            traversal=traversal,
+            traversal="forward",
         )
 
     def _declare_point_domain(
@@ -565,11 +564,12 @@ class ExperimentContext:
                 continue
             if internal_value_ref_requires_execution(value):
                 raise ValueError(
-                    "experiment success_state cannot depend on point-local compute"
+                    "experiment on_success state cannot depend on point-local "
+                    "computation"
                 )
             if internal_value_ref_point_dependencies(value):
                 raise ValueError(
-                    "experiment success_state cannot depend on scan coordinates"
+                    "experiment on_success state cannot depend on point coordinates"
                 )
         self._success_state_bindings.extend(intent.assignments)
 

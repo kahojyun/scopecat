@@ -139,6 +139,8 @@ class RunHardwareBatchReceipt(_HardwareModel):
 
 
 class RunHardwareFinalizationReceipt(_HardwareModel):
+    """Best-effort terminal readback and release evidence for one run host."""
+
     operation_id: str = Field(min_length=1)
     final_state: tuple[InstrumentStateSnapshot, ...] = ()
     problems: tuple[Problem, ...] = ()
@@ -171,7 +173,9 @@ class RunInstrumentHost(Protocol):
         *,
         operation_id: str,
         failed: bool,
-    ) -> RunHardwareFinalizationReceipt: ...
+    ) -> RunHardwareFinalizationReceipt:
+        """Abort when failed, read terminal state, and release ownership."""
+        ...
 
 
 __all__ = [

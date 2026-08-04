@@ -179,6 +179,25 @@ def test_invocation_point_policy_edits_are_immutable_and_resettable() -> None:
     assert replaced.reset_points().point_plan == default
 
 
+def test_replacing_a_snake_grid_with_points_uses_explicit_row_order() -> None:
+    x = sc.coordinate("x", sc.ScalarType(sc.IntType()))
+    invocation = ExperimentInvocation(
+        _definition(
+            PointPlan(
+                GridSpec((_axis("grid-x", 1, 2),)),
+                repeat=2,
+                traversal="snake",
+            )
+        )
+    )
+
+    replaced = invocation.points(({x: 2}, {x: 1}))
+
+    assert isinstance(replaced.point_plan.domain, PointsSpec)
+    assert replaced.point_plan.repeat == 2
+    assert replaced.point_plan.traversal == "forward"
+
+
 def test_authoring_context_declares_the_complete_point_policy() -> None:
     x = sc.coordinate("x", sc.ScalarType(sc.IntType()))
 

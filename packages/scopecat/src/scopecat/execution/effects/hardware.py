@@ -56,7 +56,7 @@ class HardwareEffectExecutor:
         self,
         operations: Sequence[ApplyStateOperation],
     ) -> bool:
-        """Apply normal-completion state without assigning it to a scan point."""
+        """Apply normal-completion state without assigning it to a point."""
 
         actions = tuple(
             RunHardwareApply(

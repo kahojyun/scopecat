@@ -170,7 +170,7 @@ class BestSignalAnalysisStep:
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
         measurements = context.measurements(RAW_MEASUREMENTS_DATASET_ID)
-        parameter_id = _scan_parameter_id(measurements.schema)
+        parameter_id = _point_parameter_id(measurements.schema)
         old_value = _old_parameter_value(context.config, parameter_id)
         best_position = _best_signal_position(measurements)
         signal = measurements.data_vars["signal"]
@@ -394,14 +394,14 @@ def _flatten_numeric_values(value: object) -> list[float]:
     raise ValueError("measurement value is not numeric")
 
 
-def _scan_parameter_id(schema: MeasurementDatasetSchema) -> str:
+def _point_parameter_id(schema: MeasurementDatasetSchema) -> str:
     coordinate_ids = list(schema.primary_coordinates)
     if len(coordinate_ids) != 1 or not coordinate_ids[0]:
         raise CheckFailed(
             [
                 _problem(
-                    "missing_scan_coordinate",
-                    "analysis requires exactly one scan coordinate",
+                    "missing_point_coordinate",
+                    "analysis requires exactly one point coordinate",
                     BEST_SIGNAL_SCHEMA_REF,
                 )
             ]

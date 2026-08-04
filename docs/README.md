@@ -13,8 +13,9 @@ simpler design better serves the workflows in the charter.
 - [Instrument authoring](instrument-control.md): the shared declaration, live
   control, symbolic-client, entity-mapping, and recording model.
 - [Measurement data workflows](measurement-data.md): recording intent, product
-  grids and point clouds, ragged axes, notebook slicing and ecosystem exports,
-  and schema-driven GUI visualization.
+  grids and point clouds, repeat and traversal policy, invocation edits, ragged
+  axes, notebook slicing and ecosystem exports, and schema-driven GUI
+  visualization.
 - [Adaptive experiments](adaptive-experiments.md): bounded, durable notebook
   loops whose next stage depends on earlier measurements.
 

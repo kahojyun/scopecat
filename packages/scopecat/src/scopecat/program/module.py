@@ -9,8 +9,9 @@ instantiation can alpha-rename private identities without changing producer
 identity.
 
 Reusable modules own typed dataflow, resources, and available products.
-Experiments own workflow policy such as exposed defaults, scans, and durable
-record selection; that policy must not leak into a reusable module instance.
+Experiments own workflow policy such as exposed defaults, point plans, and
+durable record selection; that policy must not leak into a reusable module
+instance.
 """
 
 from __future__ import annotations

@@ -129,7 +129,7 @@ def verify_success_state_resources(
                 compiler_problem(
                     "experiment_success_state_resource_depends_on_point",
                     (
-                        "experiment success_state resource cannot depend on scan "
+                        "experiment on_success resource cannot depend on point "
                         "coordinates"
                     ),
                     model_location(

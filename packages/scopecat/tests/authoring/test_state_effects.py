@@ -225,12 +225,12 @@ def test_root_success_state_accepts_a_typed_state_projector() -> None:
     ]
 
 
-def test_root_success_state_rejects_scan_coordinates() -> None:
+def test_on_success_state_rejects_point_coordinates() -> None:
     level = sc.coordinate("level", sc.ScalarType(sc.FloatType()))
 
     with pytest.raises(
         ValueError,
-        match="success_state cannot depend on scan coordinates",
+        match="on_success state cannot depend on point coordinates",
     ):
 
         @sc.experiment(id="test.success_state-coordinate", kind="state-effect")
