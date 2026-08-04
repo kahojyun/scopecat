@@ -7,23 +7,42 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from importlib.util import find_spec
 from pathlib import Path
 from threading import Thread
+from typing import Annotated, Protocol, cast
 
+import httpx2
 import psutil
 import pytest
 from fastapi.testclient import TestClient
 from scopecat.adapters.sqlite import SQLiteControlPlane
+from scopecat.api.lab import LabClient
+from scopecat.authoring import (
+    ExperimentContext,
+    FloatType,
+    Input,
+    ModuleContext,
+    ProductRef,
+    ScalarType,
+    coordinate,
+    module,
+    template,
+)
+from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
 from scopecat.daemon.wire import InstrumentSessionOpenCommand
 from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.program.products import product_axis
 from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
 from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
+    MeasurementPointCloudPointDomain,
     MeasurementScalar,
     MeasurementUnavailable,
 )
+from scopecat.sdk.instruments import InterfaceRef
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
@@ -50,6 +69,52 @@ from scopecat_server.runtime import LocalDaemonRuntime
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "instrument_worker_project"
 _BACKEND = "worker_fixture.backend:create_backend"
+
+_RAGGED_CONTROL = InterfaceRef("tests.control/v1")
+_RAGGED_GAIN_PROPERTY = _RAGGED_CONTROL.property("gain")
+_RAGGED_TRACE_RESULT = _RAGGED_CONTROL.acquisition("sample").result("ragged_trace")
+_RAGGED_GAIN = coordinate("gain", ScalarType(FloatType()))
+
+
+class _ArrowColumn(Protocol):
+    def to_pylist(self) -> list[object]: ...
+
+
+class _ArrowTable(Protocol):
+    def __getitem__(self, name: str) -> _ArrowColumn: ...
+
+
+@module(id="tests.worker.ragged_capture")
+def _ragged_capture(
+    context: ModuleContext,
+    gain: Annotated[Input[float], ScalarType(FloatType())],
+) -> ProductRef:
+    source = context._resource("source", requires=(_RAGGED_CONTROL,))
+    context._bind_property(source, _RAGGED_GAIN_PROPERTY, value=gain)
+    trace = context._product(
+        "trace",
+        unit="V",
+        axes=(product_axis("sample", size=None),),
+    )
+    context._acquire(
+        "capture",
+        resource=source,
+        results={_RAGGED_TRACE_RESULT: trace},
+    )
+    return trace
+
+
+@template(id="tests.worker.ragged_point_cloud", kind="ragged_point_cloud")
+def _ragged_point_cloud(experiment: ExperimentContext) -> None:
+    experiment.points(
+        (
+            {_RAGGED_GAIN: 2.0},
+            {_RAGGED_GAIN: 4.0},
+            {_RAGGED_GAIN: 1.0},
+        )
+    )
+    capture = experiment.run(_ragged_capture(gain=_RAGGED_GAIN))
+    experiment.record(capture.result, record_id="trace")
 
 
 def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
@@ -184,6 +249,82 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
     )
     assert not endpoint.healthy
     assert not psutil.pid_exists(endpoint.worker_pid)
+
+
+def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
+    tmp_path: Path,
+) -> None:
+    project = _copy_project(tmp_path)
+    config = _ragged_point_cloud_config()
+
+    with (
+        LocalDaemonRuntime(
+            project,
+            bootstrap_config=config,
+            instrument_backend_spec=_BACKEND,
+        ) as runtime,
+        TestClient(runtime.app()) as transport,
+        _http_daemon_client(transport) as daemon,
+    ):
+        with LabClient(daemon) as lab:
+            preview = lab.preview(_ragged_point_cloud)
+            run = lab.run(_ragged_point_cloud)
+
+        assert preview.point_count == 3
+        assert preview.schema is not None
+        assert preview.schema.dimensions[1].size is None
+        assert run.manifest.status == "completed"
+        run_id = run.id
+        worker_pid = int((project / "worker.pid").read_text(encoding="utf-8"))
+        assert worker_pid != os.getpid()
+
+    with (
+        LocalDaemonRuntime(
+            project,
+            bootstrap_config=config,
+            instrument_backend_spec=_BACKEND,
+        ) as reopened,
+        TestClient(reopened.app()) as transport,
+        _http_daemon_client(transport) as daemon,
+        LabClient(daemon) as lab,
+    ):
+        persisted = lab.get_run(run_id)
+        persisted_status = persisted.manifest.status
+        dataset = persisted.measurements()
+        batches = list(persisted.measurement_batches(batch_size=2))
+
+    assert persisted_status == "completed"
+    point_domain = dataset.schema.point_domain
+    assert isinstance(point_domain, MeasurementPointCloudPointDomain)
+    assert [column.id for column in point_domain.columns] == ["gain"]
+    assert dataset.coords["gain"].values == (2.0, 4.0, 1.0)
+    point_dimension, sample_dimension = dataset.data_vars["trace"].dims
+    assert point_dimension == "point"
+    assert dataset.dims == {"point": 3, sample_dimension: None}
+    assert [
+        value.shape
+        for value in dataset.data_vars["trace"].raw_values
+        if isinstance(value, MeasurementArray)
+    ] == [(2,), (4,), (1,)]
+    assert [len(batch) for batch in batches] == [2, 1]
+    assert [record.point_index for batch in batches for record in batch.records] == [
+        0,
+        1,
+        2,
+    ]
+    assert all(batch.dims[sample_dimension] is None for batch in batches)
+    assert all(
+        record.acquisition_evidence["trace"].instrument_id == "source-0"
+        for record in dataset.records
+    )
+
+    if find_spec("pyarrow") is not None:
+        table = cast("_ArrowTable", dataset.to_arrow())
+        assert table["trace"].to_pylist() == [
+            [2.0, 2.1],
+            [4.0, 4.1, 4.2, 4.3],
+            [1.0],
+        ]
 
 
 def test_worker_rejects_changed_contract_and_foreign_generation(
@@ -698,6 +839,41 @@ def _two_instrument_config() -> ConfigProfileSnapshot:
         update={
             "system": config.system.model_copy(update={"instrument_registry": registry})
         }
+    )
+
+
+def _ragged_point_cloud_config() -> ConfigProfileSnapshot:
+    config = load_config()
+    [binding] = config.routing.bindings[:1]
+    routing = config.routing.model_copy(
+        update={
+            "bindings": [
+                binding.model_copy(update={"interface_id": "tests.control/v1"})
+            ]
+        }
+    )
+    return config.model_copy(
+        update={"system": config.system.model_copy(update={"routing": routing})}
+    )
+
+
+def _http_daemon_client(transport: TestClient) -> DaemonClient:
+    def send(request: httpx2.Request) -> httpx2.Response:
+        response = transport.request(
+            request.method,
+            request.url.raw_path.decode(),
+            content=request.content,
+            headers=dict(request.headers),
+        )
+        return httpx2.Response(
+            response.status_code,
+            content=response.content,
+            headers=dict(response.headers),
+        )
+
+    return DaemonClient(
+        "http://testserver",
+        transport=httpx2.MockTransport(send),
     )
 
 

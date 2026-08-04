@@ -34,6 +34,7 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
     PropertyRef,
     acquisition,
+    acquisition_axis,
     acquisition_result,
     float_property,
     interface,
@@ -85,7 +86,14 @@ class _Driver:
                     acquisitions=[
                         acquisition(
                             "sample",
-                            results=[acquisition_result("signal", unit="ratio")],
+                            results=[
+                                acquisition_result("signal", unit="ratio"),
+                                acquisition_result(
+                                    "ragged_trace",
+                                    unit="V",
+                                    axes=[acquisition_axis("sample", size=None)],
+                                ),
+                            ],
                         )
                     ],
                 )
@@ -138,8 +146,11 @@ class _Driver:
         self,
         request: DriverAcquisition,
     ) -> DriverOutcome[DriverReadback]:
+        gain = self._state[("tests.control/v1", "gain")]
+        assert isinstance(gain, float)
         values: dict[AcquisitionResultRef, MeasurementValue] = {
-            result: _measurement_value(result.result_id) for result in request.results
+            result: _measurement_value(result.result_id, gain=gain)
+            for result in request.results
         }
         return DriverSuccess(
             DriverReadback(
@@ -216,7 +227,15 @@ def create_failing_backend(project_root: Path) -> InstrumentBackend:
     raise RuntimeError("fixture startup failure")
 
 
-def _measurement_value(result_id: str) -> MeasurementValue:
+def _measurement_value(result_id: str, *, gain: float = 0.0) -> MeasurementValue:
+    if result_id == "ragged_trace":
+        length = int(gain)
+        return MeasurementArray.create(
+            dtype="float64",
+            unit="V",
+            shape=(length,),
+            values=tuple(gain + index / 10 for index in range(length)),
+        )
     if result_id == "complex_array":
         return MeasurementArray.create(
             dtype="complex128",
