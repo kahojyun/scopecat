@@ -234,10 +234,9 @@ experiment.record(traces)
 
 `PerEntity` is an immutable identity-keyed mapping. Alignment is an exact join
 on `(kind, id)`, never a positional zip. Missing, extra, and duplicate identities
-are errors before effects are recorded. Parameter-table selection uses the same
-shape: indexing a table with `one(...)` returns one row, while indexing it with
-`each(...)` returns `PerEntity[Row]`; `map(...)` projects a column without
-dropping entity keys.
+are errors before effects are recorded. `one(...)` and `each(...)` describe
+target cardinality only; parameter lookup remains an explicit scalar dependency
+instead of introducing a second table-schema and row-indexing API.
 
 Group authoring expands to independently routable scalar resources and effects.
 It does not ask one driver to perform an implicit vector operation. Recording a

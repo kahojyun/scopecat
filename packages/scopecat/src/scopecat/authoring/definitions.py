@@ -36,7 +36,7 @@ from scopecat.authoring._module_results import (
     module_result_value_exports,
     recording_products,
 )
-from scopecat.authoring.entity_parameters import PerEntity
+from scopecat.authoring.entity_selection import PerEntity
 from scopecat.authoring.experiments import (
     Experiment,
 )
