@@ -9,13 +9,15 @@ import {
   getEvents,
   getHealth,
   getMeasurementPreview,
+  getMeasurementSlice,
+  getMeasurementTracePreview,
   getOlderRuns,
   getRun,
   getRunAnalyses,
   getRunEvents,
   getRuns,
 } from "./api";
-import type { MeasurementRecord } from "./api-contract";
+import type { MeasurementDatasetSchema, MeasurementRecord } from "./api-contract";
 import type { ProjectRun } from "./types";
 
 vi.mock("./api", async (importOriginal) => ({
@@ -23,6 +25,8 @@ vi.mock("./api", async (importOriginal) => ({
   getEvents: vi.fn(),
   getHealth: vi.fn(),
   getMeasurementPreview: vi.fn(),
+  getMeasurementSlice: vi.fn(),
+  getMeasurementTracePreview: vi.fn(),
   getOlderRuns: vi.fn(),
   getRun: vi.fn(),
   getRunAnalyses: vi.fn(),
@@ -94,6 +98,12 @@ beforeEach(() => {
   vi.mocked(getEvents).mockResolvedValue([]);
   vi.mocked(getRunEvents).mockResolvedValue([]);
   vi.mocked(getMeasurementPreview).mockResolvedValue({ items: [] });
+  vi.mocked(getMeasurementSlice).mockResolvedValue({
+    items: [],
+    selectedPointCount: 0,
+    truncated: false,
+  });
+  vi.mocked(getMeasurementTracePreview).mockResolvedValue(tracePreview("magnitude"));
   vi.mocked(getRunAnalyses).mockResolvedValue([]);
 });
 
@@ -471,6 +481,9 @@ describe("config provenance navigation", () => {
       pages: [{ items: [measurementRecord(9, 9)] }],
       pageParams: [0],
     });
+    queryClient.setQueryData(["measurement-trace", "run-2", "trace", "{}"], {
+      stale: true,
+    });
 
     act(() => {
       emitProjectEvent("run-2", "measurement_dataset_initialized");
@@ -478,6 +491,7 @@ describe("config provenance navigation", () => {
     await waitFor(() =>
       expect(queryClient.getQueryData(["measurements", "run-2"])).toBeUndefined(),
     );
+    expect(queryClient.getQueryData(["measurement-trace", "run-2", "trace", "{}"])).toBeUndefined();
     expect(getMeasurementPreview).toHaveBeenCalledTimes(2);
 
     act(() => {
@@ -488,6 +502,66 @@ describe("config provenance navigation", () => {
       0, 1, 0,
     ]);
     expect(screen.getByRole("button", { name: "Load more measurements" })).toBeVisible();
+  });
+
+  it("queries only the selected bounded trace mode and authored slice", async () => {
+    window.history.replaceState(null, "", "/?run=run-1");
+    const schema = traceDatasetSchema();
+    vi.mocked(getMeasurementPreview).mockResolvedValue({ schema, items: [] });
+    vi.mocked(getMeasurementSlice).mockResolvedValue({
+      items: [],
+      selectedPointCount: 4,
+      truncated: false,
+    });
+    vi.mocked(getMeasurementTracePreview).mockImplementation(async (_runId, selection) =>
+      tracePreview(selection.complexMode),
+    );
+
+    renderApp();
+
+    expect(
+      await screen.findByRole("img", {
+        name: "S21 magnitude: |S21| [ratio] by Frequency [GHz]",
+      }),
+    ).toBeVisible();
+    await waitFor(() =>
+      expect(getMeasurementTracePreview).toHaveBeenLastCalledWith(
+        "run-1",
+        {
+          observableId: "response",
+          coordinateId: "frequency",
+          recordingGroupId: "readout",
+          fixedAxisIndices: { bias: 0 },
+          complexMode: "magnitude",
+        },
+        expect.any(AbortSignal),
+      ),
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Measurement trace" }), {
+      target: { value: "trace:response:frequency:phase" },
+    });
+    expect(
+      await screen.findByRole("img", {
+        name: "S21 phase: phase(S21) [rad] by Frequency [GHz]",
+      }),
+    ).toBeVisible();
+    expect(getMeasurementTracePreview).toHaveBeenLastCalledWith(
+      "run-1",
+      expect.objectContaining({ complexMode: "phase", fixedAxisIndices: { bias: 0 } }),
+      expect.any(AbortSignal),
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Bias slice" }), {
+      target: { value: "1" },
+    });
+    await waitFor(() =>
+      expect(getMeasurementTracePreview).toHaveBeenLastCalledWith(
+        "run-1",
+        expect.objectContaining({ complexMode: "phase", fixedAxisIndices: { bias: 1 } }),
+        expect.any(AbortSignal),
+      ),
+    );
   });
 
   it("refreshes canonical queries whenever SSE connects", async () => {
@@ -598,6 +672,109 @@ function measurementRecord(
       },
     },
     metadata: datasetId ? { dataset_id: datasetId } : {},
+  };
+}
+
+function traceDatasetSchema(): MeasurementDatasetSchema {
+  return {
+    format_version: "scopecat.measurement_dataset_schema.v8",
+    dataset_id: "raw-measurements",
+    record_schema: "scopecat.measurement_record.v4",
+    point_domain: {
+      kind: "product_grid",
+      axes: [traceAxis("row", [0, 1]), traceAxis("column", [0, 1]), traceAxis("bias", [0, 1])],
+    },
+    dimensions: [
+      { id: "point", kind: "point", size: 8 },
+      { id: "sample", kind: "sample", size: null },
+    ],
+    variables: [
+      {
+        id: "row",
+        role: "coordinate",
+        dtype: "float64",
+        dims: ["point"],
+      },
+      {
+        id: "column",
+        role: "coordinate",
+        dtype: "float64",
+        dims: ["point"],
+      },
+      {
+        id: "bias",
+        label: "Bias",
+        role: "coordinate",
+        dtype: "float64",
+        unit: "V",
+        dims: ["point"],
+      },
+      {
+        id: "frequency",
+        label: "Frequency",
+        role: "coordinate",
+        dtype: "float64",
+        unit: "GHz",
+        dims: ["point", "sample"],
+        recording_group_id: "readout",
+      },
+      {
+        id: "response",
+        label: "S21",
+        role: "observable",
+        dtype: "complex128",
+        unit: "ratio",
+        dims: ["point", "sample"],
+        recording_group_id: "readout",
+      },
+    ],
+    primary_coordinates: ["row", "column", "bias", "frequency"],
+    primary_observables: ["response"],
+  };
+}
+
+function traceAxis(id: string, values: number[]) {
+  return {
+    id,
+    size: values.length,
+    values: values.map((value) => ({
+      kind: "scalar" as const,
+      dtype: "float64" as const,
+      value,
+    })),
+  };
+}
+
+function tracePreview(mode: "imag" | "magnitude" | "phase" | "real") {
+  return {
+    coordinate_id: "frequency",
+    coordinate_label: "Frequency",
+    coordinate_unit: "GHz",
+    dimension_id: "sample",
+    downsampling: "even" as const,
+    fixed_axis_indices: { bias: 0 },
+    observable_id: "response",
+    observable_label: "S21",
+    observable_unit: "ratio",
+    recording_group_id: "readout",
+    returned_sample_count: 3,
+    returned_series_count: 1,
+    samples_reduced: false,
+    selected_series_count: 4,
+    series: [
+      {
+        label: "Point 0",
+        logical_point_id: "point-0",
+        point_index: 0,
+        source_sample_count: 3,
+        x: [4.9, 5, 5.1],
+        y: [0.1, 0.2, 0.3],
+      },
+    ],
+    source_sample_count: 3,
+    truncated_series: false,
+    value_mode: mode,
+    value_unit: mode === "phase" ? "rad" : "ratio",
   };
 }
 

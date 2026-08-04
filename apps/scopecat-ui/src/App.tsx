@@ -77,6 +77,7 @@ export default function App() {
       invalidateCanonicalQueries();
       void queryClient.resetQueries({ queryKey: ["measurements"] });
       void queryClient.resetQueries({ queryKey: ["measurement-slice"] });
+      void queryClient.resetQueries({ queryKey: ["measurement-trace"] });
     };
     const refresh = (event: Event) => {
       const measurementRunId = measurementEventRunId(event);
@@ -96,6 +97,9 @@ export default function App() {
           });
           void queryClient.resetQueries({
             queryKey: ["measurement-slice", runId],
+          });
+          void queryClient.resetQueries({
+            queryKey: ["measurement-trace", runId],
           });
         }
       }, 100);

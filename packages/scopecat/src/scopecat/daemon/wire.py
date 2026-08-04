@@ -31,6 +31,12 @@ from scopecat.execution.ports.instruments import RunHardwareBatch
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.records.analysis import (
+    MAX_ANALYSIS_OUTPUTS,
+    AnalysisFigure,
+    AnalysisTable,
+    validate_analysis_output_content_budget,
+)
 from scopecat.records.artifact import RunContentEntry, Sha256ContentHash
 from scopecat.records.config import (
     ConfigContentHash,
@@ -173,10 +179,17 @@ class AnalysisInputPayload(_WireModel):
     metadata: dict[str, JsonValue] | None = None
 
 
-class AnalysisJsonOutputPayload(_WireModel):
-    kind: Literal["table", "figure"]
+class AnalysisTableOutputPayload(_WireModel):
+    kind: Literal["table"]
     title: NonEmptyText
-    content: JsonValue
+    content: AnalysisTable
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class AnalysisFigureOutputPayload(_WireModel):
+    kind: Literal["figure"]
+    title: NonEmptyText
+    content: AnalysisFigure
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -188,7 +201,9 @@ class AnalysisParameterProposalOutputPayload(_WireModel):
 
 
 type AnalysisOutputPayload = Annotated[
-    AnalysisJsonOutputPayload | AnalysisParameterProposalOutputPayload,
+    AnalysisTableOutputPayload
+    | AnalysisFigureOutputPayload
+    | AnalysisParameterProposalOutputPayload,
     Field(discriminator="kind"),
 ]
 
@@ -200,10 +215,20 @@ class AnalysisSaveCommand(_WireModel):
     analysis_key: NonEmptyText
     step_id: NonEmptyText | None = None
     inputs: tuple[AnalysisInputPayload, ...] = ()
-    outputs: tuple[AnalysisOutputPayload, ...] = ()
+    outputs: tuple[AnalysisOutputPayload, ...] = Field(
+        default=(),
+        max_length=MAX_ANALYSIS_OUTPUTS,
+    )
 
     @model_validator(mode="after")
-    def validate_proposals(self) -> AnalysisSaveCommand:
+    def validate_outputs(self) -> AnalysisSaveCommand:
+        validate_analysis_output_content_budget(
+            output.content
+            for output in self.outputs
+            if isinstance(
+                output, AnalysisTableOutputPayload | AnalysisFigureOutputPayload
+            )
+        )
         proposals = tuple(
             output.content
             for output in self.outputs
@@ -600,12 +625,13 @@ def _validated_base64(value: str) -> str:
 
 
 __all__ = [
+    "AnalysisFigureOutputPayload",
     "AnalysisInputPayload",
-    "AnalysisJsonOutputPayload",
     "AnalysisOutputPayload",
     "AnalysisParameterProposalOutputPayload",
     "AnalysisSaveCommand",
     "AnalysisSaveReceipt",
+    "AnalysisTableOutputPayload",
     "AttentionResolutionReceipt",
     "CandidateConfigRevisionSource",
     "ConfigActivationReceipt",

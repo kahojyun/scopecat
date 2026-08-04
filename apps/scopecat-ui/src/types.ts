@@ -1,4 +1,11 @@
-import type { MeasurementDatasetSchema, MeasurementRecord } from "./api-contract";
+import type {
+  AnalysisFigure,
+  AnalysisParameterProposalReference,
+  AnalysisRecordInput,
+  AnalysisTable,
+  MeasurementDatasetSchema,
+  MeasurementRecord,
+} from "./api-contract";
 
 export type PresentationRunStatus =
   | "accepted"
@@ -89,17 +96,24 @@ export interface MeasurementSlicePreview {
   truncated: boolean;
 }
 
-export interface RunAnalysisOutput {
-  kind: "table" | "figure" | "parameter_change_proposal";
+interface RunAnalysisOutputBase {
   title: string;
-  content: unknown;
+  metadata: Record<string, unknown>;
 }
+
+export type RunAnalysisOutput = RunAnalysisOutputBase &
+  (
+    | { kind: "table"; content: AnalysisTable }
+    | { kind: "figure"; content: AnalysisFigure }
+    | { kind: "parameter_change_proposal"; content: AnalysisParameterProposalReference }
+  );
 
 export interface RunAnalysis {
   id: string;
   title: string;
   key?: string;
   stepId?: string;
+  inputs: AnalysisRecordInput[];
   outputs: RunAnalysisOutput[];
 }
 

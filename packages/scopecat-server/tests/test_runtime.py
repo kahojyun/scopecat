@@ -42,10 +42,11 @@ from scopecat.daemon.views import (
     RunDetail,
 )
 from scopecat.daemon.wire import (
-    AnalysisJsonOutputPayload,
+    AnalysisFigureOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
+    AnalysisTableOutputPayload,
     CandidateConfigRevisionSource,
     ConfigActivationReceipt,
     ConfigDraftCommand,
@@ -71,6 +72,12 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.project_state import ProjectStateServices
+from scopecat.records.analysis import (
+    AnalysisFigure,
+    AnalysisFigureAxis,
+    AnalysisFigureSeries,
+    AnalysisTable,
+)
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetInstrumentMember,
@@ -80,12 +87,15 @@ from scopecat.records.config import (
 )
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import (
+    ComplexComponents,
+    MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementPointDomainAxis,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
+    MeasurementVariable,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -313,15 +323,26 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
         title="fit",
         analysis_key="fit",
         outputs=(
-            AnalysisJsonOutputPayload(
+            AnalysisTableOutputPayload(
                 kind="table",
                 title="fit parameters",
-                content=[{"frequency": 5.1}],
+                content=AnalysisTable.from_rows([{"frequency": 5.1}]),
             ),
-            AnalysisJsonOutputPayload(
+            AnalysisFigureOutputPayload(
                 kind="figure",
                 title="fit curve",
-                content={"x": [1, 2], "y": [3, 4]},
+                content=AnalysisFigure(
+                    kind="line",
+                    x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
+                    y_axis=AnalysisFigureAxis(label="Signal", unit="ratio"),
+                    series=[
+                        AnalysisFigureSeries(
+                            id="fit",
+                            x=[1.0, 2.0],
+                            y=[3.0, 4.0],
+                        )
+                    ],
+                ),
             ),
             AnalysisParameterProposalOutputPayload(
                 kind="parameter_change_proposal",
@@ -1735,6 +1756,18 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         assert analyses.json()["items"][0]["analysis"]["key"] == "fit"
         assert analysis_detail.json()["entry"]["id"] == "analysis-fit"
         assert analysis_record.json()["content"]["title"] == "fit"
+        persisted_outputs = analysis_record.json()["content"]["outputs"]
+        assert persisted_outputs[0]["content"] == {
+            "columns": [{"id": "frequency", "label": None, "unit": None}],
+            "rows": [{"cells": [5.1]}],
+        }
+        assert persisted_outputs[1]["content"]["series"][0] == {
+            "id": "fit",
+            "label": None,
+            "x": [1.0, 2.0],
+            "y": [3.0, 4.0],
+        }
+        assert persisted_outputs[2]["content"]["proposal_id"] == proposal.id
         assert attachment.json()["filename"] == "notes.md"
         assert attachment_text.json()["content"] == "operator notes\n"
         assert config.config == _config()
@@ -1970,13 +2003,29 @@ def test_effect_is_fenced_and_terminal_updates_control(
                 run_id=run_id,
                 logical_point_id=f"point-{point_index}",
                 point_index=point_index,
-                coordinates={},
+                coordinates={
+                    "frequency": MeasurementArray.create(
+                        dtype="float64",
+                        unit="Hz",
+                        shape=(5,),
+                        values=tuple(float(index) for index in range(5)),
+                    )
+                },
                 observables={
                     "signal": MeasurementScalar.create(
                         dtype="float64",
                         value=point_index + 1.25,
                         unit="ratio",
-                    )
+                    ),
+                    "trace": MeasurementArray.create(
+                        dtype="complex128",
+                        unit="ratio",
+                        shape=(5,),
+                        values=tuple(
+                            ComplexComponents(real=point_index + 1.0, imag=index)
+                            for index in range(5)
+                        ),
+                    ),
                 },
             )
             for point_index in range(4)
@@ -2006,7 +2055,36 @@ def test_effect_is_fenced_and_terminal_updates_control(
                         ),
                     ]
                 ),
-                dimensions=[MeasurementDimension(id="point", kind="point", size=4)],
+                dimensions=[
+                    MeasurementDimension(id="point", kind="point", size=4),
+                    MeasurementDimension(id="sample", kind="frequency", size=5),
+                ],
+                variables=[
+                    MeasurementVariable(
+                        id="frequency",
+                        role="coordinate",
+                        dtype="float64",
+                        unit="Hz",
+                        dims=["point", "sample"],
+                        recording_group_id="readout",
+                    ),
+                    MeasurementVariable(
+                        id="signal",
+                        role="observable",
+                        dtype="float64",
+                        unit="ratio",
+                        dims=["point"],
+                    ),
+                    MeasurementVariable(
+                        id="trace",
+                        role="observable",
+                        dtype="complex128",
+                        unit="ratio",
+                        dims=["point", "sample"],
+                    ),
+                ],
+                primary_coordinates=["frequency"],
+                primary_observables=["signal", "trace"],
             ),
             expected_record_count=4,
         )
@@ -2019,6 +2097,10 @@ def test_effect_is_fenced_and_terminal_updates_control(
         missing_schema_slice = client.post(
             f"/api/v1/runs/{run_id}/measurements/query",
             json={"fixed_axis_indices": {"bias": 1}},
+        )
+        missing_schema_trace = client.post(
+            f"/api/v1/runs/{run_id}/measurements/traces/query",
+            json={"observable_id": "trace"},
         )
         header_response = client.post(
             f"/api/v1/runs/{run_id}/measurements/header",
@@ -2050,6 +2132,30 @@ def test_effect_is_fenced_and_terminal_updates_control(
         invalid_measurement_slice = client.post(
             f"/api/v1/runs/{run_id}/measurements/query",
             json={"fixed_axis_indices": {"missing": 0}},
+        )
+        trace_preview = client.post(
+            f"/api/v1/runs/{run_id}/measurements/traces/query",
+            json={
+                "observable_id": "trace",
+                "coordinate_id": "frequency",
+                "fixed_axis_indices": {"bias": 1},
+                "max_series": 2,
+                "max_samples": 4,
+                "complex_mode": "imag",
+            },
+        )
+        truncated_trace_preview = client.post(
+            f"/api/v1/runs/{run_id}/measurements/traces/query",
+            json={
+                "observable_id": "trace",
+                "coordinate_id": "frequency",
+                "max_series": 1,
+                "max_samples": 2,
+            },
+        )
+        invalid_trace_preview = client.post(
+            f"/api/v1/runs/{run_id}/measurements/traces/query",
+            json={"recording_group_id": "missing"},
         )
         transition = ExecutionTransition(
             run_id=run_id,
@@ -2107,6 +2213,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert measurements.json()["dataset_schema"]["dataset_id"] == "raw-measurements"
         assert measurement_slice.status_code == 200
         assert missing_schema_slice.status_code == 409
+        assert missing_schema_trace.status_code == 409
         assert measurement_slice.json()["items"][0]["point_index"] == 1
         assert measurement_slice.json()["selected_point_count"] == 2
         assert measurement_slice.json()["truncated"]
@@ -2114,6 +2221,27 @@ def test_effect_is_fenced_and_terminal_updates_control(
             "raw-measurements"
         )
         assert invalid_measurement_slice.status_code == 409
+        assert trace_preview.status_code == 200
+        assert trace_preview.json()["coordinate_id"] == "frequency"
+        assert trace_preview.json()["selected_series_count"] == 2
+        assert trace_preview.json()["returned_series_count"] == 2
+        assert not trace_preview.json()["truncated_series"]
+        assert trace_preview.json()["source_sample_count"] == 10
+        assert trace_preview.json()["returned_sample_count"] == 4
+        assert trace_preview.json()["samples_reduced"]
+        assert trace_preview.json()["series"][0] == {
+            "point_index": 1,
+            "logical_point_id": "point-1",
+            "label": "point-1",
+            "x": [0.0, 4.0],
+            "y": [0.0, 4.0],
+            "source_sample_count": 5,
+        }
+        assert invalid_trace_preview.status_code == 409
+        assert truncated_trace_preview.status_code == 200
+        assert truncated_trace_preview.json()["selected_series_count"] == 4
+        assert truncated_trace_preview.json()["returned_series_count"] == 1
+        assert truncated_trace_preview.json()["truncated_series"]
         assert committed.status_code == 200
         assert committed.json()["sequence"] == 0
         committed_transition = ExecutionTransition.model_validate(committed.json())

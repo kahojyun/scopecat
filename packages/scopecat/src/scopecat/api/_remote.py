@@ -7,21 +7,25 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from pydantic import JsonValue, RootModel, TypeAdapter
+from pydantic import JsonValue, TypeAdapter
 
 from scopecat.analysis.service import (
+    AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
+    AnalysisParameterProposalOutput,
+    AnalysisTableOutput,
     SavedAnalysis,
 )
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import MeasurementPage, RunAnalysisListView, RunAnalysisView
 from scopecat.daemon.wire import (
+    AnalysisFigureOutputPayload,
     AnalysisInputPayload,
-    AnalysisJsonOutputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
+    AnalysisTableOutputPayload,
     RunAttachmentCommand,
 )
 from scopecat.records.artifact import RunContentEntry
@@ -203,10 +207,6 @@ class RemoteRunOperations:
         )
 
 
-class _JsonValue(RootModel[JsonValue]):
-    pass
-
-
 def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
     return AnalysisInputPayload(
         target=value.target,
@@ -223,17 +223,23 @@ def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
 
 def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
     metadata = _JSON_MAPPING.validate_python(value.metadata)
-    if value.kind == "table" or value.kind == "figure":
-        return AnalysisJsonOutputPayload(
-            kind=value.kind,
+    if isinstance(value, AnalysisTableOutput):
+        return AnalysisTableOutputPayload(
+            kind="table",
             title=value.title,
-            content=_JsonValue.model_validate(value.content).root,
+            content=value.content,
             metadata=metadata,
         )
-    if not isinstance(value.content, ParameterChangeProposal):
-        raise ValueError("remote analysis proposal output has invalid content")
+    if isinstance(value, AnalysisFigureOutput):
+        return AnalysisFigureOutputPayload(
+            kind="figure",
+            title=value.title,
+            content=value.content,
+            metadata=metadata,
+        )
+    assert isinstance(value, AnalysisParameterProposalOutput)
     return AnalysisParameterProposalOutputPayload(
-        kind=value.kind,
+        kind="parameter_change_proposal",
         title=value.title,
         content=value.content,
         metadata=metadata,

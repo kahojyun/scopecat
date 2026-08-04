@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
@@ -40,7 +39,10 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.analysis import AnalysisRecord
+from scopecat.records.analysis import (
+    AnalysisParameterProposalRecordOutput,
+    AnalysisRecord,
+)
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
@@ -354,15 +356,11 @@ def _analysis_references_proposal(
 ) -> bool:
     expected_ref = parameter_change_proposal_record_ref(proposal_id)
     for output in analysis.outputs:
-        if output.kind != "parameter_change_proposal" or not isinstance(
-            output.content,
-            Mapping,
-        ):
+        if not isinstance(output, AnalysisParameterProposalRecordOutput):
             continue
-        content = cast("Mapping[str, object]", output.content)
         if (
-            content.get("proposal_id") == proposal_id
-            and content.get("record_ref") == expected_ref
+            output.content.proposal_id == proposal_id
+            and output.content.record_ref == expected_ref
         ):
             return True
     return False

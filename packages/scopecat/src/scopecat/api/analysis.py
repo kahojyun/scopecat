@@ -15,9 +15,11 @@ from typing import (
 )
 
 from scopecat.analysis.service import (
+    AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
-    AnalysisOutputKind,
+    AnalysisParameterProposalOutput,
+    AnalysisTableOutput,
     SavedAnalysis,
 )
 from scopecat.api.data import Data
@@ -38,6 +40,15 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.measurements.results import Dataset
+from scopecat.records.analysis import (
+    AnalysisFigure,
+    AnalysisFigureAxis,
+    AnalysisFigureSeries,
+    AnalysisTable,
+    AnalysisTableCell,
+    AnalysisTableColumn,
+    AnalysisTableRow,
+)
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 
@@ -93,21 +104,43 @@ class Analysis:
 
     def table(
         self,
-        content: object,
+        content: AnalysisTable,
         *,
         title: str = "table",
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
-        return self._with_output("table", title, content, metadata)
+        return replace(
+            self,
+            outputs=(
+                *self.outputs,
+                AnalysisTableOutput(
+                    kind="table",
+                    title=title,
+                    content=content,
+                    metadata=metadata or {},
+                ),
+            ),
+        )
 
     def figure(
         self,
-        content: object,
+        content: AnalysisFigure,
         *,
         title: str = "figure",
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
-        return self._with_output("figure", title, content, metadata)
+        return replace(
+            self,
+            outputs=(
+                *self.outputs,
+                AnalysisFigureOutput(
+                    kind="figure",
+                    title=title,
+                    content=content,
+                    metadata=metadata or {},
+                ),
+            ),
+        )
 
     @property
     def analysis_key(self) -> str:
@@ -189,7 +222,7 @@ class Analysis:
                 str(error),
                 "updates",
             )
-        output = AnalysisOutput(
+        output = AnalysisParameterProposalOutput(
             kind="parameter_change_proposal",
             title=selected_id,
             content=proposal,
@@ -221,26 +254,6 @@ class Analysis:
             inputs=self.inputs,
             outputs=self.outputs,
             parameter_proposals=self.parameter_proposals,
-        )
-
-    def _with_output(
-        self,
-        kind: AnalysisOutputKind,
-        title: str,
-        content: object,
-        metadata: Mapping[str, object] | None,
-    ) -> Analysis:
-        return replace(
-            self,
-            outputs=(
-                *self.outputs,
-                AnalysisOutput(
-                    kind=kind,
-                    title=title,
-                    content=content,
-                    metadata=metadata or {},
-                ),
-            ),
         )
 
 
@@ -479,10 +492,17 @@ __all__ = [
     "Analysis",
     "AnalysisContext",
     "AnalysisDefinition",
+    "AnalysisFigure",
+    "AnalysisFigureAxis",
+    "AnalysisFigureSeries",
     "AnalysisInput",
     "AnalysisInvocation",
     "AnalysisOutput",
     "AnalysisStep",
+    "AnalysisTable",
+    "AnalysisTableCell",
+    "AnalysisTableColumn",
+    "AnalysisTableRow",
     "SavedAnalysis",
     "analysis_step",
 ]

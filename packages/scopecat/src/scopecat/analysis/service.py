@@ -24,10 +24,15 @@ from scopecat.kernel.problems import (
 )
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
+    AnalysisFigure,
+    AnalysisFigureRecordOutput,
+    AnalysisParameterProposalRecordOutput,
+    AnalysisParameterProposalReference,
     AnalysisRecord,
     AnalysisRecordInput,
     AnalysisRecordOutput,
-    AnalysisRecordOutputKind,
+    AnalysisTable,
+    AnalysisTableRecordOutput,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -36,8 +41,6 @@ from scopecat.runs.repository import (
     RunContentPublication,
     RunModelWrite,
 )
-
-AnalysisOutputKind = AnalysisRecordOutputKind
 
 
 @dataclass(frozen=True)
@@ -50,11 +53,32 @@ class AnalysisInput:
 
 
 @dataclass(frozen=True)
-class AnalysisOutput:
-    kind: AnalysisOutputKind
+class AnalysisTableOutput:
+    kind: Literal["table"]
     title: str
-    content: object
+    content: AnalysisTable
     metadata: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class AnalysisFigureOutput:
+    kind: Literal["figure"]
+    title: str
+    content: AnalysisFigure
+    metadata: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class AnalysisParameterProposalOutput:
+    kind: Literal["parameter_change_proposal"]
+    title: str
+    content: ParameterChangeProposal
+    metadata: Mapping[str, object]
+
+
+type AnalysisOutput = (
+    AnalysisTableOutput | AnalysisFigureOutput | AnalysisParameterProposalOutput
+)
 
 
 @dataclass(frozen=True)
@@ -163,21 +187,6 @@ def prepare_analysis(
     )
 
 
-def _saved_analysis_output_content(output: AnalysisOutput) -> object:
-    if output.kind == "parameter_change_proposal":
-        if not isinstance(output.content, ParameterChangeProposal):
-            _raise_analysis_problem(
-                "analysis_parameter_proposal_output_invalid",
-                "analysis parameter proposal output has invalid content",
-                "outputs",
-            )
-        return {
-            "proposal_id": output.content.id,
-            "record_ref": parameter_change_proposal_record_ref(output.content.id),
-        }
-    return output.content
-
-
 def _analysis_record_inputs(
     inputs: Sequence[AnalysisInput],
 ) -> list[AnalysisRecordInput]:
@@ -203,15 +212,42 @@ def _analysis_record_inputs(
 def _analysis_record_outputs(
     outputs: Sequence[AnalysisOutput],
 ) -> list[AnalysisRecordOutput]:
-    return [
-        AnalysisRecordOutput(
-            kind=output.kind,
-            title=output.title,
-            content=_json_safe(_saved_analysis_output_content(output)),
-            metadata=_json_mapping(cast("Mapping[object, object]", output.metadata)),
-        )
-        for output in outputs
-    ]
+    selected: list[AnalysisRecordOutput] = []
+    for output in outputs:
+        metadata = _json_mapping(cast("Mapping[object, object]", output.metadata))
+        if isinstance(output, AnalysisTableOutput):
+            selected.append(
+                AnalysisTableRecordOutput(
+                    kind="table",
+                    title=output.title,
+                    content=output.content,
+                    metadata=metadata,
+                )
+            )
+        elif isinstance(output, AnalysisFigureOutput):
+            selected.append(
+                AnalysisFigureRecordOutput(
+                    kind="figure",
+                    title=output.title,
+                    content=output.content,
+                    metadata=metadata,
+                )
+            )
+        else:
+            selected.append(
+                AnalysisParameterProposalRecordOutput(
+                    kind="parameter_change_proposal",
+                    title=output.title,
+                    content=AnalysisParameterProposalReference(
+                        proposal_id=output.content.id,
+                        record_ref=parameter_change_proposal_record_ref(
+                            output.content.id
+                        ),
+                    ),
+                    metadata=metadata,
+                )
+            )
+    return selected
 
 
 def _raise_analysis_problem(

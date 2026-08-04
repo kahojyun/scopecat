@@ -211,6 +211,7 @@ describe("ConfigWorkspace", () => {
         id: "analysis-fit",
         title: "Frequency fit",
         key: "fit",
+        inputs: [],
         outputs: [],
       },
     ]);

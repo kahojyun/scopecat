@@ -18,6 +18,20 @@ from scopecat.measurements.results import Dataset, Trace, Variable
 FLUX_SPECTROSCOPY_ANALYSIS_ID = "instrument_demo.flux_spectroscopy.analysis"
 FLUX_SPECTROSCOPY_PROPOSAL_ID = "readout-resonator-fit"
 _FIT_MODEL_ID = "instrument_demo.notch_half_depth.v1"
+_FIT_TABLE_COLUMNS = (
+    sc.AnalysisTableColumn(id="model_id", label="Fit model"),
+    sc.AnalysisTableColumn(id="dc_bias_v", label="DC bias", unit="V"),
+    sc.AnalysisTableColumn(id="temperature_mK", label="Temperature", unit="mK"),
+    sc.AnalysisTableColumn(
+        id="resonance_frequency_hz",
+        label="Resonance frequency",
+        unit="Hz",
+    ),
+    sc.AnalysisTableColumn(id="linewidth_hz", label="Linewidth", unit="Hz"),
+    sc.AnalysisTableColumn(id="quality_factor", label="Quality factor"),
+    sc.AnalysisTableColumn(id="baseline_power", label="Baseline power"),
+    sc.AnalysisTableColumn(id="minimum_power", label="Minimum power"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,17 +159,40 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
             role="fit-input",
             title="Flux spectroscopy measurements",
         )
-        .table(fit_rows, title="Resonator fit by DC bias")
-        .table([selected_row], title="Selected readout sweet spot")
+        .table(
+            sc.AnalysisTable.from_rows(fit_rows, columns=_FIT_TABLE_COLUMNS),
+            title="Resonator fit by DC bias",
+        )
+        .table(
+            sc.AnalysisTable.from_rows(
+                [selected_row],
+                columns=(
+                    *_FIT_TABLE_COLUMNS,
+                    sc.AnalysisTableColumn(id="selection", label="Selection"),
+                ),
+            ),
+            title="Selected readout sweet spot",
+        )
         .figure(
-            {
-                "kind": "resonator_flux_map",
-                "x": "dc_bias",
-                "y": "frequency",
-                "color": "s_parameter_magnitude",
-                "source_dataset": measurements.entry.id,
-                "fit_model": _FIT_MODEL_ID,
-            },
+            sc.AnalysisFigure(
+                kind="line",
+                x_axis=sc.AnalysisFigureAxis(label="DC bias", unit="V"),
+                y_axis=sc.AnalysisFigureAxis(
+                    label="Fitted resonance frequency",
+                    unit="GHz",
+                ),
+                series=[
+                    sc.AnalysisFigureSeries(
+                        id="fitted-resonance",
+                        label="Notch fit",
+                        x=[_quantity_value(fit.dc_bias, "V") for fit in fits],
+                        y=[
+                            _quantity_value(fit.resonance_frequency, "GHz")
+                            for fit in fits
+                        ],
+                    )
+                ],
+            ),
             title="Resonator frequency versus flux bias",
         )
         .propose(
@@ -210,7 +247,7 @@ def _variable_quantity(variable: Variable, value: object, name: str) -> sc.Quant
     return sc.Quantity(float(value), variable.unit)
 
 
-def _fit_row(fit: ResonatorTraceFit) -> dict[str, object]:
+def _fit_row(fit: ResonatorTraceFit) -> dict[str, sc.AnalysisTableCell]:
     return {
         "model_id": _FIT_MODEL_ID,
         "dc_bias_v": _quantity_value(fit.dc_bias, "V"),

@@ -25,9 +25,10 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.daemon.wire import (
-    AnalysisJsonOutputPayload,
+    AnalysisFigureOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
+    AnalysisTableOutputPayload,
     CandidateConfigRevisionSource,
     ConfigActivationReceipt,
     ConfigEntryActivationCommand,
@@ -53,6 +54,17 @@ from scopecat.execution.ports.instruments import RunHardwareApply, RunHardwareBa
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
+from scopecat.records.analysis import (
+    MAX_ANALYSIS_OUTPUTS,
+    MAX_ANALYSIS_TABLE_COLUMNS,
+    MAX_ANALYSIS_TABLE_ROWS,
+    AnalysisFigure,
+    AnalysisFigureAxis,
+    AnalysisFigureSeries,
+    AnalysisTable,
+    AnalysisTableColumn,
+    AnalysisTableRow,
+)
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -238,10 +250,21 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         title="fit",
         analysis_key="fit",
         outputs=(
-            AnalysisJsonOutputPayload(
+            AnalysisFigureOutputPayload(
                 kind="figure",
                 title="fit curve",
-                content={"x": [1, 2], "y": [3, 4]},
+                content=AnalysisFigure(
+                    kind="line",
+                    x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
+                    y_axis=AnalysisFigureAxis(label="Signal", unit="ratio"),
+                    series=[
+                        AnalysisFigureSeries(
+                            id="fit",
+                            x=[1.0, 2.0],
+                            y=[3.0, 4.0],
+                        )
+                    ],
+                ),
             ),
             AnalysisParameterProposalOutputPayload(
                 kind="parameter_change_proposal",
@@ -277,6 +300,37 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                     ),
                 ),
             ),
+        )
+
+
+def test_analysis_save_command_bounds_embedded_output_group() -> None:
+    table = AnalysisTable(
+        columns=[
+            AnalysisTableColumn(id=f"column-{index}")
+            for index in range(MAX_ANALYSIS_TABLE_COLUMNS)
+        ],
+        rows=[
+            AnalysisTableRow(cells=[index] * MAX_ANALYSIS_TABLE_COLUMNS)
+            for index in range(MAX_ANALYSIS_TABLE_ROWS)
+        ],
+    )
+    output = AnalysisTableOutputPayload(
+        kind="table",
+        title="large table",
+        content=table,
+    )
+
+    with pytest.raises(ValidationError, match="total table cell count"):
+        AnalysisSaveCommand(
+            title="large tables",
+            analysis_key="large-tables",
+            outputs=(output,) * 5,
+        )
+    with pytest.raises(ValidationError, match=f"at most {MAX_ANALYSIS_OUTPUTS} items"):
+        AnalysisSaveCommand(
+            title="too many outputs",
+            analysis_key="too-many-outputs",
+            outputs=(output,) * (MAX_ANALYSIS_OUTPUTS + 1),
         )
 
 

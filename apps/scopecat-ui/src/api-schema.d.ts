@@ -549,6 +549,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/measurements/traces/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Query Measurement Traces */
+        post: operations["query_measurement_traces_api_v1_runs__run_id__measurements_traces_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/parameter-proposals": {
         parameters: {
             query?: never;
@@ -587,6 +604,7 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        _AnalysisTableInteger: number;
         /** _BoolWire */
         _BoolWire: {
             /**
@@ -797,6 +815,73 @@ export interface components {
             /** Source Run Id */
             source_run_id: string;
         };
+        /**
+         * AnalysisFigure
+         * @description A finite embedded line or scatter figure ready for local rendering.
+         */
+        AnalysisFigure: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "line" | "scatter";
+            /** Series */
+            series: components["schemas"]["AnalysisFigureSeries"][];
+            x_axis: components["schemas"]["AnalysisFigureAxis"];
+            y_axis: components["schemas"]["AnalysisFigureAxis"];
+        };
+        /**
+         * AnalysisFigureAxis
+         * @description One labeled numeric figure axis.
+         */
+        AnalysisFigureAxis: {
+            label: components["schemas"]["_NonEmptyText"];
+            unit?: components["schemas"]["_NonEmptyText"] | null;
+        };
+        /** AnalysisFigureRecordOutput */
+        AnalysisFigureRecordOutput: {
+            content: components["schemas"]["AnalysisFigure"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "figure";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /** Title */
+            title: string;
+        };
+        /**
+         * AnalysisFigureSeries
+         * @description One embedded numeric series; x and y values are point-aligned.
+         */
+        AnalysisFigureSeries: {
+            id: components["schemas"]["_NonEmptyText"];
+            label?: components["schemas"]["_NonEmptyText"] | null;
+            /** X */
+            x: number[];
+            /** Y */
+            y: number[];
+        };
+        /** AnalysisParameterProposalRecordOutput */
+        AnalysisParameterProposalRecordOutput: {
+            content: components["schemas"]["AnalysisParameterProposalReference"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "parameter_change_proposal";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /** Title */
+            title: string;
+        };
+        /**
+         * AnalysisParameterProposalReference
+         * @description Persisted reference to the separately stored proposal record.
+         */
+        AnalysisParameterProposalReference: {
+            proposal_id: components["schemas"]["_NonEmptyText"];
+            record_ref: components["schemas"]["_NonEmptyText"];
+        };
         /** AnalysisRecord */
         AnalysisRecord: {
             /** Inputs */
@@ -827,18 +912,46 @@ export interface components {
             /** Title */
             title?: string | null;
         };
-        /** AnalysisRecordOutput */
-        AnalysisRecordOutput: {
-            /** Content */
-            content: unknown;
+        AnalysisRecordOutput: components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
+        /**
+         * AnalysisTable
+         * @description A bounded, display-ready scalar table with an explicit column schema.
+         */
+        AnalysisTable: {
+            /** Columns */
+            columns: components["schemas"]["AnalysisTableColumn"][];
+            /** Rows */
+            rows?: components["schemas"]["AnalysisTableRow"][];
+        };
+        AnalysisTableCell: boolean | components["schemas"]["_AnalysisTableInteger"] | number | string | null;
+        /**
+         * AnalysisTableColumn
+         * @description One stable scalar column in an analysis-authored table.
+         */
+        AnalysisTableColumn: {
+            id: components["schemas"]["_NonEmptyText"];
+            label?: components["schemas"]["_NonEmptyText"] | null;
+            unit?: components["schemas"]["_NonEmptyText"] | null;
+        };
+        /** AnalysisTableRecordOutput */
+        AnalysisTableRecordOutput: {
+            content: components["schemas"]["AnalysisTable"];
             /**
-             * Kind
+             * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            kind: "table" | "figure" | "parameter_change_proposal";
+            kind: "table";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Title */
             title: string;
+        };
+        /**
+         * AnalysisTableRow
+         * @description Cells aligned positionally with an :class:`AnalysisTable` schema.
+         */
+        AnalysisTableRow: {
+            /** Cells */
+            cells: components["schemas"]["AnalysisTableCell"][];
         };
         /**
          * ApplyReceipt
@@ -2109,6 +2222,111 @@ export interface components {
             variable_ids?: string[] | null;
         };
         /**
+         * MeasurementTracePreview
+         * @description Bounded numeric series for one selected point-local observable.
+         *
+         *     ``selected_series_count`` is the authored domain selection size. It does
+         *     not promise that every selected point is durable yet or has an available
+         *     observable value; ``returned_series_count`` counts response series only.
+         */
+        MeasurementTracePreview: {
+            /** Coordinate Id */
+            coordinate_id: string;
+            /** Coordinate Label */
+            coordinate_label?: string | null;
+            /** Coordinate Unit */
+            coordinate_unit?: string | null;
+            /** Dimension Id */
+            dimension_id: string;
+            downsampling: components["schemas"]["TraceDownsampling"];
+            /** Fixed Axis Indices */
+            fixed_axis_indices?: {
+                [key: string]: number;
+            };
+            /** Observable Id */
+            observable_id: string;
+            /** Observable Label */
+            observable_label?: string | null;
+            /** Observable Unit */
+            observable_unit?: string | null;
+            /** Recording Group Id */
+            recording_group_id?: string | null;
+            /** Returned Sample Count */
+            returned_sample_count: number;
+            /** Returned Series Count */
+            returned_series_count: number;
+            /**
+             * Samples Reduced
+             * @default false
+             */
+            samples_reduced: boolean;
+            /** Selected Series Count */
+            selected_series_count: number;
+            /**
+             * Series
+             * @default []
+             */
+            series: components["schemas"]["MeasurementTraceSeries"][];
+            /** Source Sample Count */
+            source_sample_count: number;
+            /**
+             * Truncated Series
+             * @default false
+             */
+            truncated_series: boolean;
+            value_mode: components["schemas"]["TraceValueMode"];
+            /** Value Unit */
+            value_unit?: string | null;
+        };
+        /**
+         * MeasurementTracePreviewQuery
+         * @description Select one bounded, response-ready point-local trace preview.
+         */
+        MeasurementTracePreviewQuery: {
+            /** @default magnitude */
+            complex_mode: components["schemas"]["TraceComplexMode"];
+            /** Coordinate Id */
+            coordinate_id?: string | null;
+            /** @default even */
+            downsampling: components["schemas"]["TraceDownsampling"];
+            /** Fixed Axis Indices */
+            fixed_axis_indices?: {
+                [key: string]: number;
+            };
+            /**
+             * Max Samples
+             * @default 4096
+             */
+            max_samples: number;
+            /**
+             * Max Series
+             * @default 32
+             */
+            max_series: number;
+            /** Observable Id */
+            observable_id?: string | null;
+            /** Recording Group Id */
+            recording_group_id?: string | null;
+        };
+        /**
+         * MeasurementTraceSeries
+         * @description One directly plottable numeric trace series.
+         */
+        MeasurementTraceSeries: {
+            /** Label */
+            label: string;
+            /** Logical Point Id */
+            logical_point_id?: string | null;
+            /** Point Index */
+            point_index: number;
+            /** Source Sample Count */
+            source_sample_count: number;
+            /** X */
+            x: number[];
+            /** Y */
+            y: number[];
+        };
+        /**
          * MeasurementUnavailable
          * @description A complete scalar or array result with no usable value.
          *
@@ -2908,6 +3126,12 @@ export interface components {
             /** Entities */
             entities?: components["schemas"]["EntityRef-Output"][];
         };
+        /** @enum {string} */
+        TraceComplexMode: "magnitude" | "phase" | "real" | "imag";
+        /** @constant */
+        TraceDownsampling: "even";
+        /** @enum {string} */
+        TraceValueMode: "value" | "magnitude" | "phase" | "real" | "imag";
         /**
          * UpdateParameterRows
          * @description Update one row selected by a table primary key.
@@ -3979,6 +4203,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeasurementSlice"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_measurement_traces_api_v1_runs__run_id__measurements_traces_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeasurementTracePreviewQuery"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementTracePreview"];
                 };
             };
             /** @description Validation Error */

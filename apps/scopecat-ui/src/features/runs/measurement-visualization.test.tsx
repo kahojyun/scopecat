@@ -10,15 +10,100 @@ import type {
 } from "../../api-contract";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
 import {
-  measurementGridQuery,
-  measurementGridSliceRecords,
+  measurementSlicePlan,
+  measurementSliceRecords,
   measurementTable,
+  measurementTraceChart,
+  measurementTraceQueryPlans,
+  measurementTraceStatus,
   planMeasurementCharts,
+  type MeasurementTracePreviewData,
 } from "./measurement-visualization";
 
 afterEach(cleanup);
 
 describe("measurement visualization", () => {
+  it("derives explicit server trace queries from one compatible recording group", () => {
+    expect(measurementTraceQueryPlans(traceSchema())).toEqual([
+      {
+        id: "trace:response:frequency:magnitude",
+        label: "S21 magnitude",
+        observableId: "response",
+        coordinateId: "frequency",
+        recordingGroupId: "readout",
+        valueMode: "magnitude",
+        complexMode: "magnitude",
+      },
+      expect.objectContaining({
+        id: "trace:response:frequency:phase",
+        valueMode: "phase",
+        complexMode: "phase",
+      }),
+      expect.objectContaining({
+        id: "trace:response:frequency:real",
+        valueMode: "real",
+      }),
+      expect.objectContaining({
+        id: "trace:response:frequency:imag",
+        valueMode: "imag",
+      }),
+    ]);
+  });
+
+  it("keeps a real trace labeled as value while sending a valid complex fallback", () => {
+    expect(measurementTraceQueryPlans(realTraceSchema())).toEqual([
+      {
+        id: "trace:response:frequency:value",
+        label: "S21",
+        observableId: "response",
+        coordinateId: "frequency",
+        recordingGroupId: "readout",
+        valueMode: "value",
+        complexMode: "magnitude",
+      },
+    ]);
+  });
+
+  it("uses explicit variable ids for a partially grouped trace pair", () => {
+    const schema = traceSchema();
+    const coordinate = schema.variables?.find((variable) => variable.id === "frequency");
+    if (!coordinate) throw new Error("trace fixture has no frequency coordinate");
+    delete coordinate.recording_group_id;
+
+    expect(measurementTraceQueryPlans(schema)[0]).toMatchObject({
+      observableId: "response",
+      coordinateId: "frequency",
+      recordingGroupId: undefined,
+    });
+  });
+
+  it("lists each explicit trace coordinate when several pairs are safe", () => {
+    const schema = traceSchema();
+    const coordinate = schema.variables?.find((variable) => variable.id === "frequency");
+    const observable = schema.variables?.find((variable) => variable.id === "response");
+    if (!coordinate || !observable) throw new Error("trace fixture variables are incomplete");
+    delete coordinate.recording_group_id;
+    delete observable.recording_group_id;
+    schema.variables?.push({
+      ...coordinate,
+      id: "time",
+      label: "Time",
+      unit: "ns",
+    });
+
+    const plans = measurementTraceQueryPlans(schema);
+
+    expect(plans).toHaveLength(8);
+    expect(plans[0]).toMatchObject({
+      coordinateId: "frequency",
+      label: "S21 magnitude by Frequency",
+    });
+    expect(plans[4]).toMatchObject({
+      coordinateId: "time",
+      label: "S21 magnitude by Time",
+    });
+  });
+
   it("plans a labeled scalar line from point coordinates", () => {
     const schema = scalarSchema();
     const items = [0, 1, 2].map((point) =>
@@ -45,15 +130,12 @@ describe("measurement visualization", () => {
     expect(measurementTable(items, schema).rows[1]?.cells).toEqual(["1", "0.1 V", "2 ratio"]);
   });
 
-  it("plans point-local complex traces as explicit magnitude series", () => {
+  it("does not build point-local traces from loaded full records", () => {
     const schema = traceSchema();
-    const items = [0, 1].map((point) =>
+    const items = [
       record(
-        point,
-        {
-          bias: scalar(point, "V"),
-          frequency: array([4, 5, 6], "GHz"),
-        },
+        0,
+        { bias: scalar(0, "V"), frequency: array([4, 5, 6], "GHz") },
         {
           response: complexArray([
             { real: 3, imag: 4 },
@@ -62,93 +144,171 @@ describe("measurement visualization", () => {
           ]),
         },
       ),
+    ];
+
+    expect(planMeasurementCharts(items, schema)).toEqual([]);
+  });
+
+  it("maps server numeric trace series to a complex chart without reprocessing samples", () => {
+    const chart = measurementTraceChart(
+      tracePreview({
+        value_mode: "phase",
+        value_unit: "rad",
+        series: [
+          traceSeries(0, [4, 5, 6], [Math.atan2(4, 3), Math.PI / 2, 0], 300),
+          traceSeries(1, [4, 6], [0.2, 0.4], 200),
+        ],
+        selected_series_count: 2,
+        returned_series_count: 2,
+        source_sample_count: 500,
+        returned_sample_count: 5,
+        samples_reduced: true,
+      }),
     );
 
-    const charts = planMeasurementCharts(items, schema);
-    const [chart] = charts;
     expect(chart).toMatchObject({
+      id: "trace:response:frequency:phase",
       kind: "line",
-      title: "S21 magnitude",
+      title: "S21 phase",
       xLabel: "Frequency [GHz]",
-      yLabel: "|S21| [ratio]",
-      note: "Complex values are shown as magnitude.",
-    });
-    expect(chart?.series).toHaveLength(2);
-    expect(chart?.series[0]?.points).toEqual([
-      { x: 4, y: 5 },
-      { x: 5, y: 2 },
-      { x: 6, y: 1 },
-    ]);
-    expect(charts.map((candidate) => candidate.title)).toEqual([
-      "S21 magnitude",
-      "S21 phase",
-      "S21 real",
-      "S21 imaginary",
-    ]);
-    expect(charts[1]).toMatchObject({
       yLabel: "phase(S21) [rad]",
       note: "Complex values are shown as phase in radians.",
     });
-    expect(charts[1]?.series[0]?.points[0]?.y).toBeCloseTo(Math.atan2(4, 3));
-    expect(charts[2]?.series[0]?.points[0]?.y).toBe(3);
-    expect(charts[3]?.series[0]?.points[0]?.y).toBe(4);
+    expect(chart?.series[0]?.points).toEqual([
+      { x: 4, y: Math.atan2(4, 3) },
+      { x: 5, y: Math.PI / 2 },
+      { x: 6, y: 0 },
+    ]);
   });
 
-  it("applies complex modes when a complex variable contains widened real values", () => {
-    const items = [
-      record(
-        0,
-        { bias: scalar(0, "V"), frequency: array([4, 5], "GHz") },
-        { response: array([-2, 3], "ratio") },
-      ),
-    ];
-
-    const charts = planMeasurementCharts(items, traceSchema());
-
-    expect(charts[0]?.series[0]?.points.map((point) => point.y)).toEqual([2, 3]);
-    expect(charts[1]?.series[0]?.points.map((point) => point.y)).toEqual([Math.PI, 0]);
-    expect(charts[2]?.series[0]?.points.map((point) => point.y)).toEqual([-2, 3]);
-    expect(charts[3]?.series[0]?.points.map((point) => point.y)).toEqual([0, 0]);
-  });
-
-  it("bounds automatic trace series and plotted samples while preserving endpoints", () => {
-    const samples = Array.from({ length: 1_000 }, (_value, index) => index);
-    const items = Array.from({ length: 40 }, (_value, point) =>
-      record(
-        point,
-        { bias: scalar(point, "V"), frequency: array(samples, "GHz") },
-        { response: array(samples, "ratio") },
-      ),
+  it("uses the actual response value mode for real trace labels", () => {
+    const chart = measurementTraceChart(
+      tracePreview({
+        value_mode: "value",
+        value_unit: "ratio",
+        series: [traceSeries(0, [4, 5], [-2, 3])],
+        selected_series_count: 1,
+        returned_series_count: 1,
+        source_sample_count: 2,
+        returned_sample_count: 2,
+      }),
     );
 
-    const [chart] = planMeasurementCharts(items, traceSchema());
-
-    expect(chart?.series).toHaveLength(32);
-    expect(
-      chart?.series.reduce((total, series) => total + series.points.length, 0),
-    ).toBeLessThanOrEqual(4_096);
-    expect(chart?.series[0]?.points.at(0)).toEqual({ x: 0, y: 0 });
-    expect(chart?.series[0]?.points.at(-1)).toEqual({ x: 999, y: 999 });
-    expect(chart?.note).toContain("at most 32 point traces");
-    expect(chart?.note).toContain("at most 4,096 plotted points");
+    expect(chart).toMatchObject({
+      title: "S21",
+      yLabel: "S21 [ratio]",
+      note: undefined,
+    });
   });
 
-  it("decides trace line safety before downsampling can hide a reversal", () => {
-    const samples = Array.from({ length: 5_000 }, (_value, index) => index);
-    const frequency = [...samples];
-    frequency[3] = -1;
-    const items = [
-      record(
-        0,
-        { bias: scalar(0, "V"), frequency: array(frequency, "GHz") },
-        { response: array(samples, "ratio") },
-      ),
-    ];
-
-    const [chart] = planMeasurementCharts(items, traceSchema());
+  it("renders a server series with a non-monotonic coordinate as scatter", () => {
+    const chart = measurementTraceChart(
+      tracePreview({
+        series: [traceSeries(0, [0, 2, 1], [1, 2, 3])],
+        selected_series_count: 1,
+        returned_series_count: 1,
+        source_sample_count: 3,
+        returned_sample_count: 3,
+      }),
+    );
 
     expect(chart).toMatchObject({ kind: "scatter" });
-    expect(chart?.series[0]?.points).toHaveLength(4_096);
+  });
+
+  it("selects a bounded trace mode and renders server series with limit status", () => {
+    const schema = traceSchema();
+    const plans = measurementTraceQueryPlans(schema);
+    const onTracePlanChange = vi.fn();
+    const preview = tracePreview({
+      series: [traceSeries(0, [4, 5, 6], [5, 2, 1], 60), traceSeries(1, [4, 6], [4, 3], 40)],
+      selected_series_count: 8,
+      returned_series_count: 2,
+      truncated_series: true,
+      source_sample_count: 100,
+      returned_sample_count: 5,
+      samples_reduced: true,
+    });
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: [] }}
+        slice={slicePreview(schema, [])}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{}}
+        onFixedAxisIndexChange={vi.fn()}
+        tracePlans={plans}
+        selectedTracePlanId={plans[0]!.id}
+        tracePreview={preview}
+        tracePending={false}
+        traceError={null}
+        onTracePlanChange={onTracePlanChange}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    const selector = screen.getByRole("combobox", { name: "Measurement trace" });
+    expect(selector).toHaveValue("trace:response:frequency:magnitude");
+    expect(screen.getByRole("option", { name: "S21 magnitude" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "S21 phase" })).toBeVisible();
+    fireEvent.change(selector, { target: { value: "trace:response:frequency:phase" } });
+    expect(onTracePlanChange).toHaveBeenCalledWith("trace:response:frequency:phase");
+    expect(
+      screen.getByRole("img", { name: "S21 magnitude: |S21| [ratio] by Frequency [GHz]" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "2 of 8 selected series returned · series limit applied · 5 of 100 source samples plotted · evenly downsampled",
+      ),
+    ).toBeVisible();
+  });
+
+  it("shows bounded trace pending and error states without stale charts", () => {
+    const schema = traceSchema();
+    const plans = measurementTraceQueryPlans(schema);
+    const common = {
+      preview: { schema, items: [] },
+      slice: slicePreview(schema, []),
+      sliceError: null,
+      slicePending: false,
+      fixedAxisIndices: {},
+      onFixedAxisIndexChange: vi.fn(),
+      tracePlans: plans,
+      selectedTracePlanId: plans[0]!.id,
+      hasMore: false,
+      loadingMore: false,
+      onLoadMore: vi.fn(),
+    };
+    const view = render(
+      <MeasurementDataPreview
+        {...common}
+        tracePreview={tracePreview()}
+        tracePending
+        traceError={null}
+      />,
+    );
+
+    expect(screen.getByText("Reading bounded trace preview…")).toBeVisible();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+
+    view.rerender(
+      <MeasurementDataPreview
+        {...common}
+        tracePreview={tracePreview()}
+        tracePending={false}
+        traceError={new Error("offline")}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Trace unavailable: offline");
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("formats trace status without claiming an absent reduction", () => {
+    expect(measurementTraceStatus(tracePreview())).toBe(
+      "1 of 1 selected series returned · 3 source samples plotted",
+    );
   });
 
   it("always uses scatter for a one-dimensional point cloud", () => {
@@ -360,15 +520,14 @@ describe("measurement visualization", () => {
     ).toBeVisible();
   });
 
-  it("queries one high-dimensional grid slice using canonical axis values", () => {
+  it("plans one high-dimensional semantic slice using canonical axis values", () => {
     const schema = threeDimensionalGridSchema();
     const items = slicedGridRecords();
     const selected = slicedGridRecords([0]);
     const onFixedAxisIndexChange = vi.fn();
 
-    expect(measurementGridQuery(schema)).toMatchObject({
-      xAxis: { id: "row" },
-      yAxis: { id: "column" },
+    expect(measurementSlicePlan(schema)).toMatchObject({
+      varyingAxes: [{ id: "row" }, { id: "column" }],
       fixedAxes: [
         {
           id: "bias",
@@ -376,6 +535,12 @@ describe("measurement visualization", () => {
           values: [scalar(0, "V"), scalar(1, "V")],
         },
       ],
+      variableIds: ["row", "column", "temperature"],
+      heatmap: {
+        xAxis: { id: "row" },
+        yAxis: { id: "column" },
+        observableIds: ["temperature"],
+      },
     });
 
     render(
@@ -403,13 +568,133 @@ describe("measurement visualization", () => {
     expect(onFixedAxisIndexChange).toHaveBeenCalledWith("bias", 1);
   });
 
+  it("plans a one-dimensional product-grid slice without requiring a heatmap", () => {
+    const plan = measurementSlicePlan(scalarSchema());
+
+    expect(plan).toMatchObject({
+      varyingAxes: [{ id: "bias", size: 3 }],
+      fixedAxes: [],
+      variableIds: ["bias", "signal"],
+    });
+    expect(plan?.heatmap).toBeUndefined();
+  });
+
+  it("keeps fixed-axis selection and a bounded server trace for a ragged trace-only grid", () => {
+    const schema = traceOnlyRaggedGridSchema();
+    const previewItems = traceOnlyRaggedGridRecords();
+    const selectedItems = measurementSliceRecords(previewItems, schema, { bias: 0 }).map(
+      (item) => ({
+        ...item,
+        coordinates: {
+          column: item.coordinates.column!,
+          row: item.coordinates.row!,
+        },
+        observables: {},
+      }),
+    );
+    const plan = measurementSlicePlan(schema);
+    const tracePlans = measurementTraceQueryPlans(schema);
+    const boundedTrace = tracePreview({
+      observable_id: "spectrum",
+      observable_label: "Spectrum",
+      value_mode: "value",
+      series: [traceSeries(0, [4, 5, 6], [1, 2, 3])],
+      selected_series_count: 6,
+      returned_series_count: 1,
+      source_sample_count: 3,
+      returned_sample_count: 3,
+    });
+
+    expect(plan).toMatchObject({
+      varyingAxes: [{ id: "row" }, { id: "column" }],
+      fixedAxes: [{ id: "bias", size: 2 }],
+      variableIds: ["row", "column"],
+    });
+    expect(plan?.heatmap).toBeUndefined();
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: previewItems }}
+        slice={slicePreview(schema, selectedItems)}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ bias: 0 }}
+        onFixedAxisIndexChange={vi.fn()}
+        tracePlans={tracePlans}
+        selectedTracePlanId={tracePlans[0]!.id}
+        tracePreview={boundedTrace}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "Bias slice" })).toBeVisible();
+    expect(
+      screen.getByRole("img", { name: "Spectrum: Spectrum [ratio] by Frequency [GHz]" }),
+    ).toBeVisible();
+    expect(screen.queryByTestId("heatmap-cell")).not.toBeInTheDocument();
+  });
+
+  it("uses the first authored opaque axis when no numeric domain axis exists", () => {
+    const schema = opaqueOnlyGridSchema();
+    const plan = measurementSlicePlan(schema);
+
+    expect(plan).toMatchObject({
+      varyingAxes: [{ id: "opaque", values: [null, null] }],
+      fixedAxes: [
+        {
+          id: "device",
+          values: [stringScalar("q1"), stringScalar("q2")],
+        },
+      ],
+      variableIds: [],
+    });
+    expect(plan?.heatmap).toBeUndefined();
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: [] }}
+        slice={slicePreview(schema, [])}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{ device: 0 }}
+        onFixedAxisIndexChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "Device slice" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "q1" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "q2" })).toBeVisible();
+  });
+
+  it("rejects empty product-grid domains and zero-sized axes", () => {
+    expect(measurementSlicePlan(baseSchema())).toBeUndefined();
+    expect(
+      measurementSlicePlan({
+        ...baseSchema(),
+        dimensions: [{ id: "point", kind: "point", size: 0 }],
+        point_domain: { kind: "product_grid", axes: [gridAxis("empty", [])] },
+      }),
+    ).toBeUndefined();
+  });
+
   it("selects opaque fixed axes by authored index", () => {
     const schema = opaqueSlicedGridSchema();
     const items = gridRecords((point) => scalar(point + 10, "K"));
 
-    expect(measurementGridQuery(schema)).toMatchObject({
+    expect(measurementSlicePlan(schema)).toMatchObject({
+      varyingAxes: [{ id: "row" }, { id: "column" }],
       fixedAxes: [{ id: "opaque", values: [null, null] }],
       variableIds: ["row", "column", "temperature"],
+      heatmap: {
+        xAxis: { id: "row" },
+        yAxis: { id: "column" },
+        observableIds: ["temperature"],
+      },
     });
 
     render(
@@ -435,7 +720,7 @@ describe("measurement visualization", () => {
     ).toBeVisible();
   });
 
-  it("keeps bounded trace previews when a grid query projects heatmap variables", () => {
+  it("keeps a server trace beside a semantic heatmap slice", () => {
     const schema = mixedGridSchema();
     const previewItems = mixedGridRecords();
     const selectedItems = mixedGridRecords([0]).map((item) => ({
@@ -443,13 +728,22 @@ describe("measurement visualization", () => {
       coordinates: { column: item.coordinates.column!, row: item.coordinates.row! },
       observables: { temperature: item.observables.temperature! },
     }));
-    const tracePreviewItems = measurementGridSliceRecords(previewItems, schema, { bias: 0 });
+    const tracePreviewItems = measurementSliceRecords(previewItems, schema, { bias: 0 });
     expect(tracePreviewItems.map((item) => item.point_index)).toEqual([0, 2, 4, 6, 8, 10]);
-    expect(
-      planMeasurementCharts(tracePreviewItems, schema).find((chart) =>
-        chart.id.startsWith("trace:spectrum"),
-      )?.series,
-    ).toHaveLength(6);
+    expect(planMeasurementCharts(tracePreviewItems, schema)).not.toContainEqual(
+      expect.objectContaining({ id: expect.stringMatching(/^trace:/) }),
+    );
+    const tracePlans = measurementTraceQueryPlans(schema);
+    const boundedTrace = tracePreview({
+      observable_id: "spectrum",
+      observable_label: "Spectrum",
+      value_mode: "value",
+      series: [traceSeries(0, [4, 5, 6], [1, 2, 3])],
+      selected_series_count: 6,
+      returned_series_count: 1,
+      source_sample_count: 3,
+      returned_sample_count: 3,
+    });
 
     render(
       <MeasurementDataPreview
@@ -459,6 +753,9 @@ describe("measurement visualization", () => {
         slicePending={false}
         fixedAxisIndices={{ bias: 0 }}
         onFixedAxisIndexChange={vi.fn()}
+        tracePlans={tracePlans}
+        selectedTracePlanId={tracePlans[0]!.id}
+        tracePreview={boundedTrace}
         hasMore={false}
         loadingMore={false}
         onLoadMore={vi.fn()}
@@ -472,7 +769,7 @@ describe("measurement visualization", () => {
     ).toBeVisible();
     expect(
       screen.getByRole("option", {
-        name: "Spectrum — x: Frequency [GHz] · y: Spectrum [ratio]",
+        name: "Spectrum",
       }),
     ).toBeVisible();
   });
@@ -725,15 +1022,16 @@ describe("measurement visualization", () => {
   });
 
   it("renders plots and a typed table while keeping raw JSON secondary", () => {
+    const schema = scalarSchema();
+    const items = [
+      record(0, { bias: scalar(0, "V") }, { signal: scalar(1, "ratio") }),
+      record(1, { bias: scalar(1, "V") }, { signal: scalar(2, "ratio") }),
+    ];
+
     render(
       <MeasurementDataPreview
-        preview={{
-          schema: scalarSchema(),
-          items: [
-            record(0, { bias: scalar(0, "V") }, { signal: scalar(1, "ratio") }),
-            record(1, { bias: scalar(1, "V") }, { signal: scalar(2, "ratio") }),
-          ],
-        }}
+        preview={{ schema, items }}
+        slice={slicePreview(schema, items)}
         sliceError={null}
         slicePending={false}
         fixedAxisIndices={{}}
@@ -779,6 +1077,7 @@ describe("measurement visualization", () => {
     render(
       <MeasurementDataPreview
         preview={{ schema, items }}
+        slice={slicePreview(schema, items)}
         sliceError={null}
         slicePending={false}
         fixedAxisIndices={{}}
@@ -883,6 +1182,57 @@ function traceSchema(): MeasurementDatasetSchema {
     ],
     primary_coordinates: ["bias", "frequency"],
     primary_observables: ["response"],
+  };
+}
+
+function realTraceSchema(): MeasurementDatasetSchema {
+  const schema = traceSchema();
+  return {
+    ...schema,
+    variables: schema.variables?.map((variable) =>
+      variable.id === "response" ? { ...variable, dtype: "float64" } : variable,
+    ),
+  };
+}
+
+function tracePreview(
+  overrides: Partial<MeasurementTracePreviewData> = {},
+): MeasurementTracePreviewData {
+  return {
+    coordinate_id: "frequency",
+    coordinate_label: "Frequency",
+    coordinate_unit: "GHz",
+    dimension_id: "sample",
+    downsampling: "even",
+    observable_id: "response",
+    observable_label: "S21",
+    observable_unit: "ratio",
+    value_mode: "magnitude",
+    value_unit: "ratio",
+    selected_series_count: 1,
+    returned_series_count: 1,
+    truncated_series: false,
+    source_sample_count: 3,
+    returned_sample_count: 3,
+    samples_reduced: false,
+    series: [traceSeries(0, [4, 5, 6], [5, 2, 1])],
+    ...overrides,
+  };
+}
+
+function traceSeries(
+  pointIndex: number,
+  x: number[],
+  y: number[],
+  sourceSampleCount = y.length,
+): MeasurementTracePreviewData["series"][number] {
+  return {
+    point_index: pointIndex,
+    logical_point_id: `point-${pointIndex}`,
+    label: `Bias ${pointIndex} V`,
+    x,
+    y,
+    source_sample_count: sourceSampleCount,
   };
 }
 
@@ -1080,6 +1430,42 @@ function mixedGridSchema(): MeasurementDatasetSchema {
   };
 }
 
+function traceOnlyRaggedGridSchema(): MeasurementDatasetSchema {
+  const schema = mixedGridSchema();
+  return {
+    ...schema,
+    dimensions: schema.dimensions.map((dimension) =>
+      dimension.id === "sample" ? { ...dimension, size: null } : dimension,
+    ),
+    variables: schema.variables?.filter((variable) => variable.id !== "temperature"),
+    primary_observables: ["spectrum"],
+  };
+}
+
+function opaqueOnlyGridSchema(): MeasurementDatasetSchema {
+  return {
+    ...baseSchema(),
+    dimensions: [{ id: "point", kind: "point", size: 4 }],
+    point_domain: {
+      kind: "product_grid",
+      axes: [
+        gridAxis("opaque", [null, null]),
+        gridAxis("device", [stringScalar("q1"), stringScalar("q2")]),
+      ],
+    },
+    variables: [
+      {
+        id: "device",
+        label: "Device",
+        role: "coordinate",
+        dtype: "string",
+        dims: ["point"],
+      },
+    ],
+    primary_coordinates: ["device"],
+  };
+}
+
 function entitySlicedGridSchema(): MeasurementDatasetSchema {
   const schema = twoDimensionalGridSchema();
   return {
@@ -1186,6 +1572,13 @@ function mixedGridRecords(biasValues: number[] = [0, 1]): MeasurementRecord[] {
       ...item.observables,
       spectrum: array([item.point_index, item.point_index + 1, item.point_index + 2], "ratio"),
     },
+  }));
+}
+
+function traceOnlyRaggedGridRecords(): MeasurementRecord[] {
+  return mixedGridRecords().map((item) => ({
+    ...item,
+    observables: { spectrum: item.observables.spectrum! },
   }));
 }
 

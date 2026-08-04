@@ -576,7 +576,12 @@ class SQLiteMeasurementDatasetRepository:
         self,
         point_indices: tuple[int, ...],
     ) -> tuple[MeasurementRecord, ...]:
-        """Read selected durable point indices without materializing other chunks."""
+        """Read selected point indices without materializing unrelated chunks.
+
+        Measurement appends are currently immutable JSON objects, so every
+        intersecting append is decoded in full before selected records are
+        extracted. Response bounds therefore do not yet imply columnar reads.
+        """
 
         selected = tuple(sorted(set(point_indices)))
         try:

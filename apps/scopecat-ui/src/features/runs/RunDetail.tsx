@@ -17,6 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { canPreviewRunContent, getRunContent } from "../../api";
+import type { MeasurementTracePreview } from "../../api-contract";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
 import { classes, countBadge, detailCard } from "../../ui/styles";
 import type {
@@ -28,7 +29,9 @@ import type {
   RunAnalysis,
 } from "../../types";
 import { RunProposals } from "../proposals/RunProposals";
+import { AnalysisMetadataView, AnalysisOutputView } from "./AnalysisOutputView";
 import { MeasurementDataPreview } from "./MeasurementDataPreview";
+import type { MeasurementTraceQueryPlan } from "./measurement-visualization";
 
 export function RunDetail({
   run,
@@ -43,6 +46,12 @@ export function RunDetail({
   measurementSlice,
   measurementSliceError,
   measurementSlicePending,
+  tracePlans,
+  selectedTracePlanId,
+  tracePreview,
+  traceError,
+  tracePending,
+  onTracePlanChange,
   measurementFixedAxisIndices,
   onMeasurementFixedAxisIndexChange,
   onLoadMoreMeasurements,
@@ -66,6 +75,12 @@ export function RunDetail({
   measurementSlice?: MeasurementSlicePreview;
   measurementSliceError: Error | null;
   measurementSlicePending: boolean;
+  tracePlans: MeasurementTraceQueryPlan[];
+  selectedTracePlanId?: string;
+  tracePreview?: MeasurementTracePreview;
+  traceError: Error | null;
+  tracePending: boolean;
+  onTracePlanChange: (planId: string) => void;
   measurementFixedAxisIndices: Record<string, number>;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
   onLoadMoreMeasurements: () => void;
@@ -209,6 +224,12 @@ export function RunDetail({
           measurementSlice={measurementSlice}
           measurementSliceError={measurementSliceError}
           measurementSlicePending={measurementSlicePending}
+          tracePlans={tracePlans}
+          selectedTracePlanId={selectedTracePlanId}
+          tracePreview={tracePreview}
+          traceError={traceError}
+          tracePending={tracePending}
+          onTracePlanChange={onTracePlanChange}
           measurementFixedAxisIndices={measurementFixedAxisIndices}
           onMeasurementFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
           onLoadMoreMeasurements={onLoadMoreMeasurements}
@@ -336,6 +357,33 @@ function AnalysisCard({
                 <span className={countBadge}>{analysis.outputs.length}</span>
               </summary>
               <div className="grid gap-2 px-2.5 pb-2.5">
+                {analysis.inputs.length > 0 ? (
+                  <section className="rounded-[7px] border border-line bg-panel p-[9px]">
+                    <h4 className="mt-0 mb-2 text-[0.58rem] font-extrabold tracking-[0.06em] text-text-dim uppercase">
+                      Inputs
+                    </h4>
+                    <ul className="m-0 grid list-none gap-2 p-0">
+                      {analysis.inputs.map((input, index) => (
+                        <li
+                          className="min-w-0 text-[0.61rem] text-text-soft"
+                          key={`${input.role}:${input.target}:${index}`}
+                        >
+                          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                            <strong>{input.title ?? input.target}</strong>
+                            <span className="text-text-dim">{input.role}</span>
+                          </div>
+                          <code
+                            className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
+                            title={input.target}
+                          >
+                            {input.target}
+                          </code>
+                          <AnalysisMetadataView metadata={input.metadata ?? {}} />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
                 {analysis.outputs.map((output, index) => (
                   <section
                     className="overflow-hidden rounded-[7px] border border-line bg-panel"
@@ -347,9 +395,7 @@ function AnalysisCard({
                         {titleCase(output.kind)}
                       </span>
                     </header>
-                    <pre className="m-0 max-h-60 overflow-auto p-[9px] text-[0.6rem] leading-normal text-[#aebfd0]">
-                      {formatPreviewContent(output.content)}
-                    </pre>
+                    <AnalysisOutputView output={output} />
                   </section>
                 ))}
               </div>
@@ -495,6 +541,12 @@ function DataCard({
   measurementSlice,
   measurementSliceError,
   measurementSlicePending,
+  tracePlans,
+  selectedTracePlanId,
+  tracePreview,
+  traceError,
+  tracePending,
+  onTracePlanChange,
   measurementFixedAxisIndices,
   onMeasurementFixedAxisIndexChange,
   onLoadMoreMeasurements,
@@ -508,6 +560,12 @@ function DataCard({
   measurementSlice?: MeasurementSlicePreview;
   measurementSliceError: Error | null;
   measurementSlicePending: boolean;
+  tracePlans: MeasurementTraceQueryPlan[];
+  selectedTracePlanId?: string;
+  tracePreview?: MeasurementTracePreview;
+  traceError: Error | null;
+  tracePending: boolean;
+  onTracePlanChange: (planId: string) => void;
   measurementFixedAxisIndices: Record<string, number>;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
   onLoadMoreMeasurements: () => void;
@@ -625,6 +683,12 @@ function DataCard({
         slice={measurementSlice}
         sliceError={measurementSliceError}
         slicePending={measurementSlicePending}
+        tracePlans={tracePlans}
+        selectedTracePlanId={selectedTracePlanId}
+        tracePreview={tracePreview}
+        traceError={traceError}
+        tracePending={tracePending}
+        onTracePlanChange={onTracePlanChange}
         fixedAxisIndices={measurementFixedAxisIndices}
         onFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
         onLoadMore={onLoadMoreMeasurements}
@@ -694,6 +758,12 @@ function MeasurementRecords({
   slice,
   sliceError,
   slicePending,
+  tracePlans,
+  selectedTracePlanId,
+  tracePreview,
+  traceError,
+  tracePending,
+  onTracePlanChange,
   fixedAxisIndices,
   onFixedAxisIndexChange,
   error,
@@ -706,6 +776,12 @@ function MeasurementRecords({
   slice?: MeasurementSlicePreview;
   sliceError: Error | null;
   slicePending: boolean;
+  tracePlans: MeasurementTraceQueryPlan[];
+  selectedTracePlanId?: string;
+  tracePreview?: MeasurementTracePreview;
+  traceError: Error | null;
+  tracePending: boolean;
+  onTracePlanChange: (planId: string) => void;
   fixedAxisIndices: Record<string, number>;
   onFixedAxisIndexChange: (axisId: string, index: number) => void;
   error: Error | null;
@@ -741,6 +817,12 @@ function MeasurementRecords({
       slice={slice}
       sliceError={sliceError}
       slicePending={slicePending}
+      tracePlans={tracePlans}
+      selectedTracePlanId={selectedTracePlanId}
+      tracePreview={tracePreview}
+      traceError={traceError}
+      tracePending={tracePending}
+      onTracePlanChange={onTracePlanChange}
       fixedAxisIndices={fixedAxisIndices}
       onFixedAxisIndexChange={onFixedAxisIndexChange}
       hasMore={hasMore}

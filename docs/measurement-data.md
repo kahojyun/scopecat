@@ -238,18 +238,85 @@ of browser options.
 Automatic product-grid plots request only the selected slice and only the
 coordinate/observable variables needed for heatmaps. The paged table and raw
 view remain an independent run-wide browser, clearly labeled as such. Trace
-previews use the currently loaded records whose durable point indices belong to
-the same authored slice. Later table pages omit the already-cached schema, and
-slice responses do not repeat it unless explicitly requested. A requested slice
-is still validated before rendering: it must contain exactly one cell for every
-x/y pair, with no missing or duplicate coordinates. Incomplete live data is
-labeled as incomplete instead of presenting a misleading surface. Automatic
-slice plots are bounded to 4,096 points; trace previews are separately bounded
-to 32 series and 4,096 plotted samples, with even downsampling that preserves
-endpoints. Larger data remains available through notebook batch reads. Complex
-heatmaps offer magnitude, phase, real, and imaginary color modes. When several
-safe views exist, the GUI lists every candidate in a selector instead of
-silently truncating them. Shapes that do not have a safe automatic visual remain
-in the typed table, with raw records available as a secondary expandable view.
-This keeps automatic plotting useful without pretending that every tensor has
-one obvious chart.
+previews independently request bounded numeric series for the selected authored
+domain instead of depending on whichever table pages happen to be loaded. Later
+table pages omit the already-cached schema, and slice responses do not repeat it
+unless explicitly requested. A requested heatmap slice is still validated
+before rendering: it must contain exactly one cell for every x/y pair, with no
+missing or duplicate coordinates. Incomplete live data is labeled as incomplete
+instead of presenting a misleading surface. Automatic slice plots are bounded
+to 4,096 points; trace previews are separately bounded to 32 series and 4,096
+plotted samples, with even downsampling that preserves endpoints. Larger data
+remains available through notebook batch reads. Complex heatmaps offer
+magnitude, phase, real, and imaginary color modes. When several safe views
+exist, the GUI lists every candidate in a selector instead of silently
+truncating them. Shapes that do not have a safe automatic visual remain in the
+typed table, with raw records available as a secondary expandable view. This
+keeps automatic plotting useful without pretending that every tensor has one
+obvious chart.
+
+The daemon trace-preview query returns numeric `x`/`y` series rather than raw
+measurement records. It selects one recording group or observable, optionally
+fixes authored product-grid axes by index, applies the requested `complex_mode`
+(magnitude, phase, real, or imaginary) only to complex values, and enforces both
+the series count and total returned-sample budget before serialization. The
+response reports the actual `value_mode`; real observables therefore return
+`value` regardless of `complex_mode`. Its
+`selected_series_count` is the authored domain-selection size; live or
+unavailable points need not produce a returned series, and the daemon does not
+scan beyond the requested bound looking for replacements. The current durable
+format stores JSON append chunks, so the repository may still decode a complete
+intersecting chunk before extracting these bounded series. This response bound
+is therefore a network and rendering bound, not yet a columnar storage-read
+guarantee.
+
+## Save analysis results as typed views
+
+Analysis outputs use the same explicit presentation contract instead of saving
+arbitrary JSON under a `table` or `figure` label. Tables declare ordered
+columns, labels, and units; figures declare numeric axes and embedded line or
+scatter series:
+
+```python
+result = (
+    context.result("Resonator fit")
+    .input(measurements.entry.id, role="fit-input")
+    .table(
+        sc.AnalysisTable.from_rows(
+            fit_rows,
+            columns=(
+                sc.AnalysisTableColumn(id="bias_v", label="Bias", unit="V"),
+                sc.AnalysisTableColumn(
+                    id="frequency_ghz",
+                    label="Resonance",
+                    unit="GHz",
+                ),
+            ),
+        ),
+        title="Fit parameters",
+    )
+    .figure(
+        sc.AnalysisFigure(
+            kind="line",
+            x_axis=sc.AnalysisFigureAxis(label="Bias", unit="V"),
+            y_axis=sc.AnalysisFigureAxis(label="Resonance", unit="GHz"),
+            series=[
+                sc.AnalysisFigureSeries.from_arrays(
+                    id="fit",
+                    x=bias_values,
+                    y=resonance_values,
+                )
+            ],
+        ),
+        title="Resonance fit",
+    )
+)
+```
+
+`AnalysisTable.from_rows(...)` and
+`AnalysisFigureSeries.from_arrays(...)` materialize NumPy-style scalar and
+array values at the authoring boundary. The durable models then enforce finite,
+GUI-safe scalar and point budgets. The run view renders these outputs as an
+accessible table and SVG figure and retains the declared analysis inputs and
+metadata as provenance; proposal outputs remain typed references to their
+separately persisted proposal records.

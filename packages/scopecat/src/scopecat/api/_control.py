@@ -9,6 +9,8 @@ from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
     DaemonHealth,
     MeasurementPage,
+    MeasurementTracePreview,
+    MeasurementTracePreviewQuery,
     RunDetail,
     RunSummaryPage,
 )
@@ -78,6 +80,13 @@ class LabControlOperations:
         offset: int = 0,
     ) -> MeasurementPage:
         return self.client.measurements(run_id, limit=limit, offset=offset)
+
+    def measurement_trace_preview(
+        self,
+        run_id: str,
+        query: MeasurementTracePreviewQuery,
+    ) -> MeasurementTracePreview:
+        return self.client.measurement_trace_preview(run_id, query)
 
     def resolve_attention(
         self,

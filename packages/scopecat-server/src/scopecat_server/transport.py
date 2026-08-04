@@ -27,6 +27,8 @@ from scopecat.daemon.views import (
     MeasurementPage,
     MeasurementSlice,
     MeasurementSliceQuery,
+    MeasurementTracePreview,
+    MeasurementTracePreviewQuery,
     ParameterProposalListView,
     RunAnalysisListView,
     RunAnalysisView,
@@ -497,6 +499,13 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         query: MeasurementSliceQuery,
     ) -> MeasurementSlice:
         return application.runs.measurement_slice(run_id, query)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/traces/query")
+    def query_measurement_traces(
+        run_id: str,
+        query: MeasurementTracePreviewQuery,
+    ) -> MeasurementTracePreview:
+        return application.runs.measurement_trace_preview(run_id, query)
 
     @app.get(f"{_API_PREFIX}/events")
     def list_events(

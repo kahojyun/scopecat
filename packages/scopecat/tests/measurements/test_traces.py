@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from scopecat.measurements.results import (
+    TraceComplexMode,
     measurement_traces,
+    project_measurement_trace_preview,
     validate_measurement_records_against_schema,
 )
 from scopecat.records.measurement import (
@@ -181,6 +185,120 @@ def test_trace_view_and_schema_accept_different_lengths_at_each_point() -> None:
     traces = measurement_traces(dataset)
     assert [len(trace.x) for trace in traces] == [3, 2]
     assert [len(trace.y) for trace in traces] == [3, 2]
+
+
+@pytest.mark.parametrize("grouped_variable_index", [0, 1])
+def test_trace_preview_explicitly_pairs_variables_when_only_one_has_a_group(
+    grouped_variable_index: int,
+) -> None:
+    dataset = _trace_dataset()
+    dataset.dataset_schema.variables[
+        grouped_variable_index
+    ].recording_group_id = "readout"
+
+    with pytest.raises(ValueError, match="no compatible trace variables"):
+        project_measurement_trace_preview(dataset, "s_parameter")
+
+    projection = project_measurement_trace_preview(
+        dataset,
+        "s_parameter",
+        coordinate="frequency",
+        max_series=1,
+        max_samples=2,
+    )
+
+    assert projection.coordinate_id == "frequency"
+    assert projection.observable_id == "s_parameter"
+    assert projection.recording_group_id == "readout"
+
+
+@pytest.mark.parametrize(
+    ("complex_mode", "expected"),
+    [
+        ("magnitude", (1.0, math.hypot(0.9, 0.1))),
+        ("phase", (0.0, math.atan2(0.1, 0.9))),
+        ("real", (1.0, 0.9)),
+        ("imag", (0.0, 0.1)),
+    ],
+)
+def test_trace_preview_projects_complex_modes_with_even_endpoint_sampling(
+    complex_mode: TraceComplexMode,
+    expected: tuple[float, float],
+) -> None:
+    projection = project_measurement_trace_preview(
+        _trace_dataset(),
+        "s_parameter",
+        max_series=2,
+        max_samples=4,
+        complex_mode=complex_mode,
+    )
+
+    assert projection.value_mode == complex_mode
+    assert projection.value_unit == ("rad" if complex_mode == "phase" else "ratio")
+    assert projection.source_sample_count == 6
+    assert projection.returned_sample_count == 4
+    assert projection.samples_reduced
+    assert len(projection.series) == 2
+    assert projection.series[0].x == (4.9e9, 5.1e9)
+    assert projection.series[0].y == pytest.approx(expected)
+
+
+def test_trace_preview_reports_value_mode_for_real_observable() -> None:
+    dataset = _trace_dataset()
+    dataset.dataset_schema.variables[1] = dataset.dataset_schema.variables[
+        1
+    ].model_copy(update={"dtype": "float64"})
+    for record in dataset.records:
+        record.observables["s_parameter"] = MeasurementArray.create(
+            dtype="float64",
+            unit="ratio",
+            shape=(3,),
+            values=(1.0, 0.2, 0.9),
+        )
+
+    projection = project_measurement_trace_preview(
+        dataset,
+        "s_parameter",
+        max_series=1,
+        max_samples=2,
+        complex_mode="phase",
+    )
+
+    assert projection.value_mode == "value"
+    assert projection.value_unit == "ratio"
+    assert projection.series[0].y == (1.0, 0.9)
+
+
+def test_trace_preview_omits_unavailable_series_without_scanning_past_cap() -> None:
+    dataset = _trace_dataset()
+    dataset.records[0].observables["s_parameter"] = MeasurementUnavailable.create(
+        reason="overload",
+        dtype="complex128",
+        unit="ratio",
+        shape=(3,),
+        metadata={},
+    )
+    dataset.records.append(
+        MeasurementRecord(
+            run_id="trace-run",
+            logical_point_id="must-not-be-read",
+            point_index=2,
+            coordinates={},
+            observables={},
+        )
+    )
+
+    projection = project_measurement_trace_preview(
+        dataset,
+        "s_parameter",
+        max_series=2,
+        max_samples=4,
+    )
+
+    assert [series.point_index for series in projection.series] == [1]
+    assert projection.source_sample_count == 3
+    assert projection.returned_sample_count == 3
+    assert not projection.samples_reduced
 
 
 def _trace_dataset() -> MeasurementDataset:

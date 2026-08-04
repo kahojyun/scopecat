@@ -12,6 +12,7 @@ import {
 import {
   getMeasurementPreview,
   getMeasurementSlice,
+  getMeasurementTracePreview,
   getOlderRuns,
   getRun,
   getRunAnalyses,
@@ -24,7 +25,7 @@ import type { MeasurementPreview, ProjectHealth, ProjectRun, ProjectRunPage } fr
 import { useConfirmationDialog, type ConfirmationRequest } from "../../ui/ConfirmationDialog";
 import { classes, eyebrow, secondaryButton } from "../../ui/styles";
 import { RunDetail } from "./RunDetail";
-import { measurementGridQuery } from "./measurement-visualization";
+import { measurementSlicePlan, measurementTraceQueryPlans } from "./measurement-visualization";
 
 type FilterKey = "all" | "active" | "attention" | "complete";
 interface OlderRunHistory {
@@ -66,6 +67,10 @@ export function RunsWorkspace({
   const [requestedMeasurementSlice, setRequestedMeasurementSlice] = useState<{
     runId: string;
     fixedAxisIndices: Record<string, number>;
+  }>();
+  const [requestedMeasurementTracePlan, setRequestedMeasurementTracePlan] = useState<{
+    runId: string;
+    planId: string;
   }>();
   const latestRunHeadCursor = useRef<number | undefined>(undefined);
   const runsQuery = useQuery({
@@ -139,14 +144,25 @@ export function RunsWorkspace({
     () => mergeMeasurementPages(measurementsQuery.data?.pages ?? []),
     [measurementsQuery.data?.pages],
   );
-  const gridQuery = useMemo(
-    () => measurementGridQuery(measurements?.schema),
+  const slicePlan = useMemo(
+    () => measurementSlicePlan(measurements?.schema),
     [measurements?.schema],
   );
+  const tracePlans = useMemo(
+    () => measurementTraceQueryPlans(measurements?.schema),
+    [measurements?.schema],
+  );
+  const requestedTracePlanId =
+    requestedMeasurementTracePlan !== undefined &&
+    requestedMeasurementTracePlan.runId === selectedRunId
+      ? requestedMeasurementTracePlan.planId
+      : undefined;
+  const selectedTracePlan =
+    tracePlans.find((plan) => plan.id === requestedTracePlanId) ?? tracePlans[0];
   const measurementFixedAxisIndices = useMemo(
     () =>
       Object.fromEntries(
-        (gridQuery?.fixedAxes ?? []).map((axis) => {
+        (slicePlan?.fixedAxes ?? []).map((axis) => {
           const requested =
             requestedMeasurementSlice?.runId === selectedRunId
               ? requestedMeasurementSlice?.fixedAxisIndices[axis.id]
@@ -154,7 +170,7 @@ export function RunsWorkspace({
           return [axis.id, requested !== undefined && requested < axis.size ? requested : 0];
         }),
       ),
-    [gridQuery, requestedMeasurementSlice, selectedRunId],
+    [requestedMeasurementSlice, selectedRunId, slicePlan],
   );
   const measurementSliceKey = JSON.stringify(measurementFixedAxisIndices);
   const measurementSliceQuery = useQuery({
@@ -163,10 +179,26 @@ export function RunsWorkspace({
       getMeasurementSlice(
         selectedRunId!,
         measurementFixedAxisIndices,
-        gridQuery!.variableIds,
+        slicePlan!.variableIds,
         signal,
       ),
-    enabled: selectedRunId !== undefined && gridQuery !== undefined,
+    enabled: selectedRunId !== undefined && slicePlan !== undefined,
+  });
+  const measurementTraceQuery = useQuery({
+    queryKey: ["measurement-trace", selectedRunId, selectedTracePlan?.id, measurementSliceKey],
+    queryFn: ({ signal }) =>
+      getMeasurementTracePreview(
+        selectedRunId!,
+        {
+          observableId: selectedTracePlan!.observableId,
+          coordinateId: selectedTracePlan!.coordinateId,
+          recordingGroupId: selectedTracePlan!.recordingGroupId,
+          fixedAxisIndices: measurementFixedAxisIndices,
+          complexMode: selectedTracePlan!.complexMode,
+        },
+        signal,
+      ),
+    enabled: selectedRunId !== undefined && selectedTracePlan !== undefined,
   });
   const filteredRuns = useMemo(() => filterRuns(runs, filter, search), [runs, filter, search]);
 
@@ -390,6 +422,17 @@ export function RunsWorkspace({
               measurementSlice={measurementSliceQuery.data}
               measurementSliceError={measurementSliceQuery.error}
               measurementSlicePending={measurementSliceQuery.isFetching}
+              tracePlans={tracePlans}
+              selectedTracePlanId={selectedTracePlan?.id}
+              tracePreview={measurementTraceQuery.data}
+              traceError={measurementTraceQuery.error}
+              tracePending={measurementTraceQuery.isFetching}
+              onTracePlanChange={(planId) => {
+                setRequestedMeasurementTracePlan({
+                  runId: selectedRunId!,
+                  planId,
+                });
+              }}
               measurementFixedAxisIndices={measurementFixedAxisIndices}
               onMeasurementFixedAxisIndexChange={(axisId, index) => {
                 setRequestedMeasurementSlice({

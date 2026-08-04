@@ -24,6 +24,8 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementPage,
+    MeasurementTracePreview,
+    MeasurementTracePreviewQuery,
     ParameterProposalListView,
     RunAnalysisListView,
     RunAnalysisView,
@@ -613,6 +615,17 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{run_id}/measurements",
             MeasurementPage,
             params={"limit": limit, "offset": offset},
+        )
+
+    def measurement_trace_preview(
+        self,
+        run_id: str,
+        query: MeasurementTracePreviewQuery,
+    ) -> MeasurementTracePreview:
+        return self._post_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/measurements/traces/query",
+            query,
+            MeasurementTracePreview,
         )
 
     def replay_events(

@@ -5,11 +5,14 @@ import type { MeasurementPreview, MeasurementSlicePreview } from "../../types";
 import { classes, secondaryButton } from "../../ui/styles";
 import {
   measurementTable,
-  measurementGridQuery,
-  measurementGridSliceRecords,
+  measurementSlicePlan,
+  measurementTraceChart,
+  measurementTraceStatus,
   planMeasurementCharts,
   type MeasurementChartPlan,
-  type MeasurementGridSliceAxis,
+  type MeasurementSliceAxis,
+  type MeasurementTracePreviewData,
+  type MeasurementTraceQueryPlan,
 } from "./measurement-visualization";
 
 const SERIES_COLORS = [
@@ -19,6 +22,32 @@ const SERIES_COLORS = [
   "var(--color-red)",
   "var(--color-text-soft)",
   "#77b6a8",
+  "#83d2f0",
+  "#f69bc8",
+  "#a9d66e",
+  "#f4a261",
+  "#9fa8ff",
+  "#5fd1c8",
+  "#d5a6bd",
+  "#b8c0ff",
+  "#ffb86b",
+  "#76c893",
+  "#e5989b",
+  "#8ab4f8",
+  "#c7a6ff",
+  "#67d8b5",
+  "#f2c66d",
+  "#ff8c88",
+  "#4cc9f0",
+  "#b8de6f",
+  "#f28482",
+  "#90caf9",
+  "#ce93d8",
+  "#80cbc4",
+  "#ffcc80",
+  "#ef9a9a",
+  "#9fa8da",
+  "#a5d6a7",
 ];
 const MAX_SLICE_SELECT_OPTIONS = 256;
 
@@ -29,6 +58,12 @@ export function MeasurementDataPreview({
   slicePending,
   fixedAxisIndices,
   onFixedAxisIndexChange,
+  tracePlans = [],
+  selectedTracePlanId,
+  tracePreview,
+  tracePending = false,
+  traceError = null,
+  onTracePlanChange,
   hasMore,
   loadingMore,
   onLoadMore,
@@ -39,31 +74,34 @@ export function MeasurementDataPreview({
   slicePending: boolean;
   fixedAxisIndices: Record<string, number>;
   onFixedAxisIndexChange: (axisId: string, index: number) => void;
+  tracePlans?: MeasurementTraceQueryPlan[];
+  selectedTracePlanId?: string;
+  tracePreview?: MeasurementTracePreviewData;
+  tracePending?: boolean;
+  traceError?: Error | null;
+  onTracePlanChange?: (planId: string) => void;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
 }) {
-  const gridQuery = useMemo(() => measurementGridQuery(preview.schema), [preview.schema]);
+  const slicePlan = useMemo(() => measurementSlicePlan(preview.schema), [preview.schema]);
   const chartSchema = slice?.schema ?? preview.schema;
   const charts = useMemo(() => {
-    const previewRecords =
-      gridQuery && preview.schema
-        ? measurementGridSliceRecords(preview.items, preview.schema, fixedAxisIndices)
-        : preview.items;
-    const previewCharts = planMeasurementCharts(previewRecords, preview.schema);
-    if (!gridQuery) return previewCharts;
-    const sliceCharts = planMeasurementCharts(
+    if (!slicePlan) return planMeasurementCharts(preview.items, preview.schema);
+    return planMeasurementCharts(
       slice?.truncated ? [] : (slice?.items ?? []),
       chartSchema,
       fixedAxisIndices,
     );
-    return [
-      ...sliceCharts.filter((chart) => !chart.id.startsWith("trace:")),
-      ...previewCharts.filter((chart) => chart.id.startsWith("trace:")),
-    ];
-  }, [chartSchema, fixedAxisIndices, gridQuery, preview.items, preview.schema, slice]);
+  }, [chartSchema, fixedAxisIndices, preview.items, preview.schema, slice, slicePlan]);
   const [requestedChartId, setRequestedChartId] = useState<string>();
   const selectedChart = charts.find((chart) => chart.id === requestedChartId) ?? charts[0];
+  const selectedTracePlan =
+    tracePlans.find((plan) => plan.id === selectedTracePlanId) ?? tracePlans[0];
+  const traceChart = useMemo(
+    () => (tracePending || traceError ? undefined : measurementTraceChart(tracePreview)),
+    [traceError, tracePending, tracePreview],
+  );
   const table = useMemo(
     () => measurementTable(preview.items, preview.schema),
     [preview.items, preview.schema],
@@ -79,13 +117,13 @@ export function MeasurementDataPreview({
         </span>
       </div>
 
-      {gridQuery && (
+      {slicePlan && (
         <div
           className="flex flex-wrap items-end justify-between gap-2 border-b border-line bg-panel-soft px-3 py-2"
           data-testid="measurement-slice-controls"
         >
           <div className="flex flex-wrap items-end gap-2">
-            {gridQuery.fixedAxes.map((axis) => {
+            {slicePlan.fixedAxes.map((axis) => {
               const selectedIndex = fixedAxisIndices[axis.id] ?? 0;
               return (
                 <label
@@ -140,6 +178,43 @@ export function MeasurementDataPreview({
         </div>
       )}
 
+      {tracePlans.length > 0 && (
+        <div className="border-b border-line p-2.5" data-testid="measurement-trace-preview">
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 text-[0.59rem] text-text-dim">
+            <label className="flex items-center gap-2 font-bold tracking-[0.04em] uppercase">
+              Trace
+              <select
+                aria-label="Measurement trace"
+                className="max-w-[min(70vw,420px)] rounded border border-line bg-panel px-2 py-1 text-[0.62rem] font-medium tracking-normal text-text-soft normal-case"
+                onChange={(event) => onTracePlanChange?.(event.target.value)}
+                value={selectedTracePlan?.id ?? ""}
+              >
+                {tracePlans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span
+              className="inline-flex items-center gap-1.5"
+              role={traceError ? "alert" : "status"}
+            >
+              {tracePending && (
+                <LoaderCircle className="animate-spin" size={12} aria-hidden="true" />
+              )}
+              {tracePreviewStatus(tracePreview, traceError, tracePending)}
+            </span>
+          </div>
+          {traceChart && <MeasurementChart chart={traceChart} />}
+          {!tracePending && !traceError && tracePreview && !traceChart && (
+            <p className="m-0 text-[0.62rem] text-text-dim">
+              No durable or available series were returned for this bounded selection.
+            </p>
+          )}
+        </div>
+      )}
+
       {charts.length > 0 ? (
         <div className="border-b border-line p-2.5" data-testid="measurement-charts">
           <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 text-[0.59rem] text-text-dim">
@@ -166,23 +241,23 @@ export function MeasurementDataPreview({
           </div>
           {selectedChart && <MeasurementChart chart={selectedChart} />}
         </div>
-      ) : (
+      ) : tracePlans.length === 0 ? (
         <p className="m-0 border-b border-line px-3 py-2.5 text-[0.67rem] leading-normal text-text-dim">
           {emptyChartMessage({
-            usesGridSlice: gridQuery !== undefined,
+            usesSemanticSlice: slicePlan !== undefined,
             slice,
             sliceError,
             slicePending,
             preview,
           })}
         </p>
-      )}
+      ) : null}
 
-      {gridQuery && (
+      {(slicePlan || tracePlans.length > 0) && (
         <p className="m-0 border-b border-line bg-panel-soft px-3 py-1.5 text-[0.56rem] text-text-dim">
-          Heatmaps and point-scalar plots use the selected durable slice. Trace previews use the
-          currently loaded records from that same authored slice; the table and raw view remain
-          run-wide.
+          Heatmaps and point-scalar plots use the selected durable slice when available. Trace
+          previews are bounded by the server for the selected authored domain; the table and raw
+          view remain run-wide.
         </p>
       )}
 
@@ -261,6 +336,17 @@ export function MeasurementDataPreview({
   );
 }
 
+function tracePreviewStatus(
+  preview: MeasurementTracePreviewData | undefined,
+  error: Error | null,
+  pending: boolean,
+): string {
+  if (error) return `Trace unavailable: ${errorMessage(error)}`;
+  if (pending) return "Reading bounded trace preview…";
+  if (!preview) return "Waiting for bounded trace preview";
+  return measurementTraceStatus(preview);
+}
+
 function sliceStatus(
   slice: MeasurementSlicePreview | undefined,
   error: Error | null,
@@ -276,19 +362,19 @@ function sliceStatus(
 }
 
 function emptyChartMessage({
-  usesGridSlice,
+  usesSemanticSlice,
   slice,
   sliceError,
   slicePending,
   preview,
 }: {
-  usesGridSlice: boolean;
+  usesSemanticSlice: boolean;
   slice?: MeasurementSlicePreview;
   sliceError: Error | null;
   slicePending: boolean;
   preview: MeasurementPreview;
 }): string {
-  if (usesGridSlice) {
+  if (usesSemanticSlice) {
     if (sliceError) return "The selected product-grid slice could not be read.";
     if (slicePending || !slice) return "Reading the selected product-grid slice before plotting.";
     if (slice.truncated) {
@@ -304,7 +390,7 @@ function emptyChartMessage({
   return "No safe automatic plot is available for these variable shapes. The typed table remains available below.";
 }
 
-function sliceAxisOption(axis: MeasurementGridSliceAxis, index: number): string {
+function sliceAxisOption(axis: MeasurementSliceAxis, index: number): string {
   const scalar = axis.values[index];
   if (!scalar) return `Index ${index + 1}`;
   const value =

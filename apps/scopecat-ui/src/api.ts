@@ -1,6 +1,9 @@
 import type {
+  AnalysisRecordOutput,
   DurableEvent,
   EventPage,
+  MeasurementTracePreview,
+  MeasurementTracePreviewQuery,
   RunContentEntry,
   RunControlView,
   RunManifest,
@@ -18,6 +21,7 @@ import type {
   ProjectRunPage,
   PresentationRunStatus,
   RunAnalysis,
+  RunAnalysisOutput,
   RunContentPreview,
   RunResource,
 } from "./types";
@@ -131,6 +135,35 @@ export async function getMeasurementSlice(
   };
 }
 
+export async function getMeasurementTracePreview(
+  runId: string,
+  selection: {
+    observableId: string;
+    coordinateId: string;
+    recordingGroupId?: string;
+    fixedAxisIndices: Record<string, number>;
+    complexMode: MeasurementTracePreviewQuery["complex_mode"];
+  },
+  signal?: AbortSignal,
+): Promise<MeasurementTracePreview> {
+  return apiData(
+    apiClient.POST("/api/v1/runs/{run_id}/measurements/traces/query", {
+      params: { path: { run_id: runId } },
+      body: {
+        complex_mode: selection.complexMode,
+        coordinate_id: selection.coordinateId,
+        downsampling: "even",
+        fixed_axis_indices: selection.fixedAxisIndices,
+        max_samples: 4096,
+        max_series: 32,
+        observable_id: selection.observableId,
+        recording_group_id: selection.recordingGroupId,
+      },
+      signal,
+    }),
+  );
+}
+
 export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promise<RunAnalysis[]> {
   const response = await apiData(
     apiClient.GET("/api/v1/runs/{run_id}/analyses", {
@@ -143,19 +176,27 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
     title: analysis.title,
     key: analysis.key ?? undefined,
     stepId: analysis.step_id ?? undefined,
-    outputs: analysis.outputs.map((output) => ({
-      kind: analysisOutputKind(output.kind),
-      title: output.title,
-      content: output.content,
-    })),
+    inputs: analysis.inputs ?? [],
+    outputs: analysis.outputs.map(runAnalysisOutput),
   }));
 }
 
-function analysisOutputKind(kind: string): RunAnalysis["outputs"][number]["kind"] {
-  if (kind === "table" || kind === "figure" || kind === "parameter_change_proposal") {
-    return kind;
+function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
+  const shared = {
+    title: output.title,
+    metadata: output.metadata ?? {},
+  };
+  if (output.kind === "table") {
+    return { ...shared, kind: "table", content: output.content };
   }
-  throw new ApiError(`The daemon returned an unsupported analysis output kind: ${kind}.`);
+  if (output.kind === "figure") {
+    return { ...shared, kind: "figure", content: output.content };
+  }
+  return {
+    ...shared,
+    kind: "parameter_change_proposal",
+    content: output.content,
+  };
 }
 
 export function canPreviewRunContent(entry: ContentEntry): boolean {

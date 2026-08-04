@@ -3,6 +3,7 @@ import {
   getHealth,
   getMeasurementPreview,
   getMeasurementSlice,
+  getMeasurementTracePreview,
   getOlderRuns,
   getRun,
   getRunAnalyses,
@@ -256,11 +257,23 @@ describe("project daemon reads", () => {
                 analysis: {
                   title: "Fit review",
                   key: "fit",
+                  inputs: [
+                    {
+                      target: "measurement-dataset",
+                      kind: "measurement_dataset",
+                      role: "fit-input",
+                      title: "Sweep data",
+                      metadata: { selector: "raw-measurements" },
+                    },
+                  ],
                   outputs: [
                     {
                       kind: "table",
                       title: "Fit parameters",
-                      content: [{ converged: true }],
+                      content: {
+                        columns: [{ id: "converged", label: "Converged" }],
+                        rows: [{ cells: [true] }],
+                      },
                     },
                   ],
                 },
@@ -314,11 +327,24 @@ describe("project daemon reads", () => {
       id: "analysis-fit",
       title: "Fit review",
       key: "fit",
+      inputs: [
+        {
+          target: "measurement-dataset",
+          kind: "measurement_dataset",
+          role: "fit-input",
+          title: "Sweep data",
+          metadata: { selector: "raw-measurements" },
+        },
+      ],
       outputs: [
         {
           kind: "table",
           title: "Fit parameters",
-          content: [{ converged: true }],
+          content: {
+            columns: [{ id: "converged", label: "Converged" }],
+            rows: [{ cells: [true] }],
+          },
+          metadata: {},
         },
       ],
     });
@@ -451,6 +477,58 @@ describe("project daemon reads", () => {
       include_schema: false,
       limit: 4096,
       variable_ids: ["x", "y", "signal"],
+    });
+  });
+
+  it("requests one bounded response-ready trace preview", async () => {
+    const response = {
+      coordinate_id: "frequency",
+      dimension_id: "sample",
+      downsampling: "even" as const,
+      fixed_axis_indices: { bias: 1 },
+      observable_id: "signal",
+      recording_group_id: "readout",
+      returned_sample_count: 2,
+      returned_series_count: 1,
+      samples_reduced: true,
+      selected_series_count: 6,
+      series: [
+        {
+          label: "Point 3",
+          point_index: 3,
+          source_sample_count: 100,
+          x: [4.9, 5.1],
+          y: [0.2, 0.3],
+        },
+      ],
+      source_sample_count: 100,
+      truncated_series: true,
+      value_mode: "magnitude" as const,
+    };
+    const fetchMock = vi.fn((_input: RequestInfo | URL) => Promise.resolve(jsonResponse(response)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      getMeasurementTracePreview("run/1", {
+        observableId: "signal",
+        coordinateId: "frequency",
+        recordingGroupId: "readout",
+        fixedAxisIndices: { bias: 1 },
+        complexMode: "magnitude",
+      }),
+    ).resolves.toEqual(response);
+    const request = fetchMock.mock.calls[0]?.[0];
+    expect(requestPath(request)).toBe("/api/v1/runs/run%2F1/measurements/traces/query");
+    expect(request).toBeInstanceOf(Request);
+    await expect((request as Request).clone().json()).resolves.toEqual({
+      complex_mode: "magnitude",
+      coordinate_id: "frequency",
+      downsampling: "even",
+      fixed_axis_indices: { bias: 1 },
+      max_samples: 4096,
+      max_series: 32,
+      observable_id: "signal",
+      recording_group_id: "readout",
     });
   });
 });

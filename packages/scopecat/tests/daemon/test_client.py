@@ -19,6 +19,9 @@ from scopecat.daemon.client import (
     DaemonNotFoundError,
 )
 from scopecat.daemon.views import (
+    MeasurementTracePreview,
+    MeasurementTracePreviewQuery,
+    MeasurementTraceSeries,
     RunAdmissionView,
     RunControlView,
     RunPlanView,
@@ -115,6 +118,28 @@ def test_run_stage_query_uses_the_dedicated_typed_endpoint() -> None:
         "before": "2",
         "sequence_id": "adaptive-sequence",
     }
+
+
+def test_trace_preview_posts_a_typed_bounded_query() -> None:
+    requests: list[httpx2.Request] = []
+    client = _client(requests)
+    query = MeasurementTracePreviewQuery(
+        recording_group_id="readout",
+        observable_id="signal",
+        coordinate_id="frequency",
+        fixed_axis_indices={"bias": 1},
+        max_series=4,
+        max_samples=128,
+        complex_mode="phase",
+    )
+
+    preview = client.measurement_trace_preview("run-1", query)
+
+    assert preview.observable_id == "signal"
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/runs/run-1/measurements/traces/query"
+    assert MeasurementTracePreviewQuery.model_validate_json(request.content) == query
 
 
 def test_executor_start_rejects_receipt_for_another_run() -> None:
@@ -535,6 +560,8 @@ def _client_response(request: httpx2.Request) -> httpx2.Response:
             )
         submission = RunSubmission.model_validate_json(request.content)
         return _model(_admission(submission.submission_id), status_code=201)
+    if path == "/api/v1/runs/run-1/measurements/traces/query":
+        return _model(_trace_preview())
     raise AssertionError(f"unexpected request: {request.method} {path}")
 
 
@@ -599,4 +626,28 @@ def _accepted_manifest() -> RunManifest:
         run_id="run-1",
         created_at=_NOW,
         config_content_hash=_HASH,
+    )
+
+
+def _trace_preview() -> MeasurementTracePreview:
+    series = MeasurementTraceSeries(
+        point_index=0,
+        label="Point 0",
+        x=(0.0, 1.0),
+        y=(0.0, 0.5),
+        source_sample_count=2,
+    )
+    return MeasurementTracePreview(
+        dimension_id="sample",
+        recording_group_id="readout",
+        coordinate_id="frequency",
+        observable_id="signal",
+        value_mode="phase",
+        value_unit="rad",
+        downsampling="even",
+        series=(series,),
+        selected_series_count=1,
+        returned_series_count=1,
+        source_sample_count=2,
+        returned_sample_count=2,
     )

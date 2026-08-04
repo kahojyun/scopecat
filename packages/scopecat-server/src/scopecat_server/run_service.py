@@ -13,8 +13,11 @@ from scopecat.adapters.sqlite import (
     SQLiteRunRepository,
 )
 from scopecat.analysis.service import (
+    AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
+    AnalysisParameterProposalOutput,
+    AnalysisTableOutput,
     prepare_analysis,
 )
 from scopecat.config.changes import (
@@ -32,6 +35,9 @@ from scopecat.daemon.views import (
     MeasurementPage,
     MeasurementSlice,
     MeasurementSliceQuery,
+    MeasurementTracePreview,
+    MeasurementTracePreviewQuery,
+    MeasurementTraceSeries,
     ParameterProposalListView,
     ParameterProposalView,
     RunAdmissionView,
@@ -48,10 +54,12 @@ from scopecat.daemon.views import (
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
+    AnalysisFigureOutputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
+    AnalysisTableOutputPayload,
     RunAttachmentCommand,
 )
 from scopecat.kernel.errors import (
@@ -65,10 +73,12 @@ from scopecat.measurements.datasets import (
     product_grid_slice_indices,
 )
 from scopecat.measurements.results import MeasurementDatasetSchema
+from scopecat.measurements.traces import project_measurement_trace_preview
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
+    MeasurementDataset,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
 )
@@ -93,8 +103,22 @@ from .errors import BackendConflict, BackendNotFound
 
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
-    return AnalysisOutput(
-        kind=item.kind,
+    if isinstance(item, AnalysisTableOutputPayload):
+        return AnalysisTableOutput(
+            kind="table",
+            title=item.title,
+            content=item.content,
+            metadata=item.metadata,
+        )
+    if isinstance(item, AnalysisFigureOutputPayload):
+        return AnalysisFigureOutput(
+            kind="figure",
+            title=item.title,
+            content=item.content,
+            metadata=item.metadata,
+        )
+    return AnalysisParameterProposalOutput(
+        kind="parameter_change_proposal",
         title=item.title,
         content=item.content,
         metadata=item.metadata,
@@ -564,6 +588,76 @@ class RunService:
             truncated=selected_point_count > len(point_indices),
         )
 
+    def measurement_trace_preview(
+        self,
+        run_id: str,
+        query: MeasurementTracePreviewQuery,
+    ) -> MeasurementTracePreview:
+        """Return bounded numeric trace series for direct plotting."""
+
+        with self._config_errors():
+            self._runs.read_manifest(run_id)
+            repository = SQLiteMeasurementDatasetRepository(self._runs, run_id=run_id)
+            schema = repository.measurement_schema()
+        if schema is None:
+            raise BackendConflict("measurement dataset has no registered schema")
+        series_read_limit = min(query.max_series, query.max_samples // 2)
+        try:
+            point_indices, selected_series_count = _trace_preview_point_indices(
+                schema,
+                query.fixed_axis_indices,
+                limit=series_read_limit,
+            )
+        except ValueError as error:
+            raise BackendConflict(str(error)) from error
+        with self._config_errors():
+            records = repository.measurement_records_at(point_indices)
+        try:
+            projection = project_measurement_trace_preview(
+                MeasurementDataset(dataset_schema=schema, records=list(records)),
+                query.observable_id,
+                coordinate=query.coordinate_id,
+                group=query.recording_group_id,
+                max_series=query.max_series,
+                max_samples=query.max_samples,
+                complex_mode=query.complex_mode,
+                downsampling=query.downsampling,
+            )
+        except ValueError as error:
+            raise BackendConflict(str(error)) from error
+        series = tuple(
+            MeasurementTraceSeries(
+                point_index=item.point_index,
+                logical_point_id=item.logical_point_id,
+                label=item.label,
+                x=tuple(float(value) for value in item.x),
+                y=item.y,
+                source_sample_count=item.source_sample_count,
+            )
+            for item in projection.series
+        )
+        return MeasurementTracePreview(
+            fixed_axis_indices=dict(query.fixed_axis_indices),
+            dimension_id=projection.dimension_id,
+            recording_group_id=projection.recording_group_id,
+            coordinate_id=projection.coordinate_id,
+            observable_id=projection.observable_id,
+            coordinate_label=projection.coordinate_label,
+            observable_label=projection.observable_label,
+            coordinate_unit=projection.coordinate_unit,
+            observable_unit=projection.observable_unit,
+            value_mode=projection.value_mode,
+            value_unit=projection.value_unit,
+            downsampling=projection.downsampling,
+            series=series,
+            selected_series_count=selected_series_count,
+            returned_series_count=len(series),
+            truncated_series=selected_series_count > len(point_indices),
+            source_sample_count=projection.source_sample_count,
+            returned_sample_count=projection.returned_sample_count,
+            samples_reduced=projection.samples_reduced,
+        )
+
     @contextmanager
     def _config_errors(self) -> Generator[None]:
         try:
@@ -640,3 +734,25 @@ def _select_measurement_variables(
             }
         ),
     )
+
+
+def _trace_preview_point_indices(
+    schema: MeasurementDatasetSchema,
+    fixed_axis_indices: dict[str, int],
+    *,
+    limit: int,
+) -> tuple[tuple[int, ...], int]:
+    domain = schema.point_domain
+    if isinstance(domain, MeasurementProductGridPointDomain):
+        return product_grid_slice_indices(
+            domain,
+            fixed_axis_indices,
+            limit=limit,
+        )
+    if fixed_axis_indices:
+        raise ValueError("trace fixed-axis selection requires a product-grid domain")
+    point_dimension = next(
+        dimension for dimension in schema.dimensions if dimension.id == "point"
+    )
+    assert point_dimension.size is not None
+    return tuple(range(min(point_dimension.size, limit))), point_dimension.size

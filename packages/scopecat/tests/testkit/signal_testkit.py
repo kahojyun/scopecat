@@ -42,6 +42,22 @@ BEST_SIGNAL_INPUT_REF = "data/measurement_dataset/raw-measurements"
 BEST_SIGNAL_SCHEMA_REF = "data/measurement_dataset/raw-measurements.schema"
 RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
 TEST_STEP_METADATA = {"scope": "test"}
+_SUMMARY_TABLE_COLUMNS = (
+    sc.AnalysisTableColumn(id="observable", label="Observable"),
+    sc.AnalysisTableColumn(id="count", label="Count"),
+    sc.AnalysisTableColumn(id="min", label="Minimum"),
+    sc.AnalysisTableColumn(id="max", label="Maximum"),
+    sc.AnalysisTableColumn(id="mean", label="Mean"),
+    sc.AnalysisTableColumn(id="unit", label="Unit"),
+)
+_BEST_SIGNAL_TABLE_COLUMNS = (
+    sc.AnalysisTableColumn(id="parameter_id", label="Parameter"),
+    sc.AnalysisTableColumn(id="best_point_index", label="Point"),
+    sc.AnalysisTableColumn(id="best_signal", label="Signal", unit="ratio"),
+    sc.AnalysisTableColumn(id="old_value", label="Previous value"),
+    sc.AnalysisTableColumn(id="proposed_value", label="Proposed value"),
+    sc.AnalysisTableColumn(id="parameter_unit", label="Unit"),
+)
 
 
 class SummaryStatsObservable(BaseModel):
@@ -128,7 +144,20 @@ class SummaryStatsAnalysisStep:
                 title="raw measurements",
             )
             .table(
-                [result.model_dump(mode="json")],
+                sc.AnalysisTable.from_rows(
+                    [
+                        {
+                            "observable": observable_id,
+                            "count": summary.count,
+                            "min": summary.min,
+                            "max": summary.max,
+                            "mean": summary.mean,
+                            "unit": summary.unit,
+                        }
+                        for observable_id, summary in result.observables.items()
+                    ],
+                    columns=_SUMMARY_TABLE_COLUMNS,
+                ),
                 title="summary stats result",
                 metadata=TEST_STEP_METADATA,
             )
@@ -174,7 +203,19 @@ class BestSignalAnalysisStep:
                 title="raw measurements",
             )
             .table(
-                [result.model_dump(mode="json")],
+                sc.AnalysisTable.from_rows(
+                    [
+                        {
+                            "parameter_id": result.parameter_id,
+                            "best_point_index": result.best_point_index,
+                            "best_signal": _numeric_scalar_value(result.best_signal),
+                            "old_value": float(result.old_value.value),
+                            "proposed_value": float(result.proposed_value.value),
+                            "parameter_unit": result.proposed_value.unit,
+                        }
+                    ],
+                    columns=_BEST_SIGNAL_TABLE_COLUMNS,
+                ),
                 title="best signal analysis result",
                 metadata=TEST_STEP_METADATA,
             )

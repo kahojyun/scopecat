@@ -26,6 +26,20 @@ from quantum_lab_demo.workflows.drag_beta_experiment import PROBABILITY_1_RECORD
 _DRAG_BETA_FIT_MODEL_ID = "quantum_lab_demo.drag_beta.shared_n2_quadratic.v1"
 _DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
 _DRAG_BETA_PROPOSAL_ID = "q0-drag-beta"
+_OBSERVATION_COLUMNS = (
+    sc.AnalysisTableColumn(id="beta_ns", label="DRAG beta", unit="ns"),
+    sc.AnalysisTableColumn(id="amplification", label="Amplification"),
+    sc.AnalysisTableColumn(id="probability_1", label="P(1)", unit="ratio"),
+)
+_FIT_COLUMNS = (
+    sc.AnalysisTableColumn(id="model_id", label="Fit model"),
+    sc.AnalysisTableColumn(id="beta_hat", label="Selected beta", unit="ns"),
+    sc.AnalysisTableColumn(id="baseline", label="Baseline"),
+    sc.AnalysisTableColumn(id="quadratic", label="Quadratic coefficient"),
+    sc.AnalysisTableColumn(id="linear", label="Linear coefficient"),
+    sc.AnalysisTableColumn(id="scaled_offset", label="Scaled offset"),
+    sc.AnalysisTableColumn(id="rmse", label="RMSE"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,27 +130,49 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
             title="DRAG beta measurements",
         )
         .table(
-            [
-                {
-                    "beta_ns": _beta_ns(observation.beta),
-                    "amplification": observation.amplification,
-                    "probability_1": observation.p1,
-                }
-                for observation in observations
-            ],
+            sc.AnalysisTable.from_rows(
+                [
+                    {
+                        "beta_ns": _beta_ns(observation.beta),
+                        "amplification": observation.amplification,
+                        "probability_1": observation.p1,
+                    }
+                    for observation in observations
+                ],
+                columns=_OBSERVATION_COLUMNS,
+            ),
             title="DRAG beta observations",
         )
-        .table([_fit_summary(fit)], title="DRAG beta quadratic fit")
+        .table(
+            sc.AnalysisTable.from_rows([_fit_summary(fit)], columns=_FIT_COLUMNS),
+            title="DRAG beta quadratic fit",
+        )
         .figure(
-            {
-                "kind": "drag_beta_fit",
-                "x": "beta",
-                "y": "probability_1",
-                "series": "amplification",
-                "source_dataset": measurements.entry.id,
-                "model_id": _DRAG_BETA_FIT_MODEL_ID,
-            },
-            title="DRAG beta fit",
+            sc.AnalysisFigure(
+                kind="scatter",
+                x_axis=sc.AnalysisFigureAxis(label="DRAG beta", unit="ns"),
+                y_axis=sc.AnalysisFigureAxis(label="P(1)", unit="ratio"),
+                series=[
+                    sc.AnalysisFigureSeries(
+                        id=f"amplification-{amplification}",
+                        label=f"N={amplification}",
+                        x=[
+                            _beta_ns(observation.beta)
+                            for observation in observations
+                            if observation.amplification == amplification
+                        ],
+                        y=[
+                            observation.p1
+                            for observation in observations
+                            if observation.amplification == amplification
+                        ],
+                    )
+                    for amplification in sorted(
+                        {observation.amplification for observation in observations}
+                    )
+                ],
+            ),
+            title="DRAG beta observations by amplification",
         )
         .propose(
             _DRAG_BETA_PROPOSAL_ID,
@@ -209,11 +245,10 @@ def _observation_from_values(
     )
 
 
-def _fit_summary(fit: DragBetaFit) -> dict[str, object]:
+def _fit_summary(fit: DragBetaFit) -> dict[str, sc.AnalysisTableCell]:
     return {
         "model_id": _DRAG_BETA_FIT_MODEL_ID,
         "beta_hat": _beta_ns(fit.beta_hat),
-        "beta_unit": "ns",
         "baseline": fit.baseline,
         "quadratic": fit.quadratic,
         "linear": fit.linear,

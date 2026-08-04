@@ -13,6 +13,9 @@ from scopecat.control.models import (
     RunPlanSummary,
 )
 from scopecat.daemon.views import (
+    MeasurementTracePreview,
+    MeasurementTracePreviewQuery,
+    MeasurementTraceSeries,
     RunDetail,
     RunSummaryPage,
 )
@@ -104,6 +107,7 @@ class FakeRuns:
         self.events = events
         self.event_afters: list[int | None] = []
         self.run_stage_query: tuple[int, int | None, str | None] | None = None
+        self.trace_preview_query: tuple[str, MeasurementTracePreviewQuery] | None = None
 
     def get_run(self, run_id: str) -> RunDetail:
         raise BackendNotFound(f"run was not found: {run_id}")
@@ -117,6 +121,33 @@ class FakeRuns:
     ) -> RunSummaryPage:
         self.run_stage_query = (limit, before, sequence_id)
         return RunSummaryPage()
+
+    def measurement_trace_preview(
+        self,
+        run_id: str,
+        query: MeasurementTracePreviewQuery,
+    ) -> MeasurementTracePreview:
+        self.trace_preview_query = (run_id, query)
+        series = MeasurementTraceSeries(
+            point_index=0,
+            label="Point 0",
+            x=(0.0, 1.0),
+            y=(1.0, 0.5),
+            source_sample_count=2,
+        )
+        return MeasurementTracePreview(
+            dimension_id="sample",
+            recording_group_id=query.recording_group_id,
+            coordinate_id="frequency",
+            observable_id=query.observable_id or "signal",
+            value_mode=query.complex_mode,
+            downsampling=query.downsampling,
+            series=(series,),
+            selected_series_count=1,
+            returned_series_count=1,
+            source_sample_count=2,
+            returned_sample_count=2,
+        )
 
     def list_events(
         self,
@@ -252,6 +283,43 @@ def test_run_stage_query_forwards_sequence_filter() -> None:
     assert response.status_code == 200
     assert response.json() == {"items": [], "next_cursor": None}
     assert backend.runs.run_stage_query == (25, 9, "adaptive")
+
+
+def test_trace_preview_route_forwards_typed_query_and_validates_selection() -> None:
+    backend = FakeApplication()
+    client = TestClient(_create_test_app(backend))
+    payload = {
+        "recording_group_id": "readout",
+        "observable_id": "signal",
+        "coordinate_id": "frequency",
+        "fixed_axis_indices": {"bias": 1},
+        "max_series": 4,
+        "max_samples": 128,
+        "complex_mode": "real",
+        "downsampling": "even",
+    }
+
+    response = client.post(
+        "/api/v1/runs/run-1/measurements/traces/query",
+        json=payload,
+    )
+    invalid = client.post(
+        "/api/v1/runs/run-1/measurements/traces/query",
+        json={},
+    )
+    misleading_value_mode = client.post(
+        "/api/v1/runs/run-1/measurements/traces/query",
+        json={"observable_id": "signal", "value_mode": "real"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["series"][0]["x"] == [0.0, 1.0]
+    assert invalid.status_code == 422
+    assert misleading_value_mode.status_code == 422
+    assert backend.runs.trace_preview_query == (
+        "run-1",
+        MeasurementTracePreviewQuery.model_validate(payload),
+    )
 
 
 def test_event_replay_and_sse_resume_from_durable_event_id() -> None:
