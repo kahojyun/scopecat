@@ -47,7 +47,7 @@ type JsonMetadata = Annotated[
     BeforeValidator(validate_json_metadata),
 ]
 
-type FrozenJsonMetadata = Annotated[
+type MeasurementMetadata = Annotated[
     Mapping[str, object],
     AfterValidator(freeze_json_metadata),
     PlainSerializer(
@@ -58,8 +58,8 @@ type FrozenJsonMetadata = Annotated[
 
 
 __all__ = [
-    "FrozenJsonMetadata",
     "JsonMetadata",
+    "MeasurementMetadata",
     "freeze_json_metadata",
     "validate_json_metadata",
 ]

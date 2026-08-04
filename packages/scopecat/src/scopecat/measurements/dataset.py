@@ -410,6 +410,8 @@ class Dataset:
 
     @property
     def schema(self) -> MeasurementDatasetSchema:
+        """Return the complete planned schema, independent of current view rows."""
+
         return self._schema
 
     @property
@@ -744,6 +746,8 @@ class Dataset:
         coordinate: str | None = None,
         group: str | None = None,
     ) -> tuple[Trace, ...]:
+        """Select trace series by observable and optional coordinate or group."""
+
         return measurement_traces(
             self._raw,
             observable,

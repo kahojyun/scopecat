@@ -518,7 +518,6 @@ class SQLiteMeasurementDatasetRepository:
         limit: int,
         offset: int,
         include_schema: bool = True,
-        variable_ids: Sequence[str] | None = None,
     ) -> tuple[
         tuple[MeasurementRecord, ...],
         int | None,
@@ -575,7 +574,6 @@ class SQLiteMeasurementDatasetRepository:
                         dataset_schema,
                         offset=chunk_start,
                         length=chunk_end - chunk_start,
-                        variable_ids=variable_ids,
                     )
                 )
             next_offset = offset + len(items) if offset + len(items) < total else None

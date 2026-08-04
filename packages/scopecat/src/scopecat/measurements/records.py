@@ -107,6 +107,8 @@ class ValueRecordUse:
 
 @dataclass(frozen=True, slots=True)
 class RecordAxisPlan:
+    """Config-independent projection of one product-local measurement axis."""
+
     id: str
     label: str | None
     kind: str
@@ -126,6 +128,8 @@ class RecordAxisPlan:
 
 @dataclass(frozen=True, slots=True)
 class RecordPlan:
+    """Dataset variable plan derived from one recorded product use."""
+
     id: str
     product_use_id: ProductUseId
     product_id: ProductId
@@ -198,6 +202,8 @@ def plan_records(
     product_uses: Sequence[ProductUse],
     record_uses: Sequence[RecordUse],
 ) -> list[RecordPlan]:
+    """Project verified product record uses into dataset variable plans."""
+
     products_by_id = {product.id: product for product in products}
     uses_by_id = {use.id: use for use in product_uses}
     plans: list[RecordPlan] = []
@@ -227,6 +233,8 @@ def plan_records(
 def plan_value_records(
     record_uses: Sequence[ValueRecordUse],
 ) -> list[ValueRecordPlan]:
+    """Project scalar value record uses into dataset variable plans."""
+
     return [
         ValueRecordPlan(
             id=record.id,
@@ -372,6 +380,8 @@ def expected_dataset_schema(
     point_domain_axis_sizes: Sequence[tuple[str, int]] = (),
     point_domain_axis_values: Sequence[tuple[str, Sequence[CellValue]]] = (),
 ) -> MeasurementDatasetSchema | None:
+    """Build the complete planned dataset schema from points and record plans."""
+
     if not records:
         return None
     dimensions = [

@@ -209,6 +209,8 @@ def measurement_dataset_content_hash(
     header_content_hash: str,
     append_content_hashes: tuple[str, ...],
 ) -> str:
+    """Hash a header and its ordered append identities, independent of IPC bytes."""
+
     return stable_content_hash(
         {
             "schema": "scopecat.measurement_dataset_content.v2",

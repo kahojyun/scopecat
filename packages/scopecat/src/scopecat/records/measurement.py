@@ -37,7 +37,7 @@ from pydantic_core import CoreSchema
 
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
-from scopecat.records._metadata import FrozenJsonMetadata
+from scopecat.records._metadata import MeasurementMetadata
 from scopecat.records._schema_utils import (
     ensure_unique_ids,
     missing_references,
@@ -139,7 +139,7 @@ class MeasurementDimension(_FrozenMeasurementModel):
     kind: str = Field(min_length=1)
     label: str | None = None
     size: Annotated[int, Field(ge=0)] | None
-    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
 
 class MeasurementVariable(_FrozenMeasurementModel):
@@ -156,7 +156,7 @@ class MeasurementVariable(_FrozenMeasurementModel):
     source_product_id: _NonEmptyText | None = None
     source_value_id: _NonEmptyText | None = None
     recording_group_id: _NonEmptyText | None = None
-    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @field_validator("unit")
     @classmethod
@@ -262,6 +262,8 @@ type MeasurementPointDomain = Annotated[
 
 
 class MeasurementDatasetSchema(_FrozenMeasurementModel):
+    """Complete planned shape and variable contract for one measurement dataset."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     format_version: Literal["scopecat.measurement_dataset_schema.v8"] = (
@@ -276,7 +278,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
     variables: Sequence[MeasurementVariable] = Field(default_factory=tuple)
     primary_coordinates: Sequence[str] = Field(default_factory=tuple)
     primary_observables: Sequence[str] = Field(default_factory=tuple)
-    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @field_validator(
         "dimensions",
@@ -391,13 +393,15 @@ MeasurementScalarData = Annotated[
 
 
 class MeasurementScalar(_FrozenMeasurementModel):
+    """One normalized, typed scalar measurement value."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["scalar"]
     dtype: MeasurementDType = "float64"
     unit: str | None = None
     value: MeasurementScalarData
-    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @classmethod
     def create(
@@ -457,6 +461,8 @@ class MeasurementScalar(_FrozenMeasurementModel):
 
 
 class MeasurementArray(_FrozenMeasurementModel):
+    """One typed array backed by an immutable, read-only NumPy buffer."""
+
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         extra="forbid",
@@ -468,7 +474,7 @@ class MeasurementArray(_FrozenMeasurementModel):
     unit: str | None = None
     shape: tuple[Annotated[int, Field(ge=0)], ...] = Field(min_length=1)
     values: MeasurementArrayData
-    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @classmethod
     def create(
@@ -479,7 +485,7 @@ class MeasurementArray(_FrozenMeasurementModel):
         unit: str | None = None,
         metadata: Mapping[str, object] | None = None,
     ) -> Self:
-        """Construct an array while keeping the wire discriminator required."""
+        """Construct an immutable array and infer its wire shape from ``values``."""
 
         data: dict[str, object] = {
             "kind": "array",
@@ -599,7 +605,7 @@ class MeasurementUnavailable(_FrozenMeasurementModel):
     dtype: MeasurementDType
     unit: str | None
     shape: tuple[Annotated[int, Field(ge=0)] | None, ...]
-    metadata: FrozenJsonMetadata
+    metadata: MeasurementMetadata
 
     @classmethod
     def create(
@@ -679,7 +685,7 @@ def _serialize_measurement_values(
     return dict(value)
 
 
-type _FrozenMeasurementValues = Annotated[
+type MeasurementValueMap = Annotated[
     Mapping[str, MeasurementValue],
     AfterValidator(_freeze_measurement_values),
     PlainSerializer(
@@ -701,7 +707,7 @@ def _serialize_acquisition_evidence(
     return dict(value)
 
 
-type _FrozenAcquisitionEvidence = Annotated[
+type InstrumentAcquisitionEvidenceMap = Annotated[
     Mapping[str, InstrumentAcquisitionEvidence],
     AfterValidator(_freeze_acquisition_evidence),
     PlainSerializer(
@@ -712,17 +718,19 @@ type _FrozenAcquisitionEvidence = Annotated[
 
 
 class MeasurementRecord(_FrozenMeasurementModel):
+    """One durable point row with immutable values, evidence, and metadata."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
     logical_point_id: str | None = None
     point_index: int
-    coordinates: _FrozenMeasurementValues
-    observables: _FrozenMeasurementValues
-    acquisition_evidence: _FrozenAcquisitionEvidence = Field(
+    coordinates: MeasurementValueMap
+    observables: MeasurementValueMap
+    acquisition_evidence: InstrumentAcquisitionEvidenceMap = Field(
         default_factory=_empty_acquisition_evidence
     )
-    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @model_validator(mode="after")
     def validate_acquisition_evidence_variables(self) -> MeasurementRecord:
@@ -738,11 +746,13 @@ class MeasurementRecord(_FrozenMeasurementModel):
 
 
 class MeasurementDataset(_FrozenMeasurementModel):
+    """A complete planned schema paired with its current ordered record set."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     dataset_schema: MeasurementDatasetSchema
     records: Sequence[MeasurementRecord]
-    metadata: FrozenJsonMetadata = Field(default_factory=_empty_metadata)
+    metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @field_validator("records")
     @classmethod

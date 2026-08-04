@@ -32,7 +32,7 @@ class RunPoint:
 
 @dataclass(frozen=True, slots=True)
 class RunPointContract:
-    """Point identity and coordinate contract independent of admitted values."""
+    """Complete planned point identity and coordinate contract for one run."""
 
     experiment_id: str
     experiment_kind: str
@@ -53,7 +53,7 @@ class RunPointContract:
 
 @dataclass(frozen=True, slots=True)
 class RunPointCatalog:
-    """Run-owned logical identity and coordinate inventory."""
+    """Run-owned point inventory, which may project a subset of the full contract."""
 
     contract: RunPointContract
     points: tuple[RunPoint, ...]
