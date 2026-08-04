@@ -2016,7 +2016,7 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
                 values={
                     "signal": MeasurementArray.create(
                         dtype="float64",
-                        unit="GHz",
+                        unit="Hz",
                         shape=(2,),
                         values=(1.0, 2.0),
                     )
@@ -2052,6 +2052,21 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
             )
         ),
     )
+    convertible_unit_mismatch = validate_collect_receipt(
+        command=command,
+        receipt=CollectReceipt(
+            readback=RecordInstrumentReadback(
+                values={
+                    "signal": MeasurementArray.create(
+                        dtype="float64",
+                        unit="GHz",
+                        shape=(2,),
+                        values=(1.0, 2.0),
+                    )
+                }
+            )
+        ),
+    )
 
     assert valid == []
     assert {item.code for item in invalid} == {
@@ -2063,6 +2078,9 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
         "instrument_driver_readback_unit_mismatch",
         "instrument_driver_readback_shape_mismatch",
     }
+    assert [item.code for item in convertible_unit_mismatch] == [
+        "instrument_driver_readback_unit_mismatch"
+    ]
 
 
 @pytest.mark.parametrize(

@@ -219,7 +219,7 @@ def test_measurement_dataset_primary_ids_are_unique(
         )
 
 
-def test_validate_measurement_records_against_schema_accepts_compatible_units() -> None:
+def test_validate_measurement_records_rejects_convertible_but_inexact_units() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
         point_domain=_empty_grid(),
@@ -272,7 +272,17 @@ def test_validate_measurement_records_against_schema_accepts_compatible_units() 
         "raw-measurements",
     )
 
-    assert problems == []
+    # Validation does not rewrite the stored value. Accepting this GHz value
+    # under an MHz schema would make dataset views mislabel the numeric data.
+    assert [item.code for item in problems] == ["measurement_record_unit_mismatch"]
+    assert problems[0].location == model_location(
+        "measurement_dataset",
+        "records",
+        0,
+        "coordinates",
+        "drive_frequency",
+        "unit",
+    )
 
 
 def test_validate_schema_accepts_point_local_arrays() -> None:

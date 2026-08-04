@@ -280,10 +280,7 @@ def test_equivalent_angle_units_have_one_exact_implementation_key() -> None:
     [binding] = bindings.bindings
     assert isinstance(binding, GatePulseImplementationBinding)
     assert binding.key == implementation.key
-    assert implementation.key.arguments[0].value == Quantity(
-        3.14159265359,
-        "rad",
-    )
+    assert implementation.key.arguments[0].value == Quantity(math.pi, "rad")
 
 
 def test_implementation_key_rejects_duplicate_named_arguments() -> None:

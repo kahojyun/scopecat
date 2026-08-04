@@ -378,7 +378,7 @@ def test_scalar_values_support_every_public_dtype(
     )
 
 
-def test_unit_contract_is_strict_in_both_directions() -> None:
+def test_unit_contract_requires_exact_units_without_implicit_conversion() -> None:
     unitless = MeasurementScalar.create(dtype="float64", unit=None, value=1.0)
     unitful = MeasurementScalar.create(dtype="float64", unit="GHz", value=5.0)
 
@@ -391,9 +391,20 @@ def test_unit_contract_is_strict_in_both_directions() -> None:
     assert not measurement_value_contract_issues(
         unitful,
         expected_dtype="float64",
-        expected_unit="MHz",
+        expected_unit="GHz",
         expected_shape=(),
     )
+    # Contract validation does not rescale the stored number. Accepting GHz as
+    # MHz would therefore make downstream views label 5.0 GHz as 5.0 MHz.
+    assert tuple(
+        issue.code
+        for issue in measurement_value_contract_issues(
+            unitful,
+            expected_dtype="float64",
+            expected_unit="MHz",
+            expected_shape=(),
+        )
+    ) == (MeasurementValueContractIssueCode.UNIT_MISMATCH,)
     assert tuple(
         issue.code
         for issue in measurement_value_contract_issues(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from decimal import Decimal
 from typing import cast
 
@@ -97,7 +98,7 @@ def test_schedule_normalizes_quantities_and_flattens_authoring_tree() -> None:
     assert envelope.duration == Quantity(2e-6, "s")
     assert envelope.sigma == Quantity(2.5e-7, "s")
     assert envelope.amplitude == Quantity(0.5, "V")
-    assert envelope.phase == Quantity(3.14159265359, "rad")
+    assert envelope.phase == Quantity(math.pi, "rad")
 
 
 def test_shift_phase_is_a_normalized_zero_duration_frame_event() -> None:
@@ -129,7 +130,7 @@ def test_shift_phase_is_a_normalized_zero_duration_frame_event() -> None:
     ]
     normalized = cast("ShiftPhase", scheduled.events[0].instruction)
     assert normalized.signal is DRIVE_Q0
-    assert normalized.phase == Quantity(3.14159265359, "rad")
+    assert normalized.phase == Quantity(math.pi, "rad")
 
 
 def test_zero_duration_sequence_causality_survives_reassociation() -> None:

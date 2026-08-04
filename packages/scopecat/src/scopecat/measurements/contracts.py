@@ -12,7 +12,6 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.kernel.units import compatible_units
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
@@ -151,12 +150,9 @@ def _dtype_compatible(
 
 
 def _unit_compatible(expected: str | None, actual: str | None) -> bool:
-    if expected is None or actual is None:
-        return expected is actual
-    try:
-        return compatible_units(expected, actual)
-    except ValueError:
-        return False
+    """Require exact persisted units because this layer never converts values."""
+
+    return expected == actual
 
 
 def validate_measurement_records_against_schema(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -47,3 +48,20 @@ def test_quantity_semantic_equality_absorbs_scaled_float_noise() -> None:
         Quantity(100.0, "ns"),
         Quantity(0.1, "us"),
     )
+
+
+def test_non_linear_quantities_compare_only_in_the_same_unit() -> None:
+    assert scalar_values_equal(
+        Quantity(-20.0, "dBm"),
+        Quantity(-20.0, "dBm"),
+    )
+    assert not scalar_values_equal(
+        Quantity(-20.0, "dBm"),
+        Quantity(-19.0, "dBm"),
+    )
+
+    with pytest.raises(ValueError, match="cannot compare quantity units"):
+        scalar_values_equal(
+            Quantity(-20.0, "dBm"),
+            Quantity(0.001, "W"),
+        )
