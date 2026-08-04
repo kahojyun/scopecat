@@ -52,10 +52,12 @@ Admission, resource ownership, measurements, analysis, and configuration
 history still cross the daemon boundary. Operator controls such as event replay
 and attention resolution are available through `lab.control`.
 
-`run.measurements()` exposes fresh, independent `xarray.Dataset` snapshots
-through `measurements.xarray` or `measurements.to_xarray()`; NumPy, Xarray, and
-Arrow support are installed with the core package. Install `scopecat[pandas]`
-only when calling the explicit pandas export adapter.
+`run.measurements()` freezes one analysis snapshot at construction and exposes
+independent copies of its cached `xarray.Dataset` through `measurements.xarray`
+or `measurements.to_xarray()`. Complete product grids can opt into authored
+axis dimensions with `measurements.to_xarray(layout="grid")`. NumPy, Xarray,
+and Arrow support are installed with the core package. Install
+`scopecat[pandas]` only when calling the explicit pandas export adapter.
 
 See the [repository README](../../README.md) for setup and development commands,
 and the [daemon model](../../docs/lab-daemon.md) for durable ownership and

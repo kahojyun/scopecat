@@ -156,7 +156,7 @@ before entering the measurement stream.
 ```python
 data = run.measurements()
 
-data.xarray                    # fresh independent xr.Dataset snapshot
+data.xarray                    # independent copy of the cached xr.Dataset
 data.coords                    # coordinate variables by id
 data.data_vars                 # observable variables by id
 data.point_indices             # durable identities in current row order
@@ -187,10 +187,13 @@ the indexer independently inside each point and requires either a recording
 group, which keeps its variables aligned, or one ungrouped variable. Boolean
 masks compose with `&`, `|`, and `~`. Fixed-shape `isel`, `sel`, `where`, and
 `groupby` use Xarray's indexing, alignment, nearest-selection, and grouping
-semantics, then map the selected positions back to durable records. Call the
-same operations directly on `data.xarray` when the result should stay entirely
-inside the Xarray ecosystem; wrapper selections are for workflows that still
-need `entry`, `raw`, `traces()`, or another durable export.
+semantics, then map the selected positions back to durable records. Direct
+Xarray operations are suitable when the result should stay entirely inside the
+Xarray ecosystem and all dimensions are fixed. Indexed ragged observations are
+different: `data.xarray.isel(point=...)` selects point-aligned metadata but does
+not cascade to the separate observation dimension. Use the facade's
+`data.isel(point=...)` before exporting, and use `isel_ragged(...)` for local
+ragged dimensions, so parent observations stay aligned.
 
 Large runs can be consumed without materializing every record at once:
 
@@ -213,25 +216,42 @@ view. Install the `scopecat[pandas]` extra only for explicit pandas exports:
 xds = data.to_xarray()                     # explicit conversion spelling
 another = data.xarray                      # equivalent property shorthand
 assert xds is not another                  # snapshots never share identity
+grid = data.to_xarray(layout="grid")       # complete product grids only
 table = data.to_arrow()
 frame = data.to_pandas()                  # one row per experiment point
 long_frame = data.to_pandas(layout="long")
 ```
 
+The default Xarray layout keeps the durable `point` row dimension, which also
+works for point clouds, live batches, partial selections, and ragged results.
+For a complete product-grid dataset, `layout="grid"` restores the authored
+product axes as dimensions in C/product order and reshapes point-aligned scalar
+and array variables onto them. It rejects partial grids, duplicate or missing
+point ordinals, and coordinates that disagree with their declared grid axis
+instead of silently reshaping the wrong rows.
+
 Complex values remain complex in Xarray and pandas and become explicit
 `{real, imag}` structs in Arrow. Ragged variables in the same recording group
 share one Xarray observation dimension and retain `parent_point_index` and local
-index coordinates; ungrouped ragged variables remain independent. Unavailable
-values remain null or missing and gain a companion `__unavailable_reason`
-variable or column. The durable Pydantic dataset remains available through
-`data.raw` when low-level inspection is actually needed. Every access to
-`data.xarray` and every `to_xarray()` call reads the current durable model into
-a new snapshot. In-memory edits through the mutable `raw` escape hatch therefore
-appear in the next snapshot, while edits to a returned Xarray object never
-pollute the facade or a later export. Dataset attrs retain entry provenance;
-schema and dataset metadata use the stable JSON-string attrs
-`scopecat_schema_json` and `scopecat_metadata_json`. Variable metadata uses the
-same `scopecat_metadata_json` name on each DataArray, keeping nested metadata
+index coordinates; ungrouped ragged variables remain independent. Every ragged
+variable has an observation-aligned `<variable>__observation_valid` mask. When
+values are unavailable, `<variable>__observation_unavailable_reason` identifies
+the affected observations, while the existing `<variable>__unavailable_reason`
+retains the point-level reason. This makes integer, boolean, and string fill
+values unambiguous.
+
+The facade deep-copies the durable Pydantic input and builds one private Xarray
+snapshot at construction. `raw`, `schema`, `records`, variable definitions, and
+raw values are detached inspection copies; mutating them never changes the
+facade. Each `data.xarray` or `to_xarray()` result is likewise a deep copy of the
+cached snapshot, so caller edits cannot pollute wrapper selections or later
+exports. Arrow column types come from the declared variable dtype and dimensions,
+so empty datasets and entirely unavailable columns retain numeric, complex, and
+nested-list types instead of degrading to Arrow `null`. Dataset attrs retain
+entry provenance; schema and dataset metadata use the stable JSON-string attrs
+`scopecat_schema_json` and
+`scopecat_metadata_json`. Variable metadata uses the same
+`scopecat_metadata_json` name on each DataArray, keeping nested metadata
 NetCDF-safe.
 
 ## Let the GUI use experiment knowledge
