@@ -1,6 +1,9 @@
 import type {
+  AnalysisRecordOutput,
   DurableEvent,
   EventPage,
+  MeasurementTracePreview,
+  MeasurementTracePreviewQuery,
   RunContentEntry,
   RunControlView,
   RunManifest,
@@ -11,12 +14,14 @@ import { ApiError, apiClient, apiData } from "./api-client";
 import type {
   ContentEntry,
   MeasurementPreview,
+  MeasurementSlicePreview,
   ProjectEvent,
   ProjectHealth,
   ProjectRun,
   ProjectRunPage,
   PresentationRunStatus,
   RunAnalysis,
+  RunAnalysisOutput,
   RunContentPreview,
   RunResource,
 } from "./types";
@@ -92,15 +97,69 @@ export async function getMeasurementPreview(
     apiClient.GET("/api/v1/runs/{run_id}/measurements", {
       params: {
         path: { run_id: runId },
-        query: { limit: 100, offset },
+        query: { limit: 100, offset, include_schema: offset === 0 },
       },
       signal,
     }),
   );
   return {
-    items: (response.items ?? []) as Array<Record<string, unknown>>,
+    items: response.items ?? [],
+    schema: response.dataset_schema ?? undefined,
     nextOffset: response.next_offset ?? undefined,
   };
+}
+
+export async function getMeasurementSlice(
+  runId: string,
+  fixedAxisIndices: Record<string, number>,
+  variableIds: string[],
+  signal?: AbortSignal,
+): Promise<MeasurementSlicePreview> {
+  const response = await apiData(
+    apiClient.POST("/api/v1/runs/{run_id}/measurements/query", {
+      params: { path: { run_id: runId } },
+      body: {
+        fixed_axis_indices: fixedAxisIndices,
+        include_schema: false,
+        limit: 4096,
+        variable_ids: variableIds,
+      },
+      signal,
+    }),
+  );
+  return {
+    items: response.items,
+    schema: response.dataset_schema ?? undefined,
+    selectedPointCount: response.selected_point_count,
+    truncated: response.truncated,
+  };
+}
+
+export async function getMeasurementTracePreview(
+  runId: string,
+  selection: {
+    observableId: string;
+    coordinateId: string;
+    fixedAxisIndices: Record<string, number>;
+    valueMode: NonNullable<MeasurementTracePreviewQuery["value_mode"]>;
+  },
+  signal?: AbortSignal,
+): Promise<MeasurementTracePreview> {
+  return apiData(
+    apiClient.POST("/api/v1/runs/{run_id}/measurements/traces/query", {
+      params: { path: { run_id: runId } },
+      body: {
+        coordinate_id: selection.coordinateId,
+        downsampling: "even",
+        fixed_axis_indices: selection.fixedAxisIndices,
+        max_samples: 4096,
+        max_series: 32,
+        observable_id: selection.observableId,
+        value_mode: selection.valueMode,
+      },
+      signal,
+    }),
+  );
 }
 
 export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promise<RunAnalysis[]> {
@@ -115,19 +174,27 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
     title: analysis.title,
     key: analysis.key ?? undefined,
     stepId: analysis.step_id ?? undefined,
-    outputs: analysis.outputs.map((output) => ({
-      kind: analysisOutputKind(output.kind),
-      title: output.title,
-      content: output.content,
-    })),
+    inputs: analysis.inputs ?? [],
+    outputs: analysis.outputs.map(runAnalysisOutput),
   }));
 }
 
-function analysisOutputKind(kind: string): RunAnalysis["outputs"][number]["kind"] {
-  if (kind === "table" || kind === "figure" || kind === "parameter_change_proposal") {
-    return kind;
+function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
+  const shared = {
+    title: output.title,
+    metadata: output.metadata ?? {},
+  };
+  if (output.kind === "table") {
+    return { ...shared, kind: "table", content: output.content };
   }
-  throw new ApiError(`The daemon returned an unsupported analysis output kind: ${kind}.`);
+  if (output.kind === "figure") {
+    return { ...shared, kind: "figure", content: output.content };
+  }
+  return {
+    ...shared,
+    kind: "parameter_change_proposal",
+    content: output.content,
+  };
 }
 
 export function canPreviewRunContent(entry: ContentEntry): boolean {
@@ -254,6 +321,13 @@ function normalizeRun(
     attentionReason: control.attention_reason ?? undefined,
     result: outcome?.result,
     certainty: outcome?.certainty,
+    stage: manifest.stage
+      ? {
+          sequenceId: manifest.stage.sequence_id,
+          index: manifest.stage.index,
+          previousRunId: manifest.stage.previous_run_id ?? undefined,
+        }
+      : undefined,
     plan: {
       pointCount: plan.point_count,
       coordinateIds: plan.coordinate_ids ?? [],

@@ -48,10 +48,6 @@ export function deriveConfigDraftUpdates(
   return updates;
 }
 
-export function cloneStoredParameterValue(value: StoredParameterValue): StoredParameterValue {
-  return structuredClone(value);
-}
-
 export function defaultParameterAtom(
   type: ParameterScalarType,
   entities: ParameterEntity[],

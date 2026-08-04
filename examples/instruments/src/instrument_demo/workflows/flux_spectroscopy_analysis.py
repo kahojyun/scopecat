@@ -13,19 +13,25 @@ from instrument_demo.configuration import (
     RESONATOR_LINEWIDTH_PARAMETER_ID,
 )
 from instrument_demo.workflows.flux_spectroscopy import TEMPERATURE_RECORD_ID
-from scopecat.measurements.results import (
-    MeasurementDataset,
-    Trace,
-    measurement_traces,
-)
-from scopecat.records.measurement import (
-    MeasurementRecord,
-    MeasurementScalar,
-)
+from scopecat.measurements.results import Dataset, Trace, Variable
 
 FLUX_SPECTROSCOPY_ANALYSIS_ID = "instrument_demo.flux_spectroscopy.analysis"
 FLUX_SPECTROSCOPY_PROPOSAL_ID = "readout-resonator-fit"
 _FIT_MODEL_ID = "instrument_demo.notch_half_depth.v1"
+_FIT_TABLE_COLUMNS = (
+    sc.AnalysisTableColumn(id="model_id", label="Fit model"),
+    sc.AnalysisTableColumn(id="dc_bias_v", label="DC bias", unit="V"),
+    sc.AnalysisTableColumn(id="temperature_mK", label="Temperature", unit="mK"),
+    sc.AnalysisTableColumn(
+        id="resonance_frequency_hz",
+        label="Resonance frequency",
+        unit="Hz",
+    ),
+    sc.AnalysisTableColumn(id="linewidth_hz", label="Linewidth", unit="Hz"),
+    sc.AnalysisTableColumn(id="quality_factor", label="Quality factor"),
+    sc.AnalysisTableColumn(id="baseline_power", label="Baseline power"),
+    sc.AnalysisTableColumn(id="minimum_power", label="Minimum power"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,16 +112,28 @@ def fit_resonator_trace(
 
 
 def fit_flux_spectroscopy(
-    dataset: MeasurementDataset,
+    dataset: Dataset,
 ) -> tuple[ResonatorTraceFit, ...]:
     """Fit every persisted bias point in one spectroscopy dataset."""
 
-    if not dataset.records:
+    if not dataset:
         raise ValueError("flux spectroscopy analysis requires measurement records")
-    records = {record.point_index: record for record in dataset.records}
+    try:
+        dc_bias = dataset.coords["dc_bias"]
+        temperature = dataset.data_vars[TEMPERATURE_RECORD_ID]
+    except KeyError as error:
+        raise ValueError(
+            "run does not contain the flux-spectroscopy measurement schema"
+        ) from error
+    traces = dataset.traces(group="readout-vna/sweep")
     return tuple(
-        _fit_record(records[trace.point_index], trace)
-        for trace in measurement_traces(dataset)
+        _fit_point(dc_bias_value, temperature_value, trace, dc_bias, temperature)
+        for trace, dc_bias_value, temperature_value in zip(
+            traces,
+            dc_bias.values,
+            temperature.values,
+            strict=True,
+        )
     )
 
 
@@ -123,8 +141,8 @@ def fit_flux_spectroscopy(
 def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit the resonator curve and propose reviewed readout parameters."""
 
-    measurements = context.data.measurements()
-    fits = fit_flux_spectroscopy(measurements.dataset)
+    measurements = context.measurements()
+    fits = fit_flux_spectroscopy(measurements)
     sweet_spot = max(
         fits,
         key=lambda fit: _quantity_value(fit.resonance_frequency, "Hz"),
@@ -137,21 +155,44 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     return (
         context.result("Resonator flux spectroscopy")
         .input(
-            measurements.dataset_entry.id,
+            measurements.entry.id,
             role="fit-input",
             title="Flux spectroscopy measurements",
         )
-        .table(fit_rows, title="Resonator fit by DC bias")
-        .table([selected_row], title="Selected readout sweet spot")
+        .table(
+            sc.AnalysisTable.from_rows(fit_rows, columns=_FIT_TABLE_COLUMNS),
+            title="Resonator fit by DC bias",
+        )
+        .table(
+            sc.AnalysisTable.from_rows(
+                [selected_row],
+                columns=(
+                    *_FIT_TABLE_COLUMNS,
+                    sc.AnalysisTableColumn(id="selection", label="Selection"),
+                ),
+            ),
+            title="Selected readout sweet spot",
+        )
         .figure(
-            {
-                "kind": "resonator_flux_map",
-                "x": "dc_bias",
-                "y": "frequency",
-                "color": "s_parameter_magnitude",
-                "source_dataset": measurements.dataset_entry.id,
-                "fit_model": _FIT_MODEL_ID,
-            },
+            sc.AnalysisFigure(
+                kind="line",
+                x_axis=sc.AnalysisFigureAxis(label="DC bias", unit="V"),
+                y_axis=sc.AnalysisFigureAxis(
+                    label="Fitted resonance frequency",
+                    unit="GHz",
+                ),
+                series=[
+                    sc.AnalysisFigureSeries(
+                        id="fitted-resonance",
+                        label="Notch fit",
+                        x=[_quantity_value(fit.dc_bias, "V") for fit in fits],
+                        y=[
+                            _quantity_value(fit.resonance_frequency, "GHz")
+                            for fit in fits
+                        ],
+                    )
+                ],
+            ),
             title="Resonator frequency versus flux bias",
         )
         .propose(
@@ -175,38 +216,38 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     )
 
 
-def _fit_record(record: MeasurementRecord, trace: Trace) -> ResonatorTraceFit:
-    try:
-        dc_bias = record.coordinates["dc_bias"]
-        temperature = record.observables[TEMPERATURE_RECORD_ID]
-    except KeyError as error:
-        raise ValueError(
-            "run does not contain the flux-spectroscopy measurement schema"
-        ) from error
-    if not isinstance(dc_bias, MeasurementScalar):
-        raise TypeError("dc_bias coordinates must be measurement scalars")
-    if not isinstance(temperature, MeasurementScalar):
-        raise TypeError("temperature observations must be measurement scalars")
+def _fit_point(
+    dc_bias_value: object,
+    temperature_value: object,
+    trace: Trace,
+    dc_bias: Variable,
+    temperature: Variable,
+) -> ResonatorTraceFit:
     return fit_resonator_trace(
         tuple(float(value) for value in trace.x),
         tuple(complex(value) for value in trace.y),
-        dc_bias=_measurement_quantity(dc_bias, "dc_bias"),
-        temperature=_measurement_quantity(temperature, "temperature"),
+        dc_bias=_variable_quantity(dc_bias, dc_bias_value, "dc_bias"),
+        temperature=_variable_quantity(
+            temperature,
+            temperature_value,
+            "temperature",
+        ),
     )
 
 
-def _measurement_quantity(value: MeasurementScalar, name: str) -> sc.Quantity:
+def _variable_quantity(variable: Variable, value: object, name: str) -> sc.Quantity:
     if (
-        value.dtype not in {"float64", "int64"}
-        or isinstance(value.value, bool)
-        or not isinstance(value.value, int | float)
-        or value.unit is None
+        variable.dims != ("point",)
+        or variable.dtype not in {"float64", "int64"}
+        or variable.unit is None
+        or isinstance(value, bool)
+        or not isinstance(value, int | float)
     ):
         raise TypeError(f"{name} must be a numeric scalar with a unit")
-    return sc.Quantity(float(value.value), value.unit)
+    return sc.Quantity(float(value), variable.unit)
 
 
-def _fit_row(fit: ResonatorTraceFit) -> dict[str, object]:
+def _fit_row(fit: ResonatorTraceFit) -> dict[str, sc.AnalysisTableCell]:
     return {
         "model_id": _FIT_MODEL_ID,
         "dc_bias_v": _quantity_value(fit.dc_bias, "V"),

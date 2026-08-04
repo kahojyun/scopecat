@@ -42,7 +42,10 @@ def verify_scalar_values(
     program: LogicalProgram,
     problems: list[Problem],
 ) -> Mapping[ValueId, ScalarExpr]:
-    point_columns = analyze_point_domain(program.point_domain).columns
+    point_columns = analyze_point_domain(
+        program.point_domain,
+        layout=program.point_domain_layout,
+    ).columns
     bindings = ExpressionTypeBindings(
         inputs={
             port.id: port.value_type

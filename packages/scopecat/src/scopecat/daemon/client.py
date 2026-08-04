@@ -24,6 +24,8 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementPage,
+    MeasurementTracePreview,
+    MeasurementTracePreviewQuery,
     ParameterProposalListView,
     RunAnalysisListView,
     RunAnalysisView,
@@ -59,6 +61,7 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
+    MeasurementHeaderCommand,
     MeasurementSealCommand,
     PayloadObjectReceipt,
     RunAdmission,
@@ -418,6 +421,24 @@ class DaemonClient:
             params["state"] = state
         return self._get_model(f"{_API_PREFIX}/runs", RunSummaryPage, params=params)
 
+    def list_run_stages(
+        self,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+        sequence_id: str | None = None,
+    ) -> RunSummaryPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        if sequence_id is not None:
+            params["sequence_id"] = sequence_id
+        return self._get_model(
+            f"{_API_PREFIX}/run-stages",
+            RunSummaryPage,
+            params=params,
+        )
+
     def get_run(self, run_id: str) -> RunDetail:
         return self._get_model(f"{_API_PREFIX}/runs/{run_id}", RunDetail)
 
@@ -596,6 +617,17 @@ class DaemonClient:
             params={"limit": limit, "offset": offset},
         )
 
+    def measurement_trace_preview(
+        self,
+        run_id: str,
+        query: MeasurementTracePreviewQuery,
+    ) -> MeasurementTracePreview:
+        return self._post_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/measurements/traces/query",
+            query,
+            MeasurementTracePreview,
+        )
+
     def replay_events(
         self,
         *,
@@ -692,6 +724,17 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{run_id}/transitions",
             command,
             ExecutionTransition,
+        )
+
+    def initialize_measurements(
+        self,
+        run_id: str,
+        command: MeasurementHeaderCommand,
+    ) -> MeasurementDatasetReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/runs/{run_id}/measurements/header",
+            command,
+            MeasurementDatasetReceipt,
         )
 
     def append_measurements(

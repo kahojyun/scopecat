@@ -3262,6 +3262,8 @@ def _render_client_acquisition_axis(axis: AcquisitionAxisSpec) -> str:
     size = axis.size
     if isinstance(size, int):
         size_argument = f"                    size={size},\n"
+    elif size is None:
+        size_argument = "                    size=None,\n"
     else:
         size_expression = _property_ref_expression(
             PropertyRef(

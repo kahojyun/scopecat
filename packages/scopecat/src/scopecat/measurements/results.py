@@ -5,12 +5,8 @@ from __future__ import annotations
 from scopecat.measurements.contracts import (
     validate_measurement_records_against_schema,
 )
-from scopecat.measurements.traces import (
-    Trace,
-    TraceCoordinate,
-    TraceSample,
-    measurement_traces,
-)
+from scopecat.measurements.dataset import Dataset, PointMask, Variable
+from scopecat.measurements.traces import Trace
 from scopecat.records.measurement import (
     ComplexComponents,
     InstrumentAcquisitionEvidence,
@@ -19,6 +15,11 @@ from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementDType,
+    MeasurementPointCloudPointDomain,
+    MeasurementPointDomain,
+    MeasurementPointDomainAxis,
+    MeasurementPointDomainColumn,
+    MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -30,12 +31,18 @@ from scopecat.records.measurement import (
 
 __all__ = [
     "ComplexComponents",
+    "Dataset",
     "InstrumentAcquisitionEvidence",
     "MeasurementArray",
     "MeasurementDType",
     "MeasurementDataset",
     "MeasurementDatasetSchema",
     "MeasurementDimension",
+    "MeasurementPointCloudPointDomain",
+    "MeasurementPointDomain",
+    "MeasurementPointDomainAxis",
+    "MeasurementPointDomainColumn",
+    "MeasurementProductGridPointDomain",
     "MeasurementRecord",
     "MeasurementScalar",
     "MeasurementUnavailable",
@@ -43,9 +50,8 @@ __all__ = [
     "MeasurementValue",
     "MeasurementVariable",
     "MeasurementVariableRole",
+    "PointMask",
     "Trace",
-    "TraceCoordinate",
-    "TraceSample",
-    "measurement_traces",
+    "Variable",
     "validate_measurement_records_against_schema",
 ]

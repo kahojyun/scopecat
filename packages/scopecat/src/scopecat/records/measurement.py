@@ -26,7 +26,7 @@ from scopecat.records._schema_utils import (
 )
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v4"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v6"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v8"
 
 MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
@@ -36,14 +36,14 @@ type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
 class MeasurementDimension(BaseModel):
-    """One concrete extent; physical coordinate values are variables."""
+    """One logical extent; ``None`` denotes a point-local ragged extent."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1)
     kind: str = Field(min_length=1)
     label: str | None = None
-    size: int = Field(ge=0)
+    size: Annotated[int, Field(ge=0)] | None
     metadata: JsonMetadata = Field(default_factory=dict)
 
 
@@ -86,16 +86,89 @@ class MeasurementVariable(BaseModel):
         return self
 
 
+class MeasurementPointDomainAxis(BaseModel):
+    """One ordered independent axis in a product-grid point domain."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    size: Annotated[int, Field(ge=0)]
+    values: list[MeasurementScalar | None]
+
+    @model_validator(mode="after")
+    def validate_values(self) -> MeasurementPointDomainAxis:
+        if len(self.values) != self.size:
+            raise ValueError("measurement point-domain axis values must match its size")
+        return self
+
+
+class MeasurementProductGridPointDomain(BaseModel):
+    """A point domain formed from the ordered product of independent axes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["product_grid"] = "product_grid"
+    axes: list[MeasurementPointDomainAxis]
+
+    @field_validator("axes")
+    @classmethod
+    def validate_axes(
+        cls,
+        value: list[MeasurementPointDomainAxis],
+    ) -> list[MeasurementPointDomainAxis]:
+        ensure_unique_ids(
+            [axis.id for axis in value],
+            "measurement point-domain axis ids must be unique",
+        )
+        return value
+
+
+class MeasurementPointDomainColumn(BaseModel):
+    """One ordered coordinate column in a point-cloud domain."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+
+
+class MeasurementPointCloudPointDomain(BaseModel):
+    """A point domain whose coordinate columns form explicit ordered rows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["point_cloud"] = "point_cloud"
+    columns: list[MeasurementPointDomainColumn]
+
+    @field_validator("columns")
+    @classmethod
+    def validate_columns(
+        cls,
+        value: list[MeasurementPointDomainColumn],
+    ) -> list[MeasurementPointDomainColumn]:
+        ensure_unique_ids(
+            [column.id for column in value],
+            "measurement point-domain column ids must be unique",
+        )
+        return value
+
+
+type MeasurementPointDomain = Annotated[
+    MeasurementProductGridPointDomain | MeasurementPointCloudPointDomain,
+    Field(discriminator="kind"),
+]
+
+
 class MeasurementDatasetSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v6"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v8"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
     record_schema: Literal["scopecat.measurement_record.v4"] = (
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
+    point_domain: MeasurementPointDomain
     dimensions: list[MeasurementDimension]
     variables: list[MeasurementVariable] = Field(default_factory=list)
     primary_coordinates: list[str] = Field(default_factory=list)
@@ -132,6 +205,8 @@ class MeasurementDatasetSchema(BaseModel):
                 "measurement dataset schema must define exactly one point "
                 "dimension with id point"
             )
+        if point_dimensions[0].size is None:
+            raise ValueError("measurement point dimension must have a fixed size")
 
         for variable in self.variables:
             missing_dims = missing_references(variable.dims, dimension_id_set)
@@ -333,7 +408,11 @@ class MeasurementArray(BaseModel):
 
 
 class MeasurementUnavailable(BaseModel):
-    """A complete scalar or array result with no usable value."""
+    """A complete scalar or array result with no usable value.
+
+    ``None`` preserves an unknown extent for a ragged product axis when no
+    available value exists from which to learn that point-local size.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -341,7 +420,7 @@ class MeasurementUnavailable(BaseModel):
     reason: MeasurementUnavailableReason
     dtype: MeasurementDType
     unit: str | None
-    shape: tuple[Annotated[int, Field(ge=0)], ...]
+    shape: tuple[Annotated[int, Field(ge=0)] | None, ...]
     metadata: JsonMetadata
 
     @classmethod
@@ -351,7 +430,7 @@ class MeasurementUnavailable(BaseModel):
         reason: MeasurementUnavailableReason,
         dtype: MeasurementDType,
         unit: str | None,
-        shape: Sequence[int],
+        shape: Sequence[int | None],
         metadata: JsonMetadata,
     ) -> Self:
         """Construct an unavailable result with its complete value contract."""
@@ -433,9 +512,9 @@ class MeasurementRecord(BaseModel):
 
 
 class MeasurementDataset(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid")
 
-    dataset_schema: MeasurementDatasetSchema = Field(alias="schema")
+    dataset_schema: MeasurementDatasetSchema
     records: list[MeasurementRecord]
     metadata: JsonMetadata = Field(default_factory=dict)
 

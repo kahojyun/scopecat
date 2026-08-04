@@ -6,10 +6,9 @@ workflow code can be tested without depending on a bundled demo domain.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, cast
+from typing import TypeGuard, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -24,11 +23,10 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import (
+    Dataset,
     MeasurementDatasetSchema,
-    MeasurementRecord,
     MeasurementScalar,
-    MeasurementUnavailable,
-    MeasurementValue,
+    Variable,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import ScalarParameterValue
@@ -44,10 +42,22 @@ BEST_SIGNAL_INPUT_REF = "data/measurement_dataset/raw-measurements"
 BEST_SIGNAL_SCHEMA_REF = "data/measurement_dataset/raw-measurements.schema"
 RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
 TEST_STEP_METADATA = {"scope": "test"}
-
-
-class _MeasurementWithObservables(Protocol):
-    observables: dict[str, MeasurementValue]
+_SUMMARY_TABLE_COLUMNS = (
+    sc.AnalysisTableColumn(id="observable", label="Observable"),
+    sc.AnalysisTableColumn(id="count", label="Count"),
+    sc.AnalysisTableColumn(id="min", label="Minimum"),
+    sc.AnalysisTableColumn(id="max", label="Maximum"),
+    sc.AnalysisTableColumn(id="mean", label="Mean"),
+    sc.AnalysisTableColumn(id="unit", label="Unit"),
+)
+_BEST_SIGNAL_TABLE_COLUMNS = (
+    sc.AnalysisTableColumn(id="parameter_id", label="Parameter"),
+    sc.AnalysisTableColumn(id="best_point_index", label="Point"),
+    sc.AnalysisTableColumn(id="best_signal", label="Signal", unit="ratio"),
+    sc.AnalysisTableColumn(id="old_value", label="Previous value"),
+    sc.AnalysisTableColumn(id="proposed_value", label="Proposed value"),
+    sc.AnalysisTableColumn(id="parameter_unit", label="Unit"),
+)
 
 
 class SummaryStatsObservable(BaseModel):
@@ -117,22 +127,37 @@ class SummaryStatsAnalysisStep:
     id: str = SUMMARY_STATS_STEP
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
-        raw = context.data.measurements(self.selector or RAW_MEASUREMENTS_DATASET_ID)
-        input_ref = dataset_storage_ref(raw.dataset_entry)
+        measurements = context.measurements(
+            self.selector or RAW_MEASUREMENTS_DATASET_ID
+        )
+        input_ref = dataset_storage_ref(measurements.entry)
         result = _build_summary_result(
             run_id=context.run.id,
             step=SUMMARY_STATS_STEP,
             input_ref=input_ref,
-            measurements=raw.dataset.records,
+            measurements=measurements,
         )
         return (
             context.result("summary stats")
             .input(
-                raw.dataset_entry.id,
+                measurements.entry.id,
                 title="raw measurements",
             )
             .table(
-                [result.model_dump(mode="json")],
+                sc.AnalysisTable.from_rows(
+                    [
+                        {
+                            "observable": observable_id,
+                            "count": summary.count,
+                            "min": summary.min,
+                            "max": summary.max,
+                            "mean": summary.mean,
+                            "unit": summary.unit,
+                        }
+                        for observable_id, summary in result.observables.items()
+                    ],
+                    columns=_SUMMARY_TABLE_COLUMNS,
+                ),
                 title="summary stats result",
                 metadata=TEST_STEP_METADATA,
             )
@@ -144,24 +169,29 @@ class BestSignalAnalysisStep:
     id: str = BEST_SIGNAL_ANALYSIS_STEP
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
-        raw = context.data.measurements(RAW_MEASUREMENTS_DATASET_ID)
-        parameter_id = _scan_parameter_id(context.data.schema())
+        measurements = context.measurements(RAW_MEASUREMENTS_DATASET_ID)
+        parameter_id = _scan_parameter_id(measurements.schema)
         old_value = _old_parameter_value(context.config, parameter_id)
-        best_measurement = _best_signal_measurement(raw.dataset.records)
+        best_position = _best_signal_position(measurements)
+        signal = measurements.data_vars["signal"]
+        parameter = measurements.coords[parameter_id]
         proposed_value = _proposed_value(
-            best_measurement,
+            parameter,
+            parameter.values[best_position],
             parameter_id,
             old_value=old_value,
         )
         best_signal = _signal_scalar(
-            measurement=best_measurement,
+            variable=signal,
+            value=signal.values[best_position],
             problem_ref=BEST_SIGNAL_INPUT_REF,
         )
-        reason = f"Best signal observed at point {best_measurement.point_index}."
+        best_point_index = measurements.point_indices[best_position]
+        reason = f"Best signal observed at point {best_point_index}."
         result = BestSignalAnalysisResult(
             run_id=context.run.id,
             parameter_id=parameter_id,
-            best_point_index=best_measurement.point_index,
+            best_point_index=best_point_index,
             best_signal=best_signal,
             old_value=old_value,
             proposed_value=proposed_value,
@@ -169,11 +199,23 @@ class BestSignalAnalysisStep:
         return (
             context.result("best signal analysis")
             .input(
-                raw.dataset_entry.id,
+                measurements.entry.id,
                 title="raw measurements",
             )
             .table(
-                [result.model_dump(mode="json")],
+                sc.AnalysisTable.from_rows(
+                    [
+                        {
+                            "parameter_id": result.parameter_id,
+                            "best_point_index": result.best_point_index,
+                            "best_signal": _numeric_scalar_value(result.best_signal),
+                            "old_value": float(result.old_value.value),
+                            "proposed_value": float(result.proposed_value.value),
+                            "parameter_unit": result.proposed_value.unit,
+                        }
+                    ],
+                    columns=_BEST_SIGNAL_TABLE_COLUMNS,
+                ),
                 title="best signal analysis result",
                 metadata=TEST_STEP_METADATA,
             )
@@ -212,14 +254,20 @@ def _build_summary_result(
     run_id: str,
     step: str,
     input_ref: str,
-    measurements: Sequence[_MeasurementWithObservables],
+    measurements: Dataset,
 ) -> SummaryStatsResult:
     accumulators: dict[str, _Accumulator] = {}
-    for measurement in measurements:
-        for name, observable in measurement.observables.items():
+    for name, observable in measurements.data_vars.items():
+        for value, unavailable_reason in zip(
+            observable.values,
+            observable.availability,
+            strict=True,
+        ):
             values, unit = _numeric_observable_values(
                 name=name,
-                observable=observable,
+                variable=observable,
+                value=value,
+                unavailable_reason=unavailable_reason,
                 problem_ref=input_ref,
             )
             accumulator = accumulators.get(name)
@@ -274,20 +322,22 @@ def _build_summary_result(
 def _numeric_observable_values(
     *,
     name: str,
-    observable: MeasurementValue,
+    variable: Variable,
+    value: object,
+    unavailable_reason: str | None,
     problem_ref: str,
 ) -> tuple[list[float], str]:
-    if isinstance(observable, MeasurementUnavailable):
+    if unavailable_reason is not None:
         raise CheckFailed(
             [
                 _problem(
                     "invalid_analysis_input",
-                    f"observable {name} is unavailable ({observable.reason})",
+                    f"observable {name} is unavailable ({unavailable_reason})",
                     problem_ref,
                 )
             ]
         )
-    unit = observable.unit
+    unit = variable.unit
     if unit is None:
         raise CheckFailed(
             [
@@ -298,20 +348,7 @@ def _numeric_observable_values(
                 )
             ]
         )
-    if isinstance(observable, MeasurementScalar):
-        try:
-            return [_numeric_scalar_value(observable)], unit
-        except ValueError as error:
-            raise CheckFailed(
-                [
-                    _problem(
-                        "invalid_analysis_input",
-                        f"observable {name} must use numeric values",
-                        problem_ref,
-                    )
-                ]
-            ) from error
-    if observable.dtype not in {"float64", "int64"}:
+    if variable.dtype not in {"float64", "int64"}:
         raise CheckFailed(
             [
                 _problem(
@@ -322,7 +359,7 @@ def _numeric_observable_values(
             ]
         )
     try:
-        values = _flatten_numeric_array_values(observable.values)
+        values = _flatten_numeric_values(value)
     except ValueError as error:
         raise CheckFailed(
             [
@@ -346,17 +383,15 @@ def _numeric_observable_values(
     return values, unit
 
 
-def _flatten_numeric_array_values(values: Sequence[object]) -> list[float]:
-    flattened: list[float] = []
-    for value in values:
-        if isinstance(value, list):
-            flattened.extend(_flatten_numeric_array_values(cast("list[object]", value)))
-        elif isinstance(value, int | float):
-            flattened.append(float(value))
-        else:
-            msg = "measurement array contains a non-numeric value"
-            raise ValueError(msg)
-    return flattened
+def _flatten_numeric_values(value: object) -> list[float]:
+    if isinstance(value, tuple):
+        nested = cast("tuple[object, ...]", value)
+        return [
+            selected for item in nested for selected in _flatten_numeric_values(item)
+        ]
+    if not isinstance(value, bool) and isinstance(value, int | float):
+        return [float(value)]
+    raise ValueError("measurement value is not numeric")
 
 
 def _scan_parameter_id(schema: MeasurementDatasetSchema) -> str:
@@ -399,19 +434,25 @@ def _old_parameter_value(config: ConfigProfileSnapshot, parameter_id: str) -> Qu
     return parameter.value
 
 
-def _best_signal_measurement(
-    measurements: list[MeasurementRecord],
-) -> MeasurementRecord:
+def _best_signal_position(measurements: Dataset) -> int:
+    try:
+        signal = measurements.data_vars["signal"]
+    except KeyError as error:
+        raise CheckFailed(
+            [
+                _problem(
+                    "missing_signal_observable",
+                    "analysis input contains no signal observable",
+                    BEST_SIGNAL_INPUT_REF,
+                )
+            ]
+        ) from error
     candidates = [
-        measurement
-        for measurement in measurements
-        if (
-            isinstance(
-                signal := measurement.observables.get("signal"),
-                MeasurementScalar,
-            )
-            and _is_numeric_scalar(signal)
+        (position, float(value))
+        for position, (value, unavailable_reason) in enumerate(
+            zip(signal.values, signal.availability, strict=True)
         )
+        if unavailable_reason is None and _is_numeric_value(value)
     ]
     if not candidates:
         raise CheckFailed(
@@ -425,26 +466,29 @@ def _best_signal_measurement(
         )
     return max(
         candidates,
-        key=lambda measurement: (
-            _numeric_scalar_value(
-                _signal_scalar(
-                    measurement=measurement,
-                    problem_ref=BEST_SIGNAL_INPUT_REF,
-                )
-            ),
-            -measurement.point_index,
+        key=lambda candidate: (
+            candidate[1],
+            -measurements.point_indices[candidate[0]],
         ),
-    )
+    )[0]
 
 
 def _signal_scalar(
     *,
-    measurement: MeasurementRecord,
+    variable: Variable,
+    value: object,
     problem_ref: str,
 ) -> MeasurementScalar:
-    signal = measurement.observables.get("signal")
-    if isinstance(signal, MeasurementScalar) and _is_numeric_scalar(signal):
-        return signal
+    if (
+        variable.dims == ("point",)
+        and variable.dtype in {"float64", "int64"}
+        and _is_numeric_value(value)
+    ):
+        return MeasurementScalar.create(
+            value=value,
+            dtype=variable.dtype,
+            unit=variable.unit,
+        )
     raise CheckFailed(
         [
             _problem(
@@ -457,23 +501,17 @@ def _signal_scalar(
 
 
 def _proposed_value(
-    measurement: MeasurementRecord,
+    variable: Variable,
+    value: object,
     parameter_id: str,
     *,
     old_value: Quantity,
 ) -> Quantity:
-    scalar = measurement.coordinates.get(parameter_id)
-    if not isinstance(scalar, MeasurementScalar):
-        raise CheckFailed(
-            [
-                _problem(
-                    "missing_parameter_value",
-                    f"best point has no parameter for {parameter_id}",
-                    BEST_SIGNAL_INPUT_REF,
-                )
-            ]
-        )
-    if scalar.unit is None or not _is_numeric_scalar(scalar):
+    if (
+        variable.dims != ("point",)
+        or variable.unit is None
+        or not _is_numeric_value(value)
+    ):
         raise CheckFailed(
             [
                 _problem(
@@ -484,8 +522,8 @@ def _proposed_value(
             ]
         )
     quantity = Quantity(
-        value=_numeric_scalar_value(scalar),
-        unit=scalar.unit,
+        value=float(value),
+        unit=variable.unit,
     )
     if quantity != old_value:
         return quantity
@@ -505,12 +543,8 @@ def _numeric_scalar_value(value: MeasurementScalar) -> float:
     return float(selected)
 
 
-def _is_numeric_scalar(value: MeasurementScalar) -> bool:
-    return (
-        value.dtype in {"float64", "int64"}
-        and not isinstance(value.value, bool)
-        and isinstance(value.value, int | float)
-    )
+def _is_numeric_value(value: object) -> TypeGuard[int | float]:
+    return not isinstance(value, bool) and isinstance(value, int | float)
 
 
 def _problem(code: str, message: str, ref: str) -> Problem:

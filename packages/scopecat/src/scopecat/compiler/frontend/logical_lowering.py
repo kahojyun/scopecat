@@ -27,6 +27,7 @@ from scopecat.compiler.relations.verification import (
     verify_scalar_expression,
 )
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_type_compatibility import require_assignable
@@ -318,6 +319,7 @@ def lower_point_domain(
     *,
     inputs: Mapping[str, object],
     type_bindings: ExpressionTypeBindings,
+    layout: PointDomainLayout = "product_grid",
 ) -> PointDomain:
     """Bind and verify each closed linear-axis center."""
 
@@ -329,7 +331,8 @@ def lower_point_domain(
                 type_bindings=type_bindings,
             )
             for axis in point_domain
-        )
+        ),
+        layout=layout,
     )
 
 

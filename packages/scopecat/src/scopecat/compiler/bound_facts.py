@@ -128,7 +128,7 @@ def product_axis(
     *,
     dimension_id: str,
     dimension_label: str | None = None,
-    size: int,
+    size: int | None,
     kind: str | None = None,
     unit: str | None = None,
     metadata: Mapping[str, JsonValue] | None = None,

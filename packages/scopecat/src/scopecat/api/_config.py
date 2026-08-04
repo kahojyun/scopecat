@@ -38,6 +38,7 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationReceipt,
     ManualConfigDraftRevisionSource,
 )
+from scopecat.records.analysis import AnalysisParameterProposalRecordOutput
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
@@ -116,10 +117,8 @@ class LabConfigOperations:
                 selected.analysis_record_id,
             )
             if not any(
-                output.kind == "parameter_change_proposal"
-                and isinstance(output.content, dict)
-                and cast("dict[str, object]", output.content).get("proposal_id")
-                == proposal.id
+                isinstance(output, AnalysisParameterProposalRecordOutput)
+                and output.content.proposal_id == proposal.id
                 for output in analysis.analysis.outputs
             ):
                 raise ValueError(

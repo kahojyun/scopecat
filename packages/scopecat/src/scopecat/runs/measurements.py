@@ -39,12 +39,6 @@ def _read_measurement_records(
             f"run measurement dataset is not valid measurement data: {ref}",
             ref=ref,
         ) from error
-    if not records:
-        raise _integrity_error(
-            "run.measurement_dataset.empty",
-            f"run measurement dataset is empty: {ref}",
-            ref=ref,
-        )
     return records
 
 
@@ -70,10 +64,11 @@ def read_measurement_dataset(
         records,
         schema,
         dataset.id,
+        allow_partial=dataset.metadata.get("partial") is True,
     ):
         raise _invalid_schema(ref)
     return MeasurementDataset(
-        schema=schema,
+        dataset_schema=schema,
         records=records,
         metadata=dataset.metadata,
     )

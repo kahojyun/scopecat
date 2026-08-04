@@ -31,6 +31,7 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementAppendCommand,
+    MeasurementHeaderCommand,
     MeasurementSealCommand,
     TerminalRunCommitCommand,
 )
@@ -144,6 +145,38 @@ class ExecutorService:
                     run_id,
                     "measurements_appended",
                     command.append.operation_id,
+                )
+        return receipt
+
+    def initialize_measurements(
+        self,
+        run_id: str,
+        command: MeasurementHeaderCommand,
+    ) -> MeasurementDatasetReceipt:
+        repository = SQLiteMeasurementDatasetRepository(
+            self._runs,
+            run_id=run_id,
+        )
+        try:
+            prepared = repository.prepare_header(command.header)
+        except ExecutionJournalConflict as error:
+            raise BackendConflict(
+                "measurement command conflicts with durable state"
+            ) from error
+        with self.fenced_write(
+            run_id,
+            token=command.lease_id,
+        ) as connection:
+            receipt, created = repository.header_prepared_in_transaction(
+                connection,
+                prepared,
+            )
+            if created:
+                self.append_effect_event_in_transaction(
+                    connection,
+                    run_id,
+                    "measurement_dataset_initialized",
+                    command.header.operation_id,
                 )
         return receipt
 

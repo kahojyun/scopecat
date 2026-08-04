@@ -8,7 +8,7 @@ compiler relation graph and the durable ``RunRequest`` value domain.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import cast, overload
 
@@ -23,6 +23,9 @@ from scopecat.program.scans import (
 )
 from scopecat.program.scans import (
     AxisSpec as _AxisSpec,
+)
+from scopecat.program.scans import (
+    PointRowsSpec as _PointRowsSpec,
 )
 from scopecat.program.scans import (
     Scan as Scan,
@@ -41,6 +44,64 @@ from scopecat.program.value_refs import (
     internal_value_ref_parameter_lookup,
     internal_value_ref_point_id,
 )
+
+type PointRow = Mapping[ValueRef, ScanValue]
+
+
+def points(
+    rows: Sequence[PointRow],
+    *,
+    coordinates: Sequence[ValueRef] = (),
+) -> Scan:
+    """Declare ordered, explicitly paired experiment points.
+
+    Mapping keys are coordinate references, so each column keeps its authored
+    scalar type. Every row must provide exactly the same coordinates. Repeated
+    coordinate values remain distinct points in declaration order. For an
+    empty point cloud, pass ``coordinates`` when its typed columns still need
+    to be part of the experiment contract.
+    """
+
+    selected_rows = tuple(rows)
+    selected_coordinates = tuple(coordinates)
+    if not selected_coordinates and selected_rows:
+        selected_coordinates = tuple(selected_rows[0])
+    if selected_rows and not selected_coordinates:
+        raise ValueError("non-empty points require at least one coordinate column")
+    _validate_point_row_coordinates(selected_coordinates)
+    expected = frozenset(selected_coordinates)
+    for row in selected_rows:
+        actual = frozenset(row)
+        if actual != expected:
+            raise ValueError(
+                "points rows must contain the same typed coordinate columns"
+            )
+    return _PointRowsSpec(
+        axes=tuple(
+            _AxisSpec(
+                id=axis_id,
+                value_type=value_type,
+                source=_ValuesScanSource(
+                    values=_capture_scan_values(
+                        coordinate,
+                        tuple(row[coordinate] for row in selected_rows),
+                        unit=None,
+                    ),
+                ),
+            )
+            for coordinate in selected_coordinates
+            for axis_id, value_type in (_point_target(coordinate),)
+        )
+    )
+
+
+def _validate_point_row_coordinates(coordinates: Sequence[ValueRef]) -> None:
+    coordinate_ids: list[str] = []
+    for coordinate in coordinates:
+        coordinate_id, _value_type = _point_target(coordinate)
+        coordinate_ids.append(coordinate_id)
+    if len(coordinate_ids) != len(set(coordinate_ids)):
+        raise ValueError("points coordinates must have unique ids")
 
 
 def axis(

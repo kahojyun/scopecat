@@ -28,7 +28,7 @@ from scopecat.records.measurement import (
 )
 
 type MeasurementValueContractPathItem = str | int
-type MeasurementValueContractFact = str | int | None | tuple[int, ...]
+type MeasurementValueContractFact = str | int | None | tuple[int | None, ...]
 
 
 class MeasurementValueContractIssueCode(StrEnum):
@@ -55,7 +55,7 @@ def measurement_value_contract_issues(
     *,
     expected_dtype: MeasurementDType,
     expected_unit: str | None,
-    expected_shape: Sequence[int],
+    expected_shape: Sequence[int | None],
 ) -> tuple[MeasurementValueContractIssue, ...]:
     """Check one value against a logical product's point-local contract.
 
@@ -91,7 +91,7 @@ def measurement_value_contract_issues(
         )
 
     actual_shape = _measurement_value_shape(value)
-    if actual_shape != selected_shape:
+    if not _shape_compatible(selected_shape, actual_shape):
         issues.append(
             MeasurementValueContractIssue(
                 code=MeasurementValueContractIssueCode.SHAPE_MISMATCH,
@@ -120,6 +120,18 @@ def measurement_value_contract_issues(
     return tuple(issues)
 
 
+def _shape_compatible(
+    expected: tuple[int | None, ...],
+    actual: tuple[int | None, ...],
+) -> bool:
+    """Match rank exactly while treating an expected variable extent as a wildcard."""
+
+    return len(expected) == len(actual) and all(
+        expected_extent is None or expected_extent == actual_extent
+        for expected_extent, actual_extent in zip(expected, actual, strict=True)
+    )
+
+
 def validated_measurement_value_copy(value: MeasurementValue) -> MeasurementValue:
     """Detach a measurement value without repeating its construction checks."""
 
@@ -140,7 +152,7 @@ def _measurement_value_unit(
 
 def _measurement_value_shape(
     value: MeasurementValue,
-) -> tuple[int, ...]:
+) -> tuple[int | None, ...]:
     if isinstance(value, MeasurementArray | MeasurementUnavailable):
         return tuple(value.shape)
     return ()
@@ -232,6 +244,8 @@ def validate_measurement_records_against_schema(
     records: Sequence[MeasurementRecord],
     schema: MeasurementDatasetSchema,
     dataset_id: str,
+    *,
+    allow_partial: bool = False,
 ) -> list[Problem]:
     """Validate persisted records through the canonical value contract."""
 
@@ -245,7 +259,13 @@ def validate_measurement_records_against_schema(
                 ("dataset_schema", "dataset_id"),
             )
         )
-    problems.extend(_validate_dimension_sizes(records=records, schema=schema))
+    problems.extend(
+        _validate_dimension_sizes(
+            records=records,
+            schema=schema,
+            allow_partial=allow_partial,
+        )
+    )
     dimension_sizes = {dimension.id: dimension.size for dimension in schema.dimensions}
     coordinate_variables = {
         variable.id: variable
@@ -300,16 +320,23 @@ def validate_measurement_records_against_schema(
 
 
 def _validate_dimension_sizes(
-    *, records: Sequence[MeasurementRecord], schema: MeasurementDatasetSchema
+    *,
+    records: Sequence[MeasurementRecord],
+    schema: MeasurementDatasetSchema,
+    allow_partial: bool,
 ) -> list[Problem]:
     point_dimension = next(
         dimension for dimension in schema.dimensions if dimension.id == "point"
     )
-    if point_dimension.size != len(records):
+    point_size = point_dimension.size
+    assert point_size is not None
+    if point_size != len(records) and not (
+        allow_partial and len(records) <= point_size
+    ):
         return [
             _problem(
                 "measurement_dataset_record_count_mismatch",
-                f"measurement dataset dimension point size {point_dimension.size} "
+                f"measurement dataset dimension point size {point_size} "
                 f"does not match {len(records)} records",
                 ("dataset_schema", "dimensions", "point", "size"),
             )
@@ -323,7 +350,7 @@ def _validate_record_variables(
     variables: dict[str, MeasurementVariable],
     actual: Mapping[str, MeasurementValue],
     role: MeasurementVariableRole,
-    dimension_sizes: Mapping[str, int],
+    dimension_sizes: Mapping[str, int | None],
 ) -> list[Problem]:
     problems: list[Problem] = []
     field_name = "coordinates" if role == "coordinate" else "observables"

@@ -15,6 +15,7 @@ from scopecat.execution.measurement_postprocessors import (
 )
 from scopecat.kernel.errors import MeasurementPostprocessorExecutionError
 from scopecat.kernel.symbols import SymbolId
+from scopecat.measurements.products import ProductAxisDef
 from scopecat.measurements.results import (
     ComplexComponents,
     InstrumentAcquisitionEvidence,
@@ -57,6 +58,28 @@ def _postprocessor(
             ),
         ),
         kernel=kernel,
+    )
+
+
+def _with_product_axes(
+    scenario: MeasurementAssemblyScenario,
+    axes_by_product_index: dict[int, tuple[ProductAxisDef, ...]],
+) -> MeasurementAssemblyScenario:
+    products = list(scenario.catalog.product_defs)
+    for product_index, axes in axes_by_product_index.items():
+        products[product_index] = replace(products[product_index], axes=axes)
+    return replace(
+        scenario,
+        catalog=replace(scenario.catalog, product_defs=tuple(products)),
+    )
+
+
+def _axis(id: str, size: int | None) -> ProductAxisDef:
+    return ProductAxisDef(
+        id=id,
+        dimension_id=id,
+        kind="sample",
+        size=size,
     )
 
 
@@ -257,6 +280,96 @@ def test_postprocessor_chain_propagates_unavailable_without_running_kernels() ->
         shape=(),
         metadata={"instrument_status": "input saturated"},
     )
+
+
+def test_postprocessor_chain_propagates_unknown_ragged_extent_without_kernels() -> None:
+    scenario = _with_product_axes(
+        measurement_assembly_scenario(point_values=(0.0,), use_count=3),
+        {
+            1: (_axis("sample", None),),
+            2: (_axis("sample", None),),
+        },
+    )
+    [source] = measurement_value_candidates(scenario, (scenario.uses[0],))
+    unavailable = MeasurementUnavailable.create(
+        reason="overload",
+        dtype="float64",
+        unit="ratio",
+        shape=(),
+        metadata={"instrument_status": "input saturated"},
+    )
+
+    def kernel(_value: MeasurementValue) -> dict[str, MeasurementValue]:
+        raise AssertionError("unavailable inputs must not reach user kernels")
+
+    completed = execute_measurement_postprocessors(
+        (
+            _postprocessor(
+                scenario,
+                kernel,
+                id="first",
+                input_index=0,
+                output_index=1,
+            ),
+            _postprocessor(
+                scenario,
+                kernel,
+                id="second",
+                input_index=1,
+                output_index=2,
+            ),
+        ),
+        (
+            MeasurementValueCandidate(
+                logical_point_id=source.logical_point_id,
+                product_use_id=source.product_use_id,
+                value=unavailable,
+            ),
+        ),
+        points=scenario.points,
+        catalog=scenario.catalog,
+    )
+
+    intermediate = completed[-2].value
+    propagated = completed[-1].value
+    assert isinstance(intermediate, MeasurementUnavailable)
+    assert isinstance(propagated, MeasurementUnavailable)
+    assert intermediate.shape == (None,)
+    assert propagated.shape == (None,)
+
+
+def test_postprocessor_propagates_mixed_fixed_and_ragged_output_shape() -> None:
+    scenario = _with_product_axes(
+        measurement_assembly_scenario(point_values=(0.0,), use_count=2),
+        {1: (_axis("channel", 2), _axis("sample", None))},
+    )
+    [source] = measurement_value_candidates(scenario, (scenario.uses[0],))
+    unavailable = MeasurementUnavailable.create(
+        reason="missing",
+        dtype="float64",
+        unit="ratio",
+        shape=(),
+        metadata={},
+    )
+
+    def kernel(_value: MeasurementValue) -> dict[str, MeasurementValue]:
+        raise AssertionError("unavailable inputs must not reach user kernels")
+
+    [_, derived] = execute_measurement_postprocessors(
+        (_postprocessor(scenario, kernel),),
+        (
+            MeasurementValueCandidate(
+                logical_point_id=source.logical_point_id,
+                product_use_id=source.product_use_id,
+                value=unavailable,
+            ),
+        ),
+        points=scenario.points,
+        catalog=scenario.catalog,
+    )
+
+    assert isinstance(derived.value, MeasurementUnavailable)
+    assert derived.value.shape == (2, None)
 
 
 @pytest.mark.parametrize(

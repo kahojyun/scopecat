@@ -107,7 +107,7 @@ class CollectAxisRequest(BaseModel):
 
     id: _NonEmptyId
     kind: _NonEmptyId
-    size: int = Field(strict=True, ge=1, le=_JSON_SAFE_INTEGER)
+    size: Annotated[int, Field(strict=True, ge=1, le=_JSON_SAFE_INTEGER)] | None = None
     unit: str | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
 

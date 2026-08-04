@@ -52,6 +52,24 @@ type RunConfigSource = Annotated[
 ]
 
 
+class RunStageLineage(BaseModel):
+    """Durable identity of one run within a notebook-driven sequence."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    sequence_id: str = Field(min_length=1)
+    index: int = Field(ge=0)
+    previous_run_id: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def validate_predecessor(self) -> RunStageLineage:
+        if self.index == 0 and self.previous_run_id is not None:
+            raise ValueError("the first run stage cannot have a predecessor")
+        if self.index > 0 and self.previous_run_id is None:
+            raise ValueError("a later run stage requires a predecessor")
+        return self
+
+
 class RunManifest(BaseModel):
     """Accepted snapshot plus content and an optional terminal outcome."""
 
@@ -65,6 +83,7 @@ class RunManifest(BaseModel):
     outcome: RunOutcome | None = None
     config_content_hash: ConfigContentHash
     config_source: RunConfigSource | None = None
+    stage: RunStageLineage | None = None
     contents: tuple[RunContentEntry, ...] = ()
 
     @property

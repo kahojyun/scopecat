@@ -158,11 +158,39 @@ import scopecat as sc
 project_root = Path(sys.argv[1])
 with sc.open_project(project_root).connect() as lab:
     baseline = lab.runs()[0]
-    analysis = baseline.analysis("notebook repetition fit").propose(
-        "repetitions-fit",
-        sc.replace_scalar_parameter("repetitions", 384),
-        reason="stable high-confidence notebook fit",
-        confidence=0.98,
+    analysis = (
+        baseline.analysis("notebook repetition fit")
+        .table(
+            sc.AnalysisTable.from_rows(
+                [{"repetitions": 384, "score": 0.98}],
+                columns=(
+                    sc.AnalysisTableColumn(id="repetitions", label="Repetitions"),
+                    sc.AnalysisTableColumn(id="score", label="Fit score", unit="ratio"),
+                ),
+            ),
+            title="Candidate fit",
+        )
+        .figure(
+            sc.AnalysisFigure(
+                kind="line",
+                x_axis=sc.AnalysisFigureAxis(label="Repetitions"),
+                y_axis=sc.AnalysisFigureAxis(label="Fit score", unit="ratio"),
+                series=[
+                    sc.AnalysisFigureSeries.from_arrays(
+                        id="fit",
+                        x=[128, 256, 384],
+                        y=[0.73, 0.89, 0.98],
+                    )
+                ],
+            ),
+            title="Candidate fit curve",
+        )
+        .propose(
+            "repetitions-fit",
+            sc.replace_scalar_parameter("repetitions", 384),
+            reason="stable high-confidence notebook fit",
+            confidence=0.98,
+        )
     )
     saved = analysis.save()
     analysis.candidate_config()
@@ -284,6 +312,14 @@ test("accepts a notebook candidate in the GUI and preserves its provenance", asy
   const initialRegistry = await readRegistry(page, daemon.baseUrl);
 
   await page.goto(`${daemon.baseUrl}/?run=${encodeURIComponent(candidate.runId)}`);
+  const analyses = page.getByTestId("resource-card").filter({ hasText: "Analyses" });
+  await analyses.getByText("notebook repetition fit", { exact: true }).click();
+  await expect(analyses.getByRole("table", { name: "Candidate fit" })).toBeVisible();
+  await expect(
+    analyses.getByRole("img", {
+      name: "Candidate fit curve: Fit score (ratio) by Repetitions",
+    }),
+  ).toBeVisible();
   const proposals = page.getByTestId("run-proposals-card");
   await expect(proposals.getByText(candidate.proposalId, { exact: true })).toBeVisible();
   await expect(proposals.getByText("98% confidence", { exact: true })).toBeVisible();
@@ -379,8 +415,10 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
     await waitForMarker(experiment.measurementReady, experiment);
     await expect(state).toHaveText("Running");
     const dataCard = detail.getByTestId("data-card");
-    await expect(dataCard.getByText("Measurement preview", { exact: true })).toBeVisible();
-    await expect(dataCard.getByText("1 records", { exact: true })).toBeVisible();
+    await expect(dataCard.getByText("Measurement data", { exact: true })).toBeVisible();
+    await expect(dataCard.getByText(/^1 records/)).toBeVisible();
+    await dataCard.getByText("Raw records", { exact: true }).click();
+    await expect(dataCard.getByTestId("measurement-preview")).toBeVisible();
     await expect(dataCard.getByTestId("measurement-preview")).toContainText('"point_index": 0');
     // The point closes only after the held append call returns its durable receipt.
     await expect(
@@ -393,7 +431,7 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
     const completion = await experiment.completion;
     expectProcessOk(completion);
     await expect(state).toHaveText("Succeeded");
-    await expect(dataCard.getByText("15 records", { exact: true })).toBeVisible();
+    await expect(dataCard.getByText(/^15 records/)).toBeVisible();
     await expect(timeline.getByText(/From: leased.*To: closed/)).toBeVisible();
   } finally {
     await finishControlledExperiment(experiment);

@@ -307,6 +307,40 @@ def test_record_aliases_share_one_product_realization() -> None:
     assert requests[0].metadata == {"producer": "signal"}
 
 
+def test_variable_product_axis_is_preserved_in_collection_and_record_plans() -> None:
+    product = ProductDef(
+        id=product_id("trace"),
+        axes=(
+            ProductAxisDef(
+                id="sample",
+                dimension_id="product/trace/sample",
+                kind="sample",
+                size=None,
+            ),
+        ),
+    )
+    acquisition = instrument_acquisition(
+        product,
+        interface="test.scalar_signal/v1",
+    )
+    use = product_use(product.id)
+    program = _program(
+        products=(product,),
+        acquisitions=(acquisition,),
+        uses=(use,),
+        records=(RecordUse(id="trace", product_use_id=use.id),),
+    )
+
+    bound = bind_program_facts(program, build_config_environment(load_config()))
+    plan = materialize_local_execution(bound)
+
+    [operation] = operations_of_type(plan, CollectOperation, point_index=0)
+    [axis_request] = operation.command.requests[0].dimensions
+    assert axis_request.size is None
+    [record_axis] = bound.bindings.product_defs[0].axes
+    assert record_axis.size is None
+
+
 def test_one_provider_result_fans_out_to_every_use_of_the_product() -> None:
     product = _product()
     acquisition = instrument_acquisition(

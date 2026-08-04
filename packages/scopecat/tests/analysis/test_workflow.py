@@ -4,7 +4,9 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
+import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
 from scopecat.config.registry import service as config_registry_service
@@ -123,3 +125,25 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
     recovered_manifest = storage.read_manifest(run.run_id)
     assert any(record.id == analysis_record_id for record in recovered_manifest.records)
     assert saved.record.id == analysis_record_id
+
+
+def test_local_analysis_rejects_metadata_outside_the_remote_json_contract(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    analysis = (
+        in_process_lab(tmp_path, config=load_config())
+        .get_run(run.run_id)
+        .analysis("Strict metadata")
+        .table(
+            sc.AnalysisTable.from_rows([{"value": 1}]),
+            metadata={"opaque": object()},
+        )
+    )
+
+    with pytest.raises(ValidationError):
+        analysis.save()

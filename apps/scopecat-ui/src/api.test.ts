@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getHealth,
   getMeasurementPreview,
+  getMeasurementSlice,
+  getMeasurementTracePreview,
   getOlderRuns,
   getRun,
   getRunAnalyses,
@@ -9,6 +11,7 @@ import {
   getRunEvents,
   getRuns,
 } from "./api";
+import type { MeasurementRecord } from "./api-contract";
 import { requestPath } from "./test/http";
 import type { ContentEntry } from "./types";
 
@@ -60,6 +63,11 @@ describe("project daemon reads", () => {
             manifest: {
               run_id: "run/1",
               config_content_hash: "sha256:config",
+              stage: {
+                sequence_id: "adaptive-sequence",
+                index: 1,
+                previous_run_id: "run/0",
+              },
               outcome: { result: "succeeded", certainty: "known" },
               contents: [
                 {
@@ -91,6 +99,11 @@ describe("project daemon reads", () => {
       status: "succeeded",
       result: "succeeded",
       certainty: "known",
+      stage: {
+        sequenceId: "adaptive-sequence",
+        index: 1,
+        previousRunId: "run/0",
+      },
     });
     expect(run.contents).toEqual([
       {
@@ -171,6 +184,66 @@ describe("project daemon reads", () => {
     });
   });
 
+  it("reads staged lineage from the run page without per-run request reads", async () => {
+    const fetchMock = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(
+        jsonResponse({
+          items: [
+            {
+              ...runSummary("run/stage-2", "leased"),
+              manifest: {
+                run_id: "run/stage-2",
+                contents: [],
+                stage: {
+                  sequence_id: "adaptive-sequence",
+                  index: 1,
+                  previous_run_id: "run/stage-1",
+                },
+              },
+            },
+            {
+              ...runSummary("run/stage-1", "queued"),
+              manifest: {
+                run_id: "run/stage-1",
+                contents: [],
+                stage: {
+                  sequence_id: "adaptive-sequence",
+                  index: 0,
+                  previous_run_id: null,
+                },
+              },
+            },
+          ],
+          next_cursor: null,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getRuns()).resolves.toMatchObject({
+      items: [
+        {
+          runId: "run/stage-2",
+          stage: {
+            sequenceId: "adaptive-sequence",
+            index: 1,
+            previousRunId: "run/stage-1",
+          },
+        },
+        {
+          runId: "run/stage-1",
+          stage: {
+            sequenceId: "adaptive-sequence",
+            index: 0,
+            previousRunId: undefined,
+          },
+        },
+      ],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/runs?limit=100");
+  });
+
   it("reads persisted analyses and typed run content", async () => {
     const fetchMock = vi.fn((input: string | URL | Request) => {
       const path = requestPath(input);
@@ -184,11 +257,23 @@ describe("project daemon reads", () => {
                 analysis: {
                   title: "Fit review",
                   key: "fit",
+                  inputs: [
+                    {
+                      target: "measurement-dataset",
+                      kind: "measurement_dataset",
+                      role: "fit-input",
+                      title: "Sweep data",
+                      metadata: { selector: "raw-measurements" },
+                    },
+                  ],
                   outputs: [
                     {
                       kind: "table",
                       title: "Fit parameters",
-                      content: [{ converged: true }],
+                      content: {
+                        columns: [{ id: "converged", label: "Converged" }],
+                        rows: [{ cells: [true] }],
+                      },
                     },
                   ],
                 },
@@ -242,11 +327,24 @@ describe("project daemon reads", () => {
       id: "analysis-fit",
       title: "Fit review",
       key: "fit",
+      inputs: [
+        {
+          target: "measurement-dataset",
+          kind: "measurement_dataset",
+          role: "fit-input",
+          title: "Sweep data",
+          metadata: { selector: "raw-measurements" },
+        },
+      ],
       outputs: [
         {
           kind: "table",
           title: "Fit parameters",
-          content: [{ converged: true }],
+          content: {
+            columns: [{ id: "converged", label: "Converged" }],
+            rows: [{ cells: [true] }],
+          },
+          metadata: {},
         },
       ],
     });
@@ -334,7 +432,8 @@ describe("project daemon reads", () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL) =>
       Promise.resolve(
         jsonResponse({
-          items: [{ run_id: "run/1", point_index: 100 }],
+          items: [measurementRecord("run/1", 100)],
+          dataset_schema: measurementSchema(),
           next_offset: 200,
         }),
       ),
@@ -342,14 +441,116 @@ describe("project daemon reads", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(getMeasurementPreview("run/1", 100)).resolves.toEqual({
-      items: [{ run_id: "run/1", point_index: 100 }],
+      items: [measurementRecord("run/1", 100)],
+      schema: measurementSchema(),
       nextOffset: 200,
     });
     expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
-      "/api/v1/runs/run%2F1/measurements?limit=100&offset=100",
+      "/api/v1/runs/run%2F1/measurements?limit=100&offset=100&include_schema=false",
     );
   });
+
+  it("requests one semantic product-grid slice", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL) =>
+      Promise.resolve(
+        jsonResponse({
+          items: [measurementRecord("run/1", 3)],
+          dataset_schema: measurementSchema(),
+          selected_point_count: 6,
+          truncated: false,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getMeasurementSlice("run/1", { bias: 1 }, ["x", "y", "signal"])).resolves.toEqual({
+      items: [measurementRecord("run/1", 3)],
+      schema: measurementSchema(),
+      selectedPointCount: 6,
+      truncated: false,
+    });
+    const request = fetchMock.mock.calls[0]?.[0];
+    expect(requestPath(request)).toBe("/api/v1/runs/run%2F1/measurements/query");
+    expect(request).toBeInstanceOf(Request);
+    await expect((request as Request).clone().json()).resolves.toEqual({
+      fixed_axis_indices: { bias: 1 },
+      include_schema: false,
+      limit: 4096,
+      variable_ids: ["x", "y", "signal"],
+    });
+  });
+
+  it("requests one bounded response-ready trace preview", async () => {
+    const response = {
+      coordinate_id: "frequency",
+      dimension_id: "sample",
+      downsampling: "even" as const,
+      fixed_axis_indices: { bias: 1 },
+      observable_id: "signal",
+      recording_group_id: "readout",
+      returned_sample_count: 2,
+      returned_series_count: 1,
+      samples_reduced: true,
+      selected_series_count: 6,
+      series: [
+        {
+          label: "Point 3",
+          point_index: 3,
+          source_sample_count: 100,
+          x: [4.9, 5.1],
+          y: [0.2, 0.3],
+        },
+      ],
+      source_sample_count: 100,
+      truncated_series: true,
+      value_mode: "magnitude" as const,
+    };
+    const fetchMock = vi.fn((_input: RequestInfo | URL) => Promise.resolve(jsonResponse(response)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      getMeasurementTracePreview("run/1", {
+        observableId: "signal",
+        coordinateId: "frequency",
+        fixedAxisIndices: { bias: 1 },
+        valueMode: "magnitude",
+      }),
+    ).resolves.toEqual(response);
+    const request = fetchMock.mock.calls[0]?.[0];
+    expect(requestPath(request)).toBe("/api/v1/runs/run%2F1/measurements/traces/query");
+    expect(request).toBeInstanceOf(Request);
+    await expect((request as Request).clone().json()).resolves.toEqual({
+      coordinate_id: "frequency",
+      downsampling: "even",
+      fixed_axis_indices: { bias: 1 },
+      max_samples: 4096,
+      max_series: 32,
+      observable_id: "signal",
+      value_mode: "magnitude",
+    });
+  });
 });
+
+function measurementSchema() {
+  return {
+    format_version: "scopecat.measurement_dataset_schema.v8" as const,
+    dataset_id: "raw-measurements",
+    record_schema: "scopecat.measurement_record.v4" as const,
+    point_domain: { kind: "product_grid" as const, axes: [] },
+    dimensions: [{ id: "point", kind: "point", size: 1 }],
+    variables: [],
+  };
+}
+
+function measurementRecord(runId: string, pointIndex: number): MeasurementRecord {
+  return {
+    run_id: runId,
+    logical_point_id: `point-${pointIndex}`,
+    point_index: pointIndex,
+    coordinates: {},
+    observables: {},
+  };
+}
 
 function runSummary(runId: string, state: "queued" | "leased") {
   return {

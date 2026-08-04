@@ -25,6 +25,10 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementPage,
+    MeasurementSlice,
+    MeasurementSliceQuery,
+    MeasurementTracePreview,
+    MeasurementTracePreviewQuery,
     ParameterProposalListView,
     RunAnalysisListView,
     RunAnalysisView,
@@ -60,6 +64,7 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
+    MeasurementHeaderCommand,
     MeasurementSealCommand,
     PayloadObjectReceipt,
     RunAdmission,
@@ -75,6 +80,7 @@ from scopecat.execution.ports.instruments import (
     RunHardwareBatchReceipt,
     RunHardwareFinalizationReceipt,
 )
+from scopecat.measurements.datasets import MAX_MEASUREMENT_PAGE_SIZE
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
@@ -358,6 +364,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
             state=state,
         )
 
+    @app.get(f"{_API_PREFIX}/run-stages")
+    def list_run_stages(
+        limit: Annotated[int, Query(ge=1, le=500)] = 50,
+        before: Annotated[int | None, Query(ge=1)] = None,
+        sequence_id: Annotated[str | None, Query(min_length=1)] = None,
+    ) -> RunSummaryPage:
+        return application.runs.list_run_stages(
+            limit=limit,
+            before=before,
+            sequence_id=sequence_id,
+        )
+
     @app.post(f"{_API_PREFIX}/runs", status_code=201)
     def submit_run(submission: RunSubmission) -> RunAdmission:
         return application.submit_run(submission)
@@ -464,10 +482,30 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/measurements")
     def measurements(
         run_id: str,
-        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        limit: Annotated[int, Query(ge=1, le=MAX_MEASUREMENT_PAGE_SIZE)] = 100,
         offset: Annotated[int, Query(ge=0)] = 0,
+        include_schema: bool = True,
     ) -> MeasurementPage:
-        return application.runs.measurements(run_id, limit=limit, offset=offset)
+        return application.runs.measurements(
+            run_id,
+            limit=limit,
+            offset=offset,
+            include_schema=include_schema,
+        )
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/query")
+    def query_measurements(
+        run_id: str,
+        query: MeasurementSliceQuery,
+    ) -> MeasurementSlice:
+        return application.runs.measurement_slice(run_id, query)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/traces/query")
+    def query_measurement_traces(
+        run_id: str,
+        query: MeasurementTracePreviewQuery,
+    ) -> MeasurementTracePreview:
+        return application.runs.measurement_trace_preview(run_id, query)
 
     @app.get(f"{_API_PREFIX}/events")
     def list_events(
@@ -553,6 +591,14 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ExecutionTransition:
         _require_run_id(run_id, command.transition.run_id)
         return application.executor.append_transition(run_id, command)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/header")
+    def initialize_measurements(
+        run_id: str,
+        command: MeasurementHeaderCommand,
+    ) -> MeasurementDatasetReceipt:
+        _require_run_id(run_id, command.header.run_id)
+        return application.executor.initialize_measurements(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/append")
     def append_measurements(

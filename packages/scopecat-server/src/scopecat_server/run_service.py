@@ -13,8 +13,11 @@ from scopecat.adapters.sqlite import (
     SQLiteRunRepository,
 )
 from scopecat.analysis.service import (
+    AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
+    AnalysisParameterProposalOutput,
+    AnalysisTableOutput,
     prepare_analysis,
 )
 from scopecat.config.changes import (
@@ -30,6 +33,11 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     MeasurementPage,
+    MeasurementSlice,
+    MeasurementSliceQuery,
+    MeasurementTracePreview,
+    MeasurementTracePreviewQuery,
+    MeasurementTraceSeries,
     ParameterProposalListView,
     ParameterProposalView,
     RunAdmissionView,
@@ -46,10 +54,12 @@ from scopecat.daemon.views import (
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
+    AnalysisFigureOutputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
+    AnalysisTableOutputPayload,
     RunAttachmentCommand,
 )
 from scopecat.kernel.errors import (
@@ -58,9 +68,20 @@ from scopecat.kernel.errors import (
     DataIntegrityError,
     NotFound,
 )
+from scopecat.measurements.datasets import (
+    RAW_MEASUREMENTS_DATASET_ID,
+    product_grid_slice_indices,
+)
+from scopecat.measurements.results import MeasurementDatasetSchema
+from scopecat.measurements.traces import project_measurement_trace_preview
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
+from scopecat.records.measurement import (
+    MeasurementDataset,
+    MeasurementProductGridPointDomain,
+    MeasurementRecord,
+)
 from scopecat.runs.access import list_records
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
@@ -82,8 +103,22 @@ from .errors import BackendConflict, BackendNotFound
 
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
-    return AnalysisOutput(
-        kind=item.kind,
+    if isinstance(item, AnalysisTableOutputPayload):
+        return AnalysisTableOutput(
+            kind="table",
+            title=item.title,
+            content=item.content,
+            metadata=item.metadata,
+        )
+    if isinstance(item, AnalysisFigureOutputPayload):
+        return AnalysisFigureOutput(
+            kind="figure",
+            title=item.title,
+            content=item.content,
+            metadata=item.metadata,
+        )
+    return AnalysisParameterProposalOutput(
+        kind="parameter_change_proposal",
         title=item.title,
         content=item.content,
         metadata=item.metadata,
@@ -142,6 +177,36 @@ class RunService:
                 limit=limit,
                 before=before,
                 state=state,
+            )
+            return RunSummaryPage(
+                items=tuple(
+                    RunSummary(
+                        control=_run_control_view(control),
+                        manifest=self._runs.read_manifest_in_transaction(
+                            connection,
+                            control.run_id,
+                        ),
+                    )
+                    for control in page.items
+                ),
+                next_cursor=page.next_cursor,
+            )
+
+    def list_run_stages(
+        self,
+        *,
+        limit: int,
+        before: int | None,
+        sequence_id: str | None,
+    ) -> RunSummaryPage:
+        """List staged runs without scanning unrelated run manifests."""
+
+        with self._control.transaction() as connection:
+            page = self._control.list_staged_runs_in_transaction(
+                connection,
+                limit=limit,
+                before=before,
+                sequence_id=sequence_id,
             )
             return RunSummaryPage(
                 items=tuple(
@@ -449,18 +514,149 @@ class RunService:
         *,
         limit: int,
         offset: int,
+        include_schema: bool = True,
     ) -> MeasurementPage:
         with self._config_errors():
-            self._runs.read_manifest(run_id)
-            records = SQLiteMeasurementDatasetRepository(
+            manifest = self._runs.read_manifest(run_id)
+            items, next_offset, live_schema = SQLiteMeasurementDatasetRepository(
                 self._runs,
                 run_id=run_id,
-            ).measurements()
-        items = records[offset : offset + limit]
-        next_offset = (
-            offset + len(items) if offset + len(items) < len(records) else None
+            ).measurement_page(
+                limit=limit,
+                offset=offset,
+                include_schema=include_schema,
+            )
+        dataset = next(
+            (
+                entry
+                for entry in manifest.datasets
+                if entry.id == RAW_MEASUREMENTS_DATASET_ID
+            ),
+            None,
         )
-        return MeasurementPage(items=items, next_offset=next_offset)
+        terminal_schema = (
+            None
+            if not include_schema or dataset is None or dataset.data_schema is None
+            else MeasurementDatasetSchema.model_validate(dataset.data_schema)
+        )
+        return MeasurementPage(
+            items=items,
+            next_offset=next_offset,
+            dataset_schema=terminal_schema or live_schema,
+        )
+
+    def measurement_slice(
+        self,
+        run_id: str,
+        query: MeasurementSliceQuery,
+    ) -> MeasurementSlice:
+        """Read one bounded product-grid slice by authored axis indices."""
+
+        with self._config_errors():
+            self._runs.read_manifest(run_id)
+            repository = SQLiteMeasurementDatasetRepository(self._runs, run_id=run_id)
+            schema = repository.measurement_schema()
+        if schema is None:
+            raise BackendConflict("measurement dataset has no registered schema")
+        domain = schema.point_domain
+        if not isinstance(domain, MeasurementProductGridPointDomain):
+            raise BackendConflict("measurement slices require a product-grid domain")
+        try:
+            point_indices, selected_point_count = product_grid_slice_indices(
+                domain,
+                query.fixed_axis_indices,
+                limit=query.limit,
+            )
+        except ValueError as error:
+            raise BackendConflict(str(error)) from error
+        with self._config_errors():
+            records = repository.measurement_records_at(point_indices)
+        response_schema = schema
+        if query.variable_ids is not None:
+            try:
+                records, response_schema = _select_measurement_variables(
+                    records,
+                    response_schema,
+                    query.variable_ids,
+                )
+            except ValueError as error:
+                raise BackendConflict(str(error)) from error
+        return MeasurementSlice(
+            items=records,
+            dataset_schema=response_schema if query.include_schema else None,
+            selected_point_count=selected_point_count,
+            truncated=selected_point_count > len(point_indices),
+        )
+
+    def measurement_trace_preview(
+        self,
+        run_id: str,
+        query: MeasurementTracePreviewQuery,
+    ) -> MeasurementTracePreview:
+        """Return bounded numeric trace series for direct plotting."""
+
+        with self._config_errors():
+            self._runs.read_manifest(run_id)
+            repository = SQLiteMeasurementDatasetRepository(self._runs, run_id=run_id)
+            schema = repository.measurement_schema()
+        if schema is None:
+            raise BackendConflict("measurement dataset has no registered schema")
+        series_read_limit = min(query.max_series, query.max_samples // 2)
+        try:
+            point_indices, selected_series_count = _trace_preview_point_indices(
+                schema,
+                query.fixed_axis_indices,
+                limit=series_read_limit,
+            )
+        except ValueError as error:
+            raise BackendConflict(str(error)) from error
+        with self._config_errors():
+            records = repository.measurement_records_at(point_indices)
+        try:
+            projection = project_measurement_trace_preview(
+                MeasurementDataset(dataset_schema=schema, records=list(records)),
+                query.observable_id,
+                coordinate=query.coordinate_id,
+                group=query.recording_group_id,
+                max_series=query.max_series,
+                max_samples=query.max_samples,
+                value_mode=query.value_mode,
+                downsampling=query.downsampling,
+            )
+        except ValueError as error:
+            raise BackendConflict(str(error)) from error
+        series = tuple(
+            MeasurementTraceSeries(
+                point_index=item.point_index,
+                logical_point_id=item.logical_point_id,
+                label=item.label,
+                x=tuple(float(value) for value in item.x),
+                y=item.y,
+                source_sample_count=item.source_sample_count,
+            )
+            for item in projection.series
+        )
+        return MeasurementTracePreview(
+            fixed_axis_indices=dict(query.fixed_axis_indices),
+            dimension_id=projection.dimension_id,
+            recording_group_id=projection.recording_group_id,
+            coordinate_id=projection.coordinate_id,
+            observable_id=projection.observable_id,
+            coordinate_label=projection.coordinate_label,
+            observable_label=projection.observable_label,
+            coordinate_unit=projection.coordinate_unit,
+            observable_unit=projection.observable_unit,
+            value_mode=projection.value_mode,
+            value_unit=projection.value_unit,
+            downsampling=projection.downsampling,
+            series=series,
+            selected_series_count=selected_series_count,
+            returned_series_count=len(series),
+            truncated_series=selected_series_count > len(point_indices),
+            source_sample_count=projection.source_sample_count,
+            returned_sample_count=projection.returned_sample_count,
+            samples_reduced=projection.samples_reduced,
+        )
 
     @contextmanager
     def _config_errors(self) -> Generator[None]:
@@ -485,3 +681,78 @@ class RunService:
             run_id=run_id,
             latest=latest,
         )
+
+
+def _select_measurement_variables(
+    records: tuple[MeasurementRecord, ...],
+    schema: MeasurementDatasetSchema,
+    variable_ids: list[str],
+) -> tuple[tuple[MeasurementRecord, ...], MeasurementDatasetSchema]:
+    selected = set(variable_ids)
+    available = {variable.id for variable in schema.variables}
+    unknown = selected - available
+    if unknown:
+        raise ValueError(f"unknown measurement variables: {', '.join(sorted(unknown))}")
+    return (
+        tuple(
+            record.model_copy(
+                update={
+                    "coordinates": {
+                        variable_id: value
+                        for variable_id, value in record.coordinates.items()
+                        if variable_id in selected
+                    },
+                    "observables": {
+                        variable_id: value
+                        for variable_id, value in record.observables.items()
+                        if variable_id in selected
+                    },
+                    "acquisition_evidence": {
+                        variable_id: value
+                        for variable_id, value in record.acquisition_evidence.items()
+                        if variable_id in selected
+                    },
+                }
+            )
+            for record in records
+        ),
+        schema.model_copy(
+            update={
+                "variables": [
+                    variable for variable in schema.variables if variable.id in selected
+                ],
+                "primary_coordinates": [
+                    variable_id
+                    for variable_id in schema.primary_coordinates
+                    if variable_id in selected
+                ],
+                "primary_observables": [
+                    variable_id
+                    for variable_id in schema.primary_observables
+                    if variable_id in selected
+                ],
+            }
+        ),
+    )
+
+
+def _trace_preview_point_indices(
+    schema: MeasurementDatasetSchema,
+    fixed_axis_indices: dict[str, int],
+    *,
+    limit: int,
+) -> tuple[tuple[int, ...], int]:
+    domain = schema.point_domain
+    if isinstance(domain, MeasurementProductGridPointDomain):
+        return product_grid_slice_indices(
+            domain,
+            fixed_axis_indices,
+            limit=limit,
+        )
+    if fixed_axis_indices:
+        raise ValueError("trace fixed-axis selection requires a product-grid domain")
+    point_dimension = next(
+        dimension for dimension in schema.dimensions if dimension.id == "point"
+    )
+    assert point_dimension.size is not None
+    return tuple(range(min(point_dimension.size, limit))), point_dimension.size

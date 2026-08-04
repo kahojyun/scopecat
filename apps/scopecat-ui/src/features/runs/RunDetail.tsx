@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
   Atom,
   Box,
   CheckCircle2,
@@ -11,22 +12,26 @@ import {
   Cpu,
   Database,
   Gauge,
-  LoaderCircle,
   SquareStack,
   Unlock,
   XCircle,
 } from "lucide-react";
 import { canPreviewRunContent, getRunContent } from "../../api";
+import type { MeasurementTracePreview } from "../../api-contract";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
-import { classes, countBadge, detailCard, secondaryButton } from "../../ui/styles";
+import { classes, countBadge, detailCard } from "../../ui/styles";
 import type {
   ContentEntry,
   MeasurementPreview,
+  MeasurementSlicePreview,
   ProjectEvent,
   ProjectRun,
   RunAnalysis,
 } from "../../types";
 import { RunProposals } from "../proposals/RunProposals";
+import { AnalysisMetadataView, AnalysisOutputView } from "./AnalysisOutputView";
+import { MeasurementDataPreview } from "./MeasurementDataPreview";
+import type { MeasurementTraceQueryPlan } from "./measurement-visualization";
 
 export function RunDetail({
   run,
@@ -38,12 +43,24 @@ export function RunDetail({
   measurementsPending,
   measurementsHasMore,
   measurementsLoadingMore,
+  measurementSlice,
+  measurementSliceError,
+  measurementSlicePending,
+  tracePlans,
+  selectedTracePlanId,
+  tracePreview,
+  traceError,
+  tracePending,
+  onTracePlanChange,
+  measurementFixedAxisIndices,
+  onMeasurementFixedAxisIndexChange,
   onLoadMoreMeasurements,
   analyses,
   analysesError,
   analysesPending,
   attentionError,
   attentionPending,
+  onSelectRun,
   onResolveAttention,
 }: {
   run: ProjectRun;
@@ -55,14 +72,27 @@ export function RunDetail({
   measurementsPending: boolean;
   measurementsHasMore: boolean;
   measurementsLoadingMore: boolean;
+  measurementSlice?: MeasurementSlicePreview;
+  measurementSliceError: Error | null;
+  measurementSlicePending: boolean;
+  tracePlans: MeasurementTraceQueryPlan[];
+  selectedTracePlanId?: string;
+  tracePreview?: MeasurementTracePreview;
+  traceError: Error | null;
+  tracePending: boolean;
+  onTracePlanChange: (planId: string) => void;
+  measurementFixedAxisIndices: Record<string, number>;
+  onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
   onLoadMoreMeasurements: () => void;
   analyses?: RunAnalysis[];
   analysesError: Error | null;
   analysesPending: boolean;
   attentionError: Error | null;
   attentionPending: boolean;
+  onSelectRun: (runId: string) => void;
   onResolveAttention: () => void;
 }) {
+  const previousRunId = run.stage?.previousRunId;
   return (
     <>
       <header
@@ -70,7 +100,7 @@ export function RunDetail({
         data-testid="run-detail-header"
       >
         <div className="min-w-0">
-          <div className="mb-2.5 flex items-center gap-2.5 text-[0.68rem] font-bold text-text-dim">
+          <div className="mb-2.5 flex flex-wrap items-center gap-2.5 text-[0.68rem] font-bold text-text-dim">
             <span
               className={classes(
                 "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[0.62rem] font-extrabold tracking-[0.04em] uppercase",
@@ -81,6 +111,31 @@ export function RunDetail({
               <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
               {run.stateLabel}
             </span>
+            {run.stage && (
+              <span
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-[rgb(128_163_207_/_18%)] bg-accent-soft px-2 py-1 text-[0.62rem] font-bold text-accent"
+                data-testid="run-stage-lineage"
+                title={`Sequence ${run.stage.sequenceId}, stage ${run.stage.index + 1}`}
+              >
+                <span>Sequence</span>
+                <code className="max-w-40 overflow-hidden text-ellipsis whitespace-nowrap">
+                  {shorten(run.stage.sequenceId, 18)}
+                </code>
+                <span aria-hidden="true">·</span>
+                <span>Stage {run.stage.index + 1}</span>
+              </span>
+            )}
+            {previousRunId && (
+              <button
+                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-[7px] border border-line bg-transparent px-2 text-[0.62rem] font-bold text-text-soft hover:border-line-strong hover:bg-panel-strong hover:text-text"
+                type="button"
+                title={`Open previous stage ${previousRunId}`}
+                onClick={() => onSelectRun(previousRunId)}
+              >
+                <ArrowLeft size={13} aria-hidden="true" />
+                Previous stage
+              </button>
+            )}
           </div>
           <h2 className="mb-[7px] text-[clamp(1.2rem,1.8vw,1.55rem)] font-[650] tracking-[-0.035em] [overflow-wrap:anywhere]">
             {run.experimentId}
@@ -166,6 +221,17 @@ export function RunDetail({
           pending={measurementsPending}
           hasMoreMeasurements={measurementsHasMore}
           loadingMoreMeasurements={measurementsLoadingMore}
+          measurementSlice={measurementSlice}
+          measurementSliceError={measurementSliceError}
+          measurementSlicePending={measurementSlicePending}
+          tracePlans={tracePlans}
+          selectedTracePlanId={selectedTracePlanId}
+          tracePreview={tracePreview}
+          traceError={traceError}
+          tracePending={tracePending}
+          onTracePlanChange={onTracePlanChange}
+          measurementFixedAxisIndices={measurementFixedAxisIndices}
+          onMeasurementFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
           onLoadMoreMeasurements={onLoadMoreMeasurements}
         />
       </div>
@@ -291,6 +357,33 @@ function AnalysisCard({
                 <span className={countBadge}>{analysis.outputs.length}</span>
               </summary>
               <div className="grid gap-2 px-2.5 pb-2.5">
+                {analysis.inputs.length > 0 ? (
+                  <section className="rounded-[7px] border border-line bg-panel p-[9px]">
+                    <h4 className="mt-0 mb-2 text-[0.58rem] font-extrabold tracking-[0.06em] text-text-dim uppercase">
+                      Inputs
+                    </h4>
+                    <ul className="m-0 grid list-none gap-2 p-0">
+                      {analysis.inputs.map((input, index) => (
+                        <li
+                          className="min-w-0 text-[0.61rem] text-text-soft"
+                          key={`${input.role}:${input.target}:${index}`}
+                        >
+                          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                            <strong>{input.title ?? input.target}</strong>
+                            <span className="text-text-dim">{input.role}</span>
+                          </div>
+                          <code
+                            className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
+                            title={input.target}
+                          >
+                            {input.target}
+                          </code>
+                          <AnalysisMetadataView metadata={input.metadata ?? {}} />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
                 {analysis.outputs.map((output, index) => (
                   <section
                     className="overflow-hidden rounded-[7px] border border-line bg-panel"
@@ -302,9 +395,7 @@ function AnalysisCard({
                         {titleCase(output.kind)}
                       </span>
                     </header>
-                    <pre className="m-0 max-h-60 overflow-auto p-[9px] text-[0.6rem] leading-normal text-[#aebfd0]">
-                      {formatPreviewContent(output.content)}
-                    </pre>
+                    <AnalysisOutputView output={output} />
                   </section>
                 ))}
               </div>
@@ -447,6 +538,17 @@ function DataCard({
   pending,
   hasMoreMeasurements,
   loadingMoreMeasurements,
+  measurementSlice,
+  measurementSliceError,
+  measurementSlicePending,
+  tracePlans,
+  selectedTracePlanId,
+  tracePreview,
+  traceError,
+  tracePending,
+  onTracePlanChange,
+  measurementFixedAxisIndices,
+  onMeasurementFixedAxisIndexChange,
   onLoadMoreMeasurements,
 }: {
   run: ProjectRun;
@@ -455,6 +557,17 @@ function DataCard({
   pending: boolean;
   hasMoreMeasurements: boolean;
   loadingMoreMeasurements: boolean;
+  measurementSlice?: MeasurementSlicePreview;
+  measurementSliceError: Error | null;
+  measurementSlicePending: boolean;
+  tracePlans: MeasurementTraceQueryPlan[];
+  selectedTracePlanId?: string;
+  tracePreview?: MeasurementTracePreview;
+  traceError: Error | null;
+  tracePending: boolean;
+  onTracePlanChange: (planId: string) => void;
+  measurementFixedAxisIndices: Record<string, number>;
+  onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
   onLoadMoreMeasurements: () => void;
 }) {
   const [selectedContentKey, setSelectedContentKey] = useState<string>();
@@ -567,6 +680,17 @@ function DataCard({
         pending={pending}
         hasMore={hasMoreMeasurements}
         loadingMore={loadingMoreMeasurements}
+        slice={measurementSlice}
+        sliceError={measurementSliceError}
+        slicePending={measurementSlicePending}
+        tracePlans={tracePlans}
+        selectedTracePlanId={selectedTracePlanId}
+        tracePreview={tracePreview}
+        traceError={traceError}
+        tracePending={tracePending}
+        onTracePlanChange={onTracePlanChange}
+        fixedAxisIndices={measurementFixedAxisIndices}
+        onFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
         onLoadMore={onLoadMoreMeasurements}
       />
     </article>
@@ -631,6 +755,17 @@ function RunContentPanel({
 
 function MeasurementRecords({
   preview,
+  slice,
+  sliceError,
+  slicePending,
+  tracePlans,
+  selectedTracePlanId,
+  tracePreview,
+  traceError,
+  tracePending,
+  onTracePlanChange,
+  fixedAxisIndices,
+  onFixedAxisIndexChange,
   error,
   pending,
   hasMore,
@@ -638,6 +773,17 @@ function MeasurementRecords({
   onLoadMore,
 }: {
   preview?: MeasurementPreview;
+  slice?: MeasurementSlicePreview;
+  sliceError: Error | null;
+  slicePending: boolean;
+  tracePlans: MeasurementTraceQueryPlan[];
+  selectedTracePlanId?: string;
+  tracePreview?: MeasurementTracePreview;
+  traceError: Error | null;
+  tracePending: boolean;
+  onTracePlanChange: (planId: string) => void;
+  fixedAxisIndices: Record<string, number>;
+  onFixedAxisIndexChange: (axisId: string, index: number) => void;
   error: Error | null;
   pending: boolean;
   hasMore: boolean;
@@ -657,7 +803,7 @@ function MeasurementRecords({
       />
     );
   }
-  if (!preview || preview.items.length === 0) {
+  if (!preview || (preview.items.length === 0 && preview.schema === undefined)) {
     return (
       <InlineEmpty
         title="No measurement records"
@@ -666,31 +812,23 @@ function MeasurementRecords({
     );
   }
   return (
-    <div className={previewPanel}>
-      <div className={previewHeading}>
-        <strong className="text-[0.65rem] text-text-soft">Measurement preview</strong>
-        <span>
-          {preview.items.length}
-          {preview.nextOffset !== undefined ? "+" : ""} records
-        </span>
-      </div>
-      <pre className={previewContent} data-testid="measurement-preview">
-        {JSON.stringify(preview.items, null, 2)}
-      </pre>
-      {hasMore && (
-        <div className="flex justify-center border-t border-line px-2.5 py-[9px]">
-          <button
-            className={classes(secondaryButton, "w-full")}
-            type="button"
-            disabled={loadingMore}
-            onClick={onLoadMore}
-          >
-            {loadingMore && <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />}
-            {loadingMore ? "Loading measurements…" : "Load more measurements"}
-          </button>
-        </div>
-      )}
-    </div>
+    <MeasurementDataPreview
+      preview={preview}
+      slice={slice}
+      sliceError={sliceError}
+      slicePending={slicePending}
+      tracePlans={tracePlans}
+      selectedTracePlanId={selectedTracePlanId}
+      tracePreview={tracePreview}
+      traceError={traceError}
+      tracePending={tracePending}
+      onTracePlanChange={onTracePlanChange}
+      fixedAxisIndices={fixedAxisIndices}
+      onFixedAxisIndexChange={onFixedAxisIndexChange}
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      onLoadMore={onLoadMore}
+    />
   );
 }
 
@@ -874,10 +1012,10 @@ function humanizeEvent(kind: string): string {
   const specific: Record<string, string> = {
     run_admitted: "Run admitted",
     run_state_changed: "Run state changed",
-    resource_claims_acquired: "Resources acquired",
-    executor_lease_acquired: "Executor connected",
-    executor_lease_expired: "Executor lost",
-    transition_committed: "Execution transition",
+    resources_claimed: "Resources acquired",
+    executor_lease_granted: "Executor connected",
+    executor_lease_lost: "Executor lost",
+    execution_transition_committed: "Execution transition",
   };
   return specific[kind] ?? titleCase(kind);
 }

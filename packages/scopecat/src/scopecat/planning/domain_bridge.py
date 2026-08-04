@@ -108,10 +108,7 @@ def make_domain_batch_request(
         call=call,
         inputs=inputs,
         points=point_refs,
-        measurement_catalog=project_measurement_catalog(
-            bound_points,
-            point_ordinals,
-        ),
+        measurement_catalog=project_measurement_catalog(bound_points),
     )
 
 

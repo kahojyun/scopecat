@@ -1,3 +1,12 @@
+import type {
+  AnalysisFigure,
+  AnalysisParameterProposalReference,
+  AnalysisRecordInput,
+  AnalysisTable,
+  MeasurementDatasetSchema,
+  MeasurementRecord,
+} from "./api-contract";
+
 export type PresentationRunStatus =
   | "accepted"
   | "running"
@@ -28,6 +37,12 @@ export interface RunPlanSummary {
   recordIds: string[];
 }
 
+export interface RunStageLineage {
+  sequenceId: string;
+  index: number;
+  previousRunId?: string;
+}
+
 export interface ProjectRun {
   sequence?: number;
   runId: string;
@@ -41,6 +56,7 @@ export interface ProjectRun {
   result?: string;
   certainty?: string;
   progressCompleted?: number;
+  stage?: RunStageLineage;
   plan: RunPlanSummary;
   resources: RunResource[];
   contents: ContentEntry[];
@@ -68,21 +84,36 @@ export interface ProjectHealth {
 }
 
 export interface MeasurementPreview {
-  items: Array<Record<string, unknown>>;
+  items: MeasurementRecord[];
+  schema?: MeasurementDatasetSchema;
   nextOffset?: number;
 }
 
-export interface RunAnalysisOutput {
-  kind: "table" | "figure" | "parameter_change_proposal";
-  title: string;
-  content: unknown;
+export interface MeasurementSlicePreview {
+  items: MeasurementRecord[];
+  schema?: MeasurementDatasetSchema;
+  selectedPointCount: number;
+  truncated: boolean;
 }
+
+interface RunAnalysisOutputBase {
+  title: string;
+  metadata: Record<string, unknown>;
+}
+
+export type RunAnalysisOutput = RunAnalysisOutputBase &
+  (
+    | { kind: "table"; content: AnalysisTable }
+    | { kind: "figure"; content: AnalysisFigure }
+    | { kind: "parameter_change_proposal"; content: AnalysisParameterProposalReference }
+  );
 
 export interface RunAnalysis {
   id: string;
   title: string;
   key?: string;
   stepId?: string;
+  inputs: AnalysisRecordInput[];
   outputs: RunAnalysisOutput[];
 }
 

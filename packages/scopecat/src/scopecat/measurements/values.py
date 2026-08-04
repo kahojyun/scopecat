@@ -18,6 +18,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.measurements.points import RunPoint, RunPointContract
 from scopecat.measurements.products import ProductDef
+from scopecat.measurements.records import measurement_axis_scalar
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementValue,
@@ -69,10 +70,21 @@ class MeasurementValueCatalog:
             stable_content_hash(
                 content_fingerprint(
                     {
-                        "schema": "scopecat.measurement_value_contract.v3",
+                        "schema": "scopecat.measurement_value_contract.v5",
                         "experiment_id": self.point_contract.experiment_id,
                         "experiment_kind": self.point_contract.experiment_kind,
-                        "coordinate_ids": self.point_contract.coordinate_ids,
+                        "coordinate_columns": self.point_contract.coordinate_columns,
+                        "domain_layout": self.point_contract.domain_layout,
+                        "domain_axis_sizes": self.point_contract.domain_axis_sizes,
+                        "domain_axis_values": [
+                            (
+                                axis_id,
+                                [measurement_axis_scalar(value) for value in values],
+                            )
+                            for axis_id, values in (
+                                self.point_contract.domain_axis_values
+                            )
+                        ],
                         "product_uses": [
                             {
                                 "product_use_id": use.id.value,

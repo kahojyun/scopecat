@@ -89,7 +89,7 @@ export async function setConfigDefault(
   return response as ConfigPublishReceipt;
 }
 
-export function summarizeConfigSnapshot(config: ConfigProfileSnapshot): ConfigSnapshotSummary {
+function summarizeConfigSnapshot(config: ConfigProfileSnapshot): ConfigSnapshotSummary {
   return {
     id: config.id,
     primaryEntityId: config.system.primary_entity_id,
@@ -107,7 +107,7 @@ export function parseConfigProfileJson(textValue: string): ConfigProfileSnapshot
   }
   const profile = object(parsed, "selected config snapshot");
   const formatVersion = optionalText(profile.format_version);
-  if (formatVersion !== "scopecat.config_snapshot.v5") {
+  if (formatVersion !== "scopecat.config_snapshot.v8") {
     throw new Error(
       `Unsupported config snapshot format: ${formatVersion ?? "missing format_version"}.`,
     );

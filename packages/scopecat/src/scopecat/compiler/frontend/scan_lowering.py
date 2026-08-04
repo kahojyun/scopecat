@@ -21,6 +21,8 @@ from scopecat.program.point_domain import (
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
+    PointRowsSpec,
+    ScanValue,
     ValuesScanSource,
     parameter_cell_lookup,
 )
@@ -33,6 +35,7 @@ from scopecat.records.run_request import (
     AroundScanRecord,
     ParameterAroundScanRecord,
     ParameterScanRecord,
+    PointRowsRecord,
     PointScanRecord,
     ScanRecord,
 )
@@ -69,6 +72,16 @@ def lower_scans_point_domain(
     """Lower scans to declaration-ordered axes."""
 
     return tuple(_lower_scan_axis(scan, inputs=inputs) for scan in scans)
+
+
+def lower_point_rows_domain(
+    points: PointRowsSpec,
+    *,
+    inputs: Mapping[str, object] | None = None,
+) -> PointAxes[ValueRef]:
+    """Lower declaration-ordered point columns without Cartesian expansion."""
+
+    return lower_scans_point_domain(points.axes, inputs=inputs)
 
 
 def project_scan_record(
@@ -116,6 +129,35 @@ def project_scan_record(
             **common,
             "span": _request_scalar_value(source.span, inputs=inputs),
             "points": source.points,
+        }
+    )
+
+
+def project_point_rows_record(
+    points: PointRowsSpec,
+    *,
+    inputs: Mapping[str, object] | None = None,
+) -> PointRowsRecord:
+    """Project a typed point cloud into ordered durable request rows."""
+
+    axes = points.axes
+    values_by_axis: tuple[tuple[ScanValue, ...], ...] = tuple(
+        cast("ValuesScanSource", axis.source).values for axis in axes
+    )
+    row_count = len(values_by_axis[0]) if values_by_axis else 0
+    return PointRowsRecord.model_validate(
+        {
+            "columns": [axis.id for axis in axes],
+            "rows": [
+                {
+                    axis.id: _request_scalar_value(
+                        values_by_axis[axis_index][row_index],
+                        inputs=inputs,
+                    )
+                    for axis_index, axis in enumerate(axes)
+                }
+                for row_index in range(row_count)
+            ],
         }
     )
 

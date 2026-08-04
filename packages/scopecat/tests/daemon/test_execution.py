@@ -16,6 +16,7 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementAppendCommand,
+    MeasurementHeaderCommand,
     MeasurementSealCommand,
     RunAdmission,
     RunHardwareBatchCommand,
@@ -40,9 +41,16 @@ from scopecat.records.execution_journal import (
     execution_transition_content_hash,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
+from scopecat.records.measurement import (
+    MeasurementDatasetSchema,
+    MeasurementDimension,
+    MeasurementProductGridPointDomain,
+    MeasurementRecord,
+    MeasurementScalar,
+)
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
+    MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
@@ -76,8 +84,9 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
         ),
     )
     record = _measurement()
-    append = _measurement_append(record)
-    seal = _measurement_seal(append)
+    header = _measurement_header()
+    append = _measurement_append(record, header)
+    seal = _measurement_seal(append, header)
     transition = _transition()
     committed_transition = transition.model_copy(
         update={"sequence": 0, "timestamp": _NOW + timedelta(seconds=1)}
@@ -132,6 +141,10 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
             command = MeasurementAppendCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
             return _model(_measurement_receipt(command.append))
+        if path.endswith("/measurements/header"):
+            command = MeasurementHeaderCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            return _model(_header_receipt(command.header))
         if path.endswith("/measurements/seal"):
             command = MeasurementSealCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
@@ -208,6 +221,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
         execution_transition_content_hash(command.transition)
         for command in transition_commands
     } == {execution_transition_content_hash(transition)}
+    assert measurements.initialize(header) == _header_receipt(header)
     assert measurements.append(append) == _measurement_receipt(append)
     assert measurements.seal(seal) == _seal_receipt(seal)
 
@@ -343,14 +357,37 @@ def _measurement() -> MeasurementRecord:
     )
 
 
+def _measurement_header() -> MeasurementDatasetHeader:
+    return MeasurementDatasetHeader(
+        run_id="run-1",
+        recording_contract_fingerprint="contract-1",
+        dataset_schema=MeasurementDatasetSchema(
+            dataset_id="raw-measurements",
+            point_domain=MeasurementProductGridPointDomain(axes=[]),
+            dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+        ),
+        expected_record_count=1,
+    )
+
+
 def _measurement_append(
     record: MeasurementRecord,
+    header: MeasurementDatasetHeader,
 ) -> MeasurementDatasetAppend:
     return MeasurementDatasetAppend(
         run_id="run-1",
-        recording_contract_fingerprint="contract-1",
+        header_content_hash=header.content_hash,
         start_index=0,
         records=(record,),
+    )
+
+
+def _header_receipt(
+    header: MeasurementDatasetHeader,
+) -> MeasurementDatasetReceipt:
+    return MeasurementDatasetReceipt(
+        operation_id=header.operation_id,
+        dataset_content_hash=header.content_hash,
     )
 
 
@@ -365,13 +402,14 @@ def _measurement_receipt(
 
 def _measurement_seal(
     append: MeasurementDatasetAppend,
+    header: MeasurementDatasetHeader,
 ) -> MeasurementDatasetSeal:
     return MeasurementDatasetSeal(
         run_id=append.run_id,
-        recording_contract_fingerprint=append.recording_contract_fingerprint,
+        header_content_hash=header.content_hash,
         point_count=1,
         dataset_content_hash=measurement_dataset_content_hash(
-            recording_contract_fingerprint=append.recording_contract_fingerprint,
+            header_content_hash=header.content_hash,
             append_content_hashes=(append.content_hash,),
         ),
     )

@@ -167,12 +167,12 @@ class StateFieldReference:
 
 
 type DeclaredPropertyTarget = PropertyRef | StateFieldReference
-type AxisSize = int | str | StateFieldReference
+type AxisSize = int | str | StateFieldReference | None
 
 
 @dataclass(frozen=True, slots=True)
 class AxisMetadata:
-    """One acquisition axis, with either a fixed or state-owned size."""
+    """One acquisition axis with a fixed, state-owned, or variable size."""
 
     size: AxisSize
     kind: str | None = None
@@ -544,13 +544,13 @@ def result_field[ValueT](
 
 def axis(
     *,
-    size: AxisSize,
+    size: AxisSize = None,
     kind: str | None = None,
     unit: str | None = None,
     label: str | None = None,
     description: str | None = None,
 ) -> AxisMetadata:
-    """Declare a fixed-size axis or name the state property owning its size."""
+    """Declare an acquisition axis; ``None`` means variable length per point."""
 
     return AxisMetadata(
         size=size,
@@ -1453,7 +1453,7 @@ def _compile_acquisition(
             axis_id,
             size=(
                 axis_metadata.size
-                if isinstance(axis_metadata.size, int)
+                if isinstance(axis_metadata.size, int) or axis_metadata.size is None
                 else (
                     scope.property(axis_metadata.size)
                     if isinstance(axis_metadata.size, str)

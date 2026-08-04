@@ -22,7 +22,7 @@ from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.units import compatible_units
-from scopecat.kernel.value_identity import scalar_identity
+from scopecat.kernel.value_identity import scalar_values_equal
 from scopecat.kernel.value_type_wire import (
     InstrumentOperationScalarWire,
     InstrumentPropertyScalarWire,
@@ -104,7 +104,9 @@ class StatePropertyRef(BaseModel):
 
 
 type AcquisitionAxisSize = (
-    Annotated[int, Field(strict=True, ge=1, le=_JSON_SAFE_INTEGER)] | StatePropertyRef
+    Annotated[int, Field(strict=True, ge=1, le=_JSON_SAFE_INTEGER)]
+    | StatePropertyRef
+    | None
 )
 
 
@@ -338,7 +340,7 @@ def component(
 def acquisition_axis(
     id: str,
     *,
-    size: int | PropertyRef,
+    size: int | PropertyRef | None,
     kind: str | None = None,
     unit: str | None = None,
     label: str | None = None,
@@ -349,7 +351,9 @@ def acquisition_axis(
         label=label,
         description=description,
         kind=kind or id,
-        size=size if isinstance(size, int) else _state_property_ref(size),
+        size=(
+            size if isinstance(size, int) or size is None else _state_property_ref(size)
+        ),
         unit=unit,
     )
 
@@ -597,6 +601,36 @@ def _state_value_for_reference(
     )
 
 
+def state_assignment_satisfied(
+    state: _InstrumentStateSnapshot,
+    assignment: _commands.InstrumentStateAssignment,
+) -> bool:
+    """Return whether observed state semantically satisfies one assignment."""
+
+    identity = _property_target_identity(
+        assignment.interface_id,
+        assignment.component_path,
+        assignment.property_id,
+    )
+    actual = next(
+        (
+            item.value
+            for item in state.properties
+            if _property_target_identity(
+                item.interface_id,
+                item.component_path,
+                item.property_id,
+            )
+            == identity
+        ),
+        None,
+    )
+    return actual is not None and scalar_values_equal(
+        actual.root,
+        assignment.value.root,
+    )
+
+
 def _precondition_matches(
     precondition: AcquisitionPreconditionSpec,
     *,
@@ -605,7 +639,7 @@ def _precondition_matches(
 ) -> bool:
     left = coerce_literal(property_spec.value_type, observed.root)
     right = coerce_literal(property_spec.value_type, precondition.value)
-    return scalar_identity(left) == scalar_identity(right)
+    return scalar_values_equal(left, right)
 
 
 def operation_argument(
@@ -2382,7 +2416,7 @@ def _collect_axis_state_problem(
     reference: StatePropertyRef,
     request_id: str,
     axis_index: int,
-    requested_size: int,
+    requested_size: int | None,
     observed_value: StateValue | None,
 ) -> Problem:
     details: dict[str, object] = {

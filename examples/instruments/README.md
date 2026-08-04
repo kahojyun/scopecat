@@ -51,7 +51,7 @@ It builds one invocation, previews it with `lab.preview(invocation)`, and runs
 it with `lab.run(invocation, ...)`. The experiment scans eleven DC-bias points
 and stores a VNA frequency axis, complex S21 trace, and mixing-chamber
 temperature at every point. Its analysis extracts the resonance frequency and
-loaded linewidth, saves fit tables and a flux-map figure descriptor, and creates
+loaded linewidth, saves typed fit tables and an embedded resonance-versus-flux plot, and creates
 a reviewable configuration proposal for
 `readout_resonance_frequency` and `readout_resonator_linewidth`. The notebook
 does not accept that proposal automatically.

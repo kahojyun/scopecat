@@ -165,6 +165,11 @@ def create_domain_call_internal(
                 "domain call result products must be unscoped declarations "
                 "named after their result ports"
             )
+        if any(axis.size is None for axis in product.axes):
+            raise ValueError(
+                "domain call result products require fixed axis sizes; "
+                "variable-length axes are currently supported for acquisitions"
+            )
         declaration = prefix_product_decl(product, id, origin=(call_key,))
         declarations.append(declaration)
         results[port.id] = ProductRef(

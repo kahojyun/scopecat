@@ -33,6 +33,7 @@ from scopecat.compiler.frontend.module_scoping import (
     localize_value_ref,
 )
 from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.value_types import Scalar
 from scopecat.program.bindings import (
@@ -188,6 +189,7 @@ def compose_experiment(
     *,
     inputs: Mapping[str, object],
     scans: Sequence[AxisSpec] = (),
+    point_domain_layout: PointDomainLayout = "product_grid",
 ) -> LogicalProgram:
     """Elaborate a native experiment root without a synthetic module."""
 
@@ -211,6 +213,7 @@ def compose_experiment(
             *(scan_parameter_contracts(axis) for axis in scans),
         ),
         point_domain=lower_scans_point_domain(scans, inputs=inputs),
+        point_domain_layout=point_domain_layout,
         final_state=definition.final_state,
     )
 
@@ -226,6 +229,7 @@ def _elaborate_hierarchy(
     record_selections: Sequence[ProgramRecordSelection] = (),
     additional_parameter_contracts: tuple[ParameterContract, ...] = (),
     point_domain: PointAxes[ValueRef] = (),
+    point_domain_layout: PointDomainLayout = "product_grid",
     final_state: EnsureStateIntent | None,
 ) -> LogicalProgram:
     composer = _LogicalProgramComposer()
@@ -318,6 +322,7 @@ def _elaborate_hierarchy(
             additional_parameter_contracts,
         ),
         point_domain=point_domain,
+        point_domain_layout=point_domain_layout,
         effects=logical_effects,
         final_state=(
             None

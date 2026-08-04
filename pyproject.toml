@@ -37,6 +37,7 @@ include = [
   "packages/scopecat-quantum/tests",
   "examples/instruments/src",
   "examples/instruments/notebooks",
+  "examples/instruments/tests",
   "examples/quantum/support/src",
   "examples/quantum/support/tests",
   "examples/quantum",

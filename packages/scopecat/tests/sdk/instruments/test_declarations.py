@@ -182,6 +182,17 @@ class SweepContract(Protocol):
     def sweep(self) -> SweepResults: ...
 
 
+@instrument_result
+class RaggedResults:
+    samples: list[float] = result_field(axes=("sample",))
+
+
+@instrument_interface("test.ragged_acquisition/v1")
+class RaggedContract(Protocol):
+    @acquisition(axes={"sample": axis(kind="sample")})
+    def acquire(self) -> RaggedResults: ...
+
+
 @instrument_state
 class SourceCommonState:
     output_enabled: bool = member_field(
@@ -585,6 +596,17 @@ def test_decorated_protocol_compiles_to_the_existing_contract_ir() -> None:
 
     assert compiled.spec == expected
     assert compiled.ref == declared_interface_ref(SweepContract)
+
+
+def test_axis_without_size_declares_a_variable_length_acquisition_axis() -> None:
+    compiled = compile_interface(RaggedContract)
+
+    [acquisition_spec] = compiled.spec.acquisitions
+    [result_spec] = acquisition_spec.results
+    [sample_axis] = result_spec.axes
+    assert sample_axis.id == "sample"
+    assert sample_axis.kind == "sample"
+    assert sample_axis.size is None
 
 
 @pytest.mark.parametrize(

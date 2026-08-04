@@ -15,6 +15,7 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementAppendCommand,
+    MeasurementHeaderCommand,
     MeasurementSealCommand,
     RunAdmission,
     RunHardwareBatchCommand,
@@ -37,6 +38,7 @@ from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
+    MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
 )
@@ -203,6 +205,19 @@ class _DaemonExecutionJournal:
 class _DaemonMeasurementRepository:
     def __init__(self, authority: _LeaseAuthority) -> None:
         self._authority = authority
+
+    def initialize(
+        self,
+        header: MeasurementDatasetHeader,
+    ) -> MeasurementDatasetReceipt:
+        lease_id = self._authority.fence()
+        return self._authority.client.initialize_measurements(
+            self._authority.run_id,
+            MeasurementHeaderCommand(
+                lease_id=lease_id,
+                header=header,
+            ),
+        )
 
     def append(
         self,

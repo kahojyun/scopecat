@@ -5,19 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import cast
-
-from pydantic import JsonValue as WireJsonValue
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
-from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.products import ProductDef
@@ -30,6 +24,7 @@ from scopecat.measurements.records import (
     ValueRecordPlan,
     ValueRecordUse,
     expected_dataset_schema,
+    measurement_scalar,
     plan_records,
     plan_value_records,
     validate_record_plan,
@@ -42,7 +37,6 @@ from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementDatasetSchema,
     MeasurementRecord,
-    MeasurementScalar,
     MeasurementValue,
     MeasurementVariableRole,
 )
@@ -115,8 +109,12 @@ class MeasurementProjection:
             return None
         return expected_dataset_schema(
             experiment_id=self.catalog.point_contract.experiment_id,
-            points=selected,
+            point_count=len(selected),
             records=self.records,
+            point_coordinate_columns=self.catalog.point_contract.coordinate_columns,
+            point_domain_layout=self.catalog.point_contract.domain_layout,
+            point_domain_axis_sizes=self.catalog.point_contract.domain_axis_sizes,
+            point_domain_axis_values=self.catalog.point_contract.domain_axis_values,
         )
 
 
@@ -347,7 +345,7 @@ def _projected_values(
                 f"recorded value {record.id!r} is unavailable for point "
                 f"{point.logical_ordinal}"
             ) from error
-        projected[record.id] = _measurement_coordinate(value)
+        projected[record.id] = measurement_scalar(value)
     return projected
 
 
@@ -392,41 +390,9 @@ def _point_coordinates(
     coordinate_ids: Sequence[str],
 ) -> dict[str, MeasurementValue]:
     return {
-        coordinate_id: _measurement_coordinate(row[coordinate_id])
+        coordinate_id: measurement_scalar(row[coordinate_id])
         for coordinate_id in coordinate_ids
     }
-
-
-def _measurement_coordinate(value: CellValue) -> MeasurementScalar:
-    if isinstance(value, Quantity):
-        return MeasurementScalar.create(
-            dtype="float64",
-            unit=value.unit,
-            value=value.value,
-        )
-    if isinstance(value, EntityRef):
-        entity: dict[str, WireJsonValue] = {}
-        if value.kind is not None:
-            entity["kind"] = value.kind
-        if value.metadata:
-            entity["metadata"] = cast(
-                "WireJsonValue",
-                thaw_json_value(value.metadata),
-            )
-        return MeasurementScalar.create(
-            dtype="string",
-            value=value.id,
-            metadata={"entity": entity},
-        )
-    if isinstance(value, bool):
-        return MeasurementScalar.create(dtype="bool", value=value)
-    if isinstance(value, int):
-        return MeasurementScalar.create(dtype="int64", value=value)
-    if isinstance(value, float):
-        return MeasurementScalar.create(dtype="float64", value=value)
-    if isinstance(value, str):
-        return MeasurementScalar.create(dtype="string", value=value)
-    raise TypeError(f"unsupported persisted point coordinate: {type(value).__name__}")
 
 
 def _projection_problem(

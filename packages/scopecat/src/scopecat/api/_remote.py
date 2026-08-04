@@ -7,23 +7,28 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from pydantic import JsonValue, RootModel, TypeAdapter
+from pydantic import JsonValue
 
 from scopecat.analysis.service import (
+    AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
+    AnalysisParameterProposalOutput,
+    AnalysisTableOutput,
     SavedAnalysis,
 )
 from scopecat.daemon.client import DaemonClient
-from scopecat.daemon.views import RunAnalysisListView, RunAnalysisView
+from scopecat.daemon.views import MeasurementPage, RunAnalysisListView, RunAnalysisView
 from scopecat.daemon.wire import (
+    AnalysisFigureOutputPayload,
     AnalysisInputPayload,
-    AnalysisJsonOutputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
+    AnalysisTableOutputPayload,
     RunAttachmentCommand,
 )
+from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -36,8 +41,6 @@ from scopecat.runs.data import (
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
-
-_JSON_MAPPING = TypeAdapter(dict[str, JsonValue])
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,13 +58,22 @@ class RemoteRunOperations:
     def load_request(self, run_id: str) -> RunRequest:
         return self.client.run_request(run_id).request
 
-    def measurements(
+    def load_measurement_dataset(
         self,
         run_id: str,
         *,
         selector: str = "raw-measurements",
     ) -> RunMeasurementDatasetResult:
         return self.client.dataset_content(run_id, selector)
+
+    def load_measurement_page(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> MeasurementPage:
+        return self.client.measurements(run_id, limit=limit, offset=offset)
 
     def save_analysis(
         self,
@@ -194,10 +206,6 @@ class RemoteRunOperations:
         )
 
 
-class _JsonValue(RootModel[JsonValue]):
-    pass
-
-
 def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
     return AnalysisInputPayload(
         target=value.target,
@@ -205,26 +213,30 @@ def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
         role=value.role,
         title=value.title,
         metadata=(
-            None
-            if value.metadata is None
-            else _JSON_MAPPING.validate_python(value.metadata)
+            None if value.metadata is None else validate_json_metadata(value.metadata)
         ),
     )
 
 
 def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
-    metadata = _JSON_MAPPING.validate_python(value.metadata)
-    if value.kind == "table" or value.kind == "figure":
-        return AnalysisJsonOutputPayload(
-            kind=value.kind,
+    metadata = validate_json_metadata(value.metadata)
+    if isinstance(value, AnalysisTableOutput):
+        return AnalysisTableOutputPayload(
+            kind="table",
             title=value.title,
-            content=_JsonValue.model_validate(value.content).root,
+            content=value.content,
             metadata=metadata,
         )
-    if not isinstance(value.content, ParameterChangeProposal):
-        raise ValueError("remote analysis proposal output has invalid content")
+    if isinstance(value, AnalysisFigureOutput):
+        return AnalysisFigureOutputPayload(
+            kind="figure",
+            title=value.title,
+            content=value.content,
+            metadata=metadata,
+        )
+    assert isinstance(value, AnalysisParameterProposalOutput)
     return AnalysisParameterProposalOutputPayload(
-        kind=value.kind,
+        kind="parameter_change_proposal",
         title=value.title,
         content=value.content,
         metadata=metadata,

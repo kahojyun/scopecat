@@ -20,6 +20,7 @@ from scopecat.program.operations import ModuleInputPort
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
+    PointRowsSpec,
     Scan,
     parameter_cell_lookup,
 )
@@ -122,20 +123,23 @@ def _definition_input_types(
     problems: list[Problem] = []
 
     for scan in default_scans:
-        axis = cast("AxisSpec", scan)
-        for input_id, value_type in _direct_scan_input_types(axis):
-            existing = selected.get(input_id)
-            if existing is None or is_assignable(value_type, existing):
-                selected[input_id] = value_type
-            elif not is_assignable(existing, value_type):
-                problems.append(
-                    _definition_problem(
-                        "module_input_type_conflict",
-                        f"experiment input {input_id} has incompatible value types",
-                        "inputs",
-                        path=(input_id,),
+        axes = (
+            scan.axes if isinstance(scan, PointRowsSpec) else (cast("AxisSpec", scan),)
+        )
+        for axis in axes:
+            for input_id, value_type in _direct_scan_input_types(axis):
+                existing = selected.get(input_id)
+                if existing is None or is_assignable(value_type, existing):
+                    selected[input_id] = value_type
+                elif not is_assignable(existing, value_type):
+                    problems.append(
+                        _definition_problem(
+                            "module_input_type_conflict",
+                            f"experiment input {input_id} has incompatible value types",
+                            "inputs",
+                            path=(input_id,),
+                        )
                     )
-                )
     return selected, problems
 
 

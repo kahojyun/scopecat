@@ -61,6 +61,8 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/attention", "post"),
     ("/api/v1/runs/{run_id}/datasets/{selector}", "get"),
     ("/api/v1/runs/{run_id}/measurements", "get"),
+    ("/api/v1/runs/{run_id}/measurements/query", "post"),
+    ("/api/v1/runs/{run_id}/measurements/traces/query", "post"),
     ("/api/v1/runs/{run_id}/parameter-proposals", "get"),
     ("/api/v1/runs/{run_id}/records/{selector}/json", "get"),
 }
@@ -78,7 +80,6 @@ def main() -> None:
     # These payloads are intentionally opaque in the console and recursive in JSON
     # Schema, so narrowing them here also keeps the generated contract bounded.
     for name in (
-        "MeasurementRecord-Output",
         "RunRequest-Output",
         "pydantic__types__JsonValue",
         "scopecat__kernel__json_types__JsonValue",

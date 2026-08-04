@@ -20,10 +20,7 @@ from scopecat.planning.provider_binding import resolve_instrument_contract_catal
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.instrument import (
-    InstrumentStateSnapshot,
-    property_target_identity,
-)
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import InstrumentAcquisitionEvidence
 from scopecat.sdk.domain.compiler import DomainCompiler
 from scopecat.sdk.instruments import InstrumentBackend
@@ -45,10 +42,10 @@ from scopecat.sdk.instruments.backend import (
 from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
     CollectCommand,
-    InstrumentStateAssignment,
     InstrumentStateCommand,
     InvokeCommand,
 )
+from scopecat.sdk.instruments.contracts import state_assignment_satisfied
 from scopecat.sdk.instruments.provider import (
     InstrumentConnectionContext,
     InstrumentDriver,
@@ -151,7 +148,7 @@ class TestRunInstrumentHost:
                 assignments = [
                     assignment
                     for assignment in action.assignments
-                    if _state_value(current, assignment) != assignment.value
+                    if not state_assignment_satisfied(current, assignment)
                 ]
                 if not assignments:
                     continue
@@ -169,10 +166,23 @@ class TestRunInstrumentHost:
                 if receipt.status != "applied":
                     indeterminate = receipt.status == "unknown"
                     break
-                self._assumed_states[action.instrument_id] = (
-                    receipt.state
-                    or project_state(driver.instrument_id, driver.read_state())
+                observed = receipt.state or project_state(
+                    driver.instrument_id, driver.read_state()
                 )
+                if not all(
+                    state_assignment_satisfied(observed, assignment)
+                    for assignment in assignments
+                ):
+                    problems.append(
+                        runtime_problem(
+                            "instrument_apply_state_mismatch",
+                            "instrument apply readback does not match requested state",
+                            run_id="test-run",
+                        )
+                    )
+                    indeterminate = True
+                    break
+                self._assumed_states[action.instrument_id] = observed
                 continue
             if isinstance(action, RunHardwareInvoke):
                 command = InvokeCommand(
@@ -292,30 +302,6 @@ class TestRunInstrumentHost:
             final_state=final_state,
         )
         return self._finished
-
-
-def _state_value(
-    current: InstrumentStateSnapshot,
-    target: InstrumentStateAssignment,
-) -> object:
-    identity = property_target_identity(
-        target.interface_id,
-        target.component_path,
-        target.property_id,
-    )
-    return next(
-        (
-            property.value
-            for property in current.properties
-            if property_target_identity(
-                property.interface_id,
-                property.component_path,
-                property.property_id,
-            )
-            == identity
-        ),
-        None,
-    )
 
 
 def _materialize_backend_payloads(

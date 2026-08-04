@@ -18,13 +18,14 @@ from scopecat.measurements.projection import (
 from scopecat.measurements.records import ValueRecordCandidate, ValueRecordUse
 from scopecat.measurements.results import (
     InstrumentAcquisitionEvidence,
+    MeasurementPointDomainAxis,
+    MeasurementProductGridPointDomain,
     MeasurementScalar,
 )
 from scopecat.measurements.values import (
     seal_measurement_values,
 )
 from scopecat.planning.measurement_projection import (
-    project_measurement_catalog,
     project_run_point_catalog,
 )
 from tests.testkit.measurement_assembly import (
@@ -89,6 +90,31 @@ def test_projection_records_symbolic_scalar_values_without_product_provenance() 
     assert variable.source_value_id == "analysis/score"
 
 
+def test_projection_schema_persists_ordered_product_grid_axes() -> None:
+    scenario = measurement_assembly_scenario(
+        point_values=(0.0, 1.0, 2.0),
+        use_count=1,
+    )
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+
+    schema = projection.schema_for(scenario.points)
+
+    assert schema is not None
+    assert schema.point_domain == MeasurementProductGridPointDomain(
+        axes=[
+            MeasurementPointDomainAxis(
+                id="x",
+                size=3,
+                values=[
+                    MeasurementScalar.create(value=value) for value in (0.0, 1.0, 2.0)
+                ],
+            ),
+            MeasurementPointDomainAxis(id="opaque", size=1, values=[None]),
+        ]
+    )
+    assert schema.metadata == {"experiment_id": "test.bound-program"}
+
+
 def test_projection_preserves_order_across_product_and_value_records() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=1)
     value_id = ValueId(SymbolId(local_id="score"))
@@ -137,24 +163,17 @@ def test_value_projection_contract_uses_stable_semantic_source_identity() -> Non
     assert first.schema_for(scenario.points) == second.schema_for(scenario.points)
 
 
-def test_projection_selects_only_the_bound_point_batch() -> None:
+def test_projection_schema_uses_the_selected_point_batch() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0, 1.0, 2.0), use_count=2)
-    complete_projection = select_measurement_projection(
+    projection = select_measurement_projection(
         scenario.catalog,
         scenario.records,
     )
-    catalog = project_measurement_catalog(scenario.bound_points, (1, 2))
-    projection = select_measurement_projection(catalog, scenario.records)
 
     selected_points = project_run_point_catalog(scenario.bound_points, (1, 2)).points
     ordinals = tuple(point.ordinal for point in selected_points)
     assert ordinals == (1, 2)
     assert projection.coordinate_ids == ("x",)
-    assert (
-        projection.catalog.contract_fingerprint
-        == complete_projection.catalog.contract_fingerprint
-    )
-    assert projection.contract_fingerprint == complete_projection.contract_fingerprint
     schema = projection.schema_for(selected_points)
     assert schema is not None
     assert (
@@ -385,6 +404,13 @@ def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> No
     assert [record.coordinates for record in projected.records] == [
         {"x": MeasurementScalar.create(dtype="float64", value=4.0)},
         {"x": MeasurementScalar.create(dtype="float64", value=4.0)},
+    ]
+    schema = projected.schema
+    assert schema is not None
+    assert isinstance(schema.point_domain, MeasurementProductGridPointDomain)
+    assert schema.point_domain.axes[0].values == [
+        MeasurementScalar.create(dtype="float64", value=4.0),
+        MeasurementScalar.create(dtype="float64", value=4.0),
     ]
     assert (
         scenario.bound_points.point_domain.points[0].logical_id

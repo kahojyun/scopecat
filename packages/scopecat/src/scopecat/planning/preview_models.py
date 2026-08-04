@@ -24,7 +24,7 @@ class ExperimentPreviewRecord:
     unit: str | None
     dtype: str
     dims: tuple[str, ...]
-    shape: tuple[int, ...]
+    shape: tuple[int | None, ...]
 
 
 @dataclass(frozen=True)

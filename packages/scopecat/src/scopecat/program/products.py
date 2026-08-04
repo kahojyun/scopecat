@@ -27,7 +27,9 @@ from scopecat.program.values import MetadataValue
 # ProductRef provenance is private to the recorder implementation in this module.
 # pyright: reportPrivateUsage=false
 
-type AxisSizeInput = ValueRef | Quantity | int | float | tuple[EntityRef | str, ...]
+type AxisSizeInput = (
+    ValueRef | Quantity | int | float | tuple[EntityRef | str, ...] | None
+)
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
 
 
@@ -204,7 +206,7 @@ class RecordSelection:
 def product_axis(
     id: str,
     *,
-    size: ValueRef | Quantity | float | Sequence[EntityRef | str],
+    size: ValueRef | Quantity | float | Sequence[EntityRef | str] | None,
     kind: str | None = None,
     unit: str | None = None,
     shared_as: str | None = None,
@@ -237,6 +239,8 @@ def entity_axis(
 
 
 def _axis_value(value: object) -> object:
+    if value is None:
+        return None
     if not isinstance(value, ValueRef):
         return capture_runtime_input(value)
     if not isinstance(value.value_type, Scalar):

@@ -94,21 +94,33 @@ class SQLiteControlPlane:
                 """
                 INSERT INTO scheduler_runs(
                     submission_id, run_id, state, updated_at,
-                    admission_json, attention_reason
+                    admission_json, attention_reason,
+                    stage_sequence_id, stage_index
                 )
-                VALUES (?, ?, 'queued', ?, ?, NULL)
+                VALUES (?, ?, 'queued', ?, ?, NULL, ?, ?)
                 """,
                 (
                     admission.submission_id,
                     admission.run_id,
                     admitted_at,
                     admission.model_dump_json(),
+                    (None if admission.stage is None else admission.stage.sequence_id),
+                    None if admission.stage is None else admission.stage.index,
                 ),
             )
         except sqlite3.IntegrityError as error:
             existing = self._find_admission_conflict(connection, admission)
             if existing is not None:
                 return existing
+            if admission.stage is not None and self._stage_exists(
+                connection,
+                sequence_id=admission.stage.sequence_id,
+                index=admission.stage.index,
+            ):
+                raise ControlPlaneConflict(
+                    f"staged experiment {admission.stage.sequence_id!r} "
+                    f"already contains index {admission.stage.index}"
+                ) from error
             raise ControlPlaneConflict(
                 "run id or submission id is already admitted"
             ) from error
@@ -246,6 +258,86 @@ class SQLiteControlPlane:
                     LIMIT ?
                     """,
                     (before, state, limit + 1),
+                )
+            )
+        items = tuple(_run(row) for row in rows[:limit])
+        next_cursor = None if len(rows) <= limit else items[-1].sequence
+        return RunPage(items=items, next_cursor=next_cursor)
+
+    def list_staged_runs(
+        self,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+        sequence_id: str | None = None,
+    ) -> RunPage:
+        """Return newest staged runs, optionally limited to one sequence."""
+
+        with closing(self._connect()) as connection:
+            return self.list_staged_runs_in_transaction(
+                connection,
+                limit=limit,
+                before=before,
+                sequence_id=sequence_id,
+            )
+
+    def list_staged_runs_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+        sequence_id: str | None = None,
+    ) -> RunPage:
+        """Read one newest-first staged-run page in an existing snapshot."""
+
+        _page_size(limit)
+        if before is None and sequence_id is None:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT * FROM scheduler_runs
+                    WHERE stage_sequence_id IS NOT NULL
+                    ORDER BY sequence DESC
+                    LIMIT ?
+                    """,
+                    (limit + 1,),
+                )
+            )
+        elif before is None:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT * FROM scheduler_runs
+                    WHERE stage_sequence_id = ?
+                    ORDER BY sequence DESC
+                    LIMIT ?
+                    """,
+                    (sequence_id, limit + 1),
+                )
+            )
+        elif sequence_id is None:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT * FROM scheduler_runs
+                    WHERE stage_sequence_id IS NOT NULL AND sequence < ?
+                    ORDER BY sequence DESC
+                    LIMIT ?
+                    """,
+                    (before, limit + 1),
+                )
+            )
+        else:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT * FROM scheduler_runs
+                    WHERE stage_sequence_id = ? AND sequence < ?
+                    ORDER BY sequence DESC
+                    LIMIT ?
+                    """,
+                    (sequence_id, before, limit + 1),
                 )
             )
         items = tuple(_run(row) for row in rows[:limit])
@@ -1424,6 +1516,26 @@ class SQLiteControlPlane:
             return None
         existing = _run(rows[0])
         return existing if admission.is_retry_of(existing.admission) else None
+
+    @staticmethod
+    def _stage_exists(
+        connection: sqlite3.Connection,
+        *,
+        sequence_id: str,
+        index: int,
+    ) -> bool:
+        return (
+            _one(
+                connection.execute(
+                    """
+                    SELECT 1 FROM scheduler_runs
+                    WHERE stage_sequence_id = ? AND stage_index = ?
+                    """,
+                    (sequence_id, index),
+                )
+            )
+            is not None
+        )
 
     @staticmethod
     def _require_config_generation(

@@ -12,6 +12,7 @@ from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
@@ -232,6 +233,7 @@ class LogicalProgram:
     record_selections: tuple[LogicalRecordSelection, ...] = ()
     parameter_contracts: tuple[ParameterContract, ...] = ()
     point_domain: PointAxes[ValueRef] = ()
+    point_domain_layout: PointDomainLayout = "product_grid"
     value_defs: tuple[ValueDef, ...] = ()
     compute_nodes: tuple[LogicalComputeNode, ...] = ()
     measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...] = ()

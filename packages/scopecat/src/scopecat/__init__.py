@@ -23,6 +23,13 @@ if TYPE_CHECKING:
     from scopecat.api.analysis import (
         Analysis,
         AnalysisContext,
+        AnalysisFigure,
+        AnalysisFigureAxis,
+        AnalysisFigureSeries,
+        AnalysisTable,
+        AnalysisTableCell,
+        AnalysisTableColumn,
+        AnalysisTableRow,
         analysis_step,
     )
     from scopecat.authoring import (
@@ -71,6 +78,7 @@ if TYPE_CHECKING:
         Scan,
         axis,
         param_axis,
+        points,
     )
     from scopecat.config.parameters import (
         delete_parameter_rows,
@@ -137,6 +145,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "Scan": ("scopecat.authoring.scans", "Scan"),
     "axis": ("scopecat.authoring.scans", "axis"),
     "param_axis": ("scopecat.authoring.scans", "param_axis"),
+    "points": ("scopecat.authoring.scans", "points"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
     "PayloadCodec": ("scopecat.sdk.payloads", "PayloadCodec"),
     "PayloadCodecCatalog": ("scopecat.sdk.payloads", "PayloadCodecCatalog"),
@@ -160,6 +169,13 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "update_parameter_rows": ("scopecat.config.parameters", "update_parameter_rows"),
     "Analysis": ("scopecat.api.analysis", "Analysis"),
     "AnalysisContext": ("scopecat.api.analysis", "AnalysisContext"),
+    "AnalysisFigure": ("scopecat.api.analysis", "AnalysisFigure"),
+    "AnalysisFigureAxis": ("scopecat.api.analysis", "AnalysisFigureAxis"),
+    "AnalysisFigureSeries": ("scopecat.api.analysis", "AnalysisFigureSeries"),
+    "AnalysisTable": ("scopecat.api.analysis", "AnalysisTable"),
+    "AnalysisTableCell": ("scopecat.api.analysis", "AnalysisTableCell"),
+    "AnalysisTableColumn": ("scopecat.api.analysis", "AnalysisTableColumn"),
+    "AnalysisTableRow": ("scopecat.api.analysis", "AnalysisTableRow"),
     "InstrumentClientFactory": (
         "scopecat.api._instruments",
         "InstrumentClientFactory",

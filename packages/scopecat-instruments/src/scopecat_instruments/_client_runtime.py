@@ -79,7 +79,7 @@ class ClientStateSchema[StateT]:
 @dataclass(frozen=True, slots=True)
 class ClientAcquisitionAxis:
     id: str
-    size: int | PropertyRef
+    size: int | PropertyRef | None
     kind: str
     unit: str | None
 

@@ -420,6 +420,16 @@ class _BlockingStateDriver(SignalInstrumentDriver):
         )
 
 
+class _NonConvergingStateDriver(SignalInstrumentDriver):
+    @override
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        self.applied.append(request)
+        return DriverSuccess(None)
+
+
 class _UnknownAppliedStateDriver(SignalInstrumentDriver):
     @override
     def apply_state(
@@ -593,6 +603,34 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     assert result.problems and not result.indeterminate
     assert [problem.code for problem in result.problems] == [
         "instrument_driver_blocked"
+    ]
+    assert len(first.applied) == 1
+    assert second.applied == []
+    assert result.final_state == result.prepared_state
+
+
+def test_state_apply_stops_when_readback_does_not_confirm_assignment() -> None:
+    first = _NonConvergingStateDriver(instrument_id="source-a")
+    second = SignalInstrumentDriver(instrument_id="source-b")
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("non-converging-state-point"), {}),
+        (
+            _gain_operation("source-a", 1.0),
+            _gain_operation("source-b", 2.0),
+        ),
+        resource_order=("source-a", "source-b"),
+        resource_requirements=_requirements("source-a", "source-b"),
+    )
+    result = RunEffectInterpreter(
+        run_id="non-converging-state-run",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        instruments=TestRunInstrumentHost((first, second)),
+        journal=FakeExecutionJournal(),
+    ).run(complete_coverage_operations(program), points=program.points)
+
+    assert result.indeterminate
+    assert [problem.code for problem in result.problems] == [
+        "instrument_apply_state_mismatch"
     ]
     assert len(first.applied) == 1
     assert second.applied == []

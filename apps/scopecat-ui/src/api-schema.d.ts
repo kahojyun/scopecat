@@ -532,6 +532,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/measurements/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Query Measurements */
+        post: operations["query_measurements_api_v1_runs__run_id__measurements_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/measurements/traces/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Query Measurement Traces */
+        post: operations["query_measurement_traces_api_v1_runs__run_id__measurements_traces_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/parameter-proposals": {
         parameters: {
             query?: never;
@@ -570,6 +604,7 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        _AnalysisTableInteger: number;
         /** _BoolWire */
         _BoolWire: {
             /**
@@ -693,7 +728,7 @@ export interface components {
              */
             type: "string";
         };
-        AcquisitionAxisSize: number | components["schemas"]["StatePropertyRef"];
+        AcquisitionAxisSize: number | components["schemas"]["StatePropertyRef"] | null;
         /** AcquisitionAxisSpec */
         AcquisitionAxisSpec: {
             /** Description */
@@ -780,20 +815,81 @@ export interface components {
             /** Source Run Id */
             source_run_id: string;
         };
+        /**
+         * AnalysisFigure
+         * @description A finite embedded line or scatter figure ready for local rendering.
+         */
+        AnalysisFigure: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "line" | "scatter";
+            /** Series */
+            series: components["schemas"]["AnalysisFigureSeries"][];
+            x_axis: components["schemas"]["AnalysisFigureAxis"];
+            y_axis: components["schemas"]["AnalysisFigureAxis"];
+        };
+        /**
+         * AnalysisFigureAxis
+         * @description One labeled numeric figure axis.
+         */
+        AnalysisFigureAxis: {
+            label: components["schemas"]["_NonEmptyText"];
+            unit?: components["schemas"]["_NonEmptyText"] | null;
+        };
+        /** AnalysisFigureRecordOutput */
+        AnalysisFigureRecordOutput: {
+            content: components["schemas"]["AnalysisFigure"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "figure";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            title: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisFigureSeries
+         * @description One embedded numeric series; x and y values are point-aligned.
+         */
+        AnalysisFigureSeries: {
+            id: components["schemas"]["_NonEmptyText"];
+            label?: components["schemas"]["_NonEmptyText"] | null;
+            /** X */
+            x: number[];
+            /** Y */
+            y: number[];
+        };
+        /** AnalysisParameterProposalRecordOutput */
+        AnalysisParameterProposalRecordOutput: {
+            content: components["schemas"]["AnalysisParameterProposalReference"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "parameter_change_proposal";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            title: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisParameterProposalReference
+         * @description Persisted reference to the separately stored proposal record.
+         */
+        AnalysisParameterProposalReference: {
+            proposal_id: components["schemas"]["_NonEmptyText"];
+            record_ref: components["schemas"]["_NonEmptyText"];
+        };
         /** AnalysisRecord */
         AnalysisRecord: {
             /** Inputs */
             inputs?: components["schemas"]["AnalysisRecordInput"][];
-            /** Key */
-            key?: string | null;
+            key?: components["schemas"]["_NonEmptyText"] | null;
             /** Outputs */
             outputs: components["schemas"]["AnalysisRecordOutput"][];
-            /** Run Id */
-            run_id: string;
-            /** Step Id */
-            step_id?: string | null;
-            /** Title */
-            title: string;
+            run_id: components["schemas"]["_NonEmptyText"];
+            step_id?: components["schemas"]["_NonEmptyText"] | null;
+            title: components["schemas"]["_NonEmptyText"];
         };
         /** AnalysisRecordInput */
         AnalysisRecordInput: {
@@ -803,25 +899,50 @@ export interface components {
              */
             kind: "measurement_dataset";
             metadata?: components["schemas"]["JsonMetadata-Output"] | null;
-            /** Role */
-            role: string;
-            /** Target */
-            target: string;
+            role: components["schemas"]["_NonEmptyText"];
+            target: components["schemas"]["_NonEmptyText"];
             /** Title */
             title?: string | null;
         };
-        /** AnalysisRecordOutput */
-        AnalysisRecordOutput: {
-            /** Content */
-            content: unknown;
+        AnalysisRecordOutput: components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
+        /**
+         * AnalysisTable
+         * @description A bounded, display-ready scalar table with an explicit column schema.
+         */
+        AnalysisTable: {
+            /** Columns */
+            columns: components["schemas"]["AnalysisTableColumn"][];
+            /** Rows */
+            rows?: components["schemas"]["AnalysisTableRow"][];
+        };
+        AnalysisTableCell: boolean | components["schemas"]["_AnalysisTableInteger"] | number | string | null;
+        /**
+         * AnalysisTableColumn
+         * @description One stable scalar column in an analysis-authored table.
+         */
+        AnalysisTableColumn: {
+            id: components["schemas"]["_NonEmptyText"];
+            label?: components["schemas"]["_NonEmptyText"] | null;
+            unit?: components["schemas"]["_NonEmptyText"] | null;
+        };
+        /** AnalysisTableRecordOutput */
+        AnalysisTableRecordOutput: {
+            content: components["schemas"]["AnalysisTable"];
             /**
-             * Kind
+             * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            kind: "table" | "figure" | "parameter_change_proposal";
+            kind: "table";
             metadata?: components["schemas"]["JsonMetadata-Output"];
-            /** Title */
-            title: string;
+            title: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisTableRow
+         * @description Cells aligned positionally with an :class:`AnalysisTable` schema.
+         */
+        AnalysisTableRow: {
+            /** Cells */
+            cells: components["schemas"]["AnalysisTableCell"][];
         };
         /**
          * ApplyReceipt
@@ -1444,6 +1565,32 @@ export interface components {
             }[];
         };
         /**
+         * InstrumentAcquisitionEvidence
+         * @description Daemon-observed interval and physical target for one collected result.
+         */
+        InstrumentAcquisitionEvidence: {
+            acquisition_id: components["schemas"]["_NonEmptyText"];
+            command_id: components["schemas"]["_NonEmptyText"];
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /**
+             * Component Path
+             * @default []
+             */
+            component_path: components["schemas"]["_NonEmptyText"][];
+            instrument_id: components["schemas"]["_NonEmptyText"];
+            interface_id: components["schemas"]["InterfaceId"];
+            result_id: components["schemas"]["_NonEmptyText"];
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /**
          * InstrumentBindingSpec
          * @description Provider-visible identity and connection for one configured instrument.
          */
@@ -1875,24 +2022,25 @@ export interface components {
         };
         /** MeasurementDataset */
         MeasurementDataset: {
+            dataset_schema: components["schemas"]["MeasurementDatasetSchema-Output"];
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Records */
             records: components["schemas"]["MeasurementRecord-Output"][];
-            schema: components["schemas"]["MeasurementDatasetSchema"];
         };
         /** MeasurementDatasetSchema */
-        MeasurementDatasetSchema: {
+        "MeasurementDatasetSchema-Output": {
             /** Dataset Id */
             dataset_id: string;
             /** Dimensions */
-            dimensions: components["schemas"]["MeasurementDimension"][];
+            dimensions: components["schemas"]["MeasurementDimension-Output"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v6
+             * @default scopecat.measurement_dataset_schema.v8
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v6";
+            format_version: "scopecat.measurement_dataset_schema.v8";
             metadata?: components["schemas"]["JsonMetadata-Output"];
+            point_domain: components["schemas"]["MeasurementPointDomain-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
             /** Primary Observables */
@@ -1904,13 +2052,13 @@ export interface components {
              */
             record_schema: "scopecat.measurement_record.v4";
             /** Variables */
-            variables?: components["schemas"]["MeasurementVariable"][];
+            variables?: components["schemas"]["MeasurementVariable-Output"][];
         };
         /**
          * MeasurementDimension
-         * @description One concrete extent; physical coordinate values are variables.
+         * @description One logical extent; ``None`` denotes a point-local ragged extent.
          */
-        MeasurementDimension: {
+        "MeasurementDimension-Output": {
             /** Id */
             id: string;
             /** Kind */
@@ -1919,13 +2067,14 @@ export interface components {
             label?: string | null;
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Size */
-            size: number;
+            size: number | null;
         };
         /**
          * MeasurementPage
-         * @description Bounded raw-record preview for interactive browsing.
+         * @description Bounded typed-record preview for interactive browsing.
          */
         MeasurementPage: {
+            dataset_schema?: components["schemas"]["MeasurementDatasetSchema-Output"] | null;
             /**
              * Items
              * @default []
@@ -1934,7 +2083,75 @@ export interface components {
             /** Next Offset */
             next_offset?: number | null;
         };
-        "MeasurementRecord-Output": unknown;
+        /**
+         * MeasurementPointCloudPointDomain
+         * @description A point domain whose coordinate columns form explicit ordered rows.
+         */
+        MeasurementPointCloudPointDomain: {
+            /** Columns */
+            columns: components["schemas"]["MeasurementPointDomainColumn"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "point_cloud";
+        };
+        "MeasurementPointDomain-Output": components["schemas"]["MeasurementProductGridPointDomain-Output"] | components["schemas"]["MeasurementPointCloudPointDomain"];
+        /**
+         * MeasurementPointDomainAxis
+         * @description One ordered independent axis in a product-grid point domain.
+         */
+        "MeasurementPointDomainAxis-Output": {
+            /** Id */
+            id: string;
+            /** Size */
+            size: number;
+            /** Values */
+            values: (components["schemas"]["MeasurementScalar-Output"] | null)[];
+        };
+        /**
+         * MeasurementPointDomainColumn
+         * @description One ordered coordinate column in a point-cloud domain.
+         */
+        MeasurementPointDomainColumn: {
+            /** Id */
+            id: string;
+        };
+        /**
+         * MeasurementProductGridPointDomain
+         * @description A point domain formed from the ordered product of independent axes.
+         */
+        "MeasurementProductGridPointDomain-Output": {
+            /** Axes */
+            axes: components["schemas"]["MeasurementPointDomainAxis-Output"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "product_grid";
+        };
+        /** MeasurementRecord */
+        "MeasurementRecord-Output": {
+            /** Acquisition Evidence */
+            acquisition_evidence?: {
+                [key: string]: components["schemas"]["InstrumentAcquisitionEvidence"];
+            };
+            /** Coordinates */
+            coordinates: {
+                [key: string]: components["schemas"]["MeasurementValue-Output"];
+            };
+            /** Logical Point Id */
+            logical_point_id?: string | null;
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /** Observables */
+            observables: {
+                [key: string]: components["schemas"]["MeasurementValue-Output"];
+            };
+            /** Point Index */
+            point_index: number;
+            /** Run Id */
+            run_id: string;
+        };
         /** MeasurementScalar */
         "MeasurementScalar-Output": {
             /**
@@ -1955,8 +2172,156 @@ export interface components {
         };
         MeasurementScalarData: boolean | number | string | components["schemas"]["ComplexComponents"];
         /**
+         * MeasurementSlice
+         * @description Records for one semantic product-grid slice.
+         */
+        MeasurementSlice: {
+            dataset_schema?: components["schemas"]["MeasurementDatasetSchema-Output"] | null;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["MeasurementRecord-Output"][];
+            /** Selected Point Count */
+            selected_point_count: number;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /**
+         * MeasurementSliceQuery
+         * @description One bounded product-grid slice selected by authored axis indices.
+         */
+        MeasurementSliceQuery: {
+            /** Fixed Axis Indices */
+            fixed_axis_indices?: {
+                [key: string]: number;
+            };
+            /**
+             * Include Schema
+             * @default false
+             */
+            include_schema: boolean;
+            /**
+             * Limit
+             * @default 4096
+             */
+            limit: number;
+            /** Variable Ids */
+            variable_ids?: string[] | null;
+        };
+        /**
+         * MeasurementTracePreview
+         * @description Bounded numeric series for one selected point-local observable.
+         *
+         *     ``selected_series_count`` is the authored domain selection size. It does
+         *     not promise that every selected point is durable yet or has an available
+         *     observable value; ``returned_series_count`` counts response series only.
+         */
+        MeasurementTracePreview: {
+            /** Coordinate Id */
+            coordinate_id: string;
+            /** Coordinate Label */
+            coordinate_label?: string | null;
+            /** Coordinate Unit */
+            coordinate_unit?: string | null;
+            /** Dimension Id */
+            dimension_id: string;
+            downsampling: components["schemas"]["TraceDownsampling"];
+            /** Fixed Axis Indices */
+            fixed_axis_indices?: {
+                [key: string]: number;
+            };
+            /** Observable Id */
+            observable_id: string;
+            /** Observable Label */
+            observable_label?: string | null;
+            /** Observable Unit */
+            observable_unit?: string | null;
+            /** Recording Group Id */
+            recording_group_id?: string | null;
+            /** Returned Sample Count */
+            returned_sample_count: number;
+            /** Returned Series Count */
+            returned_series_count: number;
+            /**
+             * Samples Reduced
+             * @default false
+             */
+            samples_reduced: boolean;
+            /** Selected Series Count */
+            selected_series_count: number;
+            /**
+             * Series
+             * @default []
+             */
+            series: components["schemas"]["MeasurementTraceSeries"][];
+            /** Source Sample Count */
+            source_sample_count: number;
+            /**
+             * Truncated Series
+             * @default false
+             */
+            truncated_series: boolean;
+            value_mode: components["schemas"]["TraceValueMode"];
+            /** Value Unit */
+            value_unit?: string | null;
+        };
+        /**
+         * MeasurementTracePreviewQuery
+         * @description Select one bounded, response-ready point-local trace preview.
+         */
+        MeasurementTracePreviewQuery: {
+            /** Coordinate Id */
+            coordinate_id?: string | null;
+            /** @default even */
+            downsampling: components["schemas"]["TraceDownsampling"];
+            /** Fixed Axis Indices */
+            fixed_axis_indices?: {
+                [key: string]: number;
+            };
+            /**
+             * Max Samples
+             * @default 4096
+             */
+            max_samples: number;
+            /**
+             * Max Series
+             * @default 32
+             */
+            max_series: number;
+            /** Observable Id */
+            observable_id?: string | null;
+            /** Recording Group Id */
+            recording_group_id?: string | null;
+            value_mode?: components["schemas"]["TraceValueMode"] | null;
+        };
+        /**
+         * MeasurementTraceSeries
+         * @description One directly plottable numeric trace series.
+         */
+        MeasurementTraceSeries: {
+            /** Label */
+            label: string;
+            /** Logical Point Id */
+            logical_point_id?: string | null;
+            /** Point Index */
+            point_index: number;
+            /** Source Sample Count */
+            source_sample_count: number;
+            /** X */
+            x: number[];
+            /** Y */
+            y: number[];
+        };
+        /**
          * MeasurementUnavailable
          * @description A complete scalar or array result with no usable value.
+         *
+         *     ``None`` preserves an unknown extent for a ragged product axis when no
+         *     available value exists from which to learn that point-local size.
          */
         "MeasurementUnavailable-Output": {
             /**
@@ -1976,7 +2341,7 @@ export interface components {
              */
             reason: "missing" | "invalid" | "overload";
             /** Shape */
-            shape: number[];
+            shape: (number | null)[];
             /** Unit */
             unit: string | null;
         };
@@ -1985,7 +2350,7 @@ export interface components {
          * MeasurementVariable
          * @description A point-local variable whose shape is derived from its dimensions.
          */
-        MeasurementVariable: {
+        "MeasurementVariable-Output": {
             /** Dims */
             dims: string[];
             /**
@@ -2396,8 +2761,12 @@ export interface components {
             outcome?: components["schemas"]["RunOutcome-Output"] | null;
             /** Run Id */
             run_id: string;
+            stage?: components["schemas"]["RunStageLineage"] | null;
         };
-        /** RunMeasurementDatasetResult */
+        /**
+         * RunMeasurementDatasetResult
+         * @description Internal dataset-loading payload wrapped by the public run facade.
+         */
         RunMeasurementDatasetResult: {
             dataset: components["schemas"]["MeasurementDataset"];
             dataset_entry: components["schemas"]["RunContentEntry-Output"];
@@ -2488,6 +2857,18 @@ export interface components {
              * @enum {string}
              */
             status: "required" | "active" | "quarantined" | "released";
+        };
+        /**
+         * RunStageLineage
+         * @description Durable identity of one run within a notebook-driven sequence.
+         */
+        RunStageLineage: {
+            /** Index */
+            index: number;
+            /** Previous Run Id */
+            previous_run_id?: string | null;
+            /** Sequence Id */
+            sequence_id: string;
         };
         /**
          * RunSummary
@@ -2735,6 +3116,10 @@ export interface components {
             /** Entities */
             entities?: components["schemas"]["EntityRef-Output"][];
         };
+        /** @constant */
+        TraceDownsampling: "even";
+        /** @enum {string} */
+        TraceValueMode: "value" | "magnitude" | "phase" | "real" | "imag";
         /**
          * UpdateParameterRows
          * @description Update one row selected by a table primary key.
@@ -3752,6 +4137,7 @@ export interface operations {
     measurements_api_v1_runs__run_id__measurements_get: {
         parameters: {
             query?: {
+                include_schema?: boolean;
                 limit?: number;
                 offset?: number;
             };
@@ -3770,6 +4156,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeasurementPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_measurements_api_v1_runs__run_id__measurements_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeasurementSliceQuery"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementSlice"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_measurement_traces_api_v1_runs__run_id__measurements_traces_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeasurementTracePreviewQuery"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementTracePreview"];
                 };
             };
             /** @description Validation Error */

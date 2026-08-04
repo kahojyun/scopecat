@@ -8,6 +8,7 @@ from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
+    MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
 )
@@ -40,6 +41,7 @@ class FakeMeasurementDatasetRepository:
     """Record measurement writes and return stable receipts."""
 
     def __init__(self) -> None:
+        self._header: MeasurementDatasetHeader | None = None
         self._appends: dict[str, MeasurementDatasetAppend] = {}
         self._seals: dict[str, MeasurementDatasetSeal] = {}
         self._receipts: dict[str, MeasurementDatasetReceipt] = {}
@@ -57,8 +59,35 @@ class FakeMeasurementDatasetRepository:
             record for append in self._appends.values() for record in append.records
         )
 
+    @property
+    def header(self) -> MeasurementDatasetHeader | None:
+        return self._header
+
+    def initialize(
+        self,
+        header: MeasurementDatasetHeader,
+    ) -> MeasurementDatasetReceipt:
+        durable = header.model_copy(deep=True)
+        if (
+            self._header is not None
+            and self._header.content_hash != durable.content_hash
+        ):
+            raise ExecutionJournalError("measurement dataset header changed content")
+        if self._header is None:
+            self._header = durable
+            self._receipts[durable.operation_id] = MeasurementDatasetReceipt(
+                operation_id=durable.operation_id,
+                dataset_content_hash=durable.content_hash,
+            )
+        return self._receipts[durable.operation_id]
+
     def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
         durable = append.model_copy(deep=True)
+        if (
+            self._header is None
+            or self._header.content_hash != durable.header_content_hash
+        ):
+            raise ExecutionJournalError("measurement dataset append header is missing")
         existing = self._appends.get(durable.operation_id)
         if existing is not None and existing.content_hash != durable.content_hash:
             raise ExecutionJournalError(
@@ -74,6 +103,11 @@ class FakeMeasurementDatasetRepository:
 
     def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
         durable = seal
+        if (
+            self._header is None
+            or self._header.content_hash != durable.header_content_hash
+        ):
+            raise ExecutionJournalError("measurement dataset seal header is missing")
         existing = self._seals.get(durable.operation_id)
         if existing is not None and existing.content_hash != durable.content_hash:
             raise ExecutionJournalError(

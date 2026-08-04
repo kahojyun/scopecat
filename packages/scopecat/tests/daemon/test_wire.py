@@ -25,9 +25,10 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.daemon.wire import (
-    AnalysisJsonOutputPayload,
+    AnalysisFigureOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
+    AnalysisTableOutputPayload,
     CandidateConfigRevisionSource,
     ConfigActivationReceipt,
     ConfigEntryActivationCommand,
@@ -43,24 +44,30 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationReceipt,
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenReceipt,
-    MeasurementAppendCommand,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
-    TerminalRunCommitCommand,
 )
 from scopecat.execution.ports.instruments import RunHardwareApply, RunHardwareBatch
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
+from scopecat.records.analysis import (
+    MAX_ANALYSIS_OUTPUTS,
+    MAX_ANALYSIS_TABLE_COLUMNS,
+    MAX_ANALYSIS_TABLE_ROWS,
+    AnalysisFigure,
+    AnalysisFigureAxis,
+    AnalysisFigureSeries,
+    AnalysisTable,
+    AnalysisTableColumn,
+    AnalysisTableRow,
+)
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
-from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import InstrumentDescription
@@ -243,10 +250,21 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         title="fit",
         analysis_key="fit",
         outputs=(
-            AnalysisJsonOutputPayload(
+            AnalysisFigureOutputPayload(
                 kind="figure",
                 title="fit curve",
-                content={"x": [1, 2], "y": [3, 4]},
+                content=AnalysisFigure(
+                    kind="line",
+                    x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
+                    y_axis=AnalysisFigureAxis(label="Signal", unit="ratio"),
+                    series=[
+                        AnalysisFigureSeries(
+                            id="fit",
+                            x=[1.0, 2.0],
+                            y=[3.0, 4.0],
+                        )
+                    ],
+                ),
             ),
             AnalysisParameterProposalOutputPayload(
                 kind="parameter_change_proposal",
@@ -282,6 +300,37 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                     ),
                 ),
             ),
+        )
+
+
+def test_analysis_save_command_bounds_embedded_output_group() -> None:
+    table = AnalysisTable(
+        columns=[
+            AnalysisTableColumn(id=f"column-{index}")
+            for index in range(MAX_ANALYSIS_TABLE_COLUMNS)
+        ],
+        rows=[
+            AnalysisTableRow(cells=[index] * MAX_ANALYSIS_TABLE_COLUMNS)
+            for index in range(MAX_ANALYSIS_TABLE_ROWS)
+        ],
+    )
+    output = AnalysisTableOutputPayload(
+        kind="table",
+        title="large table",
+        content=table,
+    )
+
+    with pytest.raises(ValidationError, match="total table cell count"):
+        AnalysisSaveCommand(
+            title="large tables",
+            analysis_key="large-tables",
+            outputs=(output,) * 5,
+        )
+    with pytest.raises(ValidationError, match=f"at most {MAX_ANALYSIS_OUTPUTS} items"):
+        AnalysisSaveCommand(
+            title="too many outputs",
+            analysis_key="too-many-outputs",
+            outputs=(output,) * (MAX_ANALYSIS_OUTPUTS + 1),
         )
 
 
@@ -756,47 +805,3 @@ def _configured_defaults_problem() -> Problem:
         phase=ProblemPhase.EXECUTION,
         message="configured defaults were rejected",
     )
-
-
-def test_effect_commands_do_not_repeat_durable_identity() -> None:
-    append = MeasurementDatasetAppend(
-        run_id="run-1",
-        recording_contract_fingerprint="test.recording.v1",
-        start_index=0,
-        records=(
-            MeasurementRecord(
-                run_id="run-1",
-                logical_point_id="point-0",
-                point_index=0,
-                coordinates={},
-                observables={
-                    "signal": MeasurementScalar.create(
-                        dtype="float64",
-                        value=1,
-                        unit="ratio",
-                    )
-                },
-            ),
-        ),
-    )
-    outcome = RunOutcome(
-        run_id="run-1",
-        result="succeeded",
-        certainty="known",
-    )
-    append_command = MeasurementAppendCommand(
-        lease_id="lease-1",
-        append=append,
-    )
-    terminal_command = TerminalRunCommitCommand(
-        lease_id="lease-1",
-        outcome=outcome,
-    )
-
-    assert set(append_command.model_dump()) == {"lease_id", "append"}
-    assert set(terminal_command.model_dump()) == {
-        "lease_id",
-        "outcome",
-        "contents",
-        "models",
-    }

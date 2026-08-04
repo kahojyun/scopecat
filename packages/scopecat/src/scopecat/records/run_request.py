@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.records._run_request_values import (
     normalize_json_value,
     normalize_run_request_value,
 )
+from scopecat.records.run import RunStageLineage
 
 type RunRequestJsonValue = Annotated[
     str
@@ -114,6 +115,29 @@ class PointScanRecord(_RunRequestModel):
     values: list[RunRequestScalarValue]
 
 
+class PointRowsRecord(_RunRequestModel):
+    """Persisted ordered point-cloud rows with declaration-ordered columns."""
+
+    kind: Literal["points"] = "points"
+    columns: list[str]
+    rows: list[dict[str, RunRequestScalarValue]]
+
+    @model_validator(mode="after")
+    def validate_rows(self) -> PointRowsRecord:
+        if any(not column for column in self.columns):
+            raise ValueError("point-row column ids must be non-empty")
+        if len(self.columns) != len(set(self.columns)):
+            raise ValueError("point-row column ids must be unique")
+        expected = set(self.columns)
+        if self.rows and not expected:
+            raise ValueError("non-empty point rows require coordinate columns")
+        if any(set(row) != expected for row in self.rows):
+            raise ValueError(
+                "point rows must contain exactly the declared coordinate columns"
+            )
+        return self
+
+
 class AroundScanRecord(_RunRequestModel):
     """Persisted center/span scan axis record."""
 
@@ -154,6 +178,7 @@ class ParameterAroundScanRecord(_RunRequestModel):
 
 type ScanRecord = Annotated[
     PointScanRecord
+    | PointRowsRecord
     | AroundScanRecord
     | ParameterScanRecord
     | ParameterAroundScanRecord,
@@ -168,4 +193,5 @@ class RunRequest(_RunRequestModel):
     inputs: dict[str, RunRequestValue] = Field(default_factory=dict)
     operator: str | None = None
     scans: list[ScanRecord] = Field(default_factory=list)
+    stage: RunStageLineage | None = None
     metadata: dict[str, RunRequestJsonValue] = Field(default_factory=dict)

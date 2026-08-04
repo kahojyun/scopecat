@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass, is_dataclass
-from typing import Literal, NoReturn, cast
-
-from pydantic import BaseModel, JsonValue
+from dataclasses import dataclass
+from typing import Literal, NoReturn
 
 from scopecat.config.changes import (
     parameter_change_proposal_record_ref,
@@ -23,11 +21,17 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.project_state import ProjectStateServices
+from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
+    AnalysisFigure,
+    AnalysisFigureRecordOutput,
+    AnalysisParameterProposalRecordOutput,
+    AnalysisParameterProposalReference,
     AnalysisRecord,
     AnalysisRecordInput,
     AnalysisRecordOutput,
-    AnalysisRecordOutputKind,
+    AnalysisTable,
+    AnalysisTableRecordOutput,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -36,8 +40,6 @@ from scopecat.runs.repository import (
     RunContentPublication,
     RunModelWrite,
 )
-
-AnalysisOutputKind = AnalysisRecordOutputKind
 
 
 @dataclass(frozen=True)
@@ -50,11 +52,32 @@ class AnalysisInput:
 
 
 @dataclass(frozen=True)
-class AnalysisOutput:
-    kind: AnalysisOutputKind
+class AnalysisTableOutput:
+    kind: Literal["table"]
     title: str
-    content: object
+    content: AnalysisTable
     metadata: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class AnalysisFigureOutput:
+    kind: Literal["figure"]
+    title: str
+    content: AnalysisFigure
+    metadata: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class AnalysisParameterProposalOutput:
+    kind: Literal["parameter_change_proposal"]
+    title: str
+    content: ParameterChangeProposal
+    metadata: Mapping[str, object]
+
+
+type AnalysisOutput = (
+    AnalysisTableOutput | AnalysisFigureOutput | AnalysisParameterProposalOutput
+)
 
 
 @dataclass(frozen=True)
@@ -163,21 +186,6 @@ def prepare_analysis(
     )
 
 
-def _saved_analysis_output_content(output: AnalysisOutput) -> object:
-    if output.kind == "parameter_change_proposal":
-        if not isinstance(output.content, ParameterChangeProposal):
-            _raise_analysis_problem(
-                "analysis_parameter_proposal_output_invalid",
-                "analysis parameter proposal output has invalid content",
-                "outputs",
-            )
-        return {
-            "proposal_id": output.content.id,
-            "record_ref": parameter_change_proposal_record_ref(output.content.id),
-        }
-    return output.content
-
-
 def _analysis_record_inputs(
     inputs: Sequence[AnalysisInput],
 ) -> list[AnalysisRecordInput]:
@@ -191,9 +199,7 @@ def _analysis_record_inputs(
                 role=input_ref.role,
                 title=input_ref.title,
                 metadata=(
-                    _json_mapping(cast("Mapping[object, object]", metadata))
-                    if metadata is not None
-                    else None
+                    validate_json_metadata(metadata) if metadata is not None else None
                 ),
             )
         )
@@ -203,15 +209,42 @@ def _analysis_record_inputs(
 def _analysis_record_outputs(
     outputs: Sequence[AnalysisOutput],
 ) -> list[AnalysisRecordOutput]:
-    return [
-        AnalysisRecordOutput(
-            kind=output.kind,
-            title=output.title,
-            content=_json_safe(_saved_analysis_output_content(output)),
-            metadata=_json_mapping(cast("Mapping[object, object]", output.metadata)),
-        )
-        for output in outputs
-    ]
+    selected: list[AnalysisRecordOutput] = []
+    for output in outputs:
+        metadata = validate_json_metadata(output.metadata)
+        if isinstance(output, AnalysisTableOutput):
+            selected.append(
+                AnalysisTableRecordOutput(
+                    kind="table",
+                    title=output.title,
+                    content=output.content,
+                    metadata=metadata,
+                )
+            )
+        elif isinstance(output, AnalysisFigureOutput):
+            selected.append(
+                AnalysisFigureRecordOutput(
+                    kind="figure",
+                    title=output.title,
+                    content=output.content,
+                    metadata=metadata,
+                )
+            )
+        else:
+            selected.append(
+                AnalysisParameterProposalRecordOutput(
+                    kind="parameter_change_proposal",
+                    title=output.title,
+                    content=AnalysisParameterProposalReference(
+                        proposal_id=output.content.id,
+                        record_ref=parameter_change_proposal_record_ref(
+                            output.content.id
+                        ),
+                    ),
+                    metadata=metadata,
+                )
+            )
+    return selected
 
 
 def _raise_analysis_problem(
@@ -229,21 +262,3 @@ def _raise_analysis_problem(
             )
         ]
     )
-
-
-def _json_safe(value: object) -> JsonValue:
-    if isinstance(value, BaseModel):
-        return cast("JsonValue", value.model_dump(mode="json"))
-    if is_dataclass(value) and not isinstance(value, type):
-        return _json_mapping(cast("Mapping[object, object]", asdict(value)))
-    if isinstance(value, Mapping):
-        return _json_mapping(cast("Mapping[object, object]", value))
-    if isinstance(value, tuple | list):
-        return [_json_safe(item) for item in cast("Sequence[object]", value)]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
-
-
-def _json_mapping(value: Mapping[object, object]) -> dict[str, JsonValue]:
-    return {str(key): _json_safe(item) for key, item in value.items()}

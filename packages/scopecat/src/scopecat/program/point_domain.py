@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from math import prod
 from typing import Generic, Never, TypeVar
 
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import (
@@ -185,6 +186,8 @@ class PointDomainShape:
 
 def analyze_point_domain[CenterT](
     axes: PointAxes[CenterT],
+    *,
+    layout: PointDomainLayout = "product_grid",
 ) -> PointDomainShape:
     """Compute exact schema and cardinality from ordered point axes."""
 
@@ -202,12 +205,34 @@ def analyze_point_domain[CenterT](
             "point-domain composition produces duplicate columns: "
             + ", ".join(duplicates),
         )
-    cardinality = prod(
-        (
-            axis.source.count
-            if isinstance(axis.source, PointAxisLinear)
-            else len(axis.source.values)
-        )
+    axis_sizes = tuple(
+        axis.source.count
+        if isinstance(axis.source, PointAxisLinear)
+        else len(axis.source.values)
         for axis in axes
     )
+    if layout == "point_cloud":
+        linear_index = next(
+            (
+                index
+                for index, axis in enumerate(axes)
+                if isinstance(axis.source, PointAxisLinear)
+            ),
+            None,
+        )
+        if linear_index is not None:
+            raise PointDomainShapeError(
+                "point_domain_point_cloud_linear_axis",
+                ("axes", linear_index, "source"),
+                "point-cloud domains require explicit row values",
+            )
+        if len(set(axis_sizes)) > 1:
+            raise PointDomainShapeError(
+                "point_domain_point_cloud_length_mismatch",
+                (),
+                "point-cloud coordinate columns must contain the same number of rows",
+            )
+        cardinality = axis_sizes[0] if axis_sizes else 0
+    else:
+        cardinality = prod(axis_sizes)
     return PointDomainShape(columns, cardinality)

@@ -346,6 +346,20 @@ def test_collect_wire_keeps_unavailable_values_in_json_header() -> None:
                 reason="missing",
                 metadata={},
             ),
+            "ragged": MeasurementUnavailable.create(
+                dtype="float64",
+                unit="V",
+                shape=(None,),
+                reason="missing",
+                metadata={},
+            ),
+            "mixed": MeasurementUnavailable.create(
+                dtype="float64",
+                unit="V",
+                shape=(2, None),
+                reason="invalid",
+                metadata={},
+            ),
         }
     )
 
@@ -368,6 +382,8 @@ def test_collect_wire_keeps_unavailable_values_in_json_header() -> None:
     }
     assert inline_values["trace"]["shape"] == [2, 3]
     assert inline_values["trace"]["reason"] == "missing"
+    assert inline_values["ragged"]["shape"] == [None]
+    assert inline_values["mixed"]["shape"] == [2, None]
     assert join_collect_receipt(frames.header, ()) == receipt
 
 

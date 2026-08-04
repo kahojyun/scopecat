@@ -42,7 +42,6 @@ export type DurableEvent = components["schemas"]["DurableEvent"];
 export type EntityRef = components["schemas"]["EntityRef-Input"];
 export type ExternalLocation = components["schemas"]["ExternalLocation"];
 export type InstrumentAcquisition = components["schemas"]["AcquisitionSpec"];
-export type InstrumentAcquisitionResult = components["schemas"]["AcquisitionResultSpec"];
 export type InstrumentApplyReceipt =
   PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/apply">;
 export type InstrumentConfiguredDefaultsApplyReceipt =
@@ -69,6 +68,19 @@ export type InstrumentState =
   GetResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state">;
 export type InstrumentStateValue = components["schemas"]["StateValue"];
 export type InstrumentView = GetResponse<"/api/v1/instruments/{instrument_id}">;
+export type ComplexComponents = components["schemas"]["ComplexComponents"];
+export type AnalysisFigure = components["schemas"]["AnalysisFigure"];
+export type AnalysisRecordInput = components["schemas"]["AnalysisRecordInput"];
+export type AnalysisRecordOutput = components["schemas"]["AnalysisRecordOutput"];
+export type AnalysisParameterProposalReference =
+  components["schemas"]["AnalysisParameterProposalReference"];
+export type AnalysisTable = components["schemas"]["AnalysisTable"];
+export type MeasurementDatasetSchema = components["schemas"]["MeasurementDatasetSchema-Output"];
+export type MeasurementRecord = components["schemas"]["MeasurementRecord-Output"];
+export type MeasurementSlice = components["schemas"]["MeasurementSlice"];
+export type MeasurementTracePreview = components["schemas"]["MeasurementTracePreview"];
+export type MeasurementTracePreviewQuery = components["schemas"]["MeasurementTracePreviewQuery"];
+export type MeasurementValue = components["schemas"]["MeasurementValue-Output"];
 export type ActiveConfig = GetResponse<"/api/v1/config-registry/active">;
 export type InstrumentList = GetResponse<"/api/v1/instruments">;
 export type ParameterProposalList = GetResponse<"/api/v1/runs/{run_id}/parameter-proposals">;

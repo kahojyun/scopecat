@@ -54,6 +54,13 @@ class AxisSpec(Scan):
     parameter_lookup: ValueRef | None = None
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class PointRowsSpec(Scan):
+    """One ordered point cloud represented by equal-length coordinate columns."""
+
+    axes: tuple[AxisSpec, ...]
+
+
 def parameter_cell_lookup(
     axis: AxisSpec,
 ) -> tuple[

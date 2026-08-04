@@ -120,6 +120,18 @@ def test_materialized_effects_reports_demanded_product_without_a_local_producer(
             unit="count",
             metadata={"mode": "raw"},
         ),
+        pytest.param(
+            product_axis(
+                "shot",
+                dimension_id="shared/shot",
+                dimension_label="shot",
+                size=None,
+                kind="shot",
+                unit="count",
+                metadata={"mode": "raw"},
+            ),
+            id="fixed-versus-ragged",
+        ),
         product_axis(
             "shot",
             dimension_id="shared/shot",

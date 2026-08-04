@@ -16,6 +16,7 @@ from scopecat.measurements.projection import ProjectedMeasurementDataset
 from scopecat.records.execution_journal import ExecutionStage
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
+    MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
@@ -25,32 +26,53 @@ from scopecat.sdk.journal import ExecutionJournal
 
 class _DatasetOperation(Protocol):
     run_id: str
-    recording_contract_fingerprint: str
 
     @property
     def operation_id(self) -> str: ...
+
+
+def initialize_measurement_dataset(
+    header: MeasurementDatasetHeader,
+    writer: MeasurementDatasetWriter,
+    journal: ExecutionJournal,
+) -> MeasurementDatasetReceipt:
+    """Publish the canonical dataset contract before writing point records."""
+
+    return _record_operation(
+        header,
+        recording_contract_fingerprint=header.recording_contract_fingerprint,
+        expected_hash=header.content_hash,
+        stage="initialize_measurement",
+        evidence={
+            "expected_record_count": header.expected_record_count,
+            "header_content_hash": header.content_hash,
+        },
+        invoke=lambda: writer.initialize(header),
+        journal=journal,
+    )
 
 
 def append_measurement_dataset(
     dataset: ProjectedMeasurementDataset,
     writer: MeasurementDatasetWriter,
     journal: ExecutionJournal,
+    *,
+    header: MeasurementDatasetHeader,
 ) -> MeasurementDatasetReceipt | None:
     """Append one contiguous projected point range."""
 
     records = dataset.records
     if not records:
         return None
-    if dataset.schema is None:
-        raise ValueError("projected measurement records require a dataset schema")
     append = MeasurementDatasetAppend(
         run_id=dataset.run_id,
-        recording_contract_fingerprint=dataset.recording_contract_fingerprint,
+        header_content_hash=header.content_hash,
         start_index=records[0].point_index,
         records=records,
     )
     return _record_operation(
         append,
+        recording_contract_fingerprint=header.recording_contract_fingerprint,
         expected_hash=append.content_hash,
         stage="append_measurement",
         evidence={
@@ -66,7 +88,7 @@ def append_measurement_dataset(
 def seal_measurement_dataset(
     *,
     run_id: str,
-    recording_contract_fingerprint: str,
+    header: MeasurementDatasetHeader,
     point_count: int,
     append_content_hashes: tuple[str, ...],
     writer: MeasurementDatasetWriter,
@@ -76,15 +98,16 @@ def seal_measurement_dataset(
 
     seal = MeasurementDatasetSeal(
         run_id=run_id,
-        recording_contract_fingerprint=recording_contract_fingerprint,
+        header_content_hash=header.content_hash,
         point_count=point_count,
         dataset_content_hash=measurement_dataset_content_hash(
-            recording_contract_fingerprint=recording_contract_fingerprint,
+            header_content_hash=header.content_hash,
             append_content_hashes=append_content_hashes,
         ),
     )
     return _record_operation(
         seal,
+        recording_contract_fingerprint=header.recording_contract_fingerprint,
         expected_hash=seal.dataset_content_hash,
         stage="seal_measurement",
         evidence={
@@ -99,6 +122,7 @@ def seal_measurement_dataset(
 def _record_operation(
     operation: _DatasetOperation,
     *,
+    recording_contract_fingerprint: str,
     expected_hash: str,
     stage: ExecutionStage,
     evidence: dict[str, JsonValue],
@@ -135,6 +159,7 @@ def _record_operation(
     except Exception as error:
         raise _error(
             operation,
+            recording_contract_fingerprint=recording_contract_fingerprint,
             problems=(
                 boundary.problem_from_exception(
                     "measurement_dataset_intent_persistence_failed",
@@ -152,6 +177,7 @@ def _record_operation(
     if not invoked:
         raise _error(
             operation,
+            recording_contract_fingerprint=recording_contract_fingerprint,
             problems=tuple(boundary.problems),
             receipt=None,
             uncertain=True,
@@ -180,6 +206,7 @@ def _record_operation(
         )
         raise _error(
             operation,
+            recording_contract_fingerprint=recording_contract_fingerprint,
             problems=(problem,),
             receipt=receipt,
             uncertain=True,
@@ -198,6 +225,7 @@ def _record_operation(
     except Exception as error:
         raise _error(
             operation,
+            recording_contract_fingerprint=recording_contract_fingerprint,
             problems=(
                 boundary.problem_from_exception(
                     "measurement_dataset_receipt_persistence_failed",
@@ -216,6 +244,7 @@ def _record_operation(
 def _error(
     operation: _DatasetOperation,
     *,
+    recording_contract_fingerprint: str,
     problems: Sequence[Problem],
     receipt: MeasurementDatasetReceipt | None,
     uncertain: bool,
@@ -224,7 +253,7 @@ def _error(
         problems,
         run_id=operation.run_id,
         dataset_id=RAW_MEASUREMENTS_DATASET_ID,
-        recording_contract_fingerprint=operation.recording_contract_fingerprint,
+        recording_contract_fingerprint=recording_contract_fingerprint,
         operation_id=operation.operation_id,
         receipt=receipt,
         write_may_have_completed=uncertain,
@@ -233,9 +262,11 @@ def _error(
 
 __all__ = [
     "MeasurementDatasetAppend",
+    "MeasurementDatasetHeader",
     "MeasurementDatasetReceipt",
     "MeasurementDatasetSeal",
     "MeasurementDatasetWriter",
     "append_measurement_dataset",
+    "initialize_measurement_dataset",
     "seal_measurement_dataset",
 ]

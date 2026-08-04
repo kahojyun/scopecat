@@ -7,6 +7,7 @@ from types import MappingProxyType
 
 from scopecat.compiler.frontend.value_binding import input_cell
 from scopecat.kernel.graph_identity import ValueId
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.program.bindings import (
@@ -274,6 +275,7 @@ class LogicalProgramBuilder:
         record_selections: Sequence[LogicalRecordSelection],
         parameter_contracts: Sequence[ParameterContract],
         point_domain: PointAxes[ValueRef],
+        point_domain_layout: PointDomainLayout,
         effects: tuple[
             LogicalStateAssignment
             | LogicalEnsureState
@@ -297,6 +299,7 @@ class LogicalProgramBuilder:
             record_selections=tuple(record_selections),
             parameter_contracts=tuple(parameter_contracts),
             point_domain=point_domain,
+            point_domain_layout=point_domain_layout,
             value_defs=tuple(self._definitions.values()),
             compute_nodes=tuple(self._compute_nodes.values()),
             measurement_postprocessors=tuple(self._measurement_postprocessors),

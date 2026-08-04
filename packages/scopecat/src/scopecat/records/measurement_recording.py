@@ -10,12 +10,58 @@ from scopecat.kernel.content_identity import (
     model_wire_content_hash,
     stable_content_hash,
 )
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
 
 type _MeasurementDatasetRef = Literal["data/measurement_dataset/raw-measurements"]
 CANONICAL_MEASUREMENT_DATASET_REF: _MeasurementDatasetRef = (
     "data/measurement_dataset/raw-measurements"
 )
+
+
+class MeasurementDatasetHeader(BaseModel):
+    """Canonical schema and recording identity for one run dataset."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: str
+    recording_contract_fingerprint: str
+    dataset_schema: MeasurementDatasetSchema
+    expected_record_count: int = Field(ge=0)
+
+    @field_validator("run_id", "recording_contract_fingerprint")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        if not value:
+            raise ValueError("measurement dataset header fields must be non-empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_point_count(self) -> MeasurementDatasetHeader:
+        point = next(
+            dimension
+            for dimension in self.dataset_schema.dimensions
+            if dimension.id == "point"
+        )
+        if point.size != self.expected_record_count:
+            raise ValueError(
+                "measurement dataset header expected count must match its point "
+                "dimension"
+            )
+        return self
+
+    @property
+    def operation_id(self) -> str:
+        digest = stable_content_hash(
+            {
+                "schema": "scopecat.measurement_dataset_header_operation.v1",
+                "run_id": self.run_id,
+            }
+        )
+        return f"measurement-dataset-header:{digest}"
+
+    @property
+    def content_hash(self) -> str:
+        return model_wire_content_hash(self)
 
 
 class MeasurementDatasetAppend(BaseModel):
@@ -24,11 +70,11 @@ class MeasurementDatasetAppend(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
-    recording_contract_fingerprint: str
+    header_content_hash: str
     start_index: int = Field(ge=0)
     records: tuple[MeasurementRecord, ...] = Field(min_length=1)
 
-    @field_validator("run_id", "recording_contract_fingerprint")
+    @field_validator("run_id", "header_content_hash")
     @classmethod
     def validate_required_text(cls, value: str) -> str:
         if not value:
@@ -57,9 +103,9 @@ class MeasurementDatasetAppend(BaseModel):
     def operation_id(self) -> str:
         digest = stable_content_hash(
             {
-                "schema": "scopecat.measurement_dataset_append_operation.v2",
+                "schema": "scopecat.measurement_dataset_append_operation.v3",
                 "run_id": self.run_id,
-                "recording_contract_fingerprint": self.recording_contract_fingerprint,
+                "header_content_hash": self.header_content_hash,
                 "start_index": self.start_index,
             }
         )
@@ -93,13 +139,13 @@ class MeasurementDatasetSeal(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
-    recording_contract_fingerprint: str
+    header_content_hash: str
     point_count: int = Field(ge=0)
     dataset_content_hash: str
 
     @field_validator(
         "run_id",
-        "recording_contract_fingerprint",
+        "header_content_hash",
         "dataset_content_hash",
     )
     @classmethod
@@ -114,9 +160,9 @@ class MeasurementDatasetSeal(BaseModel):
     def operation_id(self) -> str:
         digest = stable_content_hash(
             {
-                "schema": "scopecat.measurement_dataset_seal_operation.v2",
+                "schema": "scopecat.measurement_dataset_seal_operation.v3",
                 "run_id": self.run_id,
-                "recording_contract_fingerprint": self.recording_contract_fingerprint,
+                "header_content_hash": self.header_content_hash,
             }
         )
         return f"measurement-dataset-seal:{digest}"
@@ -128,13 +174,13 @@ class MeasurementDatasetSeal(BaseModel):
 
 def measurement_dataset_content_hash(
     *,
-    recording_contract_fingerprint: str,
+    header_content_hash: str,
     append_content_hashes: tuple[str, ...],
 ) -> str:
     return stable_content_hash(
         {
-            "schema": "scopecat.measurement_dataset_content.v1",
-            "recording_contract_fingerprint": recording_contract_fingerprint,
+            "schema": "scopecat.measurement_dataset_content.v2",
+            "header_content_hash": header_content_hash,
             "append_content_hashes": append_content_hashes,
         }
     )
@@ -143,6 +189,7 @@ def measurement_dataset_content_hash(
 __all__ = [
     "CANONICAL_MEASUREMENT_DATASET_REF",
     "MeasurementDatasetAppend",
+    "MeasurementDatasetHeader",
     "MeasurementDatasetReceipt",
     "MeasurementDatasetSeal",
     "measurement_dataset_content_hash",

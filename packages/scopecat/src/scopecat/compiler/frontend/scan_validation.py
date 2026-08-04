@@ -7,9 +7,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
+    PointRowsSpec,
     Scan,
 )
 from scopecat.program.value_refs import (
@@ -35,6 +37,14 @@ class ScanValidationError(ValueError):
         super().__init__("; ".join(issue.message for issue in self.issues))
 
 
+@dataclass(frozen=True, slots=True)
+class VerifiedScanDomain:
+    """Validated axes plus their explicit composition semantics."""
+
+    axes: tuple[AxisSpec, ...]
+    layout: PointDomainLayout
+
+
 def verify_scans(
     scans: Sequence[Scan],
     *,
@@ -42,7 +52,37 @@ def verify_scans(
 ) -> tuple[AxisSpec, ...]:
     """Validate targets and require every dynamic scan source to be closed."""
 
-    indexed_axes = _index_scan_axes(scans)
+    return verify_scan_domain(scans, inputs=inputs).axes
+
+
+def verify_scan_domain(
+    scans: Sequence[Scan],
+    *,
+    inputs: Mapping[str, object] | None = None,
+) -> VerifiedScanDomain:
+    """Validate one product-grid or point-cloud domain declaration."""
+
+    point_rows = tuple(scan for scan in scans if isinstance(scan, PointRowsSpec))
+    if point_rows and len(scans) != 1:
+        raise ScanValidationError(
+            (
+                ScanValidationIssue(
+                    "point_domain_layout_mixed",
+                    "point rows define the complete domain and cannot be combined "
+                    "with scan axes",
+                    (),
+                ),
+            )
+        )
+    if point_rows:
+        [selected_rows] = point_rows
+        indexed_axes = tuple(
+            (axis, ("columns", index)) for index, axis in enumerate(selected_rows.axes)
+        )
+        layout: PointDomainLayout = "point_cloud"
+    else:
+        indexed_axes = _index_scan_axes(scans)
+        layout = "product_grid"
     axes = tuple(axis for axis, _path in indexed_axes)
     duplicate_ids = sorted(
         axis_id
@@ -103,7 +143,7 @@ def verify_scans(
     if issues:
         raise ScanValidationError(issues)
 
-    return axes
+    return VerifiedScanDomain(axes=axes, layout=layout)
 
 
 def _index_scan_axes(

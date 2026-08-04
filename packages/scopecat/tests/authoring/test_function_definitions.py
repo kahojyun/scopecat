@@ -133,7 +133,7 @@ def test_analysis_decorator_preserves_configuration_signature() -> None:
         nonlocal evaluations
         evaluations += 1
         return context.result(f"readout fit for {qubit}").table(
-            [{"attempts": attempts}]
+            sc.AnalysisTable.from_rows([{"attempts": attempts}])
         )
 
     assert evaluations == 0

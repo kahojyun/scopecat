@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat.analysis.service import AnalysisOutput, save_analysis
+from scopecat.analysis.service import AnalysisParameterProposalOutput, save_analysis
 from scopecat.config.candidates import (
     CandidateConfig,
 )
@@ -145,7 +145,7 @@ def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
         step_id=None,
         inputs=(),
         outputs=(
-            AnalysisOutput(
+            AnalysisParameterProposalOutput(
                 kind="parameter_change_proposal",
                 title=proposal.id,
                 content=proposal,

@@ -10,7 +10,7 @@ from typing import SupportsFloat, cast
 import numpy as np
 import scopecat as sc
 from scopecat import Quantity
-from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
+from scopecat.measurements.results import Dataset, Variable
 
 from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
@@ -26,6 +26,20 @@ from quantum_lab_demo.workflows.drag_beta_experiment import PROBABILITY_1_RECORD
 _DRAG_BETA_FIT_MODEL_ID = "quantum_lab_demo.drag_beta.shared_n2_quadratic.v1"
 _DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
 _DRAG_BETA_PROPOSAL_ID = "q0-drag-beta"
+_OBSERVATION_COLUMNS = (
+    sc.AnalysisTableColumn(id="beta_ns", label="DRAG beta", unit="ns"),
+    sc.AnalysisTableColumn(id="amplification", label="Amplification"),
+    sc.AnalysisTableColumn(id="probability_1", label="P(1)", unit="ratio"),
+)
+_FIT_COLUMNS = (
+    sc.AnalysisTableColumn(id="model_id", label="Fit model"),
+    sc.AnalysisTableColumn(id="beta_hat", label="Selected beta", unit="ns"),
+    sc.AnalysisTableColumn(id="baseline", label="Baseline"),
+    sc.AnalysisTableColumn(id="quadratic", label="Quadratic coefficient"),
+    sc.AnalysisTableColumn(id="linear", label="Linear coefficient"),
+    sc.AnalysisTableColumn(id="scaled_offset", label="Scaled offset"),
+    sc.AnalysisTableColumn(id="rmse", label="RMSE"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,41 +118,61 @@ def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
 def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit one DRAG run and author its table, figure, and proposal."""
 
-    measurements = context.data.measurements()
-    observations = tuple(
-        _observation_from_record(record) for record in measurements.dataset.records
-    )
+    measurements = context.measurements()
+    observations = _observations_from_dataset(measurements)
     fit = fit_drag_beta(observations)
 
     return (
         context.result("DRAG beta calibration")
         .input(
-            measurements.dataset_entry.id,
+            measurements.entry.id,
             role="fit-input",
             title="DRAG beta measurements",
         )
         .table(
-            [
-                {
-                    "beta_ns": _beta_ns(observation.beta),
-                    "amplification": observation.amplification,
-                    "probability_1": observation.p1,
-                }
-                for observation in observations
-            ],
+            sc.AnalysisTable.from_rows(
+                [
+                    {
+                        "beta_ns": _beta_ns(observation.beta),
+                        "amplification": observation.amplification,
+                        "probability_1": observation.p1,
+                    }
+                    for observation in observations
+                ],
+                columns=_OBSERVATION_COLUMNS,
+            ),
             title="DRAG beta observations",
         )
-        .table([_fit_summary(fit)], title="DRAG beta quadratic fit")
+        .table(
+            sc.AnalysisTable.from_rows([_fit_summary(fit)], columns=_FIT_COLUMNS),
+            title="DRAG beta quadratic fit",
+        )
         .figure(
-            {
-                "kind": "drag_beta_fit",
-                "x": "beta",
-                "y": "probability_1",
-                "series": "amplification",
-                "source_dataset": measurements.dataset_entry.id,
-                "model_id": _DRAG_BETA_FIT_MODEL_ID,
-            },
-            title="DRAG beta fit",
+            sc.AnalysisFigure(
+                kind="scatter",
+                x_axis=sc.AnalysisFigureAxis(label="DRAG beta", unit="ns"),
+                y_axis=sc.AnalysisFigureAxis(label="P(1)", unit="ratio"),
+                series=[
+                    sc.AnalysisFigureSeries(
+                        id=f"amplification-{amplification}",
+                        label=f"N={amplification}",
+                        x=[
+                            _beta_ns(observation.beta)
+                            for observation in observations
+                            if observation.amplification == amplification
+                        ],
+                        y=[
+                            observation.p1
+                            for observation in observations
+                            if observation.amplification == amplification
+                        ],
+                    )
+                    for amplification in sorted(
+                        {observation.amplification for observation in observations}
+                    )
+                ],
+            ),
+            title="DRAG beta observations by amplification",
         )
         .propose(
             _DRAG_BETA_PROPOSAL_ID,
@@ -156,39 +190,65 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     )
 
 
-def _observation_from_record(record: MeasurementRecord) -> DragBetaObservation:
+def _observations_from_dataset(
+    dataset: Dataset,
+) -> tuple[DragBetaObservation, ...]:
     try:
-        beta = record.coordinates["beta"]
-        amplification = record.coordinates["amplification"]
-        probability_one = record.observables[PROBABILITY_1_RECORD_ID]
+        beta = dataset.coords["beta"]
+        amplification = dataset.coords["amplification"]
+        probability_one = dataset.data_vars[PROBABILITY_1_RECORD_ID]
     except KeyError as error:
         raise ValueError(
             "run does not contain the DRAG-beta measurement schema"
         ) from error
-    if not isinstance(beta, MeasurementScalar):
-        raise TypeError("DRAG-beta beta coordinates must be measurement scalars")
-    if (
-        not isinstance(amplification, MeasurementScalar)
-        or amplification.dtype != "int64"
-        or type(amplification.value) is not int
-    ):
+    if amplification.dims != ("point",) or amplification.dtype != "int64":
         raise TypeError("DRAG-beta amplification coordinates must be integers")
-    if not isinstance(probability_one, MeasurementScalar):
-        raise TypeError("DRAG-beta probability_1 values must be measurement scalars")
+    return tuple(
+        _observation_from_values(
+            beta_value,
+            amplification_value,
+            probability_one_value,
+            beta=beta,
+            probability_one=probability_one,
+        )
+        for beta_value, amplification_value, probability_one_value in zip(
+            beta.values,
+            amplification.values,
+            probability_one.values,
+            strict=True,
+        )
+    )
+
+
+def _observation_from_values(
+    beta_value: object,
+    amplification_value: object,
+    probability_one_value: object,
+    *,
+    beta: Variable,
+    probability_one: Variable,
+) -> DragBetaObservation:
+    if type(amplification_value) is not int:
+        raise TypeError("DRAG-beta amplification coordinates must be integers")
     return DragBetaObservation(
-        beta=_measurement_quantity(beta, "beta").to("ns"),
-        amplification=amplification.value,
+        beta=_variable_quantity(beta, beta_value, "beta").to("ns"),
+        amplification=amplification_value,
         p1=float(
-            _measurement_quantity(probability_one, "probability_1").to("ratio").value
+            _variable_quantity(
+                probability_one,
+                probability_one_value,
+                "probability_1",
+            )
+            .to("ratio")
+            .value
         ),
     )
 
 
-def _fit_summary(fit: DragBetaFit) -> dict[str, object]:
+def _fit_summary(fit: DragBetaFit) -> dict[str, sc.AnalysisTableCell]:
     return {
         "model_id": _DRAG_BETA_FIT_MODEL_ID,
         "beta_hat": _beta_ns(fit.beta_hat),
-        "beta_unit": "ns",
         "baseline": fit.baseline,
         "quadratic": fit.quadratic,
         "linear": fit.linear,
@@ -204,15 +264,16 @@ def _beta_ns(value: Quantity) -> float:
     return selected
 
 
-def _measurement_quantity(value: MeasurementScalar, name: str) -> Quantity:
+def _variable_quantity(variable: Variable, value: object, name: str) -> Quantity:
     if (
-        value.dtype not in {"float64", "int64"}
-        or isinstance(value.value, bool)
-        or not isinstance(value.value, int | float)
-        or value.unit is None
+        variable.dims != ("point",)
+        or variable.dtype not in {"float64", "int64"}
+        or variable.unit is None
+        or isinstance(value, bool)
+        or not isinstance(value, int | float)
     ):
         raise TypeError(f"DRAG-beta {name} must be a numeric scalar with a unit")
-    return Quantity(float(value.value), value.unit)
+    return Quantity(float(value), variable.unit)
 
 
 __all__ = [

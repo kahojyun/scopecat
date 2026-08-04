@@ -27,6 +27,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
+    MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
 )
@@ -124,6 +125,18 @@ class SQLiteTestExecutionJournal(SQLiteExecutionJournal):
 
 class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository):
     """Own transactions for in-process execution tests."""
+
+    def initialize(
+        self,
+        header: MeasurementDatasetHeader,
+    ) -> MeasurementDatasetReceipt:
+        prepared = self.prepare_header(header)
+        with SQLiteControlPlane(self._runs.database).transaction() as connection:
+            receipt, _created = self.header_prepared_in_transaction(
+                connection,
+                prepared,
+            )
+            return receipt
 
     def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
         prepared = self.prepare_append(append)
