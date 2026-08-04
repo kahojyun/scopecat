@@ -8,7 +8,7 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.scan_lowering import (
     lower_scans_point_domain,
-    project_scan_record,
+    project_axis_record,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.expressions import ParameterLookupUse
@@ -26,9 +26,11 @@ from scopecat.program.scans import (
 )
 from scopecat.program.values import input as program_input
 from scopecat.records.run_request import (
-    AroundScanRecord,
-    ParameterRangeScanRecord,
-    RangeScanRecord,
+    AxisAroundSourceRecord,
+    AxisRangeSourceRecord,
+    AxisRecord,
+    AxisValuesSourceRecord,
+    RunRequestParameterLookupValue,
 )
 
 _FREQUENCY = sc.ScalarType(sc.QuantityType(unit="GHz"))
@@ -111,9 +113,9 @@ def test_around_scan_accepts_numeric_coordinates_with_a_unit() -> None:
     axis = _lower_axis(scan)
     assert isinstance(axis.source, PointAxisLinear)
     assert axis.source.span == Quantity(value=0.2, unit="GHz")
-    record = project_scan_record(scan)
-    assert isinstance(record, AroundScanRecord)
-    assert record.center == Quantity(value=5.0, unit="GHz")
+    record = project_axis_record(scan)
+    assert isinstance(record.source, AxisAroundSourceRecord)
+    assert record.source.center == Quantity(value=5.0, unit="GHz")
 
 
 def test_dbm_range_remains_a_first_class_coordinate_source() -> None:
@@ -136,12 +138,14 @@ def test_dbm_range_remains_a_first_class_coordinate_source() -> None:
         count=7,
     )
     assert analyze_point_domain((axis,)).cardinality == 7
-    record = project_scan_record(scan)
-    assert record == RangeScanRecord(
+    record = project_axis_record(scan)
+    assert record == AxisRecord(
         axis_id="power",
-        start=Quantity(-30.0, "dBm"),
-        stop=Quantity(0.0, "dBm"),
-        points=7,
+        source=AxisRangeSourceRecord(
+            start=Quantity(-30.0, "dBm"),
+            stop=Quantity(0.0, "dBm"),
+            points=7,
+        ),
     )
 
 
@@ -199,6 +203,14 @@ def test_overlay_around_axis_uses_the_selected_cell_as_its_center() -> None:
     assert lookup.table_id == "device_parameters"
     assert lookup.column_id == "frequency"
     assert lookup.result_type == _FREQUENCY
+    record = project_axis_record(scan)
+    assert isinstance(record.source, AxisAroundSourceRecord)
+    assert record.source.center == RunRequestParameterLookupValue(
+        table_id="device_parameters",
+        key={"device": "q0"},
+        column="frequency",
+    )
+    assert record.overlay == record.source.center
 
 
 def test_overlay_range_axis_preserves_its_locator_and_range() -> None:
@@ -219,13 +231,38 @@ def test_overlay_range_axis_preserves_its_locator_and_range() -> None:
         stop=Quantity(5.1, "GHz"),
         count=5,
     )
-    record = project_scan_record(scan)
-    assert isinstance(record, ParameterRangeScanRecord)
-    assert record.table_id == "device_parameters"
-    assert record.column == "frequency"
-    assert record.start == Quantity(4.9, "GHz")
-    assert record.stop == Quantity(5.1, "GHz")
-    assert record.points == 5
+    record = project_axis_record(scan)
+    assert record.overlay == RunRequestParameterLookupValue(
+        table_id="device_parameters",
+        key={"device": "q0"},
+        column="frequency",
+    )
+    assert isinstance(record.source, AxisRangeSourceRecord)
+    assert record.source.start == Quantity(4.9, "GHz")
+    assert record.source.stop == Quantity(5.1, "GHz")
+    assert record.source.points == 5
+
+
+def test_overlay_values_axis_keeps_source_and_parameter_target_orthogonal() -> None:
+    record = project_axis_record(
+        _axis(
+            sc.axis(
+                _point("frequency"),
+                [4.9, 5.1],
+                overlay=_parameter_lookup(),
+                unit="GHz",
+            )
+        )
+    )
+
+    assert record.source == AxisValuesSourceRecord(
+        values=[Quantity(4.9, "GHz"), Quantity(5.1, "GHz")]
+    )
+    assert record.overlay == RunRequestParameterLookupValue(
+        table_id="device_parameters",
+        key={"device": "q0"},
+        column="frequency",
+    )
 
 
 def test_axis_overlay_forms_are_mutually_exclusive_and_complete() -> None:

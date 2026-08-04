@@ -9,17 +9,20 @@
       "kind": "grid",
       "axes": [
         {
-          "kind": "scan",
           "axis_id": "drive_frequency",
-          "center": {
-            "kind": "parameter",
-            "parameter_id": "drive_frequency"
+          "source": {
+            "kind": "around",
+            "center": {
+              "kind": "parameter",
+              "parameter_id": "drive_frequency"
+            },
+            "span": {
+              "value": 200.0,
+              "unit": "MHz"
+            },
+            "points": 3
           },
-          "span": {
-            "value": 200.0,
-            "unit": "MHz"
-          },
-          "points": 3
+          "overlay": null
         }
       ]
     },

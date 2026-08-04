@@ -4,7 +4,7 @@ from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.parameter_resolution import resolve_config_parameters
 from scopecat.records.run_request import (
-    AroundScanRecord,
+    AxisAroundSourceRecord,
     GridDomainRecord,
     RunRequest,
     RunRequestParameterValue,
@@ -20,9 +20,9 @@ def test_public_scan_slice_produces_a_durable_request_and_plan() -> None:
 
     assert RunRequest.model_validate_json(request.model_dump_json()) == request
     assert isinstance(request.point_plan.domain, GridDomainRecord)
-    centered_scan = request.point_plan.domain.axes[0]
-    assert isinstance(centered_scan, AroundScanRecord)
-    assert centered_scan.center == RunRequestParameterValue(
+    centered_axis = request.point_plan.domain.axes[0]
+    assert isinstance(centered_axis.source, AxisAroundSourceRecord)
+    assert centered_axis.source.center == RunRequestParameterValue(
         parameter_id="drive_frequency"
     )
 

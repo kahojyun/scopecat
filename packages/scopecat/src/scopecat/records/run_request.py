@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Annotated, Literal
 
 from pydantic import (
-    BaseModel,
     BeforeValidator,
     ConfigDict,
     Field,
@@ -22,6 +21,7 @@ from pydantic import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units
 from scopecat.records._run_request_values import (
+    _DurableRunRequestModel,
     normalize_json_value,
     normalize_run_request_value,
 )
@@ -39,7 +39,7 @@ type RunRequestJsonValue = Annotated[
 ]
 
 
-class _RunRequestModel(BaseModel):
+class _RunRequestModel(_DurableRunRequestModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
@@ -126,81 +126,32 @@ for _model in _RECURSIVE_REQUEST_MODELS:
     )
 
 
-class PointScanRecord(_RunRequestModel):
-    """Persisted point-value scan axis record."""
+class AxisValuesSourceRecord(_RunRequestModel):
+    """Persisted explicit values for one axis."""
 
-    kind: Literal["point"] = "point"
-    axis_id: str
+    kind: Literal["values"] = "values"
     values: list[RunRequestScalarValue]
 
 
-class AroundScanRecord(_RunRequestModel):
-    """Persisted center/span scan axis record."""
+class AxisAroundSourceRecord(_RunRequestModel):
+    """Persisted fixed-count axis centered on a scalar expression."""
 
-    kind: Literal["scan"] = "scan"
-    axis_id: str
+    kind: Literal["around"] = "around"
     center: RunRequestScalarValue
     span: RunRequestQuantity
     points: int = Field(ge=2)
 
 
-class RangeScanRecord(_RunRequestModel):
-    """Persisted fixed-count linear coordinate range."""
+class AxisRangeSourceRecord(_RunRequestModel):
+    """Persisted fixed-count linear axis between two endpoints."""
 
     kind: Literal["range"] = "range"
-    axis_id: str
     start: RunRequestRangeValue
     stop: RunRequestRangeValue
     points: int = Field(ge=2)
 
     @model_validator(mode="after")
-    def validate_endpoints(self) -> RangeScanRecord:
-        _validate_range_endpoints(self.start, self.stop)
-        return self
-
-
-class ParameterScanRecord(_RunRequestModel):
-    """Persisted parameter-table scan axis record."""
-
-    kind: Literal["parameter"] = "parameter"
-    table_id: str
-    key: dict[str, RunRequestScalarValue]
-    column: str
-    axis_id: str
-    values: list[RunRequestScalarValue]
-
-
-class ParameterAroundScanRecord(_RunRequestModel):
-    """Persisted locator and shape for a snapshot-centered parameter overlay.
-
-    The accepted snapshot supplies the center during specialization rather
-    than persisting a copied value, preserving the request's parameter intent
-    while each run still records the exact snapshot it accepted.
-    """
-
-    kind: Literal["parameter_around"] = "parameter_around"
-    table_id: str
-    key: dict[str, RunRequestScalarValue]
-    column: str
-    axis_id: str
-    span: RunRequestQuantity
-    points: int = Field(ge=2)
-
-
-class ParameterRangeScanRecord(_RunRequestModel):
-    """Persisted parameter-table range scan axis record."""
-
-    kind: Literal["parameter_range"] = "parameter_range"
-    table_id: str
-    key: dict[str, RunRequestScalarValue]
-    column: str
-    axis_id: str
-    start: RunRequestRangeValue
-    stop: RunRequestRangeValue
-    points: int = Field(ge=2)
-
-    @model_validator(mode="after")
-    def validate_endpoints(self) -> ParameterRangeScanRecord:
+    def validate_endpoints(self) -> AxisRangeSourceRecord:
         _validate_range_endpoints(self.start, self.stop)
         return self
 
@@ -219,15 +170,28 @@ def _validate_range_endpoints(
         raise ValueError("range quantity endpoints must use compatible units")
 
 
-type ScanRecord = Annotated[
-    PointScanRecord
-    | AroundScanRecord
-    | RangeScanRecord
-    | ParameterScanRecord
-    | ParameterAroundScanRecord
-    | ParameterRangeScanRecord,
+type AxisSourceRecord = Annotated[
+    AxisValuesSourceRecord | AxisAroundSourceRecord | AxisRangeSourceRecord,
     Field(discriminator="kind"),
 ]
+
+
+class AxisRecord(_RunRequestModel):
+    """Persisted axis source and its optional parameter-cell overlay."""
+
+    axis_id: str = Field(min_length=1)
+    source: AxisSourceRecord
+    overlay: RunRequestParameterLookupValue | None = None
+
+    @model_validator(mode="after")
+    def validate_overlay(self) -> AxisRecord:
+        if (
+            isinstance(self.source, AxisAroundSourceRecord)
+            and self.overlay is not None
+            and self.source.center != self.overlay
+        ):
+            raise ValueError("an around-axis overlay must also be its center")
+        return self
 
 
 class GridDomainRecord(_RunRequestModel):
@@ -237,7 +201,14 @@ class GridDomainRecord(_RunRequestModel):
     """
 
     kind: Literal["grid"] = "grid"
-    axes: list[ScanRecord] = Field(default_factory=list)
+    axes: list[AxisRecord] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_axes(self) -> GridDomainRecord:
+        axis_ids = [axis.axis_id for axis in self.axes]
+        if len(axis_ids) != len(set(axis_ids)):
+            raise ValueError("grid axis ids must be unique")
+        return self
 
 
 class PointCloudDomainRecord(_RunRequestModel):
@@ -306,3 +277,28 @@ class RunRequest(_RunRequestModel):
     point_plan: PointPlanRecord = Field(default_factory=PointPlanRecord)
     stage: RunStageLineage | None = None
     metadata: dict[str, RunRequestJsonValue] = Field(default_factory=dict)
+
+
+__all__ = [
+    "AxisAroundSourceRecord",
+    "AxisRangeSourceRecord",
+    "AxisRecord",
+    "AxisSourceRecord",
+    "AxisValuesSourceRecord",
+    "GridDomainRecord",
+    "PointCloudDomainRecord",
+    "PointDomainRecord",
+    "PointPlanRecord",
+    "RunRequest",
+    "RunRequestBinaryOperator",
+    "RunRequestBinaryValue",
+    "RunRequestEntityRef",
+    "RunRequestExpressionValue",
+    "RunRequestJsonValue",
+    "RunRequestParameterLookupValue",
+    "RunRequestParameterValue",
+    "RunRequestQuantity",
+    "RunRequestRangeValue",
+    "RunRequestScalarValue",
+    "RunRequestValue",
+]

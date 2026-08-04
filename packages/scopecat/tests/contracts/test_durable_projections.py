@@ -50,18 +50,18 @@ def test_run_request_projector_matches_golden_and_round_trips(
 @pytest.mark.parametrize(
     "corruption",
     [
-        "unknown_scan_kind",
-        "missing_scan_values",
+        "unknown_axis_source",
+        "missing_around_points",
     ],
 )
 def test_corrupt_run_request_is_rejected(
     corruption: str,
 ) -> None:
     request = deepcopy(_golden("run-request.json"))
-    if corruption == "unknown_scan_kind":
-        request["point_plan"]["domain"]["axes"][0]["kind"] = "compute"
-    elif corruption == "missing_scan_values":
-        del request["point_plan"]["domain"]["axes"][0]["points"]
+    if corruption == "unknown_axis_source":
+        request["point_plan"]["domain"]["axes"][0]["source"]["kind"] = "compute"
+    elif corruption == "missing_around_points":
+        del request["point_plan"]["domain"]["axes"][0]["source"]["points"]
     else:  # pragma: no cover - parametrization is closed above
         raise AssertionError(corruption)
 

@@ -9,7 +9,7 @@ from scopecat.compiler.frontend import resolution
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.program.values import compute as program_compute
-from scopecat.records.run_request import AroundScanRecord, GridDomainRecord
+from scopecat.records.run_request import AxisAroundSourceRecord, GridDomainRecord
 
 
 def _quantity_scan_target() -> sc.ValueRef:
@@ -125,9 +125,9 @@ def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
 
     domain = compiled.request.point_plan.domain
     assert isinstance(domain, GridDomainRecord)
-    [scan] = domain.axes
-    assert isinstance(scan, AroundScanRecord)
-    assert scan.center == sc.Quantity(value=5.0, unit="GHz")
+    [axis] = domain.axes
+    assert isinstance(axis.source, AxisAroundSourceRecord)
+    assert axis.source.center == sc.Quantity(value=5.0, unit="GHz")
 
 
 def test_parameter_lookup_key_rejects_external_operation() -> None:

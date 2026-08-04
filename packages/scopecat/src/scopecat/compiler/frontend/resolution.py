@@ -18,8 +18,8 @@ from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
 from scopecat.compiler.frontend.scan_lowering import (
+    project_axis_record,
     project_point_cloud_record,
-    project_scan_record,
 )
 from scopecat.compiler.frontend.scan_validation import (
     PointDomainValidationError,
@@ -185,7 +185,7 @@ def _materialized_request(
         project_point_cloud_record(PointsSpec(base_domain.axes), inputs=inputs)
         if base_domain.layout == "point_cloud"
         else GridDomainRecord(
-            axes=[project_scan_record(axis, inputs=inputs) for axis in base_domain.axes]
+            axes=[project_axis_record(axis, inputs=inputs) for axis in base_domain.axes]
         )
     )
     return RunRequest.model_validate(

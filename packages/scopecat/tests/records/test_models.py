@@ -29,15 +29,16 @@ from scopecat.records.parameter import (
 )
 from scopecat.records.run import RunStageLineage
 from scopecat.records.run_request import (
-    AroundScanRecord,
+    AxisAroundSourceRecord,
+    AxisRangeSourceRecord,
+    AxisRecord,
+    AxisValuesSourceRecord,
     GridDomainRecord,
-    ParameterRangeScanRecord,
     PointCloudDomainRecord,
     PointPlanRecord,
-    PointScanRecord,
-    RangeScanRecord,
     RunRequest,
     RunRequestEntityRef,
+    RunRequestParameterLookupValue,
     RunRequestParameterValue,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
@@ -119,9 +120,9 @@ def test_run_request_records_canonical_grid_axes_only() -> None:
         point_plan=PointPlanRecord(
             domain=GridDomainRecord(
                 axes=[
-                    PointScanRecord(
+                    AxisRecord(
                         axis_id="drive_frequency",
-                        values=[5.0, 5.1],
+                        source=AxisValuesSourceRecord(values=[5.0, 5.1]),
                     )
                 ]
             ),
@@ -133,15 +134,20 @@ def test_run_request_records_canonical_grid_axes_only() -> None:
 
     assert restored.point_plan == request.point_plan
     assert isinstance(restored.point_plan.domain, GridDomainRecord)
-    assert isinstance(restored.point_plan.domain.axes[0], PointScanRecord)
+    axis = restored.point_plan.domain.axes[0]
+    assert isinstance(axis, AxisRecord)
+    assert isinstance(axis.source, AxisValuesSourceRecord)
     assert restored.model_dump(mode="json")["point_plan"] == {
         "domain": {
             "kind": "grid",
             "axes": [
                 {
-                    "kind": "point",
                     "axis_id": "drive_frequency",
-                    "values": [5.0, 5.1],
+                    "source": {
+                        "kind": "values",
+                        "values": [5.0, 5.1],
+                    },
+                    "overlay": None,
                 }
             ],
         },
@@ -157,9 +163,11 @@ def test_run_request_records_canonical_grid_axes_only() -> None:
                         "kind": "grid",
                         "axes": [
                             {
-                                "kind": "point",
                                 "axis_id": "drive_frequency",
-                                "values": [5.0],
+                                "source": {
+                                    "kind": "values",
+                                    "values": [5.0],
+                                },
                                 "input_id": "frequencies",
                             }
                         ],
@@ -175,8 +183,8 @@ def test_run_request_records_canonical_grid_axes_only() -> None:
                         "kind": "grid",
                         "axes": [
                             {
-                                "kind": "point",
                                 "axis_id": "drive_frequency",
+                                "source": {"kind": "values"},
                             }
                         ],
                     },
@@ -191,8 +199,8 @@ def test_run_request_records_canonical_grid_axes_only() -> None:
                         "kind": "grid",
                         "axes": [
                             {
-                                "kind": "unknown",
                                 "axis_id": "drive_frequency",
+                                "source": {"kind": "unknown"},
                             }
                         ],
                     },
@@ -201,25 +209,31 @@ def test_run_request_records_canonical_grid_axes_only() -> None:
         )
 
 
-def test_range_scan_records_round_trip_numeric_and_quantity_endpoints() -> None:
+def test_axis_range_sources_round_trip_numeric_and_quantity_endpoints() -> None:
     request = RunRequest(
         point_plan=PointPlanRecord(
             domain=GridDomainRecord(
                 axes=[
-                    RangeScanRecord(
+                    AxisRecord(
                         axis_id="power",
-                        start=Quantity(value=-30.0, unit="dBm"),
-                        stop=Quantity(value=0.0, unit="dBm"),
-                        points=61,
+                        source=AxisRangeSourceRecord(
+                            start=Quantity(value=-30.0, unit="dBm"),
+                            stop=Quantity(value=0.0, unit="dBm"),
+                            points=61,
+                        ),
                     ),
-                    ParameterRangeScanRecord(
-                        table_id="device_parameters",
-                        key={"device": "q0"},
-                        column="gain",
+                    AxisRecord(
                         axis_id="gain",
-                        start=-1,
-                        stop=1.0,
-                        points=3,
+                        source=AxisRangeSourceRecord(
+                            start=-1,
+                            stop=1.0,
+                            points=3,
+                        ),
+                        overlay=RunRequestParameterLookupValue(
+                            table_id="device_parameters",
+                            key={"device": "q0"},
+                            column="gain",
+                        ),
                     ),
                 ]
             ),
@@ -233,24 +247,68 @@ def test_range_scan_records_round_trip_numeric_and_quantity_endpoints() -> None:
         "kind": "grid",
         "axes": [
             {
-                "kind": "range",
                 "axis_id": "power",
-                "start": {"value": -30.0, "unit": "dBm"},
-                "stop": {"value": 0.0, "unit": "dBm"},
-                "points": 61,
+                "source": {
+                    "kind": "range",
+                    "start": {"value": -30.0, "unit": "dBm"},
+                    "stop": {"value": 0.0, "unit": "dBm"},
+                    "points": 61,
+                },
+                "overlay": None,
             },
             {
-                "kind": "parameter_range",
-                "table_id": "device_parameters",
-                "key": {"device": "q0"},
-                "column": "gain",
                 "axis_id": "gain",
-                "start": -1,
-                "stop": 1.0,
-                "points": 3,
+                "source": {
+                    "kind": "range",
+                    "start": -1,
+                    "stop": 1.0,
+                    "points": 3,
+                },
+                "overlay": {
+                    "kind": "parameter_lookup",
+                    "table_id": "device_parameters",
+                    "key": {"device": "q0"},
+                    "column": "gain",
+                },
             },
         ],
     }
+
+
+def test_grid_domain_requires_nonempty_unique_axis_ids() -> None:
+    source = AxisValuesSourceRecord(values=[1])
+    with pytest.raises(ValidationError):
+        GridDomainRecord(axes=[AxisRecord(axis_id="", source=source)])
+    with pytest.raises(ValidationError, match="axis ids must be unique"):
+        GridDomainRecord(
+            axes=[
+                AxisRecord(axis_id="frequency", source=source),
+                AxisRecord(axis_id="frequency", source=source),
+            ]
+        )
+
+
+def test_around_axis_overlay_must_also_be_its_center() -> None:
+    center = RunRequestParameterLookupValue(
+        table_id="device_parameters",
+        key={"device": "q0"},
+        column="frequency",
+    )
+    source = AxisAroundSourceRecord(
+        center=center,
+        span=Quantity(value=100.0, unit="MHz"),
+        points=3,
+    )
+
+    assert AxisRecord(axis_id="frequency", source=source, overlay=center).overlay == (
+        center
+    )
+    with pytest.raises(ValidationError, match="overlay must also be its center"):
+        AxisRecord(
+            axis_id="frequency",
+            source=source,
+            overlay=center.model_copy(update={"column": "other"}),
+        )
 
 
 def test_point_cloud_domain_round_trips_without_axis_mixing() -> None:
@@ -329,7 +387,12 @@ def test_point_cloud_domain_requires_exact_unique_columns() -> None:
 def test_point_plan_policy_round_trips_with_its_base_domain() -> None:
     plan = PointPlanRecord(
         domain=GridDomainRecord(
-            axes=[PointScanRecord(axis_id="frequency", values=[5.0, 5.1])]
+            axes=[
+                AxisRecord(
+                    axis_id="frequency",
+                    source=AxisValuesSourceRecord(values=[5.0, 5.1]),
+                )
+            ]
         ),
         repeat=3,
         repeat_mode="sweep",
@@ -361,7 +424,14 @@ def test_point_cloud_plan_rejects_snake_traversal() -> None:
 @pytest.mark.parametrize(
     "domain",
     [
-        GridDomainRecord(axes=[PointScanRecord(axis_id="repeat", values=[0, 1])]),
+        GridDomainRecord(
+            axes=[
+                AxisRecord(
+                    axis_id="repeat",
+                    source=AxisValuesSourceRecord(values=[0, 1]),
+                )
+            ]
+        ),
         PointCloudDomainRecord(
             columns=["repeat"],
             rows=[{"repeat": 0}],
@@ -375,51 +445,37 @@ def test_repeated_point_plan_reserves_the_repeat_coordinate(
         PointPlanRecord(domain=domain, repeat=2)
 
 
-@pytest.mark.parametrize("field", ["scans", "point_domain"])
-def test_run_request_rejects_legacy_point_domain_fields(field: str) -> None:
+def test_generated_axis_sources_require_quantity_spans_and_two_points() -> None:
     with pytest.raises(ValidationError):
-        RunRequest.model_validate({field: []})
-
-
-def test_generated_scan_records_require_quantity_spans_and_two_points() -> None:
-    with pytest.raises(ValidationError):
-        AroundScanRecord.model_validate(
+        AxisAroundSourceRecord.model_validate(
             {
-                "axis_id": "power",
                 "center": Quantity(value=-20.0, unit="dBm"),
                 "span": 6.0,
                 "points": 3,
             }
         )
     with pytest.raises(ValidationError):
-        RangeScanRecord(
-            axis_id="power",
+        AxisRangeSourceRecord(
             start=Quantity(value=-30.0, unit="dBm"),
             stop=Quantity(value=0.0, unit="dBm"),
             points=1,
         )
     with pytest.raises(ValidationError):
-        RangeScanRecord.model_validate(
+        AxisRangeSourceRecord.model_validate(
             {
-                "axis_id": "power",
                 "start": "-30",
                 "stop": "0",
                 "points": 3,
             }
         )
     with pytest.raises(ValidationError, match="both be quantities"):
-        RangeScanRecord(
-            axis_id="power",
+        AxisRangeSourceRecord(
             start=Quantity(value=-30.0, unit="dBm"),
             stop=0.0,
             points=3,
         )
     with pytest.raises(ValidationError, match="compatible units"):
-        ParameterRangeScanRecord(
-            table_id="device_parameters",
-            key={"device": "q0"},
-            column="value",
-            axis_id="value",
+        AxisRangeSourceRecord(
             start=Quantity(value=0.0, unit="V"),
             stop=Quantity(value=1.0, unit="s"),
             points=3,
@@ -444,14 +500,16 @@ def test_run_request_values_have_a_closed_durable_domain() -> None:
                     "kind": "grid",
                     "axes": [
                         {
-                            "kind": "scan",
                             "axis_id": "drive_frequency",
-                            "center": {
-                                "kind": "parameter",
-                                "parameter_id": "drive_frequency",
+                            "source": {
+                                "kind": "around",
+                                "center": {
+                                    "kind": "parameter",
+                                    "parameter_id": "drive_frequency",
+                                },
+                                "span": Quantity(value=100.0, unit="MHz"),
+                                "points": 3,
                             },
-                            "span": Quantity(value=100.0, unit="MHz"),
-                            "points": 3,
                         },
                     ],
                 },
@@ -473,10 +531,12 @@ def test_run_request_values_have_a_closed_durable_domain() -> None:
     }
     assert isinstance(request.inputs["frequency"], Quantity)
     assert isinstance(request.point_plan.domain, GridDomainRecord)
-    scan = request.point_plan.domain.axes[0]
-    assert isinstance(scan, AroundScanRecord)
-    assert scan.center == RunRequestParameterValue(parameter_id="drive_frequency")
-    assert scan.span == Quantity(value=100.0, unit="MHz")
+    axis = request.point_plan.domain.axes[0]
+    assert isinstance(axis.source, AxisAroundSourceRecord)
+    assert axis.source.center == RunRequestParameterValue(
+        parameter_id="drive_frequency"
+    )
+    assert axis.source.span == Quantity(value=100.0, unit="MHz")
     assert RunRequest.model_validate_json(request.model_dump_json()) == request
 
 
@@ -534,17 +594,18 @@ def test_run_request_symbolic_values_are_closed_and_recursive() -> None:
             "column": "frequency",
         },
     }
-    scan = AroundScanRecord.model_validate(
+    source = AxisAroundSourceRecord.model_validate(
         {
-            "axis_id": "drive_frequency",
             "center": center,
             "span": Quantity(value=100.0, unit="MHz"),
             "points": 3,
         }
     )
 
-    assert scan.model_dump(mode="json")["center"] == center
-    assert AroundScanRecord.model_validate_json(scan.model_dump_json()) == scan
+    assert source.model_dump(mode="json")["center"] == center
+    assert (
+        AxisAroundSourceRecord.model_validate_json(source.model_dump_json()) == source
+    )
 
 
 @pytest.mark.parametrize(
@@ -562,20 +623,18 @@ def test_run_request_rejects_opaque_values_early(
         RunRequest.model_validate({field: value})
 
 
-def test_scan_records_reject_unknown_or_structured_scalar_values() -> None:
+def test_axis_sources_reject_unknown_or_structured_scalar_values() -> None:
     with pytest.raises(ValidationError):
-        AroundScanRecord.model_validate(
+        AxisAroundSourceRecord.model_validate(
             {
-                "axis_id": "drive_frequency",
                 "center": {"kind": "unknown", "value": 5.0},
                 "span": 1.0,
                 "points": 3,
             }
         )
     with pytest.raises(ValidationError):
-        PointScanRecord.model_validate(
+        AxisValuesSourceRecord.model_validate(
             {
-                "axis_id": "drive_frequency",
                 "values": [{"arbitrary": "mapping"}],
             }
         )
