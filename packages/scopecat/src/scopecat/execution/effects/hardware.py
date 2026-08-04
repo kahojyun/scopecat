@@ -52,7 +52,7 @@ class HardwareEffectExecutor:
         )
         return self._execute_actions(actions, frame_for=frame_for)
 
-    def execute_final_state(
+    def execute_success_state(
         self,
         operations: Sequence[ApplyStateOperation],
     ) -> bool:
@@ -125,7 +125,7 @@ class HardwareEffectExecutor:
             if frame_for is None:
                 self.problems.problems.append(
                     self.problems.problem(
-                        "instrument_final_state_returned_value",
+                        "instrument_success_state_returned_value",
                         "normal-completion state application returned "
                         "an unexpected measurement",
                         operation_id=batch.operation_id,

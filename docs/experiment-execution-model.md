@@ -76,6 +76,26 @@ never names an instrument or channel. It may select logical entities from
 accepted inputs, parameters, or point coordinates; the accepted configuration
 alone owns their finite physical endpoint mapping.
 
+### Completion and failure state
+
+`experiment.on_success(client, state)` declares a fixed state applied after
+the experiment's effects and point coverage complete without failure,
+indeterminate outcome, or interruption. It is a normal-completion operation,
+not an unconditional cleanup hook; final dataset sealing and the durable
+terminal commit may still occur afterward.
+
+Failure cleanup belongs at the layer that can still command the hardware:
+
+- the instrument driver owns `abort()` and is the only cleanup attempted after
+  an unknown hardware outcome;
+- accepted instrument configuration may select `abort_then_safe_state` to add
+  a sparse safe state after abort while the device remains commandable;
+- a domain runtime owns abort and cleanup for domain-controlled hardware.
+
+Authoring deliberately exposes no arbitrary Python `finally` callback or
+promised-always state. Workflows that require stronger cleanup must first move
+that intent to daemon ownership before the first hardware effect.
+
 Product declaration, acquisition, and recording are distinct:
 
 1. A module or native domain call declares the identity and shape of products

@@ -162,22 +162,22 @@ def verify_value_record_references(
         )
 
 
-def verify_final_state_values(
+def verify_success_state_values(
     program: LogicalProgram,
     problems: list[Problem],
 ) -> None:
-    final_state = program.final_state
-    if final_state is None:
+    success_state = program.success_state
+    if success_state is None:
         return
     definitions = {definition.id: definition for definition in program.value_defs}
     operation_result_ids = {operation.result_id for operation in program.compute_nodes}
-    for index, assignment in enumerate(final_state.assignments):
-        location = model_location("final_state", index, "value")
+    for index, assignment in enumerate(success_state.assignments):
+        location = model_location("success_state", index, "value")
         if assignment.value_id in operation_result_ids:
             problems.append(
                 compiler_problem(
-                    "experiment_final_state_requires_execution",
-                    "experiment final_state cannot depend on point-local compute",
+                    "experiment_success_state_requires_execution",
+                    "experiment success_state cannot depend on point-local compute",
                     location,
                     phase=ProblemPhase.AUTHORING,
                 )
@@ -187,8 +187,8 @@ def verify_final_state_values(
         if isinstance(source, ScalarExpr) and expression_point_refs(source):
             problems.append(
                 compiler_problem(
-                    "experiment_final_state_depends_on_point",
-                    "experiment final_state cannot depend on scan coordinates",
+                    "experiment_success_state_depends_on_point",
+                    "experiment success_state cannot depend on scan coordinates",
                     location,
                     phase=ProblemPhase.AUTHORING,
                 )

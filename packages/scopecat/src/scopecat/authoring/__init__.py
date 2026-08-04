@@ -38,11 +38,11 @@ from scopecat.authoring.entity_parameters import (
 from scopecat.authoring.experiments import (
     ExperimentInvocation,
 )
-from scopecat.authoring.finalization import (
-    Finalizable,
-    FinalizationTarget,
-)
 from scopecat.authoring.scans import PointRow, Scan, axis, param_axis, points
+from scopecat.authoring.state_projection import (
+    StateProjector,
+    StateTarget,
+)
 from scopecat.program.products import (
     ProductRef,
 )
@@ -104,8 +104,6 @@ __all__ = [
     "ExperimentContext",
     "ExperimentInvocation",
     "ExperimentModule",
-    "Finalizable",
-    "FinalizationTarget",
     "FloatType",
     "Input",
     "IntType",
@@ -128,6 +126,8 @@ __all__ = [
     "ScalarInput",
     "ScalarType",
     "Scan",
+    "StateProjector",
+    "StateTarget",
     "StringType",
     "TableColumn",
     "TableType",

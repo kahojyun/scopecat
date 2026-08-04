@@ -246,9 +246,9 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
     instrument = InterruptingCollectInstrument()
     experiment = load_experiment()
     [selected_state] = experiment.logical.program.bindings
-    final_frequency = Quantity(91.0, "GHz")
-    final_value = LiteralScalarExpr(final_frequency)
-    final_value_id = ValueId(SymbolId(scope=("final_state",), local_id="frequency"))
+    success_frequency = Quantity(91.0, "GHz")
+    success_value = LiteralScalarExpr(success_frequency)
+    success_value_id = ValueId(SymbolId(scope=("success_state",), local_id="frequency"))
     experiment = replace(
         experiment,
         logical=replace(
@@ -258,18 +258,18 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
                 value_defs=(
                     *experiment.logical.program.value_defs,
                     ValueDef(
-                        id=final_value_id,
-                        value_type=final_value.value_type,
-                        source=final_value,
+                        id=success_value_id,
+                        value_type=success_value.value_type,
+                        source=success_value,
                     ),
                 ),
-                final_state=LogicalEnsureState(
-                    (replace(selected_state, value_id=final_value_id),)
+                success_state=LogicalEnsureState(
+                    (replace(selected_state, value_id=success_value_id),)
                 ),
             ),
             scalar_values={
                 **experiment.logical.scalar_values,
-                final_value_id: final_value,
+                success_value_id: success_value,
             },
         ),
     )
@@ -294,7 +294,7 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
     }
     assert instrument.aborted
     [point_state] = instrument.applied_requests
-    assert final_frequency not in point_state.values.values()
+    assert success_frequency not in point_state.values.values()
     assert manifest.outcome is not None
     assert manifest.outcome.result == "cancelled"
     assert "execution_interrupted" in {

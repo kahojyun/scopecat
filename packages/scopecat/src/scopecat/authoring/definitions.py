@@ -40,9 +40,9 @@ from scopecat.authoring.entity_parameters import PerEntity
 from scopecat.authoring.experiments import (
     Experiment,
 )
-from scopecat.authoring.finalization import Finalizable
 from scopecat.authoring.scans import PointRow, Scan
 from scopecat.authoring.scans import points as point_rows
+from scopecat.authoring.state_projection import StateProjector
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.instrument_members import (
@@ -215,17 +215,17 @@ class ExperimentContext:
     """Explicit recorder injected into one complete experiment definition."""
 
     __slots__ = (
-        "_final_state_bindings",
         "_program",
         "_record_selections",
         "_scans",
+        "_success_state_bindings",
     )
 
     def __init__(self) -> None:
         self._program = ModuleContext()
         self._scans: list[Scan] = []
         self._record_selections: list[ProgramRecordSelection] = []
-        self._final_state_bindings: list[BindingIntent] = []
+        self._success_state_bindings: list[BindingIntent] = []
 
     def close_definition_internal(
         self,
@@ -254,7 +254,7 @@ class ExperimentContext:
             input_defaults=input_defaults,
             required_inputs=required_inputs,
             default_scans=self._scans,
-            final_state_bindings=self._final_state_bindings,
+            success_state_bindings=self._success_state_bindings,
             metadata=metadata,
         )
 
@@ -503,22 +503,22 @@ class ExperimentContext:
                 )
             )
 
-    def finalize[StateT](
+    def on_success[StateT](
         self,
-        resource: Finalizable[StateT],
+        resource: StateProjector[StateT],
         target: StateT,
     ) -> None:
-        """Declare typed state after normal experiment completion."""
+        """Declare fixed state after normal point/effect completion."""
 
-        for logical_resource, desired_state in resource.finalization_targets(target):
-            self._append_finalization_target(logical_resource, desired_state)
+        for logical_resource, desired_state in resource.state_targets(target):
+            self._append_success_state_target(logical_resource, desired_state)
 
-    def _append_finalization_target(
+    def _append_success_state_target(
         self,
         resource: DefinitionResource,
         assignments: Mapping[PropertyRef, StateBinding],
     ) -> None:
-        """Validate and append one normalized final-state target."""
+        """Validate and append one normalized success-state target."""
 
         self._program.require_owned_resource_internal(resource)
         intent = build_ensure_state_intent(resource.port_id, assignments)
@@ -528,13 +528,13 @@ class ExperimentContext:
                 continue
             if internal_value_ref_requires_execution(value):
                 raise ValueError(
-                    "experiment final_state cannot depend on point-local compute"
+                    "experiment success_state cannot depend on point-local compute"
                 )
             if internal_value_ref_point_dependencies(value):
                 raise ValueError(
-                    "experiment final_state cannot depend on scan coordinates"
+                    "experiment success_state cannot depend on scan coordinates"
                 )
-        self._final_state_bindings.extend(intent.assignments)
+        self._success_state_bindings.extend(intent.assignments)
 
 
 @overload

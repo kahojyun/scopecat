@@ -280,15 +280,15 @@ def materialize_local_execution(
     )
 
 
-def materialize_local_final_state(
+def materialize_local_success_state(
     bound: BoundPlan,
     *,
     target: LocalTargetPlan,
 ) -> tuple[ApplyStateOperation, ...]:
-    """Materialize the fixed desired state applied after normal completion."""
+    """Materialize the fixed desired state applied after successful completion."""
 
-    final_state = target.bound.program.program.final_state
-    if final_state is None:
+    authored_success_state = target.bound.program.program.success_state
+    if authored_success_state is None:
         return ()
     problems: list[Problem] = []
     resources = select_resources(
@@ -298,11 +298,11 @@ def materialize_local_final_state(
         context="normal completion",
         problems=problems,
         selected_port_ids=frozenset(
-            assignment.port_id for assignment in final_state.assignments
+            assignment.port_id for assignment in authored_success_state.assignments
         ),
     )
     records: list[StateRecord] = []
-    for assignment in final_state.assignments:
+    for assignment in authored_success_state.assignments:
         try:
             records.append(
                 evaluate_state_assignment(
@@ -318,14 +318,14 @@ def materialize_local_final_state(
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
             problems.append(
                 compiler_problem(
-                    "experiment_final_state_evaluation_failed",
-                    f"experiment final_state evaluation failed: {error}",
-                    model_location("final_state"),
+                    "experiment_success_state_evaluation_failed",
+                    f"experiment success_state evaluation failed: {error}",
+                    model_location("success_state"),
                 )
             )
     desired = bind_desired_state(
         records,
-        point_uid=f"{bound.program.experiment_id}.final_state",
+        point_uid=f"{bound.program.experiment_id}.success_state",
         state_group_index=len(target.bound.program.program.effects),
         resources=resources,
         point_index=0,
@@ -337,7 +337,7 @@ def materialize_local_final_state(
         },
         problems=problems,
         state_context="normal completion",
-        state_location=model_location("final_state"),
+        state_location=model_location("success_state"),
     )
     if problems:
         raise CheckFailed(problems)

@@ -401,7 +401,7 @@ def _execute_instrument_effects(
     return engine.run(
         program.coverage,
         points=program.points.points,
-        final_state=program.final_state,
+        success_state=program.success_state,
     )
 
 

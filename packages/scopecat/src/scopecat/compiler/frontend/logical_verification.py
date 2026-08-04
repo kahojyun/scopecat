@@ -22,14 +22,14 @@ from scopecat.compiler.frontend.logical_product_validation import (
 from scopecat.compiler.frontend.logical_resource_validation import (
     collect_resource_ports,
     verify_effect_resource_ports,
-    verify_final_state_resources,
     verify_resource_selector_values,
+    verify_success_state_resources,
 )
 from scopecat.compiler.frontend.logical_value_validation import (
     bind_value_definition_inputs,
     verify_effect_value_references,
-    verify_final_state_values,
     verify_scalar_values,
+    verify_success_state_values,
     verify_value_record_references,
 )
 from scopecat.kernel.errors import CheckFailed
@@ -163,8 +163,8 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
             problems,
         )
     verify_effect_resource_ports(normalized, resource_ports, problems)
-    verify_final_state_values(normalized, problems)
-    verify_final_state_resources(normalized, resource_ports, problems)
+    verify_success_state_values(normalized, problems)
+    verify_success_state_resources(normalized, resource_ports, problems)
     if verified_graph is not None:
         verify_resource_selector_values(normalized, problems)
         verify_product_axis_dependencies(normalized, problems)

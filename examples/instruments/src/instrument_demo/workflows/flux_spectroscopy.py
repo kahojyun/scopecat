@@ -73,7 +73,7 @@ def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
     )
     trace = readout.sweep()
     sample = temperature.sample()
-    experiment.finalize(flux_source, DCSourceTarget(output_enabled=False))
+    experiment.on_success(flux_source, DCSourceTarget(output_enabled=False))
 
     experiment.record(trace, sample.temperature)
 

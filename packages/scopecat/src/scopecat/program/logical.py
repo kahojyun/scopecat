@@ -248,7 +248,7 @@ class LogicalProgram:
         )
     )
     effects: tuple[LogicalEffect, ...] = ()
-    final_state: LogicalEnsureState | None = None
+    success_state: LogicalEnsureState | None = None
 
     def __post_init__(self) -> None:
         if not self.experiment_id or not self.kind:
@@ -290,7 +290,7 @@ class LogicalProgram:
         )
         return (
             *effect_bindings,
-            *(() if self.final_state is None else self.final_state.assignments),
+            *(() if self.success_state is None else self.success_state.assignments),
         )
 
     @property

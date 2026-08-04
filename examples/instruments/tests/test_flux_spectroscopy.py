@@ -114,11 +114,11 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
 
     invocation = flux_spectroscopy_template()
     definition = invocation.definition
-    final_state = definition.final_state
-    assert isinstance(final_state, EnsureStateIntent)
+    success_state = definition.success_state
+    assert isinstance(success_state, EnsureStateIntent)
     assert [
         (assignment.property_id, assignment.value)
-        for assignment in final_state.assignments
+        for assignment in success_state.assignments
     ] == [("output_enabled", False)]
     assert [
         assignment.value

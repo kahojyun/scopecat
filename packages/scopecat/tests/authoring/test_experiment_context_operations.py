@@ -8,7 +8,7 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource
-from scopecat.authoring.finalization import FinalizationTarget
+from scopecat.authoring.state_projection import StateTarget
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.measurements.results import MeasurementValue
 from scopecat.program.logical import (
@@ -50,11 +50,11 @@ def _device_assignments(
 class _TypedDevice:
     resource: DefinitionResource
 
-    def finalization_targets(
+    def state_targets(
         self,
         state: _DeviceTarget,
         /,
-    ) -> tuple[FinalizationTarget, ...]:
+    ) -> tuple[StateTarget, ...]:
         return ((self.resource, _device_assignments(state)),)
 
 
@@ -105,7 +105,7 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
             kernel=_derive_signal,
         )
         experiment.record(raw, derived)
-        experiment.finalize(
+        experiment.on_success(
             _TypedDevice(device),
             _DeviceTarget(level=0.0, enabled=False),
         )
@@ -145,9 +145,9 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
     [acquisition] = logical.acquisitions
     assert acquisition.resource_port_id.qualified_name == "device"
     assert acquisition.results[0].metadata == {"mode": "fast"}
-    assert isinstance(logical.final_state, LogicalEnsureState)
+    assert isinstance(logical.success_state, LogicalEnsureState)
     assert [
-        assignment.property_id for assignment in logical.final_state.assignments
+        assignment.property_id for assignment in logical.success_state.assignments
     ] == ["level", "enabled"]
 
 

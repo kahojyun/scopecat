@@ -284,7 +284,7 @@ class LogicalProgramBuilder:
             | AcquireEffect,
             ...,
         ],
-        final_state: LogicalEnsureState | None,
+        success_state: LogicalEnsureState | None,
     ) -> LogicalProgram:
         return LogicalProgram(
             experiment_id=experiment_id,
@@ -305,7 +305,7 @@ class LogicalProgramBuilder:
             measurement_postprocessors=tuple(self._measurement_postprocessors),
             implementations=MappingProxyType(dict(self._implementations)),
             effects=effects,
-            final_state=final_state,
+            success_state=success_state,
         )
 
     def _add_compute_input(

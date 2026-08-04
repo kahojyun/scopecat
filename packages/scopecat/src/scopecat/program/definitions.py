@@ -67,7 +67,7 @@ class ExperimentDef:
     inputs: tuple[ExperimentInputDef, ...] = ()
     default_scans: tuple[Scan, ...] = ()
     record_selections: tuple[ProgramRecordSelection, ...] = ()
-    final_state: EnsureStateIntent | None = None
+    success_state: EnsureStateIntent | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
     def __post_init__(self) -> None:
@@ -130,7 +130,7 @@ def create_experiment_def(
     input_defaults: Mapping[str, RuntimeInput] | None = None,
     required_inputs: Sequence[str] = (),
     default_scans: Sequence[Scan] = (),
-    final_state_bindings: Sequence[BindingIntent] = (),
+    success_state_bindings: Sequence[BindingIntent] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentDef:
     """Normalize all experiment semantics at one immutable boundary."""
@@ -179,9 +179,9 @@ def create_experiment_def(
         inputs=normalized_inputs,
         default_scans=selected_scans,
         record_selections=selected_records,
-        final_state=(
-            EnsureStateIntent(tuple(final_state_bindings))
-            if final_state_bindings
+        success_state=(
+            EnsureStateIntent(tuple(success_state_bindings))
+            if success_state_bindings
             else None
         ),
         metadata=freeze_json_mapping(metadata or {}),
