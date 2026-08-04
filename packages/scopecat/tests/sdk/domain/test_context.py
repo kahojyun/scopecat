@@ -92,11 +92,11 @@ def _domain_scenario(
         kind="domain_context",
     )
     def template(experiment: sc.ExperimentContext) -> None:
-        module_call = experiment.use(domain_module(count_input=count))
+        products = experiment.use(domain_module(count_input=count))
         experiment.scan(sc.axis(count, (1, 3, 5)))
         if record_raw:
-            experiment.record(module_call.result.raw, record_id="raw")
-        experiment.record(module_call.result.summary, record_id="summary")
+            experiment.record(products.raw, record_id="raw")
+        experiment.record(products.summary, record_id="summary")
 
     resolved = bind_invocation(
         template.bind(),

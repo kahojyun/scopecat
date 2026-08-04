@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Annotated, assert_type
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Annotated, assert_type, cast
 
 import pytest
 
@@ -235,6 +236,40 @@ def test_plain_experiment_arguments_are_structural() -> None:
     if TYPE_CHECKING:
         count_experiment("invalid")  # pyright: ignore[reportArgumentType]
         count_experiment(unknown=3)  # pyright: ignore[reportCallIssue]
+
+
+def test_use_returns_typed_results_and_requires_an_occurrence() -> None:
+    @sc.module(id="test.use.value")
+    def value_source(module: sc.ModuleContext) -> sc.ValueRef:
+        return module.compute(
+            "value",
+            fn=lambda: 1,
+            output_type=sc.ScalarType(_COUNT_TYPE),
+        )
+
+    @sc.module(id="test.use.noop")
+    def noop(module: sc.ModuleContext) -> None:
+        del module
+
+    @sc.module(id="test.use.parent")
+    def parent(module: sc.ModuleContext) -> sc.ValueRef:
+        value = assert_type(module.use(value_source()), sc.ValueRef)
+        assert module.use(noop()) is None
+        return value
+
+    @sc.experiment(id="test.use.experiment", kind="use")
+    def authored(experiment: sc.ExperimentContext) -> None:
+        value = assert_type(experiment.use(parent()), sc.ValueRef)
+        experiment.record(value)
+
+    compile_invocation(authored())
+
+    for context in (sc.ModuleContext(), sc.ExperimentContext()):
+        with pytest.raises(
+            TypeError,
+            match=r"use\(\) requires a module invocation or domain call",
+        ):
+            cast("Callable[[object], object]", context.use)(value_source)
 
 
 def test_definition_annotations_require_an_unambiguous_value_type() -> None:

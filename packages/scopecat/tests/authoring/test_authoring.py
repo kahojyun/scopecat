@@ -406,7 +406,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
 
     @sc.experiment(id="test.runtime_entity_scan", kind="runtime_entity_scan")
     def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.use(
+        signal = experiment.use(
             module(
                 qubit_input=qubit,
                 drive_frequency=authoring.parameter_lookup(
@@ -417,7 +417,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
                 ),
             )
         )
-        experiment.record(call.result)
+        experiment.record(signal)
 
     resolved = bind_invocation(
         template.bind().scan(
@@ -532,7 +532,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
         experiment: sc.ExperimentContext,
         qubit: _LogicalDeviceInput,
     ) -> None:
-        call = experiment.use(module(qubit=qubit))
+        signal = experiment.use(module(qubit=qubit))
         experiment.scan(
             sc.axis(
                 drive_length,
@@ -546,7 +546,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
                 points=3,
             ),
         )
-        experiment.record(call.result)
+        experiment.record(signal)
 
     resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
@@ -906,8 +906,8 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
     @sc.experiment(id="test.scripted_scan", kind="simple_scan")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.use(prelude())
-        call = experiment.use(scan(DRIVE_FREQUENCY_POINT))
-        experiment.record(call.result)
+        signal = experiment.use(scan(DRIVE_FREQUENCY_POINT))
+        experiment.record(signal)
 
     resolved = bind_invocation(
         template().scan(

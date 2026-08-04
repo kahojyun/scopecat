@@ -61,9 +61,9 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
 
     @sc.experiment(id="test.domain.view", kind="domain_view")
     def template(experiment: sc.ExperimentContext) -> None:
-        placed = experiment.use(authored_call)
+        results = experiment.use(authored_call)
         experiment.scan(sc.axis(count, (1, 3, 5)))
-        experiment.record(placed.results.counts, record_id="counts")
+        experiment.record(results.counts, record_id="counts")
 
     resolved = bind_invocation(
         template.bind(),

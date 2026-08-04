@@ -217,13 +217,13 @@ class ModuleContext:
     def use[ResultT](
         self,
         part: ModuleInvocation[ResultT],
-    ) -> ModuleInvocation[ResultT]: ...
+    ) -> ResultT: ...
 
     @overload
-    def use(self, part: DomainCall) -> DomainCall: ...
+    def use(self, part: DomainCall) -> ProductRefs: ...
 
     @overload
-    def use[T: DomainCallProvider](self, part: T) -> T: ...
+    def use(self, part: DomainCallProvider) -> ProductRefs: ...
 
     def use(
         self,
@@ -234,10 +234,15 @@ class ModuleContext:
         if isinstance(part, ModuleInvocation):
             invocation = cast("ModuleInvocation[object]", part)
             self.append_invocation_internal(invocation)
-            return invocation
-        call = domain_use_call(part)
+            return invocation.result
+        try:
+            call = domain_use_call(part)
+        except TypeError as error:
+            raise TypeError(
+                "use() requires a module invocation or domain call"
+            ) from error
         self.append_domain_call_internal(call)
-        return part
+        return call.results
 
     def _resource(
         self,

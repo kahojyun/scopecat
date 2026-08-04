@@ -91,9 +91,7 @@ def simple_frequency_scan_template() -> Experiment[...]:
         ],
     ) -> None:
         del subject
-        module_call = experiment.use(
-            SIMPLE_FREQUENCY_SCAN(frequency=DRIVE_FREQUENCY_POINT)
-        )
+        signal = experiment.use(SIMPLE_FREQUENCY_SCAN(frequency=DRIVE_FREQUENCY_POINT))
         experiment.scan(
             sc.axis(
                 DRIVE_FREQUENCY_POINT,
@@ -105,7 +103,7 @@ def simple_frequency_scan_template() -> Experiment[...]:
                 points=3,
             ),
         )
-        experiment.record(module_call.result, record_id="signal")
+        experiment.record(signal, record_id="signal")
 
     return authoring.experiment(
         id="test.session.simple_frequency_scan",

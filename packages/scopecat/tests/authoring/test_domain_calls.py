@@ -381,8 +381,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         context: sc.ModuleContext,
         x_count: Annotated[sc.Input[int], sc.IntType(minimum=0)],
     ) -> sc.ProductRef:
-        inner = context.use(child.instantiate("inner", x_count=x_count))
-        return inner.result
+        return context.use(child.instantiate("inner", x_count=x_count))
 
     point_x_count = sc.coordinate(
         "x_count",
@@ -410,8 +409,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
 
     @sc.experiment(id="test.domain", kind="domain")
     def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.use(root_module(point_x_count))
-        selected_product = call.result
+        selected_product = experiment.use(root_module(point_x_count))
         experiment.scan(sc.axis(point_x_count, (1, 2)))
         experiment.record(selected_product, record_id="counts_first")
         experiment.record(selected_product, record_id="counts_second")

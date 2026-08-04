@@ -292,8 +292,8 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
 
     @sc.experiment(id="test.quantum.call-template", kind="x_count")
     def experiment(context: sc.ExperimentContext) -> None:
-        placed = assert_type(context.use(call), authoring.QuantumProgramCall)
-        context.record(placed.results.iq_shots)
+        results = context.use(call)
+        context.record(results.iq_shots)
 
     invocation = experiment()
     [selection] = invocation.definition.record_selections
@@ -419,11 +419,11 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
     @sc.module
     def discriminate(module: sc.ModuleContext) -> None:
         call = declaration("q0").with_shots(16)
-        placed = assert_type(module.use(call), authoring.QuantumProgramCall)
+        results = module.use(call)
         assert_type(
             binary_iq_probabilities(
                 module,
-                placed.results.iq_shots,
+                results.iq_shots,
                 discriminator=BinaryIqDiscriminator(
                     state_0_centroid=IqCentroid(real=-1, imag=0),
                     state_1_centroid=IqCentroid(real=1, imag=0),

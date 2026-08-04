@@ -30,7 +30,6 @@ from scopecat.authoring._module_invocation import (
     DomainCallProvider,
     ModuleInvocation,
     domain_use_call,
-    module_use_invocation,
 )
 from scopecat.authoring._module_results import (
     ProductBundle,
@@ -70,6 +69,7 @@ from scopecat.program.products import (
     ProductAxis,
     ProductRecording,
     ProductRef,
+    ProductRefs,
     record_coordinate,
     record_product,
 )
@@ -261,20 +261,14 @@ class ExperimentContext:
     @overload
     def use[ResultT](
         self,
-        part: ExperimentModule[ResultT, ...],
-    ) -> ModuleInvocation[ResultT]: ...
-
-    @overload
-    def use[ResultT](
-        self,
         part: ModuleInvocation[ResultT],
-    ) -> ModuleInvocation[ResultT]: ...
+    ) -> ResultT: ...
 
     @overload
-    def use(self, part: DomainCall) -> DomainCall: ...
+    def use(self, part: DomainCall) -> ProductRefs: ...
 
     @overload
-    def use[T: DomainCallProvider](self, part: T) -> T: ...
+    def use(self, part: DomainCallProvider) -> ProductRefs: ...
 
     def use(
         self,
@@ -282,16 +276,18 @@ class ExperimentContext:
     ) -> object:
         """Place one module or domain occurrence in the root experiment."""
 
-        if isinstance(part, DomainCall) or isinstance(
-            getattr(part, "domain_call", None),
-            DomainCall,
-        ):
+        if isinstance(part, ModuleInvocation):
+            invocation = cast("ModuleInvocation[object]", part)
+            self._program.append_invocation_internal(invocation)
+            return invocation.result
+        try:
             call = domain_use_call(part)
-            self._program.append_domain_call_internal(call)
-            return part
-        invocation = _module_invocation(part)
-        self._program.append_invocation_internal(invocation)
-        return invocation
+        except TypeError as error:
+            raise TypeError(
+                "use() requires a module invocation or domain call"
+            ) from error
+        self._program.append_domain_call_internal(call)
+        return call.results
 
     def _resource(
         self,
@@ -968,17 +964,6 @@ def _python_annotation_matches(annotation: object, value_type: ValueType) -> boo
 
 def _input_port(name: str, value: ValueRef) -> ModuleInputPort:
     return ModuleInputPort(id=name, value_type=value.value_type)
-
-
-def _module_invocation(value: object) -> ModuleInvocation[object]:
-    if isinstance(value, ExperimentModule):
-        return cast("ModuleInvocation[object]", value())
-    try:
-        return module_use_invocation(value)
-    except TypeError as error:
-        raise TypeError(
-            "ExperimentContext.use() requires a module or domain call"
-        ) from error
 
 
 def _definition_id(fn: DefinitionFunction) -> str:

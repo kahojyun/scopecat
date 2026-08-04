@@ -50,8 +50,9 @@ workflow.
 The public authoring model follows four rules:
 
 1. `@module` defines a reusable graph fragment. Its Python return value is its
-   sole composition result; an invocation exposes that value as `.result`, while
-   `context.use(...)` places the invocation's effects at either authoring boundary.
+   sole composition result. `context.use(module(...))` places the invocation's
+   effects and returns that typed result directly at either authoring boundary.
+   Domain calls likewise return their owned result products from `use(...)`.
    There is no second user-authored output or product-export declaration.
 2. `@experiment` authors a complete experiment. Parameters annotated as
    `Input[T]` are typed runtime inputs and may have definition defaults; plain

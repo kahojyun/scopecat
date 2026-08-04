@@ -403,11 +403,11 @@ def test_direct_result_preserves_its_declared_assignable_input_type() -> None:
 
     @sc.module(id="test.results.assignable-direct-result-root")
     def root(context: sc.ModuleContext, value: _MhzQuantityInput) -> None:
-        instance = context.use(source.instantiate("source", value=sc.input_ref(value)))
+        result = context.use(source.instantiate("source", value=sc.input_ref(value)))
         context.compute(
             "capture",
             fn=_identity_consumed,
-            inputs={"consumed": instance.result},
+            inputs={"consumed": result},
             output_type=ghz_type,
         )
 
@@ -434,8 +434,7 @@ def test_direct_table_result_preserves_its_declared_assignable_input_type() -> N
 
     @sc.module(id="test.results.assignable-direct-table-result-root")
     def root(context: sc.ModuleContext, rows: _MhzFrequencyTableInput) -> sc.ValueRef:
-        instance = context.use(source.instantiate("source", rows=sc.input_ref(rows)))
-        return instance.result
+        return context.use(source.instantiate("source", rows=sc.input_ref(rows)))
 
     flattened = compose_module(root.definition)
 
@@ -531,7 +530,7 @@ def test_result_roots_preserve_free_inputs_and_value_provenance() -> None:
 
     @sc.module(id="test.results.roots.wrapper")
     def wrapper(context: sc.ModuleContext, value: _FloatInput) -> sc.ValueRef:
-        source_instance = context.use(
+        result = context.use(
             source.instantiate(
                 "source",
                 value=sc.input_ref(value),
@@ -539,7 +538,7 @@ def test_result_roots_preserve_free_inputs_and_value_provenance() -> None:
                 point_value=0.0,
             )
         )
-        return source_instance.result.value
+        return result.value
 
     @sc.experiment(id="test.results.roots", kind="results")
     def template(

@@ -94,7 +94,7 @@ def simple_template(
             authoring.ScalarType(authoring.EntityType()),
         ],
     ) -> None:
-        module_call = experiment.use(
+        signal = experiment.use(
             SIMPLE_MODULE(
                 subject=subject,
                 drive_frequency=DRIVE_FREQUENCY_POINT,
@@ -111,7 +111,7 @@ def simple_template(
                 points=5,
             ),
         )
-        experiment.record(module_call.result, record_id="signal")
+        experiment.record(signal, record_id="signal")
 
     return authoring.experiment(
         id=id,
