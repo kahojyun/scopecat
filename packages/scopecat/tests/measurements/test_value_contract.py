@@ -14,6 +14,7 @@ from scopecat.records.measurement import (
     MeasurementScalar,
     MeasurementUnavailable,
     MeasurementUnavailableReason,
+    MeasurementValue,
 )
 from scopecat.sdk.instruments import (
     InstrumentReadback,
@@ -425,7 +426,7 @@ def test_unit_contract_requires_exact_units_without_implicit_conversion() -> Non
     ) == (MeasurementValueContractIssueCode.UNIT_MISMATCH,)
 
 
-def test_top_level_numeric_dtype_widening_is_preserved() -> None:
+def test_persisted_numeric_dtype_requires_an_exact_match() -> None:
     integer = MeasurementScalar.create(dtype="int64", unit="count", value=2)
     integer_array = MeasurementArray.create(
         dtype="int64",
@@ -433,25 +434,32 @@ def test_top_level_numeric_dtype_widening_is_preserved() -> None:
         shape=[2],
         values=[1, 2],
     )
+    floating = MeasurementScalar.create(dtype="float64", unit=None, value=2.0)
 
-    assert not measurement_value_contract_issues(
-        integer,
-        expected_dtype="float64",
-        expected_unit="count",
-        expected_shape=(),
+    cases: tuple[
+        tuple[
+            MeasurementValue,
+            MeasurementDType,
+            str | None,
+            tuple[int, ...],
+        ],
+        ...,
+    ] = (
+        (integer, "float64", "count", ()),
+        (integer_array, "float64", None, (2,)),
+        (integer_array, "complex128", None, (2,)),
+        (floating, "complex128", None, ()),
     )
-    assert not measurement_value_contract_issues(
-        integer_array,
-        expected_dtype="float64",
-        expected_unit=None,
-        expected_shape=(2,),
-    )
-    assert not measurement_value_contract_issues(
-        integer_array,
-        expected_dtype="complex128",
-        expected_unit=None,
-        expected_shape=(2,),
-    )
+    for value, expected_dtype, expected_unit, expected_shape in cases:
+        [issue] = measurement_value_contract_issues(
+            value,
+            expected_dtype=expected_dtype,
+            expected_unit=expected_unit,
+            expected_shape=expected_shape,
+        )
+        assert issue.code is MeasurementValueContractIssueCode.DTYPE_MISMATCH
+        assert issue.expected == expected_dtype
+        assert issue.actual == value.dtype
 
 
 @pytest.mark.parametrize(

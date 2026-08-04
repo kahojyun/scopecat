@@ -54,15 +54,15 @@ def measurement_value_contract_issues(
 ) -> tuple[MeasurementValueContractIssue, ...]:
     """Check one value against a logical product's point-local contract.
 
-    Top-level dtype compatibility permits numeric widening. Available values
-    already match their own dtype tag because their models normalize at the
-    construction boundary.
+    Persisted dtype tags must match exactly because this layer does not convert
+    the stored value. Available values already match their own dtype tag because
+    their models normalize at the construction boundary.
     """
 
     selected_shape = tuple(expected_shape)
     issues: list[MeasurementValueContractIssue] = []
     actual_dtype = _measurement_value_dtype(value)
-    if not _dtype_compatible(expected_dtype, actual_dtype):
+    if expected_dtype != actual_dtype:
         issues.append(
             MeasurementValueContractIssue(
                 code=MeasurementValueContractIssueCode.DTYPE_MISMATCH,
@@ -136,17 +136,6 @@ def _measurement_value_shape(
     if isinstance(value, MeasurementArray | MeasurementUnavailable):
         return tuple(value.shape)
     return ()
-
-
-def _dtype_compatible(
-    expected: MeasurementDType,
-    actual: MeasurementDType,
-) -> bool:
-    if actual == expected:
-        return True
-    if expected == "float64" and actual == "int64":
-        return True
-    return expected == "complex128" and actual in {"float64", "int64"}
 
 
 def _unit_compatible(expected: str | None, actual: str | None) -> bool:

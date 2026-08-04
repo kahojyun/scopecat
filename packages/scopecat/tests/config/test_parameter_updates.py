@@ -13,11 +13,11 @@ from scopecat.config.parameters import (
     replace_table_parameter,
     update_parameter_rows,
 )
-from scopecat.config.validation import parameter_table_key_part
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
     Bool,
+    Entity,
     Float,
     Scalar,
     String,
@@ -221,35 +221,35 @@ def test_materialization_rejects_semantic_no_op_after_normalization() -> None:
         )
 
 
-def test_quantity_primary_key_matches_normalized_snapshot_rows() -> None:
+def test_quantity_primary_key_lookup_uses_semantic_equality() -> None:
     catalog = ParameterCatalog(
-        id="frequency-catalog",
+        id="current-catalog",
         definitions=(
             ParameterDefinition(
-                id="frequencies",
+                id="currents",
                 value_type=Table(
                     columns=(
                         TableColumn(
-                            id="frequency",
-                            value_type=Scalar(QuantityType(unit="GHz")),
+                            id="current",
+                            value_type=Scalar(QuantityType(dimension="current")),
                         ),
                         TableColumn(id="label", value_type=Scalar(String())),
                     ),
-                    primary_key=("frequency",),
+                    primary_key=("current",),
                 ),
             ),
         ),
     )
     source = ParameterSnapshot.model_validate(
         {
-            "id": "frequency-snapshot",
+            "id": "current-snapshot",
             "values": [
                 {
                     "shape": "table",
-                    "id": "frequencies",
+                    "id": "currents",
                     "rows": [
                         {
-                            "frequency": {"value": 5000, "unit": "MHz"},
+                            "current": {"value": 100, "unit": "uA"},
                             "label": "old",
                         }
                     ],
@@ -261,41 +261,97 @@ def test_quantity_primary_key_matches_normalized_snapshot_rows() -> None:
     candidate, _deltas = materialize_parameter_updates(
         catalog=catalog,
         base=source,
-        candidate_id="frequency-candidate",
+        candidate_id="current-candidate",
         updates=(
             update_parameter_rows(
-                "frequencies",
-                key={"frequency": Quantity(value=5, unit="GHz")},
+                "currents",
+                key={"current": Quantity(value=0.0001, unit="A")},
                 values={"label": "new"},
             ),
         ),
     )
 
-    table = candidate.get("frequencies")
+    table = candidate.get("currents")
     assert isinstance(table, TableParameterValue)
     assert table.rows == (
         {
-            "frequency": Quantity(value=5, unit="GHz"),
+            "current": Quantity(value=100, unit="uA"),
             "label": "new",
         },
     )
 
 
-def test_entity_parameter_key_identity_ignores_metadata_but_includes_kind() -> None:
-    left = EntityRef(
-        id="q0",
-        kind="qubit",
-        metadata={"labels": ["data"], "index": 0},
+def test_entity_primary_key_lookup_ignores_metadata_but_includes_kind() -> None:
+    catalog = ParameterCatalog(
+        id="entity-catalog",
+        definitions=(
+            ParameterDefinition(
+                id="entities",
+                value_type=Table(
+                    columns=(
+                        TableColumn(id="entity", value_type=Scalar(Entity())),
+                        TableColumn(id="label", value_type=Scalar(String())),
+                    ),
+                    primary_key=("entity",),
+                ),
+            ),
+        ),
     )
-    same_identity = EntityRef(
-        id="q0",
-        kind="qubit",
-        metadata={"index": 1, "labels": ["ancilla"]},
+    source = ParameterSnapshot(
+        id="entity-snapshot",
+        values=(
+            TableParameterValue(
+                id="entities",
+                rows=(
+                    {
+                        "entity": EntityRef(
+                            id="q0",
+                            kind="qubit",
+                            metadata={"labels": ["data"], "index": 0},
+                        ),
+                        "label": "old",
+                    },
+                ),
+            ),
+        ),
     )
-    other_kind = EntityRef(id="q0", kind="resonator")
 
-    assert parameter_table_key_part(left) == parameter_table_key_part(same_identity)
-    assert parameter_table_key_part(left) != parameter_table_key_part(other_kind)
+    candidate, _deltas = materialize_parameter_updates(
+        catalog=catalog,
+        base=source,
+        candidate_id="entity-candidate",
+        updates=(
+            update_parameter_rows(
+                "entities",
+                key={
+                    "entity": EntityRef(
+                        id="q0",
+                        kind="qubit",
+                        metadata={"index": 1, "labels": ["ancilla"]},
+                    )
+                },
+                values={"label": "new"},
+            ),
+        ),
+    )
+
+    table = candidate.get("entities")
+    assert isinstance(table, TableParameterValue)
+    assert table.rows[0]["label"] == "new"
+
+    with pytest.raises(ValueError, match="has no row matching key"):
+        materialize_parameter_updates(
+            catalog=catalog,
+            base=source,
+            candidate_id="wrong-kind",
+            updates=(
+                update_parameter_rows(
+                    "entities",
+                    key={"entity": EntityRef(id="q0", kind="resonator")},
+                    values={"label": "new"},
+                ),
+            ),
+        )
 
 
 def _catalog() -> ParameterCatalog:
