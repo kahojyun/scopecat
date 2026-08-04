@@ -133,6 +133,12 @@ class ValueRef:
         del memo
         return self
 
+    def __bool__(self) -> bool:
+        raise TypeError(
+            "symbolic ValueRef has no Python truth value; use an explicit "
+            "authoring operation"
+        )
+
     @override
     def __repr__(self) -> str:
         return f"{type(self).__qualname__}()"
