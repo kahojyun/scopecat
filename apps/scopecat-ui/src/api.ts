@@ -140,9 +140,8 @@ export async function getMeasurementTracePreview(
   selection: {
     observableId: string;
     coordinateId: string;
-    recordingGroupId?: string;
     fixedAxisIndices: Record<string, number>;
-    complexMode: MeasurementTracePreviewQuery["complex_mode"];
+    valueMode: NonNullable<MeasurementTracePreviewQuery["value_mode"]>;
   },
   signal?: AbortSignal,
 ): Promise<MeasurementTracePreview> {
@@ -150,14 +149,13 @@ export async function getMeasurementTracePreview(
     apiClient.POST("/api/v1/runs/{run_id}/measurements/traces/query", {
       params: { path: { run_id: runId } },
       body: {
-        complex_mode: selection.complexMode,
         coordinate_id: selection.coordinateId,
         downsampling: "even",
         fixed_axis_indices: selection.fixedAxisIndices,
         max_samples: 4096,
         max_series: 32,
         observable_id: selection.observableId,
-        recording_group_id: selection.recordingGroupId,
+        value_mode: selection.valueMode,
       },
       signal,
     }),

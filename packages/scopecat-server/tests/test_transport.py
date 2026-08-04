@@ -140,7 +140,7 @@ class FakeRuns:
             recording_group_id=query.recording_group_id,
             coordinate_id="frequency",
             observable_id=query.observable_id or "signal",
-            value_mode=query.complex_mode,
+            value_mode=query.value_mode or "magnitude",
             downsampling=query.downsampling,
             series=(series,),
             selected_series_count=1,
@@ -295,7 +295,7 @@ def test_trace_preview_route_forwards_typed_query_and_validates_selection() -> N
         "fixed_axis_indices": {"bias": 1},
         "max_series": 4,
         "max_samples": 128,
-        "complex_mode": "real",
+        "value_mode": "real",
         "downsampling": "even",
     }
 
@@ -307,15 +307,15 @@ def test_trace_preview_route_forwards_typed_query_and_validates_selection() -> N
         "/api/v1/runs/run-1/measurements/traces/query",
         json={},
     )
-    misleading_value_mode = client.post(
+    invalid_value_mode = client.post(
         "/api/v1/runs/run-1/measurements/traces/query",
-        json={"observable_id": "signal", "value_mode": "real"},
+        json={"observable_id": "signal", "value_mode": "raw"},
     )
 
     assert response.status_code == 200
     assert response.json()["series"][0]["x"] == [0.0, 1.0]
     assert invalid.status_code == 422
-    assert misleading_value_mode.status_code == 422
+    assert invalid_value_mode.status_code == 422
     assert backend.runs.trace_preview_query == (
         "run-1",
         MeasurementTracePreviewQuery.model_validate(payload),

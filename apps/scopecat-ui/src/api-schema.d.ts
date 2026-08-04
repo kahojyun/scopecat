@@ -847,8 +847,7 @@ export interface components {
              */
             kind: "figure";
             metadata?: components["schemas"]["JsonMetadata-Output"];
-            /** Title */
-            title: string;
+            title: components["schemas"]["_NonEmptyText"];
         };
         /**
          * AnalysisFigureSeries
@@ -871,8 +870,7 @@ export interface components {
              */
             kind: "parameter_change_proposal";
             metadata?: components["schemas"]["JsonMetadata-Output"];
-            /** Title */
-            title: string;
+            title: components["schemas"]["_NonEmptyText"];
         };
         /**
          * AnalysisParameterProposalReference
@@ -886,16 +884,12 @@ export interface components {
         AnalysisRecord: {
             /** Inputs */
             inputs?: components["schemas"]["AnalysisRecordInput"][];
-            /** Key */
-            key?: string | null;
+            key?: components["schemas"]["_NonEmptyText"] | null;
             /** Outputs */
             outputs: components["schemas"]["AnalysisRecordOutput"][];
-            /** Run Id */
-            run_id: string;
-            /** Step Id */
-            step_id?: string | null;
-            /** Title */
-            title: string;
+            run_id: components["schemas"]["_NonEmptyText"];
+            step_id?: components["schemas"]["_NonEmptyText"] | null;
+            title: components["schemas"]["_NonEmptyText"];
         };
         /** AnalysisRecordInput */
         AnalysisRecordInput: {
@@ -905,10 +899,8 @@ export interface components {
              */
             kind: "measurement_dataset";
             metadata?: components["schemas"]["JsonMetadata-Output"] | null;
-            /** Role */
-            role: string;
-            /** Target */
-            target: string;
+            role: components["schemas"]["_NonEmptyText"];
+            target: components["schemas"]["_NonEmptyText"];
             /** Title */
             title?: string | null;
         };
@@ -942,8 +934,7 @@ export interface components {
              */
             kind: "table";
             metadata?: components["schemas"]["JsonMetadata-Output"];
-            /** Title */
-            title: string;
+            title: components["schemas"]["_NonEmptyText"];
         };
         /**
          * AnalysisTableRow
@@ -2283,8 +2274,6 @@ export interface components {
          * @description Select one bounded, response-ready point-local trace preview.
          */
         MeasurementTracePreviewQuery: {
-            /** @default magnitude */
-            complex_mode: components["schemas"]["TraceComplexMode"];
             /** Coordinate Id */
             coordinate_id?: string | null;
             /** @default even */
@@ -2307,6 +2296,7 @@ export interface components {
             observable_id?: string | null;
             /** Recording Group Id */
             recording_group_id?: string | null;
+            value_mode?: components["schemas"]["TraceValueMode"] | null;
         };
         /**
          * MeasurementTraceSeries
@@ -3126,8 +3116,6 @@ export interface components {
             /** Entities */
             entities?: components["schemas"]["EntityRef-Output"][];
         };
-        /** @enum {string} */
-        TraceComplexMode: "magnitude" | "phase" | "real" | "imag";
         /** @constant */
         TraceDownsampling: "even";
         /** @enum {string} */

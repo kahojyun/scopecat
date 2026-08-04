@@ -620,7 +620,7 @@ class RunService:
                 group=query.recording_group_id,
                 max_series=query.max_series,
                 max_samples=query.max_samples,
-                complex_mode=query.complex_mode,
+                value_mode=query.value_mode,
                 downsampling=query.downsampling,
             )
         except ValueError as error:

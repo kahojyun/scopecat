@@ -257,11 +257,12 @@ obvious chart.
 
 The daemon trace-preview query returns numeric `x`/`y` series rather than raw
 measurement records. It selects one recording group or observable, optionally
-fixes authored product-grid axes by index, applies the requested `complex_mode`
-(magnitude, phase, real, or imaginary) only to complex values, and enforces both
-the series count and total returned-sample budget before serialization. The
-response reports the actual `value_mode`; real observables therefore return
-`value` regardless of `complex_mode`. Its
+fixes authored product-grid axes by index, applies the requested `value_mode`,
+and enforces both the series count and total returned-sample budget before
+serialization. Complex values accept magnitude, phase, real, or imaginary;
+real observables use `value`. The response reports that same effective
+`value_mode`; when omitted, the daemon selects magnitude for complex values and
+value for real values. Its
 `selected_series_count` is the authored domain-selection size; live or
 unavailable points need not produce a returned series, and the daemon does not
 scan beyond the requested bound looking for replacements. The current durable

@@ -25,7 +25,6 @@ from scopecat.measurements.datasets import (
     MAX_MEASUREMENT_TRACE_SERIES,
 )
 from scopecat.measurements.traces import (
-    TraceComplexMode,
     TraceDownsampling,
     TraceValueMode,
 )
@@ -364,7 +363,7 @@ class MeasurementTracePreviewQuery(_ViewModel):
         int,
         Field(ge=2, le=MAX_MEASUREMENT_TRACE_SAMPLES),
     ] = MAX_MEASUREMENT_TRACE_SAMPLES
-    complex_mode: TraceComplexMode = "magnitude"
+    value_mode: TraceValueMode | None = None
     downsampling: TraceDownsampling = "even"
 
     @model_validator(mode="after")

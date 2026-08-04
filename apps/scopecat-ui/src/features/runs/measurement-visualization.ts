@@ -31,9 +31,8 @@ interface NumericPoint {
 }
 
 export type NumericValueMode = "imag" | "magnitude" | "phase" | "real" | "value";
-export type MeasurementTraceComplexMode = Exclude<NumericValueMode, "value">;
 
-const COMPLEX_VALUE_MODES: MeasurementTraceComplexMode[] = ["magnitude", "phase", "real", "imag"];
+const COMPLEX_VALUE_MODES: NumericValueMode[] = ["magnitude", "phase", "real", "imag"];
 
 export interface MeasurementChartSeries {
   id: string;
@@ -82,9 +81,7 @@ export interface MeasurementTraceQueryPlan {
   label: string;
   observableId: string;
   coordinateId: string;
-  recordingGroupId?: string;
   valueMode: NumericValueMode;
-  complexMode: MeasurementTraceComplexMode;
 }
 
 interface MeasurementChartPlanBase {
@@ -227,12 +224,7 @@ export function measurementTraceQueryPlans(
             : `${chartTitle(observable, valueMode)} by ${coordinate.label}`,
         observableId: observable.id,
         coordinateId: coordinate.id,
-        recordingGroupId:
-          coordinate.recordingGroupId === observable.recordingGroupId
-            ? observable.recordingGroupId
-            : undefined,
         valueMode,
-        complexMode: valueMode === "value" ? "magnitude" : valueMode,
       })),
     );
   });

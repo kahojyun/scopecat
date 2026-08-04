@@ -514,7 +514,7 @@ describe("config provenance navigation", () => {
       truncated: false,
     });
     vi.mocked(getMeasurementTracePreview).mockImplementation(async (_runId, selection) =>
-      tracePreview(selection.complexMode),
+      tracePreview(selection.valueMode),
     );
 
     renderApp();
@@ -530,9 +530,8 @@ describe("config provenance navigation", () => {
         {
           observableId: "response",
           coordinateId: "frequency",
-          recordingGroupId: "readout",
           fixedAxisIndices: { bias: 0 },
-          complexMode: "magnitude",
+          valueMode: "magnitude",
         },
         expect.any(AbortSignal),
       ),
@@ -548,7 +547,7 @@ describe("config provenance navigation", () => {
     ).toBeVisible();
     expect(getMeasurementTracePreview).toHaveBeenLastCalledWith(
       "run-1",
-      expect.objectContaining({ complexMode: "phase", fixedAxisIndices: { bias: 0 } }),
+      expect.objectContaining({ valueMode: "phase", fixedAxisIndices: { bias: 0 } }),
       expect.any(AbortSignal),
     );
 
@@ -558,7 +557,7 @@ describe("config provenance navigation", () => {
     await waitFor(() =>
       expect(getMeasurementTracePreview).toHaveBeenLastCalledWith(
         "run-1",
-        expect.objectContaining({ complexMode: "phase", fixedAxisIndices: { bias: 1 } }),
+        expect.objectContaining({ valueMode: "phase", fixedAxisIndices: { bias: 1 } }),
         expect.any(AbortSignal),
       ),
     );
@@ -746,7 +745,7 @@ function traceAxis(id: string, values: number[]) {
   };
 }
 
-function tracePreview(mode: "imag" | "magnitude" | "phase" | "real") {
+function tracePreview(mode: "imag" | "magnitude" | "phase" | "real" | "value") {
   return {
     coordinate_id: "frequency",
     coordinate_label: "Frequency",

@@ -512,23 +512,21 @@ describe("project daemon reads", () => {
       getMeasurementTracePreview("run/1", {
         observableId: "signal",
         coordinateId: "frequency",
-        recordingGroupId: "readout",
         fixedAxisIndices: { bias: 1 },
-        complexMode: "magnitude",
+        valueMode: "magnitude",
       }),
     ).resolves.toEqual(response);
     const request = fetchMock.mock.calls[0]?.[0];
     expect(requestPath(request)).toBe("/api/v1/runs/run%2F1/measurements/traces/query");
     expect(request).toBeInstanceOf(Request);
     await expect((request as Request).clone().json()).resolves.toEqual({
-      complex_mode: "magnitude",
       coordinate_id: "frequency",
       downsampling: "even",
       fixed_axis_indices: { bias: 1 },
       max_samples: 4096,
       max_series: 32,
       observable_id: "signal",
-      recording_group_id: "readout",
+      value_mode: "magnitude",
     });
   });
 });

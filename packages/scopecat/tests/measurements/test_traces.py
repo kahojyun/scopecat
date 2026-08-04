@@ -4,11 +4,11 @@ import math
 
 import pytest
 
-from scopecat.measurements.results import (
-    TraceComplexMode,
+from scopecat.measurements.results import validate_measurement_records_against_schema
+from scopecat.measurements.traces import (
+    TraceValueMode,
     measurement_traces,
     project_measurement_trace_preview,
-    validate_measurement_records_against_schema,
 )
 from scopecat.records.measurement import (
     ComplexComponents,
@@ -213,7 +213,7 @@ def test_trace_preview_explicitly_pairs_variables_when_only_one_has_a_group(
 
 
 @pytest.mark.parametrize(
-    ("complex_mode", "expected"),
+    ("value_mode", "expected"),
     [
         ("magnitude", (1.0, math.hypot(0.9, 0.1))),
         ("phase", (0.0, math.atan2(0.1, 0.9))),
@@ -221,8 +221,8 @@ def test_trace_preview_explicitly_pairs_variables_when_only_one_has_a_group(
         ("imag", (0.0, 0.1)),
     ],
 )
-def test_trace_preview_projects_complex_modes_with_even_endpoint_sampling(
-    complex_mode: TraceComplexMode,
+def test_trace_preview_projects_value_modes_with_even_endpoint_sampling(
+    value_mode: TraceValueMode,
     expected: tuple[float, float],
 ) -> None:
     projection = project_measurement_trace_preview(
@@ -230,17 +230,26 @@ def test_trace_preview_projects_complex_modes_with_even_endpoint_sampling(
         "s_parameter",
         max_series=2,
         max_samples=4,
-        complex_mode=complex_mode,
+        value_mode=value_mode,
     )
 
-    assert projection.value_mode == complex_mode
-    assert projection.value_unit == ("rad" if complex_mode == "phase" else "ratio")
+    assert projection.value_mode == value_mode
+    assert projection.value_unit == ("rad" if value_mode == "phase" else "ratio")
     assert projection.source_sample_count == 6
     assert projection.returned_sample_count == 4
     assert projection.samples_reduced
     assert len(projection.series) == 2
     assert projection.series[0].x == (4.9e9, 5.1e9)
     assert projection.series[0].y == pytest.approx(expected)
+
+
+def test_trace_preview_requires_a_projection_mode_for_complex_values() -> None:
+    with pytest.raises(ValueError, match="require a projected value mode"):
+        project_measurement_trace_preview(
+            _trace_dataset(),
+            "s_parameter",
+            value_mode="value",
+        )
 
 
 def test_trace_preview_reports_value_mode_for_real_observable() -> None:
@@ -261,12 +270,19 @@ def test_trace_preview_reports_value_mode_for_real_observable() -> None:
         "s_parameter",
         max_series=1,
         max_samples=2,
-        complex_mode="phase",
+        value_mode="value",
     )
 
     assert projection.value_mode == "value"
     assert projection.value_unit == "ratio"
     assert projection.series[0].y == (1.0, 0.9)
+
+    with pytest.raises(ValueError, match="real trace samples require value mode"):
+        project_measurement_trace_preview(
+            dataset,
+            "s_parameter",
+            value_mode="phase",
+        )
 
 
 def test_trace_preview_omits_unavailable_series_without_scanning_past_cap() -> None:

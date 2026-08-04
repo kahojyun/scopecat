@@ -1,0 +1,259 @@
+// @vitest-environment jsdom
+
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { MeasurementDataPreview } from "./MeasurementDataPreview";
+import {
+  measurementTraceChart,
+  measurementTraceQueryPlans,
+  measurementTraceStatus,
+} from "./measurement-visualization";
+import {
+  realTraceSchema,
+  tracePreview,
+  traceSchema,
+  traceSeries,
+} from "./measurement-trace.test-support";
+
+afterEach(cleanup);
+
+describe("measurement trace visualization", () => {
+  it("derives explicit server trace queries from one compatible recording group", () => {
+    expect(measurementTraceQueryPlans(traceSchema())).toEqual([
+      {
+        id: "trace:response:frequency:magnitude",
+        label: "S21 magnitude",
+        observableId: "response",
+        coordinateId: "frequency",
+        valueMode: "magnitude",
+      },
+      expect.objectContaining({
+        id: "trace:response:frequency:phase",
+        valueMode: "phase",
+      }),
+      expect.objectContaining({
+        id: "trace:response:frequency:real",
+        valueMode: "real",
+      }),
+      expect.objectContaining({
+        id: "trace:response:frequency:imag",
+        valueMode: "imag",
+      }),
+    ]);
+  });
+
+  it("uses the same value mode for a real trace query and label", () => {
+    expect(measurementTraceQueryPlans(realTraceSchema())).toEqual([
+      {
+        id: "trace:response:frequency:value",
+        label: "S21",
+        observableId: "response",
+        coordinateId: "frequency",
+        valueMode: "value",
+      },
+    ]);
+  });
+
+  it("uses explicit variable ids for a partially grouped trace pair", () => {
+    const schema = traceSchema();
+    const coordinate = schema.variables?.find((variable) => variable.id === "frequency");
+    if (!coordinate) throw new Error("trace fixture has no frequency coordinate");
+    delete coordinate.recording_group_id;
+
+    expect(measurementTraceQueryPlans(schema)[0]).toMatchObject({
+      observableId: "response",
+      coordinateId: "frequency",
+      valueMode: "magnitude",
+    });
+  });
+
+  it("lists each explicit trace coordinate when several pairs are safe", () => {
+    const schema = traceSchema();
+    const coordinate = schema.variables?.find((variable) => variable.id === "frequency");
+    const observable = schema.variables?.find((variable) => variable.id === "response");
+    if (!coordinate || !observable) throw new Error("trace fixture variables are incomplete");
+    delete coordinate.recording_group_id;
+    delete observable.recording_group_id;
+    schema.variables?.push({
+      ...coordinate,
+      id: "time",
+      label: "Time",
+      unit: "ns",
+    });
+
+    const plans = measurementTraceQueryPlans(schema);
+
+    expect(plans).toHaveLength(8);
+    expect(plans[0]).toMatchObject({
+      coordinateId: "frequency",
+      label: "S21 magnitude by Frequency",
+    });
+    expect(plans[4]).toMatchObject({
+      coordinateId: "time",
+      label: "S21 magnitude by Time",
+    });
+  });
+
+  it("maps response-ready numeric series without reprocessing samples", () => {
+    const chart = measurementTraceChart(
+      tracePreview({
+        value_mode: "phase",
+        value_unit: "rad",
+        series: [
+          traceSeries(0, [4, 5, 6], [Math.atan2(4, 3), Math.PI / 2, 0], 300),
+          traceSeries(1, [4, 6], [0.2, 0.4], 200),
+        ],
+        selected_series_count: 2,
+        returned_series_count: 2,
+        source_sample_count: 500,
+        returned_sample_count: 5,
+        samples_reduced: true,
+      }),
+    );
+
+    expect(chart).toMatchObject({
+      id: "trace:response:frequency:phase",
+      kind: "line",
+      title: "S21 phase",
+      xLabel: "Frequency [GHz]",
+      yLabel: "phase(S21) [rad]",
+      note: "Complex values are shown as phase in radians.",
+    });
+    expect(chart?.series[0]?.points).toEqual([
+      { x: 4, y: Math.atan2(4, 3) },
+      { x: 5, y: Math.PI / 2 },
+      { x: 6, y: 0 },
+    ]);
+  });
+
+  it("uses the effective response mode for real trace labels", () => {
+    const chart = measurementTraceChart(
+      tracePreview({
+        value_mode: "value",
+        value_unit: "ratio",
+        series: [traceSeries(0, [4, 5], [-2, 3])],
+        selected_series_count: 1,
+        returned_series_count: 1,
+        source_sample_count: 2,
+        returned_sample_count: 2,
+      }),
+    );
+
+    expect(chart).toMatchObject({
+      title: "S21",
+      yLabel: "S21 [ratio]",
+      note: undefined,
+    });
+  });
+
+  it("renders a server series with a non-monotonic coordinate as scatter", () => {
+    const chart = measurementTraceChart(
+      tracePreview({
+        series: [traceSeries(0, [0, 2, 1], [1, 2, 3])],
+        selected_series_count: 1,
+        returned_series_count: 1,
+        source_sample_count: 3,
+        returned_sample_count: 3,
+      }),
+    );
+
+    expect(chart).toMatchObject({ kind: "scatter" });
+  });
+
+  it("selects a bounded trace mode and renders server series with limit status", () => {
+    const schema = traceSchema();
+    const plans = measurementTraceQueryPlans(schema);
+    const onTracePlanChange = vi.fn();
+    const preview = tracePreview({
+      series: [traceSeries(0, [4, 5, 6], [5, 2, 1], 60), traceSeries(1, [4, 6], [4, 3], 40)],
+      selected_series_count: 8,
+      returned_series_count: 2,
+      truncated_series: true,
+      source_sample_count: 100,
+      returned_sample_count: 5,
+      samples_reduced: true,
+    });
+
+    render(
+      <MeasurementDataPreview
+        preview={{ schema, items: [] }}
+        slice={{ items: [], schema, selectedPointCount: 0, truncated: false }}
+        sliceError={null}
+        slicePending={false}
+        fixedAxisIndices={{}}
+        onFixedAxisIndexChange={vi.fn()}
+        tracePlans={plans}
+        selectedTracePlanId={plans[0]!.id}
+        tracePreview={preview}
+        tracePending={false}
+        traceError={null}
+        onTracePlanChange={onTracePlanChange}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    const selector = screen.getByRole("combobox", { name: "Measurement trace" });
+    expect(selector).toHaveValue("trace:response:frequency:magnitude");
+    expect(screen.getByRole("option", { name: "S21 magnitude" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "S21 phase" })).toBeVisible();
+    fireEvent.change(selector, { target: { value: "trace:response:frequency:phase" } });
+    expect(onTracePlanChange).toHaveBeenCalledWith("trace:response:frequency:phase");
+    expect(
+      screen.getByRole("img", { name: "S21 magnitude: |S21| [ratio] by Frequency [GHz]" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "2 of 8 selected series returned · series limit applied · 5 of 100 source samples plotted · evenly downsampled",
+      ),
+    ).toBeVisible();
+  });
+
+  it("shows bounded trace pending and error states without stale charts", () => {
+    const schema = traceSchema();
+    const plans = measurementTraceQueryPlans(schema);
+    const common = {
+      preview: { schema, items: [] },
+      slice: { items: [], schema, selectedPointCount: 0, truncated: false },
+      sliceError: null,
+      slicePending: false,
+      fixedAxisIndices: {},
+      onFixedAxisIndexChange: vi.fn(),
+      tracePlans: plans,
+      selectedTracePlanId: plans[0]!.id,
+      hasMore: false,
+      loadingMore: false,
+      onLoadMore: vi.fn(),
+    };
+    const view = render(
+      <MeasurementDataPreview
+        {...common}
+        tracePreview={tracePreview()}
+        tracePending
+        traceError={null}
+      />,
+    );
+
+    expect(screen.getByText("Reading bounded trace preview…")).toBeVisible();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+
+    view.rerender(
+      <MeasurementDataPreview
+        {...common}
+        tracePreview={tracePreview()}
+        tracePending={false}
+        traceError={new Error("offline")}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Trace unavailable: offline");
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("formats trace status without claiming an absent reduction", () => {
+    expect(measurementTraceStatus(tracePreview())).toBe(
+      "1 of 1 selected series returned · 3 source samples plotted",
+    );
+  });
+});

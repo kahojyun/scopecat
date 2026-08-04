@@ -2141,7 +2141,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
                 "fixed_axis_indices": {"bias": 1},
                 "max_series": 2,
                 "max_samples": 4,
-                "complex_mode": "imag",
+                "value_mode": "imag",
             },
         )
         truncated_trace_preview = client.post(

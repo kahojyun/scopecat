@@ -19,7 +19,6 @@ from scopecat.records.measurement import (
 
 type TraceCoordinate = int | float
 type TraceSample = int | float | complex
-type TraceComplexMode = Literal["magnitude", "phase", "real", "imag"]
 type TraceValueMode = Literal["value", "magnitude", "phase", "real", "imag"]
 type TraceDownsampling = Literal["even"]
 
@@ -111,7 +110,7 @@ def project_measurement_trace_preview(
     group: str | None = None,
     max_series: int = 32,
     max_samples: int = 4096,
-    complex_mode: TraceComplexMode = "magnitude",
+    value_mode: TraceValueMode | None = None,
     downsampling: TraceDownsampling = "even",
 ) -> MeasurementTraceProjection:
     """Project a bounded numeric preview without scanning past its series cap.
@@ -145,9 +144,14 @@ def project_measurement_trace_preview(
         )
         if trace.y
     )
-    actual_mode: TraceValueMode = (
-        complex_mode if observable_variable.dtype == "complex128" else "value"
-    )
+    if observable_variable.dtype == "complex128":
+        actual_mode: TraceValueMode = value_mode or "magnitude"
+        if actual_mode == "value":
+            raise ValueError("complex trace samples require a projected value mode")
+    else:
+        actual_mode = value_mode or "value"
+        if actual_mode != "value":
+            raise ValueError("real trace samples require value mode")
     per_series_limit = max_samples if not traces else max(2, max_samples // len(traces))
     projected = tuple(
         _project_trace(
@@ -447,15 +451,4 @@ def _sample_values(value: MeasurementArray) -> tuple[TraceSample, ...]:
     return tuple(selected)
 
 
-__all__ = [
-    "MeasurementTraceProjection",
-    "ProjectedTraceSeries",
-    "Trace",
-    "TraceComplexMode",
-    "TraceCoordinate",
-    "TraceDownsampling",
-    "TraceSample",
-    "TraceValueMode",
-    "measurement_traces",
-    "project_measurement_trace_preview",
-]
+__all__ = ["Trace"]

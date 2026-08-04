@@ -192,9 +192,8 @@ export function RunsWorkspace({
         {
           observableId: selectedTracePlan!.observableId,
           coordinateId: selectedTracePlan!.coordinateId,
-          recordingGroupId: selectedTracePlan!.recordingGroupId,
           fixedAxisIndices: measurementFixedAxisIndices,
-          complexMode: selectedTracePlan!.complexMode,
+          valueMode: selectedTracePlan!.valueMode,
         },
         signal,
       ),

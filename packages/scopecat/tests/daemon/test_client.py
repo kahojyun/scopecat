@@ -130,7 +130,7 @@ def test_trace_preview_posts_a_typed_bounded_query() -> None:
         fixed_axis_indices={"bias": 1},
         max_series=4,
         max_samples=128,
-        complex_mode="phase",
+        value_mode="phase",
     )
 
     preview = client.measurement_trace_preview("run-1", query)

@@ -6,18 +6,7 @@ from scopecat.measurements.contracts import (
     validate_measurement_records_against_schema,
 )
 from scopecat.measurements.dataset import Dataset, PointMask, Variable
-from scopecat.measurements.traces import (
-    MeasurementTraceProjection,
-    ProjectedTraceSeries,
-    Trace,
-    TraceComplexMode,
-    TraceCoordinate,
-    TraceDownsampling,
-    TraceSample,
-    TraceValueMode,
-    measurement_traces,
-    project_measurement_trace_preview,
-)
+from scopecat.measurements.traces import Trace
 from scopecat.records.measurement import (
     ComplexComponents,
     InstrumentAcquisitionEvidence,
@@ -56,22 +45,13 @@ __all__ = [
     "MeasurementProductGridPointDomain",
     "MeasurementRecord",
     "MeasurementScalar",
-    "MeasurementTraceProjection",
     "MeasurementUnavailable",
     "MeasurementUnavailableReason",
     "MeasurementValue",
     "MeasurementVariable",
     "MeasurementVariableRole",
     "PointMask",
-    "ProjectedTraceSeries",
     "Trace",
-    "TraceComplexMode",
-    "TraceCoordinate",
-    "TraceDownsampling",
-    "TraceSample",
-    "TraceValueMode",
     "Variable",
-    "measurement_traces",
-    "project_measurement_trace_preview",
     "validate_measurement_records_against_schema",
 ]
