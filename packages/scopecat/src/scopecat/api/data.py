@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from scopecat.measurements.results import Dataset, MeasurementDatasetSchema, Trace
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import list_payload_entries, require_artifact, require_dataset
@@ -28,14 +27,6 @@ class _DataRun(Protocol):
 
     @property
     def manifest(self) -> RunManifest: ...
-
-    def measurements(
-        self,
-        *,
-        selector: str = "raw-measurements",
-    ) -> Dataset: ...
-
-    def measurement_batches(self, *, batch_size: int = 100) -> Iterator[Dataset]: ...
 
     def artifact_text(
         self,
@@ -61,7 +52,7 @@ class _DataRun(Protocol):
 
 @dataclass(frozen=True)
 class Data:
-    """Notebook-facing data access for one run."""
+    """Notebook-facing inventory and artifact access for one run."""
 
     run: _DataRun
 
@@ -104,35 +95,6 @@ class Data:
             selector=selector,
             expected_kind=expected_kind,
         )
-
-    def measurements(
-        self,
-        selector: str = "raw-measurements",
-    ) -> Dataset:
-        return self.run.measurements(selector=selector)
-
-    def measurement_batches(self, *, batch_size: int = 100) -> Iterator[Dataset]:
-        return self.run.measurement_batches(batch_size=batch_size)
-
-    def schema(self, selector: str = "raw-measurements") -> MeasurementDatasetSchema:
-        return self.measurements(selector).schema
-
-    def traces(
-        self,
-        observable: str | None = None,
-        *,
-        coordinate: str | None = None,
-        group: str | None = None,
-        selector: str = "raw-measurements",
-    ) -> tuple[Trace, ...]:
-        return self.measurements(selector).traces(
-            observable,
-            coordinate=coordinate,
-            group=group,
-        )
-
-    def metadata(self, selector: str = "raw-measurements") -> dict[str, object]:
-        return dict(self.measurements(selector).metadata)
 
     def figure(
         self,

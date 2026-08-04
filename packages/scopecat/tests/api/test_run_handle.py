@@ -168,7 +168,9 @@ def test_in_process_lab_records_compute_value_without_instruments(
     )
     variable = next(item for item in dataset.schema.variables if item.id == "score")
     assert variable.source_value_id == "score"
-    assert run.data().measurements().records == dataset.records
+    content = run.data()
+    assert content.datasets == ("raw-measurements",)
+    assert content.dataset("raw-measurements") == dataset.entry
 
 
 def test_measurement_batches_page_a_real_run_and_preserve_point_identity(
@@ -189,11 +191,6 @@ def test_measurement_batches_page_a_real_run_and_preserve_point_identity(
     assert all(batch.metadata["scopecat_planned_point_count"] == 3 for batch in batches)
     assert tuple(batches[0].coords) == ("drive_frequency",)
     assert tuple(batches[0].data_vars) == ("signal",)
-    delegated = list(run.data().measurement_batches(batch_size=2))
-    assert [batch.records for batch in delegated] == [
-        batch.records for batch in batches
-    ]
-
     with pytest.raises(ValueError, match="between 1 and 500"):
         run.measurement_batches(batch_size=0)
     with pytest.raises(ValueError, match="between 1 and 500"):

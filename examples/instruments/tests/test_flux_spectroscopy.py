@@ -178,7 +178,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert first_evidence[TEMPERATURE_RECORD_ID].result_id == "temperature"
     assert not provider.world.dc_source(FLUX_SOURCE_ID).output_enabled
 
-    traces = run.data().traces(group="readout-vna/sweep")
+    traces = run.measurements().traces(group="readout-vna/sweep")
     assert len(traces) == BIAS_POINTS
     assert traces[0].recording_group_id == "readout-vna/sweep"
     assert traces[0].coordinate_unit == "Hz"
@@ -186,7 +186,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert len(traces[0].x) == TRACE_POINTS
     assert all(isinstance(sample, complex) for sample in traces[0].y)
 
-    fits = fit_flux_spectroscopy(run.measurements().raw)
+    fits = fit_flux_spectroscopy(run.measurements())
     sweet_spot = max(
         fits,
         key=lambda fit: float(fit.resonance_frequency.to("Hz").value),

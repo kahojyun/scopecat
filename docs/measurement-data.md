@@ -148,6 +148,7 @@ data = run.measurements()
 
 data.coords                    # coordinate variables by id
 data.data_vars                 # observable variables by id
+data.point_indices             # durable identities in current row order
 data["readout.dc_bias"].values
 
 near_zero = data.sel(
@@ -162,6 +163,10 @@ ragged_window = data.isel_ragged(
 valid = data.where(data["temperature"].is_available())
 groups = data.groupby("amplification")
 ```
+
+Analysis steps receive the same facade through `context.measurements()`. The
+separate `run.data()` handle is for listing stored content and reading
+artifacts; it is not a second measurement API.
 
 Exact selection retains every matching row, including duplicate point-cloud
 coordinates. Numeric coordinate selection accepts unit-aware quantities and an

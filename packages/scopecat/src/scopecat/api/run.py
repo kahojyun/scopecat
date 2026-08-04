@@ -275,7 +275,6 @@ class RunHandle:
         analysis = step.run(
             AnalysisContext(
                 run=self,
-                data=self.data(),
                 default_key=key or step.id,
                 step_id=step.id,
             )

@@ -363,6 +363,18 @@ class Dataset:
         return MappingProxyType(dict(self._raw.metadata))
 
     @property
+    def point_indices(self) -> tuple[int, ...]:
+        """Return durable point indices in this view's row order."""
+
+        return tuple(record.point_index for record in self._raw.records)
+
+    @property
+    def logical_point_ids(self) -> tuple[str | None, ...]:
+        """Return logical point identities in this view's row order."""
+
+        return tuple(record.logical_point_id for record in self._raw.records)
+
+    @property
     def dims(self) -> Mapping[str, int | None]:
         return MappingProxyType(
             {dimension.id: dimension.size for dimension in self.schema.dimensions}

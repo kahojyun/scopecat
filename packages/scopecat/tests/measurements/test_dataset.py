@@ -42,6 +42,8 @@ def test_dataset_exposes_labeled_variables_and_raw_records() -> None:
     assert dataset["signal"][0] == (complex(1.0, 0.0), complex(0.5, -0.1))
     assert dataset["temperature"].values == (0.05, None, 0.2)
     assert dataset["temperature"].availability == (None, "invalid", None)
+    assert dataset.point_indices == (0, 1, 2)
+    assert dataset.logical_point_ids == ("logical-0", "logical-1", "logical-2")
     assert dataset.raw.records[2] is dataset.records[2]
 
     with pytest.raises(KeyError, match="no variable 'missing'"):

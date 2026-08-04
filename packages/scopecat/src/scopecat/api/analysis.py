@@ -37,6 +37,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.measurements.results import Dataset
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 
@@ -51,6 +52,12 @@ class _AnalysisRun(Protocol):
     def config(self) -> ConfigProfileSnapshot: ...
 
     def data(self) -> Data: ...
+
+    def measurements(
+        self,
+        *,
+        selector: str = "raw-measurements",
+    ) -> Dataset: ...
 
     def analysis(
         self,
@@ -240,13 +247,20 @@ class Analysis:
 @dataclass(frozen=True)
 class AnalysisContext:
     run: _AnalysisRun
-    data: Data
     default_key: str | None = None
     step_id: str | None = None
 
     @property
     def config(self) -> ConfigProfileSnapshot:
         return self.run.config
+
+    def measurements(
+        self,
+        selector: str = "raw-measurements",
+    ) -> Dataset:
+        """Load a labeled measurement dataset for this analysis step."""
+
+        return self.run.measurements(selector=selector)
 
     def result(self, title: str = "analysis", *, key: str | None = None) -> Analysis:
         return self.run.analysis(
