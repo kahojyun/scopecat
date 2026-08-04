@@ -1,0 +1,73 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Scopecat: Start development",
+      "dependsOn": [
+        "Scopecat: Start daemon",
+        "Scopecat: Start UI"
+      ],
+      "dependsOrder": "parallel",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Scopecat: Start daemon",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "scopecat",
+        "serve",
+        "${input:scopecatProject}",
+        "--api-only",
+        "--port",
+        "8765"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "scopecat-development"
+      }
+    },
+    {
+      "label": "Scopecat: Start UI",
+      "type": "process",
+      "command": "pnpm",
+      "args": [
+        "run",
+        "dev"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/apps/scopecat-ui"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "scopecat-development"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "scopecatProject",
+      "type": "pickString",
+      "description": "Scopecat project to start",
+      "options": [
+        "examples/quantum",
+        "examples/instruments"
+      ],
+      "default": "examples/quantum"
+    }
+  ]
+}
