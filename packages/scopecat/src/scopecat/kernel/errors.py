@@ -230,7 +230,7 @@ class DomainSubmissionFailed(DomainRuntimeFailure):
 
 
 class DomainFetchFailed(DomainRuntimeFailure):
-    """Fetching a known submitted job failed without changing target state."""
+    """Fetching a known submitted job did not produce usable result evidence."""
 
     def __init__(
         self,

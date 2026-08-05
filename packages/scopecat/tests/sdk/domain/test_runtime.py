@@ -344,7 +344,8 @@ def test_provider_exceptions_are_classified_at_the_effect_boundary(phase: str) -
                 job_id,
                 journal=journal,
             )
-        assert caught.value.certainty == "known"
+        assert caught.value.certainty == "indeterminate"
+        assert journal.entries[-1].state == "unknown"
 
 
 @pytest.mark.parametrize("phase", ["submit", "fetch"])
