@@ -5,8 +5,8 @@ from __future__ import annotations
 import scopecat as sc
 from scopecat import Quantity
 
+from quantum_lab_demo.parameters import Q0_DRAG_BETA
 from quantum_lab_demo.quantum_runner import author_quantum_experiment
-from quantum_lab_demo.virtual_lab.parameters import q0_drag_beta_lookup
 from quantum_lab_demo.workflows.drag_beta_calibration import (
     drag_beta_program,
 )
@@ -25,7 +25,7 @@ def drag_beta_experiment(experiment: sc.ExperimentContext) -> None:
 
     beta = experiment.scan(
         "beta",
-        overlay=q0_drag_beta_lookup(),
+        overlay=Q0_DRAG_BETA.ref,
         span=DRAG_BETA_SPAN,
         points=DRAG_BETA_POINTS,
     )

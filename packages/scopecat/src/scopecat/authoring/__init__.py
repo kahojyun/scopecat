@@ -33,6 +33,18 @@ from scopecat.authoring.entity_selection import (
 from scopecat.authoring.experiments import (
     ExperimentInvocation,
 )
+from scopecat.authoring.parameters import (
+    ParameterAssignment,
+    ParameterCell,
+    ParameterField,
+    ParameterRow,
+    ParameterRowKey,
+    ParameterScalar,
+    ParameterSchema,
+    parameter_catalog,
+    parameter_field,
+    parameter_schema,
+)
 from scopecat.authoring.scans import Axis, PointRow, axis
 from scopecat.authoring.state_projection import (
     StateProjector,
@@ -107,7 +119,14 @@ __all__ = [
     "ModuleInput",
     "ModuleInvocation",
     "OneEntity",
+    "ParameterAssignment",
+    "ParameterCell",
+    "ParameterField",
     "ParameterKeyInput",
+    "ParameterRow",
+    "ParameterRowKey",
+    "ParameterScalar",
+    "ParameterSchema",
     "PayloadType",
     "PerEntity",
     "PointRow",
@@ -134,5 +153,8 @@ __all__ = [
     "module",
     "one",
     "parameter",
+    "parameter_catalog",
+    "parameter_field",
     "parameter_lookup",
+    "parameter_schema",
 ]

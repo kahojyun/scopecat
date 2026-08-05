@@ -10,7 +10,7 @@ from scopecat_quantum.measurement_postprocessors import (
     binary_iq_probabilities,
 )
 
-from quantum_lab_demo.virtual_lab.parameters import qubit_parameters
+from quantum_lab_demo.parameters import QUBITS
 
 _BINARY_IQ_DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
@@ -25,7 +25,7 @@ def author_quantum_experiment(
 ) -> None:
     """Apply lab policy to an integrated-IQ call exposing ``iq_shots``."""
 
-    configured = call.with_compiler_inputs(qubits=qubit_parameters())
+    configured = call.with_compiler_inputs(qubits=QUBITS.ref)
     results = experiment.use(configured)
     probabilities = binary_iq_probabilities(
         experiment,

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import cast
 
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -10,7 +12,10 @@ from scopecat.records.config import (
     snapshot_config_profile,
 )
 
-from quantum_lab_demo.parameters import quantum_lab_parameter_snapshot
+from quantum_lab_demo.parameters import (
+    QUANTUM_PARAMETER_CATALOG,
+    quantum_lab_parameter_snapshot,
+)
 
 EXAMPLE_ROOT = Path(__file__).resolve().parents[3]
 DEMO_CONFIG_DIR = EXAMPLE_ROOT / "config"
@@ -22,12 +27,15 @@ DAEMON_URL_ENV = "SCOPECAT_DAEMON_URL"
 def quantum_lab_bootstrap_config(
     config_dir: str | Path = DEMO_CONFIG_DIR,
 ) -> ConfigProfileSnapshot:
-    """Combine schema-checked infrastructure with Python-owned table values."""
+    """Combine infrastructure with the Python-owned parameter system."""
 
     root = Path(config_dir)
-    system = SystemSpec.model_validate_json(
-        (root / "system-spec.json").read_text(encoding="utf-8")
+    document = cast(
+        "dict[str, object]",
+        json.loads((root / "system-infrastructure.json").read_text(encoding="utf-8")),
     )
+    document["parameter_catalog"] = QUANTUM_PARAMETER_CATALOG
+    system = SystemSpec.model_validate(document)
     return snapshot_config_profile(
         profile_id="quantum-demo-profile",
         system=system,

@@ -12,11 +12,7 @@ import scopecat as sc
 from scopecat import Quantity
 from scopecat.measurements.results import Dataset, Variable
 
-from quantum_lab_demo.virtual_lab.parameters import (
-    DRAG_BETA_PARAMETER_COLUMN,
-    QUBIT_PARAMETER_TABLE,
-    q0_parameter_key,
-)
+from quantum_lab_demo.parameters import Q0_DRAG_BETA
 from quantum_lab_demo.workflows.drag_beta_calibration import (
     NEGATIVE_CANDIDATE_ID,
     POSITIVE_CANDIDATE_ID,
@@ -176,11 +172,7 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
         )
         .propose(
             _DRAG_BETA_PROPOSAL_ID,
-            sc.update_parameter_rows(
-                QUBIT_PARAMETER_TABLE,
-                key=q0_parameter_key(),
-                values={DRAG_BETA_PARAMETER_COLUMN: fit.beta_hat},
-            ),
+            Q0_DRAG_BETA.update(fit.beta_hat),
             reason=(
                 "Shared N² quadratic fit selected the q0 DRAG beta used by "
                 f"{POSITIVE_CANDIDATE_ID!r} and {NEGATIVE_CANDIDATE_ID!r}; "

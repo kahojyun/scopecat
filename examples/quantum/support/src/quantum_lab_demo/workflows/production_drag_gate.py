@@ -9,8 +9,8 @@ from scopecat import Quantity, QuantityType
 from scopecat_quantum import authoring as quantum
 from scopecat_quantum.standard_gates import X90, XM90
 
+from quantum_lab_demo.parameters import Q0_DRAG_BETA
 from quantum_lab_demo.quantum_runner import author_quantum_experiment
-from quantum_lab_demo.virtual_lab.parameters import q0_drag_beta_lookup
 from quantum_lab_demo.workflows.drag_beta_calibration import (
     drag_gate_pulse,
     drag_readout_pulse,
@@ -56,7 +56,7 @@ def production_drag_experiment(experiment: sc.ExperimentContext) -> None:
         experiment,
         production_drag_program(
             qubit="q0",
-            drag_beta=q0_drag_beta_lookup(),
+            drag_beta=Q0_DRAG_BETA.ref,
         ).with_shots(PRODUCTION_DRAG_GATE_SHOTS),
     )
 
