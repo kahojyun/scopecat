@@ -116,10 +116,19 @@ terminal commit may still occur afterward.
 The runtime state names describe different facts. `observed_state` is the
 initial readback after exclusive acquisition; `prepared_state` is the baseline
 after run-start policy. Authored `on_success` state is then applied only after
-coverage succeeds. Runtime `final_state` is terminal readback evidence gathered
-while finishing and releasing hardware. It is not an authored target, does not
-prove the run succeeded, and may be empty or incomplete when terminal readback
+coverage succeeds. Each accepted instrument then applies its configured
+`success_action`: `release` leaves that successful state in place, while
+`restore_prepared_state` restores the writable portion of its prepared baseline.
+Runtime `final_state` is terminal readback evidence gathered after that action
+and before release. It is not an authored target, does not prove the run
+succeeded, and may be empty or incomplete when restoration or terminal readback
 fails.
+
+The successful order is therefore authored `on_success`, configured success
+action, terminal readback, and release. A rejected prepared-state restoration
+turns the run into a failure and enters the configured abort/safe-state path. An
+unknown restoration outcome is indeterminate and quarantines the affected
+hardware just like any other unknown hardware effect.
 
 Failure cleanup belongs at the layer that can still command the hardware:
 
@@ -128,8 +137,22 @@ Failure cleanup belongs at the layer that can still command the hardware:
 - accepted instrument configuration may select `abort_then_safe_state` to add
   a sparse safe state after abort while the device remains commandable;
 - the current domain runtime ABI exposes only `submit` and `fetch`, not a
-  core-driven abort hook. A target that requires cancellation must contain it
-  inside its runtime contract; otherwise Scopecat cannot promise domain cleanup.
+  core-driven terminate hook. An operator cancellation can stop before or after
+  a domain job, but it cannot interrupt that job in the middle. A target that
+  requires active termination must contain it inside its runtime contract;
+  otherwise Scopecat cannot promise domain cleanup. A generic domain
+  terminate/progress ABI remains deferred until a concrete asynchronous target
+  demonstrates the contract it needs.
+
+Operator cancellation is a durable control-plane request, not an authored
+cleanup callback. Queued runs close immediately; leased runs observe the request
+through executor heartbeats and stop at the next operation, hardware-batch,
+coverage, or normal-completion boundary. Known cancellation still enters the
+configured abort/safe-state path. If that finalization is unknown, the run is
+cancelled with indeterminate certainty and its resources remain quarantined.
+The durable request and terminal commit are serialized: a request that wins the
+race converts only a pending successful intent to cancelled, while an actual
+failed or indeterminate intent keeps its stronger evidence.
 
 Authoring deliberately exposes no arbitrary Python `finally` callback or
 promised-always state. Workflows that require stronger cleanup must first move
@@ -154,6 +177,12 @@ Scopecat owns the surrounding identities, typed bindings, effect order, and
 result correlation; the accepted system configuration owns the domain target's
 physical footprint. Experiments own invocation policy: input defaults, point
 plans, durable record selection, labels, and metadata.
+
+After a target acknowledges submission, an exception while fetching does not
+establish whether the asynchronous job is still active, completed, or otherwise
+changed; the run is therefore indeterminate. A structured provider `not_found`
+receipt is known evidence, while a provider `unknown` receipt remains
+indeterminate.
 
 ## Semantic Invariants
 
