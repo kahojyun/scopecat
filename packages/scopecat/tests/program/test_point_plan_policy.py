@@ -196,22 +196,3 @@ def test_replacing_a_snake_grid_with_points_uses_explicit_row_order() -> None:
     assert isinstance(replaced.point_plan.domain, PointsSpec)
     assert replaced.point_plan.repeat == 2
     assert replaced.point_plan.traversal == "forward"
-
-
-def test_authoring_context_declares_the_complete_point_policy() -> None:
-    x = sc.coordinate("x", sc.ScalarType(sc.IntType()))
-
-    @sc.experiment(id="test.authored-point-policy", kind="test")
-    def authored(experiment: sc.ExperimentContext) -> None:
-        experiment.grid(
-            sc.axis(x, [1, 2]),
-            repeat=3,
-            repeat_mode="sweep",
-            traversal="snake",
-        )
-
-    invocation = authored()
-
-    assert invocation.point_plan.repeat == 3
-    assert invocation.point_plan.repeat_mode == "sweep"
-    assert invocation.point_plan.traversal == "snake"

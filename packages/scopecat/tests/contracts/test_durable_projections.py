@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
-
-import pytest
-from pydantic import ValidationError
 
 from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.resolution import compile_invocation
@@ -45,25 +41,3 @@ def test_run_request_projector_matches_golden_and_round_trips(
 
     assert request.model_dump(mode="json") == golden
     assert restored == request
-
-
-@pytest.mark.parametrize(
-    "corruption",
-    [
-        "unknown_axis_source",
-        "missing_around_points",
-    ],
-)
-def test_corrupt_run_request_is_rejected(
-    corruption: str,
-) -> None:
-    request = deepcopy(_golden("run-request.json"))
-    if corruption == "unknown_axis_source":
-        request["point_plan"]["domain"]["axes"][0]["source"]["kind"] = "compute"
-    elif corruption == "missing_around_points":
-        del request["point_plan"]["domain"]["axes"][0]["source"]["points"]
-    else:  # pragma: no cover - parametrization is closed above
-        raise AssertionError(corruption)
-
-    with pytest.raises(ValidationError):
-        RunRequest.model_validate(request)

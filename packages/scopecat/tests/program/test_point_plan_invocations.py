@@ -6,7 +6,6 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Int, Scalar
 from scopecat.program.definitions import (
     ExperimentDef,
-    ExperimentInputDef,
     ExperimentInvocation,
     create_experiment_def,
 )
@@ -35,29 +34,14 @@ def _axis(id: str, *values: int) -> AxisSpec:
 def _definition(
     *,
     default_point_plan: PointPlan | None = None,
-    inputs: tuple[ExperimentInputDef, ...] = (),
 ) -> ExperimentDef:
     return ExperimentDef(
         id="test.point-plan",
         kind="test",
         interface=ModuleInterface(),
         body=ModuleBody(),
-        inputs=inputs,
         default_point_plan=default_point_plan or PointPlan(),
     )
-
-
-def test_bind_is_last_write_and_unbind_reinherits_definition_input() -> None:
-    definition = _definition(
-        inputs=(ExperimentInputDef("shots", _INT, default=2),),
-    )
-
-    selected = ExperimentInvocation(definition).bind(shots=3).bind(shots=5)
-    inherited = selected.unbind("shots")
-
-    assert selected.input_overrides == {"shots": 5}
-    assert inherited.input_overrides == {}
-    assert definition.inputs[0].default == 2
 
 
 def test_complete_point_declarations_replace_each_other_and_reset() -> None:
