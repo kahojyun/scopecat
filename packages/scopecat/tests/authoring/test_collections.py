@@ -115,7 +115,7 @@ def test_scan_points_reject_target_constraint_violation() -> None:
             (0,),
         )
 
-    assert error.value.path == ("scan", "values", 0)
+    assert error.value.path == ("axis", "values", 0)
     assert error.value.reason == "value must be at least 1"
 
 
