@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from scopecat.kernel.measurement_values import (
+from scopecat.program.measurement_types import (
     MeasurementDType,
     MeasurementVariableRole,
     NativeMeasurementValue,

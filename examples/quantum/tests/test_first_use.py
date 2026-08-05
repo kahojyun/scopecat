@@ -55,8 +55,8 @@ def test_drag_beta_first_use_closes_config_provenance_loop(
         registry = observer.config.registry()
 
     assert detail.manifest.status == "completed"
-    assert request.metadata["name"] == "first-use smoke"
-    assert request.metadata["tags"] == ["first-use"]
+    assert request.display_name == "first-use smoke"
+    assert request.tags == ("first-use",)
     assert saved.record.id == candidate.analysis_record_id
     candidate_source = candidate_detail.manifest.config_source
     assert isinstance(candidate_source, AnalysisCandidateRunConfigSource)

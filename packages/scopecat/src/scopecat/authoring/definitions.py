@@ -59,11 +59,6 @@ from scopecat.kernel.instrument_members import (
     OperationRef,
     PropertyRef,
 )
-from scopecat.kernel.measurement_values import (
-    MeasurementDType,
-    NativeMeasurementValue,
-    measurement_value_spec_from_scalar,
-)
 from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.program.bindings import BindingIntent
@@ -75,6 +70,11 @@ from scopecat.program.definitions import (
 )
 from scopecat.program.domain import DomainCall
 from scopecat.program.measurement_contracts import MeasurementPostprocessorKernel
+from scopecat.program.measurement_types import (
+    MeasurementDType,
+    NativeMeasurementValue,
+    measurement_value_spec_from_scalar,
+)
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
     ProductAxis,
@@ -1079,7 +1079,7 @@ def _experiment_from_function[ResultT, **P](
     if doc is not None:
         selected_metadata.setdefault("description", doc)
     selected_metadata = dict(freeze_json_mapping(selected_metadata))
-    selected_id = id or _definition_id(source)
+    selected_id = id or source.__name__
     selected_kind = kind or source.__name__
     cached_build: tuple[ExperimentDef, ResultT] | None = None
 

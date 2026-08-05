@@ -34,10 +34,6 @@ from scopecat.kernel.instrument_members import (
     OperationRef,
     PropertyRef,
 )
-from scopecat.kernel.measurement_values import (
-    MeasurementDType,
-    MeasurementVariableRole,
-)
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Bool as BoolType
 from scopecat.kernel.value_types import Float as FloatType
@@ -46,6 +42,10 @@ from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
+from scopecat.program.measurement_types import (
+    MeasurementDType,
+    MeasurementVariableRole,
+)
 from scopecat.program.state import StateBinding
 from scopecat.sdk.instruments.contracts import (
     AcquisitionAxisSpec,

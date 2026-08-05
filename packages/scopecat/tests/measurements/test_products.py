@@ -11,7 +11,6 @@ from scopecat.compiler.point_domain import PointDomain
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
 from scopecat.kernel.json_types import JsonValue
-from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.kernel.product_identity import (
     ProductUse,
     ProductUseId,
@@ -30,6 +29,7 @@ from scopecat.measurements.records import (
     validate_record_plan,
 )
 from scopecat.program.logical import AcquireEffect
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.config import RoutingGraph
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_program import (

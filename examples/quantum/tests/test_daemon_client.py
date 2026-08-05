@@ -96,7 +96,7 @@ def test_drag_beta_candidate_accept_and_undo_round_trip_through_shared_daemon(
         )
 
         assert run.request is not None
-        assert run.request.metadata["name"] == "DRAG beta daemon round trip"
+        assert run.request.display_name == "DRAG beta daemon round trip"
         assert (
             lab.run_operations.analysis(run.id, saved.record.id).analysis.title
             == "DRAG beta calibration"

@@ -70,6 +70,13 @@ The public authoring model follows four rules:
    demanded record roots determine the live compute and postprocessor DAG, whose
    dependencies determine execution order.
 
+A bare `@experiment` uses the Python function name as its project-scoped
+technical identity, so running the same definition as a script or importing it
+does not change its run history. Pass an explicit `id=` only when a project needs
+to distinguish same-named definitions. `lab.run(..., name=...)` is the durable
+presentation name shown to operators; it does not replace the technical
+experiment identity.
+
 ### Point plans and invocation edits
 
 Every experiment resolves to one `PointPlan`: one domain, one repeat policy,

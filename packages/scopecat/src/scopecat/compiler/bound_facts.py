@@ -16,7 +16,6 @@ from scopecat.compiler.point_domain import PointDomain
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
-from scopecat.kernel.measurement_values import MeasurementVariableRole
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductUse,
@@ -38,6 +37,7 @@ from scopecat.program.logical import (
 from scopecat.program.measurement_contracts import (
     MeasurementPostprocessorKernel,
 )
+from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.program.value_graph import OperationId
 
 

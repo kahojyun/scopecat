@@ -1563,7 +1563,14 @@ def test_admission_canonicalizes_domain_only_instrument_claims(
         target.id,
     )
     public_control = public.control.model_dump(mode="json")
-    assert set(public_control["admission"]) == {"run_id", "plan", "admitted_at"}
+    assert set(public_control["admission"]) == {
+        "run_id",
+        "plan",
+        "display_name",
+        "tags",
+        "description",
+        "admitted_at",
+    }
     assert set(public_control["admission"]["plan"]) == {
         "experiment_id",
         "experiment_kind",

@@ -6,7 +6,6 @@ import pytest
 
 import scopecat as sc
 from scopecat.kernel.errors import ProviderContractError
-from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.measurements.results import MeasurementScalar
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
@@ -17,6 +16,7 @@ from scopecat.planning.point_materialization import (
     materialize_bound_points,
 )
 from scopecat.program.domain import domain_program
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.program.products import ModuleProductDecl, ProductValueSpec
 from scopecat.sdk.domain import (
     DomainBatchRequest,

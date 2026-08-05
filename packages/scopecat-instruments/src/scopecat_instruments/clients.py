@@ -10,8 +10,8 @@ from typing import Literal, overload, override
 
 from scopecat.authoring import EachEntity, OneEntity, PerEntity, ProductRef, Symbolic
 from scopecat.authoring._module_results import ProductBundle, _RecordProduct
-from scopecat.kernel.measurement_values import MeasurementArrayData
 from scopecat.kernel.quantity import Quantity
+from scopecat.program.measurement_types import MeasurementArrayData
 from scopecat.program.record_refs import RecordRef
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import (

@@ -12,11 +12,6 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.json_types import JsonValue
-from scopecat.kernel.measurement_values import (
-    MeasurementDType,
-    MeasurementVariableRole,
-    measurement_value_spec_from_scalar,
-)
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainLayout
 from scopecat.kernel.problems import (
@@ -43,6 +38,11 @@ from scopecat.measurements.results import (
     MeasurementProductGridPointDomain,
     MeasurementScalar,
     MeasurementVariable,
+)
+from scopecat.program.measurement_types import (
+    MeasurementDType,
+    MeasurementVariableRole,
+    measurement_value_spec_from_scalar,
 )
 
 

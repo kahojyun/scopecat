@@ -19,10 +19,10 @@ from scopecat.authoring import (
     one,
 )
 from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.measurement_values import MeasurementArrayData
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.bindings import EnsureStateIntent, InvocationIntent
 from scopecat.program.expressions import LiteralScalarExpr
+from scopecat.program.measurement_types import MeasurementArrayData
 from scopecat.program.module import ModuleAcquireEffect
 from scopecat.program.products import RecordSelection
 from scopecat.program.recording import ProgramRecordSelection

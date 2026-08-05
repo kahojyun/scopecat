@@ -113,6 +113,9 @@ class AdmissionService:
                 submission_content_hash=submission.intent_content_hash,
                 run_id=skeleton.manifest.run_id,
                 plan=submission.plan,
+                display_name=submission.request.display_name,
+                tags=submission.request.tags,
+                description=submission.request.description,
                 resource_claims=_canonical_resource_claims(
                     submission.plan,
                     instrument_keys={

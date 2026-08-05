@@ -26,7 +26,6 @@ from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
-from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -63,6 +62,7 @@ from scopecat.program.logical import (
     LogicalStateAssignment,
     ValueDef,
 )
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.program.value_graph import (
     ComputeOutput,
     OperationId,

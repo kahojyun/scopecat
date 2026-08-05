@@ -11,8 +11,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from scopecat.kernel.frozen import freeze_json_mapping
-from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.kernel.value_types import ValueType
+from scopecat.program.measurement_types import MeasurementDType
 
 _MEASUREMENT_DTYPES = frozenset({"float64", "int64", "complex128", "bool", "string"})
 

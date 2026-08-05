@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING
 
-from scopecat.records.measurement import MeasurementValue
+if TYPE_CHECKING:
+    from scopecat.records.measurement import MeasurementValue
 
 type MeasurementPostprocessorKernel = Callable[
-    [MeasurementValue],
-    Mapping[str, MeasurementValue],
+    ["MeasurementValue"],
+    Mapping[str, "MeasurementValue"],
 ]
 
 __all__ = ["MeasurementPostprocessorKernel"]

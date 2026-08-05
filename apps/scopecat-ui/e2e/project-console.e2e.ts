@@ -52,7 +52,8 @@ interface CandidateAnalysis {
 const UI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPOSITORY_ROOT = resolve(UI_ROOT, "../..");
 const UI_DIST = resolve(UI_ROOT, "dist");
-const LIVE_EXPERIMENT_ID = "quantum_lab_demo.workflows.drag_beta";
+const LIVE_DISPLAY_NAME = "Live state browser E2E";
+const LIVE_EXPERIMENT_ID = "drag_beta_experiment";
 const CONTROLLED_EXPERIMENT_SOURCE = `\
 """Exercise durable run states while a browser observes the daemon."""
 
@@ -247,10 +248,11 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
 
   await expect(
     page.getByRole("heading", {
-      name: "__main__.first_run",
+      name: "First run",
       exact: true,
     }),
   ).toBeVisible();
+  await expect(page.getByText("first_run", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Succeeded", { exact: true }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "Configuration" }).click();
@@ -395,13 +397,16 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
   const experiment = await startControlledExperiment(daemon.projectRoot);
   try {
     const runId = await waitForMarker(experiment.acceptedReady, experiment);
-    const runItem = page.getByTestId("run-list-item").filter({ hasText: LIVE_EXPERIMENT_ID });
+    const runItem = page.getByTestId("run-list-item").filter({ hasText: LIVE_DISPLAY_NAME });
     await expect(runItem).toContainText("Accepted");
+    await expect(runItem).toContainText(LIVE_EXPERIMENT_ID);
     await runItem.click();
 
     const detail = page.getByRole("region", { name: "Selected run details" });
     const state = detail.getByTestId("run-status");
     const timeline = detail.getByTestId("timeline-card");
+    await expect(detail.getByRole("heading", { name: LIVE_DISPLAY_NAME })).toBeVisible();
+    await expect(detail.getByText(LIVE_EXPERIMENT_ID, { exact: true })).toBeVisible();
     await expect(detail.getByText(runId, { exact: true })).toBeVisible();
     await expect(state).toHaveText("Accepted");
     await expect(timeline.getByText("Run admitted", { exact: true })).toBeVisible();

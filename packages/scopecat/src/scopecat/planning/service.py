@@ -59,6 +59,9 @@ def plan_experiment_invocation(
     config: ConfigProfileSnapshot,
     system: ExperimentSystem,
     config_source: RunConfigSource | None = None,
+    display_name: str | None = None,
+    tags: tuple[str, ...] = (),
+    description: str | None = None,
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
 ) -> PlannedRun:
@@ -68,6 +71,9 @@ def plan_experiment_invocation(
         config=config,
         experiment=compile_invocation(
             experiment,
+            display_name=display_name,
+            tags=tags,
+            description=description,
             metadata=metadata,
             operator=operator,
         ),

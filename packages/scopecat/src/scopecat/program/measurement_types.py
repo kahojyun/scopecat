@@ -1,14 +1,11 @@
-"""Neutral measurement value types shared by programs and durable records."""
+"""Static measurement value types shared by programs and durable records."""
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
-from pydantic import GetJsonSchemaHandler, TypeAdapter, WithJsonSchema
-from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import CoreSchema
 
 from scopecat.kernel.value_types import Bool, Entity, Float, Int, Scalar, String
 from scopecat.kernel.value_types import Quantity as QuantityType
@@ -18,44 +15,7 @@ type MeasurementDType = Literal["float64", "int64", "complex128", "bool", "strin
 type MeasurementArrayElement = (
     np.bool_ | np.int64 | np.float64 | np.complex128 | np.str_
 )
-
-type MeasurementComplexJson = Annotated[
-    dict[str, float],
-    WithJsonSchema(
-        {
-            "type": "object",
-            "properties": {
-                "real": {"type": "number"},
-                "imag": {"type": "number"},
-            },
-            "required": ["real", "imag"],
-            "additionalProperties": False,
-        }
-    ),
-]
-type MeasurementArrayJsonLeaf = bool | int | float | str | MeasurementComplexJson
-type MeasurementArrayJsonItem = (
-    MeasurementArrayJsonLeaf | list[MeasurementArrayJsonItem]
-)
-type MeasurementArrayJson = list[MeasurementArrayJsonItem]
-
-_MEASUREMENT_ARRAY_JSON_CORE_SCHEMA = TypeAdapter(MeasurementArrayJson).core_schema
-
-
-class _MeasurementArrayJsonSchema:
-    @classmethod
-    def __get_pydantic_json_schema__(
-        cls,
-        _core_schema: CoreSchema,
-        handler: GetJsonSchemaHandler,
-    ) -> JsonSchemaValue:
-        return handler(_MEASUREMENT_ARRAY_JSON_CORE_SCHEMA)
-
-
-MeasurementArrayData = Annotated[
-    NDArray[MeasurementArrayElement],
-    _MeasurementArrayJsonSchema,
-]
+type MeasurementArrayData = NDArray[MeasurementArrayElement]
 type NativeMeasurementScalar = bool | int | float | complex | str
 type NativeMeasurementValue = NativeMeasurementScalar | MeasurementArrayData
 
@@ -63,7 +23,7 @@ type NativeMeasurementValue = NativeMeasurementScalar | MeasurementArrayData
 def measurement_value_spec_from_scalar(
     value_type: Scalar,
 ) -> tuple[MeasurementDType, str | None]:
-    """Project one program scalar type into its durable measurement schema."""
+    """Project one program scalar type into its measurement schema."""
 
     atom = value_type.atom
     if isinstance(atom, Bool):

@@ -1248,12 +1248,10 @@ def test_run_invocation_plans_against_explicit_snapshot_without_local_storage(
     assert planned.config == config
     assert planned.request.operator == "alice"
     assert planned.request.stage == stage
-    assert planned.request.metadata == {
-        "sample": "q0",
-        "name": "scratch fit",
-        "tags": ["calibration", "demo"],
-        "description": "fit one trace",
-    }
+    assert planned.request.display_name == "scratch fit"
+    assert planned.request.tags == ("calibration", "demo")
+    assert planned.request.description == "fit one trace"
+    assert planned.request.metadata == {"sample": "q0"}
     assert captured["executor_id"] == "notebook-1"
     assert captured["submission_id"] == "scratch-submission"
     planned_system = planned.system

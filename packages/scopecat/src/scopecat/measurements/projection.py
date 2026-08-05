@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
-from scopecat.kernel.measurement_values import MeasurementVariableRole
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
@@ -33,6 +32,7 @@ from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCatalog,
 )
+from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementDatasetSchema,

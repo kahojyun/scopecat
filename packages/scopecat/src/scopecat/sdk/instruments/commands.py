@@ -14,8 +14,8 @@ from pydantic import (
 )
 
 from scopecat.kernel.interface_identity import InterfaceId
-from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records._metadata import JsonMetadata
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import (

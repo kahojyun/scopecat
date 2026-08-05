@@ -272,6 +272,9 @@ class RunRequest(_RunRequestModel):
     """Operator request for one structured run."""
 
     experiment_id: str | None = None
+    display_name: str | None = Field(default=None, min_length=1)
+    tags: tuple[Annotated[str, Field(min_length=1)], ...] = ()
+    description: str | None = Field(default=None, min_length=1)
     inputs: dict[str, RunRequestValue] = Field(default_factory=dict)
     operator: str | None = None
     point_plan: PointPlanRecord = Field(default_factory=PointPlanRecord)

@@ -33,7 +33,7 @@ from pydantic import (
 
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
-from scopecat.kernel.measurement_values import (
+from scopecat.program.measurement_types import (
     MeasurementArrayData,
     MeasurementArrayElement,
     MeasurementDType,
@@ -45,6 +45,7 @@ from scopecat.records._schema_utils import (
     missing_references,
     validate_supported_unit,
 )
+from scopecat.records.measurement_array_schema import MeasurementArrayPayload
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v4"
 MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v8"
@@ -432,7 +433,7 @@ class MeasurementArray(_FrozenMeasurementModel):
     dtype: MeasurementDType = "float64"
     unit: str | None = None
     shape: tuple[Annotated[int, Field(ge=0)], ...] = Field(min_length=1)
-    values: MeasurementArrayData
+    values: MeasurementArrayPayload
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @classmethod

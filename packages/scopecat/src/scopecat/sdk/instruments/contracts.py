@@ -19,10 +19,6 @@ import scopecat.sdk.instruments.commands as _commands
 from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.instrument_members import PropertyRef
 from scopecat.kernel.interface_identity import InterfaceId
-from scopecat.kernel.measurement_values import (
-    MeasurementDType,
-    MeasurementVariableRole,
-)
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.units import compatible_units
@@ -46,6 +42,10 @@ from scopecat.kernel.value_validation import (
 )
 from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
+)
+from scopecat.program.measurement_types import (
+    MeasurementDType,
+    MeasurementVariableRole,
 )
 from scopecat.records.instrument import (
     InstrumentPropertyState as _InstrumentPropertyState,

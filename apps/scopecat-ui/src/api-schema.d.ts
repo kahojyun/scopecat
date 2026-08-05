@@ -2639,9 +2639,18 @@ export interface components {
              * Format: date-time
              */
             admitted_at: string;
+            /** Description */
+            description?: string | null;
+            /** Display Name */
+            display_name?: string | null;
             plan: components["schemas"]["RunPlanView"];
             /** Run Id */
             run_id: string;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
         };
         /** RunAnalysisListView */
         RunAnalysisListView: {

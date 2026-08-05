@@ -1,5 +1,8 @@
 {
   "experiment_id": "test.workflow_scan",
+  "display_name": null,
+  "tags": [],
+  "description": null,
   "inputs": {
     "subject": "q0"
   },
