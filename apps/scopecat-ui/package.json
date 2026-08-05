@@ -41,7 +41,7 @@
     "@vitejs/plugin-react": "6.0.3",
     "jsdom": "29.1.1",
     "openapi-typescript": "7.13.0",
-    "oxfmt": "0.59.0",
+    "oxfmt": "0.60.0",
     "oxlint": "1.75.0",
     "tailwindcss": "4.3.3",
     "typescript": "npm:@typescript/typescript6@6.0.2",
