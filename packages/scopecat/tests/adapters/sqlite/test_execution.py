@@ -12,6 +12,7 @@ from threading import Barrier
 import pytest
 
 from scopecat.adapters.sqlite import (
+    SQLiteDatabase,
     SQLiteMeasurementDatasetRepository,
     SQLiteProjectStore,
     SQLiteRunRepository,
@@ -45,12 +46,13 @@ from tests.testkit.runtime import SQLiteTestExecutionJournal as SQLiteExecutionJ
 
 
 def _runs(tmp_path: Path) -> SQLiteRunRepository:
+    sqlite = SQLiteDatabase(tmp_path / "control.sqlite3")
     SQLiteProjectStore(
-        tmp_path / "control.sqlite3",
+        sqlite,
         tmp_path / "objects",
     ).bootstrap()
     runs = SQLiteRunRepository(
-        tmp_path / "control.sqlite3",
+        sqlite,
         tmp_path / "objects",
     )
     return runs
@@ -202,8 +204,9 @@ def _transitions(run_id: str) -> tuple[ExecutionTransition, ...]:
 
 def test_execution_transitions_are_canonical_durable_events(tmp_path: Path) -> None:
     database = tmp_path / "control.sqlite3"
-    SQLiteProjectStore(database, tmp_path / "objects").bootstrap()
-    runs = SQLiteRunRepository(database, tmp_path / "objects")
+    sqlite = SQLiteDatabase(database)
+    SQLiteProjectStore(sqlite, tmp_path / "objects").bootstrap()
+    runs = SQLiteRunRepository(sqlite, tmp_path / "objects")
     journal = SQLiteExecutionJournal(runs, run_id="run-shared")
 
     committed = journal.append(

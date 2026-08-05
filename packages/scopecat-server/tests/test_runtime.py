@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,6 +14,7 @@ from scopecat.adapters.sqlite import (
     ControlPlaneConflict,
     SQLiteConfigRegistryStore,
     SQLiteControlPlane,
+    SQLiteDatabase,
     SQLiteRunRepository,
 )
 from scopecat.application import LabApplication
@@ -172,14 +174,18 @@ def _events(
 
 
 def _resource_claims(project_root: Path) -> tuple[ResourceClaim, ...]:
-    control = SQLiteControlPlane(project_root / ".scopecat" / "control.sqlite3")
-    with control.transaction() as connection:
+    control = SQLiteControlPlane(
+        SQLiteDatabase(project_root / ".scopecat" / "control.sqlite3")
+    )
+    with control.read_transaction() as connection:
         return control.list_resource_claims_in_transaction(connection)
 
 
 def _run_repository(project_root: Path) -> SQLiteRunRepository:
     state = project_root / ".scopecat"
-    return SQLiteRunRepository(state / "control.sqlite3", state / "objects")
+    return SQLiteRunRepository(
+        SQLiteDatabase(state / "control.sqlite3"), state / "objects"
+    )
 
 
 def _submission(
@@ -407,6 +413,34 @@ def test_runtime_cleans_up_partially_started_supervisor(
     monkeypatch.undo()
     with LocalDaemonRuntime(tmp_path):
         pass
+
+
+def test_lease_supervisor_health_recovers_after_one_failed_iteration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with LocalDaemonRuntime(tmp_path) as runtime:
+        instruments = runtime.application.instruments
+        failed = Event()
+        permit_success = Event()
+
+        def fail_once_then_succeed() -> None:
+            if not failed.is_set():
+                failed.set()
+                raise RuntimeError("temporary lease scan failure")
+            assert permit_success.wait(timeout=1)
+
+        monkeypatch.setattr(instruments, "expire_leases", fail_once_then_succeed)
+        assert failed.wait(timeout=2)
+        assert runtime.application.health().status == "degraded"
+
+        permit_success.set()
+        deadline = time.monotonic() + 2
+        while (
+            runtime.application.health().status != "ok" and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+        assert runtime.application.health().status == "ok"
 
 
 def test_runtime_shutdown_unblocks_an_active_lease_supervisor(
@@ -1161,15 +1195,16 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
         client = TestClient(runtime.app())
         admission_services: list[daemon_services.AdmissionService] = []
         for _ in range(2):
-            runs = SQLiteRunRepository(database, state / "objects")
-            registry = SQLiteConfigRegistryStore(database, runs=runs)
+            sqlite = SQLiteDatabase(database)
+            runs = SQLiteRunRepository(sqlite, state / "objects")
+            registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
             admission_services.append(
                 daemon_services.AdmissionService(
-                    control=SQLiteControlPlane(database),
+                    control=SQLiteControlPlane(sqlite),
                     runs=runs,
                     services=ProjectStateServices(
                         runs=runs,
-                        config_registry=registry.unit_of_work,
+                        config_registry=registry.read_unit_of_work,
                     ),
                 )
             )
@@ -1440,14 +1475,15 @@ def test_authority_failure_replays_a_concurrently_admitted_submission(
     state = tmp_path / ".scopecat"
     database = state / "control.sqlite3"
     with LocalDaemonRuntime(tmp_path, bootstrap_config=config) as runtime:
-        runs = SQLiteRunRepository(database, state / "objects")
-        registry = SQLiteConfigRegistryStore(database, runs=runs)
+        sqlite = SQLiteDatabase(database)
+        runs = SQLiteRunRepository(sqlite, state / "objects")
+        registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
         racing = daemon_services.AdmissionService(
-            control=SQLiteControlPlane(database),
+            control=SQLiteControlPlane(sqlite),
             runs=runs,
             services=ProjectStateServices(
                 runs=runs,
-                config_registry=registry.unit_of_work,
+                config_registry=registry.read_unit_of_work,
             ),
         )
         resolve_active = racing._resolve_active_config

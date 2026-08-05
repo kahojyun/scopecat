@@ -7,7 +7,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import cast
 
-from scopecat.adapters.sqlite.connection import connect
+from scopecat.adapters.sqlite.connection import SQLiteDatabase
 from scopecat.adapters.sqlite.object_store import ImmutableObjectStore
 from scopecat.adapters.sqlite.schema import (
     PROJECT_SCHEMA_SQL,
@@ -28,14 +28,12 @@ class SQLiteProjectStore:
 
     def __init__(
         self,
-        database: str | Path,
+        database: SQLiteDatabase,
         objects: str | Path,
-        *,
-        busy_timeout_seconds: float = 5,
     ) -> None:
-        self.database = Path(database)
+        self.sqlite = database
+        self.database = database.path
         self.objects = ImmutableObjectStore(objects)
-        self._busy_timeout_seconds = busy_timeout_seconds
 
     def bootstrap(self) -> None:
         """Create the current store, refusing implicit schema migration."""
@@ -83,10 +81,7 @@ class SQLiteProjectStore:
         return version
 
     def _connect(self) -> sqlite3.Connection:
-        return connect(
-            self.database,
-            busy_timeout_seconds=self._busy_timeout_seconds,
-        )
+        return self.sqlite.connect()
 
 
 def _has_project_schema(connection: sqlite3.Connection) -> bool:

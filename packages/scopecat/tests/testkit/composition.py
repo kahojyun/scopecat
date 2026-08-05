@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from scopecat.adapters.sqlite import (
     SQLiteConfigRegistryStore,
     SQLiteControlPlane,
+    SQLiteDatabase,
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
     SQLiteProjectStore,
@@ -91,7 +92,7 @@ class SQLiteTestExecutionJournal(SQLiteExecutionJournal):
     """Own test transactions and expose durable entries for assertions."""
 
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        with SQLiteControlPlane(self._runs.database).transaction() as connection:
+        with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
             committed, _created = self.append_in_transaction(connection, entry)
             return committed
 
@@ -131,7 +132,7 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
         header: MeasurementDatasetHeader,
     ) -> MeasurementDatasetReceipt:
         prepared = self.prepare_header(header)
-        with SQLiteControlPlane(self._runs.database).transaction() as connection:
+        with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
             receipt, _created = self.header_prepared_in_transaction(
                 connection,
                 prepared,
@@ -140,7 +141,7 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
 
     def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
         prepared = self.prepare_append(append)
-        with SQLiteControlPlane(self._runs.database).transaction() as connection:
+        with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
             receipt, _created = self.append_prepared_in_transaction(
                 connection,
                 prepared,
@@ -149,7 +150,7 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
 
     def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
         prepared = self.prepare_seal(seal)
-        with SQLiteControlPlane(self._runs.database).transaction() as connection:
+        with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
             receipt, _created = self.seal_prepared_in_transaction(
                 connection,
                 prepared,
@@ -191,7 +192,7 @@ def _persist_run_skeleton(
 
     runs = cast("SQLiteRunRepository", repository)
     prepared = runs.prepare_run_skeleton(skeleton)
-    with SQLiteControlPlane(runs.database).transaction() as connection:
+    with SQLiteControlPlane(runs.sqlite).write_transaction() as connection:
         runs.commit_run_skeleton_in_transaction(connection, prepared)
 
 
@@ -220,8 +221,9 @@ def sqlite_run_repository(project: str | Path) -> SQLiteTestRunRepository:
     """Open an isolated SQLite run repository."""
 
     database, objects = _sqlite_paths(project)
-    SQLiteProjectStore(database, objects).bootstrap()
-    repository = SQLiteTestRunRepository(database, objects)
+    sqlite = SQLiteDatabase(database)
+    SQLiteProjectStore(sqlite, objects).bootstrap()
+    repository = SQLiteTestRunRepository(sqlite, objects)
     return repository
 
 
@@ -231,7 +233,7 @@ def sqlite_config_registry_unit_of_work(
     """Open isolated configuration registry transactions."""
 
     runs = sqlite_run_repository(project)
-    return _config_registry_store(project, runs=runs).unit_of_work
+    return _config_registry_store(project, runs=runs).write_unit_of_work
 
 
 def sqlite_execution_session(
@@ -264,7 +266,7 @@ def sqlite_project_services(project: str | Path) -> ProjectStateServices:
     config_registry = _config_registry_store(project, runs=runs)
     return ProjectStateServices(
         runs=runs,
-        config_registry=config_registry.unit_of_work,
+        config_registry=config_registry.write_unit_of_work,
     )
 
 
@@ -278,5 +280,4 @@ def _config_registry_store(
     *,
     runs: SQLiteRunRepository,
 ) -> SQLiteConfigRegistryStore:
-    database, _ = _sqlite_paths(project)
-    return SQLiteConfigRegistryStore(database, runs=runs)
+    return SQLiteConfigRegistryStore(runs.sqlite, runs=runs)

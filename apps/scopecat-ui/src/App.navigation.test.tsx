@@ -299,8 +299,13 @@ describe("config provenance navigation", () => {
     expect(within(initial).getByText("1 stage shown")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Load older runs" }));
 
-    const merged = await screen.findByRole("region", { name: "Sequence paged-sequence" });
-    expect(within(merged).getByText("2 stages shown")).toBeVisible();
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("region", { name: "Sequence paged-sequence" })).getByText(
+          "2 stages shown",
+        ),
+      ).toBeVisible(),
+    );
     expect(screen.getAllByTestId("run-sequence-group")).toHaveLength(1);
   });
 

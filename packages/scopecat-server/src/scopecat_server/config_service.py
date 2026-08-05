@@ -87,7 +87,7 @@ class ConfigService:
     def get_config_registry(self) -> ConfigRegistryView:
         with self._config_errors():
             snapshot = config_registry_service.load_config_registry_snapshot(
-                unit_of_work=self._config_registry.unit_of_work
+                unit_of_work=self._config_registry.read_unit_of_work
             )
             return ConfigRegistryView(
                 entries=snapshot.entries,
@@ -98,14 +98,14 @@ class ConfigService:
         with self._config_errors():
             return ConfigActivationHistoryView(
                 items=config_registry_service.load_config_registry_activation_history(
-                    unit_of_work=self._config_registry.unit_of_work
+                    unit_of_work=self._config_registry.read_unit_of_work
                 )
             )
 
     def get_active_config(self) -> ActiveConfigView:
         with self._config_errors():
             snapshot = config_registry_service.load_active_config_registry_snapshot(
-                unit_of_work=self._config_registry.unit_of_work
+                unit_of_work=self._config_registry.read_unit_of_work
             )
             return ActiveConfigView(
                 entry=snapshot.entry,
@@ -117,7 +117,7 @@ class ConfigService:
         with self._config_errors():
             snapshot = config_registry_service.load_config_registry_entry_snapshot(
                 entry_id=entry_id,
-                unit_of_work=self._config_registry.unit_of_work,
+                unit_of_work=self._config_registry.read_unit_of_work,
             )
             return ConfigEntryView(entry=snapshot.entry, config=snapshot.config)
 
@@ -183,7 +183,7 @@ class ConfigService:
         declared = _inventory_migration_deltas(command)
         with self._mutation_lock, self._config_errors():
             active = config_registry_service.load_active_config_registry_snapshot(
-                unit_of_work=self._config_registry.unit_of_work
+                unit_of_work=self._config_registry.read_unit_of_work
             )
             # Do not retire healthy idle connections for an already-stale intent.
             if active.activation.generation != command.expected_generation:
@@ -265,7 +265,7 @@ class ConfigService:
         self,
         exclusivity_keys: tuple[str, ...],
     ) -> None:
-        with self._control.transaction() as connection:
+        with self._control.read_transaction() as connection:
             blockers = self._control.inventory_migration_blockers_in_transaction(
                 connection,
                 tuple(ResourceKey.instrument(key) for key in exclusivity_keys),
@@ -278,7 +278,7 @@ class ConfigService:
     ) -> ConfigDraftPreview:
         with self._config_errors():
             result = config_registry_service.preview_manual_config_draft(
-                unit_of_work=self._config_registry.unit_of_work,
+                unit_of_work=self._config_registry.read_unit_of_work,
                 base_entry_id=command.base_entry_id,
                 base_config_content_hash=command.base_content_hash,
                 base_generation=command.base_generation,
@@ -436,7 +436,7 @@ class ConfigService:
     ) -> Generator[tuple[sqlite3.Connection, ProjectStateServices]]:
         """Commit registry state and replay events through one SQLite writer."""
 
-        with self._control.transaction() as connection:
+        with self._control.write_transaction() as connection:
             services = replace(
                 self._services,
                 config_registry=lambda: self._config_registry.borrowed_unit_of_work(

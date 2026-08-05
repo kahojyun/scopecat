@@ -77,6 +77,8 @@ class OwnershipLeaseSupervisor:
             except Exception:
                 self._supervisor_failed = True
                 logger.exception("ownership lease supervisor iteration failed")
+            else:
+                self._supervisor_failed = False
 
     def _reconcile_startup(self) -> None:
         self._instruments.reconcile_startup()

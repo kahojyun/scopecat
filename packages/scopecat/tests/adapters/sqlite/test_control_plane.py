@@ -13,6 +13,7 @@ from scopecat.adapters.sqlite import (
     ExecutorLeaseNotHeld,
     InstrumentSessionNotActive,
     SQLiteControlPlane,
+    SQLiteDatabase,
     SQLiteProjectStore,
 )
 from scopecat.control.models import (
@@ -37,8 +38,9 @@ SESSION_TTL = timedelta(minutes=5)
 
 
 def _store(path: Path) -> SQLiteControlPlane:
-    SQLiteProjectStore(path, path.parent / "objects").bootstrap()
-    return SQLiteControlPlane(path)
+    sqlite = SQLiteDatabase(path)
+    SQLiteProjectStore(sqlite, path.parent / "objects").bootstrap()
+    return SQLiteControlPlane(sqlite)
 
 
 def _open_instrument_session(
@@ -105,7 +107,7 @@ def _admit(
     *,
     expected_config_generation: int = 0,
 ) -> ControlRun:
-    with store.transaction() as connection:
+    with store.write_transaction() as connection:
         return store.admit_run_in_transaction(
             connection,
             admission,
@@ -121,7 +123,7 @@ def _start(
     ttl: timedelta | None = None,
     at: datetime = NOW,
 ) -> ExecutorLease:
-    with store.transaction() as connection:
+    with store.write_transaction() as connection:
         return store.start_execution_in_transaction(
             connection,
             run_id,
@@ -138,7 +140,7 @@ def _close(
     executor_token: str | None = None,
     at: datetime,
 ) -> ControlRun:
-    with store.transaction() as connection:
+    with store.write_transaction() as connection:
         return store.close_run_in_transaction(
             connection,
             run_id,
@@ -161,12 +163,12 @@ def _append_event(
             at=event.occurred_at,
         ) as connection:
             return store.append_event_in_transaction(connection, event)
-    with store.transaction() as connection:
+    with store.write_transaction() as connection:
         return store.append_event_in_transaction(connection, event)
 
 
 def _resource_claims(store: SQLiteControlPlane) -> tuple[ResourceClaim, ...]:
-    with store.transaction() as connection:
+    with store.read_transaction() as connection:
         return store.list_resource_claims_in_transaction(connection)
 
 
@@ -174,7 +176,7 @@ def _inventory_migration_blockers(
     store: SQLiteControlPlane,
     *affected_keys: ResourceKey,
 ) -> tuple[InventoryMigrationBlocker, ...]:
-    with store.transaction() as connection:
+    with store.read_transaction() as connection:
         return store.inventory_migration_blockers_in_transaction(
             connection,
             affected_keys,
@@ -182,7 +184,7 @@ def _inventory_migration_blockers(
 
 
 def _release_run_resources(store: SQLiteControlPlane, run_id: str) -> int:
-    with store.transaction() as connection:
+    with store.write_transaction() as connection:
         return store.release_run_resources_in_transaction(connection, run_id)
 
 
@@ -190,7 +192,7 @@ def _executor_lease(
     store: SQLiteControlPlane,
     run_id: str,
 ) -> ExecutorLease | None:
-    with store.transaction() as connection:
+    with store.read_transaction() as connection:
         return store.executor_lease_for_run_in_transaction(connection, run_id)
 
 
@@ -564,7 +566,7 @@ def test_concurrent_resource_claim_has_one_winner(tmp_path: Path) -> None:
     barrier = Barrier(2)
 
     def start(run_id: str) -> bool:
-        peer = SQLiteControlPlane(path)
+        peer = SQLiteControlPlane(SQLiteDatabase(path))
         barrier.wait()
         try:
             _start(peer, run_id, executor_id=run_id)

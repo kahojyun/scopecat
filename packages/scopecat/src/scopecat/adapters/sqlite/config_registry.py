@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
+from contextlib import AbstractContextManager
 from types import TracebackType
 from typing import Self, cast
 
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 
-from scopecat.adapters.sqlite.connection import connect
+from scopecat.adapters.sqlite.connection import SQLiteDatabase
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
@@ -263,18 +263,20 @@ class SQLiteConfigRegistryUnitOfWork:
 
     def __init__(
         self,
-        database: str | Path,
+        database: SQLiteDatabase,
         *,
         runs: RunRepository,
-        busy_timeout_seconds: float = 5,
+        write: bool,
         _borrowed_connection: sqlite3.Connection | None = None,
     ) -> None:
-        self.database = Path(database)
+        self.sqlite = database
+        self.database = database.path
         self.runs = runs
-        self._busy_timeout_seconds = busy_timeout_seconds
+        self._write = write
         self._borrowed_connection = _borrowed_connection
         self._connection: sqlite3.Connection | None = None
         self._registry: SQLiteConfigRegistryRepository | None = None
+        self._transaction: AbstractContextManager[sqlite3.Connection] | None = None
 
     @property
     def registry(self) -> SQLiteConfigRegistryRepository:
@@ -289,15 +291,16 @@ class SQLiteConfigRegistryUnitOfWork:
             raise RuntimeError(msg)
         connection = self._borrowed_connection
         if connection is None:
-            connection = connect(
-                self.database,
-                busy_timeout_seconds=self._busy_timeout_seconds,
+            transaction = (
+                self.sqlite.write_transaction()
+                if self._write
+                else self.sqlite.read_transaction()
             )
             try:
-                connection.execute("BEGIN IMMEDIATE")
+                connection = transaction.__enter__()
             except sqlite3.Error as error:
-                connection.close()
                 raise _storage_failure(CONFIG_REGISTRY_ROOT) from error
+            self._transaction = transaction
         self._connection = connection
         self._registry = SQLiteConfigRegistryRepository(connection)
         return self
@@ -308,7 +311,6 @@ class SQLiteConfigRegistryUnitOfWork:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        del exc_value, traceback
         connection = self._connection
         if connection is None:
             msg = "config registry unit of work was not entered"
@@ -317,15 +319,13 @@ class SQLiteConfigRegistryUnitOfWork:
         self._registry = None
         if self._borrowed_connection is not None:
             return
+        transaction = self._transaction
+        self._transaction = None
+        assert transaction is not None
         try:
-            if exc_type is None:
-                connection.commit()
-            else:
-                connection.rollback()
+            transaction.__exit__(exc_type, exc_value, traceback)
         except sqlite3.Error as error:
             raise _storage_failure(CONFIG_REGISTRY_ROOT) from error
-        finally:
-            connection.close()
 
 
 class SQLiteConfigRegistryStore:
@@ -333,20 +333,26 @@ class SQLiteConfigRegistryStore:
 
     def __init__(
         self,
-        database: str | Path,
+        database: SQLiteDatabase,
         *,
         runs: RunRepository,
-        busy_timeout_seconds: float = 5,
     ) -> None:
-        self.database = Path(database)
+        self.sqlite = database
+        self.database = database.path
         self.runs = runs
-        self._busy_timeout_seconds = busy_timeout_seconds
 
-    def unit_of_work(self) -> SQLiteConfigRegistryUnitOfWork:
+    def read_unit_of_work(self) -> SQLiteConfigRegistryUnitOfWork:
         return SQLiteConfigRegistryUnitOfWork(
-            self.database,
+            self.sqlite,
             runs=self.runs,
-            busy_timeout_seconds=self._busy_timeout_seconds,
+            write=False,
+        )
+
+    def write_unit_of_work(self) -> SQLiteConfigRegistryUnitOfWork:
+        return SQLiteConfigRegistryUnitOfWork(
+            self.sqlite,
+            runs=self.runs,
+            write=True,
         )
 
     def borrowed_unit_of_work(
@@ -356,9 +362,9 @@ class SQLiteConfigRegistryStore:
         """Bind registry operations to a caller-owned SQLite transaction."""
 
         return SQLiteConfigRegistryUnitOfWork(
-            self.database,
+            self.sqlite,
             runs=self.runs,
-            busy_timeout_seconds=self._busy_timeout_seconds,
+            write=True,
             _borrowed_connection=connection,
         )
 

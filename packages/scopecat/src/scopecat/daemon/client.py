@@ -131,6 +131,10 @@ class DaemonConflictError(DaemonClientError):
     """The command conflicts with current durable daemon state."""
 
 
+class DaemonUnavailableError(DaemonClientError):
+    """The daemon temporarily cannot complete a retry-safe request."""
+
+
 class DaemonClient:
     """Thin synchronous wrapper around the versioned daemon HTTP API."""
 
@@ -1013,6 +1017,8 @@ class DaemonClient:
             raise DaemonNotFoundError(_error_detail(response), response=response)
         if response.status_code == 409:
             raise DaemonConflictError(_error_detail(response), response=response)
+        if response.status_code == 503:
+            raise DaemonUnavailableError(_error_detail(response), response=response)
         response.raise_for_status()
         return response
 
@@ -1034,4 +1040,5 @@ __all__ = [
     "DaemonConflictError",
     "DaemonHealth",
     "DaemonNotFoundError",
+    "DaemonUnavailableError",
 ]

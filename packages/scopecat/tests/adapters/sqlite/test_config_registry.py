@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 
-from scopecat.adapters.sqlite import SQLiteProjectStore
+from scopecat.adapters.sqlite import SQLiteDatabase, SQLiteProjectStore
 from scopecat.adapters.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.registry.service import (
@@ -62,13 +62,14 @@ def _publish_direct_revision(
 
 def _store(tmp_path: Path) -> SQLiteConfigRegistryStore:
     database = tmp_path / "control.sqlite3"
-    SQLiteProjectStore(database, tmp_path / "objects").bootstrap()
-    runs = SQLiteTestRunRepository(database, tmp_path / "objects")
-    return SQLiteConfigRegistryStore(database, runs=runs)
+    sqlite = SQLiteDatabase(database)
+    SQLiteProjectStore(sqlite, tmp_path / "objects").bootstrap()
+    runs = SQLiteTestRunRepository(sqlite, tmp_path / "objects")
+    return SQLiteConfigRegistryStore(sqlite, runs=runs)
 
 
 def test_publish_is_idempotent_and_round_trips(tmp_path: Path) -> None:
-    unit_of_work = _store(tmp_path).unit_of_work
+    unit_of_work = _store(tmp_path).write_unit_of_work
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
 
     first = _publish_direct_revision(
@@ -98,7 +99,7 @@ def test_publish_is_idempotent_and_round_trips(tmp_path: Path) -> None:
 
 
 def test_duplicate_identity_rejects_different_request(tmp_path: Path) -> None:
-    unit_of_work = _store(tmp_path).unit_of_work
+    unit_of_work = _store(tmp_path).write_unit_of_work
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     _publish_direct_revision(
         config=config,
@@ -120,7 +121,7 @@ def test_duplicate_identity_rejects_different_request(tmp_path: Path) -> None:
 def test_activation_uses_generation_cas_and_resolves_source(
     tmp_path: Path,
 ) -> None:
-    unit_of_work = _store(tmp_path).unit_of_work
+    unit_of_work = _store(tmp_path).write_unit_of_work
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     result = _publish_direct_revision(
         config=config,
@@ -177,12 +178,12 @@ def test_registry_and_run_reads_share_one_database(tmp_path: Path) -> None:
 
     _publish_direct_revision(
         config=config,
-        unit_of_work=store.unit_of_work,
+        unit_of_work=store.write_unit_of_work,
         entry_id="shared",
         actor="test",
     )
 
-    with store.unit_of_work() as work:
+    with store.write_unit_of_work() as work:
         assert work.runs is store.runs
         assert work.runs.read_text("run-shared", "records/value.txt") == "value\n"
 
@@ -194,13 +195,13 @@ def test_listing_reads_entry_metadata_without_loading_each_config(
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     _publish_direct_revision(
         config=config,
-        unit_of_work=store.unit_of_work,
+        unit_of_work=store.write_unit_of_work,
         entry_id="first",
         actor="test",
     )
     _publish_direct_revision(
         config=config.model_copy(update={"id": "second"}),
-        unit_of_work=store.unit_of_work,
+        unit_of_work=store.write_unit_of_work,
         entry_id="second",
         actor="test",
     )
@@ -230,7 +231,7 @@ def test_aggregate_reads_open_one_unit_of_work(tmp_path: Path) -> None:
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     _publish_direct_revision(
         config=config,
-        unit_of_work=store.unit_of_work,
+        unit_of_work=store.write_unit_of_work,
         entry_id="active",
         actor="test",
         expected_generation=0,
@@ -240,7 +241,7 @@ def test_aggregate_reads_open_one_unit_of_work(tmp_path: Path) -> None:
     def counted_unit_of_work():
         nonlocal opens
         opens += 1
-        return store.unit_of_work()
+        return store.write_unit_of_work()
 
     registry = load_config_registry_snapshot(unit_of_work=counted_unit_of_work)
     assert opens == 1
@@ -275,13 +276,13 @@ def test_publish_rolls_back_together(tmp_path: Path) -> None:
     with pytest.raises(StorageError):
         _publish_direct_revision(
             config=config,
-            unit_of_work=store.unit_of_work,
+            unit_of_work=store.write_unit_of_work,
             entry_id="rolled-back",
             actor="test",
             expected_generation=0,
         )
 
-    assert list_config_registry_entries(unit_of_work=store.unit_of_work) == []
+    assert list_config_registry_entries(unit_of_work=store.read_unit_of_work) == []
 
 
 def test_borrowed_unit_of_work_leaves_transaction_and_connection_owned_by_caller(
@@ -342,21 +343,21 @@ def test_undo_persists_contiguous_activation_generations(
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     first = _publish_direct_revision(
         config=config,
-        unit_of_work=store.unit_of_work,
+        unit_of_work=store.write_unit_of_work,
         entry_id="first",
         actor="test",
         expected_generation=0,
     )
     _publish_direct_revision(
         config=config.model_copy(update={"id": "second-config"}),
-        unit_of_work=store.unit_of_work,
+        unit_of_work=store.write_unit_of_work,
         entry_id="second",
         actor="test",
         expected_generation=1,
     )
 
     undo = undo_config_registry(
-        unit_of_work=store.unit_of_work,
+        unit_of_work=store.write_unit_of_work,
         actor="test",
         expected_generation=2,
     )
@@ -382,23 +383,23 @@ def test_undo_persists_contiguous_activation_generations(
 
 def test_generation_cas_is_shared_across_store_instances(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    peer = SQLiteConfigRegistryStore(store.database, runs=store.runs)
+    peer = SQLiteConfigRegistryStore(store.sqlite, runs=store.runs)
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     _publish_direct_revision(
         config=config,
-        unit_of_work=store.unit_of_work,
+        unit_of_work=store.write_unit_of_work,
         entry_id="first",
         actor="test",
     )
     _publish_direct_revision(
         config=config.model_copy(update={"id": "second-config"}),
-        unit_of_work=store.unit_of_work,
+        unit_of_work=store.write_unit_of_work,
         entry_id="second",
         actor="test",
     )
     activate_config_registry_entry(
         entry_id="first",
-        unit_of_work=store.unit_of_work,
+        unit_of_work=store.write_unit_of_work,
         actor="first",
         expected_generation=2,
     )
@@ -406,7 +407,7 @@ def test_generation_cas_is_shared_across_store_instances(tmp_path: Path) -> None
     with pytest.raises(Conflict) as captured:
         activate_config_registry_entry(
             entry_id="second",
-            unit_of_work=peer.unit_of_work,
+            unit_of_work=peer.write_unit_of_work,
             actor="second",
             expected_generation=2,
         )

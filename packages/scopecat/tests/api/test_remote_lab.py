@@ -30,7 +30,11 @@ from scopecat.config.registry.records import (
 )
 from scopecat.config.resolution import config_revision_entry_id
 from scopecat.control.models import RunResourceRequirement
-from scopecat.daemon.client import DaemonClient, DaemonConflictError
+from scopecat.daemon.client import (
+    DaemonClient,
+    DaemonConflictError,
+    DaemonUnavailableError,
+)
 from scopecat.daemon.execution import ExecutorLeaseLostError
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -957,6 +961,34 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
     assert isinstance(error.value.cause, DaemonConflictError)
 
 
+def test_executor_heartbeat_recovers_from_temporary_unavailability() -> None:
+    lease = _lease(heartbeat_interval=0.05)
+    supervisor = runner_module._LeaseHeartbeat()
+    recovered = Event()
+    attempts = 0
+
+    def heartbeat() -> ExecutorLease:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise DaemonUnavailableError(
+                "project database writer is busy",
+                response=httpx2.Response(503),
+            )
+        recovered.set()
+        return lease.model_copy(
+            update={"expires_at": datetime.now(UTC) + timedelta(seconds=0.15)}
+        )
+
+    supervisor.start(lease, heartbeat)
+    try:
+        assert recovered.wait(timeout=1)
+        supervisor.require_live()
+        assert attempts == 2
+    finally:
+        supervisor.close()
+
+
 def test_config_operations_reject_a_draft_from_a_different_active_snapshot() -> None:
     active_config = load_config()
     stale_config = active_config.model_copy(update={"id": "stale-config"})
@@ -1533,12 +1565,13 @@ def _admission(submission: RunSubmission) -> RunAdmission:
 
 
 def _lease(*, heartbeat_interval: float) -> ExecutorLease:
+    issued_at = datetime.now(UTC)
     return ExecutorLease(
         lease_id="lease-1",
         run_id="run-1",
         executor_id="notebook-1",
-        issued_at=_NOW,
-        expires_at=_NOW + timedelta(seconds=30),
+        issued_at=issued_at,
+        expires_at=issued_at + timedelta(seconds=heartbeat_interval * 3),
         heartbeat_interval_seconds=heartbeat_interval,
     )
 

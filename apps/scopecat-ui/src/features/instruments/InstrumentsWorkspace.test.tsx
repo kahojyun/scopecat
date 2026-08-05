@@ -195,7 +195,7 @@ describe("instrument workspace", () => {
 
     await screen.findByText("Drive source");
     expect(openInstrumentSession).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
 
     await waitFor(() =>
       expect(openInstrumentSession).toHaveBeenCalledWith(
@@ -272,7 +272,7 @@ describe("instrument workspace", () => {
     expect(
       screen.queryByRole("button", { name: "Apply configured defaults" }),
     ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     const applyDefaults = await screen.findByRole("button", {
       name: "Apply configured defaults",
     });
@@ -305,7 +305,7 @@ describe("instrument workspace", () => {
     renderWorkspace();
 
     await screen.findByText("Reset fault");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     fireEvent.click(await screen.findByRole("button", { name: "Invoke Reset fault" }));
     expect(await screen.findByText("Invoke receipt: Invoked")).toBeVisible();
 
@@ -317,8 +317,7 @@ describe("instrument workspace", () => {
   it("hides configured defaults when the pinned session has none", async () => {
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    await screen.findByText("Interactive session connected");
+    await connectInstrument();
 
     expect(
       screen.queryByRole("button", { name: "Apply configured defaults" }),
@@ -343,7 +342,7 @@ describe("instrument workspace", () => {
     );
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     const frequency = await screen.findByRole("spinbutton", { name: /CW frequency/ });
     const applyDefaults = screen.getByRole("button", {
       name: "Apply configured defaults",
@@ -389,7 +388,7 @@ describe("instrument workspace", () => {
     );
     renderWorkspace();
     await screen.findByText("Reset fault");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     const applyDefaults = await screen.findByRole("button", {
       name: "Apply configured defaults",
     });
@@ -436,7 +435,7 @@ describe("instrument workspace", () => {
     });
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     fireEvent.click(await screen.findByRole("button", { name: "Apply configured defaults" }));
 
     expect(
@@ -455,7 +454,7 @@ describe("instrument workspace", () => {
       .mockResolvedValueOnce(configuredDefaultsReceipt("unchanged", instrumentState()));
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     const applyDefaults = await screen.findByRole("button", {
       name: "Apply configured defaults",
     });
@@ -478,7 +477,7 @@ describe("instrument workspace", () => {
     );
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     fireEvent.click(await screen.findByRole("button", { name: "Apply configured defaults" }));
 
     expect(
@@ -512,7 +511,7 @@ describe("instrument workspace", () => {
   it("stages typed properties locally and sends one apply command", async () => {
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     const frequency = await screen.findByRole("spinbutton", {
       name: /CW frequency/,
     });
@@ -566,8 +565,10 @@ describe("instrument workspace", () => {
     expect(screen.getByRole("spinbutton", { name: /Voltage range/ })).toBeDisabled();
     expect(screen.getByRole("spinbutton", { name: /Current range/ })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    expect(await screen.findByRole("spinbutton", { name: /Voltage range/ })).toHaveValue(5);
+    await connectInstrument();
+    await waitFor(() =>
+      expect(screen.getByRole("spinbutton", { name: /Voltage range/ })).toHaveValue(5),
+    );
     expect(screen.getByRole("spinbutton", { name: /Current range/ })).toHaveValue(0.1);
     expect(screen.getByRole("combobox", { name: /Source mode/ })).toHaveValue("voltage");
 
@@ -599,7 +600,7 @@ describe("instrument workspace", () => {
     renderWorkspace();
 
     await screen.findByText("DC source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     fireEvent.change(await screen.findByRole("combobox", { name: /Source mode/ }), {
       target: { value: "current" },
     });
@@ -649,7 +650,7 @@ describe("instrument workspace", () => {
     renderWorkspace();
 
     await screen.findByText("DC source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     const voltageRange = await screen.findByRole("spinbutton", { name: /Voltage range/ });
     fireEvent.change(voltageRange, {
       target: { value: "8" },
@@ -693,7 +694,7 @@ describe("instrument workspace", () => {
     expect(screen.queryByText("payload_id")).not.toBeInTheDocument();
     expect(screen.queryByText("waveform/v1")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     fireEvent.change(await screen.findByRole("combobox", { name: /Enable correction/ }), {
       target: { value: "true" },
     });
@@ -766,7 +767,7 @@ describe("instrument workspace", () => {
     renderWorkspace();
 
     await screen.findByText("Reset fault");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     fireEvent.click(await screen.findByRole("button", { name: "Invoke Reset fault" }));
 
     expect(
@@ -805,7 +806,7 @@ describe("instrument workspace", () => {
     });
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     fireEvent.click(await screen.findByRole("button", { name: "Collect" }));
 
     const summary = await screen.findByRole("status");
@@ -827,7 +828,7 @@ describe("instrument workspace", () => {
     );
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     const frequency = await screen.findByRole("spinbutton", { name: /CW frequency/ });
     fireEvent.change(frequency, { target: { value: "6000000000" } });
 
@@ -860,7 +861,7 @@ describe("instrument workspace", () => {
     );
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
     const frequency = await screen.findByRole("spinbutton", { name: /CW frequency/ });
 
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
@@ -946,7 +947,7 @@ describe("instrument workspace", () => {
 
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await connectInstrument();
 
     expect(await screen.findByText("Current sample")).toBeVisible();
     expect(screen.getByText("Voltage sample")).toBeVisible();
@@ -971,8 +972,7 @@ describe("instrument workspace", () => {
       .mockRejectedValueOnce(new ApiError("Close request lost again."));
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    await screen.findByText("Interactive session connected");
+    await connectInstrument();
 
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
 
@@ -1011,8 +1011,7 @@ describe("instrument workspace", () => {
     vi.mocked(closeInstrumentSession).mockRejectedValueOnce(new Error("Switch close failed."));
     renderWorkspace();
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    await screen.findByText("Interactive session connected");
+    await connectInstrument();
 
     fireEvent.click(screen.getByTitle("Inspect instrument monitor"));
 
@@ -1317,6 +1316,11 @@ function renderWorkspace() {
       <InstrumentsWorkspace daemonUnavailable={false} />
     </QueryClientProvider>,
   );
+}
+
+async function connectInstrument() {
+  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  await screen.findByText("Interactive session connected");
 }
 
 function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
