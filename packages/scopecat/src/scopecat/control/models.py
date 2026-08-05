@@ -230,6 +230,7 @@ class ControlRun(_ControlModel):
     state: ControlRunState
     updated_at: datetime
     attention_reason: str | None = None
+    cancellation_requested_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_state_details(self) -> ControlRun:

@@ -41,6 +41,7 @@ from scopecat.daemon.wire import (
     InstrumentSessionLeaseReceipt,
     PayloadObjectReceipt,
     RunAdmission,
+    RunCancellationReceipt,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
@@ -156,6 +157,29 @@ def test_executor_start_rejects_receipt_for_another_run() -> None:
                 executor_id="notebook-1",
             ),
         )
+
+
+def test_cancel_run_posts_to_the_idempotent_operator_endpoint() -> None:
+    requests: list[httpx2.Request] = []
+    receipt = RunCancellationReceipt(
+        run_id="run-1",
+        status="cancel_requested",
+        cancellation_requested_at=_NOW,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.cancel_run("run-1") == receipt
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/runs/run-1/cancel"
 
 
 def test_resolve_instrument_contracts_posts_the_exact_config_snapshot() -> None:

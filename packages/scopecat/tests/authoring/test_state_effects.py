@@ -9,10 +9,10 @@ import pytest
 
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource
-from scopecat.authoring.finalization import Finalizable, FinalizationTarget
+from scopecat.authoring.state_projection import StateProjector, StateTarget
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.planning.local_materialization import (
-    materialize_local_final_state,
+    materialize_local_success_state,
     prepare_local_target,
 )
 from scopecat.program.bindings import EnsureStateIntent
@@ -49,11 +49,11 @@ class _DeclaredSourceState:
 class _TypedSource:
     resource: DefinitionResource
 
-    def finalization_targets(
+    def state_targets(
         self,
         state: _DeclaredSourceState,
         /,
-    ) -> tuple[FinalizationTarget, ...]:
+    ) -> tuple[StateTarget, ...]:
         return (
             (
                 self.resource,
@@ -98,12 +98,12 @@ def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
             _source_assignments(level=1.5, enabled=True),
         )
 
-    @sc.template(id="test.coherent-target", kind="state-effect")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+    @sc.experiment(id="test.coherent-target", kind="state-effect")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(module())
 
     bound = bind_invocation(
-        template(),
+        experiment(),
         config_profile=config_with_physical_resources(
             {"source-device": (_SOURCE.interface_id,)}
         ),
@@ -142,12 +142,12 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
             _source_assignments(level=2.0, enabled=False),
         )
 
-    @sc.template(id="test.sequential-targets", kind="state-effect")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+    @sc.experiment(id="test.sequential-targets", kind="state-effect")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(module())
 
     bound = bind_invocation(
-        template(),
+        experiment(),
         config_profile=config_with_physical_resources(
             {"source-device": (_SOURCE.interface_id,)}
         ),
@@ -167,14 +167,14 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
     assert [operation.targets[0].value.root for operation in operations] == [1.0, 2.0]
 
 
-def test_root_final_state_is_materialized_outside_point_effects() -> None:
-    @sc.template(id="test.final_state", kind="state-effect")
+def test_root_success_state_is_materialized_outside_point_effects() -> None:
+    @sc.experiment(id="test.success_state", kind="state-effect")
     def experiment_definition(
         experiment: sc.ExperimentContext,
-        level: float = 0.0,
+        level: sc.Input[float] = 0.0,
     ) -> None:
         source = experiment._resource("source", requires=(_SOURCE,))
-        experiment.finalize(
+        experiment.on_success(
             _TypedSource(source),
             _DeclaredSourceState(level=level, enabled=False),
         )
@@ -187,9 +187,9 @@ def test_root_final_state_is_materialized_outside_point_effects() -> None:
     )
 
     assert bound.program.program.effects == ()
-    final_state = bound.program.program.final_state
-    assert isinstance(final_state, LogicalEnsureState)
-    assert [assignment.property_id for assignment in final_state.assignments] == [
+    success_state = bound.program.program.success_state
+    assert isinstance(success_state, LogicalEnsureState)
+    assert [assignment.property_id for assignment in success_state.assignments] == [
         "level",
         "enabled",
     ]
@@ -198,7 +198,7 @@ def test_root_final_state_is_materialized_outside_point_effects() -> None:
         product_use_ids=frozenset(),
         instrument_order=("source-device",),
     )
-    [operation] = materialize_local_final_state(bound, target=target)
+    [operation] = materialize_local_success_state(bound, target=target)
     assert operation.instrument_id == "source-device"
     assert [target.property_id for target in operation.targets] == [
         "level",
@@ -207,36 +207,36 @@ def test_root_final_state_is_materialized_outside_point_effects() -> None:
     assert operation.targets[0].value.root == 0.0
 
 
-def test_root_final_state_accepts_a_typed_finalization_adapter() -> None:
-    @sc.template(id="test.typed-final-state", kind="state-effect")
+def test_root_success_state_accepts_a_typed_state_projector() -> None:
+    @sc.experiment(id="test.typed-final-state", kind="state-effect")
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
         source = experiment._resource("source", requires=(_SOURCE,))
-        typed_source: Finalizable[_DeclaredSourceState] = _TypedSource(source)
-        experiment.finalize(
+        typed_source: StateProjector[_DeclaredSourceState] = _TypedSource(source)
+        experiment.on_success(
             typed_source,
             _DeclaredSourceState(level=0.0, enabled=False),
         )
 
-    final_state = experiment_definition.definition.final_state
-    assert final_state is not None
-    assert [assignment.property_id for assignment in final_state.assignments] == [
+    success_state = experiment_definition.bind().definition.success_state
+    assert success_state is not None
+    assert [assignment.property_id for assignment in success_state.assignments] == [
         "level",
         "enabled",
     ]
 
 
-def test_root_final_state_rejects_scan_coordinates() -> None:
+def test_on_success_state_rejects_point_coordinates() -> None:
     level = sc.coordinate("level", sc.ScalarType(sc.FloatType()))
 
     with pytest.raises(
         ValueError,
-        match="final_state cannot depend on scan coordinates",
+        match="on_success state cannot depend on point coordinates",
     ):
 
-        @sc.template(id="test.final_state-coordinate", kind="state-effect")
+        @sc.experiment(id="test.success_state-coordinate", kind="state-effect")
         def experiment_definition(experiment: sc.ExperimentContext) -> None:
             source = experiment._resource("source", requires=(_SOURCE,))
-            experiment.finalize(
+            experiment.on_success(
                 _TypedSource(source),
                 _DeclaredSourceState(level=level, enabled=False),
             )

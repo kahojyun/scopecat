@@ -10,8 +10,8 @@ from scopecat_instruments import (
     temperature_readout,
 )
 
-FLUX_SPECTROSCOPY_TEMPLATE_ID = "instrument_demo.flux_spectroscopy"
-FLUX_SPECTROSCOPY_EXPERIMENT_ID = "resonator-flux-spectroscopy"
+FLUX_SPECTROSCOPY_ID = "instrument_demo.flux_spectroscopy"
+FLUX_SPECTROSCOPY_KIND = "resonator-flux-spectroscopy"
 
 FLUX_SOURCE_RESOURCE = "flux-source"
 TEMPERATURE_RESOURCE = "mixing-chamber"
@@ -33,14 +33,14 @@ DC_BIAS = sc.coordinate(
 )
 
 
-@sc.template(
-    id=FLUX_SPECTROSCOPY_TEMPLATE_ID,
-    kind=FLUX_SPECTROSCOPY_EXPERIMENT_ID,
+@sc.experiment(
+    id=FLUX_SPECTROSCOPY_ID,
+    kind=FLUX_SPECTROSCOPY_KIND,
 )
-def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
+def flux_spectroscopy(experiment: sc.ExperimentContext) -> None:
     """Scan DC bias and persist one VNA trace plus temperature per point."""
 
-    experiment.scan(
+    experiment.grid(
         sc.axis(
             DC_BIAS,
             start=BIAS_START,
@@ -73,7 +73,7 @@ def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
     )
     trace = readout.sweep()
     sample = temperature.sample()
-    experiment.finalize(flux_source, DCSourceTarget(output_enabled=False))
+    experiment.on_success(flux_source, DCSourceTarget(output_enabled=False))
 
     experiment.record(trace, sample.temperature)
 
@@ -83,11 +83,11 @@ __all__ = [
     "BIAS_START",
     "BIAS_STOP",
     "DC_BIAS",
-    "FLUX_SPECTROSCOPY_EXPERIMENT_ID",
-    "FLUX_SPECTROSCOPY_TEMPLATE_ID",
+    "FLUX_SPECTROSCOPY_ID",
+    "FLUX_SPECTROSCOPY_KIND",
     "FREQUENCY_RECORD_ID",
     "S_PARAMETER_RECORD_ID",
     "TEMPERATURE_RECORD_ID",
     "TRACE_POINTS",
-    "flux_spectroscopy_template",
+    "flux_spectroscopy",
 ]

@@ -16,7 +16,7 @@ def test_around_scan_requires_compatible_quantity_dimensions() -> None:
         sc.ScalarType(sc.QuantityType(unit="ns")),
     )
 
-    with pytest.raises(TypeError, match="scan point quantity type"):
+    with pytest.raises(TypeError, match="axis point quantity type"):
         sc.axis(frequency, center=duration, span="20 MHz", points=3)
     with pytest.raises(TypeError, match="incompatible"):
         sc.axis(
@@ -52,14 +52,14 @@ def test_generated_scan_rejects_non_convertible_coordinate_units() -> None:
         sc.ScalarType(sc.QuantityType(unit="dBm")),
     )
 
-    with pytest.raises(TypeError, match=r"scan.stop.*compatible with 'dBm'"):
+    with pytest.raises(TypeError, match=r"axis.stop.*compatible with 'dBm'"):
         sc.axis(
             power,
             start=sc.Quantity(-30.0, "dBm"),
             stop=sc.Quantity(1.0, "W"),
             points=3,
         )
-    with pytest.raises(TypeError, match=r"scan.span.*compatible with 'dBm'"):
+    with pytest.raises(TypeError, match=r"axis.span.*compatible with 'dBm'"):
         sc.axis(
             power,
             center=sc.Quantity(-20.0, "dBm"),

@@ -47,7 +47,7 @@ from scopecat.planning.local_effects import (
 )
 from scopecat.planning.local_materialization import (
     materialize_local_execution,
-    materialize_local_final_state,
+    materialize_local_success_state,
     prepare_local_target,
 )
 from scopecat.planning.measurement_projection import (
@@ -59,6 +59,7 @@ from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
     materialize_bound_points,
 )
+from scopecat.planning.point_order import point_execution_ordinals
 from scopecat.planning.provider_binding import (
     validate_run_host_binding,
 )
@@ -208,7 +209,13 @@ def _compile_system_program(
         raise ProviderContractError(catalog.problems)
     bound_points = materialize_bound_points(bound)
     point_domain = bound_points.point_domain
-    point_count = len(point_domain.points)
+    logical = bound.program.program
+    execution_ordinals = point_execution_ordinals(
+        point_domain,
+        repeat=logical.point_repeat,
+        repeat_mode=logical.point_repeat_mode,
+        traversal=logical.point_traversal,
+    )
     measurement_catalog = project_measurement_catalog(bound_points)
     point_catalog = project_run_point_catalog(bound_points)
     measurements = select_measurement_projection(
@@ -229,12 +236,13 @@ def _compile_system_program(
         materialize_local_execution(
             bound_points,
             target=local_target,
+            point_ordinals=execution_ordinals,
         )
         if local_target is not None
         else None
     )
-    local_final_state = (
-        materialize_local_final_state(
+    local_success_state = (
+        materialize_local_success_state(
             bound,
             target=local_target,
         )
@@ -243,7 +251,7 @@ def _compile_system_program(
     )
     local_requirements = _local_resource_requirements(
         local_effects,
-        final_state=local_final_state,
+        success_state=local_success_state,
     )
     _reject_local_domain_overlap(
         local_requirements=local_requirements,
@@ -253,7 +261,7 @@ def _compile_system_program(
         system=system,
         bound=bound,
         bound_points=bound_points,
-        point_count=point_count,
+        point_ordinals=execution_ordinals,
         domain_calls=domain_calls,
         local_effects=local_effects,
     )
@@ -282,7 +290,7 @@ def _compile_system_program(
                         tuple(effect.operation for effect in effects)
                         for effects in local_effects.effect_operations
                     ),
-                    local_final_state,
+                    local_success_state,
                 )
             ),
             problems=(),
@@ -292,7 +300,7 @@ def _compile_system_program(
         config_content_hash=config_content_hash(config),
         host=host,
         coverage=coverage,
-        final_state=local_final_state,
+        success_state=local_success_state,
         points=point_catalog,
         measurements=measurements,
         measurement_postprocessors=bound.bindings.measurement_postprocessors,
@@ -403,9 +411,9 @@ def _sorted_requirements(
 def _local_resource_requirements(
     local_effects: MaterializedLocalEffects | None,
     *,
-    final_state: Sequence[LocalOperation] = (),
+    success_state: Sequence[LocalOperation] = (),
 ) -> tuple[ResourceRequirement, ...]:
-    if local_effects is None and not final_state:
+    if local_effects is None and not success_state:
         return ()
     effect_operations = (
         ()
@@ -422,7 +430,7 @@ def _local_resource_requirements(
     return _sorted_requirements(
         tuple(
             requirement
-            for operation in (*effect_operations, *final_state)
+            for operation in (*effect_operations, *success_state)
             for requirement in local_operation_resource_requirements(operation)
         )
     )
@@ -464,11 +472,11 @@ def _compile_coverage(
     system: ExperimentSystem,
     bound: BoundPlan,
     bound_points: MaterializedBoundPoints,
-    point_count: int,
+    point_ordinals: tuple[int, ...],
     domain_calls: dict[str, DomainCallView],
     local_effects: MaterializedLocalEffects | None,
 ) -> tuple[RunCoveredOperation, ...]:
-    region = tuple(range(point_count))
+    region = point_ordinals
     if not region:
         return ()
     compiler = cast("DomainCompiler", system.domain_compiler)

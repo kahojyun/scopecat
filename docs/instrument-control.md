@@ -146,7 +146,7 @@ import scopecat as sc
 from scopecat_instruments import network_sweep
 
 
-@sc.template(id="resonator.capture", kind="resonator")
+@sc.experiment(id="resonator.capture", kind="resonator")
 def capture(experiment: sc.ExperimentContext) -> None:
     vna = network_sweep(experiment, "readout")
     vna.ensure(
@@ -165,12 +165,12 @@ Omitted fields remain unspecified. Consecutive ensures remain ordered effects;
 they are not merged into an unordered desired-state bag.
 
 The symbolic `sweep()` records an acquisition and returns a typed product
-bundle. Defining the template touches no hardware. A reusable `@module` is an
+bundle. Defining the experiment touches no hardware. A reusable `@module` is an
 optional extraction for shared or composed work, not a prerequisite for using
 an instrument.
 
-The template is the orchestration boundary, not a single-device runner. One
-template may coordinate several typed instrument clients, reusable modules,
+The experiment is the orchestration boundary, not a single-device runner. One
+experiment may coordinate several typed instrument clients, reusable modules,
 and domain calls; their value and effect dependencies determine the executable
 order while the lab configuration supplies physical resources.
 
@@ -234,10 +234,9 @@ experiment.record(traces)
 
 `PerEntity` is an immutable identity-keyed mapping. Alignment is an exact join
 on `(kind, id)`, never a positional zip. Missing, extra, and duplicate identities
-are errors before effects are recorded. Parameter-table selection uses the same
-shape: indexing a table with `one(...)` returns one row, while indexing it with
-`each(...)` returns `PerEntity[Row]`; `map(...)` projects a column without
-dropping entity keys.
+are errors before effects are recorded. `one(...)` and `each(...)` describe
+target cardinality only; parameter lookup remains an explicit scalar dependency
+instead of introducing a second table-schema and row-indexing API.
 
 Group authoring expands to independently routable scalar resources and effects.
 It does not ask one driver to perform an implicit vector operation. Recording a

@@ -22,11 +22,11 @@ from scopecat.program.point_domain import (
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
-    PointRowsSpec,
+    PointsSpec,
     RangeScanSource,
     ScanValue,
     ValuesScanSource,
-    parameter_cell_lookup,
+    parameter_overlay_cell,
 )
 from scopecat.program.value_refs import (
     ValueRef,
@@ -34,14 +34,8 @@ from scopecat.program.value_refs import (
     internal_value_ref_from_expression,
 )
 from scopecat.records.run_request import (
-    AroundScanRecord,
-    ParameterAroundScanRecord,
-    ParameterRangeScanRecord,
-    ParameterScanRecord,
-    PointRowsRecord,
-    PointScanRecord,
-    RangeScanRecord,
-    ScanRecord,
+    AxisRecord,
+    PointCloudDomainRecord,
 )
 
 
@@ -86,88 +80,55 @@ def lower_scans_point_domain(
     return tuple(_lower_scan_axis(scan, inputs=inputs) for scan in scans)
 
 
-def lower_point_rows_domain(
-    points: PointRowsSpec,
-    *,
-    inputs: Mapping[str, object] | None = None,
-) -> PointAxes[ValueRef]:
-    """Lower declaration-ordered point columns without Cartesian expansion."""
-
-    return lower_scans_point_domain(points.axes, inputs=inputs)
-
-
-def project_scan_record(
+def project_axis_record(
     axis: AxisSpec,
     *,
     inputs: Mapping[str, object] | None = None,
-) -> ScanRecord:
-    """Project scan intent into the closed durable request value domain."""
+) -> AxisRecord:
+    """Project one axis into the closed durable request value domain."""
 
     source = axis.source
-    if axis.parameter_lookup is None:
-        if isinstance(source, ValuesScanSource):
-            return PointScanRecord.model_validate(
-                {
-                    "axis_id": axis.id,
-                    "values": [
-                        _request_scalar_value(value, inputs=inputs)
-                        for value in source.values
-                    ],
-                }
-            )
-        if isinstance(source, RangeScanSource):
-            return RangeScanRecord.model_validate(
-                {
-                    "axis_id": axis.id,
-                    "start": _request_scalar_value(source.start, inputs=inputs),
-                    "stop": _request_scalar_value(source.stop, inputs=inputs),
-                    "points": source.points,
-                }
-            )
-        return AroundScanRecord.model_validate(
-            {
-                "axis_id": axis.id,
-                "center": project_run_request_scalar(
-                    _lower_scan_center(axis, inputs=inputs)
-                ),
-                "span": _request_scalar_value(source.span, inputs=inputs),
-                "points": source.points,
-            }
-        )
-    common = _parameter_scan_record_fields(axis, inputs=inputs)
     if isinstance(source, ValuesScanSource):
-        return ParameterScanRecord.model_validate(
-            {
-                **common,
-                "values": [
-                    _request_scalar_value(value, inputs=inputs)
-                    for value in source.values
-                ],
-            }
-        )
-    if isinstance(source, RangeScanSource):
-        return ParameterRangeScanRecord.model_validate(
-            {
-                **common,
-                "start": _request_scalar_value(source.start, inputs=inputs),
-                "stop": _request_scalar_value(source.stop, inputs=inputs),
-                "points": source.points,
-            }
-        )
-    return ParameterAroundScanRecord.model_validate(
-        {
-            **common,
+        source_record: dict[str, object] = {
+            "kind": "values",
+            "values": [
+                _request_scalar_value(value, inputs=inputs) for value in source.values
+            ],
+        }
+    elif isinstance(source, RangeScanSource):
+        source_record = {
+            "kind": "range",
+            "start": _request_scalar_value(source.start, inputs=inputs),
+            "stop": _request_scalar_value(source.stop, inputs=inputs),
+            "points": source.points,
+        }
+    else:
+        source_record = {
+            "kind": "around",
+            "center": project_run_request_scalar(
+                _lower_scan_center(axis, inputs=inputs)
+            ),
             "span": _request_scalar_value(source.span, inputs=inputs),
             "points": source.points,
+        }
+    return AxisRecord.model_validate(
+        {
+            "axis_id": axis.id,
+            "source": source_record,
+            "overlay": (
+                None
+                if axis.overlay is None
+                else _parameter_overlay_record(axis, inputs=inputs)
+            ),
         }
     )
 
 
-def project_point_rows_record(
-    points: PointRowsSpec,
+def project_point_cloud_record(
+    points: PointsSpec,
     *,
     inputs: Mapping[str, object] | None = None,
-) -> PointRowsRecord:
+) -> PointCloudDomainRecord:
     """Project a typed point cloud into ordered durable request rows."""
 
     axes = points.axes
@@ -175,7 +136,7 @@ def project_point_rows_record(
         cast("ValuesScanSource", axis.source).values for axis in axes
     )
     row_count = len(values_by_axis[0]) if values_by_axis else 0
-    return PointRowsRecord.model_validate(
+    return PointCloudDomainRecord.model_validate(
         {
             "columns": [axis.id for axis in axes],
             "rows": [
@@ -192,19 +153,19 @@ def project_point_rows_record(
     )
 
 
-def _parameter_scan_record_fields(
+def _parameter_overlay_record(
     axis: AxisSpec,
     *,
     inputs: Mapping[str, object] | None,
 ) -> dict[str, object]:
-    lookup, key = parameter_cell_lookup(axis)
+    lookup, key = parameter_overlay_cell(axis)
     return {
+        "kind": "parameter_lookup",
         "table_id": lookup.table_id,
         "key": {
             name: _request_scalar_value(value, inputs=inputs) for name, value in key
         },
         "column": lookup.column_id,
-        "axis_id": axis.id,
     }
 
 

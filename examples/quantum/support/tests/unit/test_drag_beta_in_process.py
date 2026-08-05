@@ -22,7 +22,7 @@ from quantum_lab_demo.workflows.drag_beta_analysis import (
 from quantum_lab_demo.workflows.drag_beta_experiment import (
     PROBABILITY_0_RECORD_ID,
     PROBABILITY_1_RECORD_ID,
-    drag_beta_template,
+    drag_beta_experiment,
 )
 
 from .demo_lab_experiment_testkit import in_process_quantum_lab
@@ -64,7 +64,7 @@ def test_drag_beta_closes_measurement_analysis_publish_and_undo(
 
     monkeypatch.setattr(QuantumLabCompiler, "compile_batch", capture_compile_batch)
     lab = in_process_quantum_lab(project_root=tmp_path)
-    source_run = lab.prepare(drag_beta_template).run()
+    source_run = lab.prepare(drag_beta_experiment).run()
     analysis = source_run.analyze(drag_beta_analysis())
 
     assert source_run.manifest.status == "completed"
@@ -138,7 +138,7 @@ def test_drag_beta_closes_measurement_analysis_publish_and_undo(
     assert isinstance(activated.entry.source, CandidateConfigRegistrySource)
     assert activated.entry.source.proposal_id == proposal.id
 
-    active_preview = lab.prepare(drag_beta_template, config="active").preview()
+    active_preview = lab.prepare(drag_beta_experiment, config="active").preview()
     active_betas = sorted(
         {
             _quantity_in_unit(point.coordinates["beta"], "ns")
@@ -155,7 +155,7 @@ def test_drag_beta_closes_measurement_analysis_publish_and_undo(
         note="restore baseline",
     )
     assert restored.activation is not None
-    restored_preview = lab.prepare(drag_beta_template, config="active").preview()
+    restored_preview = lab.prepare(drag_beta_experiment, config="active").preview()
     restored_betas = sorted(
         {
             _quantity_in_unit(point.coordinates["beta"], "ns")

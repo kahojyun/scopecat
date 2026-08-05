@@ -1810,6 +1810,7 @@ export interface components {
             run_start: components["schemas"]["InstrumentRunStartPolicy"];
             /** Safe State */
             safe_state?: components["schemas"]["InstrumentPropertyState"][];
+            success_action: components["schemas"]["InstrumentSuccessAction"];
         };
         /**
          * InstrumentSpec
@@ -1831,6 +1832,7 @@ export interface components {
             run_start: components["schemas"]["InstrumentRunStartPolicy"];
             /** Safe State */
             safe_state?: components["schemas"]["InstrumentPropertyState"][];
+            success_action: components["schemas"]["InstrumentSuccessAction"];
         };
         /** InstrumentStateAssignment */
         InstrumentStateAssignment: {
@@ -1864,6 +1866,8 @@ export interface components {
             /** Properties */
             properties?: components["schemas"]["InstrumentPropertyState"][];
         };
+        /** @enum {string} */
+        InstrumentSuccessAction: "release" | "restore_prepared_state";
         /**
          * InstrumentView
          * @description Instrument status without exposing configuration policy or driver options.
@@ -2736,6 +2740,8 @@ export interface components {
             admission: components["schemas"]["RunAdmissionView"];
             /** Attention Reason */
             attention_reason?: string | null;
+            /** Cancellation Requested At */
+            cancellation_requested_at?: string | null;
             /** Sequence */
             sequence: number;
             state: components["schemas"]["ControlRunState"];

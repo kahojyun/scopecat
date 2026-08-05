@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Annotated, assert_type
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Annotated, assert_type, cast
 
 import pytest
 
@@ -84,7 +85,9 @@ def test_module_definition_rejects_global_symbolic_values() -> None:
         sc.module(captured)
 
 
-def test_template_infers_identity_description_and_defaults() -> None:
+def test_experiment_infers_identity_description_and_runtime_defaults() -> None:
+    elaborations = 0
+
     @sc.module
     def count_source(
         module: sc.ModuleContext,
@@ -93,27 +96,33 @@ def test_template_infers_identity_description_and_defaults() -> None:
         counter = module._resource("test.counter/v1", requires=(_COUNTER,))
         module._bind_property(counter, _COUNTER_COUNT, value=count)
 
-    @sc.template
+    @sc.experiment
     def count_experiment(
         experiment: sc.ExperimentContext,
         count: Annotated[sc.Input[int], _COUNT_TYPE] = 2,
     ) -> None:
         """Run one count experiment."""
 
-        experiment.run(count_source(count=count))
+        nonlocal elaborations
+        elaborations += 1
+        experiment.use(count_source(count=count))
 
-    assert count_experiment.definition.id.endswith(".count_experiment")
-    assert count_experiment.definition.kind == "count_experiment"
-    assert count_experiment.definition.inputs[0].default == 2
+    assert elaborations == 1
+    assert count_experiment.id.endswith(".count_experiment")
+    assert count_experiment.kind == "count_experiment"
+    assert count_experiment.metadata["description"] == "Run one count experiment."
     default_invocation = count_experiment()
-    assert default_invocation.definition is count_experiment.definition
-    assert default_invocation.inputs == {}
+    assert elaborations == 1
+    assert default_invocation.definition.id == count_experiment.id
+    assert default_invocation.definition.inputs[0].default == 2
+    assert default_invocation.input_overrides == {}
     signature = inspect.signature(count_experiment)
     assert signature.parameters["count"].default == 2
     assert signature.return_annotation is sc.ExperimentInvocation
-    assert isinstance(count_experiment, sc.ExperimentTemplate)
+    assert isinstance(count_experiment, sc.Experiment)
     invocation = assert_type(count_experiment(3), sc.ExperimentInvocation)
-    assert invocation.inputs == {"count": 3}
+    assert invocation.definition is default_invocation.definition
+    assert invocation.input_overrides == {"count": 3}
 
     if TYPE_CHECKING:
         count_experiment(count="invalid")  # pyright: ignore[reportArgumentType]
@@ -152,8 +161,9 @@ def test_analysis_decorator_preserves_configuration_signature() -> None:
         readout_fit(unknown="q0")  # pyright: ignore[reportCallIssue]
 
 
-def test_template_and_experiment_factory_share_the_context_protocol() -> None:
+def test_experiment_separates_runtime_inputs_from_structural_arguments() -> None:
     count = sc.coordinate("count", sc.ScalarType(_COUNT_TYPE))
+    elaborations = 0
 
     @sc.module
     def count_source(
@@ -163,26 +173,37 @@ def test_template_and_experiment_factory_share_the_context_protocol() -> None:
         counter = module._resource("test.counter/v1", requires=(_COUNTER,))
         module._bind_property(counter, _COUNTER_COUNT, value=value)
 
-    def body(experiment: sc.ExperimentContext) -> None:
-        experiment.run(count_source(value=count))
-        experiment.scan(sc.axis(count, (1, 2, 3)))
+    @sc.experiment(id="test.function.mixed", kind="count")
+    def mixed(
+        experiment: sc.ExperimentContext,
+        value: Annotated[sc.Input[int], _COUNT_TYPE],
+        *,
+        scan_values: tuple[int, ...],
+    ) -> None:
+        nonlocal elaborations
+        elaborations += 1
+        experiment.use(count_source(value=value))
+        experiment.grid(sc.axis(count, scan_values))
 
-    template = sc.template(id="test.function.template", kind="count")(body)
-    factory = sc.experiment_factory(id="test.function.factory", kind="count")(body)
+    assert elaborations == 0
+    with pytest.raises(TypeError, match=r"structural argument.*scan_values"):
+        mixed.bind(value=2)
 
-    template_invocation = template()
-    factory_invocation = factory()
-    assert (
-        template_invocation.definition.default_scans
-        == factory_invocation.definition.default_scans
-    )
-    compile_invocation(template_invocation)
-    compile_invocation(factory_invocation)
-    assert inspect.signature(factory).parameters == inspect.Signature().parameters
-    assert factory.__wrapped__ is body
+    first = mixed.bind(scan_values=(1, 2, 3))
+    second = mixed(value=4, scan_values=(5, 6))
+
+    assert elaborations == 2
+    assert [input_.id for input_ in first.definition.inputs] == ["value"]
+    assert first.input_overrides == {}
+    assert second.input_overrides == {"value": 4}
+    assert first.definition.default_point_plan != second.definition.default_point_plan
+    compile_invocation(first.bind(value=2))
+    compile_invocation(second)
 
 
-def test_experiment_factory_preserves_typed_call_contract() -> None:
+def test_plain_experiment_arguments_are_structural() -> None:
+    elaborations = 0
+
     @sc.module
     def count_source(
         module: sc.ModuleContext,
@@ -190,22 +211,65 @@ def test_experiment_factory_preserves_typed_call_contract() -> None:
     ) -> None:
         del module, count
 
-    @sc.experiment_factory
+    @sc.experiment
     def count_experiment(
         experiment: sc.ExperimentContext,
         count: int = 2,
     ) -> None:
-        experiment.run(count_source(count=count))
+        nonlocal elaborations
+        elaborations += 1
+        experiment.use(count_source(count=count))
 
+    assert elaborations == 0
     signature = inspect.signature(count_experiment)
     assert signature.parameters["count"].default == 2
     assert signature.return_annotation is sc.ExperimentInvocation
-    invocation = assert_type(count_experiment(3), sc.ExperimentInvocation)
-    compile_invocation(invocation)
+    default_invocation = count_experiment()
+    selected_invocation = assert_type(count_experiment(3), sc.ExperimentInvocation)
+    assert elaborations == 2
+    assert default_invocation.definition.inputs == ()
+    assert selected_invocation.input_overrides == {}
+    assert default_invocation.definition.body != selected_invocation.definition.body
+    compile_invocation(default_invocation)
+    compile_invocation(selected_invocation)
 
     if TYPE_CHECKING:
         count_experiment("invalid")  # pyright: ignore[reportArgumentType]
         count_experiment(unknown=3)  # pyright: ignore[reportCallIssue]
+
+
+def test_use_returns_typed_results_and_requires_an_occurrence() -> None:
+    @sc.module(id="test.use.value")
+    def value_source(module: sc.ModuleContext) -> sc.ValueRef:
+        return module.compute(
+            "value",
+            fn=lambda: 1,
+            output_type=sc.ScalarType(_COUNT_TYPE),
+        )
+
+    @sc.module(id="test.use.noop")
+    def noop(module: sc.ModuleContext) -> None:
+        del module
+
+    @sc.module(id="test.use.parent")
+    def parent(module: sc.ModuleContext) -> sc.ValueRef:
+        value = assert_type(module.use(value_source()), sc.ValueRef)
+        assert module.use(noop()) is None
+        return value
+
+    @sc.experiment(id="test.use.experiment", kind="use")
+    def authored(experiment: sc.ExperimentContext) -> None:
+        value = assert_type(experiment.use(parent()), sc.ValueRef)
+        experiment.record(value)
+
+    compile_invocation(authored())
+
+    for context in (sc.ModuleContext(), sc.ExperimentContext()):
+        with pytest.raises(
+            TypeError,
+            match=r"use\(\) requires a module invocation or domain call",
+        ):
+            cast("Callable[[object], object]", context.use)(value_source)
 
 
 def test_definition_annotations_require_an_unambiguous_value_type() -> None:
@@ -231,15 +295,15 @@ def test_repeated_default_module_calls_require_explicit_instances() -> None:
         del module
 
     def repeated(experiment: sc.ExperimentContext) -> None:
-        experiment.run(source())
-        experiment.run(source())
+        experiment.use(source())
+        experiment.use(source())
 
     with pytest.raises(ValueError, match="duplicate module instance ids"):
-        sc.template(id="test.repeated-defaults")(repeated)
+        sc.experiment(id="test.repeated-defaults")(repeated)
 
-    @sc.template(id="test.explicit-instances")
+    @sc.experiment(id="test.explicit-instances")
     def explicit(experiment: sc.ExperimentContext) -> None:
-        experiment.run(source.instantiate("left"))
-        experiment.run(source.instantiate("right"))
+        experiment.use(source.instantiate("left"))
+        experiment.use(source.instantiate("right"))
 
     compile_invocation(explicit())

@@ -661,6 +661,7 @@ def test_instrument_views_expose_only_safe_configuration_summaries(
         "options",
         "default_state",
         "run_start",
+        "success_action",
         "private-token",
     ):
         assert forbidden not in list_response.text

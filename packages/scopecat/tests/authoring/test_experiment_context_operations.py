@@ -8,7 +8,7 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource
-from scopecat.authoring.finalization import FinalizationTarget
+from scopecat.authoring.state_projection import StateTarget
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.measurements.results import MeasurementValue
 from scopecat.program.logical import (
@@ -50,11 +50,11 @@ def _device_assignments(
 class _TypedDevice:
     resource: DefinitionResource
 
-    def finalization_targets(
+    def state_targets(
         self,
         state: _DeviceTarget,
         /,
-    ) -> tuple[FinalizationTarget, ...]:
+    ) -> tuple[StateTarget, ...]:
         return ((self.resource, _device_assignments(state)),)
 
 
@@ -66,8 +66,8 @@ def _derive_signal(value: MeasurementValue) -> dict[str, MeasurementValue]:
     return {"derived": value}
 
 
-def test_template_authors_root_device_operations_without_a_module() -> None:
-    @sc.template(id="test.experiment-context.direct", kind="direct")
+def test_experiment_authors_root_device_operations_without_a_module() -> None:
+    @sc.experiment(id="test.experiment-context.direct", kind="direct")
     def direct(
         experiment: sc.ExperimentContext,
         level: Annotated[sc.Input[float], _LEVEL_TYPE] = 1.5,
@@ -105,7 +105,7 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
             kernel=_derive_signal,
         )
         experiment.record(raw, derived)
-        experiment.finalize(
+        experiment.on_success(
             _TypedDevice(device),
             _DeviceTarget(level=0.0, enabled=False),
         )
@@ -145,14 +145,15 @@ def test_template_authors_root_device_operations_without_a_module() -> None:
     [acquisition] = logical.acquisitions
     assert acquisition.resource_port_id.qualified_name == "device"
     assert acquisition.results[0].metadata == {"mode": "fast"}
-    assert isinstance(logical.final_state, LogicalEnsureState)
+    assert isinstance(logical.success_state, LogicalEnsureState)
     assert [
-        assignment.property_id for assignment in logical.final_state.assignments
+        assignment.property_id for assignment in logical.success_state.assignments
     ] == ["level", "enabled"]
 
 
-def test_template_and_experiment_factory_share_direct_root_authoring() -> None:
-    def body(experiment: sc.ExperimentContext) -> None:
+def test_experiment_supports_direct_root_authoring() -> None:
+    @sc.experiment(id="test.direct", kind="direct")
+    def direct(experiment: sc.ExperimentContext) -> None:
         device = experiment._resource("device", requires=(_DEVICE,))
         signal = experiment._product("signal")
         experiment._acquire(
@@ -162,26 +163,20 @@ def test_template_and_experiment_factory_share_direct_root_authoring() -> None:
         )
         experiment.record(signal)
 
-    template = sc.template(id="test.direct.template", kind="direct")(body)
-    factory = sc.experiment_factory(id="test.direct.factory", kind="direct")(body)
+    program = compile_invocation(direct()).program.program
 
-    template_program = compile_invocation(template()).program.program
-    factory_program = compile_invocation(factory()).program.program
-
-    assert template_program.resource_ports == factory_program.resource_ports
-    assert template_program.product_declarations == factory_program.product_declarations
-    assert template_program.effects == factory_program.effects
-    template_records = [
-        selection.product_id for selection in template_program.product_record_selections
+    assert [port.id for port in program.resource_ports] == ["device"]
+    assert [product.qualified_id for product in program.product_declarations] == [
+        "signal"
     ]
-    factory_records = [
-        selection.product_id for selection in factory_program.product_record_selections
-    ]
-    assert template_records == factory_records
+    assert [
+        selection.product_id.qualified_name
+        for selection in program.product_record_selections
+    ] == ["signal"]
 
 
-def test_template_records_a_compute_result_as_a_named_dataset_value() -> None:
-    @sc.template(id="test.direct.value-record", kind="direct")
+def test_experiment_records_a_compute_result_as_a_named_dataset_value() -> None:
+    @sc.experiment(id="test.direct.value-record", kind="direct")
     def direct(experiment: sc.ExperimentContext) -> None:
         score = experiment.compute(
             "score",
@@ -199,7 +194,7 @@ def test_template_records_a_compute_result_as_a_named_dataset_value() -> None:
     assert record.value_id == logical.compute_nodes[0].result_id
 
 
-def test_template_derives_value_record_id_after_resolving_a_module_result() -> None:
+def test_experiment_derives_value_record_id_after_resolving_a_module_result() -> None:
     @sc.module(id="test.value_source")
     def value_source(module: sc.ModuleContext) -> sc.ValueRef:
         return module.compute(
@@ -208,11 +203,11 @@ def test_template_derives_value_record_id_after_resolving_a_module_result() -> N
             output_type=sc.ScalarType(sc.FloatType()),
         )
 
-    @sc.template(id="test.module-value-record", kind="direct")
+    @sc.experiment(id="test.module-value-record", kind="direct")
     def direct(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(value_source())
+        score = experiment.use(value_source())
         trace = experiment._product("trace")
-        experiment.record(call.result, trace)
+        experiment.record(score, trace)
 
     logical = compile_invocation(direct()).program.program
 
@@ -225,7 +220,7 @@ def test_template_derives_value_record_id_after_resolving_a_module_result() -> N
 
 
 def test_value_record_namespaces_preserve_segment_identity() -> None:
-    @sc.template(id="test.value-record.namespace", kind="direct")
+    @sc.experiment(id="test.value-record.namespace", kind="direct")
     def direct(experiment: sc.ExperimentContext) -> None:
         score = experiment.compute(
             "score",

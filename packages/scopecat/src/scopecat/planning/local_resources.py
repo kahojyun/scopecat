@@ -146,8 +146,8 @@ def active_resource_port_ids(
             selected.add(effect.port_id)
         elif not isinstance(effect, LogicalDomainExecution):
             selected.update(_state_resource_port_ids(effect))
-    if bound.program.program.final_state is not None:
-        selected.update(_state_resource_port_ids(bound.program.program.final_state))
+    if bound.program.program.success_state is not None:
+        selected.update(_state_resource_port_ids(bound.program.program.success_state))
     return frozenset(selected)
 
 

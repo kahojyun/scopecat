@@ -4,8 +4,8 @@ Hardware-independent quantum building blocks for Scopecat.
 
 The package provides logical gates, mixed gate-and-pulse programs,
 implementation binding, and the checked target-compiler boundary. Laboratory
-templates, parameters, wiring, artifacts, runtimes, and response models remain
-in the integrating project.
+experiment definitions, parameters, wiring, artifacts, runtimes, and response
+models remain in the integrating project.
 
 The package root exports the `authoring` facade. Target integrations import
 their contracts from the owning submodules so those boundaries stay explicit.
@@ -57,9 +57,8 @@ call = x90_count(
 Program inputs may bind directly to Scopecat values such as
 `scopecat.parameter_lookup(...)`. A `Program` call is a native domain
 occurrence that owns its effect, execution options, and named result products.
-Place it with `ModuleContext.call(call)` inside `@sc.module`, or with
-`ExperimentContext.run(call)` inside `@sc.template` or
-`@sc.experiment_factory`. A lab can own a fixed experiment-factory runner that
+Place it with `context.use(call)` inside either `@sc.module` or
+`@sc.experiment`. A lab can own a fixed experiment that
 injects compiler inputs, measurement postprocessing, recording policy, and
 independent auxiliary-device work; the program call remains one domain effect
 rather than becoming the whole experiment. The
@@ -67,5 +66,5 @@ rather than becoming the whole experiment. The
 
 Compiler-owned defaults can use the pure row maps in
 `scopecat_quantum.pulse_recipes`. The complete supported example is the
-[DRAG-beta workflow](../../examples/quantum/README.md), including parameter
-scanning, analysis, candidate acceptance, target lowering, and production use.
+[DRAG-beta workflow](../../examples/quantum/README.md), including parameter-axis
+overlays, analysis, candidate acceptance, target lowering, and production use.

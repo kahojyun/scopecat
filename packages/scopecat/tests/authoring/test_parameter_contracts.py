@@ -51,16 +51,16 @@ def _resolve_root_domain_dependency(
         compiler_inputs={"value": value.value_type},
     )
 
-    @sc.template(id="test.parameter-contract", kind="parameter_contract")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(
+    @sc.experiment(id="test.parameter-contract", kind="parameter_contract")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(
             domain_call(
                 program,
                 compiler_inputs={"value": value},
             )
         )
 
-    bind_invocation(template(), config_profile=config)
+    bind_invocation(experiment(), config_profile=config)
 
 
 def _empty_module(id: str) -> sc.ExperimentModule[None, ...]:
@@ -71,15 +71,15 @@ def _empty_module(id: str) -> sc.ExperimentModule[None, ...]:
     return module
 
 
-def _scan_invocation(id: str, *scans: sc.Scan) -> sc.ExperimentInvocation:
+def _axis_invocation(id: str, *axes: sc.Axis) -> sc.ExperimentInvocation:
     module = _empty_module(id)
 
-    @sc.template(id=id, kind="parameter_contract")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
-        experiment.scan(*scans)
+    @sc.experiment(id=id, kind="parameter_contract")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(module())
+        experiment.grid(*axes)
 
-    return template()
+    return experiment()
 
 
 def _config_with_parameter_table(
@@ -230,7 +230,7 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
         context: sc.ModuleContext,
         frequency: Annotated[sc.Input[str], sc.StringType()],
     ) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "parameter-contract-child",
                 frequency=frequency,
@@ -242,18 +242,18 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
         sc.ScalarType(sc.StringType()),
     )
 
-    @sc.template(id="test.parameter-contract", kind="parameter_contract")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(parent(frequency=parameter))
+    @sc.experiment(id="test.parameter-contract", kind="parameter_contract")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(parent(frequency=parameter))
 
     with pytest.raises(CheckFailed) as error:
-        bind_invocation(template(), config_profile=load_config())
+        bind_invocation(experiment(), config_profile=load_config())
 
     assert error.value.problems[0].code == "authoring_parameter_type_mismatch"
 
 
 def test_parameter_contract_survives_scan_lowering() -> None:
-    invocation = _scan_invocation(
+    invocation = _axis_invocation(
         "test.parameter-contract-scan",
         sc.axis(
             sc.coordinate(
@@ -295,23 +295,24 @@ def test_parameter_contract_survives_scan_lowering() -> None:
         ),
     ],
 )
-def test_parameter_scan_target_is_checked_against_catalog_column(
+def test_parameter_overlay_target_is_checked_against_catalog_column(
     column: str,
     point_type: sc.ScalarType,
     values: list[str],
     expected_code: str,
 ) -> None:
-    scan = sc.param_axis(
-        sc.coordinate("scanned_value", point_type),
-        sc.parameter_lookup(
-            "device_parameters",
-            key={"device": "q0"},
-            column=column,
-            value_type=point_type,
-        ),
-        values,
+    lookup = sc.parameter_lookup(
+        "device_parameters",
+        key={"device": "q0"},
+        column=column,
+        value_type=point_type,
     )
-    invocation = _scan_invocation("test.parameter-contract-scan-target", scan)
+    scan = sc.axis(
+        sc.coordinate("scanned_value", point_type),
+        values,
+        overlay=lookup,
+    )
+    invocation = _axis_invocation("test.parameter-contract-overlay-target", scan)
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(
@@ -322,27 +323,28 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
     assert error.value.problems[0].code == expected_code
 
 
-def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
-    scan = sc.param_axis(
+def test_parameter_overlay_retains_row_key_parameter_contracts() -> None:
+    lookup = sc.parameter_lookup(
+        "device_parameters",
+        key={
+            "device": sc.parameter(
+                "drive_frequency",
+                sc.ScalarType(sc.StringType()),
+            )
+        },
+        column="frequency",
+        value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+    )
+    scan = sc.axis(
         sc.coordinate(
             "scanned_frequency",
             sc.ScalarType(sc.QuantityType(unit="GHz")),
         ),
-        sc.parameter_lookup(
-            "device_parameters",
-            key={
-                "device": sc.parameter(
-                    "drive_frequency",
-                    sc.ScalarType(sc.StringType()),
-                )
-            },
-            column="frequency",
-            value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
-        ),
         [5.0],
+        overlay=lookup,
         unit="GHz",
     )
-    invocation = _scan_invocation("test.parameter-contract-scan-key", scan)
+    invocation = _axis_invocation("test.parameter-contract-overlay-key", scan)
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(
@@ -355,15 +357,15 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
     )
 
 
-def test_parameter_around_scan_materializes_about_the_current_table_cell() -> None:
+def test_around_axis_overlay_materializes_about_the_current_table_cell() -> None:
     config = _config_with_parameter_table()
     frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
     frequency = sc.coordinate("scanned_frequency", frequency_type)
-    invocation = _scan_invocation(
-        "test.parameter-around-scan",
-        sc.param_axis(
+    invocation = _axis_invocation(
+        "test.parameter-around-overlay",
+        sc.axis(
             frequency,
-            sc.parameter_lookup(
+            overlay=sc.parameter_lookup(
                 "device_parameters",
                 key={"device": "q0"},
                 column="frequency",
@@ -393,15 +395,15 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
     assert stored.rows[0]["frequency"] == sc.Quantity(5.0, "GHz")
 
 
-def test_parameter_range_scan_materializes_literal_endpoints() -> None:
+def test_range_axis_overlay_materializes_literal_endpoints() -> None:
     config = _config_with_parameter_table()
     frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
     frequency = sc.coordinate("scanned_frequency", frequency_type)
-    invocation = _scan_invocation(
-        "test.parameter-range-scan",
-        sc.param_axis(
+    invocation = _axis_invocation(
+        "test.parameter-range-overlay",
+        sc.axis(
             frequency,
-            sc.parameter_lookup(
+            overlay=sc.parameter_lookup(
                 "device_parameters",
                 key={"device": "q0"},
                 column="frequency",
@@ -431,7 +433,7 @@ def test_parameter_range_scan_materializes_literal_endpoints() -> None:
     assert len(resolved.bindings.parameter_overlays) == 1
 
 
-def test_parameter_scan_specializes_consumers_against_its_point_column() -> None:
+def test_parameter_overlay_specializes_consumers_against_its_point_column() -> None:
     frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
     frequency = sc.coordinate("scanned_frequency", frequency_type)
     lookup = sc.parameter_lookup(
@@ -448,20 +450,20 @@ def test_parameter_scan_specializes_consumers_against_its_point_column() -> None
         inputs={"frequency": frequency_type},
     )
 
-    @sc.template(id="test.parameter-scan-consumer", kind="parameter_contract")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(domain_call(program, inputs={"frequency": lookup}))
-        experiment.scan(
-            sc.param_axis(
+    @sc.experiment(id="test.parameter-overlay-consumer", kind="parameter_contract")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(domain_call(program, inputs={"frequency": lookup}))
+        experiment.grid(
+            sc.axis(
                 frequency,
-                lookup,
+                overlay=lookup,
                 span="200 MHz",
                 points=3,
             )
         )
 
     resolved = bind_invocation(
-        template(),
+        experiment(),
         config_profile=_config_with_parameter_table(),
     )
 
@@ -475,29 +477,30 @@ def test_parameter_scan_specializes_consumers_against_its_point_column() -> None
     assert expression.name == "scanned_frequency"
 
 
-def test_parameter_scan_type_must_be_writable_to_catalog_column() -> None:
+def test_parameter_overlay_type_must_be_writable_to_catalog_column() -> None:
     bounded_frequency = sc.ScalarType(
         sc.QuantityType(unit="GHz", minimum=4.0, maximum=6.0)
     )
     config = _config_with_parameter_table(frequency_type=bounded_frequency)
     frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
-    scan = sc.param_axis(
+    lookup = sc.parameter_lookup(
+        "device_parameters",
+        key={"device": "q0"},
+        column="frequency",
+        value_type=frequency_type,
+    )
+    scan = sc.axis(
         sc.coordinate("scanned_frequency", frequency_type),
-        sc.parameter_lookup(
-            "device_parameters",
-            key={"device": "q0"},
-            column="frequency",
-            value_type=frequency_type,
-        ),
         [5.0],
+        overlay=lookup,
         unit="GHz",
     )
-    invocation = _scan_invocation("test.parameter-scan-write-type", scan)
+    invocation = _axis_invocation("test.parameter-overlay-write-type", scan)
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(invocation, config_profile=config)
 
-    assert error.value.problems[0].code == "authoring_parameter_scan_type_mismatch"
+    assert error.value.problems[0].code == "authoring_parameter_overlay_type_mismatch"
 
 
 def test_parameter_lookup_checks_table_column_and_entity_type() -> None:
@@ -556,15 +559,15 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
             output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
         )
 
-    @sc.template(id="test.typed-parameter-key", kind="parameter_contract")
-    def template(
+    @sc.experiment(id="test.typed-parameter-key", kind="parameter_contract")
+    def experiment(
         experiment: sc.ExperimentContext,
         device: Annotated[
             sc.Input[sc.EntityRef | str],
             sc.EntityType(entity_kind="logical_device"),
         ],
     ) -> None:
-        experiment.run(
+        experiment.use(
             module(
                 frequency=sc.parameter_lookup(
                     "device_parameters",
@@ -576,7 +579,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
         )
 
     bind_invocation(
-        template(device="q0"),
+        experiment(device="q0"),
         config_profile=config,
     )
 
@@ -607,15 +610,15 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
                 output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
             )
 
-        @sc.template(id="test.wrong-parameter-key", kind="parameter_contract")
-        def wrong_template(
+        @sc.experiment(id="test.wrong-parameter-key", kind="parameter_contract")
+        def wrong_experiment(
             experiment: sc.ExperimentContext,
             device: Annotated[
                 sc.Input[sc.EntityRef | str],
                 sc.EntityType(entity_kind="logical_coupler"),
             ],
         ) -> None:
-            experiment.run(
+            experiment.use(
                 wrong_module(
                     frequency=sc.parameter_lookup(
                         "device_parameters",
@@ -626,7 +629,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
                 )
             )
 
-        bind_invocation(wrong_template(device="q0"), config_profile=config)
+        bind_invocation(wrong_experiment(device="q0"), config_profile=config)
 
     assert wrong_key_shape.value.problems[0].code == (
         "authoring_parameter_lookup_key_mismatch"

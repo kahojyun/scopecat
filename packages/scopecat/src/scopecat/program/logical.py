@@ -34,7 +34,7 @@ from scopecat.program.recording import (
     LogicalRecordSelection,
     LogicalValueRecordSelection,
 )
-from scopecat.program.scans import AxisSpec
+from scopecat.program.scans import AxisSpec, PointTraversal, RepeatMode
 from scopecat.program.table_values import TableSource
 from scopecat.program.value_refs import PointValueDependency, ValueRef
 
@@ -234,6 +234,9 @@ class LogicalProgram:
     parameter_contracts: tuple[ParameterContract, ...] = ()
     point_domain: PointAxes[ValueRef] = ()
     point_domain_layout: PointDomainLayout = "product_grid"
+    point_repeat: int = 1
+    point_repeat_mode: RepeatMode = "point"
+    point_traversal: PointTraversal = "forward"
     value_defs: tuple[ValueDef, ...] = ()
     compute_nodes: tuple[LogicalComputeNode, ...] = ()
     measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...] = ()
@@ -248,7 +251,7 @@ class LogicalProgram:
         )
     )
     effects: tuple[LogicalEffect, ...] = ()
-    final_state: LogicalEnsureState | None = None
+    success_state: LogicalEnsureState | None = None
 
     def __post_init__(self) -> None:
         if not self.experiment_id or not self.kind:
@@ -290,7 +293,7 @@ class LogicalProgram:
         )
         return (
             *effect_bindings,
-            *(() if self.final_state is None else self.final_state.assignments),
+            *(() if self.success_state is None else self.success_state.assignments),
         )
 
     @property

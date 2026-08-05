@@ -295,6 +295,59 @@ def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> N
         session.begin()
 
 
+def test_initial_lease_cancellation_skips_remote_provisioning() -> None:
+    submission = RunSubmission(
+        submission_id="submission-1",
+        config=load_config(),
+        request=RunRequest(experiment_id="scratch"),
+        plan=RunPlanSummary(
+            experiment_id="scratch",
+            experiment_kind="scratch",
+            point_count=0,
+        ),
+    )
+    admission = RunAdmission(
+        submission_id=submission.submission_id,
+        manifest=RunManifest(
+            run_id="run-1",
+            created_at=_NOW,
+            config_content_hash=config_content_hash(submission.config),
+        ),
+    )
+    provisioned = False
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal provisioned
+        if request.url.path.endswith("/executor/start"):
+            return _model(
+                _lease().model_copy(update={"cancellation_requested_at": _NOW})
+            )
+        if request.url.path.endswith("/instruments/provision"):
+            provisioned = True
+            command = RunInstrumentProvisionCommand.model_validate_json(request.content)
+            return _model(
+                RunInstrumentProvisionReceipt(
+                    run_id="run-1",
+                    operation_id=command.operation_id,
+                    status="ready",
+                )
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+    session = daemon_execution_session(
+        _client(handler),
+        submission,
+        admission,
+        executor_id="notebook-1",
+    )
+
+    session.begin()
+
+    assert not provisioned
+    assert session.cancellation_requested()
+    assert not session.effects_ready()
+
+
 def _client(
     handler: Callable[[httpx2.Request], httpx2.Response],
 ) -> DaemonClient:
@@ -335,8 +388,8 @@ def _transition() -> ExecutionTransition:
     return ExecutionTransition(
         run_id="run-1",
         operation_id="operation-1",
-        stage="collect",
-        effect="acquisition",
+        stage="domain_fetch",
+        effect="read",
         state="completed",
     )
 

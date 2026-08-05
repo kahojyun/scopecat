@@ -3,8 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import scopecat.authoring as authoring
-from scopecat.authoring import ExperimentTemplate
-from scopecat.authoring.scans import axis
+from scopecat.authoring import Experiment, axis
 from scopecat.compiler.bind import BoundPlan, bind_program
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.documents import load_config_snapshot_document
@@ -82,11 +81,11 @@ def SIMPLE_MODULE(
     return signal
 
 
-def simple_template(
+def simple_experiment(
     *,
     id: str = "test.simple_scan",
     kind: str = "simple_scan",
-) -> ExperimentTemplate[...]:
+) -> Experiment[...]:
     def definition(
         experiment: authoring.ExperimentContext,
         subject: Annotated[
@@ -94,13 +93,13 @@ def simple_template(
             authoring.ScalarType(authoring.EntityType()),
         ],
     ) -> None:
-        module_call = experiment.run(
+        signal = experiment.use(
             SIMPLE_MODULE(
                 subject=subject,
                 drive_frequency=DRIVE_FREQUENCY_POINT,
             )
         )
-        experiment.scan(
+        experiment.grid(
             axis(
                 DRIVE_FREQUENCY_POINT,
                 center=authoring.parameter(
@@ -111,10 +110,10 @@ def simple_template(
                 points=5,
             ),
         )
-        experiment.record(module_call.result, record_id="signal")
+        experiment.record(signal, record_id="signal")
 
-    return authoring.template(
+    return authoring.experiment(
         id=id,
         kind=kind,
-        metadata={"assembled_by": "template"},
+        metadata={"assembled_by": "experiment"},
     )(definition)

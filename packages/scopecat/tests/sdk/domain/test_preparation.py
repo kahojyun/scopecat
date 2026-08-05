@@ -91,20 +91,20 @@ def _preparation_context(
         },
     )
 
-    @sc.template(
+    @sc.experiment(
         id=f"test.sdk.preparation.{namespace}",
         kind="domain_preparation",
     )
     def selected(experiment: sc.ExperimentContext) -> None:
-        placed = experiment.run(authored_call)
-        experiment.scan(sc.axis(count, (1, 3)))
+        results = experiment.use(authored_call)
+        experiment.grid(sc.axis(count, (1, 3)))
         experiment.record(
-            placed.results.raw,
+            results.raw,
             record_id="raw-first" if shared_product_uses else "raw",
         )
         if shared_product_uses:
             experiment.record(
-                placed.results.raw,
+                results.raw,
                 record_id="raw-second",
             )
 

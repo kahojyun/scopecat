@@ -842,13 +842,6 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         Quantity(value=5.1, unit="GHz"),
     ]
     assert len(instrument.invoked) == 6
-    assert all(
-        transition.stage != "compute"
-        for transition in sqlite_execution_session(
-            tmp_path,
-            manifest.run_id,
-        ).journal.entries()
-    )
     arguments: list[DriverPayload] = []
     for command in instrument.invoked:
         [argument] = command.arguments.values()
@@ -910,16 +903,16 @@ def test_downstream_compute_receives_result_in_its_declared_type(
             fn=produce_frequency,
             output_type=sc.ScalarType(sc.QuantityType(dimension="frequency")),
         )
-        context.call(consumer.instantiate("consumer", frequency=frequency))
+        context.use(consumer.instantiate("consumer", frequency=frequency))
 
-    @sc.template(id="test.compute-result-type", kind="compute-result-type")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(root())
+    @sc.experiment(id="test.compute-result-type", kind="compute-result-type")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(root())
 
     config = config_with_physical_resources(
         {"source-0": (play_interface.interface_id,)}
     )
-    bound = bind_invocation(template(), config_profile=config)
+    bound = bind_invocation(experiment(), config_profile=config)
     manifest = execute_bound_run(
         config=config,
         experiment=ProgramFixture(logical=bound.program, bindings=bound.bindings),

@@ -111,24 +111,24 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
     assert result.admitted_points == points
 
 
-def test_normal_completion_applies_final_state_after_point_coverage() -> None:
+def test_normal_completion_applies_success_state_after_point_coverage() -> None:
     driver = SignalInstrumentDriver(instrument_id="source-0")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("final_state-point"), {}),
+        RunPoint(_logical_point_id("success_state-point"), {}),
         (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
         resource_requirements=_requirements("source-0"),
     )
 
     result = RunEffectInterpreter(
-        run_id="final_state-run",
+        run_id="success_state-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
     ).run(
         complete_coverage_operations(program),
         points=program.points,
-        final_state=(_gain_operation("source-0", 0.0),),
+        success_state=(_gain_operation("source-0", 0.0),),
     )
 
     assert not result.problems and not result.indeterminate
@@ -139,6 +139,37 @@ def test_normal_completion_applies_final_state_after_point_coverage() -> None:
         for item in final.properties
         if item.interface_id == "test.set_gain/v1" and item.property_id == "gain"
     ) == StateValue(0.0)
+
+
+def test_cancellation_waits_for_hardware_batch_then_skips_success_state() -> None:
+    first = SignalInstrumentDriver(instrument_id="source-a")
+    second = SignalInstrumentDriver(instrument_id="source-b")
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("cancel-batch-point"), {}),
+        (
+            _gain_operation("source-a", 1.0),
+            _gain_operation("source-b", 2.0),
+        ),
+        resource_order=("source-a", "source-b"),
+        resource_requirements=_requirements("source-a", "source-b"),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="cancel-batch-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost((first, second)),
+        journal=FakeExecutionJournal(),
+        cancellation_requested=lambda: bool(first.applied),
+    ).run(
+        complete_coverage_operations(program),
+        points=program.points,
+        success_state=(_gain_operation("source-a", 0.0),),
+    )
+
+    assert result.cancelled and not result.indeterminate
+    assert [item.code for item in result.problems] == ["run_cancellation_requested"]
+    assert len(first.applied) == 1
+    assert len(second.applied) == 1
 
 
 class _SingleDriverProvider:
@@ -209,19 +240,19 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
             fn=produce,
             output_type=source_program_type,
         )
-        context.call(
+        context.use(
             child.instantiate(
                 "compute-schedule-child",
                 program=produced,
             )
         )
 
-    @sc.template(
+    @sc.experiment(
         id="tests.compute_schedule",
         kind="characterization",
     )
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(parent())
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(parent())
 
     driver = SignalInstrumentDriver()
     payload_codecs = json_payload_codecs("pulse_program")
@@ -238,7 +269,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
         instrument_backend=composition.backend,
     )
 
-    run = lab.prepare(template).run()
+    run = lab.prepare(experiment).run()
 
     assert run.manifest.status == "completed"
     assert calls == ["produce", "consume"]
@@ -401,6 +432,46 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
     assert calls == ["first", "second"]
 
 
+def test_compute_failure_wins_over_a_concurrent_cancellation_request() -> None:
+    failed = False
+    result_id = operation_result_id(OperationId(SymbolId(local_id="failing")))
+
+    def fail() -> float:
+        nonlocal failed
+        failed = True
+        raise RuntimeError("compute failed")
+
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("failing-compute-point"), {}),
+        (
+            ComputeOperation(
+                operation_id="failing-compute-point.compute.failing",
+                logical_compute_node_id="failing",
+                implementation_id="python.failing.v1",
+                kernel=fail,
+                inputs={},
+                result=ComputeOutput(
+                    id=result_id,
+                    value_type=Scalar(Float()),
+                ),
+            ),
+        ),
+        resource_order=(),
+        resource_requirements=(),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="failing-compute-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        journal=FakeExecutionJournal(),
+        cancellation_requested=lambda: failed,
+    ).run(complete_coverage_operations(program), points=program.points)
+
+    assert not result.cancelled
+    assert [item.code for item in result.problems] == ["compute_operation_failed"]
+
+
 class _BlockingStateDriver(SignalInstrumentDriver):
     @override
     def apply_state(
@@ -477,6 +548,55 @@ class _DisconnectFailureDriver(_FinalizationTrackingDriver):
     def disconnect(self) -> None:
         super().disconnect()
         raise RuntimeError("socket disconnect failed")
+
+
+class _RejectOnSuccessStateDriver(_FinalizationTrackingDriver):
+    @override
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        if not self.applied:
+            return super().apply_state(request)
+        self.applied.append(request)
+        return DriverRejected(
+            problems=(
+                problem(
+                    "instrument_on_success_state_rejected",
+                    "driver rejected normal-completion state",
+                    phase=ProblemPhase.EXECUTION,
+                    location=model_location("instrument", self.instrument_id),
+                ),
+            ),
+        )
+
+
+def test_rejected_on_success_state_aborts_hardware_finish() -> None:
+    driver = _RejectOnSuccessStateDriver(instrument_id="source-0")
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("rejected-on-success-point"), {}),
+        (_gain_operation("source-0", 1.0),),
+        resource_order=("source-0",),
+        resource_requirements=_requirements("source-0"),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="rejected-on-success-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost((driver,)),
+        journal=FakeExecutionJournal(),
+    ).run(
+        complete_coverage_operations(program),
+        points=program.points,
+        success_state=(_gain_operation("source-0", 0.0),),
+    )
+
+    assert [item.code for item in result.problems] == [
+        "instrument_on_success_state_rejected"
+    ]
+    assert not result.indeterminate
+    assert len(driver.applied) == 2
+    assert driver.abort_count == 1
 
 
 def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
@@ -637,24 +757,24 @@ def test_state_apply_stops_when_readback_does_not_confirm_assignment() -> None:
     assert result.final_state == result.prepared_state
 
 
-def test_failed_coverage_does_not_apply_normal_completion_final_state() -> None:
+def test_failed_coverage_does_not_apply_normal_completion_success_state() -> None:
     driver = _BlockingStateDriver(instrument_id="source-0")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("failed-final_state-point"), {}),
+        RunPoint(_logical_point_id("failed-success_state-point"), {}),
         (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
         resource_requirements=_requirements("source-0"),
     )
 
     result = RunEffectInterpreter(
-        run_id="failed-final_state-run",
+        run_id="failed-success_state-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
     ).run(
         complete_coverage_operations(program),
         points=program.points,
-        final_state=(_gain_operation("source-0", 0.0),),
+        success_state=(_gain_operation("source-0", 0.0),),
     )
 
     assert result.problems

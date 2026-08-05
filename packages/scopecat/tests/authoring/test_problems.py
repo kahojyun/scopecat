@@ -18,7 +18,7 @@ from scopecat.kernel.problems import (
 from tests.testkit.authoring import (
     bind_invocation,
     load_config,
-    simple_template,
+    simple_experiment,
 )
 from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.runtime import check_experiment, sqlite_project_services
@@ -29,12 +29,12 @@ def test_missing_experiment_input_and_unknown_subject_report_stable_problems(
     tmp_path: Path,
 ) -> None:
     config = load_config()
-    missing_subject = simple_template().bind()
+    missing_subject = simple_experiment().bind()
     with pytest.raises(CheckFailed) as missing_error:
         bind_invocation(missing_subject, config_profile=config)
     assert missing_error.value.problems[0].code == ("experiment_missing_input")
 
-    unknown_subject = simple_template().bind(subject="missing")
+    unknown_subject = simple_experiment().bind(subject="missing")
     with pytest.raises(CheckFailed) as subject_error:
         bind_invocation(unknown_subject, config_profile=config)
     assert subject_error.value.problems[0].code == "unknown_authoring_entity"
@@ -44,7 +44,7 @@ def test_unknown_experiment_inputs_are_reported_together_in_stable_order(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(CheckFailed) as error:
-        simple_template().bind(subject="q0").bind(zeta=1, alpha=2)
+        simple_experiment().bind(subject="q0").bind(zeta=1, alpha=2)
 
     problem = error.value.problems[0]
     assert problem.code == "experiment_unknown_input"
@@ -52,13 +52,13 @@ def test_unknown_experiment_inputs_are_reported_together_in_stable_order(
     assert problem.message.endswith("alpha, zeta")
 
 
-def test_template_definition_reports_literal_errors() -> None:
+def test_experiment_definition_reports_literal_errors() -> None:
     with pytest.raises(CheckFailed) as error:
 
-        @sc.template(id="test.invalid-template", kind="invalid-template")
-        def template(
+        @sc.experiment(id="test.invalid-experiment", kind="invalid-experiment")
+        def experiment(
             experiment: sc.ExperimentContext,
-            count: int = "not-an-int",  # pyright: ignore[reportArgumentType]
+            count: sc.Input[int] = "not-an-int",  # pyright: ignore[reportArgumentType]
         ) -> None:
             del experiment, count
 
@@ -70,17 +70,17 @@ def test_template_definition_reports_literal_errors() -> None:
     }
 
 
-def test_template_bind_rejects_known_input_errors_without_requiring_missing() -> None:
-    @sc.template(id="test.early-bind", kind="early-bind")
-    def template(
+def test_experiment_bind_rejects_known_input_errors_without_requiring_missing() -> None:
+    @sc.experiment(id="test.early-bind", kind="early-bind")
+    def experiment(
         experiment: sc.ExperimentContext,
-        count: int,
-        required_later: float,
+        count: sc.Input[int],
+        required_later: sc.Input[float],
     ) -> None:
         del experiment, count, required_later
 
     # Missing values remain legal while an invocation is being assembled.
-    partial = template.bind()
+    partial = experiment.bind()
     with pytest.raises(CheckFailed) as error:
         partial.bind(count="not-an-int")
 
@@ -89,54 +89,47 @@ def test_template_bind_rejects_known_input_errors_without_requiring_missing() ->
     ]
 
     with pytest.raises(TypeError, match="unexpected keyword argument 'zeta'"):
-        template.bind(
+        experiment.bind(
             count=1,
             zeta=1,
             alpha=2,
         )
 
 
-def test_compile_validates_default_scan_axes() -> None:
+def test_grid_rejects_duplicate_axis_ids() -> None:
     first = sc.coordinate("first", sc.ScalarType(sc.FloatType()))
     second = sc.coordinate("second", sc.ScalarType(sc.FloatType()))
 
-    @sc.template(id="test.invalid-default-scans", kind="invalid-default-scans")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.scan(
-            sc.axis(first, (1.0, 2.0)),
-            sc.axis(second, (1.0,)),
-            sc.axis(first, (3.0,)),
-        )
+    with pytest.raises(ValueError, match="grid axis ids must be unique"):
 
-    with pytest.raises(CheckFailed) as error:
-        compile_invocation(template())
-
-    assert [problem.code for problem in error.value.problems] == [
-        "scan_axis_duplicate",
-    ]
+        @sc.experiment(id="test.invalid-default-scans", kind="invalid-default-scans")
+        def experiment(experiment: sc.ExperimentContext) -> None:
+            experiment.grid(
+                sc.axis(first, (1.0, 2.0)),
+                sc.axis(second, (1.0,)),
+                sc.axis(first, (3.0,)),
+            )
 
 
-def test_compile_rejects_repeated_scan_overrides_before_merging() -> None:
+def test_repeated_axis_overrides_use_the_latest_value() -> None:
     point = sc.coordinate("point", sc.ScalarType(sc.FloatType()))
 
-    @sc.template(id="test.repeated-scan-overrides", kind="repeated-scan-overrides")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.scan(sc.axis(point, (1.0,)))
+    @sc.experiment(id="test.repeated-scan-overrides", kind="repeated-scan-overrides")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.grid(sc.axis(point, (1.0,)))
 
-    invocation = template().scan(sc.axis(point, (2.0,))).scan(sc.axis(point, (3.0,)))
+    invocation = (
+        experiment().with_axis(sc.axis(point, (2.0,))).with_axis(sc.axis(point, (3.0,)))
+    )
 
-    with pytest.raises(CheckFailed) as error:
-        compile_invocation(invocation)
-
-    assert [problem.code for problem in error.value.problems] == [
-        "scan_axis_duplicate",
-    ]
+    assert invocation.point_plan.domain.axes == (sc.axis(point, (3.0,)),)
+    compile_invocation(invocation)
 
 
 def test_authoring_compile_precedes_config_binding(tmp_path: Path) -> None:
     del tmp_path
     with pytest.raises(CheckFailed) as error:
-        compiled = compile_invocation(simple_template().bind())
+        compiled = compile_invocation(simple_experiment().bind())
         bind_program(
             compiled.program,
             build_config_environment(load_config()),
@@ -145,7 +138,7 @@ def test_authoring_compile_precedes_config_binding(tmp_path: Path) -> None:
     assert error.value.problems[0].code == "experiment_missing_input"
 
 
-def test_check_experiment_resolves_template_invocation_with_config_snapshot(
+def test_check_experiment_resolves_experiment_invocation_with_config_snapshot(
     tmp_path: Path,
 ) -> None:
     config = load_config()
@@ -154,14 +147,14 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
         provider=TestSignalInstrumentProvider(),
     )
     result = check_experiment(
-        simple_template().bind(subject="q0"),
+        simple_experiment().bind(subject="q0"),
         system=composition.system,
         services=sqlite_project_services(tmp_path),
         config=config,
     )
 
     assert result.preview is not None
-    assert result.preview.experiment_id == simple_template().definition.id
+    assert result.preview.experiment_id == simple_experiment().id
 
 
 def _module_consuming_input() -> sc.ExperimentModule[None, ...]:
@@ -200,13 +193,13 @@ def test_unused_child_binding_accepts_an_explicit_outer_value() -> None:
 
     @sc.module(id="test.unused-child-root")
     def outer(context: sc.ModuleContext, outer_value: float) -> None:
-        context.call(child.instantiate("unused-child", child_value=outer_value))
+        context.use(child.instantiate("unused-child", child_value=outer_value))
 
-    @sc.template(id="test.unused-child", kind="input")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(outer(1.0))
+    @sc.experiment(id="test.unused-child", kind="input")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(outer(1.0))
 
-    bind_invocation(template(), config_profile=load_config())
+    bind_invocation(experiment(), config_profile=load_config())
 
 
 def test_unused_child_expression_binding_accepts_an_explicit_outer_value() -> None:
@@ -216,18 +209,18 @@ def test_unused_child_expression_binding_accepts_an_explicit_outer_value() -> No
 
     @sc.module(id="test.unused-child-expression-root")
     def outer(context: sc.ModuleContext, outer_value: float) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "unused-child",
                 child_value=outer_value + 1.0,
             )
         )
 
-    @sc.template(id="test.unused-child-expression", kind="input")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(outer(1.0))
+    @sc.experiment(id="test.unused-child-expression", kind="input")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(outer(1.0))
 
-    bind_invocation(template(), config_profile=load_config())
+    bind_invocation(experiment(), config_profile=load_config())
 
 
 def test_scan_point_does_not_implicitly_bind_consumed_module_input() -> None:
@@ -236,10 +229,10 @@ def test_scan_point_does_not_implicitly_bind_consumed_module_input() -> None:
 
     with pytest.raises(TypeError, match="missing a required argument: 'value'"):
 
-        @sc.template(id="test.point-input", kind="input")
-        def template(experiment: sc.ExperimentContext) -> None:
-            experiment.run(module())
-            experiment.scan(sc.axis(point, (1.0,)))
+        @sc.experiment(id="test.point-input", kind="input")
+        def experiment(experiment: sc.ExperimentContext) -> None:
+            experiment.use(module())
+            experiment.grid(sc.axis(point, (1.0,)))
 
 
 def _identity_value(value: object) -> object:

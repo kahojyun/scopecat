@@ -10,10 +10,10 @@ from typing import Protocol, cast
 from scopecat.authoring import (
     EachEntity,
     EntityType,
-    FinalizationTarget,
     OneEntity,
     PerEntity,
     ScalarType,
+    StateTarget,
     ValueRef,
     one,
 )
@@ -208,11 +208,11 @@ class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
     def _ensure_projected_state(self, state: StateT, /) -> None:
         self._ensure(self._projected_state_assignments(state))
 
-    def finalization_targets(
+    def state_targets(
         self,
         state: StateT,
         /,
-    ) -> tuple[FinalizationTarget, ...]:
+    ) -> tuple[StateTarget, ...]:
         return ((self._resource, self._projected_state_assignments(state)),)
 
     def _projected_state_assignments(
@@ -325,11 +325,11 @@ class DeclaredStateSymbolicGroupBase[
         for entity, assignments in self._aligned_state_assignments(state):
             self._state_client(entity)._ensure(assignments)
 
-    def finalization_targets(
+    def state_targets(
         self,
         state: GroupStateT | PerEntity[StateT],
         /,
-    ) -> tuple[FinalizationTarget, ...]:
+    ) -> tuple[StateTarget, ...]:
         return tuple(
             (self._state_client(entity)._resource, assignments)
             for entity, assignments in self._aligned_state_assignments(state)

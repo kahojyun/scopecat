@@ -16,6 +16,7 @@ from scopecat.daemon.views import (
 )
 from scopecat.daemon.wire import (
     AttentionResolutionReceipt,
+    RunCancellationReceipt,
 )
 
 
@@ -56,6 +57,11 @@ class LabControlOperations:
 
     def run_detail(self, run_id: str) -> RunDetail:
         return self.client.get_run(run_id)
+
+    def cancel(self, run_id: str) -> RunCancellationReceipt:
+        """Cancel queued work or request a safe stop from its active executor."""
+
+        return self.client.cancel_run(run_id)
 
     def events(
         self,

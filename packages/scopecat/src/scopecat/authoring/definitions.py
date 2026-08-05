@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from types import UnionType
 from typing import (
     Annotated,
@@ -30,20 +30,18 @@ from scopecat.authoring._module_invocation import (
     DomainCallProvider,
     ModuleInvocation,
     domain_use_call,
-    module_use_invocation,
 )
 from scopecat.authoring._module_results import (
     ProductBundle,
     module_result_value_exports,
     recording_products,
 )
-from scopecat.authoring.entity_parameters import PerEntity
-from scopecat.authoring.finalization import Finalizable
-from scopecat.authoring.scans import PointRow, Scan
-from scopecat.authoring.scans import points as point_rows
-from scopecat.authoring.templates import (
-    ExperimentTemplate,
+from scopecat.authoring.entity_selection import PerEntity
+from scopecat.authoring.experiments import (
+    Experiment,
 )
+from scopecat.authoring.scans import Axis, PointRow
+from scopecat.authoring.state_projection import StateProjector
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.instrument_members import (
@@ -61,20 +59,28 @@ from scopecat.program.bindings import BindingIntent
 from scopecat.program.definitions import (
     ExperimentDef,
     ExperimentInvocation,
+    capture_experiment_inputs,
     create_experiment_def,
 )
 from scopecat.program.domain import DomainCall
-from scopecat.program.input_capture import empty_program_mapping
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
     ProductAxis,
     ProductRecording,
     ProductRef,
+    ProductRefs,
     record_coordinate,
     record_product,
 )
 from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
-from scopecat.program.scans import PointRowsSpec
+from scopecat.program.scans import (
+    GridSpec,
+    PointDomainSpec,
+    PointPlan,
+    PointTraversal,
+    RepeatMode,
+    points_spec,
+)
 from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
@@ -100,6 +106,7 @@ from scopecat.program.values import (
     RuntimeInput,
 )
 from scopecat.program.values import input as authoring_input
+from scopecat.program.verification import validate_experiment_inputs
 
 # pyright: reportPrivateUsage=false
 
@@ -116,7 +123,7 @@ type RecordInput = RecordProductInput | ValueRef
 def input_ref[T](value: Input[T]) -> ValueRef:
     """View a decorator function input as its symbolic authoring reference.
 
-    ``@module`` and ``@template`` evaluate their Python bodies with symbolic
+    ``@module`` and ``@experiment`` evaluate their Python bodies with symbolic
     values, while ``Input[T]`` also preserves the concrete caller contract.
     Use this helper only when a symbolic-only operation, such as a table
     transform, needs that distinction for static typing.
@@ -190,21 +197,43 @@ class _DefinitionContract:
         return dict(self.arguments)
 
 
+@dataclass(frozen=True, slots=True)
+class _ExperimentContract:
+    """One experiment function's runtime-input and structural argument split."""
+
+    signature: inspect.Signature
+    runtime_arguments: tuple[tuple[str, ValueRef], ...]
+
+    @property
+    def runtime_values(self) -> dict[str, ValueRef]:
+        return dict(self.runtime_arguments)
+
+    @property
+    def runtime_names(self) -> frozenset[str]:
+        return frozenset(name for name, _value in self.runtime_arguments)
+
+    @property
+    def structural_names(self) -> frozenset[str]:
+        return frozenset(self.signature.parameters) - self.runtime_names
+
+
 class ExperimentContext:
-    """Authoring context shared by templates and experiment factories."""
+    """Explicit recorder injected into one complete experiment definition."""
 
     __slots__ = (
-        "_final_state_bindings",
+        "_point_plan",
+        "_point_plan_declared",
         "_program",
         "_record_selections",
-        "_scans",
+        "_success_state_bindings",
     )
 
     def __init__(self) -> None:
         self._program = ModuleContext()
-        self._scans: list[Scan] = []
+        self._point_plan = PointPlan()
+        self._point_plan_declared = False
         self._record_selections: list[ProgramRecordSelection] = []
-        self._final_state_bindings: list[BindingIntent] = []
+        self._success_state_bindings: list[BindingIntent] = []
 
     def close_definition_internal(
         self,
@@ -232,45 +261,41 @@ class ExperimentContext:
             record_selections=self._record_selections,
             input_defaults=input_defaults,
             required_inputs=required_inputs,
-            default_scans=self._scans,
-            final_state_bindings=self._final_state_bindings,
+            default_point_plan=self._point_plan,
+            success_state_bindings=self._success_state_bindings,
             metadata=metadata,
         )
 
     @overload
-    def run[ResultT](
-        self,
-        part: ExperimentModule[ResultT, ...],
-    ) -> ModuleInvocation[ResultT]: ...
-
-    @overload
-    def run[ResultT](
+    def use[ResultT](
         self,
         part: ModuleInvocation[ResultT],
-    ) -> ModuleInvocation[ResultT]: ...
+    ) -> ResultT: ...
 
     @overload
-    def run(self, part: DomainCall) -> DomainCall: ...
+    def use(self, part: DomainCall) -> ProductRefs: ...
 
     @overload
-    def run[T: DomainCallProvider](self, part: T) -> T: ...
+    def use(self, part: DomainCallProvider) -> ProductRefs: ...
 
-    def run(
+    def use(
         self,
         part: object,
     ) -> object:
-        """Append one module or domain occurrence to the root experiment."""
+        """Place one module or domain occurrence in the root experiment."""
 
-        if isinstance(part, DomainCall) or isinstance(
-            getattr(part, "domain_call", None),
-            DomainCall,
-        ):
+        if isinstance(part, ModuleInvocation):
+            invocation = cast("ModuleInvocation[object]", part)
+            self._program.append_invocation_internal(invocation)
+            return invocation.result
+        try:
             call = domain_use_call(part)
-            self._program.append_domain_call_internal(call)
-            return part
-        invocation = _module_invocation(part)
-        self._program.append_invocation_internal(invocation)
-        return invocation
+        except TypeError as error:
+            raise TypeError(
+                "use() requires a module invocation or domain call"
+            ) from error
+        self._program.append_domain_call_internal(call)
+        return call.results
 
     def _resource(
         self,
@@ -398,29 +423,57 @@ class ExperimentContext:
             kernel=kernel,
         )
 
-    def scan(self, *scans: Scan) -> None:
-        """Declare the experiment's default point-domain scans."""
+    def grid(
+        self,
+        *axes: Axis,
+        repeat: int = 1,
+        repeat_mode: RepeatMode = "point",
+        traversal: PointTraversal = "forward",
+    ) -> None:
+        """Declare the complete Cartesian point domain for this experiment."""
 
-        selected = (*self._scans, *scans)
-        if (
-            any(isinstance(scan, PointRowsSpec) for scan in selected)
-            and len(selected) != 1
-        ):
-            raise ValueError(
-                "point rows define the complete domain and cannot be combined "
-                "with scan axes"
-            )
-        self._scans.extend(scans)
+        self._declare_point_domain(
+            GridSpec(tuple(axes)),
+            repeat=repeat,
+            repeat_mode=repeat_mode,
+            traversal=traversal,
+        )
 
     def points(
         self,
         rows: Sequence[PointRow],
         *,
         coordinates: Sequence[ValueRef] = (),
+        repeat: int = 1,
+        repeat_mode: RepeatMode = "point",
     ) -> None:
-        """Declare the complete ordered point cloud for this experiment."""
+        """Declare the complete point cloud in its explicit row order."""
 
-        self.scan(point_rows(rows, coordinates=coordinates))
+        self._declare_point_domain(
+            points_spec(rows, coordinates=coordinates),
+            repeat=repeat,
+            repeat_mode=repeat_mode,
+            traversal="forward",
+        )
+
+    def _declare_point_domain(
+        self,
+        domain: PointDomainSpec,
+        *,
+        repeat: int,
+        repeat_mode: RepeatMode,
+        traversal: PointTraversal,
+    ) -> None:
+        if self._point_plan_declared:
+            raise ValueError("experiment point domain can only be declared once")
+        self._point_plan = replace(
+            self._point_plan,
+            domain=domain,
+            repeat=repeat,
+            repeat_mode=repeat_mode,
+            traversal=traversal,
+        )
+        self._point_plan_declared = True
 
     def record(
         self,
@@ -486,22 +539,22 @@ class ExperimentContext:
                 )
             )
 
-    def finalize[StateT](
+    def on_success[StateT](
         self,
-        resource: Finalizable[StateT],
+        resource: StateProjector[StateT],
         target: StateT,
     ) -> None:
-        """Declare typed state after normal experiment completion."""
+        """Declare fixed state after normal point/effect completion."""
 
-        for logical_resource, desired_state in resource.finalization_targets(target):
-            self._append_finalization_target(logical_resource, desired_state)
+        for logical_resource, desired_state in resource.state_targets(target):
+            self._append_success_state_target(logical_resource, desired_state)
 
-    def _append_finalization_target(
+    def _append_success_state_target(
         self,
         resource: DefinitionResource,
         assignments: Mapping[PropertyRef, StateBinding],
     ) -> None:
-        """Validate and append one normalized final-state target."""
+        """Validate and append one normalized success-state target."""
 
         self._program.require_owned_resource_internal(resource)
         intent = build_ensure_state_intent(resource.port_id, assignments)
@@ -511,56 +564,14 @@ class ExperimentContext:
                 continue
             if internal_value_ref_requires_execution(value):
                 raise ValueError(
-                    "experiment final_state cannot depend on point-local compute"
+                    "experiment on_success state cannot depend on point-local "
+                    "computation"
                 )
             if internal_value_ref_point_dependencies(value):
                 raise ValueError(
-                    "experiment final_state cannot depend on scan coordinates"
+                    "experiment on_success state cannot depend on point coordinates"
                 )
-        self._final_state_bindings.extend(intent.assignments)
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class ExperimentFactory[**P]:
-    """An experiment factory evaluated structurally for each Python call."""
-
-    fn: Callable[Concatenate[ExperimentContext, P], None] = field(
-        repr=False,
-        compare=False,
-    )
-    _signature: inspect.Signature = field(repr=False, compare=False)
-    id: str
-    kind: str
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
-
-    @property
-    def __wrapped__(self) -> Callable[Concatenate[ExperimentContext, P], None]:
-        return self.fn
-
-    @property
-    def __name__(self) -> str:
-        return self.fn.__name__
-
-    @property
-    def __signature__(self) -> inspect.Signature:
-        return self._signature
-
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
-        context = ExperimentContext()
-        result = self.fn(context, *args, **kwargs)
-        _require_definition_none(result, kind="experiment_factory")
-        definition = context.close_definition_internal(
-            id=self.id,
-            kind=self.kind,
-            metadata=self.metadata,
-            input_defaults={},
-            required_inputs=(),
-        )
-        return ExperimentInvocation(
-            definition=definition,
-            inputs=empty_program_mapping(),
-            scans=(),
-        )
+        self._success_state_bindings.extend(intent.assignments)
 
 
 @overload
@@ -607,18 +618,18 @@ def module[ResultT, **P](
 
 
 @overload
-def template[**P](
+def experiment[**P](
     definition: Callable[Concatenate[ExperimentContext, P], None],
     /,
     *,
     id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentTemplate[P]: ...
+) -> Experiment[P]: ...
 
 
 @overload
-def template[**P](
+def experiment[**P](
     definition: None = None,
     /,
     *,
@@ -627,11 +638,11 @@ def template[**P](
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> Callable[
     [Callable[Concatenate[ExperimentContext, P], None]],
-    ExperimentTemplate[P],
+    Experiment[P],
 ]: ...
 
 
-def template[**P](
+def experiment[**P](
     definition: Callable[Concatenate[ExperimentContext, P], None] | None = None,
     /,
     *,
@@ -639,78 +650,27 @@ def template[**P](
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
-    ExperimentTemplate[P]
+    Experiment[P]
     | Callable[
         [Callable[Concatenate[ExperimentContext, P], None]],
-        ExperimentTemplate[P],
+        Experiment[P],
     ]
 ):
-    """Close a symbolic Python function as an experiment template."""
+    """Define one experiment with explicit runtime and structural arguments.
+
+    Parameters annotated as ``Input[T]`` become typed runtime inputs. Every
+    other parameter is an ordinary Python value evaluated while constructing
+    that invocation's graph.
+    """
 
     def decorate(
         fn: Callable[Concatenate[ExperimentContext, P], None],
-    ) -> ExperimentTemplate[P]:
-        return _template_from_function(
+    ) -> Experiment[P]:
+        return _experiment_from_function(
             fn,
             id=id,
             kind=kind,
             metadata=metadata,
-        )
-
-    return decorate(definition) if definition is not None else decorate
-
-
-@overload
-def experiment_factory[**P](
-    definition: Callable[Concatenate[ExperimentContext, P], None],
-    /,
-    *,
-    id: str | None = None,
-    kind: str | None = None,
-    metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentFactory[P]: ...
-
-
-@overload
-def experiment_factory[**P](
-    definition: None = None,
-    /,
-    *,
-    id: str | None = None,
-    kind: str | None = None,
-    metadata: Mapping[str, MetadataValue] | None = None,
-) -> Callable[
-    [Callable[Concatenate[ExperimentContext, P], None]],
-    ExperimentFactory[P],
-]: ...
-
-
-def experiment_factory[**P](
-    definition: Callable[Concatenate[ExperimentContext, P], None] | None = None,
-    /,
-    *,
-    id: str | None = None,
-    kind: str | None = None,
-    metadata: Mapping[str, MetadataValue] | None = None,
-) -> (
-    ExperimentFactory[P]
-    | Callable[
-        [Callable[Concatenate[ExperimentContext, P], None]],
-        ExperimentFactory[P],
-    ]
-):
-    """Define an experiment whose Python arguments may change graph structure."""
-
-    def decorate(
-        fn: Callable[Concatenate[ExperimentContext, P], None],
-    ) -> ExperimentFactory[P]:
-        signature = _context_signature(fn, ExperimentContext)
-        return ExperimentFactory(
-            fn=fn,
-            _signature=signature.replace(return_annotation=ExperimentInvocation),
-            id=id or _definition_id(fn),
-            kind=kind or fn.__name__,
-            metadata=freeze_json_mapping(metadata or {}),
         )
 
     return decorate(definition) if definition is not None else decorate
@@ -749,51 +709,130 @@ def _module_from_function[ResultT, **P](
     )
 
 
-def _template_from_function[**P](
+def _experiment_from_function[**P](
     fn: Callable[Concatenate[ExperimentContext, P], None],
     *,
     id: str | None,
     kind: str | None,
     metadata: Mapping[str, MetadataValue] | None,
-) -> ExperimentTemplate[P]:
+) -> Experiment[P]:
     source = cast("DefinitionFunction", fn)
-    contract = _definition_contract(
-        source,
-        defaults=True,
-        context_type=ExperimentContext,
-    )
+    contract = _experiment_contract(source)
     signature = contract.signature
-    values = contract.values
-    context = ExperimentContext()
-    result = source(context, **values)
-    _require_definition_none(result, kind="template")
-    defaults = tuple(
-        (parameter.name, cast("object", parameter.default))
+    runtime_names = contract.runtime_names
+    runtime_parameters = tuple(
+        parameter
         for parameter in signature.parameters.values()
+        if parameter.name in runtime_names
     )
-    input_defaults = {
-        name: cast("RuntimeInput", default)
-        for name, default in defaults
-        if default is not inspect.Parameter.empty
-    }
-    required_inputs = tuple(
-        name for name, default in defaults if default is inspect.Parameter.empty
-    )
-    definition = context.close_definition_internal(
-        id=id or _definition_id(source),
-        kind=kind or source.__name__,
-        metadata=metadata,
-        input_ports=tuple(_input_port(name, value) for name, value in values.items()),
-        input_defaults=input_defaults,
-        required_inputs=required_inputs,
-    )
-    return ExperimentTemplate(
-        definition=definition,
+    input_defaults: dict[str, RuntimeInput] = {}
+    required_inputs: list[str] = []
+    for parameter in runtime_parameters:
+        default = cast("object", parameter.default)
+        if default is inspect.Parameter.empty:
+            required_inputs.append(parameter.name)
+        else:
+            input_defaults[parameter.name] = cast("RuntimeInput", default)
+    selected_metadata = dict(metadata or {})
+    doc = inspect.getdoc(fn)
+    if doc is not None:
+        selected_metadata.setdefault("description", doc)
+    selected_metadata = dict(freeze_json_mapping(selected_metadata))
+    selected_id = id or _definition_id(source)
+    selected_kind = kind or source.__name__
+    cached_definition: ExperimentDef | None = None
+
+    def build(arguments: Mapping[str, object]) -> ExperimentInvocation:
+        nonlocal cached_definition
+        values: dict[str, object] = dict(contract.runtime_values)
+        runtime_inputs: dict[str, RuntimeInput] = {}
+        for parameter in signature.parameters.values():
+            if parameter.name in runtime_names:
+                if parameter.name in arguments:
+                    runtime_inputs[parameter.name] = cast(
+                        "RuntimeInput", arguments[parameter.name]
+                    )
+                continue
+            if parameter.name in arguments:
+                values[parameter.name] = arguments[parameter.name]
+                continue
+            default = cast("object", parameter.default)
+            if default is not inspect.Parameter.empty:
+                values[parameter.name] = default
+                continue
+            raise TypeError(f"missing required structural argument: {parameter.name!r}")
+
+        definition = cached_definition
+        if definition is None:
+            context = ExperimentContext()
+            result = source(context, **values)
+            _require_definition_none(result, kind="experiment")
+            definition = context.close_definition_internal(
+                id=selected_id,
+                kind=selected_kind,
+                metadata=selected_metadata,
+                input_ports=tuple(
+                    _input_port(name, value)
+                    for name, value in contract.runtime_arguments
+                ),
+                input_defaults=input_defaults,
+                required_inputs=tuple(required_inputs),
+            )
+            if not contract.structural_names:
+                cached_definition = definition
+        captured_inputs = capture_experiment_inputs(runtime_inputs)
+        validate_experiment_inputs(
+            definitions=definition.inputs,
+            inputs=captured_inputs,
+        )
+        return ExperimentInvocation(
+            definition=definition,
+            input_overrides=captured_inputs,
+            point_plan_override=None,
+        )
+
+    authored = Experiment(
         _callable=cast("Callable[P, object]", fn),
-        _signature=contract.signature.replace(
+        _signature=signature.replace(
             return_annotation=ExperimentInvocation,
         ),
+        _builder=build,
+        id=selected_id,
+        kind=selected_kind,
+        metadata=selected_metadata,
     )
+    if not contract.structural_names:
+        build({})
+    return authored
+
+
+def _experiment_contract(fn: DefinitionFunction) -> _ExperimentContract:
+    signature = _context_signature(fn, ExperimentContext)
+    hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
+    runtime_arguments: list[tuple[str, ValueRef]] = []
+    for parameter in signature.parameters.values():
+        if parameter.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+            inspect.Parameter.POSITIONAL_ONLY,
+        ):
+            raise TypeError("experiment functions require named parameters")
+        annotation = hints.get(
+            parameter.name,
+            cast("object", parameter.annotation),
+        )
+        if not _is_runtime_input_annotation(annotation):
+            continue
+        runtime_arguments.append(
+            (
+                parameter.name,
+                authoring_input(
+                    parameter.name,
+                    _annotation_value_type(annotation, parameter=parameter.name),
+                ),
+            )
+        )
+    return _ExperimentContract(signature, tuple(runtime_arguments))
 
 
 def _definition_contract(
@@ -853,6 +892,16 @@ def _require_definition_none(value: object, *, kind: str) -> None:
         raise TypeError(f"@{kind} definition functions must return None")
 
 
+def _is_runtime_input_annotation(annotation: object) -> bool:
+    while isinstance(annotation, TypeAliasType):
+        annotation = cast("object", annotation.__value__)
+    if get_origin(annotation) is Annotated:
+        annotation = cast("tuple[object, ...]", get_args(annotation))[0]
+    while isinstance(annotation, TypeAliasType):
+        annotation = cast("object", annotation.__value__)
+    return get_origin(annotation) is Input
+
+
 def _annotation_value_type(annotation: object, *, parameter: str) -> ValueType:
     while isinstance(annotation, TypeAliasType):
         annotation = cast("object", annotation.__value__)
@@ -870,6 +919,8 @@ def _annotation_value_type(annotation: object, *, parameter: str) -> ValueType:
                 f"with {selected!r}"
             )
         return selected
+    if get_origin(annotation) is Input:
+        [annotation] = cast("tuple[object, ...]", get_args(annotation))
     if _is_value_type(annotation):
         return _as_value_type(annotation)
     inferred: dict[object, ValueType] = {
@@ -952,27 +1003,15 @@ def _input_port(name: str, value: ValueRef) -> ModuleInputPort:
     return ModuleInputPort(id=name, value_type=value.value_type)
 
 
-def _module_invocation(value: object) -> ModuleInvocation[object]:
-    if isinstance(value, ExperimentModule):
-        return cast("ModuleInvocation[object]", value())
-    try:
-        return module_use_invocation(value)
-    except TypeError as error:
-        raise TypeError(
-            "ExperimentContext.run() requires a module or domain call"
-        ) from error
-
-
 def _definition_id(fn: DefinitionFunction) -> str:
     return f"{fn.__module__}.{fn.__qualname__}"
 
 
 __all__ = [
+    "Experiment",
     "ExperimentContext",
-    "ExperimentFactory",
     "Input",
-    "experiment_factory",
+    "experiment",
     "input_ref",
     "module",
-    "template",
 ]

@@ -376,10 +376,10 @@ def fetch_domain_invocation[PayloadT, ResultT](
         )
         _append_after_effect(
             journal,
-            started.model_copy(update={"state": "failed", "problems": (problem,)}),
+            started.model_copy(update={"state": "unknown", "problems": (problem,)}),
             submission_id,
             "fetch",
-            "known",
+            "indeterminate",
             job_id,
             (problem,),
         )
@@ -390,7 +390,7 @@ def fetch_domain_invocation[PayloadT, ResultT](
             invocation_id=intent.invocation_id,
             submission_key=submission_id.submission_key,
             job_id=job_id,
-            certainty="known",
+            certainty="indeterminate",
         ) from error
     except BaseException:
         _append_interruption_best_effort(journal, started, submission_id)

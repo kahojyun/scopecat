@@ -14,7 +14,7 @@ from scopecat.api._instruments import LabInstrumentOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.run import RunHandle, run_handle_id
-from scopecat.authoring.templates import ExperimentInvocation, ExperimentTemplate
+from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
@@ -25,7 +25,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource, RunManifest, RunStageLineage
 from scopecat.runs.selectors import RunSelector
 
-type ExperimentSpec = ExperimentInvocation | ExperimentTemplate[...]
+type ExperimentSpec = ExperimentInvocation | Experiment[...]
 _RUN_PAGE_SIZE = 500
 
 
@@ -552,9 +552,7 @@ class LabClient:
 
 
 def _experiment_invocation(experiment: ExperimentSpec) -> ExperimentInvocation:
-    return (
-        experiment.bind() if isinstance(experiment, ExperimentTemplate) else experiment
-    )
+    return experiment.bind() if isinstance(experiment, Experiment) else experiment
 
 
 def _stage_submission_id(sequence_id: str, index: int) -> str:

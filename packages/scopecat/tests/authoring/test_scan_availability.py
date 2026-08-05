@@ -9,7 +9,7 @@ from scopecat.compiler.frontend import resolution
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.program.values import compute as program_compute
-from scopecat.records.run_request import AroundScanRecord
+from scopecat.records.run_request import AxisAroundSourceRecord, GridDomainRecord
 
 
 def _quantity_scan_target() -> sc.ValueRef:
@@ -32,9 +32,9 @@ def test_default_scan_center_rejects_external_operation() -> None:
     call = module()
     center = call.result
 
-    def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
-        experiment.scan(
+    def experiment_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.use(call)
+        experiment.grid(
             sc.axis(
                 target,
                 center=center,
@@ -43,21 +43,22 @@ def test_default_scan_center_rejects_external_operation() -> None:
             )
         )
 
-    template = sc.template(id="test.scan-stage.default", kind="scan-stage")(
-        template_definition
+    experiment = sc.experiment(id="test.scan-stage.default", kind="scan-stage")(
+        experiment_definition
     )
 
     with pytest.raises(CheckFailed) as error:
-        resolution.compile_invocation(template())
+        resolution.compile_invocation(experiment())
 
     problem = error.value.problems[0]
     assert problem.code == "value_requires_execution"
     assert problem.location == model_location(
-        "scans",
+        "point_domain",
+        "axes",
         0,
         "center",
     )
-    assert "scan center" in problem.message
+    assert "axis center" in problem.message
 
 
 def test_invocation_scan_center_rejects_external_operation() -> None:
@@ -75,11 +76,11 @@ def test_invocation_scan_center_rejects_external_operation() -> None:
     call = module()
     center = call.result
 
-    @sc.template(id="test.scan-stage.invocation", kind="scan-stage")
-    def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+    @sc.experiment(id="test.scan-stage.invocation", kind="scan-stage")
+    def experiment_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.use(call)
 
-    invocation = template_definition().scan(
+    invocation = experiment_definition().with_axis(
         sc.axis(
             target,
             center=center,
@@ -93,7 +94,7 @@ def test_invocation_scan_center_rejects_external_operation() -> None:
 
     problem = error.value.problems[0]
     assert problem.code == "value_requires_execution"
-    assert problem.location == model_location("scans", 0, "center")
+    assert problem.location == model_location("point_domain", "axes", 0, "center")
 
 
 def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
@@ -108,10 +109,10 @@ def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
     call = module(value=sc.Quantity(value=5.0, unit="GHz"))
     target = _quantity_scan_target()
 
-    @sc.template(id="test.scan-stage.input", kind="scan-stage")
-    def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
-        experiment.scan(
+    @sc.experiment(id="test.scan-stage.input", kind="scan-stage")
+    def experiment_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.use(call)
+        experiment.grid(
             sc.axis(
                 target,
                 center=call.result,
@@ -120,11 +121,13 @@ def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
             )
         )
 
-    compiled = resolution.compile_invocation(template_definition())
+    compiled = resolution.compile_invocation(experiment_definition())
 
-    [scan] = compiled.request.scans
-    assert isinstance(scan, AroundScanRecord)
-    assert scan.center == sc.Quantity(value=5.0, unit="GHz")
+    domain = compiled.request.point_plan.domain
+    assert isinstance(domain, GridDomainRecord)
+    [axis] = domain.axes
+    assert isinstance(axis.source, AxisAroundSourceRecord)
+    assert axis.source.center == sc.Quantity(value=5.0, unit="GHz")
 
 
 def test_parameter_lookup_key_rejects_external_operation() -> None:

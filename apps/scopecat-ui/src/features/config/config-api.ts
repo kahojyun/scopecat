@@ -107,7 +107,7 @@ export function parseConfigProfileJson(textValue: string): ConfigProfileSnapshot
   }
   const profile = object(parsed, "selected config snapshot");
   const formatVersion = optionalText(profile.format_version);
-  if (formatVersion !== "scopecat.config_snapshot.v8") {
+  if (formatVersion !== "scopecat.config_snapshot.v9") {
     throw new Error(
       `Unsupported config snapshot format: ${formatVersion ?? "missing format_version"}.`,
     );

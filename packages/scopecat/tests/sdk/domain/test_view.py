@@ -59,14 +59,14 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
         },
     )
 
-    @sc.template(id="test.domain.view", kind="domain_view")
-    def template(experiment: sc.ExperimentContext) -> None:
-        placed = experiment.run(authored_call)
-        experiment.scan(sc.axis(count, (1, 3, 5)))
-        experiment.record(placed.results.counts, record_id="counts")
+    @sc.experiment(id="test.domain.view", kind="domain_view")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        results = experiment.use(authored_call)
+        experiment.grid(sc.axis(count, (1, 3, 5)))
+        experiment.record(results.counts, record_id="counts")
 
     resolved = bind_invocation(
-        template.bind(),
+        experiment.bind(),
         config_profile=load_config(),
     )
     bound = resolved

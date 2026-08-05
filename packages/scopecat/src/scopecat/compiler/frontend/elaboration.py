@@ -62,7 +62,12 @@ from scopecat.program.recording import (
     ProgramRecordSelection,
     ValueRecordSelection,
 )
-from scopecat.program.scans import AxisSpec, scan_parameter_contracts
+from scopecat.program.scans import (
+    AxisSpec,
+    PointTraversal,
+    RepeatMode,
+    axis_parameter_contracts,
+)
 from scopecat.program.value_refs import ValueRef, internal_value_ref_record_id
 from scopecat.program.value_transforms import internal_bind_value_ref_inputs
 
@@ -180,7 +185,7 @@ def compose_module(
         experiment_id=module.id,
         kind=module.id,
         inputs=inputs,
-        final_state=None,
+        success_state=None,
     )
 
 
@@ -190,6 +195,9 @@ def compose_experiment(
     inputs: Mapping[str, object],
     scans: Sequence[AxisSpec] = (),
     point_domain_layout: PointDomainLayout = "product_grid",
+    point_repeat: int = 1,
+    point_repeat_mode: RepeatMode = "point",
+    point_traversal: PointTraversal = "forward",
 ) -> LogicalProgram:
     """Elaborate a native experiment root without a synthetic module."""
 
@@ -205,16 +213,17 @@ def compose_experiment(
         kind=definition.kind,
         inputs=value_inputs,
         logical_inputs=inputs,
-        parameter_overlays=tuple(
-            axis for axis in scans if axis.parameter_lookup is not None
-        ),
+        parameter_overlays=tuple(axis for axis in scans if axis.overlay is not None),
         record_selections=definition.record_selections,
         additional_parameter_contracts=merge_parameter_contracts(
-            *(scan_parameter_contracts(axis) for axis in scans),
+            *(axis_parameter_contracts(axis) for axis in scans),
         ),
         point_domain=lower_scans_point_domain(scans, inputs=inputs),
         point_domain_layout=point_domain_layout,
-        final_state=definition.final_state,
+        point_repeat=point_repeat,
+        point_repeat_mode=point_repeat_mode,
+        point_traversal=point_traversal,
+        success_state=definition.success_state,
     )
 
 
@@ -230,7 +239,10 @@ def _elaborate_hierarchy(
     additional_parameter_contracts: tuple[ParameterContract, ...] = (),
     point_domain: PointAxes[ValueRef] = (),
     point_domain_layout: PointDomainLayout = "product_grid",
-    final_state: EnsureStateIntent | None,
+    point_repeat: int = 1,
+    point_repeat_mode: RepeatMode = "point",
+    point_traversal: PointTraversal = "forward",
+    success_state: EnsureStateIntent | None,
 ) -> LogicalProgram:
     composer = _LogicalProgramComposer()
     effects = composer.add_hierarchy(root)
@@ -272,16 +284,16 @@ def _elaborate_hierarchy(
         product_declarations=composer.product_declarations,
         effects=effects,
     )
-    final_state_values = tuple(
+    success_state_values = tuple(
         assignment.value
-        for assignment in (() if final_state is None else final_state.assignments)
+        for assignment in (() if success_state is None else success_state.assignments)
     )
     require_closed_logical_values(
         inputs,
         (
             *value_roots,
             *resolved_record_values,
-            *final_state_values,
+            *success_state_values,
         ),
     )
     typed_inputs = {
@@ -295,7 +307,7 @@ def _elaborate_hierarchy(
             *value_roots,
             *composer.dependency_roots,
             *resolved_record_values,
-            *final_state_values,
+            *success_state_values,
         )
         for value in nested_value_refs(source)
     )
@@ -303,7 +315,7 @@ def _elaborate_hierarchy(
         composer.logical.add_effect(effect, effect_index=effect_index)
         for effect_index, effect in enumerate(effects)
     )
-    for root_value in (*value_roots, *final_state_values):
+    for root_value in (*value_roots, *success_state_values):
         if isinstance(root_value, ValueRef):
             composer.logical.add_value_root(root_value)
     return composer.logical.finish(
@@ -323,13 +335,16 @@ def _elaborate_hierarchy(
         ),
         point_domain=point_domain,
         point_domain_layout=point_domain_layout,
+        point_repeat=point_repeat,
+        point_repeat_mode=point_repeat_mode,
+        point_traversal=point_traversal,
         effects=logical_effects,
-        final_state=(
+        success_state=(
             None
-            if final_state is None
+            if success_state is None
             else composer.logical.add_ensure_state(
-                final_state,
-                scope=("final_state",),
+                success_state,
+                scope=("success_state",),
             )
         ),
     )

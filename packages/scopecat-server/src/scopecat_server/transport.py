@@ -69,6 +69,7 @@ from scopecat.daemon.wire import (
     PayloadObjectReceipt,
     RunAdmission,
     RunAttachmentCommand,
+    RunCancellationReceipt,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -383,6 +384,10 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}")
     def get_run(run_id: str) -> RunDetail:
         return application.runs.get_run(run_id)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/cancel")
+    def cancel_run(run_id: str) -> RunCancellationReceipt:
+        return application.cancel_run(run_id)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/config")
     def get_run_config(run_id: str) -> RunConfigView:

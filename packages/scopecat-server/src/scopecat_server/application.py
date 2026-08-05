@@ -10,6 +10,7 @@ from scopecat.daemon.views import DaemonHealth
 from scopecat.daemon.wire import (
     AttentionResolutionReceipt,
     RunAdmission,
+    RunCancellationReceipt,
     RunSubmission,
 )
 
@@ -80,6 +81,9 @@ class DaemonApplication:
 
     def submit_run(self, submission: RunSubmission) -> RunAdmission:
         return self._admission.submit_run(submission)
+
+    def cancel_run(self, run_id: str) -> RunCancellationReceipt:
+        return self.executor.cancel_run(run_id)
 
     def resolve_attention(
         self,

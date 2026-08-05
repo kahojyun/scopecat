@@ -22,9 +22,7 @@ from scopecat.kernel.problems import Problem
 
 type ExecutionEffect = Literal[
     "read",
-    "state_write",
     "acquisition",
-    "lifecycle",
     "persistence",
 ]
 type JournalEntryState = Literal[
@@ -34,21 +32,9 @@ type JournalEntryState = Literal[
     "unknown",
 ]
 type ExecutionStage = Literal[
-    "provide_instruments",
-    "setup_cleanup",
-    "setup_close",
-    "setup_terminal_readback",
-    "point",
-    "compute",
-    "apply_state",
-    "collect",
     "initialize_measurement",
     "append_measurement",
     "seal_measurement",
-    "abort",
-    "cleanup",
-    "close",
-    "terminal_readback",
     "domain_submit",
     "domain_fetch",
 ]

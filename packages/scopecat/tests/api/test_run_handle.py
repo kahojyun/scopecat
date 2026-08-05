@@ -9,8 +9,8 @@ import scopecat as sc
 import scopecat.authoring as authoring
 from scopecat.api.run import RunHandle
 from scopecat.authoring import (
+    Experiment,
     ExperimentInvocation,
-    ExperimentTemplate,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import Dataset
@@ -79,10 +79,10 @@ def _quantity_coordinate(record: MeasurementRecord, coordinate_id: str) -> Quant
 
 
 def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
-    return simple_frequency_scan_template().bind(subject=subject)
+    return simple_frequency_scan_experiment().bind(subject=subject)
 
 
-def simple_frequency_scan_template() -> ExperimentTemplate[...]:
+def simple_frequency_scan_experiment() -> Experiment[...]:
     def definition(
         experiment: authoring.ExperimentContext,
         subject: Annotated[
@@ -91,10 +91,8 @@ def simple_frequency_scan_template() -> ExperimentTemplate[...]:
         ],
     ) -> None:
         del subject
-        module_call = experiment.run(
-            SIMPLE_FREQUENCY_SCAN(frequency=DRIVE_FREQUENCY_POINT)
-        )
-        experiment.scan(
+        signal = experiment.use(SIMPLE_FREQUENCY_SCAN(frequency=DRIVE_FREQUENCY_POINT))
+        experiment.grid(
             sc.axis(
                 DRIVE_FREQUENCY_POINT,
                 center=authoring.parameter(
@@ -105,9 +103,9 @@ def simple_frequency_scan_template() -> ExperimentTemplate[...]:
                 points=3,
             ),
         )
-        experiment.record(module_call.result, record_id="signal")
+        experiment.record(signal, record_id="signal")
 
-    return authoring.template(
+    return authoring.experiment(
         id="test.session.simple_frequency_scan",
         kind="simple_frequency_scan",
     )(definition)
@@ -135,7 +133,7 @@ def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
 def test_in_process_lab_records_compute_value_without_instruments(
     tmp_path: Path,
 ) -> None:
-    @sc.template(id="test.session.compute-only", kind="compute-only")
+    @sc.experiment(id="test.session.compute-only", kind="compute-only")
     def compute_only(experiment: sc.ExperimentContext) -> None:
         score = experiment.compute(
             "score",
@@ -208,7 +206,7 @@ def test_measurement_batches_page_a_real_run_and_preserve_point_identity(
 def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
     tmp_path: Path,
 ) -> None:
-    @sc.template(id="test.session.empty-points", kind="empty-points")
+    @sc.experiment(id="test.session.empty-points", kind="empty-points")
     def empty_points(experiment: sc.ExperimentContext) -> None:
         experiment.points((), coordinates=(DRIVE_FREQUENCY_POINT,))
         experiment.record(DRIVE_FREQUENCY_POINT, record_id="observed_frequency")

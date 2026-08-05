@@ -339,6 +339,7 @@ class ExecutorLease(_WireModel):
     issued_at: datetime
     expires_at: datetime
     heartbeat_interval_seconds: float = Field(gt=0)
+    cancellation_requested_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_interval(self) -> ExecutorLease:
@@ -346,6 +347,11 @@ class ExecutorLease(_WireModel):
         expires_at = _aware_datetime(self.expires_at, field_name="expires_at")
         if expires_at <= issued_at:
             raise ValueError("executor lease must expire after it is issued")
+        if self.cancellation_requested_at is not None:
+            _aware_datetime(
+                self.cancellation_requested_at,
+                field_name="cancellation_requested_at",
+            )
         return self
 
 
@@ -461,6 +467,42 @@ class AttentionResolutionReceipt(_WireModel):
     run_id: NonEmptyText
     state: Literal["closed"]
     released_resource_count: int = Field(ge=0)
+
+
+class RunCancellationReceipt(_WireModel):
+    """Durable result of an idempotent operator cancellation request."""
+
+    run_id: NonEmptyText
+    status: Literal["cancel_requested", "cancelled", "not_accepted"]
+    cancellation_requested_at: datetime | None = None
+    outcome: RunOutcome | None = None
+
+    @model_validator(mode="after")
+    def validate_result(self) -> RunCancellationReceipt:
+        if self.cancellation_requested_at is not None:
+            _aware_datetime(
+                self.cancellation_requested_at,
+                field_name="cancellation_requested_at",
+            )
+        if self.status == "cancel_requested":
+            if self.cancellation_requested_at is None or self.outcome is not None:
+                raise ValueError(
+                    "pending cancellation requires a request time and no outcome"
+                )
+        elif self.status == "cancelled":
+            if (
+                self.cancellation_requested_at is None
+                or self.outcome is None
+                or self.outcome.result != "cancelled"
+            ):
+                raise ValueError(
+                    "completed cancellation requires its request and cancelled outcome"
+                )
+        elif self.outcome is None:
+            raise ValueError(
+                "non-accepted cancellation requires the existing terminal outcome"
+            )
+        return self
 
 
 class InstrumentContractCatalogRequest(_WireModel):
@@ -664,6 +706,7 @@ __all__ = [
     "PayloadObjectReceipt",
     "RunAdmission",
     "RunAttachmentCommand",
+    "RunCancellationReceipt",
     "RunInstrumentProvisionCommand",
     "RunInstrumentProvisionReceipt",
     "RunSubmission",

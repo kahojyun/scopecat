@@ -46,7 +46,7 @@ from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
     bind_invocation,
     load_config,
-    simple_template,
+    simple_experiment,
 )
 from tests.testkit.expressions import evaluate_scalar
 from tests.testkit.materialized_effects import (
@@ -143,11 +143,13 @@ def test_module_invoke_rejects_argument_from_another_operation() -> None:
 
 
 def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
-    template = simple_template()
-    assert template.definition.metadata == {"assembled_by": "template"}
+    experiment_definition = simple_experiment()
+    assert experiment_definition.bind().definition.metadata == {
+        "assembled_by": "experiment"
+    }
 
     resolved = bind_invocation(
-        template.bind(subject="q0"),
+        experiment_definition.bind(subject="q0"),
         config_profile=load_config(),
     )
 
@@ -173,7 +175,7 @@ def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
     assert target.value.root == Quantity(value=4.9, unit="GHz")
 
 
-def test_compute_inputs_close_template_inputs_before_logical_verification() -> None:
+def test_compute_inputs_close_experiment_inputs_before_logical_verification() -> None:
     def build_program(
         *,
         qubit: object,
@@ -212,14 +214,14 @@ def test_compute_inputs_close_template_inputs_before_logical_verification() -> N
             arguments={_PLAY_PULSE_PROGRAM_ARGUMENT: build},
         )
 
-    @sc.template(id="test.compute_provenance", kind="compute_provenance")
-    def template(
+    @sc.experiment(id="test.compute_provenance", kind="compute_provenance")
+    def experiment(
         experiment: sc.ExperimentContext,
         qubit: _EntityInput,
         pulse_length: _QuantityInput,
     ) -> None:
         qubit_ref = sc.input_ref(qubit)
-        experiment.run(
+        experiment.use(
             module(
                 qubit=qubit,
                 pulse_length=pulse_length,
@@ -233,7 +235,7 @@ def test_compute_inputs_close_template_inputs_before_logical_verification() -> N
         )
 
     compiled = compile_invocation(
-        template(
+        experiment(
             qubit="q0",
             pulse_length=Quantity(value=20.0, unit="ns"),
         )
@@ -404,9 +406,9 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         )
         return signal
 
-    @sc.template(id="test.runtime_entity_scan", kind="runtime_entity_scan")
-    def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(
+    @sc.experiment(id="test.runtime_entity_scan", kind="runtime_entity_scan")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        signal = experiment.use(
             module(
                 qubit_input=qubit,
                 drive_frequency=authoring.parameter_lookup(
@@ -417,10 +419,10 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
                 ),
             )
         )
-        experiment.record(call.result)
+        experiment.record(signal)
 
     resolved = bind_invocation(
-        template.bind().scan(
+        experiment.bind().with_axis(
             sc.axis(
                 qubit,
                 ["q0", "q1"],
@@ -447,7 +449,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
     ]
 
 
-def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
+def test_bound_entity_input_can_select_a_default_parameter_lookup_center() -> None:
     seed_config = load_config()
     topology = seed_config.topology.model_copy(
         update={
@@ -524,16 +526,16 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
 
     drive_length = sc.coordinate("drive_length", _QUANTITY_VALUE)
 
-    @sc.template(
+    @sc.experiment(
         id="test.runtime_entity_dependent_points",
         kind="runtime_entity_dependent_points",
     )
-    def template(
+    def experiment(
         experiment: sc.ExperimentContext,
         qubit: _LogicalDeviceInput,
     ) -> None:
-        call = experiment.run(module(qubit=qubit))
-        experiment.scan(
+        signal = experiment.use(module(qubit=qubit))
+        experiment.grid(
             sc.axis(
                 drive_length,
                 center=sc.parameter_lookup(
@@ -546,9 +548,9 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
                 points=3,
             ),
         )
-        experiment.record(call.result)
+        experiment.record(signal)
 
-    resolved = bind_invocation(template(qubit="q0"), config_profile=config)
+    resolved = bind_invocation(experiment(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
         resolved,
         resolved.environment.parameters,
@@ -577,7 +579,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
 
     @sc.module(id="test.invocation_defaults.parent")
     def parent(context: sc.ModuleContext) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "defaults-child",
                 drive_frequency=Quantity(value=5.0, unit="GHz"),
@@ -613,16 +615,16 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
         context: sc.ModuleContext,
         drive_frequency: _QuantityInput,
     ) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "expression-child",
                 drive_frequency=drive_frequency,
             )
         )
 
-    @sc.template(id="test.invocation-expression", kind="expression")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(
+    @sc.experiment(id="test.invocation-expression", kind="expression")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(
             parent(
                 drive_frequency=authoring.parameter(
                     "drive_frequency",
@@ -631,7 +633,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
             )
         )
 
-    assembly = compile_invocation(template()).program.program
+    assembly = compile_invocation(experiment()).program.program
 
     assert "drive_frequency" not in assembly.inputs
     assert _logical_binding_expression(assembly, 0) == param(
@@ -666,7 +668,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
         unused_point: _FloatInput,
     ) -> None:
         parent_ref = sc.input_ref(parent_value)
-        context.call(
+        context.use(
             child.instantiate(
                 "deferred-child",
                 child_value=parent_ref + 0.25,
@@ -675,9 +677,9 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
             )
         )
 
-    @sc.template(id="test.invocation-deferred", kind="deferred")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(
+    @sc.experiment(id="test.invocation-deferred", kind="deferred")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(
             parent.instantiate(
                 "deferred-parent",
                 parent_value=1.5,
@@ -689,7 +691,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
             )
         )
 
-    assembly = compile_invocation(template()).program.program
+    assembly = compile_invocation(experiment()).program.program
 
     expression = _logical_binding_expression(assembly, 0)
     assert evaluate_scalar(expression, EvalContext()) == 1.75
@@ -763,7 +765,7 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
         context: sc.ModuleContext,
         outer_frequency: _QuantityInput,
     ) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "parent-input-child",
                 drive_frequency=outer_frequency,
@@ -807,13 +809,13 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
 
     @sc.module(id="test.invocation_sibling.parent")
     def module(context: sc.ModuleContext) -> None:
-        context.call(
+        context.use(
             first.instantiate(
                 "first",
                 drive_frequency=Quantity(value=5.0, unit="GHz"),
             )
         )
-        context.call(
+        context.use(
             second.instantiate(
                 "second",
                 drive_frequency=Quantity(value=5.1, unit="GHz"),
@@ -853,7 +855,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
 
     @sc.module(id="test.invocation_entity.parent")
     def parent(context: sc.ModuleContext) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "entity-child",
                 qubit="q0",
@@ -876,7 +878,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
     assert lowered_entity.value == EntityRef(id="q0")
 
 
-def test_template_invocation_runs_composed_modules_directly() -> None:
+def test_experiment_invocation_runs_composed_modules_directly() -> None:
     @sc.module(id="test.scripted_module_prelude")
     def prelude(context: sc.ModuleContext) -> None:
         del context
@@ -903,14 +905,14 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         )
         return signal
 
-    @sc.template(id="test.scripted_scan", kind="simple_scan")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(prelude())
-        call = experiment.run(scan(DRIVE_FREQUENCY_POINT))
-        experiment.record(call.result)
+    @sc.experiment(id="test.scripted_scan", kind="simple_scan")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(prelude())
+        signal = experiment.use(scan(DRIVE_FREQUENCY_POINT))
+        experiment.record(signal)
 
     resolved = bind_invocation(
-        template().scan(
+        experiment().with_axis(
             sc.axis(
                 DRIVE_FREQUENCY_POINT,
                 center=sc.parameter("drive_frequency", _QUANTITY_VALUE),
@@ -998,15 +1000,15 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
             value=drive_frequency,
         )
 
-    @sc.template(
+    @sc.experiment(
         id="test.entity_selected_resource",
         kind="entity_selected_resource",
     )
-    def template(
+    def experiment(
         experiment: sc.ExperimentContext,
         qubit: _EntityInput,
     ) -> None:
-        experiment.run(
+        experiment.use(
             module(
                 qubit=qubit,
                 drive_frequency=authoring.parameter(
@@ -1017,7 +1019,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         )
 
     resolved = bind_invocation(
-        template(qubit="q1"),
+        experiment(qubit="q1"),
         config_profile=config,
     )
 
@@ -1044,11 +1046,11 @@ def test_explicit_config_binds_experiment() -> None:
             value=Quantity(value=5.0, unit="GHz"),
         )
 
-    @sc.template(id="test.explicit-config-source", kind="config-source")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+    @sc.experiment(id="test.explicit-config-source", kind="config-source")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(module())
 
-    resolved = bind_invocation(template(), config_profile=config)
+    resolved = bind_invocation(experiment(), config_profile=config)
     preview = materialized_effects_contract(
         resolved,
         resolved.environment.parameters,

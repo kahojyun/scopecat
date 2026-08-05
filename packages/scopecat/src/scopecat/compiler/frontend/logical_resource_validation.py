@@ -109,15 +109,15 @@ def verify_resource_selector_values(
                 )
 
 
-def verify_final_state_resources(
+def verify_success_state_resources(
     program: LogicalProgram,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
-    final_state = program.final_state
-    if final_state is None:
+    success_state = program.success_state
+    if success_state is None:
         return
-    selected_ports = {assignment.port_id for assignment in final_state.assignments}
+    selected_ports = {assignment.port_id for assignment in success_state.assignments}
     for port_id in selected_ports:
         port = ports.get(port_id)
         if port is None:
@@ -127,10 +127,13 @@ def verify_final_state_resources(
                 continue
             problems.append(
                 compiler_problem(
-                    "experiment_final_state_resource_depends_on_point",
-                    "experiment final_state resource cannot depend on scan coordinates",
+                    "experiment_success_state_resource_depends_on_point",
+                    (
+                        "experiment on_success resource cannot depend on point "
+                        "coordinates"
+                    ),
                     model_location(
-                        "final_state",
+                        "success_state",
                         "resources",
                         port_id.qualified_name,
                         index,

@@ -26,8 +26,8 @@ from scopecat.authoring import (
     ProductRef,
     ScalarType,
     coordinate,
+    experiment,
     module,
-    template,
 )
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
@@ -103,7 +103,7 @@ def _ragged_capture(
     return trace
 
 
-@template(id="tests.worker.ragged_point_cloud", kind="ragged_point_cloud")
+@experiment(id="tests.worker.ragged_point_cloud", kind="ragged_point_cloud")
 def _ragged_point_cloud(experiment: ExperimentContext) -> None:
     experiment.points(
         (
@@ -112,8 +112,8 @@ def _ragged_point_cloud(experiment: ExperimentContext) -> None:
             {_RAGGED_GAIN: 1.0},
         )
     )
-    capture = experiment.run(_ragged_capture(gain=_RAGGED_GAIN))
-    experiment.record(capture.result, record_id="trace")
+    capture = experiment.use(_ragged_capture(gain=_RAGGED_GAIN))
+    experiment.record(capture, record_id="trace")
 
 
 def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:

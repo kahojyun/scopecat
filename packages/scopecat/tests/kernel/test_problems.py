@@ -29,7 +29,7 @@ def test_problem_is_deeply_frozen_and_json_round_trips() -> None:
         "authoring.missing_input",
         "required input is missing",
         phase=ProblemPhase.AUTHORING,
-        location=model_location("template", "inputs", "test.drive_frequency/v1"),
+        location=model_location("experiment", "inputs", "test.drive_frequency/v1"),
         related_locations=(
             model_location("module", "inputs", "test.drive_frequency/v1"),
         ),
@@ -41,7 +41,7 @@ def test_problem_is_deeply_frozen_and_json_round_trips() -> None:
     )
 
     assert selected.location == ModelLocation(
-        root="template",
+        root="experiment",
         path=("inputs", "test.drive_frequency/v1"),
     )
     assert selected.details["accepted"] == ("float", "quantity")
@@ -89,7 +89,7 @@ def test_location_union_preserves_domain_specific_coordinates() -> None:
 
 def test_model_location_rejects_delimiter_packed_roots() -> None:
     with pytest.raises(ValidationError, match="path delimiters"):
-        ModelLocation(root="template.inputs")
+        ModelLocation(root="experiment.inputs")
 
 
 def test_problem_failure_requires_nonempty_problems() -> None:

@@ -9,7 +9,7 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
@@ -145,10 +145,10 @@ def test_explicit_instances_return_hygienic_compute_values_to_siblings(
 
     @sc.module(id="test.results.siblings")
     def root(context: sc.ModuleContext) -> None:
-        context.call(first)
-        context.call(second)
-        context.call(first_consumer)
-        context.call(second_consumer)
+        context.use(first)
+        context.use(second)
+        context.use(first_consumer)
+        context.use(second_consumer)
 
     assembly = compose_module(root.definition)
     nodes = {operation.id: operation for operation in assembly.compute_nodes}
@@ -173,12 +173,12 @@ def test_explicit_instances_return_hygienic_compute_values_to_siblings(
 
     call = root()
 
-    @sc.template(id="test.results.siblings", kind="module_results")
-    def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+    @sc.experiment(id="test.results.siblings", kind="module_results")
+    def experiment_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.use(call)
 
     program = _bind_program(
-        template_definition(),
+        experiment_definition(),
         load_config(),
     )
     bound_nodes = {node.id: node for node in program.program.program.compute_nodes}
@@ -224,7 +224,7 @@ def test_returned_child_value_is_prefixed_when_parent_is_instantiated() -> None:
 
     @sc.module(id="test.results.wrapper")
     def wrapper(context: sc.ModuleContext) -> sc.ValueRef:
-        context.call(child_instance)
+        context.use(child_instance)
         return child_instance.result
 
     outer = wrapper.instantiate("outer")
@@ -232,8 +232,8 @@ def test_returned_child_value_is_prefixed_when_parent_is_instantiated() -> None:
 
     @sc.module(id="test.results.nested")
     def root(context: sc.ModuleContext) -> None:
-        context.call(outer)
-        context.call(sink)
+        context.use(outer)
+        context.use(sink)
 
     assembly = compose_module(root.definition)
     sink_node = next(
@@ -256,7 +256,7 @@ def test_nested_compute_results_preserve_exact_typed_result_values(
 
     @sc.module(id="test.results.typed-result-wrapper")
     def wrapper(context: sc.ModuleContext) -> sc.ValueRef:
-        context.call(child)
+        context.use(child)
         return child.result
 
     first = wrapper.instantiate("alpha.outer")
@@ -272,19 +272,19 @@ def test_nested_compute_results_preserve_exact_typed_result_values(
 
     @sc.module(id="test.results.typed-result-root")
     def root(context: sc.ModuleContext) -> None:
-        context.call(first)
-        context.call(second)
-        context.call(first_sink)
-        context.call(second_sink)
+        context.use(first)
+        context.use(second)
+        context.use(first_sink)
+        context.use(second_sink)
 
     call = root()
 
-    @sc.template(id="test.results.typed-result", kind="module_results")
-    def template_definition(experiment: sc.ExperimentContext) -> None:
-        experiment.run(call)
+    @sc.experiment(id="test.results.typed-result", kind="module_results")
+    def experiment_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.use(call)
 
     program = _bind_program(
-        template_definition(),
+        experiment_definition(),
         load_config(),
     )
     nodes = {node.id: node for node in program.program.program.compute_nodes}
@@ -361,8 +361,8 @@ def test_passthrough_and_expression_results_bind_instance_inputs() -> None:
 
     @sc.module(id="test.results.expression-root")
     def root(context: sc.ModuleContext) -> None:
-        context.call(invocation)
-        context.call(consumer)
+        context.use(invocation)
+        context.use(consumer)
 
     flattened = compose_module(root.definition)
     capture_node = next(
@@ -403,11 +403,11 @@ def test_direct_result_preserves_its_declared_assignable_input_type() -> None:
 
     @sc.module(id="test.results.assignable-direct-result-root")
     def root(context: sc.ModuleContext, value: _MhzQuantityInput) -> None:
-        instance = context.call(source.instantiate("source", value=sc.input_ref(value)))
+        result = context.use(source.instantiate("source", value=sc.input_ref(value)))
         context.compute(
             "capture",
             fn=_identity_consumed,
-            inputs={"consumed": instance.result},
+            inputs={"consumed": result},
             output_type=ghz_type,
         )
 
@@ -434,8 +434,7 @@ def test_direct_table_result_preserves_its_declared_assignable_input_type() -> N
 
     @sc.module(id="test.results.assignable-direct-table-result-root")
     def root(context: sc.ModuleContext, rows: _MhzFrequencyTableInput) -> sc.ValueRef:
-        instance = context.call(source.instantiate("source", rows=sc.input_ref(rows)))
-        return instance.result
+        return context.use(source.instantiate("source", rows=sc.input_ref(rows)))
 
     flattened = compose_module(root.definition)
 
@@ -469,8 +468,8 @@ def test_module_result_arithmetic_resolves_during_elaboration() -> None:
 
     @sc.module(id="test.results.expression-boundary-root")
     def root(context: sc.ModuleContext) -> None:
-        context.call(source_instance)
-        context.call(consumer)
+        context.use(source_instance)
+        context.use(consumer)
 
     flattened = compose_module(root.definition)
     capture_node = next(
@@ -502,8 +501,8 @@ def test_result_refs_are_nominally_owned_by_the_used_instance() -> None:
 
         @sc.module(id="test.results.nominal")
         def nominal(context: sc.ModuleContext) -> None:
-            context.call(selected)
-            context.call(sink)
+            context.use(selected)
+            context.use(sink)
 
     assert [problem.code for problem in error.value.problems] == [
         "module_result_foreign_instance"
@@ -531,7 +530,7 @@ def test_result_roots_preserve_free_inputs_and_value_provenance() -> None:
 
     @sc.module(id="test.results.roots.wrapper")
     def wrapper(context: sc.ModuleContext, value: _FloatInput) -> sc.ValueRef:
-        source_instance = context.call(
+        result = context.use(
             source.instantiate(
                 "source",
                 value=sc.input_ref(value),
@@ -539,23 +538,23 @@ def test_result_roots_preserve_free_inputs_and_value_provenance() -> None:
                 point_value=0.0,
             )
         )
-        return source_instance.result.value
+        return result.value
 
-    @sc.template(id="test.results.roots", kind="results")
-    def template(
+    @sc.experiment(id="test.results.roots", kind="results")
+    def experiment(
         experiment: sc.ExperimentContext,
         value: _FloatInput,
     ) -> None:
-        experiment.run(
+        experiment.use(
             source(
                 value=value,
                 parameter_value=parameter,
                 point_value=point,
             )
         )
-        experiment.scan(sc.axis(point, (1.0,)))
+        experiment.grid(sc.axis(point, (1.0,)))
 
-    assembly = compile_invocation(template(value=1.0)).program.program
+    assembly = compile_invocation(experiment(value=1.0)).program.program
 
     assert [
         (port.id, port.value_type) for port in wrapper.definition.interface.imports

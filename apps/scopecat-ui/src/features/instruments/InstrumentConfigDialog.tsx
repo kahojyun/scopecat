@@ -103,6 +103,9 @@ function InstrumentConfigEditor({
   const [runStart, setRunStart] = useState<InstrumentSpec["run_start"]>(
     existing?.run_start ?? "preserve",
   );
+  const [successAction, setSuccessAction] = useState<InstrumentSpec["success_action"]>(
+    existing?.success_action ?? "release",
+  );
   const [defaultsValid, setDefaultsValid] = useState(true);
   const [probedDescription, setProbedDescription] = useState<InstrumentDescription>();
   const [note, setNote] = useState("");
@@ -124,8 +127,17 @@ function InstrumentConfigEditor({
   );
   const options = connection.options ?? {};
   const spec = useMemo(
-    () => proposedSpec(instrumentId.trim(), driverId, connection, defaultState, runStart, existing),
-    [connection, defaultState, driverId, existing, instrumentId, runStart],
+    () =>
+      proposedSpec(
+        instrumentId.trim(),
+        driverId,
+        connection,
+        defaultState,
+        runStart,
+        successAction,
+        existing,
+      ),
+    [connection, defaultState, driverId, existing, instrumentId, runStart, successAction],
   );
   const changed = !existing || JSON.stringify(spec) !== JSON.stringify(existing);
   const bindingValid =
@@ -340,6 +352,19 @@ function InstrumentConfigEditor({
                 />
               )}
 
+              <label className="grid gap-[5px]">
+                <span>After successful run</span>
+                <select
+                  value={successAction}
+                  onChange={(event) =>
+                    setSuccessAction(event.target.value as InstrumentSpec["success_action"])
+                  }
+                >
+                  <option value="release">Release in terminal state</option>
+                  <option value="restore_prepared_state">Restore prepared state</option>
+                </select>
+              </label>
+
               <div className="grid grid-cols-1 gap-2.5 border-t border-line pt-3">
                 <label className="grid gap-[5px]">
                   <span>Note</span>
@@ -535,6 +560,7 @@ function proposedSpec(
   connection: InstrumentConnection,
   defaultState: InstrumentPropertyState[],
   runStart: InstrumentSpec["run_start"],
+  successAction: InstrumentSpec["success_action"],
   existing?: InstrumentSpec,
 ): InstrumentSpec {
   return {
@@ -544,6 +570,7 @@ function proposedSpec(
     connection,
     default_state: defaultState,
     run_start: runStart,
+    success_action: successAction,
     failure_action: existing?.failure_action ?? "abort_and_release",
     ...(existing?.safe_state === undefined ? {} : { safe_state: existing.safe_state }),
   };

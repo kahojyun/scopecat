@@ -12,38 +12,30 @@ from scopecat.authoring._module_invocation import (
 )
 from scopecat.authoring._module_results import ProductBundle
 from scopecat.authoring.definitions import (
+    Experiment,
     ExperimentContext,
-    ExperimentFactory,
     Input,
-    experiment_factory,
+    experiment,
     input_ref,
     module,
-    template,
 )
-from scopecat.authoring.entity_parameters import (
+from scopecat.authoring.entity_selection import (
     ConcreteEntityInput,
     EachEntity,
     EntityInput,
-    EntityKey,
     EntitySelection,
     OneEntity,
-    ParameterColumn,
-    ParameterRow,
-    ParameterTable,
     PerEntity,
     each,
-    entity_key,
     one,
-    parameter_column,
 )
-from scopecat.authoring.finalization import (
-    Finalizable,
-    FinalizationTarget,
-)
-from scopecat.authoring.scans import PointRow, Scan, axis, param_axis, points
-from scopecat.authoring.templates import (
+from scopecat.authoring.experiments import (
     ExperimentInvocation,
-    ExperimentTemplate,
+)
+from scopecat.authoring.scans import Axis, PointRow, axis
+from scopecat.authoring.state_projection import (
+    StateProjector,
+    StateTarget,
 )
 from scopecat.program.products import (
     ProductRef,
@@ -94,21 +86,18 @@ from scopecat.program.values import (
 )
 
 __all__ = [
+    "Axis",
     "BoolType",
     "ComputeInput",
     "ConcreteEntityInput",
     "EachEntity",
     "EntityInput",
-    "EntityKey",
     "EntitySelection",
     "EntityType",
+    "Experiment",
     "ExperimentContext",
-    "ExperimentFactory",
     "ExperimentInvocation",
     "ExperimentModule",
-    "ExperimentTemplate",
-    "Finalizable",
-    "FinalizationTarget",
     "FloatType",
     "Input",
     "IntType",
@@ -117,10 +106,7 @@ __all__ = [
     "ModuleInput",
     "ModuleInvocation",
     "OneEntity",
-    "ParameterColumn",
     "ParameterKeyInput",
-    "ParameterRow",
-    "ParameterTable",
     "PayloadType",
     "PerEntity",
     "PointRow",
@@ -130,7 +116,8 @@ __all__ = [
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",
-    "Scan",
+    "StateProjector",
+    "StateTarget",
     "StringType",
     "TableColumn",
     "TableType",
@@ -140,15 +127,10 @@ __all__ = [
     "axis",
     "coordinate",
     "each",
-    "entity_key",
-    "experiment_factory",
+    "experiment",
     "input_ref",
     "module",
     "one",
-    "param_axis",
     "parameter",
-    "parameter_column",
     "parameter_lookup",
-    "points",
-    "template",
 ]

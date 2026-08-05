@@ -6,12 +6,12 @@ from __future__ import annotations
 import scopecat as sc
 from quantum_lab_demo.configuration import EXAMPLE_ROOT
 from quantum_lab_demo.workflows.drag_beta_analysis import drag_beta_analysis
-from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
-from quantum_lab_demo.workflows.production_drag_gate import production_drag_template
+from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_experiment
+from quantum_lab_demo.workflows.production_drag_gate import production_drag_experiment
 
 # %%
 lab = sc.open_project(EXAMPLE_ROOT).connect()
-prepared = lab.prepare(drag_beta_template())
+prepared = lab.prepare(drag_beta_experiment())
 preview = prepared.preview()
 baseline_run = prepared.run(
     name="DRAG beta rough calibration",
@@ -26,7 +26,7 @@ candidate = analysis.candidate_config()
 
 # A candidate run records its analysis provenance without changing the default.
 candidate_run = lab.run(
-    drag_beta_template(),
+    drag_beta_experiment(),
     config=candidate,
     name="DRAG beta candidate check",
     tags=("calibration", "candidate"),
@@ -40,7 +40,7 @@ accepted = lab.config.accept(
 )
 
 production_run = lab.run(
-    production_drag_template(),
+    production_drag_experiment(),
     name="Production X90 with accepted DRAG beta",
     tags=("calibration", "production-gate", "active-config"),
 )

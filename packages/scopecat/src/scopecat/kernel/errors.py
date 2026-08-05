@@ -93,6 +93,16 @@ class RunFailed(RunFailure):
         super().__init__(run_id=run_id, outcome=outcome)
 
 
+class RunCancelled(RunFailure):
+    """A run honored an operator cancellation at a known safe boundary."""
+
+    def __init__(self, *, run_id: str, outcome: RunOutcome) -> None:
+        if outcome.result != "cancelled" or outcome.certainty != "known":
+            msg = "RunCancelled requires a known cancelled outcome"
+            raise ValueError(msg)
+        super().__init__(run_id=run_id, outcome=outcome)
+
+
 class RunIndeterminate(RunFailure):
     """A run terminated without establishing the outcome of every effect."""
 
@@ -230,7 +240,7 @@ class DomainSubmissionFailed(DomainRuntimeFailure):
 
 
 class DomainFetchFailed(DomainRuntimeFailure):
-    """Fetching a known submitted job failed without changing target state."""
+    """Fetching a known submitted job did not produce usable result evidence."""
 
     def __init__(
         self,

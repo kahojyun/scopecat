@@ -52,18 +52,18 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
             fn=lambda: {"ok": True},
             output_type=payload_type,
         )
-        module.call(
+        module.use(
             child.instantiate("first-consumer", program=produce),
         )
-        module.call(
+        module.use(
             child.instantiate("second-consumer", program=produce),
         )
 
-    @sc.template(id="test.compiler.graph", kind="compiler_graph")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(parent())
+    @sc.experiment(id="test.compiler.graph", kind="compiler_graph")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(parent())
 
-    invocation = template.bind()
+    invocation = experiment.bind()
     compiled = compile_invocation(invocation)
     logical_program = compiled.program.program
     operations = logical_program.compute_nodes

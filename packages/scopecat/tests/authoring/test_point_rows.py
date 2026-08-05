@@ -15,7 +15,7 @@ from scopecat.records.measurement import (
     MeasurementPointDomainColumn,
     MeasurementVariable,
 )
-from scopecat.records.run_request import PointRowsRecord
+from scopecat.records.run_request import PointCloudDomainRecord
 from tests.testkit.authoring import bind_invocation, load_config
 
 _INT = sc.ScalarType(sc.IntType())
@@ -26,8 +26,8 @@ def test_point_rows_compile_materialize_and_persist_layout() -> None:
     x = sc.coordinate("x", _INT)
     y = sc.coordinate("y", _INT)
 
-    @sc.template(id="test.point-rows", kind="point_rows")
-    def template(experiment: sc.ExperimentContext) -> None:
+    @sc.experiment(id="test.point-rows", kind="point_rows")
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.points(
             (
                 {x: 1, y: 10},
@@ -37,12 +37,12 @@ def test_point_rows_compile_materialize_and_persist_layout() -> None:
         )
         experiment.record(x, record_id="observed_x")
 
-    invocation = template()
+    invocation = experiment()
     compiled = compile_invocation(invocation)
 
     assert compiled.program.program.point_domain_layout == "point_cloud"
-    [request_points] = compiled.request.scans
-    assert isinstance(request_points, PointRowsRecord)
+    request_points = compiled.request.point_plan.domain
+    assert isinstance(request_points, PointCloudDomainRecord)
     assert request_points.columns == ["x", "y"]
     assert request_points.rows == [
         {"x": 1, "y": 10},
@@ -80,15 +80,15 @@ def test_empty_point_rows_are_a_zero_point_domain() -> None:
     x = sc.coordinate("x", _INT)
     y = sc.coordinate("y", _FREQUENCY)
 
-    @sc.template(id="test.empty-point-rows", kind="point_rows")
-    def template(experiment: sc.ExperimentContext) -> None:
+    @sc.experiment(id="test.empty-point-rows", kind="point_rows")
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.points((), coordinates=(x, y))
         experiment.record(x, record_id="observed_x")
 
-    invocation = template()
+    invocation = experiment()
     compiled = compile_invocation(invocation)
-    [request_points] = compiled.request.scans
-    assert isinstance(request_points, PointRowsRecord)
+    request_points = compiled.request.point_plan.domain
+    assert isinstance(request_points, PointCloudDomainRecord)
     assert request_points.columns == ["x", "y"]
     assert request_points.rows == []
 
@@ -135,15 +135,15 @@ def test_point_rows_require_the_same_typed_coordinate_columns() -> None:
     y = sc.coordinate("y", _INT)
 
     with pytest.raises(ValueError, match="same typed coordinate columns"):
-        sc.points(({x: 1, y: 2}, {x: 3}))
+        sc.ExperimentContext().points(({x: 1, y: 2}, {x: 3}))
 
 
 def test_point_rows_cannot_be_combined_with_grid_scans() -> None:
     x = sc.coordinate("x", _INT)
 
     def definition(experiment: sc.ExperimentContext) -> None:
-        experiment.scan(sc.axis(x, (1, 2)))
+        experiment.grid(sc.axis(x, (1, 2)))
         experiment.points(({x: 3},))
 
-    with pytest.raises(ValueError, match="cannot be combined with scan axes"):
-        sc.template(id="test.mixed-point-domain", kind="point_rows")(definition)
+    with pytest.raises(ValueError, match="can only be declared once"):
+        sc.experiment(id="test.mixed-point-domain", kind="point_rows")(definition)

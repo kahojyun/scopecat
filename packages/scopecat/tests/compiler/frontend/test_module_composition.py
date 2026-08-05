@@ -83,7 +83,7 @@ def _compose_module(
     @sc.module(id=id, metadata=metadata)
     def module(context: sc.ModuleContext) -> None:
         for part in parts:
-            context.call(part)
+            context.use(part)
 
     return module
 

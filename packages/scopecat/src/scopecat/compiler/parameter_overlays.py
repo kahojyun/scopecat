@@ -14,7 +14,7 @@ from scopecat.program.expressions import point_col
 
 @dataclass(frozen=True, slots=True)
 class PointParameterOverlay:
-    """Bind one accepted parameter cell to one scan coordinate."""
+    """Bind one accepted parameter cell to one point coordinate."""
 
     table_id: str
     row_index: int

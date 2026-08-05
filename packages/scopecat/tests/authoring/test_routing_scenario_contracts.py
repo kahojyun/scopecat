@@ -8,7 +8,7 @@ from scopecat_instruments import NetworkSweepGroupTarget, network_sweep
 from scopecat_instruments.members import NETWORK_SWEEP
 
 import scopecat.authoring as authoring
-from scopecat.authoring.scans import axis
+from scopecat.authoring import axis
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
@@ -97,7 +97,7 @@ def test_typed_each_resources_route_to_different_instruments() -> None:
         extra_entities=(q1,),
     )
 
-    @authoring.template(id="test.symbolic.each-routing", kind="symbolic_each")
+    @authoring.experiment(id="test.symbolic.each-routing", kind="symbolic_each")
     def experiment(
         context: authoring.ExperimentContext,
         points: Annotated[
@@ -115,7 +115,8 @@ def test_typed_each_resources_route_to_different_instruments() -> None:
         context.record(traces)
 
     record_ids = tuple(
-        selection.record_id for selection in experiment.definition.record_selections
+        selection.record_id
+        for selection in experiment.bind().definition.record_selections
     )
     assert len(record_ids) == 4
     assert len(set(record_ids)) == 4
@@ -178,15 +179,15 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
             value=Quantity(value=5.0, unit="GHz"),
         )
 
-    @authoring.template(
+    @authoring.experiment(
         id="test.resource-binding-scenarios.entity-routing",
         kind="resource_binding_contract",
     )
-    def template(experiment: authoring.ExperimentContext) -> None:
-        experiment.run(module(qubit))
-        experiment.scan(axis(qubit, ("q1", "q0", "q1")))
+    def experiment(experiment: authoring.ExperimentContext) -> None:
+        experiment.use(module(qubit))
+        experiment.grid(axis(qubit, ("q1", "q0", "q1")))
 
-    resolved = bind_invocation(template(), config_profile=config)
+    resolved = bind_invocation(experiment(), config_profile=config)
     preview = materialized_effects_contract(
         resolved,
         resolved.environment.parameters,
@@ -270,16 +271,16 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         )
         return iq
 
-    @authoring.template(
+    @authoring.experiment(
         id="test.resource-binding-scenarios.channel-selection",
         kind="resource_binding_contract",
     )
-    def template(experiment: authoring.ExperimentContext) -> None:
-        call = experiment.run(module(qubit))
-        experiment.scan(axis(qubit, ("q0", "q1", "q0")))
-        experiment.record(call.result)
+    def experiment(experiment: authoring.ExperimentContext) -> None:
+        result = experiment.use(module(qubit))
+        experiment.grid(axis(qubit, ("q0", "q1", "q0")))
+        experiment.record(result)
 
-    resolved = bind_invocation(template(), config_profile=config)
+    resolved = bind_invocation(experiment(), config_profile=config)
     preview = materialized_effects_contract(
         resolved,
         resolved.environment.parameters,
@@ -365,21 +366,21 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         )
         return iq
 
-    @authoring.template(
+    @authoring.experiment(
         id="test.resource-binding-scenarios.split-readout",
         kind="resource_binding_contract",
     )
-    def template(
+    def experiment(
         experiment: authoring.ExperimentContext,
         qubit: Annotated[
             authoring.Input[EntityRef | str],
             authoring.EntityType(entity_kind="logical_device"),
         ],
     ) -> None:
-        call = experiment.run(module(qubit))
-        experiment.record(call.result)
+        result = experiment.use(module(qubit))
+        experiment.record(result)
 
-    resolved = bind_invocation(template(qubit="q0"), config_profile=config)
+    resolved = bind_invocation(experiment(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
         resolved,
         resolved.environment.parameters,

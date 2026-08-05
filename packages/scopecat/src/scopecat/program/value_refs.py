@@ -133,6 +133,12 @@ class ValueRef:
         del memo
         return self
 
+    def __bool__(self) -> bool:
+        raise TypeError(
+            "symbolic ValueRef has no Python truth value; use an explicit "
+            "authoring operation"
+        )
+
     @override
     def __repr__(self) -> str:
         return f"{type(self).__qualname__}()"
@@ -222,7 +228,7 @@ def internal_parameter_lookup_value_ref(
     *,
     key: Mapping[str, ScalarOperand],
 ) -> ValueRef:
-    """Create a direct parameter-cell reference retained by parameter scans."""
+    """Create a direct parameter-cell reference retained by axis overlays."""
 
     captured_key = tuple(key.items())
     bound_values = tuple(

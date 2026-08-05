@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from dataclasses import fields, is_dataclass, replace
 from typing import cast
 
-from scopecat.authoring.entity_parameters import PerEntity
+from scopecat.authoring.entity_selection import PerEntity
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.product_identity import ProductId
 from scopecat.program.module import ModuleValueExport

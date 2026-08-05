@@ -28,7 +28,7 @@ from scopecat.sdk.domain.batch import (
     DomainBatchRequest,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
-from tests.testkit.authoring import simple_template
+from tests.testkit.authoring import simple_experiment
 from tests.testkit.domain import domain_call
 from tests.testkit.in_process_lab import (
     InProcessLab,
@@ -123,13 +123,13 @@ def _domain_invocation() -> sc.ExperimentInvocation:
 
     @sc.module(id="test.check-domain")
     def module(context: sc.ModuleContext) -> None:
-        context.call(domain_call(program))
+        context.use(domain_call(program))
 
-    @sc.template(id="test.check-domain", kind="check-domain")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+    @sc.experiment(id="test.check-domain", kind="check-domain")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(module())
 
-    return template()
+    return experiment()
 
 
 def test_prepared_check_returns_preview_when_successful(tmp_path: Path) -> None:
@@ -288,7 +288,7 @@ def test_session_candidate_config_is_not_read_before_authoring(
         ),
     )
     lab = _lab(tmp_path, config=config)
-    prepared = lab.prepare(simple_template().bind(), config=candidate)
+    prepared = lab.prepare(simple_experiment().bind(), config=candidate)
 
     if terminal == "check":
         assert prepared.check().problems[0].code == ("experiment_missing_input")

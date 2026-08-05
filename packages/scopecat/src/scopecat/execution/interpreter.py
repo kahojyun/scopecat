@@ -16,6 +16,7 @@ from scopecat.execution.evidence import (
     build_terminal_contents,
     instrument_state_evidence_ref,
 )
+from scopecat.execution.measurement_ordering import CanonicalMeasurementBuffer
 from scopecat.execution.measurement_postprocessors import (
     execute_measurement_postprocessors,
 )
@@ -36,6 +37,7 @@ from scopecat.kernel.errors import (
     DomainRuntimePersistenceError,
     MeasurementRecordingError,
     ProblemFailure,
+    RunCancelled,
     RunFailed,
     RunIndeterminate,
 )
@@ -45,7 +47,10 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.measurements.points import RunPoint
-from scopecat.measurements.projection import project_measurement_records
+from scopecat.measurements.projection import (
+    ProjectedMeasurementDataset,
+    project_measurement_records,
+)
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
@@ -97,9 +102,12 @@ def _execute_run(
     run_id = session.run_id
     journal = session.journal
     measurements = session.measurements
-    dataset_header, header_failure = _initialize_dataset_header(program, session)
+    dataset_header, header_failure, cancelled_without_effects = (
+        _prepare_execution_start(program, session)
+    )
     committed_measurement_count = 0
     append_content_hashes: list[str] = []
+    measurement_buffer = CanonicalMeasurementBuffer()
 
     def commit_coverage(
         points: tuple[RunPoint, ...],
@@ -133,33 +141,31 @@ def _execute_run(
         )
         if block_problems:
             raise ProblemFailure(block_problems)
-        if not projected.records:
+        ready_records = measurement_buffer.add(projected.records)
+        if not ready_records:
             return
         if dataset_header is None:
             raise ValueError("projected measurements require a dataset header")
         receipt = append_measurement_dataset(
-            projected,
+            ProjectedMeasurementDataset(
+                projected.projection,
+                projected.run_id,
+                ready_records,
+            ),
             measurements,
             journal,
             header=dataset_header,
         )
         if receipt is not None:
-            committed_measurement_count += len(projected.records)
+            committed_measurement_count += len(ready_records)
             append_content_hashes.append(receipt.dataset_content_hash)
 
-    effect_result = (
-        RunEffectResult(
-            problems=(),
-            observed_state=(),
-            prepared_state=(),
-            final_state=(),
-        )
-        if header_failure is not None
-        else _execute_instrument_effects(
-            program=program,
-            session=session,
-            coverage_observer=commit_coverage,
-        )
+    effect_result = _execute_or_cancel_effects(
+        program=program,
+        session=session,
+        coverage_observer=commit_coverage,
+        header_failure=header_failure,
+        cancelled_without_effects=cancelled_without_effects,
     )
 
     problems = _effect_problems(
@@ -193,6 +199,10 @@ def _execute_run(
     try:
         if coverage_failure is not None:
             raise coverage_failure
+        _validate_measurement_completion(
+            measurement_buffer,
+            successful=not problems,
+        )
         if dataset_header is not None and header_failure is None:
             seal_receipt = seal_measurement_dataset(
                 run_id=run_id,
@@ -251,7 +261,7 @@ def _execute_run(
         run_id=run_id,
         result=(
             "cancelled"
-            if interruption is not None
+            if effect_result.cancelled or interruption is not None
             else "failed"
             if failed or certainty == "indeterminate"
             else "succeeded"
@@ -288,14 +298,34 @@ def _execute_run(
             models=tuple(models),
         )
     )
+    committed_outcome = manifest.outcome
+    if committed_outcome is None:
+        raise AssertionError("terminal commit returned a non-terminal manifest")
     if interruption is not None:
         interruption.add_note(f"Scopecat run_id: {run_id}")
         raise interruption
-    if outcome.result != "succeeded":
-        if outcome.certainty == "indeterminate":
-            raise RunIndeterminate(run_id=run_id, outcome=outcome)
-        raise RunFailed(run_id=run_id, outcome=outcome)
+    if committed_outcome.result != "succeeded":
+        _raise_terminal_run_error(run_id, committed_outcome)
     return manifest
+
+
+def _raise_terminal_run_error(run_id: str, outcome: RunOutcome) -> None:
+    if outcome.certainty == "indeterminate":
+        raise RunIndeterminate(run_id=run_id, outcome=outcome)
+    if outcome.result == "cancelled":
+        raise RunCancelled(run_id=run_id, outcome=outcome)
+    raise RunFailed(run_id=run_id, outcome=outcome)
+
+
+def _validate_measurement_completion(
+    buffer: CanonicalMeasurementBuffer,
+    *,
+    successful: bool,
+) -> None:
+    if successful and buffer.pending_indices:
+        raise AssertionError(
+            "successful coverage left non-contiguous measurement records"
+        )
 
 
 def _initialize_dataset_header(
@@ -320,6 +350,54 @@ def _initialize_dataset_header(
     except MeasurementRecordingError as error:
         return header, error
     return header, None
+
+
+def _prepare_execution_start(
+    program: RunProgram,
+    session: ExecutionSession,
+) -> tuple[MeasurementDatasetHeader | None, MeasurementRecordingError | None, bool]:
+    if session.cancellation_requested():
+        return None, None, not session.effects_ready()
+    header, failure = _initialize_dataset_header(program, session)
+    return header, failure, False
+
+
+def _execute_or_cancel_effects(
+    *,
+    program: RunProgram,
+    session: ExecutionSession,
+    coverage_observer: CoverageMeasurementObserver,
+    header_failure: MeasurementRecordingError | None,
+    cancelled_without_effects: bool,
+) -> RunEffectResult:
+    if cancelled_without_effects:
+        return RunEffectResult(
+            problems=(
+                runtime_problem(
+                    "run_cancellation_requested",
+                    "run stopped before hardware provisioning after cancellation "
+                    "was requested",
+                    run_id=session.run_id,
+                    operation_id="execution-plan.cancel",
+                ),
+            ),
+            observed_state=(),
+            prepared_state=(),
+            final_state=(),
+            cancelled=True,
+        )
+    if header_failure is not None:
+        return RunEffectResult(
+            problems=(),
+            observed_state=(),
+            prepared_state=(),
+            final_state=(),
+        )
+    return _execute_instrument_effects(
+        program=program,
+        session=session,
+        coverage_observer=coverage_observer,
+    )
 
 
 def _header_failure_problems(
@@ -397,11 +475,12 @@ def _execute_instrument_effects(
             if program.host is None
             else program.host.payload_codecs
         ),
+        cancellation_requested=session.cancellation_requested,
     )
     return engine.run(
         program.coverage,
         points=program.points.points,
-        final_state=program.final_state,
+        success_state=program.success_state,
     )
 
 

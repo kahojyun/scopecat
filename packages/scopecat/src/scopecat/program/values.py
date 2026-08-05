@@ -129,7 +129,7 @@ def input(
 def coordinate(id: str, value_type: Scalar) -> ValueRef:
     """Declare a typed scalar coordinate supplied by each experiment point.
 
-    Pass the same value to module bindings and scan factories. This keeps the
+    Pass the same value to module bindings and axis declarations. This keeps the
     coordinate identity and its semantic type on one first-class value edge.
     """
 

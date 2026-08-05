@@ -24,7 +24,7 @@ type CoverageMeasurementObserver = Callable[
 
 @dataclass(frozen=True, slots=True)
 class RunEffectResult:
-    """Facts observed while interpreting effects; not a terminal run outcome."""
+    """Observed effect facts, including best-effort terminal hardware readback."""
 
     problems: tuple[Problem, ...]
     observed_state: tuple[InstrumentStateSnapshot, ...]
@@ -32,6 +32,7 @@ class RunEffectResult:
     final_state: tuple[InstrumentStateSnapshot, ...]
     admitted_points: tuple[RunPoint, ...] = ()
     indeterminate: bool = False
+    cancelled: bool = False
     domain_failure: tuple[RunDomainJob, BaseException] | None = field(
         default=None,
         compare=False,

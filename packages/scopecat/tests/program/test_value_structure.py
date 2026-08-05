@@ -117,6 +117,13 @@ def test_compute_output_arithmetic_requires_explicit_compute() -> None:
         _ = compute.output + 1.0
 
 
+def test_symbolic_values_reject_python_truth_testing() -> None:
+    value = program_input("enabled", sc.ScalarType(sc.BoolType()))
+
+    with pytest.raises(TypeError, match="has no Python truth value"):
+        bool(value)
+
+
 def test_scalar_arithmetic_builds_a_binary_expression() -> None:
     scalar = sc.ScalarType(sc.FloatType())
     expression = program_input("value", scalar) + 1.0

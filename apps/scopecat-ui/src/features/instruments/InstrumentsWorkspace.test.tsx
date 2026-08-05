@@ -1118,6 +1118,9 @@ describe("instrument workspace", () => {
     fireEvent.change(within(dialog).getByLabelText("Timeout (seconds)"), {
       target: { value: "8" },
     });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "After successful run" }), {
+      target: { value: "restore_prepared_state" },
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish default" }));
 
     await waitFor(() =>
@@ -1134,6 +1137,7 @@ describe("instrument workspace", () => {
               timeout_seconds: 8,
               options: { channel: 1, vendor_extension: { calibration: "external" } },
             },
+            success_action: "restore_prepared_state",
             failure_action: "abort_then_safe_state",
             safe_state: [
               {
@@ -1270,6 +1274,7 @@ describe("instrument workspace", () => {
             },
             default_state: [],
             run_start: "preserve",
+            success_action: "release",
             failure_action: "abort_and_release",
           },
         }),
@@ -1659,6 +1664,7 @@ function configuredInstrument() {
     connection: { kind: "virtual" as const },
     default_state: [],
     run_start: "preserve" as const,
+    success_action: "release" as const,
     failure_action: "abort_and_release" as const,
   };
 }

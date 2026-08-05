@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import cast
 
 import scopecat.execution.effect_result as effect_result
@@ -43,6 +43,14 @@ class _CapturedCoverageFailure(Exception):
     """Stop after retaining a failure from the coverage consumer."""
 
 
+class _CancellationRequested(Exception):
+    """Stop at an interpreter checkpoint after recording the durable reason."""
+
+
+def _never_cancel() -> bool:
+    return False
+
+
 class RunEffectInterpreter:
     """Execute provisioned host operations in exact program order.
 
@@ -61,6 +69,7 @@ class RunEffectInterpreter:
         coverage_observer: effect_result.CoverageMeasurementObserver | None = None,
         recorded_value_ids: Sequence[ValueId] = (),
         payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
+        cancellation_requested: Callable[[], bool] = _never_cancel,
     ) -> None:
         self.run_id = run_id
         self.point_ledger = AdmittedPointLedger(
@@ -73,6 +82,7 @@ class RunEffectInterpreter:
         self.final_state: list[InstrumentStateSnapshot] = []
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
+        self.cancelled = False
         self._point_states: dict[int, PointEffectState] = {}
         self._active_point_indices: set[int] = set()
         self._terminal_point_indices: set[int] = set()
@@ -89,17 +99,19 @@ class RunEffectInterpreter:
         self._coverage_observer = coverage_observer
         self._recorded_value_ids = tuple(recorded_value_ids)
         self._instruments = instruments
+        self._cancellation_requested = cancellation_requested
 
     def run(
         self,
         coverage: Iterable[RunCoveredOperation],
         *,
         points: Sequence[RunPoint],
-        final_state: Sequence[ApplyStateOperation] = (),
+        success_state: Sequence[ApplyStateOperation] = (),
     ) -> effect_result.RunEffectResult:
         """Interpret the residual effect sequence exactly in program order."""
 
         try:
+            self._check_cancellation()
             if not self._journal.problems:
                 admitted = self.point_ledger.admit(points)
                 self.run_points.update((point.ordinal, point) for point in admitted)
@@ -120,7 +132,9 @@ class RunEffectInterpreter:
                 and self.domain_failure is None
                 and self.coverage_failure is None
             ):
-                self._hardware.execute_final_state(final_state)
+                self._check_cancellation()
+                if self._hardware.execute_success_state(success_state):
+                    self._check_cancellation()
         except ExecutionJournalError as error:
             self._journal.problems.append(
                 self._journal.problem(
@@ -132,6 +146,8 @@ class RunEffectInterpreter:
         except _CapturedDomainEffectFailure:
             pass
         except _CapturedCoverageFailure:
+            pass
+        except _CancellationRequested:
             pass
         except Exception as error:
             self._journal.problems.append(
@@ -182,6 +198,7 @@ class RunEffectInterpreter:
     ) -> None:
         hardware: list[RunCoverageEffect] = []
         for operation in operations:
+            self._check_cancellation()
             if isinstance(operation, RunCoverageEffect) and isinstance(
                 operation.operation,
                 ApplyStateOperation | InvokeOperation | CollectOperation,
@@ -190,23 +207,29 @@ class RunEffectInterpreter:
                 hardware.append(operation)
                 continue
             if hardware:
+                self._check_cancellation()
                 if not self._hardware.execute(
                     hardware,
                     frame_for=self._point_state,
                 ):
                     return
                 hardware.clear()
+                self._check_cancellation()
             if isinstance(operation, RunCoverageCheckpoint):
                 self._commit_coverage_checkpoint(operation)
                 continue
             self._execute_covered_operation(operation)
             if bool(self._journal.problems):
                 return
-        if hardware and not self._hardware.execute(
-            hardware,
-            frame_for=self._point_state,
-        ):
-            return
+            self._check_cancellation()
+        if hardware:
+            self._check_cancellation()
+            if not self._hardware.execute(
+                hardware,
+                frame_for=self._point_state,
+            ):
+                return
+            self._check_cancellation()
         remaining = tuple(
             point_index
             for point_index in self.logical_points
@@ -214,6 +237,7 @@ class RunEffectInterpreter:
         )
         if remaining:
             self._commit_coverage(remaining)
+            self._check_cancellation()
 
     def _commit_coverage_checkpoint(
         self,
@@ -334,6 +358,18 @@ class RunEffectInterpreter:
             self._active_point_indices.discard(point_index)
         self._terminal_point_indices.update(point_indices)
 
+    def _check_cancellation(self) -> None:
+        if self.cancelled or not self._cancellation_requested():
+            return
+        self.cancelled = True
+        self._journal.problems.append(
+            self._journal.problem(
+                "run_cancellation_requested",
+                "run stopped at a safe checkpoint after cancellation was requested",
+            )
+        )
+        raise _CancellationRequested
+
     def _result(self) -> effect_result.RunEffectResult:
         return effect_result.RunEffectResult(
             problems=tuple(self._journal.problems),
@@ -342,6 +378,7 @@ class RunEffectInterpreter:
             final_state=tuple(self.final_state),
             admitted_points=self.point_ledger.points,
             indeterminate=self._journal.indeterminate,
+            cancelled=self.cancelled,
             domain_failure=self.domain_failure,
             coverage_failure=self.coverage_failure,
             interruption=self._journal.interruption,

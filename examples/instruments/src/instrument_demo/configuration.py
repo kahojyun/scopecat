@@ -181,6 +181,7 @@ def _virtual_instrument(
         connection=VirtualInstrumentConnection(),
         default_state=default_state,
         run_start="apply_default_state" if default_state else "preserve",
+        success_action="release",
         failure_action="abort_and_release",
     )
 

@@ -26,16 +26,16 @@ def author_quantum_experiment(
     """Apply lab policy to an integrated-IQ call exposing ``iq_shots``."""
 
     configured = call.with_compiler_inputs(qubits=qubit_parameters())
-    placed = experiment.run(configured)
+    results = experiment.use(configured)
     probabilities = binary_iq_probabilities(
         experiment,
-        placed.results.iq_shots,
+        results.iq_shots,
         discriminator=_BINARY_IQ_DISCRIMINATOR,
     )
     experiment.record(probabilities, namespace="capture")
 
 
-@sc.experiment_factory(id="quantum_lab_demo.run_quantum", kind="quantum")
+@sc.experiment(id="quantum_lab_demo.run_quantum", kind="quantum")
 def run_quantum(
     experiment: sc.ExperimentContext,
     call: quantum.QuantumProgramCall,

@@ -290,10 +290,10 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
     assert call.results.iq_shots is call.results["iq_shots"]
     assert call.results.iq_shots.id == "call/iq_shots"
 
-    @sc.template(id="test.quantum.call-template", kind="x_count")
+    @sc.experiment(id="test.quantum.call-template", kind="x_count")
     def experiment(context: sc.ExperimentContext) -> None:
-        placed = assert_type(context.run(call), authoring.QuantumProgramCall)
-        context.record(placed.results.iq_shots)
+        results = context.use(call)
+        context.record(results.iq_shots)
 
     invocation = experiment()
     [selection] = invocation.definition.record_selections
@@ -325,9 +325,9 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
 
     call = declaration("q0", "q1").with_shots(16)
 
-    @sc.template(id="test.quantum.multi-result", kind="quantum")
+    @sc.experiment(id="test.quantum.multi-result", kind="quantum")
     def experiment(context: sc.ExperimentContext) -> None:
-        context.run(call)
+        context.use(call)
         context.record(
             call.results.first_iq,
             call.results.second_iq,
@@ -391,20 +391,20 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
 
     with pytest.raises(ValueError, match="duplicate module domain execution ids"):
 
-        @sc.template(id="test.quantum.repeated-defaults")
+        @sc.experiment(id="test.quantum.repeated-defaults")
         def repeated_defaults(  # pyright: ignore[reportUnusedFunction]
             context: sc.ExperimentContext,
         ) -> None:
-            context.run(declaration("q0").with_shots(8))
-            context.run(declaration("q0").with_shots(8))
+            context.use(declaration("q0").with_shots(8))
+            context.use(declaration("q0").with_shots(8))
 
     left = declaration.call("left", "q0").with_shots(8)
     right = declaration.call("right", "q0").with_shots(8)
 
-    @sc.template(id="test.quantum.repeated-explicit")
+    @sc.experiment(id="test.quantum.repeated-explicit")
     def repeated_explicit(context: sc.ExperimentContext) -> None:
-        context.run(left)
-        context.run(right)
+        context.use(left)
+        context.use(right)
 
     compile_invocation(repeated_explicit())
     assert left.results.iq.id == "left/iq"
@@ -419,11 +419,11 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
     @sc.module
     def discriminate(module: sc.ModuleContext) -> None:
         call = declaration("q0").with_shots(16)
-        placed = assert_type(module.call(call), authoring.QuantumProgramCall)
+        results = module.use(call)
         assert_type(
             binary_iq_probabilities(
                 module,
-                placed.results.iq_shots,
+                results.iq_shots,
                 discriminator=BinaryIqDiscriminator(
                     state_0_centroid=IqCentroid(real=-1, imag=0),
                     state_1_centroid=IqCentroid(real=1, imag=0),

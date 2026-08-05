@@ -9,8 +9,9 @@ instantiation can alpha-rename private identities without changing producer
 identity.
 
 Reusable modules own typed dataflow, resources, and available products.
-Templates own workflow policy such as exposed defaults, scans, and durable
-record selection; that policy must not leak into a reusable module instance.
+Experiments own workflow policy such as exposed defaults, point plans, and
+durable record selection; that policy must not leak into a reusable module
+instance.
 """
 
 from __future__ import annotations
@@ -233,7 +234,7 @@ class ModuleAcquireEffect:
 
     Acquisition is an ordered effect because triggering or reading hardware is
     observable execution. Product shape remains a declaration and durable
-    recording remains template policy, so neither is encoded in this effect.
+    recording remains experiment policy, so neither is encoded in this effect.
     """
 
     id: str

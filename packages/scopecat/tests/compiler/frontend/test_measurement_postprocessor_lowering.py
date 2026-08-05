@@ -67,13 +67,13 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         )
         return derived
 
-    @sc.template(id="test.postprocessor.lowering", kind="postprocessor")
-    def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(module())
-        experiment.record(call.result, record_id="first")
-        experiment.record(call.result, record_id="second")
+    @sc.experiment(id="test.postprocessor.lowering", kind="postprocessor")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        result = experiment.use(module())
+        experiment.record(result, record_id="first")
+        experiment.record(result, record_id="second")
 
-    resolved = bind_invocation(template(), config_profile=load_config())
+    resolved = bind_invocation(experiment(), config_profile=load_config())
     program = resolved.bindings
 
     first, middle, final = program.measurement_postprocessors
@@ -130,19 +130,19 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
 
     @sc.module(id="test.postprocessor.hidden-id.root")
     def root(context: sc.ModuleContext) -> _DerivedProducts:
-        context.call(left)
-        context.call(right)
+        context.use(left)
+        context.use(right)
         return _DerivedProducts(left=left.result, right=right.result)
 
-    @sc.template(id="test.postprocessor.hidden-id", kind="postprocessor")
-    def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(root())
-        experiment.record(call.result.left, record_id="left")
-        experiment.record(call.result.right, record_id="right")
+    @sc.experiment(id="test.postprocessor.hidden-id", kind="postprocessor")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        result = experiment.use(root())
+        experiment.record(result.left, record_id="left")
+        experiment.record(result.right, record_id="right")
 
     def compile_input_use_ids() -> dict[str, str]:
         program = bind_invocation(
-            template(),
+            experiment(),
             config_profile=load_config(),
         ).bindings
         return {
@@ -169,13 +169,13 @@ def test_recorded_product_requires_a_producer() -> None:
     def module(context: sc.ModuleContext) -> sc.ProductRef:
         return context._product("orphan")
 
-    @sc.template(id="test.product.owner", kind="product-owner")
-    def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(module())
-        experiment.record(call.result)
+    @sc.experiment(id="test.product.owner", kind="product-owner")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        result = experiment.use(module())
+        experiment.record(result)
 
     with pytest.raises(CheckFailed) as error:
-        bind_invocation(template(), config_profile=load_config())
+        bind_invocation(experiment(), config_profile=load_config())
 
     assert [problem.code for problem in error.value.problems] == [
         "product_acquire_missing"

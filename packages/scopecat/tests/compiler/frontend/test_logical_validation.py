@@ -48,12 +48,12 @@ _SET_GAIN_VALUE = _SET_GAIN.property("value")
 
 
 def _resolve(module: sc.ExperimentModule[None, ...]) -> None:
-    @sc.template(id="test.graph", kind="graph")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+    @sc.experiment(id="test.graph", kind="graph")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(module())
 
     bind_invocation(
-        template(),
+        experiment(),
         config_profile=load_config(),
     )
 
@@ -190,10 +190,10 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
         compiler_inputs={"value": value_type},
     )
 
-    @sc.template(id="test.graph.record-schema", kind="record-schema")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
-        experiment.run(
+    @sc.experiment(id="test.graph.record-schema", kind="record-schema")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(module())
+        experiment.use(
             domain_call(
                 program,
                 compiler_inputs={"value": missing_parameter},
@@ -201,7 +201,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        bind_invocation(template(), config_profile=load_config())
+        bind_invocation(experiment(), config_profile=load_config())
 
     assert error.value.problems[0].code == ("product_axis_duplicate")
     assert error.value.problems[0].location == model_location(
@@ -243,7 +243,7 @@ def test_resource_selector_rejects_external_operation_value() -> None:
             fn=lambda: "q0",
             output_type=sc.ScalarType(sc.EntityType()),
         )
-        context.call(
+        context.use(
             child.instantiate(
                 "resource-child",
                 subject=produce_subject,
@@ -304,14 +304,14 @@ def test_product_axis_rejects_point_dependent_value() -> None:
             axes=(product_axis("sample", size=sc.input_ref(size)),),
         )
 
-    @sc.template(id="test.stage.record-point", kind="graph")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module(size))
-        experiment.scan(sc.axis(size, (2, 3)))
+    @sc.experiment(id="test.stage.record-point", kind="graph")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(module(size))
+        experiment.grid(sc.axis(size, (2, 3)))
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(
-            template(),
+            experiment(),
             config_profile=load_config(),
         )
 
@@ -339,11 +339,11 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
             output_type=value_type,
         )
 
-    @sc.template(id="test.graph.direct-edge", kind="graph")
-    def template(experiment: sc.ExperimentContext) -> None:
-        experiment.run(module())
+    @sc.experiment(id="test.graph.direct-edge", kind="graph")
+    def experiment(experiment: sc.ExperimentContext) -> None:
+        experiment.use(module())
 
-    compiled = compile_invocation(template())
+    compiled = compile_invocation(experiment())
 
     assert [
         operation.id.local_id for operation in compiled.program.program.compute_nodes
@@ -354,28 +354,28 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
 
 
 def test_compile_preserves_request_input_and_normalizes_logical_input() -> None:
-    @sc.template(id="test.graph.verified-source", kind="graph")
-    def template(
+    @sc.experiment(id="test.graph.verified-source", kind="graph")
+    def experiment(
         experiment: sc.ExperimentContext,
         subject: Annotated[sc.Input[sc.EntityRef | str], sc.EntityType()],
     ) -> None:
         del experiment, subject
 
-    compiled = compile_invocation(template(subject="q0"))
+    compiled = compile_invocation(experiment(subject="q0"))
 
     assert compiled.request.inputs == {"subject": "q0"}
     assert compiled.program.program.inputs == {"subject": EntityRef(id="q0")}
 
 
 def test_compile_invocation_projects_request_metadata() -> None:
-    @sc.template(id="test.graph.prepared-request", kind="graph")
-    def template(
+    @sc.experiment(id="test.graph.prepared-request", kind="graph")
+    def experiment(
         experiment: sc.ExperimentContext,
         subject: Annotated[sc.Input[sc.EntityRef | str], sc.EntityType()],
     ) -> None:
         del experiment, subject
 
-    invocation = template(subject="q0")
+    invocation = experiment(subject="q0")
 
     compiled = compile_invocation(
         invocation,

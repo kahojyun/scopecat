@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Protocol, cast
+from typing import Protocol
 
 from scopecat.authoring._module_results import relocate_module_result
 from scopecat.kernel.frozen import FrozenMapping
@@ -172,15 +172,6 @@ def module_instance[ResultT](
             for child_id, parent_id in invocation.resource_bindings.items()
         ),
     )
-
-
-def module_use_invocation(
-    selected: object,
-) -> ModuleInvocation[object]:
-    if isinstance(selected, ModuleInvocation):
-        return cast("ModuleInvocation[object]", selected)
-    msg = "module composition requires a ModuleInvocation"
-    raise TypeError(msg)
 
 
 def domain_use_call(

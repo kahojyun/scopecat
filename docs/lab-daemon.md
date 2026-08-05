@@ -59,10 +59,11 @@ atomically acquires its control lease; all later journal, measurement, and
 terminal commands carry the lease identity. A measurement executor may also
 read durable append identities to reconcile an ambiguous append response.
 Lease validation, the effect receipt, and its durable event commit in one
-SQLite transaction. Heartbeats update only the executor lease deadline; the
-run's resource claims refer to their owner instead of copying token or expiry
-state. Heartbeats do not append project timeline events. Lease grant, loss,
-and resource quarantine remain durable state-change events.
+SQLite transaction. Heartbeats renew the executor lease deadline and return
+any durable cancellation request; the run's resource claims refer to their
+owner instead of copying token or expiry state. Routine heartbeats do not append
+project timeline events. Cancellation requests, lease grant and loss, and
+resource quarantine remain durable state-change events.
 
 The executor does not publish a second, process-local observation stream.
 Run and event views refresh from replayable project SSE; each initial
@@ -86,10 +87,10 @@ objects cannot be reconstructed reliably in another process. Every durable
 effect still passes through the daemon, so the notebook never becomes a second
 writer.
 
-The same project client exposes event replay and attention resolution through
-`lab.control`. Execution remains an internal implementation of
-`lab.run(...)`, so notebook code has one connection entry point and
-one owner for the HTTP transport.
+The same project client exposes event replay, `lab.control.cancel(run_id)`, and
+attention resolution through `lab.control`. Execution remains an internal
+implementation of `lab.run(...)`, so notebook code has one connection entry
+point and one owner for the HTTP transport.
 
 After execution, analysis records, parameter proposals, acceptance decisions,
 and default changes use the same daemon boundary. A notebook may calculate
@@ -106,6 +107,23 @@ A candidate may be used for one run without changing the default. That run
 records the producing run, analysis records, proposal ids, base config hash,
 and resolved candidate hash. Verification is optional evidence: acceptance may
 happen before it, after it, or without a dedicated verification run.
+
+Cancelling queued work commits a known `cancelled` outcome immediately.
+Cancelling a leased run persists an idempotent request; the next executor
+heartbeat exposes it, and execution stops at the next operation, hardware-batch,
+coverage, or normal-completion boundary. An already-running hardware batch or
+domain call is not interrupted in the middle. Provisioned hardware then uses
+the normal failure finalization path before committing `cancelled`; if that
+cleanup has an unknown outcome, the terminal result remains cancelled but its
+certainty is indeterminate and the affected resources remain quarantined.
+
+Cancellation and terminal commit are ordered by the same SQLite writer. If the
+terminal commit wins, a later cancel returns `not_accepted` and does not rewrite
+history. If the request wins, a pending successful terminal intent becomes a
+known cancelled outcome and the client observes `RunCancelled`; a real failed
+or indeterminate intent still wins over cancellation. At this last boundary the
+effects and successful hardware finalization may already be complete, so the
+cancelled outcome does not claim that earlier work was interrupted.
 
 If an executor disappears, its resources remain quarantined. After reconciling
 external state, the GUI or `lab.control.resolve_attention(run_id)` atomically

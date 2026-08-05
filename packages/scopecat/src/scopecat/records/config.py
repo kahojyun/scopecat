@@ -99,6 +99,7 @@ class InstrumentBindingSpec(BaseModel):
 
 
 type InstrumentRunStartPolicy = Literal["preserve", "apply_default_state"]
+type InstrumentSuccessAction = Literal["release", "restore_prepared_state"]
 type InstrumentFailureAction = Literal[
     "abort_and_release",
     "abort_then_safe_state",
@@ -119,6 +120,7 @@ class InstrumentSpec(BaseModel):
     connection: InstrumentConnection
     default_state: list[InstrumentPropertyState] = Field(default_factory=list)
     run_start: InstrumentRunStartPolicy
+    success_action: InstrumentSuccessAction
     safe_state: list[InstrumentPropertyState] = Field(default_factory=list)
     failure_action: InstrumentFailureAction
 

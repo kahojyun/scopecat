@@ -53,7 +53,7 @@ class RunCoverageEffect:
 
 @dataclass(frozen=True, slots=True)
 class RunCoverageCheckpoint:
-    """Commit one completed logical prefix inside a larger effect block."""
+    """Commit one completed logical point inside a larger effect block."""
 
     point_index: int
 
@@ -78,7 +78,7 @@ class RunProgram:
     measurements: MeasurementProjection = field(repr=False)
     resource_requirements: tuple[ResourceRequirement, ...]
     domain_target_requirement: DomainTargetRequirement | None
-    final_state: tuple[ApplyStateOperation, ...] = field(
+    success_state: tuple[ApplyStateOperation, ...] = field(
         default=(),
         repr=False,
         compare=False,

@@ -5,8 +5,8 @@ from typing import Annotated
 import pytest
 
 import scopecat.authoring as authoring
-from scopecat.authoring.scans import axis
-from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.authoring import axis
+from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.value_resolution import resolve_bound_value
@@ -55,25 +55,31 @@ def _gate_table_type() -> authoring.TableType:
 
 def test_nested_module_requires_explicit_input_forwarding() -> None:
     @authoring.module(id="test.nested_port.child")
-    def child(context: authoring.ModuleContext, value: float) -> None:
+    def child(
+        context: authoring.ModuleContext,
+        value: authoring.Input[float],
+    ) -> None:
         del context, value
 
     with pytest.raises(ValueError, match="must connect all inputs"):
         child.instantiate("child")
 
     @authoring.module(id="test.nested_port.root")
-    def root(context: authoring.ModuleContext, outer_value: float) -> None:
-        context.call(child.instantiate("child", value=outer_value))
-
-    @authoring.template(id="test.nested_port", kind="nested_port")
-    def template(
-        experiment: authoring.ExperimentContext,
-        outer_value: float,
+    def root(
+        context: authoring.ModuleContext,
+        outer_value: authoring.Input[float],
     ) -> None:
-        experiment.run(root(outer_value))
+        context.use(child.instantiate("child", value=outer_value))
+
+    @authoring.experiment(id="test.nested_port", kind="nested_port")
+    def experiment(
+        experiment: authoring.ExperimentContext,
+        outer_value: authoring.Input[float],
+    ) -> None:
+        experiment.use(root(authoring.input_ref(outer_value)))
 
     bind_invocation(
-        template(outer_value=1),
+        experiment(outer_value=1),
         config_profile=load_config(),
     )
 
@@ -84,12 +90,12 @@ def test_scan_points_are_coerced_by_their_target_type() -> None:
         authoring.ScalarType(authoring.FloatType()),
     )
 
-    @authoring.template(id="test.scan_coercion", kind="scan_coercion")
-    def template(experiment: authoring.ExperimentContext) -> None:
-        experiment.scan(axis(point, (1,)))
+    @authoring.experiment(id="test.scan_coercion", kind="scan_coercion")
+    def experiment(experiment: authoring.ExperimentContext) -> None:
+        experiment.grid(axis(point, (1,)))
 
     resolved = bind_invocation(
-        template(),
+        experiment(),
         config_profile=load_config(),
     )
     plan = materialize_local_execution(resolved)
@@ -109,7 +115,7 @@ def test_scan_points_reject_target_constraint_violation() -> None:
             (0,),
         )
 
-    assert error.value.path == ("scan", "values", 0)
+    assert error.value.path == ("axis", "values", 0)
     assert error.value.reason == "value must be at least 1"
 
 
@@ -185,7 +191,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
             authoring.PayloadType("pulse"),
         ],
     ) -> None:
-        context.call(
+        context.use(
             child.instantiate(
                 "compute-child",
                 program=authoring.input_ref(program),
@@ -199,7 +205,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
             fn=_empty_payload,
             output_type=pulse,
         )
-        context.call(middle.instantiate("compute-middle", program=produce))
+        context.use(middle.instantiate("compute-middle", program=produce))
 
     assembly = compose_module(
         parent.definition,
@@ -217,11 +223,11 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     )
     assert producer.id == OperationId(SymbolId(local_id="produce"))
 
-    @authoring.template(id="test.compute_edge", kind="compute_edge")
-    def template(experiment: authoring.ExperimentContext) -> None:
-        experiment.run(parent())
+    @authoring.experiment(id="test.compute_edge", kind="compute_edge")
+    def experiment(experiment: authoring.ExperimentContext) -> None:
+        experiment.use(parent())
 
-    program = _bind_program(template(), load_config())
+    program = _bind_program(experiment(), load_config())
     bound_consumer = next(
         node
         for node in program.program.program.compute_nodes
@@ -267,10 +273,10 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
 
 
 def test_explicit_null_is_rejected_as_a_bound_value() -> None:
-    @authoring.template(id="test.null.required", kind="null")
+    @authoring.experiment(id="test.null.required", kind="null")
     def required(
         experiment: authoring.ExperimentContext,
-        label: str,
+        label: authoring.Input[str],
     ) -> None:
         del experiment, label
 

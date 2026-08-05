@@ -9,7 +9,7 @@ from typing import override
 from uuid import uuid4
 
 from scopecat.authoring import MetadataValue
-from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.control.models import (
     RunDomainTargetRequirement,
     RunPlanSummary,
@@ -199,6 +199,7 @@ class _LeaseHeartbeat(LeaseSupervisor):
         self._stop = Event()
         self._lock = Lock()
         self._failure: tuple[ExecutorLease, Exception] | None = None
+        self._cancellation_requested = Event()
         self._thread: Thread | None = None
 
     @override
@@ -207,6 +208,8 @@ class _LeaseHeartbeat(LeaseSupervisor):
         lease: ExecutorLease,
         heartbeat: Callable[[], ExecutorLease],
     ) -> None:
+        if lease.cancellation_requested_at is not None:
+            self._cancellation_requested.set()
         self._thread = Thread(
             target=self._run,
             args=(lease, heartbeat),
@@ -223,6 +226,10 @@ class _LeaseHeartbeat(LeaseSupervisor):
             lease, cause = failure
             raise ExecutorLeaseLostError(lease, cause) from cause
 
+    @override
+    def cancellation_requested(self) -> bool:
+        return self._cancellation_requested.is_set()
+
     def close(self) -> None:
         self._stop.set()
         if self._thread is not None:
@@ -237,6 +244,8 @@ class _LeaseHeartbeat(LeaseSupervisor):
         while not self._stop.wait(current.heartbeat_interval_seconds):
             try:
                 current = heartbeat()
+                if current.cancellation_requested_at is not None:
+                    self._cancellation_requested.set()
             except Exception as error:
                 with self._lock:
                     self._failure = (current, error)

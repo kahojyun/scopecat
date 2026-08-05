@@ -14,9 +14,9 @@ from scopecat.authoring import (
     ScalarType,
     coordinate,
     each,
+    experiment,
     module,
     one,
-    template,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
@@ -275,12 +275,12 @@ def test_dc_group_broadcasts_and_aligns_typed_operation_arguments() -> None:
     ]
 
 
-def test_generated_rf_group_aligns_state_and_finalization() -> None:
+def test_generated_rf_group_aligns_state_and_success_state() -> None:
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
 
-    @template(id="test.symbolic.generated-rf-state", kind="symbolic_root")
-    def experiment(context: ExperimentContext) -> None:
+    @experiment(id="test.symbolic.generated-rf-state", kind="symbolic_root")
+    def authored(context: ExperimentContext) -> None:
         outputs = rf_output(context, "drive", for_=each(q0, q1))
         assert_type(outputs, SymbolicRFOutputGroup)
         outputs.ensure(
@@ -291,17 +291,19 @@ def test_generated_rf_group_aligns_state_and_finalization() -> None:
                 )
             )
         )
-        context.finalize(outputs, RFOutputGroupTarget(output_enabled=False))
+        context.on_success(outputs, RFOutputGroupTarget(output_enabled=False))
 
-    definition = experiment.definition
+    definition = authored.bind().definition
     ensures = tuple(
         effect
         for effect in definition.body.effects
         if isinstance(effect, EnsureStateIntent)
     )
     assert [effect.assignments[0].value for effect in ensures] == [False, True]
-    assert definition.final_state is not None
-    assert [assignment.value for assignment in definition.final_state.assignments] == [
+    assert definition.success_state is not None
+    assert [
+        assignment.value for assignment in definition.success_state.assignments
+    ] == [
         False,
         False,
     ]
@@ -360,14 +362,14 @@ def test_group_per_entity_operation_argument_requires_exact_identity_join() -> N
 
 
 def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
-    @template(id="test.symbolic.root", kind="symbolic_root")
-    def experiment(context: ExperimentContext) -> None:
+    @experiment(id="test.symbolic.root", kind="symbolic_root")
+    def authored(context: ExperimentContext) -> None:
         vna = network_sweep(context, "readout")
         vna.ensure(points=11)
         trace = vna.sweep()
         context.record(trace)
 
-    definition = experiment.definition
+    definition = authored.bind().definition
     assert [product.id for product in definition.body.products] == [
         "frequency",
         "s_parameter",
@@ -450,7 +452,7 @@ def test_typed_result_recording_semantics_survive_a_module_boundary() -> None:
     frequency = call.result.frequency
 
     context = ExperimentContext()
-    context.run(call)
+    context.use(call)
     context.record(frequency)
     definition = context.close_definition_internal(
         id="test.symbolic.record-module-member",
@@ -511,15 +513,15 @@ def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
     )
 
 
-def test_root_finalization_accepts_a_typed_symbolic_client_and_declared_state() -> None:
-    @template(id="test.symbolic.typed-finalization", kind="symbolic_root")
-    def experiment(context: ExperimentContext) -> None:
+def test_on_success_accepts_a_typed_symbolic_client_and_declared_state() -> None:
+    @experiment(id="test.symbolic.typed-success-state", kind="symbolic_root")
+    def authored(context: ExperimentContext) -> None:
         source = dc_source(context, "flux")
-        context.finalize(source, DCSourceTarget(output_enabled=False))
+        context.on_success(source, DCSourceTarget(output_enabled=False))
 
-    definition = experiment.definition
-    assert definition.final_state is not None
-    [assignment] = definition.final_state.assignments
+    definition = authored.bind().definition
+    assert definition.success_state is not None
+    [assignment] = definition.success_state.assignments
     [resource] = definition.interface.resources
     assert assignment.port_id == resource.symbol_id
     assert assignment.property_id == "output_enabled"
@@ -527,18 +529,18 @@ def test_root_finalization_accepts_a_typed_symbolic_client_and_declared_state() 
 
 
 @pytest.mark.parametrize("per_entity", [False, True])
-def test_root_finalization_accepts_group_broadcast_and_per_entity_state(
+def test_on_success_accepts_group_broadcast_and_per_entity_state(
     *,
     per_entity: bool,
 ) -> None:
     q0 = EntityRef(id="q0", kind="logical_device")
     q1 = EntityRef(id="q1", kind="logical_device")
 
-    @template(
-        id=f"test.symbolic.typed-group-finalization.{per_entity}",
+    @experiment(
+        id=f"test.symbolic.typed-group-success-state.{per_entity}",
         kind="symbolic_root",
     )
-    def experiment(context: ExperimentContext) -> None:
+    def authored(context: ExperimentContext) -> None:
         sources = dc_source(context, "flux", for_=each(q0, q1))
         target: DCSourceGroupTarget | PerEntity[DCSourceTarget]
         if per_entity:
@@ -550,16 +552,16 @@ def test_root_finalization_accepts_group_broadcast_and_per_entity_state(
             )
         else:
             target = DCSourceGroupTarget(output_enabled=False)
-        context.finalize(sources, target)
+        context.on_success(sources, target)
 
-    definition = experiment.definition
-    assert definition.final_state is not None
+    definition = authored.bind().definition
+    assert definition.success_state is not None
     assert [
-        assignment.port_id for assignment in definition.final_state.assignments
+        assignment.port_id for assignment in definition.success_state.assignments
     ] == [resource.symbol_id for resource in definition.interface.resources]
-    assert [assignment.value for assignment in definition.final_state.assignments] == (
-        [False, True] if per_entity else [False, False]
-    )
+    assert [
+        assignment.value for assignment in definition.success_state.assignments
+    ] == ([False, True] if per_entity else [False, False])
 
 
 def test_two_scalar_clients_use_distinct_structured_product_scopes() -> None:

@@ -43,7 +43,7 @@ from scopecat.program.parameters import ParameterContract
 from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl
 from scopecat.program.recording import LogicalRecordSelection
-from scopecat.program.scans import AxisSpec
+from scopecat.program.scans import AxisSpec, PointTraversal, RepeatMode
 from scopecat.program.value_graph import OperationId, operation_result_id
 from scopecat.program.value_refs import (
     PointValueDependency,
@@ -276,6 +276,9 @@ class LogicalProgramBuilder:
         parameter_contracts: Sequence[ParameterContract],
         point_domain: PointAxes[ValueRef],
         point_domain_layout: PointDomainLayout,
+        point_repeat: int,
+        point_repeat_mode: RepeatMode,
+        point_traversal: PointTraversal,
         effects: tuple[
             LogicalStateAssignment
             | LogicalEnsureState
@@ -284,7 +287,7 @@ class LogicalProgramBuilder:
             | AcquireEffect,
             ...,
         ],
-        final_state: LogicalEnsureState | None,
+        success_state: LogicalEnsureState | None,
     ) -> LogicalProgram:
         return LogicalProgram(
             experiment_id=experiment_id,
@@ -300,12 +303,15 @@ class LogicalProgramBuilder:
             parameter_contracts=tuple(parameter_contracts),
             point_domain=point_domain,
             point_domain_layout=point_domain_layout,
+            point_repeat=point_repeat,
+            point_repeat_mode=point_repeat_mode,
+            point_traversal=point_traversal,
             value_defs=tuple(self._definitions.values()),
             compute_nodes=tuple(self._compute_nodes.values()),
             measurement_postprocessors=tuple(self._measurement_postprocessors),
             implementations=MappingProxyType(dict(self._implementations)),
             effects=effects,
-            final_state=final_state,
+            success_state=success_state,
         )
 
     def _add_compute_input(

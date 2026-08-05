@@ -6,7 +6,13 @@ import math
 from collections.abc import Mapping
 from typing import cast
 
+from pydantic import BaseModel
+
 from scopecat.kernel.quantity import Quantity
+
+
+class DurableRunRequestModel(BaseModel):
+    """Marker base for models in the closed run-request value domain."""
 
 
 def normalize_json_value(value: object) -> object:
@@ -38,6 +44,8 @@ def normalize_json_value(value: object) -> object:
 def normalize_run_request_value(value: object) -> object:
     """Validate values already projected into the durable request wire domain."""
 
+    if isinstance(value, DurableRunRequestModel):
+        return value
     if value is None or isinstance(value, str | bool | int):
         return value
     if isinstance(value, float):
