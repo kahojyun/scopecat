@@ -10,13 +10,13 @@ import numpy as np
 import scopecat as sc
 from numpy.typing import ArrayLike, NDArray
 from scipy.optimize import least_squares  # pyright: ignore[reportUnknownVariableType]
-from scopecat.measurements.results import Dataset, Trace, Variable
+from scopecat.measurements.results import Dataset, Trace
 
 from instrument_demo.configuration import (
     RESONANCE_FREQUENCY_PARAMETER_ID,
     RESONATOR_LINEWIDTH_PARAMETER_ID,
 )
-from instrument_demo.workflows.flux_spectroscopy import TEMPERATURE_RECORD_ID
+from instrument_demo.workflows.flux_spectroscopy import FLUX_SPECTROSCOPY
 
 FLUX_SPECTROSCOPY_ANALYSIS_ID = "instrument_demo.flux_spectroscopy.analysis"
 FLUX_SPECTROSCOPY_PROPOSAL_ID = "readout-resonator-fit"
@@ -213,19 +213,20 @@ def fit_flux_spectroscopy(
     if not dataset:
         raise ValueError("flux spectroscopy analysis requires measurement records")
     try:
-        dc_bias = dataset.coords["dc_bias"]
-        temperature = dataset.data_vars[TEMPERATURE_RECORD_ID]
-    except KeyError as error:
+        schema = FLUX_SPECTROSCOPY.output
+        dc_bias = dataset[schema.dc_bias]
+        temperature = dataset[schema.temperature]
+        traces = dataset.traces(schema.trace.s_parameter)
+    except (KeyError, TypeError, ValueError) as error:
         raise ValueError(
             "run does not contain the flux-spectroscopy measurement schema"
         ) from error
-    traces = dataset.traces(group="readout-vna/sweep")
     return tuple(
-        _fit_point(dc_bias_value, temperature_value, trace, dc_bias, temperature)
+        _fit_point(dc_bias_value, temperature_value, trace)
         for trace, dc_bias_value, temperature_value in zip(
             traces,
-            dc_bias.values,
-            temperature.values,
+            dc_bias.require_quantities("V"),
+            temperature.require_quantities("K"),
             strict=True,
         )
     )
@@ -311,34 +312,16 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
 
 
 def _fit_point(
-    dc_bias_value: object,
-    temperature_value: object,
+    dc_bias: sc.Quantity,
+    temperature: sc.Quantity,
     trace: Trace,
-    dc_bias: Variable,
-    temperature: Variable,
 ) -> ResonatorTraceFit:
     return fit_resonator_trace(
         trace.x,
         trace.y,
-        dc_bias=_variable_quantity(dc_bias, dc_bias_value, "dc_bias"),
-        temperature=_variable_quantity(
-            temperature,
-            temperature_value,
-            "temperature",
-        ),
+        dc_bias=dc_bias,
+        temperature=temperature,
     )
-
-
-def _variable_quantity(variable: Variable, value: object, name: str) -> sc.Quantity:
-    if (
-        variable.dims != ("point",)
-        or variable.dtype not in {"float64", "int64"}
-        or variable.unit is None
-        or isinstance(value, bool)
-        or not isinstance(value, int | float)
-    ):
-        raise TypeError(f"{name} must be a numeric scalar with a unit")
-    return sc.Quantity(float(value), variable.unit)
 
 
 def _fit_row(fit: ResonatorTraceFit) -> dict[str, sc.AnalysisTableCell]:

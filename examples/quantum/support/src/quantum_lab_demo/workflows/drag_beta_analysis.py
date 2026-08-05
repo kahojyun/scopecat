@@ -10,14 +10,14 @@ from typing import SupportsFloat, cast
 import numpy as np
 import scopecat as sc
 from scopecat import Quantity
-from scopecat.measurements.results import Dataset, Variable
+from scopecat.measurements.results import Dataset
 
 from quantum_lab_demo.parameters import Q0_DRAG_BETA
 from quantum_lab_demo.workflows.drag_beta_calibration import (
     NEGATIVE_CANDIDATE_ID,
     POSITIVE_CANDIDATE_ID,
 )
-from quantum_lab_demo.workflows.drag_beta_experiment import PROBABILITY_1_RECORD_ID
+from quantum_lab_demo.workflows.drag_beta_experiment import DRAG_BETA_EXPERIMENT
 
 _DRAG_BETA_FIT_MODEL_ID = "quantum_lab_demo.drag_beta.shared_n2_quadratic.v1"
 _DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
@@ -185,55 +185,29 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
 def _observations_from_dataset(
     dataset: Dataset,
 ) -> tuple[DragBetaObservation, ...]:
+    schema = DRAG_BETA_EXPERIMENT.output
     try:
-        beta = dataset.coords["beta"]
-        amplification = dataset.coords["amplification"]
-        probability_one = dataset.data_vars[PROBABILITY_1_RECORD_ID]
+        beta = dataset[schema.beta].require_quantities("ns")
+        amplification = dataset[schema.amplification].require_values()
+        probability_one = dataset[
+            schema.probabilities.probability_1
+        ].require_quantities("ratio")
     except KeyError as error:
         raise ValueError(
             "run does not contain the DRAG-beta measurement schema"
         ) from error
-    if amplification.dims != ("point",) or amplification.dtype != "int64":
-        raise TypeError("DRAG-beta amplification coordinates must be integers")
     return tuple(
-        _observation_from_values(
-            beta_value,
-            amplification_value,
-            probability_one_value,
-            beta=beta,
-            probability_one=probability_one,
+        DragBetaObservation(
+            beta=beta_value,
+            amplification=amplification_value,
+            p1=float(probability_one_value.value),
         )
         for beta_value, amplification_value, probability_one_value in zip(
-            beta.values,
-            amplification.values,
-            probability_one.values,
+            beta,
+            amplification,
+            probability_one,
             strict=True,
         )
-    )
-
-
-def _observation_from_values(
-    beta_value: object,
-    amplification_value: object,
-    probability_one_value: object,
-    *,
-    beta: Variable,
-    probability_one: Variable,
-) -> DragBetaObservation:
-    if type(amplification_value) is not int:
-        raise TypeError("DRAG-beta amplification coordinates must be integers")
-    return DragBetaObservation(
-        beta=_variable_quantity(beta, beta_value, "beta").to("ns"),
-        amplification=amplification_value,
-        p1=float(
-            _variable_quantity(
-                probability_one,
-                probability_one_value,
-                "probability_1",
-            )
-            .to("ratio")
-            .value
-        ),
     )
 
 
@@ -254,18 +228,6 @@ def _beta_ns(value: Quantity) -> float:
     if not math.isfinite(selected):
         raise ValueError("DRAG beta must be finite")
     return selected
-
-
-def _variable_quantity(variable: Variable, value: object, name: str) -> Quantity:
-    if (
-        variable.dims != ("point",)
-        or variable.dtype not in {"float64", "int64"}
-        or variable.unit is None
-        or isinstance(value, bool)
-        or not isinstance(value, int | float)
-    ):
-        raise TypeError(f"DRAG-beta {name} must be a numeric scalar with a unit")
-    return Quantity(float(value), variable.unit)
 
 
 __all__ = [

@@ -17,8 +17,7 @@ from quantum_lab_demo.workflows.drag_beta_analysis import (
     drag_beta_analysis,
 )
 from quantum_lab_demo.workflows.drag_beta_experiment import (
-    PROBABILITY_0_RECORD_ID,
-    PROBABILITY_1_RECORD_ID,
+    DRAG_BETA_EXPERIMENT,
     drag_beta_experiment,
 )
 
@@ -84,10 +83,17 @@ def test_drag_beta_closes_measurement_analysis_publish_and_undo(
     } == {0.0, 0.25, 0.5, 0.75, 1.0}
 
     records = source_run.measurements().records
+    schema = DRAG_BETA_EXPERIMENT.output
     assert len(records) == 15
     assert all(
-        _measurement_in_unit(record.observables[PROBABILITY_0_RECORD_ID], "ratio")
-        + _measurement_in_unit(record.observables[PROBABILITY_1_RECORD_ID], "ratio")
+        _measurement_in_unit(
+            record.observables[schema.probabilities.probability_0.id],
+            "ratio",
+        )
+        + _measurement_in_unit(
+            record.observables[schema.probabilities.probability_1.id],
+            "ratio",
+        )
         == pytest.approx(1.0)
         for record in records
     )
