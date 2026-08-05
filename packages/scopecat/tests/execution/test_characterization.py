@@ -251,7 +251,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
         id="tests.compute_schedule",
         kind="characterization",
     )
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.use(parent())
 
     driver = SignalInstrumentDriver()
@@ -269,7 +269,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
         instrument_backend=composition.backend,
     )
 
-    run = lab.prepare(template).run()
+    run = lab.prepare(experiment).run()
 
     assert run.manifest.status == "completed"
     assert calls == ["produce", "consume"]

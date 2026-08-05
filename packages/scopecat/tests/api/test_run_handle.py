@@ -79,10 +79,10 @@ def _quantity_coordinate(record: MeasurementRecord, coordinate_id: str) -> Quant
 
 
 def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
-    return simple_frequency_scan_template().bind(subject=subject)
+    return simple_frequency_scan_experiment().bind(subject=subject)
 
 
-def simple_frequency_scan_template() -> Experiment[...]:
+def simple_frequency_scan_experiment() -> Experiment[...]:
     def definition(
         experiment: authoring.ExperimentContext,
         subject: Annotated[

@@ -211,7 +211,7 @@ describe("config snapshot import boundary", () => {
       parseConfigProfileJson(
         JSON.stringify({
           ...config,
-          format_version: "scopecat.config_snapshot.v7",
+          format_version: "scopecat.config_snapshot.unsupported",
         }),
       ),
     ).toThrow("Unsupported config snapshot format");

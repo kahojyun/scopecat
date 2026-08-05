@@ -99,11 +99,11 @@ def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
         )
 
     @sc.experiment(id="test.coherent-target", kind="state-effect")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
 
     bound = bind_invocation(
-        template(),
+        experiment(),
         config_profile=config_with_physical_resources(
             {"source-device": (_SOURCE.interface_id,)}
         ),
@@ -143,11 +143,11 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
         )
 
     @sc.experiment(id="test.sequential-targets", kind="state-effect")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
 
     bound = bind_invocation(
-        template(),
+        experiment(),
         config_profile=config_with_physical_resources(
             {"source-device": (_SOURCE.interface_id,)}
         ),

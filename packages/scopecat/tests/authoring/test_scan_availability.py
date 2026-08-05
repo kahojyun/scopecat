@@ -32,7 +32,7 @@ def test_default_scan_center_rejects_external_operation() -> None:
     call = module()
     center = call.result
 
-    def template_definition(experiment: sc.ExperimentContext) -> None:
+    def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
         experiment.grid(
             sc.axis(
@@ -43,12 +43,12 @@ def test_default_scan_center_rejects_external_operation() -> None:
             )
         )
 
-    template = sc.experiment(id="test.scan-stage.default", kind="scan-stage")(
-        template_definition
+    experiment = sc.experiment(id="test.scan-stage.default", kind="scan-stage")(
+        experiment_definition
     )
 
     with pytest.raises(CheckFailed) as error:
-        resolution.compile_invocation(template())
+        resolution.compile_invocation(experiment())
 
     problem = error.value.problems[0]
     assert problem.code == "value_requires_execution"
@@ -77,10 +77,10 @@ def test_invocation_scan_center_rejects_external_operation() -> None:
     center = call.result
 
     @sc.experiment(id="test.scan-stage.invocation", kind="scan-stage")
-    def template_definition(experiment: sc.ExperimentContext) -> None:
+    def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
-    invocation = template_definition().with_axis(
+    invocation = experiment_definition().with_axis(
         sc.axis(
             target,
             center=center,
@@ -110,7 +110,7 @@ def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
     target = _quantity_scan_target()
 
     @sc.experiment(id="test.scan-stage.input", kind="scan-stage")
-    def template_definition(experiment: sc.ExperimentContext) -> None:
+    def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
         experiment.grid(
             sc.axis(
@@ -121,7 +121,7 @@ def test_scan_center_accepts_module_result_resolved_to_literal_input() -> None:
             )
         )
 
-    compiled = resolution.compile_invocation(template_definition())
+    compiled = resolution.compile_invocation(experiment_definition())
 
     domain = compiled.request.point_plan.domain
     assert isinstance(domain, GridDomainRecord)

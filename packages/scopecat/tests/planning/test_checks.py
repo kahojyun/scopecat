@@ -126,10 +126,10 @@ def _domain_invocation() -> sc.ExperimentInvocation:
         context.use(domain_call(program))
 
     @sc.experiment(id="test.check-domain", kind="check-domain")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
 
-    return template()
+    return experiment()
 
 
 def test_prepared_check_returns_preview_when_successful(tmp_path: Path) -> None:

@@ -234,7 +234,7 @@ class ModuleAcquireEffect:
 
     Acquisition is an ordered effect because triggering or reading hardware is
     observable execution. Product shape remains a declaration and durable
-    recording remains template policy, so neither is encoded in this effect.
+    recording remains experiment policy, so neither is encoded in this effect.
     """
 
     id: str

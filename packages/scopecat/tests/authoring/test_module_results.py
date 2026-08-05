@@ -174,11 +174,11 @@ def test_explicit_instances_return_hygienic_compute_values_to_siblings(
     call = root()
 
     @sc.experiment(id="test.results.siblings", kind="module_results")
-    def template_definition(experiment: sc.ExperimentContext) -> None:
+    def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
     program = _bind_program(
-        template_definition(),
+        experiment_definition(),
         load_config(),
     )
     bound_nodes = {node.id: node for node in program.program.program.compute_nodes}
@@ -280,11 +280,11 @@ def test_nested_compute_results_preserve_exact_typed_result_values(
     call = root()
 
     @sc.experiment(id="test.results.typed-result", kind="module_results")
-    def template_definition(experiment: sc.ExperimentContext) -> None:
+    def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
 
     program = _bind_program(
-        template_definition(),
+        experiment_definition(),
         load_config(),
     )
     nodes = {node.id: node for node in program.program.program.compute_nodes}
@@ -541,7 +541,7 @@ def test_result_roots_preserve_free_inputs_and_value_provenance() -> None:
         return result.value
 
     @sc.experiment(id="test.results.roots", kind="results")
-    def template(
+    def experiment(
         experiment: sc.ExperimentContext,
         value: _FloatInput,
     ) -> None:
@@ -554,7 +554,7 @@ def test_result_roots_preserve_free_inputs_and_value_provenance() -> None:
         )
         experiment.grid(sc.axis(point, (1.0,)))
 
-    assembly = compile_invocation(template(value=1.0)).program.program
+    assembly = compile_invocation(experiment(value=1.0)).program.program
 
     assert [
         (port.id, port.value_type) for port in wrapper.definition.interface.imports

@@ -185,7 +185,7 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         context.use(middle.instantiate("middle", rows=sc.input_ref(rows)))
 
     @sc.experiment(id="test.domain.table-forwarding", kind="domain")
-    def template(
+    def experiment(
         experiment: sc.ExperimentContext,
         rows: Annotated[
             sc.Input[list[dict[str, object]]],
@@ -195,7 +195,7 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         experiment.use(root(sc.input_ref(rows)))
 
     bound = bind_invocation(
-        template(rows=[{"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}]),
+        experiment(rows=[{"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}]),
         config_profile=load_config(),
     )
 
@@ -371,7 +371,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
     }
 
 
-def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses() -> (
+def test_experiment_domain_execution_lowers_plan_inputs_and_composed_product_uses() -> (
     None
 ):
     child, _program, body = _domain_module()
@@ -408,14 +408,14 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     )
 
     @sc.experiment(id="test.domain", kind="domain")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         selected_product = experiment.use(root_module(point_x_count))
         experiment.grid(sc.axis(point_x_count, (1, 2)))
         experiment.record(selected_product, record_id="counts_first")
         experiment.record(selected_product, record_id="counts_second")
 
     resolved = bind_invocation(
-        template(),
+        experiment(),
         config_profile=load_config(),
     )
     typed = resolved.bindings

@@ -72,14 +72,14 @@ def test_nested_module_requires_explicit_input_forwarding() -> None:
         context.use(child.instantiate("child", value=outer_value))
 
     @authoring.experiment(id="test.nested_port", kind="nested_port")
-    def template(
+    def experiment(
         experiment: authoring.ExperimentContext,
         outer_value: authoring.Input[float],
     ) -> None:
         experiment.use(root(authoring.input_ref(outer_value)))
 
     bind_invocation(
-        template(outer_value=1),
+        experiment(outer_value=1),
         config_profile=load_config(),
     )
 
@@ -91,11 +91,11 @@ def test_scan_points_are_coerced_by_their_target_type() -> None:
     )
 
     @authoring.experiment(id="test.scan_coercion", kind="scan_coercion")
-    def template(experiment: authoring.ExperimentContext) -> None:
+    def experiment(experiment: authoring.ExperimentContext) -> None:
         experiment.grid(axis(point, (1,)))
 
     resolved = bind_invocation(
-        template(),
+        experiment(),
         config_profile=load_config(),
     )
     plan = materialize_local_execution(resolved)
@@ -224,10 +224,10 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     assert producer.id == OperationId(SymbolId(local_id="produce"))
 
     @authoring.experiment(id="test.compute_edge", kind="compute_edge")
-    def template(experiment: authoring.ExperimentContext) -> None:
+    def experiment(experiment: authoring.ExperimentContext) -> None:
         experiment.use(parent())
 
-    program = _bind_program(template(), load_config())
+    program = _bind_program(experiment(), load_config())
     bound_consumer = next(
         node
         for node in program.program.program.compute_nodes

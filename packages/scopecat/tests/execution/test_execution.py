@@ -906,13 +906,13 @@ def test_downstream_compute_receives_result_in_its_declared_type(
         context.use(consumer.instantiate("consumer", frequency=frequency))
 
     @sc.experiment(id="test.compute-result-type", kind="compute-result-type")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.use(root())
 
     config = config_with_physical_resources(
         {"source-0": (play_interface.interface_id,)}
     )
-    bound = bind_invocation(template(), config_profile=config)
+    bound = bind_invocation(experiment(), config_profile=config)
     manifest = execute_bound_run(
         config=config,
         experiment=ProgramFixture(logical=bound.program, bindings=bound.bindings),

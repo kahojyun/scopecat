@@ -66,7 +66,7 @@ def _derive_signal(value: MeasurementValue) -> dict[str, MeasurementValue]:
     return {"derived": value}
 
 
-def test_template_authors_root_device_operations_without_a_module() -> None:
+def test_experiment_authors_root_device_operations_without_a_module() -> None:
     @sc.experiment(id="test.experiment-context.direct", kind="direct")
     def direct(
         experiment: sc.ExperimentContext,
@@ -175,7 +175,7 @@ def test_experiment_supports_direct_root_authoring() -> None:
     ] == ["signal"]
 
 
-def test_template_records_a_compute_result_as_a_named_dataset_value() -> None:
+def test_experiment_records_a_compute_result_as_a_named_dataset_value() -> None:
     @sc.experiment(id="test.direct.value-record", kind="direct")
     def direct(experiment: sc.ExperimentContext) -> None:
         score = experiment.compute(
@@ -194,7 +194,7 @@ def test_template_records_a_compute_result_as_a_named_dataset_value() -> None:
     assert record.value_id == logical.compute_nodes[0].result_id
 
 
-def test_template_derives_value_record_id_after_resolving_a_module_result() -> None:
+def test_experiment_derives_value_record_id_after_resolving_a_module_result() -> None:
     @sc.module(id="test.value_source")
     def value_source(module: sc.ModuleContext) -> sc.ValueRef:
         return module.compute(

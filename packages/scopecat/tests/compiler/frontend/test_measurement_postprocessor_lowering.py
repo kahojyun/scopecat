@@ -68,12 +68,12 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         return derived
 
     @sc.experiment(id="test.postprocessor.lowering", kind="postprocessor")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         result = experiment.use(module())
         experiment.record(result, record_id="first")
         experiment.record(result, record_id="second")
 
-    resolved = bind_invocation(template(), config_profile=load_config())
+    resolved = bind_invocation(experiment(), config_profile=load_config())
     program = resolved.bindings
 
     first, middle, final = program.measurement_postprocessors
@@ -135,14 +135,14 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
         return _DerivedProducts(left=left.result, right=right.result)
 
     @sc.experiment(id="test.postprocessor.hidden-id", kind="postprocessor")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         result = experiment.use(root())
         experiment.record(result.left, record_id="left")
         experiment.record(result.right, record_id="right")
 
     def compile_input_use_ids() -> dict[str, str]:
         program = bind_invocation(
-            template(),
+            experiment(),
             config_profile=load_config(),
         ).bindings
         return {
@@ -170,12 +170,12 @@ def test_recorded_product_requires_a_producer() -> None:
         return context._product("orphan")
 
     @sc.experiment(id="test.product.owner", kind="product-owner")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         result = experiment.use(module())
         experiment.record(result)
 
     with pytest.raises(CheckFailed) as error:
-        bind_invocation(template(), config_profile=load_config())
+        bind_invocation(experiment(), config_profile=load_config())
 
     assert [problem.code for problem in error.value.problems] == [
         "product_acquire_missing"

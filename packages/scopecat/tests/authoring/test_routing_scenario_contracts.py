@@ -183,11 +183,11 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         id="test.resource-binding-scenarios.entity-routing",
         kind="resource_binding_contract",
     )
-    def template(experiment: authoring.ExperimentContext) -> None:
+    def experiment(experiment: authoring.ExperimentContext) -> None:
         experiment.use(module(qubit))
         experiment.grid(axis(qubit, ("q1", "q0", "q1")))
 
-    resolved = bind_invocation(template(), config_profile=config)
+    resolved = bind_invocation(experiment(), config_profile=config)
     preview = materialized_effects_contract(
         resolved,
         resolved.environment.parameters,
@@ -275,12 +275,12 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         id="test.resource-binding-scenarios.channel-selection",
         kind="resource_binding_contract",
     )
-    def template(experiment: authoring.ExperimentContext) -> None:
+    def experiment(experiment: authoring.ExperimentContext) -> None:
         result = experiment.use(module(qubit))
         experiment.grid(axis(qubit, ("q0", "q1", "q0")))
         experiment.record(result)
 
-    resolved = bind_invocation(template(), config_profile=config)
+    resolved = bind_invocation(experiment(), config_profile=config)
     preview = materialized_effects_contract(
         resolved,
         resolved.environment.parameters,
@@ -370,7 +370,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         id="test.resource-binding-scenarios.split-readout",
         kind="resource_binding_contract",
     )
-    def template(
+    def experiment(
         experiment: authoring.ExperimentContext,
         qubit: Annotated[
             authoring.Input[EntityRef | str],
@@ -380,7 +380,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         result = experiment.use(module(qubit))
         experiment.record(result)
 
-    resolved = bind_invocation(template(qubit="q0"), config_profile=config)
+    resolved = bind_invocation(experiment(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
         resolved,
         resolved.environment.parameters,

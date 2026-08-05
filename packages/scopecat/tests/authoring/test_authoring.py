@@ -175,7 +175,7 @@ def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
     assert target.value.root == Quantity(value=4.9, unit="GHz")
 
 
-def test_compute_inputs_close_template_inputs_before_logical_verification() -> None:
+def test_compute_inputs_close_experiment_inputs_before_logical_verification() -> None:
     def build_program(
         *,
         qubit: object,
@@ -215,7 +215,7 @@ def test_compute_inputs_close_template_inputs_before_logical_verification() -> N
         )
 
     @sc.experiment(id="test.compute_provenance", kind="compute_provenance")
-    def template(
+    def experiment(
         experiment: sc.ExperimentContext,
         qubit: _EntityInput,
         pulse_length: _QuantityInput,
@@ -235,7 +235,7 @@ def test_compute_inputs_close_template_inputs_before_logical_verification() -> N
         )
 
     compiled = compile_invocation(
-        template(
+        experiment(
             qubit="q0",
             pulse_length=Quantity(value=20.0, unit="ns"),
         )
@@ -407,7 +407,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         return signal
 
     @sc.experiment(id="test.runtime_entity_scan", kind="runtime_entity_scan")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         signal = experiment.use(
             module(
                 qubit_input=qubit,
@@ -422,7 +422,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         experiment.record(signal)
 
     resolved = bind_invocation(
-        template.bind().with_axis(
+        experiment.bind().with_axis(
             sc.axis(
                 qubit,
                 ["q0", "q1"],
@@ -530,7 +530,7 @@ def test_bound_entity_input_can_select_a_default_parameter_lookup_center() -> No
         id="test.runtime_entity_dependent_points",
         kind="runtime_entity_dependent_points",
     )
-    def template(
+    def experiment(
         experiment: sc.ExperimentContext,
         qubit: _LogicalDeviceInput,
     ) -> None:
@@ -550,7 +550,7 @@ def test_bound_entity_input_can_select_a_default_parameter_lookup_center() -> No
         )
         experiment.record(signal)
 
-    resolved = bind_invocation(template(qubit="q0"), config_profile=config)
+    resolved = bind_invocation(experiment(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
         resolved,
         resolved.environment.parameters,
@@ -623,7 +623,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
         )
 
     @sc.experiment(id="test.invocation-expression", kind="expression")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.use(
             parent(
                 drive_frequency=authoring.parameter(
@@ -633,7 +633,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
             )
         )
 
-    assembly = compile_invocation(template()).program.program
+    assembly = compile_invocation(experiment()).program.program
 
     assert "drive_frequency" not in assembly.inputs
     assert _logical_binding_expression(assembly, 0) == param(
@@ -678,7 +678,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
         )
 
     @sc.experiment(id="test.invocation-deferred", kind="deferred")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.use(
             parent.instantiate(
                 "deferred-parent",
@@ -691,7 +691,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
             )
         )
 
-    assembly = compile_invocation(template()).program.program
+    assembly = compile_invocation(experiment()).program.program
 
     expression = _logical_binding_expression(assembly, 0)
     assert evaluate_scalar(expression, EvalContext()) == 1.75
@@ -878,7 +878,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
     assert lowered_entity.value == EntityRef(id="q0")
 
 
-def test_template_invocation_runs_composed_modules_directly() -> None:
+def test_experiment_invocation_runs_composed_modules_directly() -> None:
     @sc.module(id="test.scripted_module_prelude")
     def prelude(context: sc.ModuleContext) -> None:
         del context
@@ -906,13 +906,13 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         return signal
 
     @sc.experiment(id="test.scripted_scan", kind="simple_scan")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.use(prelude())
         signal = experiment.use(scan(DRIVE_FREQUENCY_POINT))
         experiment.record(signal)
 
     resolved = bind_invocation(
-        template().with_axis(
+        experiment().with_axis(
             sc.axis(
                 DRIVE_FREQUENCY_POINT,
                 center=sc.parameter("drive_frequency", _QUANTITY_VALUE),
@@ -1004,7 +1004,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         id="test.entity_selected_resource",
         kind="entity_selected_resource",
     )
-    def template(
+    def experiment(
         experiment: sc.ExperimentContext,
         qubit: _EntityInput,
     ) -> None:
@@ -1019,7 +1019,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         )
 
     resolved = bind_invocation(
-        template(qubit="q1"),
+        experiment(qubit="q1"),
         config_profile=config,
     )
 
@@ -1047,10 +1047,10 @@ def test_explicit_config_binds_experiment() -> None:
         )
 
     @sc.experiment(id="test.explicit-config-source", kind="config-source")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.use(module())
 
-    resolved = bind_invocation(template(), config_profile=config)
+    resolved = bind_invocation(experiment(), config_profile=config)
     preview = materialized_effects_contract(
         resolved,
         resolved.environment.parameters,

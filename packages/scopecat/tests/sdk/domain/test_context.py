@@ -91,7 +91,7 @@ def _domain_scenario(
         id=f"test.sdk.context.{namespace}",
         kind="domain_context",
     )
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         products = experiment.use(domain_module(count_input=count))
         experiment.grid(sc.axis(count, (1, 3, 5)))
         if record_raw:
@@ -99,7 +99,7 @@ def _domain_scenario(
         experiment.record(products.summary, record_id="summary")
 
     resolved = bind_invocation(
-        template.bind(),
+        experiment.bind(),
         config_profile=load_config(),
     )
     bound = resolved

@@ -27,7 +27,7 @@ def test_point_rows_compile_materialize_and_persist_layout() -> None:
     y = sc.coordinate("y", _INT)
 
     @sc.experiment(id="test.point-rows", kind="point_rows")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.points(
             (
                 {x: 1, y: 10},
@@ -37,7 +37,7 @@ def test_point_rows_compile_materialize_and_persist_layout() -> None:
         )
         experiment.record(x, record_id="observed_x")
 
-    invocation = template()
+    invocation = experiment()
     compiled = compile_invocation(invocation)
 
     assert compiled.program.program.point_domain_layout == "point_cloud"
@@ -81,11 +81,11 @@ def test_empty_point_rows_are_a_zero_point_domain() -> None:
     y = sc.coordinate("y", _FREQUENCY)
 
     @sc.experiment(id="test.empty-point-rows", kind="point_rows")
-    def template(experiment: sc.ExperimentContext) -> None:
+    def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.points((), coordinates=(x, y))
         experiment.record(x, record_id="observed_x")
 
-    invocation = template()
+    invocation = experiment()
     compiled = compile_invocation(invocation)
     request_points = compiled.request.point_plan.domain
     assert isinstance(request_points, PointCloudDomainRecord)

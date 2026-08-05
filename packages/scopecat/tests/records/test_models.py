@@ -81,7 +81,7 @@ def test_config_profile_snapshot_round_trip() -> None:
 
 def test_run_request_records_operator_metadata() -> None:
     request = RunRequest(
-        experiment_id="test.template",
+        experiment_id="test.experiment",
         operator="alice",
         metadata={"sample": "q0"},
     )
