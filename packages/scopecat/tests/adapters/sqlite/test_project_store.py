@@ -5,14 +5,18 @@ from pathlib import Path
 
 import pytest
 
-from scopecat.adapters.sqlite import SchemaVersionError, SQLiteProjectStore
+from scopecat.adapters.sqlite import (
+    SchemaVersionError,
+    SQLiteDatabase,
+    SQLiteProjectStore,
+)
 
 
 def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "control.sqlite3"
-    store = SQLiteProjectStore(database, tmp_path / "objects")
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
 
     store.bootstrap()
     store.bootstrap()
@@ -60,7 +64,7 @@ def test_bootstrap_refuses_a_noncurrent_project_schema(
     version: int,
 ) -> None:
     database = tmp_path / "control.sqlite3"
-    store = SQLiteProjectStore(database, tmp_path / "objects")
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
     store.bootstrap()
     with sqlite3.connect(database) as connection:
         connection.execute("UPDATE project_schema SET version = ?", (version,))
@@ -74,6 +78,6 @@ def test_bootstrap_refuses_tables_without_a_project_schema(tmp_path: Path) -> No
     with sqlite3.connect(database) as connection:
         connection.execute("CREATE TABLE old_state (value TEXT)")
 
-    store = SQLiteProjectStore(database, tmp_path / "objects")
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
     with pytest.raises(SchemaVersionError, match="rebuild it explicitly"):
         store.bootstrap()

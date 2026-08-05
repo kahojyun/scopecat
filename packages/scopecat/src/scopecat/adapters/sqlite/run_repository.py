@@ -14,7 +14,7 @@ from typing import cast
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 
-from scopecat.adapters.sqlite.connection import connect, immediate_transaction
+from scopecat.adapters.sqlite.connection import SQLiteDatabase
 from scopecat.adapters.sqlite.measurement_arrow import (
     MeasurementArrowCodecError,
     decode_measurement_append,
@@ -93,20 +93,12 @@ class SQLiteRunRepository:
 
     def __init__(
         self,
-        database: str | Path,
+        database: SQLiteDatabase,
         objects: str | Path,
-        *,
-        busy_timeout_seconds: float = 5,
     ) -> None:
-        self.database = Path(database)
+        self.sqlite = database
+        self.database = database.path
         self.objects = ImmutableObjectStore(objects)
-        self._busy_timeout_seconds = busy_timeout_seconds
-
-    @property
-    def busy_timeout_seconds(self) -> float:
-        """Return the timeout used by adapters sharing this run store."""
-
-        return self._busy_timeout_seconds
 
     def exists(self, run_id: str, ref: str) -> bool:
         _validate_identity(run_id, ref)
@@ -517,17 +509,11 @@ class SQLiteRunRepository:
 
     @contextmanager
     def _transaction(self) -> Generator[sqlite3.Connection]:
-        with immediate_transaction(
-            self.database,
-            busy_timeout_seconds=self._busy_timeout_seconds,
-        ) as connection:
+        with self.sqlite.write_transaction() as connection:
             yield connection
 
     def _connect(self) -> sqlite3.Connection:
-        return connect(
-            self.database,
-            busy_timeout_seconds=self._busy_timeout_seconds,
-        )
+        return self.sqlite.connect()
 
 
 def _encode_model(model: BaseModel) -> bytes:

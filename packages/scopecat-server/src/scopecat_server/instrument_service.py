@@ -313,7 +313,7 @@ class InstrumentService:
             active.config.instrument_registry.instruments,
             catalog.problems,
         )
-        with self._control.transaction() as connection:
+        with self._control.read_transaction() as connection:
             claims = {
                 claim.resource.id: claim
                 for claim in self._control.list_resource_claims_in_transaction(

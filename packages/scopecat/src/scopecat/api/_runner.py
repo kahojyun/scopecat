@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from threading import Event, Lock, Thread
+from time import monotonic
 from typing import override
 from uuid import uuid4
+
+import httpx2
 
 from scopecat.authoring import MetadataValue
 from scopecat.authoring.experiments import ExperimentInvocation
@@ -15,7 +19,10 @@ from scopecat.control.models import (
     RunPlanSummary,
     RunResourceRequirement,
 )
-from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.client import (
+    DaemonClient,
+    DaemonUnavailableError,
+)
 from scopecat.daemon.execution import (
     ExecutorLeaseLostError,
     LeaseSupervisor,
@@ -241,15 +248,33 @@ class _LeaseHeartbeat(LeaseSupervisor):
         heartbeat: Callable[[], ExecutorLease],
     ) -> None:
         current = lease
-        while not self._stop.wait(current.heartbeat_interval_seconds):
+        deadline, delay = _executor_lease_timing(current)
+        while not self._stop.wait(delay):
             try:
                 current = heartbeat()
                 if current.cancellation_requested_at is not None:
                     self._cancellation_requested.set()
             except Exception as error:
+                if isinstance(error, (DaemonUnavailableError, httpx2.TransportError)):
+                    remaining = deadline - monotonic()
+                    if remaining > 0:
+                        delay = min(
+                            0.25, current.heartbeat_interval_seconds / 2, remaining
+                        )
+                        continue
                 with self._lock:
                     self._failure = (current, error)
                 return
+            deadline, delay = _executor_lease_timing(current)
+
+
+def _executor_lease_timing(lease: ExecutorLease) -> tuple[float, float]:
+    now = datetime.now(UTC)
+    interval = lease.heartbeat_interval_seconds
+    remaining = max((lease.expires_at - now).total_seconds(), 0.0)
+    renewal_at = lease.expires_at - timedelta(seconds=interval * 2)
+    delay = max((renewal_at - now).total_seconds(), 0.0)
+    return monotonic() + remaining, delay
 
 
 def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:

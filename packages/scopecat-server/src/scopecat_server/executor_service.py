@@ -129,7 +129,7 @@ class ExecutorService:
             TerminalRunCommit(run_id=run_id, outcome=outcome)
         )
         try:
-            with self._control.transaction() as connection:
+            with self._control.write_transaction() as connection:
                 current = self._control.get_run_in_transaction(connection, run_id)
                 manifest = self._runs.read_manifest_in_transaction(connection, run_id)
                 if current.state == "closed":
@@ -329,7 +329,7 @@ class ExecutorService:
         executor_id: str,
     ) -> ExecutorLease:
         try:
-            with self._control.transaction() as connection:
+            with self._control.write_transaction() as connection:
                 current = self._control.get_run_in_transaction(connection, run_id)
                 latest_manifest = self._runs.read_manifest_in_transaction(
                     connection,

@@ -6,17 +6,24 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Event, Lock, Thread
+from time import monotonic
 from types import TracebackType
 from typing import Protocol, Self
 from uuid import uuid4
 from weakref import finalize
 
-from scopecat.daemon.client import DaemonClient
+import httpx2
+
+from scopecat.daemon.client import (
+    DaemonClient,
+    DaemonUnavailableError,
+)
 from scopecat.daemon.views import InstrumentListView, InstrumentView
 from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentSessionEndReceipt,
+    InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
 )
@@ -114,9 +121,7 @@ class _InstrumentSessionHeartbeat:
     ) -> None:
         self._client = client
         self._session_id = session.session_id
-        self._initial_renewal_at = (
-            session.renewed_at + (session.expires_at - session.renewed_at) / 3
-        )
+        self._initial_timing = _instrument_lease_timing(session)
         self._stop = Event()
         self._lock = Lock()
         self._failure: Exception | None = None
@@ -143,17 +148,31 @@ class _InstrumentSessionHeartbeat:
         self._thread.join(timeout=_HEARTBEAT_JOIN_SECONDS)
 
     def _run(self) -> None:
-        renewal_at = self._initial_renewal_at
-        while not self._stop.wait(
-            max((renewal_at - datetime.now(UTC)).total_seconds(), 0.0)
-        ):
+        deadline, delay, retry_delay = self._initial_timing
+        while not self._stop.wait(delay):
             try:
                 lease = self._client.renew_instrument_session(self._session_id)
             except Exception as error:
+                if isinstance(error, (DaemonUnavailableError, httpx2.TransportError)):
+                    remaining = deadline - monotonic()
+                    if remaining > 0:
+                        delay = min(0.25, retry_delay, remaining)
+                        continue
                 with self._lock:
                     self._failure = error
                 return
-            renewal_at = lease.renewed_at + (lease.expires_at - lease.renewed_at) / 3
+            deadline, delay, retry_delay = _instrument_lease_timing(lease)
+
+
+def _instrument_lease_timing(
+    lease: InstrumentSessionOpenReceipt | InstrumentSessionLeaseReceipt,
+) -> tuple[float, float, float]:
+    now = datetime.now(UTC)
+    ttl = lease.expires_at - lease.renewed_at
+    remaining = max((lease.expires_at - now).total_seconds(), 0.0)
+    renewal_at = lease.renewed_at + ttl / 3
+    delay = max((renewal_at - now).total_seconds(), 0.0)
+    return monotonic() + remaining, delay, ttl.total_seconds() / 6
 
 
 class LabInstrumentOperations:

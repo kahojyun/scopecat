@@ -11,6 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi import Path as ApiPath
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from scopecat.adapters.sqlite.connection import SQLiteBusyError
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
@@ -676,6 +677,17 @@ def _install_error_mapping(app: FastAPI) -> None:
         error: BackendConflict,
     ) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(error)})
+
+    @app.exception_handler(SQLiteBusyError)
+    async def sqlite_busy(
+        _request: Request,
+        error: SQLiteBusyError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": str(error)},
+            headers={"Retry-After": "1"},
+        )
 
 
 async def _event_stream(

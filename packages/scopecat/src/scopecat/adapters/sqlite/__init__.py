@@ -5,6 +5,7 @@ from scopecat.adapters.sqlite.config_registry import (
     SQLiteConfigRegistryStore,
     SQLiteConfigRegistryUnitOfWork,
 )
+from scopecat.adapters.sqlite.connection import SQLiteDatabase
 from scopecat.adapters.sqlite.control_plane import (
     ControlPlaneConflict,
     ControlPlaneNotFound,
@@ -38,6 +39,7 @@ __all__ = [
     "SQLiteConfigRegistryStore",
     "SQLiteConfigRegistryUnitOfWork",
     "SQLiteControlPlane",
+    "SQLiteDatabase",
     "SQLiteExecutionJournal",
     "SQLiteMeasurementDatasetRepository",
     "SQLiteProjectStore",

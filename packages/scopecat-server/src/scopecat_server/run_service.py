@@ -175,7 +175,7 @@ class RunService:
         before: int | None,
         state: ControlRunState | None,
     ) -> RunSummaryPage:
-        with self._control.transaction() as connection:
+        with self._control.read_transaction() as connection:
             page = self._control.list_runs_in_transaction(
                 connection,
                 limit=limit,
@@ -205,7 +205,7 @@ class RunService:
     ) -> RunSummaryPage:
         """List staged runs without scanning unrelated run manifests."""
 
-        with self._control.transaction() as connection:
+        with self._control.read_transaction() as connection:
             page = self._control.list_staged_runs_in_transaction(
                 connection,
                 limit=limit,
@@ -228,7 +228,7 @@ class RunService:
 
     def get_run(self, run_id: str) -> RunDetail:
         try:
-            with self._control.transaction() as connection:
+            with self._control.read_transaction() as connection:
                 control = self._control.get_run_in_transaction(connection, run_id)
                 manifest = self._runs.read_manifest_in_transaction(connection, run_id)
                 claims = {
@@ -357,7 +357,7 @@ class RunService:
                 parameter_proposals=proposals,
             )
             publication = self._runs.prepare_content_publication(prepared.publication)
-            with self._control.transaction() as connection:
+            with self._control.write_transaction() as connection:
                 existing = {
                     entry.id: entry.content_hash
                     for entry in self._runs.read_manifest_in_transaction(

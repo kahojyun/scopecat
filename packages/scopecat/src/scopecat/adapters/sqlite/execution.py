@@ -14,7 +14,6 @@ from typing import cast
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
-from scopecat.adapters.sqlite.connection import connect
 from scopecat.adapters.sqlite.measurement_arrow import (
     MeasurementArrowCodecError,
     decode_measurement_record_indices,
@@ -493,12 +492,7 @@ class SQLiteMeasurementDatasetRepository:
         """Read the canonical schema without loading any measurement append."""
 
         try:
-            with closing(
-                connect(
-                    self._runs.database,
-                    busy_timeout_seconds=self._runs.busy_timeout_seconds,
-                )
-            ) as connection:
+            with closing(self._runs.sqlite.connect()) as connection:
                 header_row = _measurement_header_row(connection, self._run_id)
             if header_row is None:
                 return None
@@ -526,12 +520,7 @@ class SQLiteMeasurementDatasetRepository:
         """Read one record page plus its canonical dataset schema."""
 
         try:
-            with closing(
-                connect(
-                    self._runs.database,
-                    busy_timeout_seconds=self._runs.busy_timeout_seconds,
-                )
-            ) as connection:
+            with closing(self._runs.sqlite.connect()) as connection:
                 rows = _all(
                     connection.execute(
                         """
@@ -597,12 +586,7 @@ class SQLiteMeasurementDatasetRepository:
 
         selected = tuple(sorted(set(point_indices)))
         try:
-            with closing(
-                connect(
-                    self._runs.database,
-                    busy_timeout_seconds=self._runs.busy_timeout_seconds,
-                )
-            ) as connection:
+            with closing(self._runs.sqlite.connect()) as connection:
                 rows = _measurement_rows(connection, self._run_id)
                 header_row = _measurement_header_row(connection, self._run_id)
             if header_row is None:

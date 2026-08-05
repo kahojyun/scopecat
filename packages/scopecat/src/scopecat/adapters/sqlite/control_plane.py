@@ -7,13 +7,12 @@ import sqlite3
 from collections.abc import Collection, Generator
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
 from pydantic import JsonValue, TypeAdapter
 
-from scopecat.adapters.sqlite.connection import connect, immediate_transaction
+from scopecat.adapters.sqlite.connection import SQLiteDatabase
 from scopecat.control.models import (
     ControlRun,
     ControlRunState,
@@ -56,11 +55,9 @@ class InstrumentSessionNotActive(ControlPlaneConflict):
 class SQLiteControlPlane:
     """Transactional scheduler state and globally ordered durable events."""
 
-    def __init__(self, path: str | Path, *, busy_timeout: timedelta | None = None):
-        self.path = Path(path)
-        self._busy_timeout_seconds = (
-            busy_timeout or timedelta(seconds=5)
-        ).total_seconds()
+    def __init__(self, database: SQLiteDatabase):
+        self.sqlite = database
+        self.path = database.path
 
     def admit_run_in_transaction(
         self,
@@ -682,7 +679,7 @@ class SQLiteControlPlane:
 
         _ttl(ttl)
         renewed_at = at or datetime.now(tz=UTC)
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             lease = self._live_executor(
                 connection,
                 token,
@@ -734,7 +731,7 @@ class SQLiteControlPlane:
     ) -> Generator[sqlite3.Connection]:
         """Serialize lease validation with every durable executor effect."""
 
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             checked_at = at or datetime.now(tz=UTC)
             self._live_executor(
                 connection,
@@ -932,7 +929,7 @@ class SQLiteControlPlane:
             ResourceKey(kind="instrument", id=exclusivity_key)
             for exclusivity_key in exclusivity_keys
         )
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             retry_row = _one(
                 connection.execute(
                     """
@@ -1134,7 +1131,7 @@ class SQLiteControlPlane:
 
         _ttl(ttl)
         renewed_at = at or datetime.now(tz=UTC)
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             self._live_instrument_session(
                 connection,
                 session_id=session_id,
@@ -1202,7 +1199,7 @@ class SQLiteControlPlane:
         if not operation_id:
             raise ValueError("instrument operation id must be non-empty")
         started_at = at or datetime.now(tz=UTC)
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             session = self._live_instrument_session(
                 connection,
                 session_id=session_id,
@@ -1246,7 +1243,7 @@ class SQLiteControlPlane:
         at: datetime | None = None,
     ) -> InstrumentSession:
         finished_at = at or datetime.now(tz=UTC)
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             session = self._live_instrument_session(
                 connection,
                 session_id=session_id,
@@ -1293,7 +1290,7 @@ class SQLiteControlPlane:
         if status not in {"closed", "aborted"}:
             raise ValueError(f"unsupported instrument session end status: {status}")
         closed_at = at or datetime.now(tz=UTC)
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             current = self._instrument_session_row(connection, session_id)
             if current.state == "closed":
                 return current
@@ -1323,7 +1320,7 @@ class SQLiteControlPlane:
         """Close one expired idle session after its actor has been released."""
 
         expired_at = at or datetime.now(tz=UTC)
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             current = self._instrument_session_row(connection, session_id)
             if current.state == "closed":
                 return current
@@ -1356,7 +1353,7 @@ class SQLiteControlPlane:
         if not reason:
             raise ValueError("instrument session attention reason must be non-empty")
         lost_at = at or datetime.now(tz=UTC)
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             current = self._instrument_session_row(connection, session_id)
             if current.state != "active":
                 raise InstrumentSessionNotActive("instrument session is not active")
@@ -1375,7 +1372,7 @@ class SQLiteControlPlane:
     ) -> tuple[str, ...]:
         reconciled_at = at or datetime.now(tz=UTC)
         quarantined: list[str] = []
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             rows = _all(
                 connection.execute(
                     """
@@ -1412,7 +1409,7 @@ class SQLiteControlPlane:
         at: datetime | None = None,
     ) -> InstrumentSession:
         resolved_at = at or datetime.now(tz=UTC)
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             current = self._instrument_session_row(connection, session_id)
             if current.state != "attention_required":
                 raise ControlPlaneConflict(
@@ -1465,7 +1462,7 @@ class SQLiteControlPlane:
         """Expire stale executors and quarantine resources of active runs."""
 
         expired_at = at or datetime.now(tz=UTC)
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             rows = _all(
                 connection.execute(
                     """
@@ -1494,7 +1491,7 @@ class SQLiteControlPlane:
         """Fence executors from the previous daemon process immediately."""
 
         abandoned_at = at or datetime.now(tz=UTC)
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             rows = _all(
                 connection.execute("SELECT run_id FROM executor_leases ORDER BY run_id")
             )
@@ -1523,7 +1520,7 @@ class SQLiteControlPlane:
         if not reason:
             raise ValueError("executor attention reason must be non-empty")
         lost_at = at or datetime.now(tz=UTC)
-        with self._transaction() as connection:
+        with self.write_transaction() as connection:
             row = _one(
                 connection.execute(
                     "SELECT * FROM executor_leases WHERE run_id = ?",
@@ -1910,25 +1907,21 @@ class SQLiteControlPlane:
         )
 
     @contextmanager
-    def _transaction(self) -> Generator[sqlite3.Connection]:
-        with immediate_transaction(
-            self.path,
-            busy_timeout_seconds=self._busy_timeout_seconds,
-        ) as connection:
+    def write_transaction(self) -> Generator[sqlite3.Connection]:
+        """Open one daemon-owned write unit spanning SQLite adapters."""
+
+        with self.sqlite.write_transaction() as connection:
             yield connection
 
     @contextmanager
-    def transaction(self) -> Generator[sqlite3.Connection]:
-        """Open one daemon-owned write unit spanning SQLite adapters."""
+    def read_transaction(self) -> Generator[sqlite3.Connection]:
+        """Open one consistent read snapshot without reserving the writer."""
 
-        with self._transaction() as connection:
+        with self.sqlite.read_transaction() as connection:
             yield connection
 
     def _connect(self) -> sqlite3.Connection:
-        return connect(
-            self.path,
-            busy_timeout_seconds=self._busy_timeout_seconds,
-        )
+        return self.sqlite.connect()
 
 
 def _run(row: sqlite3.Row) -> ControlRun:

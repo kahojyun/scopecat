@@ -16,7 +16,7 @@ import httpx2
 import psutil
 import pytest
 from fastapi.testclient import TestClient
-from scopecat.adapters.sqlite import SQLiteControlPlane
+from scopecat.adapters.sqlite import SQLiteControlPlane, SQLiteDatabase
 from scopecat.api.lab import LabClient
 from scopecat.authoring import (
     ExperimentContext,
@@ -754,14 +754,16 @@ def test_runtime_shutdown_fences_a_blocked_session_and_marks_it_unknown(
     assert str(invoke_errors[0]) == "instrument invoke failed with unknown state"
     assert not psutil.pid_exists(endpoint.worker_pid)
 
-    control = SQLiteControlPlane(project / ".scopecat" / "control.sqlite3")
+    control = SQLiteControlPlane(
+        SQLiteDatabase(project / ".scopecat" / "control.sqlite3")
+    )
     durable = control.get_instrument_session(session.session_id)
     assert durable.state == "attention_required"
     assert durable.attention_reason == "instrument_invoke_unknown"
     assert durable.active_operation_id == "blocked-invoke"
     assert durable.active_operation_kind == "invoke"
     assert durable.end_status is None
-    with control.transaction() as connection:
+    with control.read_transaction() as connection:
         [claim] = control.list_resource_claims_in_transaction(connection)
     assert claim.owner_id == session.session_id
     assert claim.status == "quarantined"

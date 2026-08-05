@@ -14,6 +14,7 @@ from filelock import FileLock, Timeout
 from scopecat.adapters.sqlite import (
     SQLiteConfigRegistryStore,
     SQLiteControlPlane,
+    SQLiteDatabase,
     SQLiteProjectStore,
     SQLiteRunRepository,
 )
@@ -99,20 +100,21 @@ class LocalDaemonRuntime:
                     instrument_backend_spec,
                 )
 
-            control = SQLiteControlPlane(database)
-            runs = SQLiteRunRepository(database, objects)
+            sqlite = SQLiteDatabase(database)
+            project_store = SQLiteProjectStore(sqlite, objects)
+            project_store.bootstrap()
+
+            control = SQLiteControlPlane(sqlite)
+            runs = SQLiteRunRepository(sqlite, objects)
             config_registry = SQLiteConfigRegistryStore(
-                database,
+                sqlite,
                 runs=runs,
             )
-
-            project_store = SQLiteProjectStore(database, objects)
-            project_store.bootstrap()
             payloads = CommandPayloadService(project_store.objects)
 
             services = ProjectStateServices(
                 runs=runs,
-                config_registry=config_registry.unit_of_work,
+                config_registry=config_registry.read_unit_of_work,
             )
             instrument_actors = InstrumentActorRegistry()
             config_service = ConfigService(

@@ -10,7 +10,7 @@ from typing import Never, override
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
-from scopecat.adapters.sqlite import SQLiteControlPlane
+from scopecat.adapters.sqlite import SQLiteControlPlane, SQLiteDatabase
 from scopecat.api._instruments import (
     InstrumentClientChannel,
     InstrumentRef,
@@ -814,7 +814,9 @@ def test_staged_run_is_rediscovered_and_resumed_by_a_new_daemon_client(
     assert not resumed.stopped_by_limit
     assert [stage.index for stage in rediscovered.stages] == [0, 1]
 
-    control = SQLiteControlPlane(tmp_path / ".scopecat" / "control.sqlite3")
+    control = SQLiteControlPlane(
+        SQLiteDatabase(tmp_path / ".scopecat" / "control.sqlite3")
+    )
     durable = tuple(reversed(control.list_staged_runs(sequence_id=sequence_id).items))
     assert [run.admission.submission_id for run in durable] == [
         f"staged:{sequence_id}:0",
@@ -1372,7 +1374,7 @@ def test_session_expiry_during_recorded_operation_quarantines_owner(
                 durable.attention_reason
                 == "instrument_session_lease_expired_during_operation"
             )
-            with control.transaction() as connection:
+            with control.read_transaction() as connection:
                 [claim] = control.list_resource_claims_in_transaction(connection)
             assert claim.status == "quarantined"
             [driver] = provider.drivers
@@ -1478,7 +1480,7 @@ def test_session_open_fences_an_activation_after_active_resolution(
 
             control = runtime.application.executor._control
             assert control.list_instrument_sessions() == ()
-            with control.transaction() as connection:
+            with control.read_transaction() as connection:
                 assert control.list_resource_claims_in_transaction(connection) == ()
             assert provider.drivers == []
 

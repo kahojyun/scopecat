@@ -6,6 +6,7 @@ from typing import cast
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from scopecat.adapters.sqlite.connection import SQLiteBusyError
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.control.models import (
     DurableEvent,
@@ -189,6 +190,7 @@ class FakeInstruments:
         self.last_contract_config: ConfigProfileSnapshot | None = None
         self.last_driver_probe: InstrumentDriverProbeCommand | None = None
         self.last_renewed_session_id: str | None = None
+        self.renewal_unavailable = False
 
     def resolve_instrument_contracts(
         self,
@@ -230,6 +232,8 @@ class FakeInstruments:
         )
 
     def renew_session(self, session_id: str) -> InstrumentSessionLeaseReceipt:
+        if self.renewal_unavailable:
+            raise SQLiteBusyError("project database writer is busy")
         self.last_renewed_session_id = session_id
         return InstrumentSessionLeaseReceipt(
             session_id=session_id,
@@ -440,6 +444,18 @@ def test_instrument_session_heartbeat_renews_the_lease() -> None:
     receipt = InstrumentSessionLeaseReceipt.model_validate(response.json())
     assert receipt.session_id == "session-1"
     assert backend.instruments.last_renewed_session_id == "session-1"
+
+
+def test_temporary_backend_unavailability_is_retryable() -> None:
+    backend = FakeApplication()
+    backend.instruments.renewal_unavailable = True
+    client = TestClient(_create_test_app(backend))
+
+    response = client.post("/api/v1/instrument-sessions/session-1/heartbeat")
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "1"
+    assert response.json() == {"detail": "project database writer is busy"}
 
 
 def test_static_dist_serves_files_and_spa_without_shadowing_api(

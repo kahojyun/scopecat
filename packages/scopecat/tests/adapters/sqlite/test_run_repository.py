@@ -9,7 +9,11 @@ from threading import Barrier
 import pytest
 from pydantic import BaseModel
 
-from scopecat.adapters.sqlite import SQLiteProjectStore, SQLiteRunRepository
+from scopecat.adapters.sqlite import (
+    SQLiteDatabase,
+    SQLiteProjectStore,
+    SQLiteRunRepository,
+)
 from scopecat.kernel.errors import (
     CheckFailed,
     Conflict,
@@ -48,12 +52,13 @@ class _PortableRecord(BaseModel):
 
 
 def _repository(root: Path) -> SQLiteTestRunRepository:
+    sqlite = SQLiteDatabase(root / "control.sqlite3")
     SQLiteProjectStore(
-        root / "control.sqlite3",
+        sqlite,
         root / "objects",
     ).bootstrap()
     repository = SQLiteTestRunRepository(
-        root / "control.sqlite3",
+        sqlite,
         root / "objects",
     )
     return repository
@@ -576,7 +581,7 @@ def test_terminal_commit_merges_contents_after_acquiring_the_write_transaction(
         for future in futures:
             future.result()
 
-    peer = SQLiteRunRepository(repository.database, repository.objects.root)
+    peer = SQLiteRunRepository(repository.sqlite, repository.objects.root)
     assert {entry.id for entry in peer.read_manifest(run_id).contents} == {
         "existing",
         "first",
@@ -702,7 +707,7 @@ def test_content_publications_merge_the_latest_manifest_across_writers(
     repository.write_manifest(
         _manifest(run_id).model_copy(update={"contents": (_content("existing"),)})
     )
-    peer = SQLiteRunRepository(repository.database, repository.objects.root)
+    peer = SQLiteRunRepository(repository.sqlite, repository.objects.root)
     ready = Barrier(2)
 
     def publish(selected: SQLiteRunRepository, content_id: str) -> None:

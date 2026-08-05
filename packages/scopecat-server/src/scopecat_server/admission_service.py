@@ -132,7 +132,7 @@ class AdmissionService:
 
         prepared = self._runs.prepare_run_skeleton(skeleton)
         try:
-            with self._control.transaction() as connection:
+            with self._control.write_transaction() as connection:
                 run = self._control.admit_run_in_transaction(
                     connection,
                     admission,
@@ -308,7 +308,7 @@ class AdmissionService:
             TerminalRunCommit(run_id=run_id, outcome=outcome)
         )
         try:
-            with self._control.transaction() as connection:
+            with self._control.write_transaction() as connection:
                 released = self._control.release_run_resources_in_transaction(
                     connection,
                     run_id,
