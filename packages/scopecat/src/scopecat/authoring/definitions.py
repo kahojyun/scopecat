@@ -850,12 +850,8 @@ def _module_from_function[ResultT, **P](
         )
         values: dict[str, object] = dict(runtime_values)
         for name, value in structural_values.items():
-            values[name] = (
-                context.capture_structural_value_internal(value)
-                if isinstance(value, ValueRef)
-                else value
-            )
-        result = source(context, **values)
+            values[name] = context.capture_structural_value_internal(value)
+        result = context.capture_result_internal(source(context, **values))
         module_def = context.close_definition_internal(
             id=selected_id,
             input_ports=tuple(

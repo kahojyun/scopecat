@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, assert_type, cast
 
 import pytest
@@ -12,12 +13,19 @@ import scopecat as sc
 from scopecat.api.analysis import AnalysisDefinition, AnalysisInvocation
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
+from scopecat.program.products import ProductAxis
 from scopecat.sdk.instruments import InterfaceRef
 
 _COUNT_TYPE = sc.IntType(minimum=0)
 _COUNTER = InterfaceRef("test.counter/v1")
 _COUNTER_COUNT = _COUNTER.property("count")
 _GLOBAL_COUNT = sc.coordinate("global_count", sc.ScalarType(_COUNT_TYPE))
+
+
+@dataclass(frozen=True, slots=True)
+class _StructuralValues:
+    ordered: tuple[sc.ValueRef[int], ...]
+    named: Mapping[str, sc.ValueRef[int]]
 
 
 def _identity_count(*, value: object) -> object:
@@ -321,6 +329,90 @@ def test_symbolic_structural_argument_becomes_a_private_module_import() -> None:
         )
 
     compile_invocation(authored())
+
+
+def test_nested_structural_values_are_deduplicated_deterministically() -> None:
+    point = sc.coordinate("selected", sc.IntType())
+
+    @sc.module(id="test.function.nested-structural-values")
+    def expose(
+        module: sc.ModuleContext,
+        values: _StructuralValues,
+    ) -> sc.ValueRef[int]:
+        del module
+        assert values.ordered[0].id == values.named["same"].id
+        return values.named["same"]
+
+    values = _StructuralValues((point,), {"same": point})
+    first = expose(values)
+    second = expose(values)
+
+    assert [port.id for port in first.module.definition.interface.imports] == [
+        "__structural_0"
+    ]
+    assert [port.id for port in second.module.definition.interface.imports] == [
+        "__structural_0"
+    ]
+    assert first.inputs["__structural_0"] is point
+    assert second.inputs["__structural_0"] is point
+
+
+def test_structural_child_invocation_closes_its_external_bindings() -> None:
+    point = sc.coordinate("selected", sc.IntType())
+
+    @sc.module(id="test.function.structural-child")
+    def child(
+        module: sc.ModuleContext,
+        value: sc.Input[int],
+    ) -> sc.ValueRef[int]:
+        del module
+        return sc.input_ref(value)
+
+    @sc.module(id="test.function.structural-parent")
+    def parent(
+        module: sc.ModuleContext,
+        invocation: sc.ModuleInvocation[sc.ValueRef[int]],
+    ) -> sc.ValueRef[int]:
+        return module.use(invocation)
+
+    invocation = parent(child(point))
+    [private_port] = invocation.module.definition.interface.imports
+    [nested] = invocation.module.definition.body.child_instances
+    [binding] = nested.input_bindings
+    assert private_port.id == "__structural_0"
+    assert binding.import_id == "value"
+    assert binding.source.value_type == private_port.value_type
+    assert invocation.inputs[private_port.id] is point
+
+
+def test_parametric_context_ingestion_captures_external_values_once() -> None:
+    point = sc.coordinate("selected", sc.IntType())
+
+    @sc.module(id="test.function.structural-ingestion")
+    def structural_ingestion(
+        module: sc.ModuleContext,
+        product_id: str,
+    ) -> sc.ProductRef:
+        module.compute(
+            "copy",
+            fn=_identity_count,
+            inputs={"value": point},
+            output_type=sc.ScalarType(_COUNT_TYPE),
+        )
+        return module._product(
+            product_id,
+            axes=(ProductAxis("sample", size=point),),
+        )
+
+    invocation = structural_ingestion("result")
+    [private_port] = invocation.module.definition.interface.imports
+    [operation] = invocation.module.definition.body.operations
+    [product] = invocation.module.definition.body.products
+    assert private_port.id == "__structural_0"
+    assert cast("sc.ValueRef", dict(operation.inputs)["value"]).id == (
+        cast("sc.ValueRef", product.axes[0].size).id
+    )
+    assert invocation.inputs[private_port.id] is point
 
 
 def test_use_returns_typed_results_and_requires_an_occurrence() -> None:
