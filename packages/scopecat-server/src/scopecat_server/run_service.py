@@ -135,6 +135,9 @@ def _run_control_view(control: ControlRun) -> RunControlView:
         admission=RunAdmissionView(
             run_id=control.run_id,
             admitted_at=control.admission.admitted_at,
+            display_name=control.admission.display_name,
+            tags=control.admission.tags,
+            description=control.admission.description,
             plan=RunPlanView(
                 experiment_id=plan.experiment_id,
                 experiment_kind=plan.experiment_kind,

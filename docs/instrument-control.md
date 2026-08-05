@@ -146,7 +146,7 @@ import scopecat as sc
 from scopecat_instruments import network_sweep
 
 
-@sc.experiment(id="resonator.capture", kind="resonator")
+@sc.experiment
 def capture(experiment: sc.ExperimentContext) -> None:
     vna = network_sweep(experiment, "readout")
     vna.ensure(

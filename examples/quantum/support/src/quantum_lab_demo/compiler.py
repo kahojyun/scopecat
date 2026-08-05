@@ -36,6 +36,7 @@ from scopecat_quantum.programs import (
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
+from quantum_lab_demo.parameters import QUBITS
 from quantum_lab_demo.point_values import QuantumLabPointValues
 from quantum_lab_demo.targets.configuration import (
     FAKE_LIST_TARGET_KIND,
@@ -53,7 +54,6 @@ from quantum_lab_demo.targets.fake_list_mode import (
     realize_fetched_fake_measurements,
 )
 from quantum_lab_demo.virtual_lab.compiler_parameters import QuantumCompilerParameters
-from quantum_lab_demo.virtual_lab.parameters import QUBIT_PARAMETER_TABLE
 from quantum_lab_demo.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
 from quantum_lab_demo.virtual_lab.quantum_responses import quantum_lab_response
 
@@ -238,7 +238,7 @@ def _validate_call(
     ):
         raise ValueError("quantum Program result ports changed before compilation")
     compiler_input_ids = tuple(port.id for port in call.program.compiler_inputs)
-    if compiler_input_ids not in ((), (QUBIT_PARAMETER_TABLE,)):
+    if compiler_input_ids not in ((), (QUBITS.id,)):
         raise ValueError("quantum compiler inputs must be the qubits collection")
     for result in program.results:
         binding = call.result(result.id)
@@ -272,7 +272,7 @@ def _compile_points(
         tuple(QuantumCompilerParameters() for _ordinal in point_ordinals)
         if not inputs.compiler
         else inputs.decode_compiler_collection(
-            QUBIT_PARAMETER_TABLE,
+            QUBITS.id,
             QuantumCompilerParameters.from_qubit_rows,
         )
     )

@@ -169,6 +169,7 @@ class ModuleExportScalarExpr(ScalarExpr):
     invocation_key: InvocationKey
     export_id: str
     value_type: Scalar = field()
+    source_value_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

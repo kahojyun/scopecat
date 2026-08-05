@@ -32,12 +32,12 @@ from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCatalog,
 )
+from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementDatasetSchema,
     MeasurementRecord,
     MeasurementValue,
-    MeasurementVariableRole,
 )
 
 

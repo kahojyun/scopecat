@@ -26,6 +26,7 @@ from scopecat.program.value_refs import (
     ValueRef,
     internal_module_export_value_ref,
 )
+from scopecat.program.value_transforms import internal_project_value_ref_source_id
 
 
 class DomainCallProvider(Protocol):
@@ -117,6 +118,12 @@ def create_module_invocation[ResultT](
                 key,
                 port.id,
                 port.value_type,
+                source_value_id=internal_project_value_ref_source_id(
+                    port.source,
+                    inputs,
+                    scope=(instance_id,),
+                    origin=(key,),
+                ),
             )
             for port in module.definition.interface.exports
         ),
@@ -139,14 +146,13 @@ def _invocation_product_refs(
 ) -> ProductRefs:
     return ProductRefs(
         {
-            port.qualified_id: ProductRef(
-                product_id=port.symbol_id.prefixed(instance_id),
-                origin=(key, *port.target_origin),
-                _recording=(
-                    None
-                    if port.recording is None
-                    else port.recording.prefixed(instance_id)
-                ),
+            port.qualified_id: ProductRef.from_export(
+                port.projected_by(
+                    ModuleInstanceLookup(
+                        invocation_key=key,
+                        instance_id=instance_id,
+                    )
+                )
             )
             for port in module.definition.products
         }

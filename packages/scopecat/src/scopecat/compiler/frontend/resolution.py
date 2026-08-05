@@ -62,6 +62,9 @@ class CompiledInvocation:
 def compile_invocation(
     invocation: ExperimentInvocation,
     *,
+    display_name: str | None = None,
+    tags: tuple[str, ...] = (),
+    description: str | None = None,
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
 ) -> CompiledInvocation:
@@ -86,6 +89,9 @@ def compile_invocation(
         inputs=inputs,
         point_plan=base_plan,
         base_domain=base_domain,
+        display_name=display_name,
+        tags=tags,
+        description=description,
         metadata=metadata,
         operator=operator,
     )
@@ -177,6 +183,9 @@ def _materialized_request(
     inputs: Mapping[str, object],
     point_plan: PointPlan,
     base_domain: VerifiedPointDomain,
+    display_name: str | None,
+    tags: tuple[str, ...],
+    description: str | None,
     metadata: Mapping[str, object] | None,
     operator: str | None,
 ) -> RunRequest:
@@ -191,6 +200,9 @@ def _materialized_request(
     return RunRequest.model_validate(
         {
             "experiment_id": invocation.definition.id,
+            "display_name": display_name,
+            "tags": tags,
+            "description": description,
             "inputs": request_inputs,
             "point_plan": PointPlanRecord(
                 domain=request_point_domain,

@@ -47,6 +47,9 @@ export interface ProjectRun {
   sequence?: number;
   runId: string;
   experimentId: string;
+  displayName?: string;
+  tags: string[];
+  description?: string;
   status: PresentationRunStatus;
   stateLabel: string;
   createdAt?: string;

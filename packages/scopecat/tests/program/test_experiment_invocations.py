@@ -9,6 +9,19 @@ from scopecat.program.definitions import (
 from scopecat.program.module import ModuleBody, ModuleInterface
 
 
+def test_invocation_carries_its_authored_output() -> None:
+    definition = ExperimentDef(
+        id="test.invocation-output",
+        kind="test",
+        interface=ModuleInterface(),
+        body=ModuleBody(),
+    )
+    schema = object()
+
+    invocation = ExperimentInvocation(definition, output=schema)
+    assert invocation.output is schema
+
+
 def test_bind_is_last_write_and_unbind_reinherits_definition_input() -> None:
     definition = ExperimentDef(
         id="test.invocation-inputs",
@@ -18,7 +31,7 @@ def test_bind_is_last_write_and_unbind_reinherits_definition_input() -> None:
         inputs=(ExperimentInputDef("shots", Scalar(Int()), default=2),),
     )
 
-    selected = ExperimentInvocation(definition).bind(shots=3).bind(shots=5)
+    selected = ExperimentInvocation(definition, output=None).bind(shots=3).bind(shots=5)
     inherited = selected.unbind("shots")
 
     assert selected.input_overrides == {"shots": 5}

@@ -229,7 +229,7 @@ def test_compute_inputs_close_experiment_inputs_before_logical_verification() ->
                     "sample_qubits",
                     key={"qubit": qubit_ref},
                     column="drive_frequency",
-                    value_type=authoring.ScalarType(authoring.QuantityType()),
+                    value_type=authoring.QuantityType(),
                 ),
             )
         )
@@ -378,7 +378,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
     )
     qubit = sc.coordinate(
         "qubit",
-        authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
+        authoring.EntityType(entity_kind="logical_device"),
     )
 
     @sc.module(id="test.runtime_entity_scan")
@@ -415,7 +415,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
                     "sample_qubits",
                     key={"qubit": qubit},
                     column="drive_frequency",
-                    value_type=authoring.ScalarType(authoring.QuantityType(unit="GHz")),
+                    value_type=authoring.QuantityType(unit="GHz"),
                 ),
             )
         )
@@ -628,7 +628,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
             parent(
                 drive_frequency=authoring.parameter(
                     "drive_frequency",
-                    authoring.ScalarType(authoring.QuantityType()),
+                    authoring.QuantityType(),
                 )
             )
         )
@@ -1013,7 +1013,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
                 qubit=qubit,
                 drive_frequency=authoring.parameter(
                     "drive_frequency",
-                    authoring.ScalarType(authoring.QuantityType(unit="GHz")),
+                    authoring.QuantityType(unit="GHz"),
                 ),
             )
         )

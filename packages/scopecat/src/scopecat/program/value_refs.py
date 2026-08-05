@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import cast, override
+from typing import Self, cast, override
 from uuid import uuid4
 
 from scopecat.kernel.entity import EntityRef
@@ -95,7 +95,7 @@ class PointValueDependency:
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class ValueRef:
+class ValueRef[T = object]:
     """Opaque public handle for one typed canonical program value.
 
     Values are created by DSL factories such as :func:`scopecat.input` and
@@ -126,10 +126,10 @@ class ValueRef:
             msg = "module export table source must be assignable to its value type"
             raise TypeError(msg)
 
-    def __copy__(self) -> ValueRef:
+    def __copy__(self) -> Self:
         return self
 
-    def __deepcopy__(self, memo: dict[int, object]) -> ValueRef:
+    def __deepcopy__(self, memo: dict[int, object]) -> Self:
         del memo
         return self
 
@@ -151,29 +151,37 @@ class ValueRef:
     def __hash__(self) -> int:
         return hash(self.id)
 
-    def __add__(self, other: object) -> ValueRef:
+    def __add__(self, other: object) -> ValueRef[object]:
         return _binary_value(self, other, "+")
 
-    def __radd__(self, other: object) -> ValueRef:
+    def __radd__(self, other: object) -> ValueRef[object]:
         return _binary_value(other, self, "+")
 
-    def __sub__(self, other: object) -> ValueRef:
+    def __sub__(self, other: object) -> ValueRef[object]:
         return _binary_value(self, other, "-")
 
-    def __rsub__(self, other: object) -> ValueRef:
+    def __rsub__(self, other: object) -> ValueRef[object]:
         return _binary_value(other, self, "-")
 
-    def __mul__(self, other: object) -> ValueRef:
+    def __mul__(self, other: object) -> ValueRef[object]:
         return _binary_value(self, other, "*")
 
-    def __rmul__(self, other: object) -> ValueRef:
+    def __rmul__(self, other: object) -> ValueRef[object]:
         return _binary_value(other, self, "*")
 
-    def __truediv__(self, other: object) -> ValueRef:
+    def __truediv__(self, other: object) -> ValueRef[object]:
         return _binary_value(self, other, "/")
 
-    def __rtruediv__(self, other: object) -> ValueRef:
+    def __rtruediv__(self, other: object) -> ValueRef[object]:
         return _binary_value(other, self, "/")
+
+
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
+class CoordinateRef[T = object](ValueRef[T]):
+    """A direct experiment-point coordinate accepted by dataset lookups."""
+
+    source: PointColumnScalarExpr
+    value_type: Scalar
 
 
 def internal_input_value_ref(input_id: str, value_type: ValueType) -> ValueRef:
@@ -214,13 +222,19 @@ def internal_operation_result_value_ref(
     )
 
 
-def internal_point_value_ref(point_id: str, value_type: Scalar) -> ValueRef:
+def internal_point_value_ref(point_id: str, value_type: Scalar) -> CoordinateRef:
     """Create a typed value supplied by the current experiment point."""
 
-    return ValueRef(
+    return CoordinateRef(
         source=point_col(point_id, value_type),
         value_type=value_type,
     )
+
+
+def internal_coordinate_ref_id(value: CoordinateRef) -> str:
+    """Return the canonical point id carried by a coordinate handle."""
+
+    return value.source.name
 
 
 def internal_parameter_lookup_value_ref(
@@ -275,6 +289,8 @@ def internal_module_export_value_ref(
     invocation_key: InvocationKey,
     export_id: str,
     value_type: ValueType,
+    *,
+    source_value_id: str | None = None,
 ) -> ValueRef:
     """Create an unresolved use of one invocation's exported value.
 
@@ -287,6 +303,7 @@ def internal_module_export_value_ref(
         source: _ValueSource = ModuleExportScalarExpr(
             invocation_key=invocation_key,
             export_id=export_id,
+            source_value_id=source_value_id,
             value_type=value_type,
         )
     else:
@@ -328,8 +345,8 @@ def internal_value_ref_operation_origin(value: ValueRef) -> tuple[object, ...]:
     return source.origin if isinstance(source, ComputeResultScalarExpr) else ()
 
 
-def internal_value_ref_record_id(value: ValueRef) -> str | None:
-    """Return a stable user-facing id for a directly named scalar value."""
+def internal_value_ref_source_id(value: ValueRef) -> str | None:
+    """Return the stable source identity of a directly named scalar value."""
 
     operation_id = internal_value_ref_operation_id(value)
     if operation_id is not None:
@@ -345,6 +362,8 @@ def internal_value_ref_record_id(value: ValueRef) -> str | None:
             scope=(source.use.table_id,),
             local_id=source.use.column_id,
         ).qualified_name
+    if isinstance(source, ModuleExportScalarExpr):
+        return source.source_value_id
     return None
 
 

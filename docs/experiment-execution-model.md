@@ -70,15 +70,23 @@ The public authoring model follows four rules:
    demanded record roots determine the live compute and postprocessor DAG, whose
    dependencies determine execution order.
 
+A bare `@experiment` uses the Python function name as its project-scoped
+technical identity, so running the same definition as a script or importing it
+does not change its run history. Pass an explicit `id=` only when a project needs
+to distinguish same-named definitions. `lab.run(..., name=...)` is the durable
+presentation name shown to operators; it does not replace the technical
+experiment identity.
+
 ### Point plans and invocation edits
 
 Every experiment resolves to one `PointPlan`: one domain, one repeat policy,
 and one traversal policy. The authoring rules are deliberately small:
 
-1. `experiment.grid(...)` declares a Cartesian product; `experiment.points(...)`
-   declares explicit ordered rows. A definition may declare its domain once.
-   No declaration means the unit grid with one point; an empty point cloud has
-   zero points.
+1. Repeated `experiment.scan(...)` calls infer typed coordinates and accumulate
+   one Cartesian product. `experiment.grid(...)` declares that product
+   explicitly; `experiment.points(...)` declares explicit ordered rows. The
+   inferred and explicit forms cannot be mixed. No declaration means the unit
+   grid with one point; an empty point cloud has zero points.
 2. Calling the decorated experiment with plain Python arguments rebuilds its
    structural graph. `Input[T]` arguments are runtime values; invocation
    `.bind(...)` and `.unbind(...)` only edit those values.

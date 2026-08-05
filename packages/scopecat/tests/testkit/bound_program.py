@@ -45,7 +45,6 @@ from scopecat.measurements.products import (
     ProductDef,
 )
 from scopecat.measurements.records import BoundRecordUse
-from scopecat.measurements.results import MeasurementDType
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
@@ -63,6 +62,7 @@ from scopecat.program.logical import (
     LogicalStateAssignment,
     ValueDef,
 )
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.program.value_graph import (
     ComputeOutput,
     OperationId,

@@ -178,6 +178,9 @@ class RunAdmissionRecord(_ControlModel):
     submission_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     run_id: str = Field(min_length=1)
     plan: RunPlanSummary
+    display_name: str | None = Field(default=None, min_length=1)
+    tags: tuple[str, ...] = ()
+    description: str | None = Field(default=None, min_length=1)
     resource_claims: tuple[ResourceKey, ...]
     stage: RunStageLineage | None = None
     admitted_at: datetime = Field(default_factory=utc_now)

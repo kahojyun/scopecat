@@ -145,6 +145,21 @@ class DriverMonitorInterface(Protocol):
     def monitor(self) -> DriverMonitorResults: ...
 
 
+@instrument_result
+class NativeScalarResults:
+    boolean: bool = result_field()
+    integer: int = result_field()
+    floating: float = result_field()
+    complex_value: complex = result_field()
+    text: str = result_field()
+
+
+@instrument_interface("test.generated_native_scalars/v1")
+class NativeScalarInterface(Protocol):
+    @acquisition()
+    def sample(self) -> NativeScalarResults: ...
+
+
 @instrument_interface("test.generated_literal_operation/v1")
 class LiteralOperationInterface(Protocol):
     @operation()

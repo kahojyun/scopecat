@@ -23,75 +23,35 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    GetJsonSchemaHandler,
     PlainSerializer,
-    TypeAdapter,
     ValidationInfo,
     WithJsonSchema,
     field_serializer,
     field_validator,
     model_validator,
 )
-from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import CoreSchema
 
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.program.measurement_types import (
+    MeasurementArrayData,
+    MeasurementArrayElement,
+    MeasurementDType,
+    MeasurementVariableRole,
+)
 from scopecat.records._metadata import MeasurementMetadata
 from scopecat.records._schema_utils import (
     ensure_unique_ids,
     missing_references,
     validate_supported_unit,
 )
+from scopecat.records.measurement_array_schema import MeasurementArrayPayload
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v4"
 MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v8"
 
-MeasurementVariableRole = Literal["coordinate", "observable"]
-MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
-type MeasurementArrayElement = (
-    np.bool_ | np.int64 | np.float64 | np.complex128 | np.str_
-)
-
-type MeasurementComplexJson = Annotated[
-    dict[str, float],
-    WithJsonSchema(
-        {
-            "type": "object",
-            "properties": {
-                "real": {"type": "number"},
-                "imag": {"type": "number"},
-            },
-            "required": ["real", "imag"],
-            "additionalProperties": False,
-        }
-    ),
-]
-type MeasurementArrayJsonLeaf = bool | int | float | str | MeasurementComplexJson
-type MeasurementArrayJsonItem = (
-    MeasurementArrayJsonLeaf | list[MeasurementArrayJsonItem]
-)
-type MeasurementArrayJson = list[MeasurementArrayJsonItem]
-
-_MEASUREMENT_ARRAY_JSON_CORE_SCHEMA = TypeAdapter(MeasurementArrayJson).core_schema
 _MEASUREMENT_ARRAY_CREATE_CONTEXT = object()
-
-
-class _MeasurementArrayJsonSchema:
-    @classmethod
-    def __get_pydantic_json_schema__(
-        cls,
-        _core_schema: CoreSchema,
-        handler: GetJsonSchemaHandler,
-    ) -> JsonSchemaValue:
-        return handler(_MEASUREMENT_ARRAY_JSON_CORE_SCHEMA)
-
-
-MeasurementArrayData = Annotated[
-    NDArray[MeasurementArrayElement],
-    _MeasurementArrayJsonSchema,
-]
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
@@ -473,7 +433,7 @@ class MeasurementArray(_FrozenMeasurementModel):
     dtype: MeasurementDType = "float64"
     unit: str | None = None
     shape: tuple[Annotated[int, Field(ge=0)], ...] = Field(min_length=1)
-    values: MeasurementArrayData
+    values: MeasurementArrayPayload
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @classmethod

@@ -25,19 +25,19 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
-from scopecat.measurements.postprocessor_contract import (
-    MeasurementPostprocessorKernel,
-)
 from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
 )
 from scopecat.measurements.records import BoundRecordUse, RecordUse, ValueRecordUse
-from scopecat.measurements.results import MeasurementVariableRole
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
     MeasurementPostprocessorId,
 )
+from scopecat.program.measurement_contracts import (
+    MeasurementPostprocessorKernel,
+)
+from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.program.value_graph import OperationId
 
 

@@ -159,7 +159,7 @@ def test_check_experiment_resolves_experiment_invocation_with_config_snapshot(
 
 def _module_consuming_input() -> sc.ExperimentModule[None, ...]:
     @sc.module(id="test.consumed-input")
-    def module(context: sc.ModuleContext, value: float) -> None:
+    def module(context: sc.ModuleContext, value: sc.Input[float]) -> None:
         context.compute(
             "consume-value",
             fn=_identity_value,
@@ -179,7 +179,7 @@ def test_consumed_module_input_requires_binding_at_the_python_call() -> None:
 
 def test_declared_module_input_requires_binding_even_when_unused() -> None:
     @sc.module(id="test.unused-input")
-    def module(context: sc.ModuleContext, unused: float) -> None:
+    def module(context: sc.ModuleContext, unused: sc.Input[float]) -> None:
         del context, unused
 
     with pytest.raises(TypeError, match="missing a required argument: 'unused'"):
@@ -188,11 +188,11 @@ def test_declared_module_input_requires_binding_even_when_unused() -> None:
 
 def test_unused_child_binding_accepts_an_explicit_outer_value() -> None:
     @sc.module(id="test.unused-child")
-    def child(context: sc.ModuleContext, child_value: float) -> None:
+    def child(context: sc.ModuleContext, child_value: sc.Input[float]) -> None:
         del context, child_value
 
     @sc.module(id="test.unused-child-root")
-    def outer(context: sc.ModuleContext, outer_value: float) -> None:
+    def outer(context: sc.ModuleContext, outer_value: sc.Input[float]) -> None:
         context.use(child.instantiate("unused-child", child_value=outer_value))
 
     @sc.experiment(id="test.unused-child", kind="input")
@@ -204,11 +204,11 @@ def test_unused_child_binding_accepts_an_explicit_outer_value() -> None:
 
 def test_unused_child_expression_binding_accepts_an_explicit_outer_value() -> None:
     @sc.module(id="test.unused-child-expression")
-    def child(context: sc.ModuleContext, child_value: float) -> None:
+    def child(context: sc.ModuleContext, child_value: sc.Input[float]) -> None:
         del context, child_value
 
     @sc.module(id="test.unused-child-expression-root")
-    def outer(context: sc.ModuleContext, outer_value: float) -> None:
+    def outer(context: sc.ModuleContext, outer_value: sc.Input[float]) -> None:
         context.use(
             child.instantiate(
                 "unused-child",

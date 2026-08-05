@@ -159,7 +159,7 @@ def test_invocation_point_policy_edits_are_immutable_and_resettable() -> None:
         repeat_mode="sweep",
         traversal="snake",
     )
-    invocation = ExperimentInvocation(_definition(default))
+    invocation = ExperimentInvocation(_definition(default), output=None)
 
     repeated = invocation.with_repeat(4)
     traversed = repeated.with_traversal("forward")
@@ -188,7 +188,8 @@ def test_replacing_a_snake_grid_with_points_uses_explicit_row_order() -> None:
                 repeat=2,
                 traversal="snake",
             )
-        )
+        ),
+        output=None,
     )
 
     replaced = invocation.points(({x: 2}, {x: 1}))

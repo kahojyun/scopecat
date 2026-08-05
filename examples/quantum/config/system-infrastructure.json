@@ -1,58 +1,6 @@
 {
   "id": "quantum-demo-system",
   "primary_entity_id": "q0",
-  "parameter_catalog": {
-    "id": "quantum-demo-parameter-definitions-catalog",
-    "definitions": [
-      {
-        "id": "qubits",
-        "value_type": {
-          "shape": "table",
-          "columns": [
-            {
-              "id": "qubit",
-              "value_type": {
-                "type": "entity",
-                "entity_kind": "logical_qubit"
-              }
-            },
-            {
-              "id": "drag_beta",
-              "value_type": {
-                "type": "quantity",
-                "unit": "ns"
-              }
-            },
-            {
-              "id": "quarter_turn_duration",
-              "value_type": {
-                "type": "quantity",
-                "unit": "ns"
-              }
-            },
-            {
-              "id": "quarter_turn_amplitude",
-              "value_type": {
-                "type": "quantity",
-                "unit": "arb"
-              }
-            },
-            {
-              "id": "quarter_turn_sigma",
-              "value_type": {
-                "type": "quantity",
-                "unit": "ns"
-              }
-            }
-          ],
-          "primary_key": [
-            "qubit"
-          ]
-        },
-        "description": "q0 DRAG calibration values."
-      }
-    ]
-  },
   "instrument_registry": {
     "instruments": [
       {

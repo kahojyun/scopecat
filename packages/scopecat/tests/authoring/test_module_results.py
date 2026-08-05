@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import pytest
 
@@ -20,6 +20,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.value_graph import OperationId
+from scopecat.program.value_refs import internal_value_ref_source_id
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.expressions import evaluate_scalar
@@ -125,6 +126,50 @@ def _consumer_module() -> sc.ExperimentModule[None, ...]:
         )
 
     return module
+
+
+def _float_producer_module() -> sc.ExperimentModule[sc.ValueRef[float], ...]:
+    @sc.module(id="test.results.float-producer")
+    def module(context: sc.ModuleContext) -> sc.ValueRef[float]:
+        return cast(
+            "sc.ValueRef[float]",
+            context.compute(
+                "score",
+                fn=lambda: 2.5,
+                output_type=sc.ScalarType(sc.FloatType()),
+            ),
+        )
+
+    return module
+
+
+def test_nested_export_carries_the_full_instance_source_identity() -> None:
+    child = _float_producer_module().instantiate("child")
+
+    @sc.module(id="test.results.record-identity-wrapper")
+    def wrapper(context: sc.ModuleContext) -> sc.ValueRef[float]:
+        context.use(child)
+        return child.result
+
+    outer = wrapper.instantiate("outer")
+
+    assert internal_value_ref_source_id(outer.result) == "outer/child/score"
+
+
+def test_input_export_inherits_its_bound_value_source_identity() -> None:
+    source = _float_producer_module().instantiate("source")
+
+    @sc.module(id="test.results.record-identity-passthrough")
+    def passthrough(
+        context: sc.ModuleContext,
+        value: _FloatInput,
+    ) -> sc.ValueRef[float]:
+        del context
+        return sc.input_ref(value)
+
+    invocation = passthrough.instantiate("passthrough", value=source.result)
+
+    assert internal_value_ref_source_id(invocation.result) == "source/score"
 
 
 def test_explicit_instances_return_hygienic_compute_values_to_siblings(
@@ -510,9 +555,10 @@ def test_result_refs_are_nominally_owned_by_the_used_instance() -> None:
 
 
 def test_result_roots_preserve_free_inputs_and_value_provenance() -> None:
-    value_type = sc.ScalarType(sc.FloatType())
-    parameter = sc.parameter("result_parameter", value_type)
-    point = sc.coordinate("result_point", value_type)
+    atom_type = sc.FloatType()
+    value_type = sc.ScalarType(atom_type)
+    parameter = sc.parameter("result_parameter", atom_type)
+    point = sc.coordinate("result_point", atom_type)
 
     @sc.module(id="test.results.roots")
     def source(

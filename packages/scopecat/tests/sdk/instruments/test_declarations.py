@@ -648,6 +648,10 @@ def test_declared_acquisition_preserves_fixed_result_type_and_field_mapping() ->
         "coordinate",
         "observable",
     ]
+    assert [field.annotation for field in declared.result_fields] == [
+        list[float],
+        list[complex],
+    ]
 
 
 def test_declared_acquisition_rejects_a_method_from_another_interface() -> None:
@@ -998,6 +1002,8 @@ def test_concrete_type_aliases_compile_without_authoring_wrapper_semantics() -> 
     )
     acquisition_spec = compiled.spec.acquisitions[0]
     assert isinstance(acquisition_spec, AcquisitionSpec)
+    declared = declared_acquisition(compiled, AliasedInterface.sample)
+    assert [field.annotation for field in declared.result_fields] == [float]
     assert acquisition_spec.results[0].dtype == "float64"
 
 

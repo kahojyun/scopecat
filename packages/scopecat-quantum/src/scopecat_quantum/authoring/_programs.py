@@ -30,6 +30,7 @@ from scopecat.program.identities import DomainCallKey
 from scopecat.program.products import (
     ModuleProductDecl,
     ProductRefs,
+    ProductValueSpec,
     shot_axis,
 )
 
@@ -286,12 +287,14 @@ def _program_call(
         result_products={
             result.id: ModuleProductDecl(
                 id=result.id,
-                unit=result.contract.unit,
-                dtype=result.contract.dtype,
-                axes=(
-                    shot_axis(
-                        cast("ValueRef | Quantity | float", normalized_shots),
-                        shared_as="shot",
+                value_spec=ProductValueSpec(
+                    unit=result.contract.unit,
+                    dtype=result.contract.dtype,
+                    axes=(
+                        shot_axis(
+                            cast("ValueRef | Quantity | float", normalized_shots),
+                            shared_as="shot",
+                        ),
                     ),
                 ),
             )

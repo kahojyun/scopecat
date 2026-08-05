@@ -11,6 +11,11 @@ from scopecat.program.logical import (
     MeasurementPostprocessorId,
 )
 from scopecat.program.logical_graph import verify_logical_graph
+from scopecat.program.measurement_contracts import MeasurementPostprocessorKernel
+
+
+def test_postprocessor_kernel_type_is_runtime_introspectable() -> None:
+    assert MeasurementPostprocessorKernel.__value__ is not None
 
 
 def _kernel(value: MeasurementValue) -> dict[str, MeasurementValue]:

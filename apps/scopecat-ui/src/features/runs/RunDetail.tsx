@@ -138,14 +138,22 @@ export function RunDetail({
             )}
           </div>
           <h2 className="mb-[7px] text-[clamp(1.2rem,1.8vw,1.55rem)] font-[650] tracking-[-0.035em] [overflow-wrap:anywhere]">
-            {run.experimentId}
+            {run.displayName ?? run.experimentId}
           </h2>
-          <code
-            className="block max-w-[min(60vw,620px)] overflow-hidden text-[0.68rem] text-ellipsis whitespace-nowrap text-text-dim max-[680px]:max-w-full"
-            title={run.runId}
-          >
-            {run.runId}
-          </code>
+          <div className="flex max-w-[min(60vw,620px)] items-center gap-2 overflow-hidden text-[0.68rem] text-text-dim max-[680px]:max-w-full">
+            {run.displayName && (
+              <code
+                className="overflow-hidden text-ellipsis whitespace-nowrap"
+                title={run.experimentId}
+              >
+                {run.experimentId}
+              </code>
+            )}
+            {run.displayName && <span aria-hidden="true">·</span>}
+            <code className="overflow-hidden text-ellipsis whitespace-nowrap" title={run.runId}>
+              {run.runId}
+            </code>
+          </div>
         </div>
         <dl className="mt-1 flex flex-none gap-7 max-[1100px]:gap-[18px] max-[680px]:mt-5 max-[680px]:grid max-[680px]:grid-cols-2 max-[460px]:grid-cols-1">
           <div className="grid gap-1.5">

@@ -29,6 +29,7 @@ from scopecat.program.logical import (
 from scopecat.program.point_domain import point_axis_values
 from scopecat.program.products import (
     ModuleProductDecl,
+    ProductValueSpec,
     RecordSelection,
     entity_axis,
     product_axis,
@@ -144,7 +145,7 @@ def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
         def module(
             context: sc.ModuleContext,
             rows: Annotated[
-                list[dict[str, object]],
+                sc.Input[list[dict[str, object]]],
                 sc.TableType(
                     columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)
                 ),
@@ -292,7 +293,7 @@ def test_product_axis_rejects_external_operation_value() -> None:
 
 
 def test_product_axis_rejects_point_dependent_value() -> None:
-    size = sc.coordinate("axis-size", sc.ScalarType(sc.IntType(minimum=1)))
+    size = sc.coordinate("axis-size", sc.IntType(minimum=1))
 
     @sc.module(id="test.stage.record-point")
     def module(
@@ -451,7 +452,9 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
             experiment_id="test.graph.payload-collision",
             kind="graph",
             point_domain=(point_source,),
-            product_declarations=(ModuleProductDecl(id="payload"),),
+            product_declarations=(
+                ModuleProductDecl(id="payload", value_spec=ProductValueSpec()),
+            ),
             record_selections=(record_product("payload"),),
         )
     )
@@ -473,8 +476,8 @@ def test_recording_rejects_an_unknown_product() -> None:
 
 
 def test_recording_rejects_one_use_identity_for_two_products() -> None:
-    signal = ModuleProductDecl("signal")
-    phase = ModuleProductDecl("phase")
+    signal = ModuleProductDecl("signal", value_spec=ProductValueSpec())
+    phase = ModuleProductDecl("phase", value_spec=ProductValueSpec())
     shared_id = ProductUseId("shared-use")
 
     with pytest.raises(CheckFailed) as error:
@@ -519,7 +522,9 @@ def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
                 experiment_id="test.graph.coordinate-collision",
                 kind="graph",
                 point_domain=(point_source,),
-                product_declarations=(ModuleProductDecl(id="coordinate"),),
+                product_declarations=(
+                    ModuleProductDecl(id="coordinate", value_spec=ProductValueSpec()),
+                ),
                 record_selections=(record_product("coordinate"),),
             )
         )

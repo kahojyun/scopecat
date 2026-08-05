@@ -580,13 +580,21 @@ function RunListItem({
       <span className="grid min-w-0">
         <span className="flex min-w-0 items-baseline justify-between gap-2">
           <strong className="overflow-hidden text-[0.8rem] font-[650] text-ellipsis whitespace-nowrap">
-            {run.experimentId}
+            {run.displayName ?? run.experimentId}
           </strong>
           <time className="flex-none text-[0.62rem] text-text-dim" dateTime={run.updatedAt}>
             {run.updatedAt ? formatRelative(run.updatedAt) : "No timestamp"}
           </time>
         </span>
         <span className="mt-1.5 flex items-center gap-[5px] overflow-hidden text-[0.67rem] whitespace-nowrap text-text-dim">
+          {run.displayName && (
+            <>
+              <code className="overflow-hidden text-ellipsis text-text-soft">
+                {run.experimentId}
+              </code>
+              <span aria-hidden="true">·</span>
+            </>
+          )}
           <code className="overflow-hidden text-ellipsis text-text-soft">
             {shorten(run.runId, 18)}
           </code>

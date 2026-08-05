@@ -12,15 +12,17 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.program.measurement_types import (
+    MeasurementDType,
+    MeasurementVariableRole,
+)
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
-    MeasurementDType,
     MeasurementRecord,
     MeasurementUnavailable,
     MeasurementValue,
     MeasurementVariable,
-    MeasurementVariableRole,
 )
 
 type MeasurementValueContractPathItem = str | int

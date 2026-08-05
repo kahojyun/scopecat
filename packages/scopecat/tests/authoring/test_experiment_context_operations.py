@@ -104,7 +104,8 @@ def test_experiment_authors_root_device_operations_without_a_module() -> None:
             outputs={"derived": derived},
             kernel=_derive_signal,
         )
-        experiment.record(raw, derived)
+        experiment.record(raw)
+        experiment.record(derived)
         experiment.on_success(
             _TypedDevice(device),
             _DeviceTarget(level=0.0, enabled=False),
@@ -194,7 +195,7 @@ def test_experiment_records_a_compute_result_as_a_named_dataset_value() -> None:
     assert record.value_id == logical.compute_nodes[0].result_id
 
 
-def test_experiment_derives_value_record_id_after_resolving_a_module_result() -> None:
+def test_experiment_derives_record_id_from_module_source_identity() -> None:
     @sc.module(id="test.value_source")
     def value_source(module: sc.ModuleContext) -> sc.ValueRef:
         return module.compute(
@@ -207,7 +208,8 @@ def test_experiment_derives_value_record_id_after_resolving_a_module_result() ->
     def direct(experiment: sc.ExperimentContext) -> None:
         score = experiment.use(value_source())
         trace = experiment._product("trace")
-        experiment.record(score, trace)
+        experiment.record(score)
+        experiment.record(trace)
 
     logical = compile_invocation(direct()).program.program
 

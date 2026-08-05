@@ -12,16 +12,12 @@ from scopecat.records.parameter import TableParameterValue
 from scopecat.sdk.domain import DomainBatchRequest
 
 from quantum_lab_demo.compiler import QuantumLabCompiler
-from quantum_lab_demo.virtual_lab.parameters import (
-    DRAG_BETA_PARAMETER_COLUMN,
-    QUBIT_PARAMETER_TABLE,
-)
+from quantum_lab_demo.parameters import DRAG_BETA, QUBIT, QUBITS
 from quantum_lab_demo.workflows.drag_beta_analysis import (
     drag_beta_analysis,
 )
 from quantum_lab_demo.workflows.drag_beta_experiment import (
-    PROBABILITY_0_RECORD_ID,
-    PROBABILITY_1_RECORD_ID,
+    DRAG_BETA_EXPERIMENT,
     drag_beta_experiment,
 )
 
@@ -73,24 +69,31 @@ def test_drag_beta_closes_measurement_analysis_publish_and_undo(
         for request in compile_requests
         for beta, rows in zip(
             request.inputs.program_input("beta"),
-            request.inputs.compiler_input(QUBIT_PARAMETER_TABLE),
+            request.inputs.compiler_input(QUBITS.id),
             strict=True,
         )
     ]
     assert len(beta_and_compiler_tables) == 15
     for beta, table in beta_and_compiler_tables:
         rows = cast("tuple[dict[str, object], ...]", table)
-        q0_row = next(row for row in rows if _entity_id(row["qubit"]) == "q0")
-        assert q0_row[DRAG_BETA_PARAMETER_COLUMN] == beta
+        q0_row = next(row for row in rows if _entity_id(row[QUBIT.id]) == "q0")
+        assert q0_row[DRAG_BETA.id] == beta
     assert {
         _quantity_in_unit(beta, "ns") for beta, _rows in beta_and_compiler_tables
     } == {0.0, 0.25, 0.5, 0.75, 1.0}
 
     records = source_run.measurements().records
+    schema = DRAG_BETA_EXPERIMENT.output
     assert len(records) == 15
     assert all(
-        _measurement_in_unit(record.observables[PROBABILITY_0_RECORD_ID], "ratio")
-        + _measurement_in_unit(record.observables[PROBABILITY_1_RECORD_ID], "ratio")
+        _measurement_in_unit(
+            record.observables[schema.probabilities.probability_0.id],
+            "ratio",
+        )
+        + _measurement_in_unit(
+            record.observables[schema.probabilities.probability_1.id],
+            "ratio",
+        )
         == pytest.approx(1.0)
         for record in records
     )
@@ -105,10 +108,10 @@ def test_drag_beta_closes_measurement_analysis_publish_and_undo(
 
     [proposal] = analysis.parameter_proposals
     [delta] = proposal.deltas
-    assert delta.parameter_id == QUBIT_PARAMETER_TABLE
+    assert delta.parameter_id == QUBITS.id
     assert isinstance(delta.after, TableParameterValue)
-    q0 = next(row for row in delta.after.rows if _entity_id(row["qubit"]) == "q0")
-    fitted_beta = q0[DRAG_BETA_PARAMETER_COLUMN]
+    q0 = next(row for row in delta.after.rows if _entity_id(row[QUBIT.id]) == "q0")
+    fitted_beta = q0[DRAG_BETA.id]
     assert isinstance(fitted_beta, Quantity)
     assert float(fitted_beta.to("ns").value) == pytest.approx(0.765)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 from runpy import run_path
-from typing import Protocol, TypedDict, cast
+from typing import Protocol, TypedDict, assert_type, cast
 
 import numpy as np
 import pytest
@@ -35,10 +35,8 @@ from instrument_demo.workflows.flux_spectroscopy import (
     BIAS_POINTS,
     BIAS_START,
     BIAS_STOP,
-    FREQUENCY_RECORD_ID,
-    S_PARAMETER_RECORD_ID,
-    TEMPERATURE_RECORD_ID,
     TRACE_POINTS,
+    FluxSpectroscopyDataset,
     flux_spectroscopy,
 )
 from instrument_demo.workflows.flux_spectroscopy_analysis import (
@@ -113,6 +111,10 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     )
 
     invocation = flux_spectroscopy()
+    schema = assert_type(invocation.output, FluxSpectroscopyDataset)
+    frequency_record_id = schema.trace.frequency.id
+    s_parameter_record_id = schema.trace.s_parameter.id
+    temperature_record_id = schema.temperature.id
     definition = invocation.definition
     success_state = definition.success_state
     assert isinstance(success_state, EnsureStateIntent)
@@ -137,74 +139,74 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert preview.points[0].coordinates["dc_bias"] == BIAS_START
     assert preview.points[-1].coordinates["dc_bias"] == BIAS_STOP
     assert preview.primary_observables == (
-        S_PARAMETER_RECORD_ID,
-        TEMPERATURE_RECORD_ID,
+        s_parameter_record_id,
+        temperature_record_id,
     )
     assert preview.schema is not None
-    assert preview.schema.primary_coordinates == ("dc_bias", FREQUENCY_RECORD_ID)
+    assert preview.schema.primary_coordinates == ("dc_bias", frequency_record_id)
     dimensions = {dimension.id: dimension for dimension in preview.schema.dimensions}
     assert dimensions["shared/readout-vna/frequency"].label == "frequency"
     variables = {variable.id: variable for variable in preview.schema.variables}
     assert variables["dc_bias"].role == "coordinate"
     assert variables["dc_bias"].dims == ("point",)
-    assert variables[FREQUENCY_RECORD_ID].role == "coordinate"
-    assert variables[FREQUENCY_RECORD_ID].recording_group_id == "readout-vna/sweep"
-    assert variables[FREQUENCY_RECORD_ID].dims == (
+    assert variables[frequency_record_id].role == "coordinate"
+    assert variables[frequency_record_id].recording_group_id == "readout-vna/sweep"
+    assert variables[frequency_record_id].dims == (
         "point",
         "shared/readout-vna/frequency",
     )
-    assert variables[S_PARAMETER_RECORD_ID].role == "observable"
-    assert variables[S_PARAMETER_RECORD_ID].recording_group_id == "readout-vna/sweep"
-    assert variables[S_PARAMETER_RECORD_ID].dims == (
+    assert variables[s_parameter_record_id].role == "observable"
+    assert variables[s_parameter_record_id].recording_group_id == "readout-vna/sweep"
+    assert variables[s_parameter_record_id].dims == (
         "point",
         "shared/readout-vna/frequency",
     )
-    assert variables[TEMPERATURE_RECORD_ID].role == "observable"
+    assert variables[temperature_record_id].role == "observable"
     assert (
-        variables[TEMPERATURE_RECORD_ID].recording_group_id == "mixing-chamber/sample"
+        variables[temperature_record_id].recording_group_id == "mixing-chamber/sample"
     )
-    assert variables[TEMPERATURE_RECORD_ID].dims == ("point",)
+    assert variables[temperature_record_id].dims == ("point",)
     preview_records = {record.id: record for record in preview.records}
-    assert preview_records[FREQUENCY_RECORD_ID].role == "coordinate"
+    assert preview_records[frequency_record_id].role == "coordinate"
     assert (
-        preview_records[FREQUENCY_RECORD_ID].recording_group_id == "readout-vna/sweep"
+        preview_records[frequency_record_id].recording_group_id == "readout-vna/sweep"
     )
-    assert preview_records[FREQUENCY_RECORD_ID].dims == (
+    assert preview_records[frequency_record_id].dims == (
         "point",
         "shared/readout-vna/frequency",
     )
-    assert preview_records[S_PARAMETER_RECORD_ID].role == "observable"
+    assert preview_records[s_parameter_record_id].role == "observable"
     assert (
-        preview_records[S_PARAMETER_RECORD_ID].recording_group_id == "readout-vna/sweep"
+        preview_records[s_parameter_record_id].recording_group_id == "readout-vna/sweep"
     )
-    assert preview_records[S_PARAMETER_RECORD_ID].dims == (
+    assert preview_records[s_parameter_record_id].dims == (
         "point",
         "shared/readout-vna/frequency",
     )
-    assert preview_records[TEMPERATURE_RECORD_ID].role == "observable"
-    assert preview_records[TEMPERATURE_RECORD_ID].dims == ("point",)
+    assert preview_records[temperature_record_id].role == "observable"
+    assert preview_records[temperature_record_id].dims == ("point",)
     assert run.manifest.status == "completed"
     records = run.measurements().records
     assert len(records) == BIAS_POINTS
     assert all(
-        set(record.coordinates) == {"dc_bias", FREQUENCY_RECORD_ID}
-        and set(record.observables) == {S_PARAMETER_RECORD_ID, TEMPERATURE_RECORD_ID}
+        set(record.coordinates) == {"dc_bias", frequency_record_id}
+        and set(record.observables) == {s_parameter_record_id, temperature_record_id}
         and set(record.acquisition_evidence)
         == {
-            FREQUENCY_RECORD_ID,
-            S_PARAMETER_RECORD_ID,
-            TEMPERATURE_RECORD_ID,
+            frequency_record_id,
+            s_parameter_record_id,
+            temperature_record_id,
         }
         for record in records
     )
     for record in records:
-        frequency = record.coordinates[FREQUENCY_RECORD_ID]
+        frequency = record.coordinates[frequency_record_id]
         assert isinstance(frequency, MeasurementArray)
         assert frequency.shape == (TRACE_POINTS,)
         assert frequency.dtype == "float64"
         assert frequency.unit == "Hz"
 
-        s_parameter = record.observables[S_PARAMETER_RECORD_ID]
+        s_parameter = record.observables[s_parameter_record_id]
         assert isinstance(s_parameter, MeasurementArray)
         assert s_parameter.shape == (TRACE_POINTS,)
         assert s_parameter.dtype == "complex128"
@@ -212,19 +214,19 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         assert s_parameter.values.dtype == np.dtype(np.complex128)
         assert np.iscomplexobj(s_parameter.values)
 
-        temperature = record.observables[TEMPERATURE_RECORD_ID]
+        temperature = record.observables[temperature_record_id]
         assert isinstance(temperature, MeasurementScalar)
         assert temperature.unit == "K"
     first_evidence = records[0].acquisition_evidence
-    assert first_evidence[FREQUENCY_RECORD_ID].instrument_id == "readout-vna"
-    assert first_evidence[FREQUENCY_RECORD_ID].result_id == "frequency"
-    assert first_evidence[S_PARAMETER_RECORD_ID].instrument_id == "readout-vna"
-    assert first_evidence[S_PARAMETER_RECORD_ID].result_id == "s_parameter"
-    assert first_evidence[TEMPERATURE_RECORD_ID].instrument_id == "mixing-chamber"
-    assert first_evidence[TEMPERATURE_RECORD_ID].result_id == "temperature"
+    assert first_evidence[frequency_record_id].instrument_id == "readout-vna"
+    assert first_evidence[frequency_record_id].result_id == "frequency"
+    assert first_evidence[s_parameter_record_id].instrument_id == "readout-vna"
+    assert first_evidence[s_parameter_record_id].result_id == "s_parameter"
+    assert first_evidence[temperature_record_id].instrument_id == "mixing-chamber"
+    assert first_evidence[temperature_record_id].result_id == "temperature"
     assert not provider.world.dc_source(FLUX_SOURCE_ID).output_enabled
 
-    traces = run.measurements().traces(group="readout-vna/sweep")
+    traces = run.measurements().traces(schema.trace.s_parameter)
     assert len(traces) == BIAS_POINTS
     assert traces[0].recording_group_id == "readout-vna/sweep"
     assert traces[0].coordinate_unit == "Hz"

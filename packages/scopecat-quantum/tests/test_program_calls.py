@@ -328,10 +328,8 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
     @sc.experiment(id="test.quantum.multi-result", kind="quantum")
     def experiment(context: sc.ExperimentContext) -> None:
         context.use(call)
-        context.record(
-            call.results.first_iq,
-            call.results.second_iq,
-        )
+        context.record(call.results.first_iq)
+        context.record(call.results.second_iq)
 
     compiled = compile_invocation(experiment())
     bound = bind_program(

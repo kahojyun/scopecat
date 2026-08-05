@@ -5,26 +5,41 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Generic, ParamSpec, TypeVar, cast
 
 from scopecat.program.definitions import ExperimentInvocation
 
-type ExperimentBuilder = Callable[[Mapping[str, object]], ExperimentInvocation]
+type ExperimentBuilder[ResultT] = Callable[
+    [Mapping[str, object]], ExperimentInvocation[ResultT]
+]
+
+_P = ParamSpec("_P")
+_ExperimentResultT_co = TypeVar(
+    "_ExperimentResultT_co",
+    covariant=True,
+    default=object,
+)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class Experiment[**P]:
+class Experiment(Generic[_P, _ExperimentResultT_co]):
     """One experiment authoring function with structural and runtime inputs."""
 
-    _callable: Callable[P, object] = field(repr=False, compare=False)
+    _callable: Callable[_P, _ExperimentResultT_co] = field(
+        repr=False,
+        compare=False,
+    )
     _signature: inspect.Signature = field(repr=False, compare=False)
-    _builder: ExperimentBuilder = field(repr=False, compare=False)
+    _builder: ExperimentBuilder[_ExperimentResultT_co] = field(
+        repr=False,
+        compare=False,
+    )
     id: str
     kind: str
     metadata: Mapping[str, object] = field(repr=False)
 
     @property
-    def __wrapped__(self) -> Callable[P, object]:
+    def __wrapped__(self) -> Callable[_P, _ExperimentResultT_co]:
         return self._callable
 
     @property
@@ -35,13 +50,17 @@ class Experiment[**P]:
     def __signature__(self) -> inspect.Signature:
         return self._signature
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
+    def __call__(
+        self,
+        *args: _P.args,
+        **kwargs: _P.kwargs,
+    ) -> ExperimentInvocation[_ExperimentResultT_co]:
         """Build one immutable invocation from structural and runtime arguments."""
 
         bound = self._signature.bind(*args, **kwargs)
         return self._builder(cast("Mapping[str, object]", bound.arguments))
 
-    def bind(self, **inputs: object) -> ExperimentInvocation:
+    def bind(self, **inputs: object) -> ExperimentInvocation[_ExperimentResultT_co]:
         """Build with complete structural args and partial runtime inputs."""
 
         bound = self._signature.bind_partial(**inputs)

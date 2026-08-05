@@ -9,6 +9,7 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.value_resolution import resolve_bound_value
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.errors import CheckFailed
@@ -19,10 +20,14 @@ from scopecat.planning.domain_bridge import (
 )
 from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import materialize_bound_points
-from scopecat.program.domain import domain_execution, domain_program
+from scopecat.program.domain import DomainCall, domain_execution, domain_program
 from scopecat.program.expressions import PointColumnScalarExpr
-from scopecat.program.products import ModuleProductDecl
-from scopecat.program.table_values import LiteralTableSource
+from scopecat.program.products import (
+    ModuleProductDecl,
+    ProductAxis,
+    ProductValueSpec,
+)
+from scopecat.program.table_values import InputTableSource, LiteralTableSource
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 
@@ -64,8 +69,10 @@ def _domain_module() -> tuple[
             products={
                 "counts": ModuleProductDecl(
                     "counts",
-                    unit="count",
-                    dtype="int64",
+                    value_spec=ProductValueSpec(
+                        unit="count",
+                        dtype="int64",
+                    ),
                 )
             },
         )
@@ -136,6 +143,136 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
     assert tuple(name for name, _use in semantic.compiler_inputs) == (
         "calibration_revision",
     )
+
+
+def test_structural_domain_call_captures_external_values_once() -> None:
+    value_type = sc.ScalarType(sc.IntType(minimum=0))
+    table_type = _domain_table_type()
+    program = domain_program(
+        "structural-program",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        inputs={"count": value_type},
+        compiler_inputs={"rows": table_type},
+        results={"result": None},
+    )
+    count_value = sc.parameter("count", sc.IntType(minimum=1))
+    rows = sc.parameter("rows", table_type)
+    selected_call = domain_call(
+        program,
+        id="selected",
+        inputs={"count": count_value},
+        compiler_inputs={"rows": rows},
+        products={
+            "result": ModuleProductDecl(
+                "result",
+                value_spec=ProductValueSpec(
+                    axes=(ProductAxis("sample", size=count_value),),
+                ),
+            )
+        },
+    )
+
+    @sc.module(id="test.domain.structural-wrapper")
+    def wrapper(
+        context: sc.ModuleContext,
+        call: DomainCall,
+    ) -> sc.ProductRef:
+        return context.use(call).result
+
+    invocation = wrapper(selected_call)
+    definition = invocation.module.definition
+    assert [port.id for port in definition.interface.imports] == [
+        "__structural_0",
+        "__structural_1",
+    ]
+    assert invocation.inputs["__structural_0"] is count_value
+    assert invocation.inputs["__structural_1"] is rows
+    [execution] = definition.body.domain_executions
+    count = dict(execution.input_bindings)["count"]
+    assert isinstance(count, sc.ValueRef)
+    [product] = definition.body.products
+    assert isinstance(product.axes[0].size, sc.ValueRef)
+    assert product.axes[0].size.id == count.id
+    assert invocation.result.id == "structural-wrapper/selected/result"
+
+    @sc.experiment(id="test.domain.structural-call")
+    def experiment(context: sc.ExperimentContext) -> None:
+        context.record(context.use(invocation))
+
+    compile_invocation(experiment())
+
+
+def test_domain_call_result_preserves_its_complete_product_schema() -> None:
+    program = domain_program(
+        "schema-program",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        results={"trace": None},
+    )
+    axis = ProductAxis("sample", size=16, kind="sample", unit="s")
+    selected = domain_call(
+        program,
+        id="capture",
+        products={
+            "trace": ModuleProductDecl(
+                "trace",
+                value_spec=ProductValueSpec(
+                    dtype="complex128",
+                    unit="V",
+                    axes=(axis,),
+                ),
+            )
+        },
+    )
+    expected = ProductValueSpec(
+        dtype="complex128",
+        unit="V",
+        axes=(axis,),
+    )
+
+    [declaration] = selected.product_declarations
+    assert declaration.value_spec == expected
+    assert selected.results.trace.value_spec == expected
+    assert dict(selected.execution.result_bindings)["trace"].value_spec == expected
+
+
+def test_structural_domain_call_captures_a_parent_table_input() -> None:
+    table_type = _domain_table_type()
+    program = domain_program(
+        "structural-table-program",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        compiler_inputs={"rows": table_type},
+    )
+
+    @sc.module(id="test.domain.structural-table-child")
+    def child(context: sc.ModuleContext, call: DomainCall) -> None:
+        context.use(call)
+
+    @sc.module(id="test.domain.structural-table-parent")
+    def parent(
+        context: sc.ModuleContext,
+        rows: Annotated[
+            sc.Input[list[dict[str, object]]],
+            _domain_table_type(),
+        ],
+    ) -> None:
+        call = domain_call(
+            program,
+            compiler_inputs={"rows": sc.input_ref(rows)},
+        )
+        context.use(child(call))
+
+    [instance] = parent.definition.body.child_instances
+    assert [port.id for port in instance.module.interface.imports] == ["__structural_0"]
+    [binding] = instance.input_bindings
+    assert binding.import_id == "__structural_0"
+    assert isinstance(binding.source.source, InputTableSource)
+    assert binding.source.source.input_id == "rows"
 
 
 def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> None:
@@ -385,7 +522,7 @@ def test_experiment_domain_execution_lowers_plan_inputs_and_composed_product_use
 
     point_x_count = sc.coordinate(
         "x_count",
-        sc.ScalarType(sc.IntType(minimum=0)),
+        sc.IntType(minimum=0),
     )
 
     @sc.module(id="test.domain.root")

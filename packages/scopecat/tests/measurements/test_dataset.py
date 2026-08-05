@@ -7,6 +7,7 @@ import json
 import math
 from collections.abc import Mapping
 from pathlib import Path
+from typing import assert_type
 
 import numpy as np
 import pyarrow as pa
@@ -15,13 +16,16 @@ import xarray as xr
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import Dataset, PointMask, Variable
+from scopecat.program.measurement_types import MeasurementArrayData, MeasurementDType
+from scopecat.program.record_refs import RecordRef
+from scopecat.program.value_types import Quantity as QuantityType
+from scopecat.program.values import CoordinateRef, coordinate
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetSchema,
     MeasurementDimension,
-    MeasurementDType,
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
@@ -72,6 +76,127 @@ def test_dataset_exposes_labeled_variables_and_raw_records() -> None:
 
     with pytest.raises(KeyError, match="no variable 'missing'"):
         _ = dataset["missing"]
+
+
+def test_typed_record_lookup_validates_schema_and_narrows_values() -> None:
+    dataset = _dataset_with_record_sources()
+    bias_ref: RecordRef[float] = RecordRef(
+        id="bias",
+        dtype="float64",
+        unit="V",
+        dims=("point",),
+        role="coordinate",
+        source_value_id="bias",
+    )
+    signal_ref: RecordRef[MeasurementArrayData] = RecordRef(
+        id="signal",
+        dtype="complex128",
+        unit="ratio",
+        dims=("point", "sample"),
+        source_product_id="readout/signal",
+        recording_group_id="readout",
+    )
+
+    bias = dataset[bias_ref]
+    signal = dataset[signal_ref]
+
+    assert_type(bias, Variable[float])
+    assert_type(signal, Variable[MeasurementArrayData])
+    assert bias.require_values() == (0.0, 1.0, 2.0)
+    assert bias.require_quantities("mV") == (
+        Quantity(0.0, "mV"),
+        Quantity(1000.0, "mV"),
+        Quantity(2000.0, "mV"),
+    )
+    assert signal[0] is signal.values[0]
+    traces = dataset.traces(signal_ref)
+    assert len(traces) == 3
+    assert traces[0].coordinate_id == "frequency"
+    assert traces[0].observable_id == "signal"
+
+
+def test_coordinate_handle_narrows_a_dataset_coordinate() -> None:
+    dataset = _dataset()
+    bias_ref = coordinate("bias", QuantityType(unit="V"))
+
+    assert_type(bias_ref, CoordinateRef[Quantity])
+    bias = dataset[bias_ref]
+
+    assert_type(bias, Variable[float])
+    assert bias.require_quantities("mV")[1] == Quantity(1000.0, "mV")
+
+
+def test_variable_require_helpers_reject_unavailable_rows() -> None:
+    dataset = _dataset_with_record_sources()
+    temperature_ref: RecordRef[float] = RecordRef(
+        id="temperature",
+        dtype="float64",
+        unit="K",
+        dims=("point",),
+        source_product_id="thermometer/temperature",
+    )
+    temperature = dataset[temperature_ref]
+
+    assert temperature.quantities("mK") == (
+        Quantity(50.0, "mK"),
+        None,
+        Quantity(200.0, "mK"),
+    )
+    with pytest.raises(ValueError, match="row positions: 1"):
+        temperature.require_values()
+    with pytest.raises(ValueError, match="row positions: 1"):
+        temperature.require_quantities()
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        RecordRef[float](
+            id="bias",
+            dtype="int64",
+            unit="V",
+            dims=("point",),
+            role="coordinate",
+            source_value_id="bias",
+        ),
+        RecordRef[float](
+            id="bias",
+            dtype="float64",
+            unit="A",
+            dims=("point",),
+            role="coordinate",
+            source_value_id="bias",
+        ),
+        RecordRef[float](
+            id="bias",
+            dtype="float64",
+            unit="V",
+            dims=("point", "sample"),
+            role="coordinate",
+            source_value_id="bias",
+        ),
+        RecordRef[float](
+            id="bias",
+            dtype="float64",
+            unit="V",
+            dims=("point",),
+            source_value_id="bias",
+        ),
+        RecordRef[float](
+            id="bias",
+            dtype="float64",
+            unit="V",
+            dims=("point",),
+            role="coordinate",
+            source_value_id="other",
+        ),
+    ],
+)
+def test_typed_record_lookup_rejects_schema_drift(ref: RecordRef[float]) -> None:
+    dataset = _dataset_with_record_sources()
+
+    with pytest.raises(TypeError, match="does not match the dataset schema"):
+        _ = dataset[ref]
 
 
 def test_dataset_supports_point_isel_sel_and_unit_aware_where() -> None:
@@ -1027,3 +1152,23 @@ def _dataset() -> Dataset:
         schema=schema.model_dump(mode="json"),
     )
     return Dataset(raw, entry)
+
+
+def _dataset_with_record_sources() -> Dataset:
+    dataset = _dataset()
+    source_fields = {
+        "bias": {"source_value_id": "bias"},
+        "frequency": {
+            "source_product_id": "readout/frequency",
+            "recording_group_id": "readout",
+        },
+        "temperature": {"source_product_id": "thermometer/temperature"},
+        "signal": {"source_product_id": "readout/signal"},
+    }
+    variables = tuple(
+        variable.model_copy(update=source_fields.get(variable.id, {}))
+        for variable in dataset.schema.variables
+    )
+    schema = dataset.schema.model_copy(update={"variables": variables})
+    raw = dataset.raw.model_copy(update={"dataset_schema": schema})
+    return Dataset(raw, dataset.entry)

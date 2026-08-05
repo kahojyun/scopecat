@@ -9,15 +9,13 @@ from scopecat import Quantity, QuantityType
 from scopecat_quantum import authoring as quantum
 from scopecat_quantum.standard_gates import X90, XM90
 
-from quantum_lab_demo.quantum_runner import author_quantum_experiment
-from quantum_lab_demo.virtual_lab.parameters import q0_drag_beta_lookup
+from quantum_lab_demo.parameters import Q0_DRAG_BETA
+from quantum_lab_demo.quantum_runner import quantum_capture
 from quantum_lab_demo.workflows.drag_beta_calibration import (
     drag_gate_pulse,
     drag_readout_pulse,
 )
 
-PRODUCTION_DRAG_GATE_ID = "quantum_lab_demo.production.drag_x90"
-PRODUCTION_DRAG_GATE_KIND = "production-drag-x90"
 PRODUCTION_DRAG_GATE_SHOTS = 32
 
 
@@ -52,23 +50,21 @@ def production_drag_program(
     )
 
 
-@sc.experiment(
-    id=PRODUCTION_DRAG_GATE_ID,
-    kind=PRODUCTION_DRAG_GATE_KIND,
-)
+@sc.experiment
 def production_drag_experiment(experiment: sc.ExperimentContext) -> None:
-    author_quantum_experiment(
-        experiment,
-        production_drag_program(
-            qubit="q0",
-            drag_beta=q0_drag_beta_lookup(),
-        ).with_shots(PRODUCTION_DRAG_GATE_SHOTS),
+    experiment.record(
+        experiment.use(
+            quantum_capture(
+                production_drag_program(
+                    qubit="q0",
+                    drag_beta=Q0_DRAG_BETA.ref,
+                ).with_shots(PRODUCTION_DRAG_GATE_SHOTS)
+            )
+        )
     )
 
 
 __all__ = [
-    "PRODUCTION_DRAG_GATE_ID",
-    "PRODUCTION_DRAG_GATE_KIND",
     "PRODUCTION_DRAG_GATE_SHOTS",
     "production_drag_experiment",
     "production_drag_program",

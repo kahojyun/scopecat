@@ -82,6 +82,9 @@ def test_config_profile_snapshot_round_trip() -> None:
 def test_run_request_records_operator_metadata() -> None:
     request = RunRequest(
         experiment_id="test.experiment",
+        display_name="Test experiment",
+        tags=("calibration", "demo"),
+        description="Exercise one durable request.",
         operator="alice",
         metadata={"sample": "q0"},
     )
@@ -90,6 +93,9 @@ def test_run_request_records_operator_metadata() -> None:
     )
 
     assert restored.operator == "alice"
+    assert restored.display_name == "Test experiment"
+    assert restored.tags == ("calibration", "demo")
+    assert restored.description == "Exercise one durable request."
     assert restored.metadata == {"sample": "q0"}
     assert restored.point_plan == PointPlanRecord()
 

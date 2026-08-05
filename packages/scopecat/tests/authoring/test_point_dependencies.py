@@ -10,7 +10,8 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from tests.testkit.authoring import bind_invocation, load_config
 
-_FREQUENCY_TYPE = sc.ScalarType(sc.QuantityType(unit="GHz"))
+_FREQUENCY_ATOM = sc.QuantityType(unit="GHz")
+_FREQUENCY_TYPE = sc.ScalarType(_FREQUENCY_ATOM)
 
 
 def _identity(value: object) -> object:
@@ -57,7 +58,7 @@ def _resolve(
 
 
 def test_direct_point_dependency_requires_a_scan() -> None:
-    frequency = sc.coordinate("frequency", _FREQUENCY_TYPE)
+    frequency = sc.coordinate("frequency", _FREQUENCY_ATOM)
     module = _point_module(module_id="test.direct-point")
 
     with pytest.raises(CheckFailed) as error:
@@ -69,11 +70,11 @@ def test_direct_point_dependency_requires_a_scan() -> None:
 
 
 def test_direct_point_dependency_rejects_same_id_with_wrong_type() -> None:
-    frequency = sc.coordinate("frequency", _FREQUENCY_TYPE)
+    frequency = sc.coordinate("frequency", _FREQUENCY_ATOM)
     module = _point_module(module_id="test.mistyped-point")
     wrong_frequency = sc.coordinate(
         "frequency",
-        sc.ScalarType(sc.StringType()),
+        sc.StringType(),
     )
 
     with pytest.raises(CheckFailed) as error:
@@ -87,7 +88,7 @@ def test_direct_point_dependency_rejects_same_id_with_wrong_type() -> None:
 
 
 def test_direct_point_dependency_accepts_matching_scan() -> None:
-    frequency = sc.coordinate("frequency", _FREQUENCY_TYPE)
+    frequency = sc.coordinate("frequency", _FREQUENCY_ATOM)
     module = _point_module(module_id="test.matching-point")
 
     _resolve(module, frequency, scan=sc.axis(frequency, (5.0,), unit="GHz"))
@@ -106,7 +107,7 @@ def test_nested_module_preserves_bound_point_dependency() -> None:
             output_type=_FREQUENCY_TYPE,
         )
 
-    parent_frequency = sc.coordinate("frequency", _FREQUENCY_TYPE)
+    parent_frequency = sc.coordinate("frequency", _FREQUENCY_ATOM)
 
     @sc.module(id="test.point-parent")
     def parent(

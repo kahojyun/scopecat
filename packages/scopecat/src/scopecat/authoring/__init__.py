@@ -10,11 +10,11 @@ from scopecat.authoring._module_context import ModuleContext
 from scopecat.authoring._module_invocation import (
     ModuleInvocation,
 )
-from scopecat.authoring._module_results import ProductBundle
 from scopecat.authoring.definitions import (
     Experiment,
     ExperimentContext,
     Input,
+    Symbolic,
     experiment,
     input_ref,
     module,
@@ -32,6 +32,18 @@ from scopecat.authoring.entity_selection import (
 from scopecat.authoring.experiments import (
     ExperimentInvocation,
 )
+from scopecat.authoring.parameters import (
+    ParameterAssignment,
+    ParameterCell,
+    ParameterField,
+    ParameterRow,
+    ParameterRowKey,
+    ParameterScalar,
+    ParameterSchema,
+    parameter_catalog,
+    parameter_field,
+    parameter_schema,
+)
 from scopecat.authoring.scans import Axis, PointRow, axis
 from scopecat.authoring.state_projection import (
     StateProjector,
@@ -39,7 +51,9 @@ from scopecat.authoring.state_projection import (
 )
 from scopecat.program.products import (
     ProductRef,
+    ProductValueSpec,
 )
+from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_types import (
     Bool as BoolType,
 )
@@ -74,6 +88,7 @@ from scopecat.program.value_types import (
 )
 from scopecat.program.values import (
     ComputeInput,
+    CoordinateRef,
     MetadataValue,
     ModuleInput,
     ParameterKeyInput,
@@ -90,6 +105,7 @@ __all__ = [
     "BoolType",
     "ComputeInput",
     "ConcreteEntityInput",
+    "CoordinateRef",
     "EachEntity",
     "EntityInput",
     "EntitySelection",
@@ -106,19 +122,28 @@ __all__ = [
     "ModuleInput",
     "ModuleInvocation",
     "OneEntity",
+    "ParameterAssignment",
+    "ParameterCell",
+    "ParameterField",
     "ParameterKeyInput",
+    "ParameterRow",
+    "ParameterRowKey",
+    "ParameterScalar",
+    "ParameterSchema",
     "PayloadType",
     "PerEntity",
     "PointRow",
-    "ProductBundle",
     "ProductRef",
+    "ProductValueSpec",
     "QuantityType",
+    "RecordRef",
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",
     "StateProjector",
     "StateTarget",
     "StringType",
+    "Symbolic",
     "TableColumn",
     "TableType",
     "ValueRef",
@@ -132,5 +157,8 @@ __all__ = [
     "module",
     "one",
     "parameter",
+    "parameter_catalog",
+    "parameter_field",
     "parameter_lookup",
+    "parameter_schema",
 ]

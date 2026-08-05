@@ -181,30 +181,6 @@ def test_experiment_record_expands_per_entity_products_in_declaration_order() ->
     assert [selection.role for selection in selections] == ["observable", "observable"]
 
 
-def test_per_entity_record_id_still_requires_one_expanded_product() -> None:
-    context = sc.ExperimentContext()
-    q0 = sc.EntityRef(id="q0", kind="logical_device")
-    q1 = sc.EntityRef(id="q1", kind="logical_device")
-    products = sc.PerEntity(
-        ((q0, context._product("first")), (q1, context._product("second")))
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="record_id can only be used with one recorded value",
-    ):
-        context.record(products, record_id="combined")
-
-
-def test_per_entity_record_rejects_an_explicit_empty_record_id() -> None:
-    context = sc.ExperimentContext()
-    q0 = sc.EntityRef(id="q0", kind="logical_device")
-    products = sc.PerEntity(((q0, context._product("signal")),))
-
-    with pytest.raises(ValueError, match="record id must be non-empty"):
-        context.record(products, record_id="")
-
-
 def test_record_namespace_is_non_empty_and_exclusive_with_record_id() -> None:
     context = sc.ExperimentContext()
     product = context._product("signal", scope=("readout",))

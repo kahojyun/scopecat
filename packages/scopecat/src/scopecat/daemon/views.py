@@ -169,6 +169,9 @@ class RunPlanView(_ViewModel):
 class RunAdmissionView(_ViewModel):
     run_id: str = Field(min_length=1)
     plan: RunPlanView
+    display_name: str | None = Field(default=None, min_length=1)
+    tags: tuple[str, ...] = ()
+    description: str | None = Field(default=None, min_length=1)
     admitted_at: datetime
 
 

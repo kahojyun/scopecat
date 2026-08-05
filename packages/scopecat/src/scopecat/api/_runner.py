@@ -178,19 +178,15 @@ class _DaemonRunner:
             selected_config,
             instrument_catalog,
         )
-        selected_metadata = dict(metadata or {})
-        if name is not None:
-            selected_metadata["name"] = name
-        if tags:
-            selected_metadata["tags"] = list(tags)
-        if description is not None:
-            selected_metadata["description"] = description
         planned = plan_experiment_invocation(
             experiment,
             config=selected_config,
             system=selected_system,
             config_source=selected_source,
-            metadata=selected_metadata,
+            display_name=name,
+            tags=tags,
+            description=description,
+            metadata=metadata,
             operator=operator,
         )
         if stage is None:

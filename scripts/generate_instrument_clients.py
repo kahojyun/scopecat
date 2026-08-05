@@ -16,10 +16,11 @@ from pathlib import Path
 from typing import Protocol, TypeAliasType, TypeVar, cast, get_args, get_origin
 
 from scopecat.kernel.value_types import Payload as PayloadType
-from scopecat.measurements.results import MeasurementVariableRole
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.sdk.instruments import (
     AcquisitionAxisSpec,
     AcquisitionRef,
+    AcquisitionResultSpec,
     InterfaceSpec,
     OperationRef,
     PropertyRef,
@@ -375,10 +376,28 @@ class _OperationModel:
     arguments: tuple[_OperationArgumentModel, ...]
 
 
+_SCALAR_PRODUCT_ANNOTATIONS: dict[MeasurementDType, str] = {
+    "bool": "bool",
+    "int64": "int",
+    "float64": "float",
+    "complex128": "complex",
+    "string": "str",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class _AcquisitionResultModel:
     python_name: str
-    role: MeasurementVariableRole
+    spec: AcquisitionResultSpec
+    annotation: object
+
+    @property
+    def product_value_annotation(self) -> str:
+        """Return the native value available at one logical product point."""
+
+        if self.spec.axes:
+            return "MeasurementArrayData"
+        return _SCALAR_PRODUCT_ANNOTATIONS[self.spec.dtype]
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,11 +407,19 @@ class _AcquisitionModel:
     result_type_name: str
     result_fields: tuple[_AcquisitionResultModel, ...]
     readback_name: str
+    records_name: str
     products_name: str
 
     @property
     def result_field_names(self) -> tuple[str, ...]:
         return tuple(field.python_name for field in self.result_fields)
+
+    @property
+    def result_field_signature(self) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            (field.python_name, field.product_value_annotation)
+            for field in self.result_fields
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -666,7 +693,7 @@ def _state_keyword_model(
     fields: list[_StateKeywordFieldModel] = []
     for field in writable_fields:
         concrete = renderer.render(field.annotation)
-        symbolic = f"{concrete} | ValueRef"
+        symbolic = _symbolic_annotation(concrete)
         fields.append(
             _StateKeywordFieldModel(
                 python_name=field.python_name,
@@ -681,6 +708,10 @@ def _state_keyword_model(
         group_target_type_name=names.group_target,
         fields=tuple(fields),
     )
+
+
+def _symbolic_annotation(concrete: str) -> str:
+    return f"Symbolic[{concrete}]"
 
 
 def _writable_state_fields(
@@ -1136,7 +1167,7 @@ def _render_states_module(
         imports.setdefault(module, set()).add(f"{name} as {name}")
 
     if state_layouts:
-        imports["scopecat.authoring"] = {"PerEntity", "ValueRef"}
+        imports["scopecat.authoring"] = {"PerEntity", "Symbolic"}
         imports["scopecat.sdk.instruments.declarations"] = {
             "StateProjectionField",
             "StateProjectionLayout",
@@ -2253,9 +2284,10 @@ def _render_state_projection(
         if projection == "live":
             annotation = concrete
         elif projection == "symbolic":
-            annotation = f"{concrete} | ValueRef"
+            annotation = _symbolic_annotation(concrete)
         elif projection == "group":
-            annotation = f"{concrete} | ValueRef | PerEntity[{concrete} | ValueRef]"
+            symbolic = _symbolic_annotation(concrete)
+            annotation = f"{symbolic} | PerEntity[{symbolic}]"
         else:
             raise AssertionError(f"unknown state projection {projection!r}")
         fields.append(
@@ -2354,7 +2386,9 @@ def render_client_module(
         _render_interface_refs(models),
         _render_descriptors(models),
     ]
-    rendered_result_types: set[tuple[str, str, tuple[str, ...]]] = set()
+    rendered_result_types: set[tuple[str, str, str, tuple[tuple[str, str], ...]]] = (
+        set()
+    )
     for model in models:
         sections.extend(
             (
@@ -2779,6 +2813,10 @@ def _validate_generated_symbols(
                 f"{result_owner} live",
             )
             register(
+                acquisition.records_name,
+                f"{result_owner} durable",
+            )
+            register(
                 acquisition.products_name,
                 f"{result_owner} symbolic",
             )
@@ -2851,7 +2889,7 @@ def _operation_model(
                 argument_id=argument.argument_id,
                 kind=argument.parameter.kind.name,
                 concrete_annotation=concrete_annotation,
-                symbolic_annotation=f"{concrete_annotation} | ValueRef",
+                symbolic_annotation=_symbolic_annotation(concrete_annotation),
             )
         )
     return _OperationModel(
@@ -2886,13 +2924,18 @@ def _acquisition_model(
         result_fields=tuple(
             _AcquisitionResultModel(
                 python_name=field.python_name,
-                role=field.spec.role,
+                spec=field.spec,
+                annotation=field.annotation,
             )
             for field in acquisition.result_fields
         ),
         readback_name=overrides.get(
             f"{override_prefix}.readback",
             f"{result_stem}Readback",
+        ),
+        records_name=overrides.get(
+            f"{override_prefix}.records",
+            f"{result_stem}Records",
         ),
         products_name=overrides.get(
             f"{override_prefix}.products",
@@ -2941,16 +2984,29 @@ def _render_header(
         )
     if has_keyword_state:
         imports.setdefault("typing", set()).update({"overload", "override"})
-        imports["scopecat.authoring"].update({"PerEntity", "ValueRef"})
+        imports["scopecat.authoring"].update({"PerEntity", "Symbolic"})
         imports.setdefault("scopecat.sdk.instruments", set()).add("ApplyReceipt")
     if has_operations or has_acquisitions:
         imports["scopecat.authoring"].add("PerEntity")
     if has_operations:
-        imports["scopecat.authoring"].add("ValueRef")
+        imports["scopecat.authoring"].add("Symbolic")
     if has_acquisitions:
         imports["dataclasses"] = {"dataclass", "field"}
-        imports["scopecat.authoring"].update({"ProductBundle", "ProductRef"})
+        imports.setdefault("typing", set()).add("override")
+        imports["scopecat.authoring"].add("ProductRef")
+        imports["scopecat.authoring._module_results"] = {
+            "ProductBundle",
+            "_RecordProduct",
+        }
+        imports["scopecat.program.record_refs"] = {"RecordRef"}
         imports["scopecat.records.measurement"] = {"MeasurementValue"}
+        if any(
+            field.product_value_annotation == "MeasurementArrayData"
+            for model in models
+            for acquisition in model.root.acquisitions
+            for field in acquisition.result_fields
+        ):
+            imports["scopecat.program.measurement_types"] = {"MeasurementArrayData"}
         imports["scopecat.sdk.instruments"].add("CollectReceipt")
         imports.setdefault("scopecat_instruments._client_runtime", set()).update(
             {
@@ -3333,14 +3389,15 @@ def _render_client_ref_argument(expression: str, *, indent: int) -> str:
 def _render_result_types(
     model: _InterfaceModel,
     *,
-    rendered: set[tuple[str, str, tuple[str, ...]]],
+    rendered: set[tuple[str, str, str, tuple[tuple[str, str], ...]]],
 ) -> str:
     sections: list[str] = []
     for item in model.root.acquisitions:
         identity = (
             item.readback_name,
+            item.records_name,
             item.products_name,
-            item.result_field_names,
+            item.result_field_signature,
         )
         if identity in rendered:
             continue
@@ -3350,7 +3407,16 @@ def _render_result_types(
             for field_name in item.result_field_names
         )
         product_fields = "".join(
-            f"    {field_name}: ProductRef\n" for field_name in item.result_field_names
+            f"    {field.python_name}: ProductRef[{field.product_value_annotation}]\n"
+            for field in item.result_fields
+        )
+        record_fields = "".join(
+            f"    {field.python_name}: RecordRef[{field.product_value_annotation}]\n"
+            for field in item.result_fields
+        )
+        record_assignments = "".join(
+            f"            {field.python_name}=record(self.{field.python_name}),\n"
+            for field in item.result_fields
         )
         sections.append(
             "\n\n"
@@ -3363,11 +3429,28 @@ def _render_result_types(
             "    receipt: CollectReceipt = field(repr=False)\n"
             "\n\n"
             "@dataclass(frozen=True, slots=True)\n"
-            f"class {item.products_name}(ProductBundle):\n"
+            f"class {item.records_name}:\n"
+            f'    """Typed durable records selected from '
+            f'{item.method_name}."""\n'
+            "\n"
+            f"{record_fields}"
+            "\n\n"
+            "@dataclass(frozen=True, slots=True)\n"
+            f"class {item.products_name}(ProductBundle[{item.records_name}]):\n"
             f'    """Typed logical products produced by '
             f'{item.method_name}."""\n'
             "\n"
             f"{product_fields}"
+            "\n"
+            "    @override\n"
+            "    def _records_internal(\n"
+            "        self,\n"
+            "        record: _RecordProduct,\n"
+            "        /,\n"
+            f"    ) -> {item.records_name}:\n"
+            f"        return {item.records_name}(\n"
+            f"{record_assignments}"
+            "        )\n"
         )
     return "".join(sections)
 
@@ -3931,7 +4014,13 @@ def _client_export_names(
             }
         )
         for acquisition in scope.acquisitions:
-            exports.update({acquisition.products_name, acquisition.readback_name})
+            exports.update(
+                {
+                    acquisition.products_name,
+                    acquisition.readback_name,
+                    acquisition.records_name,
+                }
+            )
     return tuple(sorted(exports))
 
 

@@ -51,7 +51,7 @@ def test_complete_point_declarations_replace_each_other_and_reset() -> None:
     definition = _definition(
         default_point_plan=PointPlan(GridSpec((default_axis,))),
     )
-    invocation = ExperimentInvocation(definition)
+    invocation = ExperimentInvocation(definition, output=None)
 
     grid = invocation.grid(_axis("y", 3, 4))
     assert isinstance(grid.point_plan.domain, GridSpec)
@@ -72,7 +72,8 @@ def test_incremental_grid_edits_replace_in_place_append_and_remove() -> None:
     y = _axis("y", 3, 4)
     replacement_x = _axis("x", 5, 6)
     invocation = ExperimentInvocation(
-        _definition(default_point_plan=PointPlan(GridSpec((first_x, y))))
+        _definition(default_point_plan=PointPlan(GridSpec((first_x, y)))),
+        output=None,
     )
 
     replaced = invocation.with_axis(replacement_x)
@@ -95,7 +96,7 @@ def test_incremental_grid_edits_replace_in_place_append_and_remove() -> None:
 
 def test_point_cloud_rejects_incremental_grid_edits() -> None:
     x = coordinate("x", _INT)
-    invocation = ExperimentInvocation(_definition()).points([{x: 1}])
+    invocation = ExperimentInvocation(_definition(), output=None).points([{x: 1}])
 
     with pytest.raises(TypeError, match="point clouds"):
         invocation.with_axis(_axis("y", 2))

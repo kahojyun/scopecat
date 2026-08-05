@@ -72,7 +72,7 @@ _BACKEND = "worker_fixture.backend:create_backend"
 _RAGGED_CONTROL = InterfaceRef("tests.control/v1")
 _RAGGED_GAIN_PROPERTY = _RAGGED_CONTROL.property("gain")
 _RAGGED_TRACE_RESULT = _RAGGED_CONTROL.acquisition("sample").result("ragged_trace")
-_RAGGED_GAIN = coordinate("gain", ScalarType(FloatType()))
+_RAGGED_GAIN = coordinate("gain", FloatType())
 
 
 class _ArrowColumn(Protocol):

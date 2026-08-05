@@ -53,6 +53,9 @@ describe("project daemon reads", () => {
               state: "closed",
               admission: {
                 run_id: "run/1",
+                display_name: "Ramsey calibration",
+                tags: ["calibration"],
+                description: "Calibrate the Ramsey sequence.",
                 plan: {
                   experiment_id: "ramsey",
                   experiment_kind: "scratch",
@@ -96,6 +99,10 @@ describe("project daemon reads", () => {
     const run = await getRun("run/1");
 
     expect(run).toMatchObject({
+      experimentId: "ramsey",
+      displayName: "Ramsey calibration",
+      tags: ["calibration"],
+      description: "Calibrate the Ramsey sequence.",
       status: "succeeded",
       result: "succeeded",
       certainty: "known",

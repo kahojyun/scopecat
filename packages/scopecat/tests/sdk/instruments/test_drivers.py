@@ -13,6 +13,7 @@ from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_types import Entity, Float, Int, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import instrument_bindings
 from scopecat.records.instrument import (
@@ -23,7 +24,6 @@ from scopecat.records.instrument import (
 )
 from scopecat.records.measurement import (
     MeasurementArray,
-    MeasurementDType,
     MeasurementUnavailable,
 )
 from scopecat.sdk.instruments import (

@@ -5,14 +5,25 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from inspect import Parameter, signature
-from typing import cast
+from typing import cast, overload
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
-from scopecat.kernel.value_types import Scalar, Table, ValueType
+from scopecat.kernel.value_types import (
+    Bool,
+    Entity,
+    Float,
+    Int,
+    Payload,
+    Scalar,
+    String,
+    Table,
+    ValueType,
+)
+from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.program.expressions import (
     ParameterLookupUse,
     param,
@@ -21,6 +32,7 @@ from scopecat.program.identities import ComputeDeclarationKey
 from scopecat.program.input_capture import capture_runtime_input
 from scopecat.program.table_values import ParameterTableSource
 from scopecat.program.value_refs import (
+    CoordinateRef,
     ValueRef,
     internal_input_value_ref,
     internal_operation_result_value_ref,
@@ -32,6 +44,7 @@ from scopecat.program.value_refs import (
 )
 
 type ComputeFunction = Callable[..., object]
+type ScalarValueType = Bool | Entity | Float | Int | Payload | QuantityType | String
 type ScalarInput = Quantity | EntityRef | PayloadValue | str | int | float | bool | None
 type ComputeInput = ValueRef | ScalarInput
 type RuntimeInput = (
@@ -126,17 +139,91 @@ def input(
     return internal_input_value_ref(id, value_type)
 
 
-def coordinate(id: str, value_type: Scalar) -> ValueRef:
+@overload
+def coordinate(id: str, value_type: Bool) -> CoordinateRef[bool]: ...
+
+
+@overload
+def coordinate(id: str, value_type: Entity) -> CoordinateRef[EntityRef | str]: ...
+
+
+@overload
+def coordinate(id: str, value_type: Float) -> CoordinateRef[float]: ...
+
+
+@overload
+def coordinate(id: str, value_type: Int) -> CoordinateRef[int]: ...
+
+
+@overload
+def coordinate(id: str, value_type: Payload) -> CoordinateRef[PayloadValue]: ...
+
+
+@overload
+def coordinate(id: str, value_type: QuantityType) -> CoordinateRef[Quantity]: ...
+
+
+@overload
+def coordinate(id: str, value_type: String) -> CoordinateRef[str]: ...
+
+
+@overload
+def coordinate(id: str, value_type: Scalar) -> CoordinateRef[object]: ...
+
+
+def coordinate(id: str, value_type: Scalar | ScalarValueType) -> CoordinateRef[object]:
     """Declare a typed scalar coordinate supplied by each experiment point.
 
     Pass the same value to module bindings and axis declarations. This keeps the
     coordinate identity and its semantic type on one first-class value edge.
     """
 
-    return internal_point_value_ref(id, value_type)
+    return internal_point_value_ref(id, _as_scalar(value_type))
 
 
-def parameter(id: str, value_type: Scalar | Table) -> ValueRef:
+@overload
+def parameter(id: str, value_type: Bool) -> ValueRef[bool]: ...
+
+
+@overload
+def parameter(id: str, value_type: Entity) -> ValueRef[EntityRef | str]: ...
+
+
+@overload
+def parameter(id: str, value_type: Float) -> ValueRef[float]: ...
+
+
+@overload
+def parameter(id: str, value_type: Int) -> ValueRef[int]: ...
+
+
+@overload
+def parameter(id: str, value_type: Payload) -> ValueRef[PayloadValue]: ...
+
+
+@overload
+def parameter(id: str, value_type: QuantityType) -> ValueRef[Quantity]: ...
+
+
+@overload
+def parameter(id: str, value_type: String) -> ValueRef[str]: ...
+
+
+@overload
+def parameter(id: str, value_type: Scalar) -> ValueRef[object]: ...
+
+
+@overload
+def parameter(
+    id: str,
+    value_type: Table,
+) -> ValueRef[list[dict[str, object]]]: ...
+
+
+def parameter(
+    id: str,
+    value_type: Scalar | ScalarValueType | Table,
+) -> ValueRef[object]:
     """Declare a typed scalar or table parameter dependency."""
 
     if isinstance(value_type, Table):
@@ -144,10 +231,91 @@ def parameter(id: str, value_type: Scalar | Table) -> ValueRef:
             ParameterTableSource(id),
             value_type,
         )
+    selected_type = _as_scalar(value_type)
     return internal_value_ref_from_expression(
-        param(id, value_type),
-        value_type,
+        param(id, selected_type),
+        selected_type,
     )
+
+
+@overload
+def parameter_lookup(
+    table_id: str,
+    *,
+    key: Mapping[str, ParameterKeyInput],
+    column: str,
+    value_type: Bool,
+) -> ValueRef[bool]: ...
+
+
+@overload
+def parameter_lookup(
+    table_id: str,
+    *,
+    key: Mapping[str, ParameterKeyInput],
+    column: str,
+    value_type: Entity,
+) -> ValueRef[EntityRef | str]: ...
+
+
+@overload
+def parameter_lookup(
+    table_id: str,
+    *,
+    key: Mapping[str, ParameterKeyInput],
+    column: str,
+    value_type: Float,
+) -> ValueRef[float]: ...
+
+
+@overload
+def parameter_lookup(
+    table_id: str,
+    *,
+    key: Mapping[str, ParameterKeyInput],
+    column: str,
+    value_type: Int,
+) -> ValueRef[int]: ...
+
+
+@overload
+def parameter_lookup(
+    table_id: str,
+    *,
+    key: Mapping[str, ParameterKeyInput],
+    column: str,
+    value_type: Payload,
+) -> ValueRef[PayloadValue]: ...
+
+
+@overload
+def parameter_lookup(
+    table_id: str,
+    *,
+    key: Mapping[str, ParameterKeyInput],
+    column: str,
+    value_type: QuantityType,
+) -> ValueRef[Quantity]: ...
+
+
+@overload
+def parameter_lookup(
+    table_id: str,
+    *,
+    key: Mapping[str, ParameterKeyInput],
+    column: str,
+    value_type: String,
+) -> ValueRef[str]: ...
+
+
+@overload
+def parameter_lookup(
+    table_id: str,
+    *,
+    key: Mapping[str, ParameterKeyInput],
+    column: str,
+    value_type: Scalar,
+) -> ValueRef[object]: ...
 
 
 def parameter_lookup(
@@ -155,8 +323,8 @@ def parameter_lookup(
     *,
     key: Mapping[str, ParameterKeyInput],
     column: str,
-    value_type: Scalar,
-) -> ValueRef:
+    value_type: Scalar | ScalarValueType,
+) -> ValueRef[object]:
     """Declare one typed parameter-table lookup dependency."""
 
     if any(
@@ -172,6 +340,7 @@ def parameter_lookup(
         else cast("ParameterKeyInput", capture_runtime_input(value))
         for name, value in key.items()
     }
+    selected_type = _as_scalar(value_type)
     lookup_use = ParameterLookupUse(
         table_id=table_id,
         key_input_types=tuple(
@@ -184,12 +353,16 @@ def parameter_lookup(
             if not isinstance(value, ValueRef)
         ),
         column_id=column,
-        result_type=value_type,
+        result_type=selected_type,
     )
     return internal_parameter_lookup_value_ref(
         lookup_use,
         key=captured_key,
     )
+
+
+def _as_scalar(value_type: Scalar | ScalarValueType) -> Scalar:
+    return value_type if isinstance(value_type, Scalar) else Scalar(value_type)
 
 
 def compute(
@@ -298,6 +471,7 @@ def _validate_compute_function(
 __all__ = [
     "Compute",
     "ComputeInput",
+    "CoordinateRef",
     "MetadataValue",
     "ModuleInput",
     "ParameterKeyInput",

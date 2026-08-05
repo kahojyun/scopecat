@@ -11,7 +11,7 @@ from scopecat.authoring import (
     ModuleContext,
     PerEntity,
     ProductRef,
-    ScalarType,
+    RecordRef,
     coordinate,
     each,
     experiment,
@@ -22,6 +22,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.bindings import EnsureStateIntent, InvocationIntent
 from scopecat.program.expressions import LiteralScalarExpr
+from scopecat.program.measurement_types import MeasurementArrayData
 from scopecat.program.module import ModuleAcquireEffect
 from scopecat.program.products import RecordSelection
 from scopecat.program.recording import ProgramRecordSelection
@@ -34,6 +35,7 @@ from scopecat_instruments import (
     DCSourceGroupTarget,
     DCSourceTarget,
     NetworkSweepProducts,
+    NetworkSweepRecords,
     NetworkSweepTarget,
     RFOutputGroupTarget,
     RFOutputTarget,
@@ -75,7 +77,7 @@ def _product_records(
 
 def test_factories_bind_typed_symbolic_clients_and_declare_resources() -> None:
     context = ModuleContext()
-    qubit = coordinate("qubit", ScalarType(EntityType(entity_kind="qubit")))
+    qubit = coordinate("qubit", EntityType(entity_kind="qubit"))
 
     source = dc_source(context, "flux", for_=one(qubit))
     rf = rf_output(context, "drive")
@@ -367,7 +369,9 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
         vna = network_sweep(context, "readout")
         vna.ensure(points=11)
         trace = vna.sweep()
-        context.record(trace)
+        records = assert_type(context.record(trace), NetworkSweepRecords)
+        assert_type(records.frequency, RecordRef[MeasurementArrayData])
+        assert_type(records.s_parameter, RecordRef[MeasurementArrayData])
 
     definition = authored.bind().definition
     assert [product.id for product in definition.body.products] == [
@@ -413,31 +417,6 @@ def test_record_namespace_prefixes_typed_variables_and_their_group() -> None:
     ]
     assert {selection.recording_group_id for selection in selections} == {
         "calibration/readout/sweep"
-    }
-
-
-def test_typed_result_members_keep_their_declared_recording_roles() -> None:
-    context = ExperimentContext()
-    vna = network_sweep(context, "readout")
-    vna.ensure(points=11)
-
-    trace = vna.sweep()
-    context.record(trace.frequency, trace.s_parameter)
-
-    definition = context.close_definition_internal(
-        id="test.symbolic.record-members",
-        kind="test",
-        metadata=None,
-        input_defaults={},
-        required_inputs=(),
-    )
-    selections = _product_records(definition.record_selections)
-    assert [selection.role for selection in selections] == [
-        "coordinate",
-        "observable",
-    ]
-    assert {selection.recording_group_id for selection in selections} == {
-        "readout/sweep"
     }
 
 
@@ -636,9 +615,9 @@ def test_dc_monitor_exposes_independent_fixed_result_acquisitions() -> None:
     voltage = source.measure_voltage()
 
     assert_type(current, DCMonitorCurrentProducts)
-    assert_type(current.current, ProductRef)
+    assert_type(current.current, ProductRef[float])
     assert_type(voltage, DCMonitorVoltageProducts)
-    assert_type(voltage.voltage, ProductRef)
+    assert_type(voltage.voltage, ProductRef[float])
     definition = context.close_definition_internal(id="test.symbolic.dc-monitor")
     assert [product.id for product in definition.body.products] == [
         "monitored_current",
@@ -756,8 +735,8 @@ def test_network_sweep_declares_contract_products_and_ensured_points() -> None:
     trace = vna.sweep()
 
     assert_type(trace, NetworkSweepProducts)
-    assert_type(trace.frequency, ProductRef)
-    assert_type(trace.s_parameter, ProductRef)
+    assert_type(trace.frequency, ProductRef[MeasurementArrayData])
+    assert_type(trace.s_parameter, ProductRef[MeasurementArrayData])
     definition = context.close_definition_internal(id="test.symbolic.sweep")
     assert [product.id for product in definition.body.products] == [
         "frequency",
@@ -795,7 +774,7 @@ def test_network_sweep_declares_contract_products_and_ensured_points() -> None:
 
 def test_network_sweep_rejects_point_varying_output_shape() -> None:
     context = ModuleContext()
-    points = coordinate("points", ScalarType(IntType()))
+    points = coordinate("points", IntType())
     vna = network_sweep(context, "readout")
     vna.ensure(points=points)
 
@@ -838,8 +817,8 @@ def test_temperature_sample_declares_all_contract_products() -> None:
     sample = thermometer.sample()
 
     assert_type(sample, TemperatureSampleProducts)
-    assert_type(sample.temperature, ProductRef)
-    assert_type(sample.resistance, ProductRef)
+    assert_type(sample.temperature, ProductRef[float])
+    assert_type(sample.resistance, ProductRef[float])
     definition = context.close_definition_internal(id="test.symbolic.temperature")
     assert [product.id for product in definition.body.products] == [
         "temperature",

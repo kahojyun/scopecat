@@ -13,7 +13,7 @@ from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.product_identity import product_id, product_use
 from scopecat.kernel.resource_identity import ResourceRequirement
 from scopecat.measurements.points import RunPoint
-from scopecat.measurements.results import MeasurementDType
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.sdk.instruments.commands import (
     CollectCommand,

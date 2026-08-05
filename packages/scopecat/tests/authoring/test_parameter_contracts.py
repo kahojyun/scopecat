@@ -239,7 +239,7 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
 
     parameter = sc.parameter(
         "drive_frequency",
-        sc.ScalarType(sc.StringType()),
+        sc.StringType(),
     )
 
     @sc.experiment(id="test.parameter-contract", kind="parameter_contract")
@@ -573,7 +573,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
                     "device_parameters",
                     key={"device": device},
                     column="frequency",
-                    value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+                    value_type=sc.QuantityType(unit="GHz"),
                 )
             )
         )
@@ -624,7 +624,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
                         "device_parameters",
                         key={"device": device},
                         column="frequency",
-                        value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+                        value_type=sc.QuantityType(unit="GHz"),
                     )
                 )
             )

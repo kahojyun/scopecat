@@ -152,10 +152,9 @@ def test_codegen_adds_keyword_convenience_for_one_flat_state_schema() -> None:
     assert "patch: CatalogProjectionPatch," in completed.stdout
     assert "enabled: bool = ...," in completed.stdout
     assert "state: CatalogProjectionTarget," in completed.stdout
-    assert "enabled: bool | ValueRef = ...," in completed.stdout
+    assert "enabled: Symbolic[bool] = ...," in completed.stdout
     assert (
-        "enabled: bool | ValueRef | PerEntity[bool | ValueRef] = ...,"
-        in completed.stdout
+        "enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = ...," in completed.stdout
     )
     assert "status: str = ...," not in completed.stdout
     assert "def state(self) -> CatalogProjectionState:" in completed.stdout
@@ -184,17 +183,17 @@ def test_codegen_renders_flat_dc_source_state_and_typed_transitions() -> None:
     assert "def source_current(" in live_client
     assert live_client.count("range: Quantity,") == 2
     assert live_client.count("level: Quantity,") == 2
-    assert completed.stdout.count("range: Quantity | ValueRef,") == 2
-    assert completed.stdout.count("level: Quantity | ValueRef,") == 2
+    assert completed.stdout.count("range: Symbolic[Quantity],") == 2
+    assert completed.stdout.count("level: Symbolic[Quantity],") == 2
     assert (
         completed.stdout.count(
-            "range: Quantity | ValueRef | PerEntity[Quantity | ValueRef],"
+            "range: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],"
         )
         == 2
     )
     assert (
         completed.stdout.count(
-            "level: Quantity | ValueRef | PerEntity[Quantity | ValueRef],"
+            "level: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],"
         )
         == 2
     )
@@ -243,11 +242,39 @@ def test_codegen_imports_literal_for_resolved_declared_annotations() -> None:
     assert completed.returncode == 0, completed.stderr
     assert "from typing import Literal" in completed.stdout
     assert 'mode: Literal["left", "right"],' in completed.stdout
-    assert 'mode: Literal["left", "right"] | ValueRef,' in completed.stdout
+    assert 'mode: Symbolic[Literal["left", "right"]],' in completed.stdout
     assert (
-        'mode: Literal["left", "right"] | ValueRef | '
-        'PerEntity[Literal["left", "right"] | ValueRef],'
+        'mode: Symbolic[Literal["left", "right"]] | '
+        'PerEntity[Symbolic[Literal["left", "right"]]],'
     ) in completed.stdout
+
+
+def test_codegen_types_products_by_native_point_value() -> None:
+    scalar = _render_surface("NativeScalarInterface")
+
+    assert scalar.returncode == 0, scalar.stderr
+    assert "    boolean: ProductRef[bool]" in scalar.stdout
+    assert "    integer: ProductRef[int]" in scalar.stdout
+    assert "    floating: ProductRef[float]" in scalar.stdout
+    assert "    complex_value: ProductRef[complex]" in scalar.stdout
+    assert "    text: ProductRef[str]" in scalar.stdout
+    assert "class NativeScalarRecords:" in scalar.stdout
+    assert "    boolean: RecordRef[bool]" in scalar.stdout
+    assert "    integer: RecordRef[int]" in scalar.stdout
+    assert "    floating: RecordRef[float]" in scalar.stdout
+    assert "    complex_value: RecordRef[complex]" in scalar.stdout
+    assert "    text: RecordRef[str]" in scalar.stdout
+    assert "MeasurementArrayData" not in scalar.stdout
+
+    array = _render_surface("DriverFixedAcquisitionInterface")
+
+    assert array.returncode == 0, array.stderr
+    assert (
+        "from scopecat.program.measurement_types import MeasurementArrayData"
+        in array.stdout
+    )
+    assert "    response: ProductRef[MeasurementArrayData]" in array.stdout
+    assert "    response: RecordRef[MeasurementArrayData]" in array.stdout
 
 
 def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
@@ -272,12 +299,14 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "DCMonitorPatch" in completed.stdout
     assert "class DCMonitorCurrentReadback:" in completed.stdout
     assert "    current: MeasurementValue" in completed.stdout
-    assert "class DCMonitorCurrentProducts(ProductBundle):" in completed.stdout
-    assert "    current: ProductRef" in completed.stdout
+    assert "class DCMonitorCurrentRecords:" in completed.stdout
+    assert "    current: RecordRef[float]" in completed.stdout
+    assert "    current: ProductRef[float]" in completed.stdout
     assert "class DCMonitorVoltageReadback:" in completed.stdout
     assert "    voltage: MeasurementValue" in completed.stdout
-    assert "class DCMonitorVoltageProducts(ProductBundle):" in completed.stdout
-    assert "    voltage: ProductRef" in completed.stdout
+    assert "class DCMonitorVoltageRecords:" in completed.stdout
+    assert "    voltage: RecordRef[float]" in completed.stdout
+    assert "    voltage: ProductRef[float]" in completed.stdout
     assert "DCMonitorCurrentResults" not in completed.stdout
     assert "DCMonitorVoltageResults" not in completed.stdout
     assert "class DCSourceMonitorClient(" in completed.stdout

@@ -43,10 +43,11 @@ connect to another loopback instance.
 The lab also exposes `run_quantum(call)` for a newly authored
 `QuantumProgramCall` that exposes the lab's integrated-IQ result `iq_shots`.
 The runner injects this lab's compiler inputs, discrimination, and dataset
-recording policy, and the returned experiment can be extended with `.grid(...)`
-before passing it to `lab.run(...)`. No wrapper module is required. Independent
-auxiliary-device work can be added inside the lab runner; hardware that must
-change synchronously at every quantum point belongs in the quantum
+recording policy. The same policy is available as the typed `quantum_capture`
+module when composing a larger experiment. Its structural program-call argument
+closes over scan and parameter dependencies without handwritten forwarding.
+Independent auxiliary-device work can be added beside that module; hardware
+that must change synchronously at every quantum point belongs in the quantum
 target/compiler contract.
 
 ## Source map

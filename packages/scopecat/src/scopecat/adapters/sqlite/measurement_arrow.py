@@ -19,12 +19,12 @@ from scopecat.measurements.arrow_values import (
     measurement_arrow_value_type,
     measurement_values_to_arrow_array,
 )
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records._metadata import JsonMetadata, validate_json_metadata
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementDatasetSchema,
-    MeasurementDType,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementScalarData,

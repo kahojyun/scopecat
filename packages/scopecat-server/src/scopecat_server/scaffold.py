@@ -153,11 +153,9 @@ import scopecat as sc
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-@sc.experiment(id="scopecat_lab.first_run", kind="first_run")
-def first_run(experiment: sc.ExperimentContext) -> None:
+@sc.experiment
+def first_run(_experiment: sc.ExperimentContext) -> None:
     """Close the daemon, notebook, history, and GUI loop without hardware."""
-
-    del experiment
 
 
 # %%

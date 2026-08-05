@@ -634,6 +634,7 @@ function projectRun(runId: string): ProjectRun {
   return {
     runId,
     experimentId: "ramsey",
+    tags: [],
     status: "succeeded",
     stateLabel: "Succeeded",
     updatedAt: "2026-07-24T08:00:00Z",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 from scopecat.compiler.frontend.logical_closure import (
     LogicalProgramBuilder,
@@ -68,7 +69,7 @@ from scopecat.program.scans import (
     RepeatMode,
     axis_parameter_contracts,
 )
-from scopecat.program.value_refs import ValueRef, internal_value_ref_record_id
+from scopecat.program.value_refs import ValueRef, internal_value_ref_source_id
 from scopecat.program.value_transforms import internal_bind_value_ref_inputs
 
 
@@ -317,7 +318,7 @@ def _elaborate_hierarchy(
     )
     for root_value in (*value_roots, *success_state_values):
         if isinstance(root_value, ValueRef):
-            composer.logical.add_value_root(root_value)
+            composer.logical.add_value_root(cast("ValueRef[object]", root_value))
     return composer.logical.finish(
         experiment_id=experiment_id,
         kind=kind,
@@ -358,10 +359,10 @@ def _resolve_value_record_selection(
 ) -> LogicalValueRecordSelection:
     if not isinstance(value.value_type, Scalar):
         raise TypeError("dataset value records must be scalar")
-    default_id = internal_value_ref_record_id(value)
-    if selection.record_id is None and default_id is None:
+    default_source_id = internal_value_ref_source_id(value)
+    if selection.record_id is None and default_source_id is None:
         raise ValueError("recording an unnamed symbolic expression requires record_id")
-    source_value_id = default_id or selection.record_id
+    source_value_id = default_source_id or selection.record_id
     if source_value_id is None:
         raise AssertionError("value record identity was not resolved")
     selected_id = (

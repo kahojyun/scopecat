@@ -15,6 +15,7 @@ from scopecat_quantum import authoring
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
     BinaryIqProbabilityProducts,
+    BinaryIqProbabilityRecords,
     IqCentroid,
     binary_iq_probabilities,
 )
@@ -82,8 +83,17 @@ def test_binary_iq_postprocessor_classifies_one_point(
         discriminate().result,
         BinaryIqProbabilityProducts,
     )
+    assert_type(invocation_products.probability_0, sc.ProductRef[float])
+    assert_type(invocation_products.probability_1, sc.ProductRef[float])
     assert invocation_products.probability_0.id == "kernel/probability_0"
     assert invocation_products.probability_1.id == "kernel/probability_1"
+    experiment = sc.ExperimentContext()
+    records = assert_type(
+        experiment.record(experiment.use(discriminate())),
+        BinaryIqProbabilityRecords,
+    )
+    assert_type(records.probability_0, sc.RecordRef[float])
+    assert_type(records.probability_1, sc.RecordRef[float])
     declarations = {
         product.qualified_id: product
         for product in discriminate.definition.body.products

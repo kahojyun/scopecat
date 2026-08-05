@@ -7,9 +7,9 @@ from scopecat.measurements.contracts import (
     MeasurementValueContractIssueCode,
     measurement_value_contract_issues,
 )
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
     MeasurementArray,
-    MeasurementDType,
     MeasurementScalar,
     MeasurementUnavailable,
     MeasurementUnavailableReason,

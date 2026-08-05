@@ -172,11 +172,7 @@ def create_domain_call_internal(
             )
         declaration = prefix_product_decl(product, id, origin=(call_key,))
         declarations.append(declaration)
-        results[port.id] = ProductRef(
-            product_id=declaration.product_id,
-            origin=declaration.origin,
-            _recording=declaration.recording,
-        )
+        results[port.id] = ProductRef.from_declaration(declaration)
     result_refs = ProductRefs(results)
     execution = domain_execution(
         program,

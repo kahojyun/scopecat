@@ -16,7 +16,7 @@ from scopecat.planning.point_materialization import (
     materialize_bound_points,
 )
 from scopecat.program.domain import domain_program
-from scopecat.program.products import ModuleProductDecl
+from scopecat.program.products import ModuleProductDecl, ProductValueSpec
 from scopecat.sdk.domain import (
     DomainBatchRequest,
     DomainPointRef,
@@ -39,8 +39,9 @@ def _domain_scenario(
     namespace: str,
     record_raw: bool = True,
 ) -> MaterializedBoundPoints:
-    count_type = sc.ScalarType(sc.IntType(minimum=0))
-    count = sc.coordinate(f"{namespace}_count", count_type)
+    count_atom = sc.IntType(minimum=0)
+    count_type = sc.ScalarType(count_atom)
+    count = sc.coordinate(f"{namespace}_count", count_atom)
     program = domain_program(
         "program",
         dialect_id="test.context",
@@ -73,8 +74,10 @@ def _domain_scenario(
             products={
                 "raw": ModuleProductDecl(
                     "raw",
-                    unit="count",
-                    dtype="int64",
+                    value_spec=ProductValueSpec(
+                        unit="count",
+                        dtype="int64",
+                    ),
                 )
             },
         )

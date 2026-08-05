@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import cast, override
+from typing import Generic, Protocol, TypeVar, cast, override
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
@@ -17,8 +17,14 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar
-from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
 from scopecat.program.input_capture import capture_runtime_input, empty_program_mapping
+from scopecat.program.measurement_types import (
+    MeasurementDType,
+    MeasurementVariableRole,
+    NativeMeasurementScalar,
+    NativeMeasurementValue,
+)
+from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_refs import (
     ValueRef,
 )
@@ -31,6 +37,14 @@ type AxisSizeInput = (
     ValueRef | Quantity | int | float | tuple[EntityRef | str, ...] | None
 )
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
+type ProductNativeScalar = NativeMeasurementScalar
+type ProductNativeValue = NativeMeasurementValue
+_ProductT_co = TypeVar(
+    "_ProductT_co",
+    bound=ProductNativeValue,
+    covariant=True,
+    default=ProductNativeValue,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,8 +81,36 @@ class ProductAxis:
             raise ValueError(msg)
 
 
+@dataclass(frozen=True, slots=True)
+class ProductValueSpec(Generic[_ProductT_co]):
+    """Runtime value schema attached to one typed logical product handle.
+
+    ``T`` is the available native value at one logical point. It is a scalar
+    for scalar products and an array for products with local axes. Units stay
+    in the runtime schema rather than becoming static literal types.
+    """
+
+    dtype: MeasurementDType = "float64"
+    unit: str | None = None
+    axes: tuple[ProductAxis, ...] = ()
+
+
+class _ProductExport[ValueT: ProductNativeValue](Protocol):
+    @property
+    def symbol_id(self) -> ProductId: ...
+
+    @property
+    def target_origin(self) -> tuple[object, ...]: ...
+
+    @property
+    def value_spec(self) -> ProductValueSpec[ValueT]: ...
+
+    @property
+    def recording(self) -> ProductRecording | None: ...
+
+
 @dataclass(frozen=True)
-class ModuleProductDecl:
+class ModuleProductDecl(Generic[_ProductT_co]):
     """Declare one reusable product independently of execution and storage.
 
     A declaration describes only the logical product schema available at a
@@ -82,11 +124,9 @@ class ModuleProductDecl:
     """
 
     id: str
+    value_spec: ProductValueSpec[_ProductT_co]
     scope: tuple[str, ...] = ()
     origin: tuple[object, ...] = field(default=(), repr=False, compare=False)
-    unit: str | None = None
-    dtype: MeasurementDType = "float64"
-    axes: tuple[ProductAxis, ...] = ()
     recording: ProductRecording | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
@@ -107,18 +147,67 @@ class ModuleProductDecl:
     def qualified_id(self) -> str:
         return self.product_id.qualified_name
 
+    @property
+    def dtype(self) -> MeasurementDType:
+        """Convenient access to the canonical product value schema."""
+
+        return self.value_spec.dtype
+
+    @property
+    def unit(self) -> str | None:
+        """Convenient access to the canonical product value schema."""
+
+        return self.value_spec.unit
+
+    @property
+    def axes(self) -> tuple[ProductAxis, ...]:
+        """Convenient access to the canonical product value schema."""
+
+        return self.value_spec.axes
+
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ProductRef:
+class ProductRef(Generic[_ProductT_co]):
     """Opaque hygienic reference to one module or module-instance product."""
 
     product_id: ProductId
     origin: tuple[object, ...] = field(repr=False, compare=False)
+    _value_spec: ProductValueSpec[_ProductT_co] = field(repr=False)
     _recording: ProductRecording | None = field(
         default=None,
         repr=False,
         compare=False,
     )
+
+    @staticmethod
+    def from_declaration[ValueT: ProductNativeValue](
+        product: ModuleProductDecl[ValueT],
+    ) -> ProductRef[ValueT]:
+        """Create a handle without restating any declaration schema."""
+
+        return ProductRef(
+            product_id=product.product_id,
+            origin=product.origin,
+            _value_spec=product.value_spec,
+            _recording=product.recording,
+        )
+
+    @staticmethod
+    def from_export[ValueT: ProductNativeValue](
+        product: _ProductExport[ValueT],
+    ) -> ProductRef[ValueT]:
+        """Create a handle without restating any projected export schema."""
+
+        return ProductRef(
+            product_id=product.symbol_id,
+            origin=product.target_origin,
+            _value_spec=product.value_spec,
+            _recording=product.recording,
+        )
+
+    @property
+    def value_spec(self) -> ProductValueSpec[_ProductT_co]:
+        return self._value_spec
 
     @property
     def id(self) -> str:
@@ -135,6 +224,32 @@ class ProductRef:
         """Return generated acquisition semantics for experiment recording."""
 
         return "observable" if self._recording is None else self._recording.role
+
+
+def record_ref_from_product[ValueT: ProductNativeValue](
+    product: ProductRef[ValueT],
+    selection: RecordSelection,
+) -> RecordRef[ValueT]:
+    """Project one authored product selection into its typed dataset handle."""
+
+    record_id = selection.record_id
+    if record_id is None:
+        raise AssertionError("product record selections require a resolved id")
+    return RecordRef(
+        id=record_id,
+        dtype=product.value_spec.dtype,
+        unit=product.value_spec.unit,
+        dims=(
+            "point",
+            *(
+                _product_axis_dimension_id(product.product_id, axis)
+                for axis in product.value_spec.axes
+            ),
+        ),
+        role=selection.role,
+        source_product_id=product.id,
+        recording_group_id=selection.recording_group_id,
+    )
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -268,13 +383,21 @@ def product_axis_dimension_id(
 ) -> str:
     """Keep product-owned and explicitly shared dimensions disjoint."""
 
+    return _product_axis_dimension_id(product.product_id, axis)
+
+
+def _product_axis_dimension_id(
+    product_id: ProductId,
+    axis: ProductAxis,
+) -> str:
+
     if axis.shared_as is not None:
         return SymbolId(
-            scope=("shared", *product.scope),
+            scope=("shared", *product_id.scope),
             local_id=axis.shared_as,
         ).qualified_name
     return SymbolId(
-        scope=("product", *product.scope, product.id),
+        scope=("product", *product_id.scope, product_id.local_id),
         local_id=axis.id,
     ).qualified_name
 
@@ -405,13 +528,16 @@ def localize_product_input_refs(
 ) -> ModuleProductDecl:
     return replace(
         product,
-        axes=tuple(
-            _localize_product_axis_input_refs(
-                axis,
-                inputs,
-                localize_value_ref=localize_value_ref,
-            )
-            for axis in product.axes
+        value_spec=replace(
+            product.value_spec,
+            axes=tuple(
+                _localize_product_axis_input_refs(
+                    axis,
+                    inputs,
+                    localize_value_ref=localize_value_ref,
+                )
+                for axis in product.axes
+            ),
         ),
     )
 
