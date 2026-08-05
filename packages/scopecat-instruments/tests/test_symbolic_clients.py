@@ -19,8 +19,8 @@ from scopecat.authoring import (
     one,
 )
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.measurement_values import MeasurementArrayData
 from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.value_spec import MeasurementArrayData
 from scopecat.program.bindings import EnsureStateIntent, InvocationIntent
 from scopecat.program.expressions import LiteralScalarExpr
 from scopecat.program.module import ModuleAcquireEffect

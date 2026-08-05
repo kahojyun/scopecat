@@ -757,21 +757,13 @@ export interface components {
             axes?: components["schemas"]["AcquisitionAxisSpec"][];
             /** Description */
             description?: string | null;
-            /**
-             * Dtype
-             * @default float64
-             * @enum {string}
-             */
-            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /** @default float64 */
+            dtype: components["schemas"]["MeasurementDType"];
             id: components["schemas"]["_NonEmptyId"];
             /** Label */
             label?: string | null;
-            /**
-             * Role
-             * @default observable
-             * @enum {string}
-             */
-            role: "coordinate" | "observable";
+            /** @default observable */
+            role: components["schemas"]["MeasurementVariableRole"];
             /** Unit */
             unit?: string | null;
         };
@@ -2004,12 +1996,8 @@ export interface components {
          * @description One typed array backed by an immutable, read-only NumPy buffer.
          */
         "MeasurementArray-Output": {
-            /**
-             * Dtype
-             * @default float64
-             * @enum {string}
-             */
-            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /** @default float64 */
+            dtype: components["schemas"]["MeasurementDType"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2084,6 +2072,8 @@ export interface components {
             /** Size */
             size: number | null;
         };
+        /** @enum {string} */
+        MeasurementDType: "float64" | "int64" | "complex128" | "bool" | "string";
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
@@ -2169,12 +2159,8 @@ export interface components {
          * @description One normalized, typed scalar measurement value.
          */
         "MeasurementScalar-Output": {
-            /**
-             * Dtype
-             * @default float64
-             * @enum {string}
-             */
-            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /** @default float64 */
+            dtype: components["schemas"]["MeasurementDType"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2342,11 +2328,7 @@ export interface components {
          *     available value exists from which to learn that point-local size.
          */
         "MeasurementUnavailable-Output": {
-            /**
-             * Dtype
-             * @enum {string}
-             */
-            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            dtype: components["schemas"]["MeasurementDType"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2374,27 +2356,21 @@ export interface components {
         "MeasurementVariable-Output": {
             /** Dims */
             dims: string[];
-            /**
-             * Dtype
-             * @enum {string}
-             */
-            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            dtype: components["schemas"]["MeasurementDType"];
             /** Id */
             id: string;
             /** Label */
             label?: string | null;
             metadata?: components["schemas"]["MeasurementMetadata-Output"];
             recording_group_id?: components["schemas"]["_NonEmptyText"] | null;
-            /**
-             * Role
-             * @enum {string}
-             */
-            role: "coordinate" | "observable";
+            role: components["schemas"]["MeasurementVariableRole"];
             source_product_id?: components["schemas"]["_NonEmptyText"] | null;
             source_value_id?: components["schemas"]["_NonEmptyText"] | null;
             /** Unit */
             unit?: string | null;
         };
+        /** @enum {string} */
+        MeasurementVariableRole: "coordinate" | "observable";
         /**
          * ModelLocation
          * @description A path within a public model or transient compiler structure.

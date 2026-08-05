@@ -1,4 +1,4 @@
-"""Static contract for one point-local measurement calculation."""
+"""Static program contract for one point-local measurement calculation."""
 
 from __future__ import annotations
 

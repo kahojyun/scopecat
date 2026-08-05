@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from scopecat.kernel.measurement_values import MeasurementVariableRole
 from scopecat.measurements.results import MeasurementDatasetSchema
-from scopecat.measurements.value_spec import MeasurementVariableRole
 
 
 @dataclass(frozen=True)

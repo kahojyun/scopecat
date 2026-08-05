@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from scopecat.kernel.measurement_values import MeasurementDType, MeasurementVariableRole
 from scopecat.measurements.contracts import (
     validate_measurement_records_against_schema,
 )
@@ -11,9 +12,8 @@ from scopecat.measurements.dataset import (
     PointMask,
     Variable,
 )
-from scopecat.measurements.references import RecordRef
 from scopecat.measurements.traces import Trace
-from scopecat.measurements.value_spec import MeasurementDType, MeasurementVariableRole
+from scopecat.program.record_refs import RecordRef
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,

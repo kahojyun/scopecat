@@ -20,8 +20,8 @@ from scopecat.authoring import (
 from scopecat.authoring._module_context import DefinitionResource
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef, entity_identity
+from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.kernel.symbols import SymbolId
-from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.program.products import ProductAxis, ProductRecording, ProductRef
 from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (

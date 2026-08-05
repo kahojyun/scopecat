@@ -33,7 +33,7 @@ from pydantic import (
 
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.interface_identity import InterfaceId
-from scopecat.measurements.value_spec import (
+from scopecat.kernel.measurement_values import (
     MeasurementArrayData,
     MeasurementArrayElement,
     MeasurementDType,

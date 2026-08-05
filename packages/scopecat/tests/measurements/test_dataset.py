@@ -14,10 +14,10 @@ import pyarrow as pa
 import pytest
 import xarray as xr
 
+from scopecat.kernel.measurement_values import MeasurementArrayData, MeasurementDType
 from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.references import RecordRef
 from scopecat.measurements.results import Dataset, PointMask, Variable
-from scopecat.measurements.value_spec import MeasurementArrayData, MeasurementDType
+from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_types import Quantity as QuantityType
 from scopecat.program.values import CoordinateRef, coordinate
 from scopecat.records.artifact import RunContentEntry

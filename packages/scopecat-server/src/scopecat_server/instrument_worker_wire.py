@@ -21,8 +21,8 @@ from pydantic import (
 )
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.kernel.problems import Problem
-from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.records._metadata import JsonMetadata
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.measurement import (

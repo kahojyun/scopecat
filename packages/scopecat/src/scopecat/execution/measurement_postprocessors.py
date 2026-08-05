@@ -11,12 +11,12 @@ from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.measurements.contracts import measurement_value_contract_issues
 from scopecat.measurements.points import RunPoint
-from scopecat.measurements.postprocessor_contract import (
-    MeasurementPostprocessorKernel,
-)
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
     MeasurementValueCatalog,
+)
+from scopecat.program.measurement_contracts import (
+    MeasurementPostprocessorKernel,
 )
 from scopecat.records.measurement import MeasurementUnavailable
 

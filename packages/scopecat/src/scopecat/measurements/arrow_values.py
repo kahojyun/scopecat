@@ -12,7 +12,7 @@ from typing import cast
 import numpy as np
 import pyarrow as pa
 
-from scopecat.measurements.value_spec import MeasurementDType
+from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementScalar,

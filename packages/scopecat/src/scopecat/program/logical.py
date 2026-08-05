@@ -17,14 +17,14 @@ from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar, ValueType
-from scopecat.measurements.postprocessor_contract import (
-    MeasurementPostprocessorKernel,
-)
 from scopecat.program.bindings import (
     ResourcePort,
 )
 from scopecat.program.expressions import (
     ScalarExpr,
+)
+from scopecat.program.measurement_contracts import (
+    MeasurementPostprocessorKernel,
 )
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.parameters import ParameterContract

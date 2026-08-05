@@ -270,7 +270,7 @@ def test_codegen_types_products_by_native_point_value() -> None:
 
     assert array.returncode == 0, array.stderr
     assert (
-        "from scopecat.measurements.value_spec import MeasurementArrayData"
+        "from scopecat.kernel.measurement_values import MeasurementArrayData"
         in array.stdout
     )
     assert "    response: ProductRef[MeasurementArrayData]" in array.stdout

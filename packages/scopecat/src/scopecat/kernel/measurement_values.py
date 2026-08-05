@@ -1,4 +1,4 @@
-"""Neutral measurement value types shared before durable dataset models."""
+"""Neutral measurement value types shared by programs and durable records."""
 
 from __future__ import annotations
 

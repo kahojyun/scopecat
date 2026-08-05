@@ -15,11 +15,11 @@ import pyarrow as pa
 
 from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.frozen import thaw_json_value
+from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.measurements.arrow_values import (
     measurement_arrow_value_type,
     measurement_values_to_arrow_array,
 )
-from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.records._metadata import JsonMetadata, validate_json_metadata
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,

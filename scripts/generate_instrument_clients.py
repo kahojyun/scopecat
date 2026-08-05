@@ -15,8 +15,8 @@ from importlib import import_module
 from pathlib import Path
 from typing import Protocol, TypeAliasType, TypeVar, cast, get_args, get_origin
 
+from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.kernel.value_types import Payload as PayloadType
-from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.sdk.instruments import (
     AcquisitionAxisSpec,
     AcquisitionRef,
@@ -2998,7 +2998,7 @@ def _render_header(
             "ProductBundle",
             "_RecordProduct",
         }
-        imports["scopecat.measurements.references"] = {"RecordRef"}
+        imports["scopecat.program.record_refs"] = {"RecordRef"}
         imports["scopecat.records.measurement"] = {"MeasurementValue"}
         if any(
             field.product_value_annotation == "MeasurementArrayData"
@@ -3006,7 +3006,7 @@ def _render_header(
             for acquisition in model.root.acquisitions
             for field in acquisition.result_fields
         ):
-            imports["scopecat.measurements.value_spec"] = {"MeasurementArrayData"}
+            imports["scopecat.kernel.measurement_values"] = {"MeasurementArrayData"}
         imports["scopecat.sdk.instruments"].add("CollectReceipt")
         imports.setdefault("scopecat_instruments._client_runtime", set()).update(
             {

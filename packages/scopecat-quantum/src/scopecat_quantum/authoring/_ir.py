@@ -14,7 +14,7 @@ from scopecat.authoring import (
 from scopecat.authoring import (
     ScalarType,
 )
-from scopecat.measurements.value_spec import MeasurementDType
+from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.program.value_types import (
     Entity as EntityAtomType,
 )

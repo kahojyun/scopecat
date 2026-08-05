@@ -8,6 +8,12 @@ from typing import Generic, Protocol, TypeVar, cast, override
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.measurement_values import (
+    MeasurementDType,
+    MeasurementVariableRole,
+    NativeMeasurementScalar,
+    NativeMeasurementValue,
+)
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductUse,
@@ -17,14 +23,8 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar
-from scopecat.measurements.references import RecordRef
-from scopecat.measurements.value_spec import (
-    MeasurementDType,
-    MeasurementVariableRole,
-    NativeMeasurementScalar,
-    NativeMeasurementValue,
-)
 from scopecat.program.input_capture import capture_runtime_input, empty_program_mapping
+from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_refs import (
     ValueRef,
 )

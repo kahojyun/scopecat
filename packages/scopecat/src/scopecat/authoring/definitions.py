@@ -59,15 +59,13 @@ from scopecat.kernel.instrument_members import (
     OperationRef,
     PropertyRef,
 )
-from scopecat.kernel.product_identity import parse_product_id
-from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.measurements.postprocessor_contract import MeasurementPostprocessorKernel
-from scopecat.measurements.references import RecordRef
-from scopecat.measurements.value_spec import (
+from scopecat.kernel.measurement_values import (
     MeasurementDType,
     NativeMeasurementValue,
     measurement_value_spec_from_scalar,
 )
+from scopecat.kernel.product_identity import parse_product_id
+from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.program.bindings import BindingIntent
 from scopecat.program.definitions import (
     ExperimentDef,
@@ -76,6 +74,7 @@ from scopecat.program.definitions import (
     create_experiment_def,
 )
 from scopecat.program.domain import DomainCall
+from scopecat.program.measurement_contracts import MeasurementPostprocessorKernel
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.products import (
     ProductAxis,
@@ -86,6 +85,7 @@ from scopecat.program.products import (
     record_product,
     record_ref_from_product,
 )
+from scopecat.program.record_refs import RecordRef
 from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
 from scopecat.program.scans import (
     GridSpec,

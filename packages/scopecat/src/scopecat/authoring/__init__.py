@@ -49,11 +49,11 @@ from scopecat.authoring.state_projection import (
     StateProjector,
     StateTarget,
 )
-from scopecat.measurements.references import RecordRef
 from scopecat.program.products import (
     ProductRef,
     ProductValueSpec,
 )
+from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_types import (
     Bool as BoolType,
 )

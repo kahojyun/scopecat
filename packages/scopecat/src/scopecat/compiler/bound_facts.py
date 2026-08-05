@@ -16,6 +16,7 @@ from scopecat.compiler.point_domain import PointDomain
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.measurement_values import MeasurementVariableRole
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductUse,
@@ -25,18 +26,17 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
-from scopecat.measurements.postprocessor_contract import (
-    MeasurementPostprocessorKernel,
-)
 from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
 )
 from scopecat.measurements.records import BoundRecordUse, RecordUse, ValueRecordUse
-from scopecat.measurements.value_spec import MeasurementVariableRole
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
     MeasurementPostprocessorId,
+)
+from scopecat.program.measurement_contracts import (
+    MeasurementPostprocessorKernel,
 )
 from scopecat.program.value_graph import OperationId
 

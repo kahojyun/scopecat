@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
-from scopecat.measurements.postprocessor_contract import (
+from scopecat.program.measurement_contracts import (
     MeasurementPostprocessorKernel,
 )
 from scopecat.program.products import ProductRef

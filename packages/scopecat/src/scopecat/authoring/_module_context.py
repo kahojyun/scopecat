@@ -22,6 +22,7 @@ from scopecat.kernel.instrument_members import (
     PropertyRef,
 )
 from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
@@ -29,8 +30,6 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
 )
 from scopecat.kernel.value_types import Payload
-from scopecat.measurements.postprocessor_contract import MeasurementPostprocessorKernel
-from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.program.bindings import (
     BindingIntent,
     EnsureStateIntent,
@@ -42,6 +41,7 @@ from scopecat.program.bindings import (
 from scopecat.program.bindings import bind_property as binding_property
 from scopecat.program.domain import DomainCall
 from scopecat.program.input_capture import capture_runtime_input
+from scopecat.program.measurement_contracts import MeasurementPostprocessorKernel
 from scopecat.program.measurements import (
     MeasurementPostprocessor,
     create_measurement_postprocessor_internal,

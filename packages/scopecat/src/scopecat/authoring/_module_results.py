@@ -8,11 +8,11 @@ from typing import Protocol, cast
 
 from scopecat.authoring.entity_selection import PerEntity
 from scopecat.kernel.graph_identity import ValueId
+from scopecat.kernel.measurement_values import NativeMeasurementValue
 from scopecat.kernel.product_identity import ProductId
-from scopecat.measurements.references import RecordRef
-from scopecat.measurements.value_spec import NativeMeasurementValue
 from scopecat.program.module import ModuleValueExport
 from scopecat.program.products import ProductRef
+from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_refs import ValueRef
 
 type _ProductKey = tuple[ProductId, tuple[object, ...]]

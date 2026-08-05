@@ -23,17 +23,17 @@ import xarray as xr
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import thaw_json_value
-from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.arrow_values import measurement_values_to_arrow_array
-from scopecat.measurements.references import RecordRef
-from scopecat.measurements.traces import Trace, measurement_traces
-from scopecat.measurements.value_spec import (
+from scopecat.kernel.measurement_values import (
     MeasurementArrayData,
     MeasurementDType,
     NativeMeasurementScalar,
     NativeMeasurementValue,
     measurement_value_spec_from_scalar,
 )
+from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.arrow_values import measurement_values_to_arrow_array
+from scopecat.measurements.traces import Trace, measurement_traces
+from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_refs import CoordinateRef, internal_coordinate_ref_id
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (

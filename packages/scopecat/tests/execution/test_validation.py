@@ -9,11 +9,11 @@ from scopecat.execution.local.program import (
 )
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.execution.persistence import validate_run_measurements
+from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.product_identity import product_id, product_use
 from scopecat.kernel.resource_identity import ResourceRequirement
 from scopecat.measurements.points import RunPoint
-from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.sdk.instruments.commands import (
     CollectCommand,

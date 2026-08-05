@@ -6,15 +6,15 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
+from scopecat.kernel.measurement_values import (
+    MeasurementDType,
+    MeasurementVariableRole,
+)
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
     model_location,
     problem,
-)
-from scopecat.measurements.value_spec import (
-    MeasurementDType,
-    MeasurementVariableRole,
 )
 from scopecat.records.measurement import (
     MeasurementArray,

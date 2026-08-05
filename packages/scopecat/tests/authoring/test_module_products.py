@@ -13,12 +13,12 @@ from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.instrument_members import AcquisitionResultRef
+from scopecat.kernel.measurement_values import MeasurementArrayData
 from scopecat.kernel.product_identity import (
     ProductId,
 )
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
-from scopecat.measurements.value_spec import MeasurementArrayData
 from scopecat.program.identities import InvocationKey
 from scopecat.program.module import ModuleInstanceLookup, ModuleProductExport
 from scopecat.program.products import (

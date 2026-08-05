@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.kernel.product_identity import ProductId
-from scopecat.measurements.value_spec import MeasurementDType
 
 
 def _empty_metadata() -> FrozenMapping[str, JsonValue]:

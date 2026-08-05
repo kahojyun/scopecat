@@ -26,6 +26,7 @@ from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.measurement_values import MeasurementDType
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -45,7 +46,6 @@ from scopecat.measurements.products import (
     ProductDef,
 )
 from scopecat.measurements.records import BoundRecordUse
-from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
