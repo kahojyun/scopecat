@@ -141,6 +141,37 @@ def test_normal_completion_applies_success_state_after_point_coverage() -> None:
     ) == StateValue(0.0)
 
 
+def test_cancellation_waits_for_hardware_batch_then_skips_success_state() -> None:
+    first = SignalInstrumentDriver(instrument_id="source-a")
+    second = SignalInstrumentDriver(instrument_id="source-b")
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("cancel-batch-point"), {}),
+        (
+            _gain_operation("source-a", 1.0),
+            _gain_operation("source-b", 2.0),
+        ),
+        resource_order=("source-a", "source-b"),
+        resource_requirements=_requirements("source-a", "source-b"),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="cancel-batch-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost((first, second)),
+        journal=FakeExecutionJournal(),
+        cancellation_requested=lambda: bool(first.applied),
+    ).run(
+        complete_coverage_operations(program),
+        points=program.points,
+        success_state=(_gain_operation("source-a", 0.0),),
+    )
+
+    assert result.cancelled and not result.indeterminate
+    assert [item.code for item in result.problems] == ["run_cancellation_requested"]
+    assert len(first.applied) == 1
+    assert len(second.applied) == 1
+
+
 class _SingleDriverProvider:
     def __init__(self, driver: SignalInstrumentDriver) -> None:
         self.driver = driver
@@ -399,6 +430,46 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
 
     assert not result.problems and not result.indeterminate
     assert calls == ["first", "second"]
+
+
+def test_compute_failure_wins_over_a_concurrent_cancellation_request() -> None:
+    failed = False
+    result_id = operation_result_id(OperationId(SymbolId(local_id="failing")))
+
+    def fail() -> float:
+        nonlocal failed
+        failed = True
+        raise RuntimeError("compute failed")
+
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("failing-compute-point"), {}),
+        (
+            ComputeOperation(
+                operation_id="failing-compute-point.compute.failing",
+                logical_compute_node_id="failing",
+                implementation_id="python.failing.v1",
+                kernel=fail,
+                inputs={},
+                result=ComputeOutput(
+                    id=result_id,
+                    value_type=Scalar(Float()),
+                ),
+            ),
+        ),
+        resource_order=(),
+        resource_requirements=(),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="failing-compute-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        journal=FakeExecutionJournal(),
+        cancellation_requested=lambda: failed,
+    ).run(complete_coverage_operations(program), points=program.points)
+
+    assert not result.cancelled
+    assert [item.code for item in result.problems] == ["compute_operation_failed"]
 
 
 class _BlockingStateDriver(SignalInstrumentDriver):

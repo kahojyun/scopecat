@@ -4,7 +4,7 @@ from scopecat.adapters.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
 from scopecat.adapters.sqlite.execution_schema import EXECUTION_TABLES_SQL
 from scopecat.adapters.sqlite.run_schema import RUN_TABLES_SQL
 
-PROJECT_SCHEMA_VERSION = 20
+PROJECT_SCHEMA_VERSION = 21
 
 _CONTROL_TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS project_schema (
@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS scheduler_runs (
     updated_at TEXT NOT NULL,
     admission_json TEXT NOT NULL,
     attention_reason TEXT,
+    cancellation_requested_at TEXT,
     stage_sequence_id TEXT,
     stage_index INTEGER CHECK (stage_index IS NULL OR stage_index >= 0),
     CHECK (

@@ -32,6 +32,7 @@ class RunEffectResult:
     final_state: tuple[InstrumentStateSnapshot, ...]
     admitted_points: tuple[RunPoint, ...] = ()
     indeterminate: bool = False
+    cancelled: bool = False
     domain_failure: tuple[RunDomainJob, BaseException] | None = field(
         default=None,
         compare=False,

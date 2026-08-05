@@ -150,6 +150,7 @@ def _run_control_view(control: ControlRun) -> RunControlView:
         state=control.state,
         updated_at=control.updated_at,
         attention_reason=control.attention_reason,
+        cancellation_requested_at=control.cancellation_requested_at,
     )
 
 

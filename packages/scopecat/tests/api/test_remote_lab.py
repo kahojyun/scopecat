@@ -61,9 +61,11 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
+    TerminalRunCommitCommand,
 )
 from scopecat.execution.program import RunProgram
 from scopecat.execution.services import ExecutionSession
+from scopecat.kernel.errors import RunCancelled
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.planning.catalog import InstrumentContractCatalog
@@ -775,7 +777,11 @@ def test_execute_submits_complete_plan_and_heartbeats(
         if path.endswith("/executor/heartbeat"):
             heartbeat_count += 1
             heartbeat_seen.set()
-            return _model(_lease(heartbeat_interval=0.01))
+            return _model(
+                _lease(heartbeat_interval=0.01).model_copy(
+                    update={"cancellation_requested_at": _NOW}
+                )
+            )
         raise AssertionError(f"unexpected request: {http_request.method} {path}")
 
     def execute(
@@ -787,6 +793,11 @@ def test_execute_submits_complete_plan_and_heartbeats(
         accepted = session.accepted
         session.begin()
         assert heartbeat_seen.wait(timeout=1)
+        deadline = time.monotonic() + 1
+        while not session.cancellation_requested():
+            if time.monotonic() >= deadline:
+                raise AssertionError("heartbeat did not expose cancellation request")
+            time.sleep(0.001)
         return _terminal_manifest(accepted)
 
     monkeypatch.setattr(runner_module, "execute_admitted_run", execute)
@@ -819,6 +830,55 @@ def test_execute_submits_complete_plan_and_heartbeats(
     assert result.status == "completed"
     assert completed_heartbeats >= 1
     assert heartbeat_count == completed_heartbeats
+
+
+def test_execute_honors_initial_lease_cancellation_before_remote_effects(
+    tmp_path: Path,
+) -> None:
+    planned = _planned(tmp_path)
+    requests: list[str] = []
+    admissions: list[RunAdmission] = []
+
+    def handler(http_request: httpx2.Request) -> httpx2.Response:
+        path = http_request.url.path
+        requests.append(path)
+        if path.endswith("/runs"):
+            submission = RunSubmission.model_validate_json(http_request.content)
+            admission = _admission(submission)
+            admissions.append(admission)
+            return _model(admission, status_code=201)
+        if path.endswith("/executor/start"):
+            return _model(
+                _lease(heartbeat_interval=10).model_copy(
+                    update={"cancellation_requested_at": _NOW}
+                )
+            )
+        if path.endswith("/terminal"):
+            command = TerminalRunCommitCommand.model_validate_json(http_request.content)
+            assert command.outcome.result == "cancelled"
+            assert command.outcome.certainty == "known"
+            return _model(
+                admissions[-1].manifest.model_copy(
+                    update={
+                        "outcome": command.outcome,
+                        "contents": command.contents,
+                    }
+                )
+            )
+        raise AssertionError(f"unexpected request: {http_request.method} {path}")
+
+    with pytest.raises(RunCancelled) as error:
+        _DaemonRunner(_client(handler), None).execute(
+            planned,
+            executor_id="notebook-1",
+        )
+
+    assert error.value.outcome.result == "cancelled"
+    assert requests == [
+        "/api/v1/runs",
+        "/api/v1/runs/run-1/executor/start",
+        "/api/v1/runs/run-1/terminal",
+    ]
 
 
 def test_execute_fences_effects_after_heartbeat_loses_lease(

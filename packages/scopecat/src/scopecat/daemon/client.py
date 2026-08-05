@@ -66,6 +66,7 @@ from scopecat.daemon.wire import (
     PayloadObjectReceipt,
     RunAdmission,
     RunAttachmentCommand,
+    RunCancellationReceipt,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -441,6 +442,12 @@ class DaemonClient:
 
     def get_run(self, run_id: str) -> RunDetail:
         return self._get_model(f"{_API_PREFIX}/runs/{run_id}", RunDetail)
+
+    def cancel_run(self, run_id: str) -> RunCancellationReceipt:
+        return self._post_empty_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/cancel",
+            RunCancellationReceipt,
+        )
 
     def run_config(self, run_id: str) -> RunConfigView:
         return self._get_model(

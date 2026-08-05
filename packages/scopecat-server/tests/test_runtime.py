@@ -66,9 +66,11 @@ from scopecat.daemon.wire import (
     MeasurementHeaderCommand,
     RunAdmission,
     RunAttachmentCommand,
+    RunCancellationReceipt,
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.project_state import ProjectStateServices
@@ -1978,6 +1980,186 @@ def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(
         assert [
             event.kind for event in _events(runtime, run_id=waiting.run_id).items
         ] == ["run_admitted"]
+
+
+def test_queued_run_cancellation_is_immediate_durable_and_idempotent(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        client = TestClient(runtime.app())
+        admission = runtime.application.submit_run(_submission("cancel-queued"))
+
+        response = client.post(f"/api/v1/runs/{admission.run_id}/cancel")
+        retry = client.post(f"/api/v1/runs/{admission.run_id}/cancel")
+        missing = client.post("/api/v1/runs/missing-run/cancel")
+
+        assert response.status_code == 200
+        receipt = RunCancellationReceipt.model_validate(response.json())
+        assert RunCancellationReceipt.model_validate(retry.json()) == receipt
+        assert receipt.status == "cancelled"
+        assert receipt.outcome is not None
+        assert receipt.outcome.result == "cancelled"
+        assert receipt.outcome.certainty == "known"
+        assert receipt.outcome.problems[0].code == "run_cancelled_before_execution"
+        assert missing.status_code == 404
+        control = _control_run(runtime, admission.run_id)
+        assert control.state == "closed"
+        assert control.cancellation_requested_at == receipt.cancellation_requested_at
+        assert _manifest(runtime, admission.run_id).outcome == receipt.outcome
+        assert _resource_claims(tmp_path) == ()
+        assert [
+            event.kind
+            for event in _events(runtime, run_id=admission.run_id).items
+            if event.kind == "run_cancellation_requested"
+        ] == ["run_cancellation_requested"]
+        with pytest.raises(BackendConflict, match="not ready to start"):
+            runtime.application.executor.start_executor(
+                admission.run_id,
+                ExecutorStartRequest(executor_id="late-executor"),
+            )
+
+
+def test_leased_run_cancellation_reaches_heartbeat_and_preserves_terminal_history(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(_submission("cancel-leased"))
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+
+        requested = runtime.application.cancel_run(admission.run_id)
+        retry = runtime.application.cancel_run(admission.run_id)
+        heartbeat = runtime.application.executor.heartbeat_executor(
+            admission.run_id,
+            ExecutorHeartbeat(lease_id=lease.lease_id),
+        )
+
+        assert requested == retry
+        assert requested.status == "cancel_requested"
+        assert heartbeat.cancellation_requested_at == (
+            requested.cancellation_requested_at
+        )
+        assert (
+            _control_run(runtime, admission.run_id).cancellation_requested_at
+            == requested.cancellation_requested_at
+        )
+        assert _manifest(runtime, admission.run_id).outcome is None
+
+        outcome = RunOutcome(
+            run_id=admission.run_id,
+            result="cancelled",
+            certainty="known",
+            problems=(
+                problem(
+                    "run_cancellation_requested",
+                    "run stopped at a safe checkpoint after cancellation was requested",
+                    phase=ProblemPhase.EXECUTION,
+                ),
+            ),
+        )
+        terminal = runtime.application.executor.commit_terminal(
+            admission.run_id,
+            TerminalRunCommitCommand(
+                lease_id=lease.lease_id,
+                outcome=outcome,
+            ),
+        )
+        completed = runtime.application.cancel_run(admission.run_id)
+
+        assert terminal.outcome == outcome
+        assert completed.status == "cancelled"
+        assert completed.outcome == outcome
+        assert completed.cancellation_requested_at == (
+            requested.cancellation_requested_at
+        )
+        assert _control_run(runtime, admission.run_id).state == "closed"
+        assert _resource_claims(tmp_path) == ()
+
+        racing = runtime.application.submit_run(_submission("cancel-terminal-race"))
+        racing_lease = runtime.application.executor.start_executor(
+            racing.run_id,
+            ExecutorStartRequest(executor_id="notebook-race"),
+        )
+        racing_request = runtime.application.cancel_run(racing.run_id)
+        success_intent = TerminalRunCommitCommand(
+            lease_id=racing_lease.lease_id,
+            outcome=RunOutcome(
+                run_id=racing.run_id,
+                result="succeeded",
+                certainty="known",
+            ),
+        )
+
+        raced_terminal = runtime.application.executor.commit_terminal(
+            racing.run_id,
+            success_intent,
+        )
+        raced_retry = runtime.application.executor.commit_terminal(
+            racing.run_id,
+            success_intent,
+        )
+
+        assert racing_request.status == "cancel_requested"
+        assert raced_retry == raced_terminal
+        assert raced_terminal.outcome is not None
+        assert raced_terminal.outcome.result == "cancelled"
+        assert raced_terminal.outcome.certainty == "known"
+        assert raced_terminal.outcome.problems[0].code == ("run_cancellation_requested")
+
+        failing = runtime.application.submit_run(_submission("cancel-after-failure"))
+        failing_lease = runtime.application.executor.start_executor(
+            failing.run_id,
+            ExecutorStartRequest(executor_id="notebook-failure"),
+        )
+        runtime.application.cancel_run(failing.run_id)
+        failed_outcome = RunOutcome(
+            run_id=failing.run_id,
+            result="failed",
+            certainty="known",
+            problems=(
+                problem(
+                    "run_failed_before_cancellation_checkpoint",
+                    "run failed before it could honor cancellation",
+                    phase=ProblemPhase.EXECUTION,
+                ),
+            ),
+        )
+
+        failed_terminal = runtime.application.executor.commit_terminal(
+            failing.run_id,
+            TerminalRunCommitCommand(
+                lease_id=failing_lease.lease_id,
+                outcome=failed_outcome,
+            ),
+        )
+
+        assert failed_terminal.outcome == failed_outcome
+
+        succeeded = runtime.application.submit_run(_submission("already-succeeded"))
+        succeeded_lease = runtime.application.executor.start_executor(
+            succeeded.run_id,
+            ExecutorStartRequest(executor_id="notebook-2"),
+        )
+        succeeded_outcome = RunOutcome(
+            run_id=succeeded.run_id,
+            result="succeeded",
+            certainty="known",
+        )
+        runtime.application.executor.commit_terminal(
+            succeeded.run_id,
+            TerminalRunCommitCommand(
+                lease_id=succeeded_lease.lease_id,
+                outcome=succeeded_outcome,
+            ),
+        )
+
+        not_accepted = runtime.application.cancel_run(succeeded.run_id)
+
+        assert not_accepted.status == "not_accepted"
+        assert not_accepted.cancellation_requested_at is None
+        assert not_accepted.outcome == succeeded_outcome
 
 
 def test_effect_is_fenced_and_terminal_updates_control(

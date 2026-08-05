@@ -12,6 +12,14 @@ from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.journal import ExecutionJournal
 
 
+def _never_cancel() -> bool:
+    return False
+
+
+def _effects_are_ready() -> bool:
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionSession:
     """Bind one run's effect ports so execution cannot mix storage scopes."""
@@ -22,6 +30,8 @@ class ExecutionSession:
     journal: ExecutionJournal
     measurements: MeasurementDatasetWriter
     instruments: RunInstrumentHost
+    cancellation_requested: Callable[[], bool] = _never_cancel
+    effects_ready: Callable[[], bool] = _effects_are_ready
 
     @property
     def run_id(self) -> str:

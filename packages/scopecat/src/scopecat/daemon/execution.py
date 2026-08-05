@@ -90,7 +90,8 @@ def daemon_execution_session(
 
     def begin() -> None:
         authority.start()
-        instruments.provision()
+        if not authority.cancellation_requested():
+            instruments.provision()
 
     return ExecutionSession(
         accepted=admission.manifest,
@@ -99,6 +100,8 @@ def daemon_execution_session(
         journal=_DaemonExecutionJournal(authority),
         measurements=_DaemonMeasurementRepository(authority),
         instruments=instruments,
+        cancellation_requested=authority.cancellation_requested,
+        effects_ready=lambda: instruments.provisioned,
     )
 
 
@@ -112,6 +115,8 @@ class LeaseSupervisor(Protocol):
     ) -> None: ...
 
     def require_live(self) -> None: ...
+
+    def cancellation_requested(self) -> bool: ...
 
 
 class _LeaseAuthority:
@@ -167,6 +172,13 @@ class _LeaseAuthority:
                 raise RuntimeError("executor has not started")
             self._lease = lease
         return lease
+
+    def cancellation_requested(self) -> bool:
+        if self._lease_supervisor is not None:
+            return self._lease_supervisor.cancellation_requested()
+        with self._lock:
+            lease = self._lease
+        return lease is not None and lease.cancellation_requested_at is not None
 
     def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest:
         lease_id = self.fence()
@@ -250,6 +262,11 @@ class _DaemonRunInstrumentHost:
         self._authority = authority
         self._provisioning: RunInstrumentProvisionReceipt | None = None
         self._lock = Lock()
+
+    @property
+    def provisioned(self) -> bool:
+        with self._lock:
+            return self._provisioning is not None
 
     @property
     def ready(self) -> bool:

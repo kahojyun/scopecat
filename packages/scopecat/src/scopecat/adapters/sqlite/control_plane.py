@@ -94,10 +94,10 @@ class SQLiteControlPlane:
                 """
                 INSERT INTO scheduler_runs(
                     submission_id, run_id, state, updated_at,
-                    admission_json, attention_reason,
+                    admission_json, attention_reason, cancellation_requested_at,
                     stage_sequence_id, stage_index
                 )
-                VALUES (?, ?, 'queued', ?, ?, NULL, ?, ?)
+                VALUES (?, ?, 'queued', ?, ?, NULL, NULL, ?, ?)
                 """,
                 (
                     admission.submission_id,
@@ -372,9 +372,17 @@ class SQLiteControlPlane:
                 raise ControlPlaneConflict(
                     "attention-required runs no longer have an executor"
                 )
+        elif current.state == "queued":
+            if executor_token is not None:
+                raise ControlPlaneConflict("queued runs do not have an executor")
+            if current.cancellation_requested_at is None:
+                raise ControlPlaneConflict(
+                    "queued runs can close only after cancellation is requested"
+                )
         else:
             raise ControlPlaneConflict(
-                f"only leased or attention-required runs can close, got {current.state}"
+                "only queued, leased, or attention-required runs can close, "
+                f"got {current.state}"
             )
 
         updated = self._update_scheduler_state_in_transaction(
@@ -401,6 +409,44 @@ class SQLiteControlPlane:
                     occurred_at=closed_at,
                 ),
             )
+        return updated
+
+    def request_run_cancellation_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        at: datetime | None = None,
+    ) -> ControlRun:
+        """Persist one idempotent operator cancellation request."""
+
+        current = _run(self._require_run(connection, run_id))
+        if current.cancellation_requested_at is not None:
+            return current
+        requested_at = at or datetime.now(tz=UTC)
+        updated = current.model_copy(
+            update={
+                "updated_at": requested_at,
+                "cancellation_requested_at": requested_at,
+            }
+        )
+        connection.execute(
+            """
+            UPDATE scheduler_runs SET
+                updated_at = ?, cancellation_requested_at = ?
+            WHERE run_id = ?
+            """,
+            (_timestamp(requested_at), _timestamp(requested_at), run_id),
+        )
+        self._insert_event(
+            connection,
+            DurableEventInput(
+                run_id=run_id,
+                kind="run_cancellation_requested",
+                payload={},
+                occurred_at=requested_at,
+            ),
+        )
         return updated
 
     def _update_scheduler_state_in_transaction(
@@ -1892,6 +1938,11 @@ def _run(row: sqlite3.Row) -> ControlRun:
         state=cast("ControlRunState", _text(row, "state")),
         updated_at=_datetime(_text(row, "updated_at")),
         attention_reason=_optional_text(row, "attention_reason"),
+        cancellation_requested_at=(
+            None
+            if (value := _optional_text(row, "cancellation_requested_at")) is None
+            else _datetime(value)
+        ),
     )
 
 
