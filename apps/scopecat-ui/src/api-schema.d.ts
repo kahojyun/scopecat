@@ -1724,6 +1724,8 @@ export interface components {
         };
         /** @enum {string} */
         InstrumentRunStartPolicy: "preserve" | "apply_default_state";
+        /** @enum {string} */
+        InstrumentSuccessAction: "release" | "restore_prepared_state";
         /** InstrumentSessionEndReceipt */
         InstrumentSessionEndReceipt: {
             session_id: components["schemas"]["NonEmptyText"];
@@ -1808,6 +1810,7 @@ export interface components {
             /** Id */
             id: string;
             run_start: components["schemas"]["InstrumentRunStartPolicy"];
+            success_action: components["schemas"]["InstrumentSuccessAction"];
             /** Safe State */
             safe_state?: components["schemas"]["InstrumentPropertyState"][];
         };
@@ -1829,6 +1832,7 @@ export interface components {
             /** Id */
             id: string;
             run_start: components["schemas"]["InstrumentRunStartPolicy"];
+            success_action: components["schemas"]["InstrumentSuccessAction"];
             /** Safe State */
             safe_state?: components["schemas"]["InstrumentPropertyState"][];
         };

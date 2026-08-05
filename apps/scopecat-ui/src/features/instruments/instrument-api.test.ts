@@ -88,6 +88,7 @@ describe("instrument configuration publishing", () => {
           },
         ],
         run_start: "apply_default_state",
+        success_action: "release",
         failure_action: "abort_and_release",
       },
       {
@@ -97,6 +98,7 @@ describe("instrument configuration publishing", () => {
         connection: { kind: "virtual" },
         default_state: [],
         run_start: "preserve",
+        success_action: "release",
         failure_action: "abort_and_release",
       },
     ]);
@@ -136,6 +138,7 @@ describe("instrument configuration publishing", () => {
         connection: { kind: "virtual", options: {} },
         default_state: [],
         run_start: "preserve",
+        success_action: "release",
         failure_action: "abort_and_release",
       },
       actor: "Ada",
@@ -153,6 +156,7 @@ describe("instrument configuration publishing", () => {
       connection: { kind: "virtual", options: {} },
       default_state: [],
       run_start: "preserve",
+      success_action: "release",
       failure_action: "abort_and_release",
     });
     expect(active.config.system.instrument_registry.instruments).toHaveLength(2);
@@ -493,6 +497,7 @@ function activeConfig(): ActiveConfig {
               },
             ],
             run_start: "apply_default_state",
+            success_action: "release",
             failure_action: "abort_and_release",
           },
           {
@@ -502,6 +507,7 @@ function activeConfig(): ActiveConfig {
             connection: { kind: "virtual" },
             default_state: [],
             run_start: "preserve",
+            success_action: "release",
             failure_action: "abort_and_release",
           },
         ],

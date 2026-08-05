@@ -1,5 +1,5 @@
 {
-  "format_version": "scopecat.config_snapshot.v8",
+  "format_version": "scopecat.config_snapshot.v9",
   "id": "simple-scan-profile",
   "system": {
     "id": "simple-scan-system",
@@ -30,6 +30,7 @@
             "kind": "virtual"
           },
           "run_start": "preserve",
+          "success_action": "release",
           "failure_action": "abort_and_release"
         }
       ]

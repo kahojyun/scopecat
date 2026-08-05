@@ -63,6 +63,7 @@
           "kind": "virtual"
         },
         "run_start": "preserve",
+        "success_action": "release",
         "failure_action": "abort_and_release"
       },
       {
@@ -73,6 +74,7 @@
           "kind": "virtual"
         },
         "run_start": "preserve",
+        "success_action": "release",
         "failure_action": "abort_and_release"
       }
     ]

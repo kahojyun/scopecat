@@ -67,6 +67,18 @@ def test_instrument_spec_requires_an_explicit_failure_action() -> None:
         )
 
 
+def test_instrument_spec_requires_an_explicit_success_action() -> None:
+    data = _instrument_spec_data()
+    data.pop("success_action")
+    with pytest.raises(ValidationError, match="success_action"):
+        InstrumentSpec.model_validate(
+            {
+                **data,
+                "run_start": "preserve",
+            }
+        )
+
+
 def test_apply_default_state_requires_declared_defaults() -> None:
     with pytest.raises(ValidationError, match="non-empty default state"):
         InstrumentSpec.model_validate(
@@ -235,6 +247,7 @@ def _config_with_default_state(
         connection=configured.connection.model_copy(deep=True),
         default_state=[item.model_copy(deep=True) for item in properties],
         run_start=run_start,
+        success_action="release",
         failure_action="abort_and_release",
     )
     registry = config.instrument_registry.model_copy(
@@ -276,6 +289,7 @@ def _instrument_spec_data() -> dict[str, object]:
         "exclusivity_key": "source",
         "driver_id": "tests.source",
         "connection": {"kind": "virtual"},
+        "success_action": "release",
         "failure_action": "abort_and_release",
     }
 

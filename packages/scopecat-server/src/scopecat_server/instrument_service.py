@@ -1520,10 +1520,14 @@ class InstrumentService:
                 )
             else:
                 context.finalization = _RunFinalizing()
+                provision = context.provision
+                if provision is None or provision.receipt.status != "ready":
+                    raise BackendConflict("run instruments are not provisioned")
                 final_state, problems = self._finalize_run_instruments(
                     run_id,
                     token=command.lease_id,
                     runtime=runtime,
+                    prepared_state=provision.receipt.prepared_state,
                     failed=command.failed,
                     operation_id=command.operation_id,
                 )
@@ -1547,11 +1551,23 @@ class InstrumentService:
         *,
         token: str,
         runtime: _OwnershipRuntime,
+        prepared_state: Sequence[InstrumentStateSnapshot],
         failed: bool,
         operation_id: str,
     ) -> tuple[list[InstrumentStateSnapshot], list[Problem]]:
         problems: list[Problem] = []
         with runtime.lock:
+            if not failed:
+                restore_problems = self._restore_prepared_state_or_quarantine(
+                    run_id,
+                    token=token,
+                    runtime=runtime,
+                    prepared_state=prepared_state,
+                    operation_id=operation_id,
+                )
+                if restore_problems:
+                    problems.extend(restore_problems)
+                    failed = True
             if failed:
                 for instrument_id in reversed(tuple(runtime.instruments)):
                     try:
@@ -1606,6 +1622,87 @@ class InstrumentService:
                 raise BackendConflict("instrument ownership release failed")
         self._pop_run_runtime(run_id, expected=runtime)
         return final_state, problems
+
+    def _restore_prepared_state_or_quarantine(
+        self,
+        run_id: str,
+        *,
+        token: str,
+        runtime: _OwnershipRuntime,
+        prepared_state: Sequence[InstrumentStateSnapshot],
+        operation_id: str,
+    ) -> list[Problem]:
+        prepared_by_instrument = {
+            state.instrument_id: state for state in prepared_state
+        }
+        for instrument_id, instrument in runtime.instruments.items():
+            spec = runtime.specs[instrument_id]
+            if spec.success_action != "restore_prepared_state":
+                continue
+            restore_operation_id = (
+                f"{operation_id}.restore_prepared_state.{instrument_id}"
+            )
+            try:
+                observed_state = observe_instrument(instrument)
+                assignments = _restorable_state_assignments(
+                    instrument_id=instrument_id,
+                    prepared_state=prepared_by_instrument[instrument_id],
+                    instrument=instrument,
+                )
+                command = _pending_configured_state_command(
+                    instrument_id=instrument_id,
+                    assignments=assignments,
+                    instrument=instrument,
+                    observed_state=observed_state,
+                    operation_id=restore_operation_id,
+                )
+                if command is None:
+                    instrument.adopt_state(observed_state)
+                    continue
+                receipt = execute_instrument_apply(
+                    instrument,
+                    lower_backend_apply_request(command),
+                    assignments=command.assignments,
+                )
+            except _DefaultStateReconciliationRejected as rejection:
+                return list(
+                    contextualize_problems(
+                        rejection.problems,
+                        run_id=run_id,
+                        operation_id=restore_operation_id,
+                        instrument_id=instrument_id,
+                    )
+                )
+            except (BackendConflict, InstrumentCommandExecutionError) as error:
+                self._lose_run_runtime(
+                    run_id,
+                    runtime,
+                    token=token,
+                    reason="run_instrument_prepared_state_restore_unknown",
+                )
+                raise BackendConflict(
+                    "instrument prepared-state restore failed with unknown state"
+                ) from error
+            if receipt.status == "unknown":
+                self._lose_run_runtime(
+                    run_id,
+                    runtime,
+                    token=token,
+                    reason="run_instrument_prepared_state_restore_unknown",
+                )
+                raise BackendConflict(
+                    "instrument prepared-state restore failed with unknown state"
+                )
+            if receipt.status != "applied":
+                return list(
+                    contextualize_problems(
+                        receipt.problems,
+                        run_id=run_id,
+                        operation_id=restore_operation_id,
+                        instrument_id=instrument_id,
+                    )
+                )
+        return []
 
     def _recover_failed_run_or_quarantine(
         self,
@@ -2689,6 +2786,7 @@ class InstrumentService:
                     run_id,
                     token=token,
                     runtime=runtime,
+                    prepared_state=(),
                     failed=True,
                     operation_id="hardware.terminal-fallback",
                 )
@@ -3438,6 +3536,37 @@ def _configured_state_assignments(
             problems=tuple(problems),
         )
     return assignments
+
+
+def _restorable_state_assignments(
+    *,
+    instrument_id: str,
+    prepared_state: InstrumentStateSnapshot,
+    instrument: OwnedInstrument,
+) -> tuple[InstrumentStateAssignment, ...]:
+    assignments: list[InstrumentStateAssignment] = []
+    for item in prepared_state.properties:
+        assignment = InstrumentStateAssignment(
+            resource_id=instrument_id,
+            interface_id=item.interface_id,
+            component_path=list(item.component_path),
+            property_id=item.property_id,
+            value=item.value,
+        )
+        problems = validate_reconciled_state_assignments(
+            instrument_id=instrument_id,
+            assignments=(assignment,),
+            description=instrument.description,
+        )
+        if not problems:
+            assignments.append(assignment)
+            continue
+        if len(problems) == 1 and problems[0].code == (
+            "instrument_driver_read_only_property"
+        ):
+            continue
+        raise _DefaultStateReconciliationRejected(problems=tuple(problems))
+    return tuple(assignments)
 
 
 def _pending_configured_state_command(

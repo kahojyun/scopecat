@@ -46,6 +46,7 @@ from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentRunStartPolicy,
+    InstrumentSuccessAction,
     config_content_hash,
 )
 from scopecat.records.measurement import (
@@ -88,6 +89,7 @@ from scopecat.sdk.instruments import (
     float_property,
     int_property,
     interface,
+    string_property,
 )
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
@@ -452,6 +454,50 @@ class _EquivalentQuantityDriver(_Driver):
         )
         self._state[("test.set_frequency/v1", "frequency")] = Quantity(
             value=1.0, unit="GHz"
+        )
+
+
+class _RejectNextApplyDriver(_Driver):
+    @override
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        reject = self.fail_action == "reject_apply"
+        outcome = super().apply_state(request)
+        if reject:
+            self.fail_action = None
+        return outcome
+
+
+class _ReadOnlyStateDriver(_Driver):
+    def __init__(
+        self,
+        instrument_id: str,
+        *,
+        fail_action: _FailAction = None,
+        apply_barrier: Barrier | None = None,
+    ) -> None:
+        super().__init__(
+            instrument_id,
+            fail_action=fail_action,
+            apply_barrier=apply_barrier,
+        )
+        self._state[("test.status/v1", "status")] = "ready"
+
+    @override
+    def describe(self) -> InstrumentDescription:
+        description = super().describe()
+        return description.model_copy(
+            update={
+                "interfaces": [
+                    *description.interfaces,
+                    interface(
+                        "test.status/v1",
+                        properties=[string_property("status", access="read_only")],
+                    ),
+                ]
+            }
         )
 
 
@@ -1516,6 +1562,230 @@ def test_successful_finish_does_not_apply_failure_safe_state(tmp_path: Path) -> 
         assert driver.applied == []
 
 
+def test_successful_finish_restores_the_preserved_prepared_state(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_ReadOnlyStateDriver)
+    config = _config_with_success_action(
+        load_config(),
+        success_action="restore_prepared_state",
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_ReadOnlyStateDriver,
+        )
+        instruments = runtime.application.instruments
+        provision = instruments.provision_run(run_id, _provision(lease_id))
+        instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "change-frequency",
+                _apply_action("source-0", effect_id="change-frequency"),
+            ),
+        )
+
+        receipt = instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=False,
+            ),
+        )
+
+        [prepared] = provision.prepared_state
+        [final] = receipt.final_state
+        assert final.properties == prepared.properties
+        [driver] = provider.drivers
+        assert driver.abort_count == 0
+        assert len(driver.applied) == 2
+        restored = driver.applied[-1]
+        assert {
+            (target.interface_id, target.property_id): value
+            for target, value in restored.values.items()
+        } == {
+            ("test.set_frequency/v1", "frequency"): Quantity(
+                value=4.0,
+                unit="GHz",
+            )
+        }
+
+
+def test_successful_finish_restores_the_default_prepared_state(tmp_path: Path) -> None:
+    provider = _Provider()
+    config = _config_with_success_action(
+        _config_with_default_state(
+            InstrumentPropertyState(
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=StateValue(Quantity(value=5.1, unit="GHz")),
+            )
+        ),
+        success_action="restore_prepared_state",
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "change-frequency",
+                _apply_action("source-0", effect_id="change-frequency"),
+            ),
+        )
+
+        receipt = instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=False,
+            ),
+        )
+
+        [final] = receipt.final_state
+        frequency = next(
+            item.value.root
+            for item in final.properties
+            if item.property_id == "frequency"
+        )
+        assert frequency == Quantity(value=5.1, unit="GHz")
+        [driver] = provider.drivers
+        assert len(driver.applied) == 3
+
+
+def test_rejected_prepared_state_restore_fails_and_aborts(tmp_path: Path) -> None:
+    provider = _Provider()
+    config = _config_with_success_action(
+        load_config(),
+        success_action="restore_prepared_state",
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+        driver._state[("test.set_frequency/v1", "frequency")] = Quantity(
+            value=5.0,
+            unit="GHz",
+        )
+        driver.fail_action = "reject_apply"
+
+        receipt = instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=False,
+            ),
+        )
+
+        assert [item.code for item in receipt.problems] == ["test_apply_rejected"]
+        assert driver.abort_count == 1
+        assert driver.disconnect_count == 0
+        assert runtime.application.executor._control.get_run(run_id).state != (
+            "attention_required"
+        )
+
+
+def test_rejected_prepared_state_restore_enters_configured_safe_state(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_RejectNextApplyDriver)
+    config = _config_with_success_action(
+        _config_with_safe_state(
+            InstrumentPropertyState(
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=StateValue(Quantity(value=4.25, unit="GHz")),
+            )
+        ),
+        success_action="restore_prepared_state",
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_RejectNextApplyDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+        driver._state[("test.set_frequency/v1", "frequency")] = Quantity(
+            value=5.0,
+            unit="GHz",
+        )
+        driver.fail_action = "reject_apply"
+
+        receipt = instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=False,
+            ),
+        )
+
+        assert [item.code for item in receipt.problems] == ["test_apply_rejected"]
+        assert driver.abort_count == 1
+        [safe_patch] = driver.applied
+        assert {
+            target.property_id: value for target, value in safe_patch.values.items()
+        } == {"frequency": Quantity(value=4.25, unit="GHz")}
+        [final] = receipt.final_state
+        frequency = next(
+            item.value.root
+            for item in final.properties
+            if item.property_id == "frequency"
+        )
+        assert frequency == Quantity(value=4.25, unit="GHz")
+
+
+def test_unknown_prepared_state_restore_quarantines_the_run(tmp_path: Path) -> None:
+    provider = _Provider()
+    config = _config_with_success_action(
+        load_config(),
+        success_action="restore_prepared_state",
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+        driver._state[("test.set_frequency/v1", "frequency")] = Quantity(
+            value=5.0,
+            unit="GHz",
+        )
+        driver.fail_action = "apply"
+
+        with pytest.raises(
+            BackendConflict,
+            match="prepared-state restore failed with unknown state",
+        ):
+            instruments.finish_run_hardware(
+                run_id,
+                RunHardwareFinishCommand(
+                    lease_id=lease_id,
+                    operation_id="hardware.finish",
+                    failed=False,
+                ),
+            )
+
+        assert driver.abort_count == 1
+        assert driver.disconnect_count == 1
+        durable = runtime.application.executor._control.get_run(run_id)
+        assert durable.state == "attention_required"
+        assert (
+            durable.attention_reason == "run_instrument_prepared_state_restore_unknown"
+        )
+        _assert_run_state_discarded(instruments, run_id)
+
+
 def test_rejected_failure_safe_state_is_reported_and_released(
     tmp_path: Path,
 ) -> None:
@@ -1825,6 +2095,23 @@ def _config_with_safe_state(
             "failure_action": "abort_then_safe_state",
         }
     )
+    registry = config.instrument_registry.model_copy(
+        update={"instruments": [configured]}
+    )
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"instrument_registry": registry})
+        }
+    )
+
+
+def _config_with_success_action(
+    config: ConfigProfileSnapshot,
+    *,
+    success_action: InstrumentSuccessAction,
+) -> ConfigProfileSnapshot:
+    [instrument] = config.instrument_registry.instruments
+    configured = instrument.model_copy(update={"success_action": success_action})
     registry = config.instrument_registry.model_copy(
         update={"instruments": [configured]}
     )

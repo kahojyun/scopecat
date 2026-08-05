@@ -201,7 +201,7 @@ describe("config snapshot import boundary", () => {
     expect(
       parseConfigProfileJson(
         JSON.stringify({
-          format_version: "scopecat.config_snapshot.v8",
+          format_version: "scopecat.config_snapshot.v9",
           ...config,
         }),
       ),
@@ -268,6 +268,7 @@ function configProfile(id: string): ConfigProfileSnapshot {
             connection: { kind: "virtual" },
             default_state: [],
             run_start: "preserve",
+            success_action: "release",
             failure_action: "abort_and_release",
           },
         ],

@@ -234,7 +234,9 @@ Virtual instrument:
       "value": false
     }
   ],
-  "run_start": "apply_default_state"
+  "run_start": "apply_default_state",
+  "success_action": "restore_prepared_state",
+  "failure_action": "abort_and_release"
 }
 ```
 
@@ -251,13 +253,20 @@ TCP/IP instrument:
     "port": 5025,
     "timeout_seconds": 5
   },
-  "run_start": "preserve"
+  "run_start": "preserve",
+  "success_action": "release",
+  "failure_action": "abort_and_release"
 }
 ```
 
 Every run first synchronizes the device. `preserve` retains that observed
 state; `apply_default_state` then applies the saved partial public state.
-Unspecified and private driver settings remain untouched.
+Unspecified and private driver settings remain untouched. After authored
+normal-completion state, `release` leaves the resulting state in place;
+`restore_prepared_state` restores the writable portion of the synchronized,
+run-start-adjusted baseline before terminal readback and release. Failure always
+aborts first; `abort_then_safe_state` may additionally apply the configured
+sparse safe state when the device remains commandable.
 
 Driver snapshots contain complete public physical state. Experiment entity and
 channel bindings are routing provenance, not fields a driver reads back.
