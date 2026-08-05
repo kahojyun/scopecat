@@ -6,7 +6,7 @@ import scopecat as sc
 from scopecat import Quantity
 
 from quantum_lab_demo.parameters import Q0_DRAG_BETA
-from quantum_lab_demo.quantum_runner import author_quantum_experiment
+from quantum_lab_demo.quantum_runner import quantum_capture
 from quantum_lab_demo.workflows.drag_beta_calibration import (
     drag_beta_program,
 )
@@ -30,13 +30,16 @@ def drag_beta_experiment(experiment: sc.ExperimentContext) -> None:
         points=DRAG_BETA_POINTS,
     )
     amplification = experiment.scan("amplification", DEFAULT_AMPLIFICATIONS)
-    author_quantum_experiment(
-        experiment,
-        drag_beta_program(
-            qubit="q0",
-            amplification=amplification,
-            beta=beta,
-        ).with_shots(DRAG_BETA_SHOTS),
+    experiment.record(
+        experiment.use(
+            quantum_capture(
+                drag_beta_program(
+                    qubit="q0",
+                    amplification=amplification,
+                    beta=beta,
+                ).with_shots(DRAG_BETA_SHOTS)
+            )
+        )
     )
 
 

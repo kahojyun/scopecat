@@ -6,6 +6,7 @@ import scopecat as sc
 from scopecat_quantum import authoring as quantum
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
+    BinaryIqProbabilityProducts,
     IqCentroid,
     binary_iq_probabilities,
 )
@@ -19,20 +20,20 @@ _BINARY_IQ_DISCRIMINATOR = BinaryIqDiscriminator(
 )
 
 
-def author_quantum_experiment(
-    experiment: sc.ExperimentContext,
+@sc.module(id="quantum-lab.capture")
+def quantum_capture(
+    module: sc.ModuleContext,
     call: quantum.QuantumProgramCall,
-) -> None:
-    """Apply lab policy to an integrated-IQ call exposing ``iq_shots``."""
+) -> BinaryIqProbabilityProducts:
+    """Apply reusable lab capture policy to an integrated-IQ program call."""
 
     configured = call.with_compiler_inputs(qubits=QUBITS.ref)
-    results = experiment.use(configured)
-    probabilities = binary_iq_probabilities(
-        experiment,
+    results = module.use(configured)
+    return binary_iq_probabilities(
+        module,
         results.iq_shots,
         discriminator=_BINARY_IQ_DISCRIMINATOR,
     )
-    experiment.record(probabilities, namespace="capture")
 
 
 @sc.experiment
@@ -47,7 +48,7 @@ def run_quantum(
     point remains part of the quantum target/compiler contract.
     """
 
-    author_quantum_experiment(experiment, call)
+    experiment.record(experiment.use(quantum_capture(call)))
 
 
-__all__ = ["author_quantum_experiment", "run_quantum"]
+__all__ = ["quantum_capture", "run_quantum"]
