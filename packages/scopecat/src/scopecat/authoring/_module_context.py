@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import cast, overload
 
 from scopecat.authoring._module_invocation import (
@@ -68,7 +68,13 @@ from scopecat.program.products import (
 from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
+    internal_input_value_ref,
+    internal_value_ref_first_module_export,
+    internal_value_ref_input_id,
     internal_value_ref_operation_id,
+    internal_value_ref_parameter_contracts,
+    internal_value_ref_point_dependencies,
+    internal_value_ref_scalar_input_ids,
 )
 from scopecat.program.value_types import Entity as EntityType
 from scopecat.program.value_types import Scalar as ScalarType
@@ -135,7 +141,13 @@ class ModuleContext:
     """Explicit typed recorder injected into one ``@module`` definition."""
 
     __slots__ = (
+        "_capture_external_values",
+        "_captured_input_bindings",
+        "_captured_input_ports",
+        "_captured_values",
+        "_declared_input_ids",
         "_effects",
+        "_local_value_ids",
         "_measurement_postprocessors",
         "_operations",
         "_owner",
@@ -144,8 +156,20 @@ class ModuleContext:
         "_resources",
     )
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        capture_external_values: bool = False,
+        declared_inputs: Mapping[str, ValueRef] | None = None,
+    ) -> None:
         self._owner = object()
+        selected_inputs = declared_inputs or {}
+        self._capture_external_values = capture_external_values
+        self._declared_input_ids = set(selected_inputs)
+        self._local_value_ids = {value.id for value in selected_inputs.values()}
+        self._captured_values: dict[object, ValueRef] = {}
+        self._captured_input_ports: list[ModuleInputPort] = []
+        self._captured_input_bindings: dict[str, ValueRef] = {}
         self._resources: list[ResourcePort] = []
         self._effects: list[ModuleEffect] = []
         self._operations: list[ModuleOperationDecl] = []
@@ -164,8 +188,22 @@ class ModuleContext:
     def append_domain_call_internal(self, call: DomainCall) -> None:
         """Append one native domain occurrence and its result declarations."""
 
-        self._effects.append(call.execution)
-        self._product_declarations.extend(call.product_declarations)
+        selected = self._capture_domain_call(call)
+        self._effects.append(selected.execution)
+        self._product_declarations.extend(selected.product_declarations)
+
+    def capture_structural_value_internal[T](self, value: ValueRef[T]) -> ValueRef[T]:
+        """Close one symbolic structural argument behind a private import."""
+
+        if not self._capture_external_values:
+            return value
+        return cast("ValueRef[T]", self._capture_external_value(value))
+
+    @property
+    def captured_input_bindings_internal(self) -> Mapping[str, ValueRef]:
+        """Return invocation-owned bindings for generated private imports."""
+
+        return dict(self._captured_input_bindings)
 
     def close_definition_internal(
         self,
@@ -180,7 +218,7 @@ class ModuleContext:
         return ModuleDef(
             id=id,
             interface=ModuleInterface(
-                imports=tuple(input_ports),
+                imports=(*input_ports, *self._captured_input_ports),
                 exports=tuple(value_exports),
                 resources=tuple(self._resources),
             ),
@@ -188,6 +226,104 @@ class ModuleContext:
             python_implementations=tuple(self._python_implementations),
             metadata=freeze_json_mapping(metadata or {}),
         )
+
+    def _capture_domain_call(self, call: DomainCall) -> DomainCall:
+        if not self._capture_external_values:
+            return call
+
+        execution = replace(
+            call.execution,
+            input_bindings=tuple(
+                (name, self._capture_domain_value(value))
+                for name, value in call.execution.input_bindings
+            ),
+            compiler_input_bindings=tuple(
+                (name, self._capture_domain_value(value))
+                for name, value in call.execution.compiler_input_bindings
+            ),
+        )
+        products = tuple(
+            replace(
+                product,
+                axes=tuple(
+                    replace(
+                        axis,
+                        size=self._capture_domain_value(axis.size),
+                    )
+                    if isinstance(axis.size, ValueRef)
+                    else axis
+                    for axis in product.axes
+                ),
+            )
+            for product in call.product_declarations
+        )
+        return replace(
+            call,
+            execution=execution,
+            product_declarations=products,
+        )
+
+    def _capture_domain_value(self, value: object) -> object:
+        if not isinstance(value, ValueRef) or not self._is_external_value(value):
+            return value
+        return self._capture_external_value(value)
+
+    def _is_external_value(self, value: ValueRef) -> bool:
+        if value.id in self._local_value_ids:
+            return False
+        if internal_value_ref_input_id(value) is not None:
+            return True
+        if internal_value_ref_point_dependencies(value):
+            return True
+        if internal_value_ref_parameter_contracts(value):
+            return True
+        input_ids = internal_value_ref_scalar_input_ids(value)
+        if input_ids:
+            return not input_ids <= self._declared_input_ids
+        operation_id = internal_value_ref_operation_id(value)
+        if operation_id is not None:
+            return True
+        selected_export = internal_value_ref_first_module_export(value)
+        if selected_export is None:
+            return False
+        invocation_key, _export_id = selected_export
+        return all(
+            not isinstance(effect, ModuleInstance)
+            or effect.invocation_key != invocation_key
+            for effect in self._effects
+        )
+
+    def _capture_external_value(self, value: ValueRef) -> ValueRef:
+        selected = self._captured_values.get(value.id)
+        if selected is not None:
+            return selected
+        local_inputs = (
+            internal_value_ref_scalar_input_ids(value) & self._declared_input_ids
+        )
+        if local_inputs:
+            rendered = ", ".join(sorted(local_inputs))
+            raise TypeError(
+                "captured structural values cannot also depend on module inputs: "
+                f"{rendered}"
+            )
+        capture_id = self._next_capture_id()
+        selected = internal_input_value_ref(capture_id, value.value_type)
+        self._captured_values[value.id] = selected
+        self._captured_input_ports.append(
+            ModuleInputPort(id=capture_id, value_type=value.value_type)
+        )
+        self._captured_input_bindings[capture_id] = value
+        self._declared_input_ids.add(capture_id)
+        self._local_value_ids.add(selected.id)
+        return selected
+
+    def _next_capture_id(self) -> str:
+        index = len(self._captured_input_ports)
+        while True:
+            selected = f"__structural_{index}"
+            if selected not in self._declared_input_ids:
+                return selected
+            index += 1
 
     def close_experiment_parts_internal(
         self,
@@ -492,6 +628,7 @@ class ModuleContext:
                 fn=definition.fn,
             )
         )
+        self._local_value_ids.add(definition.output.id)
         return definition.output
 
     def _postprocess(

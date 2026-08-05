@@ -153,7 +153,10 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
     @authoring.module(id="test.table_type.child")
     def table_child(
         context: authoring.ModuleContext,
-        gates: Annotated[list[dict[str, object]], _gate_table_type()],
+        gates: Annotated[
+            authoring.Input[list[dict[str, object]]],
+            _gate_table_type(),
+        ],
     ) -> None:
         del context, gates
 
@@ -172,7 +175,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     def child(
         context: authoring.ModuleContext,
         program: Annotated[
-            dict[str, object],
+            authoring.Input[dict[str, object]],
             authoring.PayloadType("pulse"),
         ],
     ) -> None:
@@ -187,7 +190,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     def middle(
         context: authoring.ModuleContext,
         program: Annotated[
-            dict[str, object],
+            authoring.Input[dict[str, object]],
             authoring.PayloadType("pulse"),
         ],
     ) -> None:
@@ -254,7 +257,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     def incompatible_child(
         context: authoring.ModuleContext,
         program: Annotated[
-            dict[str, object],
+            authoring.Input[dict[str, object]],
             authoring.PayloadType("waveform"),
         ],
     ) -> None:

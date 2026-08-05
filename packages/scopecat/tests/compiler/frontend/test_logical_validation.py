@@ -144,7 +144,7 @@ def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
         def module(
             context: sc.ModuleContext,
             rows: Annotated[
-                list[dict[str, object]],
+                sc.Input[list[dict[str, object]]],
                 sc.TableType(
                     columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)
                 ),

@@ -258,6 +258,71 @@ def test_plain_experiment_arguments_are_structural() -> None:
         count_experiment(unknown=3)  # pyright: ignore[reportCallIssue]
 
 
+def test_plain_module_arguments_specialize_a_closed_typed_invocation() -> None:
+    elaborations = 0
+
+    @sc.module(id="test.function.structural")
+    def product_source(
+        module: sc.ModuleContext,
+        value: sc.Input[int],
+        *,
+        product_id: str = "result",
+    ) -> sc.ProductRef:
+        nonlocal elaborations
+        elaborations += 1
+        del value
+        return module._product(product_id)
+
+    assert elaborations == 0
+    with pytest.raises(TypeError, match="no single definition"):
+        _ = product_source.definition
+
+    first = assert_type(
+        product_source(1, product_id="left"),
+        sc.ModuleInvocation[sc.ProductRef],
+    )
+    second = product_source.call("chosen", 2)
+
+    assert elaborations == 2
+    assert [port.id for port in first.module.definition.interface.imports] == ["value"]
+    assert first.result.id == "structural/left"
+    assert second.result.id == "chosen/result"
+
+    if TYPE_CHECKING:
+        product_source("invalid")  # pyright: ignore[reportArgumentType]
+        product_source(1, product_id=2)  # pyright: ignore[reportArgumentType]
+
+
+def test_symbolic_structural_argument_becomes_a_private_module_import() -> None:
+    point = sc.coordinate("selected", sc.IntType())
+
+    @sc.module(id="test.function.structural-value")
+    def expose(
+        module: sc.ModuleContext,
+        value: sc.ValueRef[int],
+    ) -> sc.ValueRef[int]:
+        del module
+        return value
+
+    invocation = assert_type(
+        expose(point),
+        sc.ModuleInvocation[sc.ValueRef[int]],
+    )
+    [private_port] = invocation.module.definition.interface.imports
+    assert private_port.id == "__structural_0"
+    assert invocation.inputs[private_port.id] is point
+
+    @sc.experiment(id="test.function.structural-value")
+    def authored(experiment: sc.ExperimentContext) -> None:
+        experiment.grid(sc.axis(point, (1, 2)))
+        experiment.record(
+            experiment.use(invocation),
+            record_id="selected_result",
+        )
+
+    compile_invocation(authored())
+
+
 def test_use_returns_typed_results_and_requires_an_occurrence() -> None:
     @sc.module(id="test.use.value")
     def value_source(module: sc.ModuleContext) -> sc.ValueRef:
@@ -293,7 +358,7 @@ def test_use_returns_typed_results_and_requires_an_occurrence() -> None:
 
 
 def test_definition_annotations_require_an_unambiguous_value_type() -> None:
-    def invalid(module: sc.ModuleContext, value: object) -> None:
+    def invalid(module: sc.ModuleContext, value: sc.Input[object]) -> None:
         del module, value
 
     with pytest.raises(TypeError, match="needs a scalar Python type"):

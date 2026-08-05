@@ -20,6 +20,7 @@ from typing import (
 from scopecat.authoring._experiment_module import (
     ExperimentModule,
     create_experiment_module_internal,
+    create_parametric_experiment_module_internal,
 )
 from scopecat.authoring._module_context import (
     DefinitionResource,
@@ -111,6 +112,7 @@ from scopecat.program.values import (
     ComputeFunction,
     ComputeInput,
     MetadataValue,
+    ModuleInput,
     RuntimeInput,
 )
 from scopecat.program.values import input as authoring_input
@@ -195,15 +197,23 @@ def _recording_group_id(
 
 
 @dataclass(frozen=True, slots=True)
-class _DefinitionContract:
-    """One decorator function's parsed signature and symbolic arguments."""
+class _ModuleContract:
+    """One module function's runtime-import and structural argument split."""
 
     signature: inspect.Signature
-    arguments: tuple[tuple[str, ValueRef], ...]
+    runtime_arguments: tuple[tuple[str, ValueRef], ...]
 
     @property
-    def values(self) -> dict[str, ValueRef]:
-        return dict(self.arguments)
+    def runtime_values(self) -> dict[str, ValueRef]:
+        return dict(self.runtime_arguments)
+
+    @property
+    def runtime_names(self) -> frozenset[str]:
+        return frozenset(name for name, _value in self.runtime_arguments)
+
+    @property
+    def structural_names(self) -> frozenset[str]:
+        return frozenset(self.signature.parameters) - self.runtime_names
 
 
 @dataclass(frozen=True, slots=True)
@@ -741,7 +751,11 @@ def module[ResultT, **P](
         ExperimentModule[ResultT, P],
     ]
 ):
-    """Define a closed module from a Python function."""
+    """Define a typed module with runtime imports and structural arguments.
+
+    Parameters annotated as ``Input[T]`` become typed module imports. Every
+    other parameter specializes a closed module definition for that invocation.
+    """
 
     if definition is None:
         return lambda fn: _module_from_function(fn, id=id, metadata=metadata)
@@ -814,29 +828,86 @@ def _module_from_function[ResultT, **P](
     metadata: Mapping[str, MetadataValue] | None,
 ) -> ExperimentModule[ResultT, P]:
     source = cast("DefinitionFunction", fn)
-    contract = _definition_contract(
-        source,
-        defaults=False,
-        context_type=ModuleContext,
-    )
-    values = contract.values
-    context = ModuleContext()
-    result = source(context, **values)
+    contract = _module_contract(source)
+    signature = contract.signature
+    runtime_names = contract.runtime_names
     selected_metadata = dict(metadata or {})
     doc = inspect.getdoc(fn)
     if doc is not None:
         selected_metadata.setdefault("description", doc)
-    module_def = context.close_definition_internal(
-        id=id or _definition_id(fn),
-        input_ports=tuple(_input_port(name, value) for name, value in values.items()),
-        value_exports=module_result_value_exports(result),
+    selected_metadata = dict(freeze_json_mapping(selected_metadata))
+    selected_id = id or _definition_id(fn)
+
+    def close(
+        structural_values: Mapping[str, object],
+        *,
+        capture_external_values: bool,
+    ) -> ExperimentModule[ResultT, P]:
+        runtime_values = contract.runtime_values
+        context = ModuleContext(
+            capture_external_values=capture_external_values,
+            declared_inputs=runtime_values,
+        )
+        values: dict[str, object] = dict(runtime_values)
+        for name, value in structural_values.items():
+            values[name] = (
+                context.capture_structural_value_internal(value)
+                if isinstance(value, ValueRef)
+                else value
+            )
+        result = source(context, **values)
+        module_def = context.close_definition_internal(
+            id=selected_id,
+            input_ports=tuple(
+                _input_port(name, value) for name, value in contract.runtime_arguments
+            ),
+            value_exports=module_result_value_exports(result),
+            metadata=selected_metadata,
+        )
+        return create_experiment_module_internal(
+            module_def,
+            definition=cast("Callable[P, ResultT]", fn),
+            signature=signature,
+            result=cast("ResultT", result),
+            implicit_inputs=context.captured_input_bindings_internal,
+        )
+
+    if not contract.structural_names:
+        return close({}, capture_external_values=False)
+
+    def build(
+        instance_id: str,
+        arguments: Mapping[str, object],
+    ) -> ModuleInvocation[ResultT]:
+        structural_values: dict[str, object] = {}
+        runtime_inputs: dict[str, ModuleInput] = {}
+        for parameter in signature.parameters.values():
+            if parameter.name in runtime_names:
+                runtime_inputs[parameter.name] = cast(
+                    "ModuleInput", arguments[parameter.name]
+                )
+                continue
+            if parameter.name in arguments:
+                structural_values[parameter.name] = arguments[parameter.name]
+                continue
+            default = cast("object", parameter.default)
+            if default is not inspect.Parameter.empty:
+                structural_values[parameter.name] = default
+                continue
+            raise TypeError(f"missing required structural argument: {parameter.name!r}")
+        closed = close(structural_values, capture_external_values=True)
+        return closed._invocation(
+            instance_id,
+            runtime_inputs,
+            resource_bindings={},
+        )
+
+    return create_parametric_experiment_module_internal(
+        id=selected_id,
         metadata=selected_metadata,
-    )
-    return create_experiment_module_internal(
-        module_def,
         definition=cast("Callable[P, ResultT]", fn),
-        signature=contract.signature,
-        result=cast("ResultT", result),
+        signature=signature,
+        builder=build,
     )
 
 
@@ -966,34 +1037,36 @@ def _experiment_contract(fn: DefinitionFunction) -> _ExperimentContract:
     return _ExperimentContract(signature, tuple(runtime_arguments))
 
 
-def _definition_contract(
-    fn: DefinitionFunction,
-    *,
-    defaults: bool,
-    context_type: type[object],
-) -> _DefinitionContract:
-    signature = _context_signature(fn, context_type)
+def _module_contract(fn: DefinitionFunction) -> _ModuleContract:
+    signature = _context_signature(fn, ModuleContext)
     hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
-    values: dict[str, ValueRef] = {}
+    runtime_arguments: list[tuple[str, ValueRef]] = []
     for parameter in signature.parameters.values():
         if parameter.kind in (
             inspect.Parameter.VAR_POSITIONAL,
             inspect.Parameter.VAR_KEYWORD,
             inspect.Parameter.POSITIONAL_ONLY,
         ):
-            raise TypeError("definition functions require named parameters")
-        default = cast("object", parameter.default)
-        if not defaults and default is not inspect.Parameter.empty:
-            raise TypeError("module inputs cannot declare Python defaults")
+            raise TypeError("module functions require named parameters")
         annotation = hints.get(
             parameter.name,
             cast("object", parameter.annotation),
         )
-        values[parameter.name] = authoring_input(
-            parameter.name,
-            _annotation_value_type(annotation, parameter=parameter.name),
+        if not _is_runtime_input_annotation(annotation):
+            continue
+        default = cast("object", parameter.default)
+        if default is not inspect.Parameter.empty:
+            raise TypeError("module inputs cannot declare Python defaults")
+        runtime_arguments.append(
+            (
+                parameter.name,
+                authoring_input(
+                    parameter.name,
+                    _annotation_value_type(annotation, parameter=parameter.name),
+                ),
+            )
         )
-    return _DefinitionContract(signature, tuple(values.items()))
+    return _ModuleContract(signature, tuple(runtime_arguments))
 
 
 def _context_signature(
