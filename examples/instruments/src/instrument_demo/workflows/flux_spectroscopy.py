@@ -24,23 +24,16 @@ BIAS_STOP = sc.Quantity(0.25, "V")
 SWEEP_START = sc.Quantity(4.93, "GHz")
 SWEEP_STOP = sc.Quantity(5.08, "GHz")
 
-DC_BIAS = sc.coordinate(
-    "dc_bias",
-    sc.ScalarType(sc.QuantityType(unit="V")),
-)
-
 
 @sc.experiment
 def flux_spectroscopy(experiment: sc.ExperimentContext) -> None:
     """Scan DC bias and persist one VNA trace plus temperature per point."""
 
-    experiment.grid(
-        sc.axis(
-            DC_BIAS,
-            start=BIAS_START,
-            stop=BIAS_STOP,
-            points=BIAS_POINTS,
-        )
+    dc_bias = experiment.scan(
+        "dc_bias",
+        start=BIAS_START,
+        stop=BIAS_STOP,
+        points=BIAS_POINTS,
     )
     flux_source = dc_source(experiment, FLUX_SOURCE_RESOURCE)
     temperature = temperature_readout(experiment, TEMPERATURE_RESOURCE)
@@ -52,7 +45,7 @@ def flux_spectroscopy(experiment: sc.ExperimentContext) -> None:
     )
     flux_source.source_voltage(
         range=sc.Quantity(1.0, "V"),
-        level=DC_BIAS,
+        level=dc_bias,
     )
     flux_source.ensure(output_enabled=True)
     readout.ensure(
@@ -74,7 +67,6 @@ __all__ = [
     "BIAS_POINTS",
     "BIAS_START",
     "BIAS_STOP",
-    "DC_BIAS",
     "FREQUENCY_RECORD_ID",
     "S_PARAMETER_RECORD_ID",
     "TEMPERATURE_RECORD_ID",

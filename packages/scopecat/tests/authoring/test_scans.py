@@ -1,9 +1,93 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from typing import Annotated
+
 import numpy as np
 import pytest
 
 import scopecat as sc
+from scopecat.compiler.frontend.resolution import compile_invocation
+from scopecat.program.scans import GridSpec
+
+
+def test_experiment_scan_infers_bounded_values_and_quantity_ranges() -> None:
+    @sc.module
+    def bounded_consumer(
+        module: sc.ModuleContext,
+        count: Annotated[sc.Input[int], sc.IntType(minimum=1)],
+        bias: Annotated[sc.Input[sc.Quantity], sc.QuantityType(unit="V")],
+    ) -> None:
+        del module, count, bias
+
+    @sc.experiment
+    def inferred(experiment: sc.ExperimentContext) -> None:
+        count = experiment.scan("count", (1, 2, 3))
+        bias = experiment.scan(
+            "bias",
+            start=sc.Quantity(-0.25, "V"),
+            stop=sc.Quantity(0.25, "V"),
+            points=3,
+        )
+        experiment.use(bounded_consumer(count=count, bias=bias))
+
+    invocation = inferred()
+    plan = invocation.definition.default_point_plan
+    assert isinstance(plan.domain, GridSpec)
+    count_axis, bias_axis = plan.domain.axes
+    assert count_axis.value_type == sc.ScalarType(sc.IntType(minimum=1, maximum=3))
+    assert bias_axis.value_type == sc.ScalarType(
+        sc.QuantityType(unit="V", minimum=-0.25, maximum=0.25)
+    )
+    compile_invocation(invocation)
+
+
+def test_experiment_scan_materializes_values_once_and_accepts_atom_types() -> None:
+    visits = 0
+
+    def entities() -> Iterable[str]:
+        nonlocal visits
+        visits += 1
+        yield "q0"
+        yield "q1"
+
+    @sc.experiment
+    def inferred(experiment: sc.ExperimentContext) -> None:
+        experiment.scan(
+            "qubit",
+            entities(),
+            value_type=sc.EntityType(entity_kind="logical_qubit"),
+        )
+
+    assert visits == 1
+    [axis] = inferred().definition.default_point_plan.domain.axes
+    assert axis.value_type == sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
+
+
+def test_experiment_scan_requires_a_type_for_empty_values() -> None:
+    def empty(experiment: sc.ExperimentContext) -> None:
+        experiment.scan("empty", ())
+
+    with pytest.raises(TypeError, match="empty scan values require value_type"):
+        sc.experiment(empty)
+
+
+@pytest.mark.parametrize("scan_first", [False, True])
+def test_experiment_scan_cannot_mix_with_explicit_point_domains(
+    scan_first: bool,
+) -> None:
+    coordinate = sc.coordinate("explicit", sc.ScalarType(sc.IntType()))
+
+    def mixed(experiment: sc.ExperimentContext) -> None:
+        if scan_first:
+            experiment.scan("implicit", (1, 2))
+            experiment.grid(sc.axis(coordinate, (1, 2)))
+        else:
+            experiment.grid(sc.axis(coordinate, (1, 2)))
+            experiment.scan("implicit", (1, 2))
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        sc.experiment(mixed)
 
 
 def test_around_scan_requires_compatible_quantity_dimensions() -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from types import UnionType
 from typing import (
@@ -40,7 +40,15 @@ from scopecat.authoring.entity_selection import PerEntity
 from scopecat.authoring.experiments import (
     Experiment,
 )
-from scopecat.authoring.scans import Axis, PointRow
+from scopecat.authoring.scans import (
+    Axis,
+    PointRow,
+    ScanCenterInput,
+    ScanCoordinate,
+    ScanValue,
+    ScanValueType,
+    scan_axis,
+)
 from scopecat.authoring.state_projection import StateProjector
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
@@ -221,8 +229,8 @@ class ExperimentContext:
     """Explicit recorder injected into one complete experiment definition."""
 
     __slots__ = (
+        "_point_domain_mode",
         "_point_plan",
-        "_point_plan_declared",
         "_program",
         "_record_selections",
         "_success_state_bindings",
@@ -231,7 +239,7 @@ class ExperimentContext:
     def __init__(self) -> None:
         self._program = ModuleContext()
         self._point_plan = PointPlan()
-        self._point_plan_declared = False
+        self._point_domain_mode = "none"
         self._record_selections: list[ProgramRecordSelection] = []
         self._success_state_bindings: list[BindingIntent] = []
 
@@ -439,6 +447,47 @@ class ExperimentContext:
             traversal=traversal,
         )
 
+    def scan(
+        self,
+        id: str,
+        values: Iterable[ScanValue] | None = None,
+        *,
+        value_type: ScanValueType | None = None,
+        overlay: ValueRef | None = None,
+        unit: str | None = None,
+        start: ScanCoordinate | None = None,
+        stop: ScanCoordinate | None = None,
+        center: ScanCenterInput | None = None,
+        span: ScanCoordinate | None = None,
+        points: int | None = None,
+    ) -> ValueRef:
+        """Declare one inferred grid coordinate and return its symbolic value."""
+
+        if self._point_domain_mode == "explicit":
+            raise ValueError(
+                "experiment scan cannot be combined with grid() or points()"
+            )
+        target, selected_axis = scan_axis(
+            id,
+            values,
+            value_type=value_type,
+            overlay=overlay,
+            unit=unit,
+            start=start,
+            stop=stop,
+            center=center,
+            span=span,
+            points=points,
+        )
+        domain = self._point_plan.domain
+        existing_axes = domain.axes if isinstance(domain, GridSpec) else ()
+        self._point_plan = replace(
+            self._point_plan,
+            domain=GridSpec((*existing_axes, selected_axis)),
+        )
+        self._point_domain_mode = "scan"
+        return target
+
     def points(
         self,
         rows: Sequence[PointRow],
@@ -464,7 +513,11 @@ class ExperimentContext:
         repeat_mode: RepeatMode,
         traversal: PointTraversal,
     ) -> None:
-        if self._point_plan_declared:
+        if self._point_domain_mode == "scan":
+            raise ValueError(
+                "experiment grid() or points() cannot be combined with scan"
+            )
+        if self._point_domain_mode == "explicit":
             raise ValueError("experiment point domain can only be declared once")
         self._point_plan = replace(
             self._point_plan,
@@ -473,7 +526,7 @@ class ExperimentContext:
             repeat_mode=repeat_mode,
             traversal=traversal,
         )
-        self._point_plan_declared = True
+        self._point_domain_mode = "explicit"
 
     def record(
         self,

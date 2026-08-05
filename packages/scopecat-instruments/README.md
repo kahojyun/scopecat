@@ -66,12 +66,7 @@ from typing import Annotated
 import scopecat as sc
 from scopecat_instruments import dc_source
 
-DC_BIAS = sc.coordinate(
-    "dc_bias",
-    sc.ScalarType(sc.QuantityType(unit="V")),
-)
-
-@sc.module(id="capture")
+@sc.module
 def capture(
     module: sc.ModuleContext,
     dc_bias: Annotated[

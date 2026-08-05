@@ -28,30 +28,37 @@ it in each variable's dimension list.
 ## Choose the point-domain shape explicitly
 
 A product grid is appropriate when independent axes should form a Cartesian
-point domain:
+point domain. For the common case, each `scan()` call infers and returns the
+typed coordinate consumed by the experiment body:
 
 ```python
 import numpy as np
 
-bias = sc.coordinate(
+bias = experiment.scan(
     "bias",
-    sc.ScalarType(sc.QuantityType(unit="V")),
+    (-0.2, 0.0, 0.2),
+    unit="V",
 )
+source_power = experiment.scan(
+    "source_power",
+    np.linspace(-30.0, -20.0, 21),
+    unit="dBm",
+)
+```
+
+The returned `bias` and `source_power` values can be passed directly to
+instrument, module, or domain-program inputs. Repeated calls accumulate axes in
+declaration order.
+
+For an explicitly editable point plan, declare coordinates and axes separately.
+Generated axes choose either inclusive start and stop coordinates or a center
+and full coordinate width:
+
+```python
 power = sc.coordinate(
     "source_power",
     sc.ScalarType(sc.QuantityType(unit="dBm")),
 )
-
-experiment.grid(
-    sc.axis(bias, (-0.2, 0.0, 0.2), unit="V"),
-    sc.axis(power, np.linspace(-30.0, -20.0, 21), unit="dBm"),
-)
-```
-
-For generated axes, choose either inclusive start and stop coordinates or a
-center and full coordinate width:
-
-```python
 start_stop_power = sc.axis(
     power,
     start=sc.Quantity(-30.0, "dBm"),
@@ -75,6 +82,10 @@ Use explicit rows when points are correlated, sparse, duplicated, or otherwise
 do not form a rectangular product:
 
 ```python
+bias = sc.coordinate(
+    "bias",
+    sc.ScalarType(sc.QuantityType(unit="V")),
+)
 experiment.points(
     (
         {
