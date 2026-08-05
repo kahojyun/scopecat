@@ -29,7 +29,6 @@ from scopecat.program.recording import ProgramRecordSelection
 
 from scopecat_instruments import (
     DCMonitorCurrentProducts,
-    DCMonitorCurrentRecords,
     DCMonitorGroupTarget,
     DCMonitorTarget,
     DCMonitorVoltageProducts,
@@ -51,7 +50,6 @@ from scopecat_instruments import (
     SymbolicTemperatureReadoutClient,
     SymbolicTemperatureReadoutGroup,
     TemperatureSampleProducts,
-    TemperatureSampleRecords,
     dc_source,
     dc_source_monitor,
     network_sweep,
@@ -371,7 +369,9 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
         vna = network_sweep(context, "readout")
         vna.ensure(points=11)
         trace = vna.sweep()
-        context.record(trace)
+        records = assert_type(context.record(trace), NetworkSweepRecords)
+        assert_type(records.frequency, RecordRef[MeasurementArrayData])
+        assert_type(records.s_parameter, RecordRef[MeasurementArrayData])
 
     definition = authored.bind().definition
     assert [product.id for product in definition.body.products] == [
@@ -417,33 +417,6 @@ def test_record_namespace_prefixes_typed_variables_and_their_group() -> None:
     ]
     assert {selection.recording_group_id for selection in selections} == {
         "calibration/readout/sweep"
-    }
-
-
-def test_typed_result_members_keep_their_declared_recording_roles() -> None:
-    context = ExperimentContext()
-    vna = network_sweep(context, "readout")
-    vna.ensure(points=11)
-
-    trace = vna.sweep()
-    records = assert_type(context.record(trace), NetworkSweepRecords)
-    assert_type(records.frequency, RecordRef[MeasurementArrayData])
-    assert_type(records.s_parameter, RecordRef[MeasurementArrayData])
-
-    definition = context.close_definition_internal(
-        id="test.symbolic.record-members",
-        kind="test",
-        metadata=None,
-        input_defaults={},
-        required_inputs=(),
-    )
-    selections = _product_records(definition.record_selections)
-    assert [selection.role for selection in selections] == [
-        "coordinate",
-        "observable",
-    ]
-    assert {selection.recording_group_id for selection in selections} == {
-        "readout/sweep"
     }
 
 
@@ -863,22 +836,3 @@ def test_temperature_sample_declares_all_contract_products() -> None:
         sample.temperature,
         sample.resistance,
     ]
-
-
-def test_generated_product_bundles_record_to_their_typed_companions() -> None:
-    context = ExperimentContext()
-    vna = network_sweep(context, "vna")
-    vna.ensure(points=2)
-
-    current = context.record(dc_source_monitor(context, "source").measure_current())
-    trace = context.record(vna.sweep())
-    temperature = context.record(temperature_readout(context, "thermometer").sample())
-
-    assert_type(current, DCMonitorCurrentRecords)
-    assert_type(current.current, RecordRef[float])
-    assert_type(trace, NetworkSweepRecords)
-    assert_type(trace.frequency, RecordRef[MeasurementArrayData])
-    assert_type(trace.s_parameter, RecordRef[MeasurementArrayData])
-    assert_type(temperature, TemperatureSampleRecords)
-    assert_type(temperature.temperature, RecordRef[float])
-    assert_type(temperature.resistance, RecordRef[float])

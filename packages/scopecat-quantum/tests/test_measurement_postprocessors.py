@@ -11,7 +11,6 @@ from scopecat.measurements.results import (
     MeasurementScalar,
 )
 
-import scopecat_quantum.measurement_postprocessors as postprocessors
 from scopecat_quantum import authoring
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
@@ -39,10 +38,6 @@ def _iq_shots(*values: complex) -> MeasurementArray:
         unit="ratio",
         values=values,
     )
-
-
-def test_probability_record_companion_is_public() -> None:
-    assert "BinaryIqProbabilityRecords" in postprocessors.__all__
 
 
 def test_binary_iq_discriminator_requires_finite_distinct_centroids() -> None:

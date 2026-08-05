@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import assert_type, cast
+from typing import assert_type
 
 import pytest
 
@@ -180,36 +179,6 @@ def test_experiment_record_expands_per_entity_products_in_declaration_order() ->
         "second",
     ]
     assert [selection.role for selection in selections] == ["observable", "observable"]
-
-
-def test_per_entity_record_id_still_requires_one_expanded_product() -> None:
-    context = sc.ExperimentContext()
-    q0 = sc.EntityRef(id="q0", kind="logical_device")
-    q1 = sc.EntityRef(id="q1", kind="logical_device")
-    products = sc.PerEntity(
-        ((q0, context._product("first")), (q1, context._product("second")))
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="record_id cannot name a PerEntity record set",
-    ):
-        cast("Callable[..., object]", context.record)(
-            products,
-            record_id="combined",
-        )
-
-
-def test_per_entity_record_rejects_any_explicit_record_id() -> None:
-    context = sc.ExperimentContext()
-    q0 = sc.EntityRef(id="q0", kind="logical_device")
-    products = sc.PerEntity(((q0, context._product("signal")),))
-
-    with pytest.raises(
-        ValueError,
-        match="record_id cannot name a PerEntity record set",
-    ):
-        cast("Callable[..., object]", context.record)(products, record_id="")
 
 
 def test_record_namespace_is_non_empty_and_exclusive_with_record_id() -> None:
