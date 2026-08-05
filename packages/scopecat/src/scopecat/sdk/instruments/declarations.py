@@ -291,6 +291,7 @@ class DeclaredResultField:
     python_name: str
     ref: AcquisitionResultRef
     spec: AcquisitionResultSpec
+    annotation: object
 
     @property
     def result_id(self) -> str:
@@ -1137,12 +1138,22 @@ def _declared_result_layout(
     result_class = get_origin(result_type) or result_type
     if not isinstance(result_class, type) or not is_dataclass(result_class):
         raise TypeError("declared acquisition result must be a dataclass")
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(result_class, include_extras=True),
+    )
     specs_by_id = {item.id: item for item in result_specs}
     declared_fields = tuple(
         DeclaredResultField(
             python_name=result_field.name,
             ref=acquisition_ref.result(result_id),
             spec=specs_by_id[result_id],
+            annotation=_expand_concrete_alias(
+                _split_annotation(
+                    hints[result_field.name],
+                    ResultMetadata,
+                )[0]
+            ),
         )
         for result_field in fields(result_class)
         if (

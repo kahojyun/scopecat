@@ -17,6 +17,7 @@ from scopecat.authoring import (
     Symbolic,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.value_spec import MeasurementArrayData
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import (
     ApplyReceipt,
@@ -354,8 +355,8 @@ class TemperatureReadback:
 class TemperatureSampleProducts(ProductBundle):
     """Typed logical products produced by sample."""
 
-    temperature: ProductRef
-    resistance: ProductRef
+    temperature: ProductRef[float]
+    resistance: ProductRef[float]
 
 
 class TemperatureReadoutClient(InstrumentClientBase):
@@ -838,7 +839,7 @@ class DCMonitorCurrentReadback:
 class DCMonitorCurrentProducts(ProductBundle):
     """Typed logical products produced by measure_current."""
 
-    current: ProductRef
+    current: ProductRef[float]
 
 
 @dataclass(frozen=True, slots=True)
@@ -853,7 +854,7 @@ class DCMonitorVoltageReadback:
 class DCMonitorVoltageProducts(ProductBundle):
     """Typed logical products produced by measure_voltage."""
 
-    voltage: ProductRef
+    voltage: ProductRef[float]
 
 
 class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
@@ -1287,8 +1288,8 @@ class NetworkSweepReadback:
 class NetworkSweepProducts(ProductBundle):
     """Typed logical products produced by sweep."""
 
-    frequency: ProductRef
-    s_parameter: ProductRef
+    frequency: ProductRef[MeasurementArrayData]
+    s_parameter: ProductRef[MeasurementArrayData]
 
 
 class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):

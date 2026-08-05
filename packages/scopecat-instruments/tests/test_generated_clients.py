@@ -249,6 +249,27 @@ def test_codegen_imports_literal_for_resolved_declared_annotations() -> None:
     ) in completed.stdout
 
 
+def test_codegen_types_products_by_native_point_value() -> None:
+    scalar = _render_surface("NativeScalarInterface")
+
+    assert scalar.returncode == 0, scalar.stderr
+    assert "    boolean: ProductRef[bool]" in scalar.stdout
+    assert "    integer: ProductRef[int]" in scalar.stdout
+    assert "    floating: ProductRef[float]" in scalar.stdout
+    assert "    complex_value: ProductRef[complex]" in scalar.stdout
+    assert "    text: ProductRef[str]" in scalar.stdout
+    assert "MeasurementArrayData" not in scalar.stdout
+
+    array = _render_surface("DriverFixedAcquisitionInterface")
+
+    assert array.returncode == 0, array.stderr
+    assert (
+        "from scopecat.measurements.value_spec import MeasurementArrayData"
+        in array.stdout
+    )
+    assert "    response: ProductRef[MeasurementArrayData]" in array.stdout
+
+
 def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     completed = _render_surface(
         "DCSourceInterface",
@@ -272,11 +293,11 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "class DCMonitorCurrentReadback:" in completed.stdout
     assert "    current: MeasurementValue" in completed.stdout
     assert "class DCMonitorCurrentProducts(ProductBundle):" in completed.stdout
-    assert "    current: ProductRef" in completed.stdout
+    assert "    current: ProductRef[float]" in completed.stdout
     assert "class DCMonitorVoltageReadback:" in completed.stdout
     assert "    voltage: MeasurementValue" in completed.stdout
     assert "class DCMonitorVoltageProducts(ProductBundle):" in completed.stdout
-    assert "    voltage: ProductRef" in completed.stdout
+    assert "    voltage: ProductRef[float]" in completed.stdout
     assert "DCMonitorCurrentResults" not in completed.stdout
     assert "DCMonitorVoltageResults" not in completed.stdout
     assert "class DCSourceMonitorClient(" in completed.stdout

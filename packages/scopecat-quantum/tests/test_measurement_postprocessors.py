@@ -82,6 +82,8 @@ def test_binary_iq_postprocessor_classifies_one_point(
         discriminate().result,
         BinaryIqProbabilityProducts,
     )
+    assert_type(invocation_products.probability_0, sc.ProductRef[float])
+    assert_type(invocation_products.probability_1, sc.ProductRef[float])
     assert invocation_products.probability_0.id == "kernel/probability_0"
     assert invocation_products.probability_1.id == "kernel/probability_1"
     declarations = {

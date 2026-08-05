@@ -19,6 +19,7 @@ from scopecat.authoring import (
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.value_spec import MeasurementArrayData
 from scopecat.program.bindings import EnsureStateIntent, InvocationIntent
 from scopecat.program.expressions import LiteralScalarExpr
 from scopecat.program.module import ModuleAcquireEffect
@@ -635,9 +636,9 @@ def test_dc_monitor_exposes_independent_fixed_result_acquisitions() -> None:
     voltage = source.measure_voltage()
 
     assert_type(current, DCMonitorCurrentProducts)
-    assert_type(current.current, ProductRef)
+    assert_type(current.current, ProductRef[float])
     assert_type(voltage, DCMonitorVoltageProducts)
-    assert_type(voltage.voltage, ProductRef)
+    assert_type(voltage.voltage, ProductRef[float])
     definition = context.close_definition_internal(id="test.symbolic.dc-monitor")
     assert [product.id for product in definition.body.products] == [
         "monitored_current",
@@ -755,8 +756,8 @@ def test_network_sweep_declares_contract_products_and_ensured_points() -> None:
     trace = vna.sweep()
 
     assert_type(trace, NetworkSweepProducts)
-    assert_type(trace.frequency, ProductRef)
-    assert_type(trace.s_parameter, ProductRef)
+    assert_type(trace.frequency, ProductRef[MeasurementArrayData])
+    assert_type(trace.s_parameter, ProductRef[MeasurementArrayData])
     definition = context.close_definition_internal(id="test.symbolic.sweep")
     assert [product.id for product in definition.body.products] == [
         "frequency",
@@ -837,8 +838,8 @@ def test_temperature_sample_declares_all_contract_products() -> None:
     sample = thermometer.sample()
 
     assert_type(sample, TemperatureSampleProducts)
-    assert_type(sample.temperature, ProductRef)
-    assert_type(sample.resistance, ProductRef)
+    assert_type(sample.temperature, ProductRef[float])
+    assert_type(sample.resistance, ProductRef[float])
     definition = context.close_definition_internal(id="test.symbolic.temperature")
     assert [product.id for product in definition.body.products] == [
         "temperature",

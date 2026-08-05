@@ -59,8 +59,8 @@ class BinaryIqDiscriminator(BaseModel):
 class BinaryIqProbabilityProducts(ProductBundle):
     """Typed products emitted by one binary IQ discrimination step."""
 
-    probability_0: ProductRef
-    probability_1: ProductRef
+    probability_0: ProductRef[float]
+    probability_1: ProductRef[float]
 
 
 def binary_iq_probabilities(
@@ -74,15 +74,21 @@ def binary_iq_probabilities(
     """Declare binary state probabilities independently at each scan point."""
 
     products = BinaryIqProbabilityProducts(
-        probability_0=context._product(
-            "probability_0",
-            dtype="float64",
-            unit="ratio",
+        probability_0=cast(
+            "ProductRef[float]",
+            context._product(
+                "probability_0",
+                dtype="float64",
+                unit="ratio",
+            ),
         ),
-        probability_1=context._product(
-            "probability_1",
-            dtype="float64",
-            unit="ratio",
+        probability_1=cast(
+            "ProductRef[float]",
+            context._product(
+                "probability_1",
+                dtype="float64",
+                unit="ratio",
+            ),
         ),
     )
 
