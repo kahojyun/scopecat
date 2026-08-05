@@ -196,7 +196,7 @@ def test_experiment_separates_runtime_inputs_from_structural_arguments() -> None
     assert [input_.id for input_ in first.definition.inputs] == ["value"]
     assert first.input_overrides == {}
     assert second.input_overrides == {"value": 4}
-    assert first.definition.default_points != second.definition.default_points
+    assert first.definition.default_point_plan != second.definition.default_point_plan
     compile_invocation(first.bind(value=2))
     compile_invocation(second)
 

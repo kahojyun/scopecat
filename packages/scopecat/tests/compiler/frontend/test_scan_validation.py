@@ -64,7 +64,7 @@ def test_unbound_input_cannot_center_a_scan() -> None:
         verify_point_domain(GridSpec((scan,)))
 
     assert [issue.code for issue in caught.value.issues] == [
-        "scan_source_input_unbound"
+        "axis_source_input_unbound"
     ]
 
 
@@ -80,7 +80,7 @@ def test_scan_source_cannot_depend_on_another_point() -> None:
         verify_point_domain(GridSpec((scan, _values("source"))))
 
     assert [issue.code for issue in caught.value.issues] == [
-        "scan_point_dependency_unsupported"
+        "axis_point_dependency_unsupported"
     ]
 
 

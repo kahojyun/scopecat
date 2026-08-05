@@ -1,4 +1,4 @@
-"""Validate one complete point domain and its scan sources."""
+"""Validate one complete point domain and its axis sources."""
 
 from __future__ import annotations
 
@@ -83,8 +83,8 @@ def verify_point_domain(
             )
             issues.append(
                 PointDomainValidationIssue(
-                    "scan_point_dependency_unsupported",
-                    f"scan axis {axis.id!r} source depends on scanned point: "
+                    "axis_point_dependency_unsupported",
+                    f"axis {axis.id!r} source depends on scanned point: "
                     f"{dependency_ids}",
                     (*path, *source_path),
                 )
@@ -95,8 +95,8 @@ def verify_point_domain(
         if unbound_inputs:
             issues.append(
                 PointDomainValidationIssue(
-                    "scan_source_input_unbound",
-                    f"scan axis {axis.id!r} source uses unbound input: "
+                    "axis_source_input_unbound",
+                    f"axis {axis.id!r} source uses unbound input: "
                     + ", ".join(unbound_inputs),
                     (*path, *source_path),
                 )
@@ -115,5 +115,5 @@ def _scan_source(
         return axis.overlay, (), "parameter overlay key"
     source = axis.source
     if isinstance(source, AroundScanSource) and isinstance(source.center, ValueRef):
-        return source.center, ("center",), "scan center"
-    return None, (), "scan source"
+        return source.center, ("center",), "axis center"
+    return None, (), "axis source"

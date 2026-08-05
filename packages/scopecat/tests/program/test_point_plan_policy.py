@@ -36,13 +36,13 @@ def _values(axis: AxisSpec) -> tuple[ScanValue, ...]:
     return axis.source.values
 
 
-def _definition(default_points: PointPlan) -> ExperimentDef:
+def _definition(default_point_plan: PointPlan) -> ExperimentDef:
     return ExperimentDef(
         id="test.point-policy",
         kind="test",
         interface=ModuleInterface(),
         body=ModuleBody(),
-        default_points=default_points,
+        default_point_plan=default_point_plan,
     )
 
 

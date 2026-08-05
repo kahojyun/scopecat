@@ -75,7 +75,7 @@ class ExperimentDef:
     body: ModuleBody
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
     inputs: tuple[ExperimentInputDef, ...] = ()
-    default_points: PointPlan = field(default_factory=PointPlan)
+    default_point_plan: PointPlan = field(default_factory=PointPlan)
     record_selections: tuple[ProgramRecordSelection, ...] = ()
     success_state: EnsureStateIntent | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
@@ -95,13 +95,13 @@ class ExperimentInvocation:
     input_overrides: Mapping[str, RuntimeInput] = field(
         default_factory=empty_program_mapping
     )
-    point_override: PointPlan | None = None
+    point_plan_override: PointPlan | None = None
 
     @property
     def point_plan(self) -> PointPlan:
         """Return the invocation override or the definition's complete plan."""
 
-        return self.point_override or self.definition.default_points
+        return self.point_plan_override or self.definition.default_point_plan
 
     def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:
         captured_inputs = capture_experiment_inputs(inputs)
@@ -136,7 +136,7 @@ class ExperimentInvocation:
 
         return replace(
             self,
-            point_override=replace(
+            point_plan_override=replace(
                 self.point_plan,
                 domain=GridSpec(tuple(axes)),
             ),
@@ -152,7 +152,7 @@ class ExperimentInvocation:
 
         return replace(
             self,
-            point_override=replace(
+            point_plan_override=replace(
                 self.point_plan,
                 domain=points_spec(rows, coordinates=coordinates),
                 traversal="forward",
@@ -162,7 +162,7 @@ class ExperimentInvocation:
     def reset_points(self) -> ExperimentInvocation:
         """Discard the complete point-plan override and inherit the definition."""
 
-        return replace(self, point_override=None)
+        return replace(self, point_plan_override=None)
 
     def with_repeat(
         self,
@@ -174,7 +174,7 @@ class ExperimentInvocation:
 
         return replace(
             self,
-            point_override=replace(
+            point_plan_override=replace(
                 self.point_plan,
                 repeat=count,
                 repeat_mode=mode,
@@ -189,7 +189,7 @@ class ExperimentInvocation:
 
         return replace(
             self,
-            point_override=replace(
+            point_plan_override=replace(
                 self.point_plan,
                 traversal=traversal,
             ),
@@ -208,7 +208,7 @@ class ExperimentInvocation:
             selected = (*selected, axis)
         return replace(
             self,
-            point_override=replace(
+            point_plan_override=replace(
                 self.point_plan,
                 domain=GridSpec(selected),
             ),
@@ -225,7 +225,7 @@ class ExperimentInvocation:
             raise ValueError(f"grid has no axis {axis_id!r}")
         return replace(
             self,
-            point_override=replace(
+            point_plan_override=replace(
                 self.point_plan,
                 domain=GridSpec(
                     tuple(axis for axis in domain.axes if axis.id != axis_id)
@@ -244,7 +244,7 @@ def create_experiment_def(
     record_selections: Sequence[ProgramRecordSelection] = (),
     input_defaults: Mapping[str, RuntimeInput] | None = None,
     required_inputs: Sequence[str] = (),
-    default_points: PointPlan | None = None,
+    default_point_plan: PointPlan | None = None,
     success_state_bindings: Sequence[BindingIntent] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentDef:
@@ -257,13 +257,15 @@ def create_experiment_def(
         msg = "experiment definition requires kind"
         raise ValueError(msg)
     selected_records = tuple(record_selections)
-    selected_points = default_points if default_points is not None else PointPlan()
+    selected_point_plan = (
+        default_point_plan if default_point_plan is not None else PointPlan()
+    )
     selected_defaults = capture_experiment_inputs(input_defaults or {})
     selected_required = tuple(required_inputs)
     input_types = validate_experiment_definition(
         input_ports=interface.imports,
         defaults=selected_defaults,
-        default_points=selected_points,
+        default_point_plan=selected_point_plan,
     )
     program_input_ids = tuple(port.id for port in interface.imports)
     input_ids = tuple(
@@ -292,7 +294,7 @@ def create_experiment_def(
         body=body,
         python_implementations=tuple(python_implementations),
         inputs=normalized_inputs,
-        default_points=selected_points,
+        default_point_plan=selected_point_plan,
         record_selections=selected_records,
         success_state=(
             EnsureStateIntent(tuple(success_state_bindings))

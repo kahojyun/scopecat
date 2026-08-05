@@ -77,7 +77,7 @@ def axis(
         item is not None for item in (start, stop, center, span, points)
     ):
         msg = (
-            "scan axis accepts exactly one of values, start/stop/points, "
+            "axis accepts exactly one of values, start/stop/points, "
             "or center/span/points"
         )
         raise ValueError(msg)
@@ -92,10 +92,10 @@ def axis(
         )
     if start is not None or stop is not None:
         if center is not None or span is not None:
-            msg = "scan axis range and around forms are mutually exclusive"
+            msg = "axis range and around forms are mutually exclusive"
             raise ValueError(msg)
         if start is None or stop is None or points is None:
-            msg = "scan axis range form requires start, stop, and points"
+            msg = "axis range form requires start, stop, and points"
             raise ValueError(msg)
         range_type, captured_start, captured_stop = _capture_range_scan(
             target,
@@ -157,10 +157,10 @@ def _validate_overlay(target: ValueRef, overlay: ValueRef | None) -> None:
 def _point_target(target: ValueRef) -> tuple[str, Scalar]:
     point_id = internal_value_ref_point_id(target)
     if point_id is None:
-        msg = "scan target must be created with scopecat.coordinate"
+        msg = "axis target must be created with scopecat.coordinate"
         raise TypeError(msg)
     if not isinstance(target.value_type, Scalar):
-        msg = "scan target must carry a scalar value type"
+        msg = "axis target must carry a scalar value type"
         raise TypeError(msg)
     return point_id, target.value_type
 
@@ -183,13 +183,13 @@ def _capture_scan_values(
         selected: object = value
         if unit is not None:
             if not isinstance(value, int | float) or isinstance(value, bool):
-                msg = "unit-qualified scan values must be numeric"
+                msg = "unit-qualified axis values must be numeric"
                 raise TypeError(msg)
             selected = Quantity(value=float(value), unit=unit)
         validate_literal(
             target.value_type,
             selected,
-            path=("scan", "values", index),
+            path=("axis", "values", index),
         )
         captured.append(cast("ScanValue", capture_runtime_input(selected)))
     return tuple(captured)
@@ -207,8 +207,8 @@ def _capture_range_scan(
     value_type = cast("Scalar", target.value_type)
     atom = value_type.atom
     if isinstance(atom, QuantityType):
-        start_quantity = _optional_scan_quantity(start, path="scan.start")
-        stop_quantity = _optional_scan_quantity(stop, path="scan.stop")
+        start_quantity = _optional_scan_quantity(start, path="axis.start")
+        stop_quantity = _optional_scan_quantity(stop, path="axis.stop")
         coordinate_unit = _select_coordinate_unit(
             atom,
             unit=unit,
@@ -217,28 +217,28 @@ def _capture_range_scan(
         captured_start = _normalize_scan_quantity(
             start,
             unit=coordinate_unit,
-            path="scan.start",
+            path="axis.start",
         )
         captured_stop = _normalize_scan_quantity(
             stop,
             unit=coordinate_unit,
-            path="scan.stop",
+            path="axis.stop",
         )
-        validate_literal(target.value_type, captured_start, path=("scan", "start"))
-        validate_literal(target.value_type, captured_stop, path=("scan", "stop"))
+        validate_literal(target.value_type, captured_start, path=("axis", "start"))
+        validate_literal(target.value_type, captured_stop, path=("axis", "stop"))
         return (
             _explicit_value_type(value_type, unit=coordinate_unit),
             cast("Quantity", capture_runtime_input(captured_start)),
             cast("Quantity", capture_runtime_input(captured_stop)),
         )
     if unit is not None:
-        msg = "scan axis unit requires a quantity point"
+        msg = "axis unit requires a quantity point"
         raise TypeError(msg)
     if isinstance(atom, Float):
-        start_value = _numeric_scan_coordinate(start, path="scan.start")
-        stop_value = _numeric_scan_coordinate(stop, path="scan.stop")
-        validate_literal(target.value_type, start_value, path=("scan", "start"))
-        validate_literal(target.value_type, stop_value, path=("scan", "stop"))
+        start_value = _numeric_scan_coordinate(start, path="axis.start")
+        stop_value = _numeric_scan_coordinate(stop, path="axis.stop")
+        validate_literal(target.value_type, start_value, path=("axis", "start"))
+        validate_literal(target.value_type, stop_value, path=("axis", "stop"))
         return (
             value_type,
             cast("float", capture_runtime_input(float(start_value))),
@@ -251,15 +251,15 @@ def _capture_range_scan(
             or not isinstance(stop, int)
             or isinstance(stop, bool)
         ):
-            msg = "integer scan range endpoints must be integers"
+            msg = "integer axis range endpoints must be integers"
             raise TypeError(msg)
-        validate_literal(target.value_type, start, path=("scan", "start"))
-        validate_literal(target.value_type, stop, path=("scan", "stop"))
+        validate_literal(target.value_type, start, path=("axis", "start"))
+        validate_literal(target.value_type, stop, path=("axis", "stop"))
         if (stop - start) % (points - 1) != 0:
-            msg = "integer scan range must have an integral step"
+            msg = "integer axis range must have an integral step"
             raise ValueError(msg)
         return value_type, start, stop
-    msg = "scan range target must be a float, int, or quantity point"
+    msg = "axis range target must be a float, int, or quantity point"
     raise TypeError(msg)
 
 
@@ -275,21 +275,21 @@ def _capture_around_scan(
     literal_center = (
         None
         if isinstance(center, ValueRef)
-        else _optional_scan_quantity(center, path="scan.center")
+        else _optional_scan_quantity(center, path="axis.center")
     )
-    literal_span = _optional_scan_quantity(span, path="scan.span")
+    literal_span = _optional_scan_quantity(span, path="axis.span")
     center_type: QuantityType | None = None
     if isinstance(center, ValueRef):
         if not isinstance(center.value_type, Scalar) or not isinstance(
             center.value_type.atom, QuantityType
         ):
-            msg = "scan center must be a typed quantity scalar"
+            msg = "axis center must be a typed quantity scalar"
             raise TypeError(msg)
         center_type = center.value_type.atom
         _require_compatible_quantity_types(
             center_type,
             target_type,
-            path="scan.center",
+            path="axis.center",
         )
     coordinate_unit = _select_coordinate_unit(
         target_type,
@@ -311,27 +311,27 @@ def _capture_around_scan(
         and center_type.unit is None
     ):
         if unit is not None:
-            msg = "scan.center must declare a unit for a unit-specific scan axis"
+            msg = "axis.center must declare a unit for a unit-specific axis"
             raise TypeError(msg)
         axis_type = target_scalar
     if isinstance(center, ValueRef):
         _require_quantity_unit(
             cast("QuantityType", center_type),
             coordinate_unit,
-            path="scan.center",
+            path="axis.center",
         )
         captured_center: ScanCenter = center
     else:
         selected_center = _capture_around_quantity(
             center,
             unit=coordinate_unit,
-            path="scan.center",
+            path="axis.center",
             normalize=unit is not None,
         )
         validate_literal(
             target.value_type,
             selected_center,
-            path=("scan", "center"),
+            path=("axis", "center"),
         )
         captured_center = cast(
             "Quantity",
@@ -340,10 +340,10 @@ def _capture_around_scan(
     captured_span = _capture_around_quantity(
         span,
         unit=coordinate_unit,
-        path="scan.span",
+        path="axis.span",
         normalize=unit is not None,
     )
-    _require_quantity_unit(target_type, captured_span.unit, path="scan.span")
+    _require_quantity_unit(target_type, captured_span.unit, path="axis.span")
     return (
         axis_type,
         captured_center,
@@ -359,7 +359,7 @@ def _validate_around_target(target: ValueRef, *, points: int) -> QuantityType:
     if not isinstance(target_type, Scalar) or not isinstance(
         target_type.atom, QuantityType
     ):
-        msg = "around scan target must be a typed quantity point"
+        msg = "around axis target must be a typed quantity point"
         raise TypeError(msg)
     _validate_scan_points(points)
     return target_type.atom
@@ -367,7 +367,7 @@ def _validate_around_target(target: ValueRef, *, points: int) -> QuantityType:
 
 def _validate_scan_points(points: int) -> None:
     if points < 2:
-        msg = "scan axis points must be at least 2"
+        msg = "axis points must be at least 2"
         raise ValueError(msg)
 
 
@@ -385,7 +385,7 @@ def _require_quantity_unit(
     ):
         msg = (
             f"{path} uses {unit!r}, which is incompatible with "
-            "the scan point quantity type"
+            "the axis point quantity type"
         )
         raise TypeError(msg)
 
@@ -409,7 +409,7 @@ def _select_coordinate_unit(
         msg = "numeric quantity axis coordinates require unit or typed endpoints"
         raise TypeError(msg)
     Quantity(0.0, selected)
-    _require_quantity_unit(target_type, selected, path="scan.unit")
+    _require_quantity_unit(target_type, selected, path="axis.unit")
     return selected
 
 
@@ -498,7 +498,7 @@ def _require_compatible_quantity_types(
         and target.unit is not None
         and not compatible_units(source.unit, target.unit)
     ):
-        msg = f"{path} must be compatible with the scan point quantity type"
+        msg = f"{path} must be compatible with the axis point quantity type"
         raise TypeError(msg)
 
 

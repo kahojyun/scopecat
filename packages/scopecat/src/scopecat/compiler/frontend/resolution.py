@@ -259,7 +259,7 @@ def _validate_point_dependencies(
         problems.append(
             _problem(
                 "experiment_point_dependency_type_mismatch",
-                f"scan for point {dependency.id!r} provides "
+                f"axis for point {dependency.id!r} provides "
                 f"{describe_value_type(actual)}, but the module requires "
                 f"{describe_value_type(dependency.value_type)}",
                 "point_domain",

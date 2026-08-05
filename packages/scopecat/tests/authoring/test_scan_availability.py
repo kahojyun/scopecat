@@ -58,7 +58,7 @@ def test_default_scan_center_rejects_external_operation() -> None:
         0,
         "center",
     )
-    assert "scan center" in problem.message
+    assert "axis center" in problem.message
 
 
 def test_invocation_scan_center_rejects_external_operation() -> None:

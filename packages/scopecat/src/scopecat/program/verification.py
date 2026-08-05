@@ -58,14 +58,14 @@ def validate_experiment_definition(
     *,
     input_ports: Sequence[ModuleInputPort],
     defaults: Mapping[str, object],
-    default_points: PointPlan,
+    default_point_plan: PointPlan,
 ) -> dict[str, ValueType]:
     """Validate one closed experiment definition without consulting config."""
 
     problems: list[Problem] = []
     input_types, input_type_problems = _definition_input_types(
         input_ports,
-        default_points,
+        default_point_plan,
     )
     problems.extend(input_type_problems)
     problems.extend(
@@ -116,12 +116,12 @@ def validate_experiment_inputs(
 
 def _definition_input_types(
     input_ports: Sequence[ModuleInputPort],
-    default_points: PointPlan,
+    default_point_plan: PointPlan,
 ) -> tuple[dict[str, ValueType], list[Problem]]:
     selected = {port.id: port.value_type for port in input_ports}
     problems: list[Problem] = []
 
-    for axis in default_points.domain.axes:
+    for axis in default_point_plan.domain.axes:
         for input_id, value_type in _direct_scan_input_types(axis):
             existing = selected.get(input_id)
             if existing is None or is_assignable(value_type, existing):

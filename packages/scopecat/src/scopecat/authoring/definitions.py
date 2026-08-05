@@ -261,7 +261,7 @@ class ExperimentContext:
             record_selections=self._record_selections,
             input_defaults=input_defaults,
             required_inputs=required_inputs,
-            default_points=self._point_plan,
+            default_point_plan=self._point_plan,
             success_state_bindings=self._success_state_bindings,
             metadata=metadata,
         )
@@ -788,7 +788,7 @@ def _experiment_from_function[**P](
         return ExperimentInvocation(
             definition=definition,
             input_overrides=captured_inputs,
-            point_override=None,
+            point_plan_override=None,
         )
 
     authored = Experiment(

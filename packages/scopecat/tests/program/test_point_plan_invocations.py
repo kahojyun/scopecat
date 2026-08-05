@@ -34,7 +34,7 @@ def _axis(id: str, *values: int) -> AxisSpec:
 
 def _definition(
     *,
-    default_points: PointPlan | None = None,
+    default_point_plan: PointPlan | None = None,
     inputs: tuple[ExperimentInputDef, ...] = (),
 ) -> ExperimentDef:
     return ExperimentDef(
@@ -43,7 +43,7 @@ def _definition(
         interface=ModuleInterface(),
         body=ModuleBody(),
         inputs=inputs,
-        default_points=default_points or PointPlan(),
+        default_point_plan=default_point_plan or PointPlan(),
     )
 
 
@@ -65,7 +65,7 @@ def test_complete_point_declarations_replace_each_other_and_reset() -> None:
     y = coordinate("y", _INT)
     default_axis = _axis("x", 1, 2)
     definition = _definition(
-        default_points=PointPlan(GridSpec((default_axis,))),
+        default_point_plan=PointPlan(GridSpec((default_axis,))),
     )
     invocation = ExperimentInvocation(definition)
 
@@ -79,7 +79,7 @@ def test_complete_point_declarations_replace_each_other_and_reset() -> None:
 
     empty_grid = points.grid()
     assert empty_grid.point_plan == PointPlan(GridSpec())
-    assert empty_grid.reset_points().point_plan == definition.default_points
+    assert empty_grid.reset_points().point_plan == definition.default_point_plan
 
 
 def test_incremental_grid_edits_replace_in_place_append_and_remove() -> None:
@@ -88,7 +88,7 @@ def test_incremental_grid_edits_replace_in_place_append_and_remove() -> None:
     y = _axis("y", 3, 4)
     replacement_x = _axis("x", 5, 6)
     invocation = ExperimentInvocation(
-        _definition(default_points=PointPlan(GridSpec((first_x, y))))
+        _definition(default_point_plan=PointPlan(GridSpec((first_x, y))))
     )
 
     replaced = invocation.with_axis(replacement_x)
@@ -136,7 +136,7 @@ def test_definition_verification_discovers_inputs_from_point_plan_axes() -> None
         kind="test",
         interface=ModuleInterface(),
         body=ModuleBody(),
-        default_points=PointPlan(GridSpec((axis,))),
+        default_point_plan=PointPlan(GridSpec((axis,))),
     )
 
     assert tuple((item.id, item.value_type) for item in definition.inputs) == (
