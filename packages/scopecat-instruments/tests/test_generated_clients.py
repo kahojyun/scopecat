@@ -152,10 +152,9 @@ def test_codegen_adds_keyword_convenience_for_one_flat_state_schema() -> None:
     assert "patch: CatalogProjectionPatch," in completed.stdout
     assert "enabled: bool = ...," in completed.stdout
     assert "state: CatalogProjectionTarget," in completed.stdout
-    assert "enabled: bool | ValueRef = ...," in completed.stdout
+    assert "enabled: Symbolic[bool] = ...," in completed.stdout
     assert (
-        "enabled: bool | ValueRef | PerEntity[bool | ValueRef] = ...,"
-        in completed.stdout
+        "enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = ...," in completed.stdout
     )
     assert "status: str = ...," not in completed.stdout
     assert "def state(self) -> CatalogProjectionState:" in completed.stdout
@@ -184,17 +183,17 @@ def test_codegen_renders_flat_dc_source_state_and_typed_transitions() -> None:
     assert "def source_current(" in live_client
     assert live_client.count("range: Quantity,") == 2
     assert live_client.count("level: Quantity,") == 2
-    assert completed.stdout.count("range: Quantity | ValueRef,") == 2
-    assert completed.stdout.count("level: Quantity | ValueRef,") == 2
+    assert completed.stdout.count("range: Symbolic[Quantity],") == 2
+    assert completed.stdout.count("level: Symbolic[Quantity],") == 2
     assert (
         completed.stdout.count(
-            "range: Quantity | ValueRef | PerEntity[Quantity | ValueRef],"
+            "range: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],"
         )
         == 2
     )
     assert (
         completed.stdout.count(
-            "level: Quantity | ValueRef | PerEntity[Quantity | ValueRef],"
+            "level: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],"
         )
         == 2
     )
@@ -243,10 +242,10 @@ def test_codegen_imports_literal_for_resolved_declared_annotations() -> None:
     assert completed.returncode == 0, completed.stderr
     assert "from typing import Literal" in completed.stdout
     assert 'mode: Literal["left", "right"],' in completed.stdout
-    assert 'mode: Literal["left", "right"] | ValueRef,' in completed.stdout
+    assert 'mode: Symbolic[Literal["left", "right"]],' in completed.stdout
     assert (
-        'mode: Literal["left", "right"] | ValueRef | '
-        'PerEntity[Literal["left", "right"] | ValueRef],'
+        'mode: Symbolic[Literal["left", "right"]] | '
+        'PerEntity[Symbolic[Literal["left", "right"]]],'
     ) in completed.stdout
 
 

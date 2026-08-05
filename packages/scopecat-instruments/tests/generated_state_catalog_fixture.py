@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from scopecat.authoring import PerEntity, ValueRef
+from scopecat.authoring import PerEntity, Symbolic
 from scopecat.sdk.instruments.declarations import (
     StateProjectionField,
     StateProjectionLayout,
@@ -45,12 +45,12 @@ class CatalogProjectionPatch:
 
 @instrument_state_projection(_CATALOG_PROJECTION_STATE_LAYOUT)
 class CatalogProjectionTarget:
-    enabled: bool | ValueRef = state_projection_field()
+    enabled: Symbolic[bool] = state_projection_field()
 
 
 @instrument_state_projection(_CATALOG_PROJECTION_STATE_LAYOUT)
 class CatalogProjectionGroupTarget:
-    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
+    enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = state_projection_field()
 
 
 _SHARED_STATE_FIRST_STATE_LAYOUT = StateProjectionLayout(
@@ -65,12 +65,12 @@ class SharedStateFirstPatch:
 
 @instrument_state_projection(_SHARED_STATE_FIRST_STATE_LAYOUT)
 class SharedStateFirstTarget:
-    enabled: bool | ValueRef = state_projection_field()
+    enabled: Symbolic[bool] = state_projection_field()
 
 
 @instrument_state_projection(_SHARED_STATE_FIRST_STATE_LAYOUT)
 class SharedStateFirstGroupTarget:
-    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
+    enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = state_projection_field()
 
 
 _SHARED_STATE_SECOND_STATE_LAYOUT = StateProjectionLayout(
@@ -85,12 +85,12 @@ class SharedStateSecondPatch:
 
 @instrument_state_projection(_SHARED_STATE_SECOND_STATE_LAYOUT)
 class SharedStateSecondTarget:
-    enabled: bool | ValueRef = state_projection_field()
+    enabled: Symbolic[bool] = state_projection_field()
 
 
 @instrument_state_projection(_SHARED_STATE_SECOND_STATE_LAYOUT)
 class SharedStateSecondGroupTarget:
-    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
+    enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = state_projection_field()
 
 
 _DRIVER_SOURCE_STATE_LAYOUT = StateProjectionLayout(
@@ -109,14 +109,14 @@ class DriverSourcePatch:
 
 @instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUT)
 class DriverSourceTarget:
-    enabled: bool | ValueRef = state_projection_field()
-    level: int | ValueRef = state_projection_field()
+    enabled: Symbolic[bool] = state_projection_field()
+    level: Symbolic[int] = state_projection_field()
 
 
 @instrument_state_projection(_DRIVER_SOURCE_STATE_LAYOUT)
 class DriverSourceGroupTarget:
-    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
-    level: int | ValueRef | PerEntity[int | ValueRef] = state_projection_field()
+    enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = state_projection_field()
+    level: Symbolic[int] | PerEntity[Symbolic[int]] = state_projection_field()
 
 
 _DRIVER_MONITOR_STATE_LAYOUT = StateProjectionLayout(
@@ -131,12 +131,12 @@ class DriverMonitorPatch:
 
 @instrument_state_projection(_DRIVER_MONITOR_STATE_LAYOUT)
 class DriverMonitorTarget:
-    enabled: bool | ValueRef = state_projection_field()
+    enabled: Symbolic[bool] = state_projection_field()
 
 
 @instrument_state_projection(_DRIVER_MONITOR_STATE_LAYOUT)
 class DriverMonitorGroupTarget:
-    enabled: bool | ValueRef | PerEntity[bool | ValueRef] = state_projection_field()
+    enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = state_projection_field()
 
 
 __all__ = [

@@ -137,8 +137,8 @@ uv run --locked python scripts/generate_instrument_clients.py --check
 Do not edit those modules or the package facade directly. Decorated interfaces
 and their generated clients are deliberately root-only. A live operation
 accepts concrete arguments and returns `InvokeReceipt`; the scalar symbolic form
-projects each concrete `T` argument to `T | ValueRef` and adds an `effect_id`.
-Its group form accepts a scalar or `PerEntity` value
+projects each concrete `T` argument to `Symbolic[T]` and adds an `effect_id`.
+Its group form accepts a symbolic scalar or `PerEntity` value
 independently for every argument, performs exact
 identity joins for all mappings before recording any effect, and then records
 one scalar invocation per entity. Mapping order is therefore irrelevant, while

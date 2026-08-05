@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from scopecat.authoring import PerEntity, ValueRef
+from scopecat.authoring import PerEntity, Symbolic
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
     StateProjectionField,
@@ -75,29 +75,26 @@ class RFOutputPatch:
 
 @instrument_state_projection(_RF_OUTPUT_STATE_LAYOUT)
 class RFOutputTarget:
-    frequency: Quantity | ValueRef = state_projection_field()
-    power: Quantity | ValueRef = state_projection_field()
-    output_enabled: bool | ValueRef = state_projection_field()
-    reference_source: Literal["internal", "external"] | ValueRef = (
+    frequency: Symbolic[Quantity] = state_projection_field()
+    power: Symbolic[Quantity] = state_projection_field()
+    output_enabled: Symbolic[bool] = state_projection_field()
+    reference_source: Symbolic[Literal["internal", "external"]] = (
         state_projection_field()
     )
 
 
 @instrument_state_projection(_RF_OUTPUT_STATE_LAYOUT)
 class RFOutputGroupTarget:
-    frequency: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
+    frequency: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
         state_projection_field()
     )
-    power: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
-        state_projection_field()
-    )
-    output_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = (
+    power: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = state_projection_field()
+    output_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = (
         state_projection_field()
     )
     reference_source: (
-        Literal["internal", "external"]
-        | ValueRef
-        | PerEntity[Literal["internal", "external"] | ValueRef]
+        Symbolic[Literal["internal", "external"]]
+        | PerEntity[Symbolic[Literal["internal", "external"]]]
     ) = state_projection_field()
 
 
@@ -119,20 +116,20 @@ class DCSourcePatch:
 
 @instrument_state_projection(_DC_SOURCE_STATE_LAYOUT)
 class DCSourceTarget:
-    voltage_protection: Quantity | ValueRef = state_projection_field()
-    current_protection: Quantity | ValueRef = state_projection_field()
-    output_enabled: bool | ValueRef = state_projection_field()
+    voltage_protection: Symbolic[Quantity] = state_projection_field()
+    current_protection: Symbolic[Quantity] = state_projection_field()
+    output_enabled: Symbolic[bool] = state_projection_field()
 
 
 @instrument_state_projection(_DC_SOURCE_STATE_LAYOUT)
 class DCSourceGroupTarget:
-    voltage_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
+    voltage_protection: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
         state_projection_field()
     )
-    current_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
+    current_protection: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
         state_projection_field()
     )
-    output_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = (
+    output_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = (
         state_projection_field()
     )
 
@@ -155,20 +152,20 @@ class DCMonitorPatch:
 
 @instrument_state_projection(_DC_MONITOR_STATE_LAYOUT)
 class DCMonitorTarget:
-    measurement_enabled: bool | ValueRef = state_projection_field()
-    integration_cycles: int | ValueRef = state_projection_field()
-    measurement_delay: Quantity | ValueRef = state_projection_field()
+    measurement_enabled: Symbolic[bool] = state_projection_field()
+    integration_cycles: Symbolic[int] = state_projection_field()
+    measurement_delay: Symbolic[Quantity] = state_projection_field()
 
 
 @instrument_state_projection(_DC_MONITOR_STATE_LAYOUT)
 class DCMonitorGroupTarget:
-    measurement_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = (
+    measurement_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = (
         state_projection_field()
     )
-    integration_cycles: int | ValueRef | PerEntity[int | ValueRef] = (
+    integration_cycles: Symbolic[int] | PerEntity[Symbolic[int]] = (
         state_projection_field()
     )
-    measurement_delay: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
+    measurement_delay: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
         state_projection_field()
     )
 
@@ -197,35 +194,34 @@ class NetworkSweepPatch:
 
 @instrument_state_projection(_NETWORK_SWEEP_STATE_LAYOUT)
 class NetworkSweepTarget:
-    start_frequency: Quantity | ValueRef = state_projection_field()
-    stop_frequency: Quantity | ValueRef = state_projection_field()
-    points: int | ValueRef = state_projection_field()
-    if_bandwidth: Quantity | ValueRef = state_projection_field()
-    source_power: Quantity | ValueRef = state_projection_field()
-    s_parameter: Literal["S11", "S21", "S12", "S22"] | ValueRef = (
+    start_frequency: Symbolic[Quantity] = state_projection_field()
+    stop_frequency: Symbolic[Quantity] = state_projection_field()
+    points: Symbolic[int] = state_projection_field()
+    if_bandwidth: Symbolic[Quantity] = state_projection_field()
+    source_power: Symbolic[Quantity] = state_projection_field()
+    s_parameter: Symbolic[Literal["S11", "S21", "S12", "S22"]] = (
         state_projection_field()
     )
 
 
 @instrument_state_projection(_NETWORK_SWEEP_STATE_LAYOUT)
 class NetworkSweepGroupTarget:
-    start_frequency: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
+    start_frequency: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
         state_projection_field()
     )
-    stop_frequency: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
+    stop_frequency: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
         state_projection_field()
     )
-    points: int | ValueRef | PerEntity[int | ValueRef] = state_projection_field()
-    if_bandwidth: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
+    points: Symbolic[int] | PerEntity[Symbolic[int]] = state_projection_field()
+    if_bandwidth: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
         state_projection_field()
     )
-    source_power: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = (
+    source_power: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
         state_projection_field()
     )
     s_parameter: (
-        Literal["S11", "S21", "S12", "S22"]
-        | ValueRef
-        | PerEntity[Literal["S11", "S21", "S12", "S22"] | ValueRef]
+        Symbolic[Literal["S11", "S21", "S12", "S22"]]
+        | PerEntity[Symbolic[Literal["S11", "S21", "S12", "S22"]]]
     ) = state_projection_field()
 
 

@@ -34,7 +34,7 @@ from scopecat_instruments.members import (
 def test_dc_source_target_accepts_fixed_and_scanned_values() -> None:
     current_protection = sc.coordinate(
         "current_protection",
-        sc.ScalarType(sc.QuantityType(unit="A")),
+        sc.QuantityType(unit="A"),
     )
     target = DCSourceTarget(
         voltage_protection=sc.Quantity(2.0, "V"),

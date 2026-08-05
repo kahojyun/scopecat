@@ -666,7 +666,7 @@ def _state_keyword_model(
     fields: list[_StateKeywordFieldModel] = []
     for field in writable_fields:
         concrete = renderer.render(field.annotation)
-        symbolic = f"{concrete} | ValueRef"
+        symbolic = _symbolic_annotation(concrete)
         fields.append(
             _StateKeywordFieldModel(
                 python_name=field.python_name,
@@ -681,6 +681,10 @@ def _state_keyword_model(
         group_target_type_name=names.group_target,
         fields=tuple(fields),
     )
+
+
+def _symbolic_annotation(concrete: str) -> str:
+    return f"Symbolic[{concrete}]"
 
 
 def _writable_state_fields(
@@ -1136,7 +1140,7 @@ def _render_states_module(
         imports.setdefault(module, set()).add(f"{name} as {name}")
 
     if state_layouts:
-        imports["scopecat.authoring"] = {"PerEntity", "ValueRef"}
+        imports["scopecat.authoring"] = {"PerEntity", "Symbolic"}
         imports["scopecat.sdk.instruments.declarations"] = {
             "StateProjectionField",
             "StateProjectionLayout",
@@ -2253,9 +2257,10 @@ def _render_state_projection(
         if projection == "live":
             annotation = concrete
         elif projection == "symbolic":
-            annotation = f"{concrete} | ValueRef"
+            annotation = _symbolic_annotation(concrete)
         elif projection == "group":
-            annotation = f"{concrete} | ValueRef | PerEntity[{concrete} | ValueRef]"
+            symbolic = _symbolic_annotation(concrete)
+            annotation = f"{symbolic} | PerEntity[{symbolic}]"
         else:
             raise AssertionError(f"unknown state projection {projection!r}")
         fields.append(
@@ -2851,7 +2856,7 @@ def _operation_model(
                 argument_id=argument.argument_id,
                 kind=argument.parameter.kind.name,
                 concrete_annotation=concrete_annotation,
-                symbolic_annotation=f"{concrete_annotation} | ValueRef",
+                symbolic_annotation=_symbolic_annotation(concrete_annotation),
             )
         )
     return _OperationModel(
@@ -2941,12 +2946,12 @@ def _render_header(
         )
     if has_keyword_state:
         imports.setdefault("typing", set()).update({"overload", "override"})
-        imports["scopecat.authoring"].update({"PerEntity", "ValueRef"})
+        imports["scopecat.authoring"].update({"PerEntity", "Symbolic"})
         imports.setdefault("scopecat.sdk.instruments", set()).add("ApplyReceipt")
     if has_operations or has_acquisitions:
         imports["scopecat.authoring"].add("PerEntity")
     if has_operations:
-        imports["scopecat.authoring"].add("ValueRef")
+        imports["scopecat.authoring"].add("Symbolic")
     if has_acquisitions:
         imports["dataclasses"] = {"dataclass", "field"}
         imports["scopecat.authoring"].update({"ProductBundle", "ProductRef"})

@@ -11,7 +11,7 @@ from scopecat.api._instruments import (
     InstrumentRef,
     OperationArgumentValue,
 )
-from scopecat.authoring import QuantityType, ScalarType, coordinate
+from scopecat.authoring import QuantityType, coordinate
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.kernel.value_types import Bool, Int, Scalar
@@ -394,7 +394,7 @@ def test_generated_rf_live_client_rejects_symbolic_state_before_io() -> None:
     )
     frequency = coordinate(
         "drive_frequency",
-        ScalarType(QuantityType(unit="GHz")),
+        QuantityType(unit="GHz"),
     )
 
     with pytest.raises(

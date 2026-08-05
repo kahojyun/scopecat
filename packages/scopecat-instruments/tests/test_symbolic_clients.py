@@ -11,7 +11,6 @@ from scopecat.authoring import (
     ModuleContext,
     PerEntity,
     ProductRef,
-    ScalarType,
     coordinate,
     each,
     experiment,
@@ -75,7 +74,7 @@ def _product_records(
 
 def test_factories_bind_typed_symbolic_clients_and_declare_resources() -> None:
     context = ModuleContext()
-    qubit = coordinate("qubit", ScalarType(EntityType(entity_kind="qubit")))
+    qubit = coordinate("qubit", EntityType(entity_kind="qubit"))
 
     source = dc_source(context, "flux", for_=one(qubit))
     rf = rf_output(context, "drive")
@@ -795,7 +794,7 @@ def test_network_sweep_declares_contract_products_and_ensured_points() -> None:
 
 def test_network_sweep_rejects_point_varying_output_shape() -> None:
     context = ModuleContext()
-    points = coordinate("points", ScalarType(IntType()))
+    points = coordinate("points", IntType())
     vna = network_sweep(context, "readout")
     vna.ensure(points=points)
 

@@ -14,7 +14,7 @@ from scopecat.authoring import (
     PerEntity,
     ProductBundle,
     ProductRef,
-    ValueRef,
+    Symbolic,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import MeasurementValue
@@ -507,10 +507,10 @@ class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputTarget]):
     def ensure(
         self,
         *,
-        frequency: Quantity | ValueRef = ...,
-        power: Quantity | ValueRef = ...,
-        output_enabled: bool | ValueRef = ...,
-        reference_source: Literal["internal", "external"] | ValueRef = ...,
+        frequency: Symbolic[Quantity] = ...,
+        power: Symbolic[Quantity] = ...,
+        output_enabled: Symbolic[bool] = ...,
+        reference_source: Symbolic[Literal["internal", "external"]] = ...,
     ) -> None: ...
 
     @override
@@ -557,13 +557,12 @@ class SymbolicRFOutputGroup(
     def ensure(
         self,
         *,
-        frequency: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
-        power: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
-        output_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = ...,
+        frequency: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        power: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        output_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = ...,
         reference_source: (
-            Literal["internal", "external"]
-            | ValueRef
-            | PerEntity[Literal["internal", "external"] | ValueRef]
+            Symbolic[Literal["internal", "external"]]
+            | PerEntity[Symbolic[Literal["internal", "external"]]]
         ) = ...,
     ) -> None: ...
 
@@ -684,9 +683,9 @@ class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[DCSourceTarget]):
     def ensure(
         self,
         *,
-        voltage_protection: Quantity | ValueRef = ...,
-        current_protection: Quantity | ValueRef = ...,
-        output_enabled: bool | ValueRef = ...,
+        voltage_protection: Symbolic[Quantity] = ...,
+        current_protection: Symbolic[Quantity] = ...,
+        output_enabled: Symbolic[bool] = ...,
     ) -> None: ...
 
     @override
@@ -704,8 +703,8 @@ class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[DCSourceTarget]):
     def source_voltage(
         self,
         *,
-        range: Quantity | ValueRef,
-        level: Quantity | ValueRef,
+        range: Symbolic[Quantity],
+        level: Symbolic[Quantity],
         effect_id: str | None = None,
     ) -> None:
         self._invoke(
@@ -720,8 +719,8 @@ class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[DCSourceTarget]):
     def source_current(
         self,
         *,
-        range: Quantity | ValueRef,
-        level: Quantity | ValueRef,
+        range: Symbolic[Quantity],
+        level: Symbolic[Quantity],
         effect_id: str | None = None,
     ) -> None:
         self._invoke(
@@ -765,9 +764,9 @@ class SymbolicDCSourceGroup(
     def ensure(
         self,
         *,
-        voltage_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
-        current_protection: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
-        output_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = ...,
+        voltage_protection: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        current_protection: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        output_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = ...,
     ) -> None: ...
 
     @override
@@ -785,8 +784,8 @@ class SymbolicDCSourceGroup(
     def source_voltage(
         self,
         *,
-        range: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
-        level: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        range: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
+        level: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
         effect_id: str | None = None,
     ) -> None:
         _range_by_entity = self._align(range)
@@ -801,8 +800,8 @@ class SymbolicDCSourceGroup(
     def source_current(
         self,
         *,
-        range: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
-        level: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        range: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
+        level: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
         effect_id: str | None = None,
     ) -> None:
         _range_by_entity = self._align(range)
@@ -933,9 +932,9 @@ class SymbolicDCMonitorClient(DeclaredStateSymbolicClientBase[DCMonitorTarget]):
     def ensure(
         self,
         *,
-        measurement_enabled: bool | ValueRef = ...,
-        integration_cycles: int | ValueRef = ...,
-        measurement_delay: Quantity | ValueRef = ...,
+        measurement_enabled: Symbolic[bool] = ...,
+        integration_cycles: Symbolic[int] = ...,
+        measurement_delay: Symbolic[Quantity] = ...,
     ) -> None: ...
 
     @override
@@ -1004,9 +1003,9 @@ class SymbolicDCMonitorGroup(
     def ensure(
         self,
         *,
-        measurement_enabled: bool | ValueRef | PerEntity[bool | ValueRef] = ...,
-        integration_cycles: int | ValueRef | PerEntity[int | ValueRef] = ...,
-        measurement_delay: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
+        measurement_enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = ...,
+        integration_cycles: Symbolic[int] | PerEntity[Symbolic[int]] = ...,
+        measurement_delay: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
     ) -> None: ...
 
     @override
@@ -1141,8 +1140,8 @@ class SymbolicDCSourceMonitorClient(
     def source_voltage(
         self,
         *,
-        range: Quantity | ValueRef,
-        level: Quantity | ValueRef,
+        range: Symbolic[Quantity],
+        level: Symbolic[Quantity],
         effect_id: str | None = None,
     ) -> None:
         self._invoke(
@@ -1157,8 +1156,8 @@ class SymbolicDCSourceMonitorClient(
     def source_current(
         self,
         *,
-        range: Quantity | ValueRef,
-        level: Quantity | ValueRef,
+        range: Symbolic[Quantity],
+        level: Symbolic[Quantity],
         effect_id: str | None = None,
     ) -> None:
         self._invoke(
@@ -1219,8 +1218,8 @@ class SymbolicDCSourceMonitorGroup(
     def source_voltage(
         self,
         *,
-        range: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
-        level: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        range: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
+        level: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
         effect_id: str | None = None,
     ) -> None:
         _range_by_entity = self._align(range)
@@ -1235,8 +1234,8 @@ class SymbolicDCSourceMonitorGroup(
     def source_current(
         self,
         *,
-        range: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
-        level: Quantity | ValueRef | PerEntity[Quantity | ValueRef],
+        range: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
+        level: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]],
         effect_id: str | None = None,
     ) -> None:
         _range_by_entity = self._align(range)
@@ -1365,12 +1364,12 @@ class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepTar
     def ensure(
         self,
         *,
-        start_frequency: Quantity | ValueRef = ...,
-        stop_frequency: Quantity | ValueRef = ...,
-        points: int | ValueRef = ...,
-        if_bandwidth: Quantity | ValueRef = ...,
-        source_power: Quantity | ValueRef = ...,
-        s_parameter: Literal["S11", "S21", "S12", "S22"] | ValueRef = ...,
+        start_frequency: Symbolic[Quantity] = ...,
+        stop_frequency: Symbolic[Quantity] = ...,
+        points: Symbolic[int] = ...,
+        if_bandwidth: Symbolic[Quantity] = ...,
+        source_power: Symbolic[Quantity] = ...,
+        s_parameter: Symbolic[Literal["S11", "S21", "S12", "S22"]] = ...,
     ) -> None: ...
 
     @override
@@ -1428,15 +1427,14 @@ class SymbolicNetworkSweepGroup(
     def ensure(
         self,
         *,
-        start_frequency: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
-        stop_frequency: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
-        points: int | ValueRef | PerEntity[int | ValueRef] = ...,
-        if_bandwidth: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
-        source_power: Quantity | ValueRef | PerEntity[Quantity | ValueRef] = ...,
+        start_frequency: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        stop_frequency: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        points: Symbolic[int] | PerEntity[Symbolic[int]] = ...,
+        if_bandwidth: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        source_power: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
         s_parameter: (
-            Literal["S11", "S21", "S12", "S22"]
-            | ValueRef
-            | PerEntity[Literal["S11", "S21", "S12", "S22"] | ValueRef]
+            Symbolic[Literal["S11", "S21", "S12", "S22"]]
+            | PerEntity[Symbolic[Literal["S11", "S21", "S12", "S22"]]]
         ) = ...,
     ) -> None: ...
 
