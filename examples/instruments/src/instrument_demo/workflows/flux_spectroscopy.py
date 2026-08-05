@@ -10,9 +10,6 @@ from scopecat_instruments import (
     temperature_readout,
 )
 
-FLUX_SPECTROSCOPY_ID = "instrument_demo.flux_spectroscopy"
-FLUX_SPECTROSCOPY_KIND = "resonator-flux-spectroscopy"
-
 FLUX_SOURCE_RESOURCE = "flux-source"
 TEMPERATURE_RESOURCE = "mixing-chamber"
 VNA_RESOURCE = "readout-vna"
@@ -33,10 +30,7 @@ DC_BIAS = sc.coordinate(
 )
 
 
-@sc.experiment(
-    id=FLUX_SPECTROSCOPY_ID,
-    kind=FLUX_SPECTROSCOPY_KIND,
-)
+@sc.experiment
 def flux_spectroscopy(experiment: sc.ExperimentContext) -> None:
     """Scan DC bias and persist one VNA trace plus temperature per point."""
 
@@ -53,16 +47,14 @@ def flux_spectroscopy(experiment: sc.ExperimentContext) -> None:
     readout = network_sweep(experiment, VNA_RESOURCE)
 
     flux_source.ensure(
-        DCSourceTarget(
-            current_protection=sc.Quantity(100.0, "uA"),
-            output_enabled=False,
-        )
+        current_protection=sc.Quantity(100.0, "uA"),
+        output_enabled=False,
     )
     flux_source.source_voltage(
         range=sc.Quantity(1.0, "V"),
         level=DC_BIAS,
     )
-    flux_source.ensure(DCSourceTarget(output_enabled=True))
+    flux_source.ensure(output_enabled=True)
     readout.ensure(
         start_frequency=SWEEP_START,
         stop_frequency=SWEEP_STOP,
@@ -83,8 +75,6 @@ __all__ = [
     "BIAS_START",
     "BIAS_STOP",
     "DC_BIAS",
-    "FLUX_SPECTROSCOPY_ID",
-    "FLUX_SPECTROSCOPY_KIND",
     "FREQUENCY_RECORD_ID",
     "S_PARAMETER_RECORD_ID",
     "TEMPERATURE_RECORD_ID",
