@@ -50,6 +50,7 @@ from scopecat.authoring.state_projection import (
     StateProjector,
     StateTarget,
 )
+from scopecat.measurements.references import RecordRef
 from scopecat.program.products import (
     ProductRef,
     ProductValueSpec,
@@ -135,6 +136,7 @@ __all__ = [
     "ProductRef",
     "ProductValueSpec",
     "QuantityType",
+    "RecordRef",
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",

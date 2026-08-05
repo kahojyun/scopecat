@@ -21,17 +21,26 @@ import numpy as np
 import pyarrow as pa
 import xarray as xr
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_types import Bool, Entity, Float, Int, Scalar, String
+from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.arrow_values import measurement_values_to_arrow_array
+from scopecat.measurements.references import RecordRef
 from scopecat.measurements.traces import Trace, measurement_traces
+from scopecat.measurements.value_spec import (
+    MeasurementArrayData,
+    MeasurementDType,
+    NativeMeasurementScalar,
+    NativeMeasurementValue,
+)
+from scopecat.program.value_refs import ValueRef, internal_value_ref_point_id
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
-    MeasurementArrayData,
     MeasurementDataset,
     MeasurementDatasetSchema,
-    MeasurementDType,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
@@ -44,8 +53,9 @@ from scopecat.records.measurement import (
 if TYPE_CHECKING:
     import pandas as pd  # pyright: ignore[reportMissingImports]
 
-type NativeScalar = bool | int | float | complex | str
-type NativeValue = NativeScalar | MeasurementArrayData | None
+type NativeScalar = NativeMeasurementScalar
+type NativeAvailableValue = NativeMeasurementValue
+type NativeValue = NativeAvailableValue | None
 type GroupKey = NativeScalar | None
 type DimensionIndexer = int | slice | Sequence[int] | Sequence[bool]
 type PointIndexer = DimensionIndexer
@@ -164,7 +174,7 @@ class PointMask(Sequence[bool]):
             raise ValueError("cannot combine point masks from different dataset views")
 
 
-class Variable:
+class Variable[T = NativeAvailableValue]:
     """One labeled coordinate or observable aligned to a :class:`Dataset`."""
 
     __slots__ = ("_dataset", "_definition")
@@ -235,10 +245,67 @@ class Variable:
         )
 
     @property
-    def values(self) -> tuple[NativeValue, ...]:
+    def values(self) -> tuple[T | None, ...]:
         """Return native scalars or read-only ndarrays; unavailable points are None."""
 
-        return tuple(_native_value(value) for value in self._raw_values)
+        return cast(
+            "tuple[T | None, ...]",
+            tuple(_native_value(value) for value in self._raw_values),
+        )
+
+    def require_values(self) -> tuple[T, ...]:
+        """Return available values, rejecting incomplete measurement rows."""
+
+        values = self.values
+        unavailable = tuple(
+            index for index, value in enumerate(values) if value is None
+        )
+        if unavailable:
+            rendered = ", ".join(str(index) for index in unavailable)
+            raise ValueError(
+                f"variable {self.id!r} is unavailable at row positions: {rendered}"
+            )
+        return cast("tuple[T, ...]", values)
+
+    def quantities(
+        self,
+        unit: str | None = None,
+    ) -> tuple[Quantity | None, ...]:
+        """Return point-scalar numeric values with their declared unit."""
+
+        self.require_point_scalar()
+        source_unit = self.unit
+        if source_unit is None or self.dtype not in {"float64", "int64"}:
+            raise TypeError(f"variable {self.id!r} must be numeric and unit-bearing")
+        selected_unit = source_unit if unit is None else unit
+        selected: list[Quantity | None] = []
+        for value in self.values:
+            if value is None:
+                selected.append(None)
+                continue
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise TypeError(
+                    f"variable {self.id!r} contains a non-numeric scalar value"
+                )
+            selected.append(Quantity(float(value), source_unit).to(selected_unit))
+        return tuple(selected)
+
+    def require_quantities(
+        self,
+        unit: str | None = None,
+    ) -> tuple[Quantity, ...]:
+        """Return complete point-scalar quantities in the requested unit."""
+
+        values = self.quantities(unit)
+        unavailable = tuple(
+            index for index, value in enumerate(values) if value is None
+        )
+        if unavailable:
+            rendered = ", ".join(str(index) for index in unavailable)
+            raise ValueError(
+                f"variable {self.id!r} is unavailable at row positions: {rendered}"
+            )
+        return cast("tuple[Quantity, ...]", values)
 
     @property
     def availability(
@@ -278,7 +345,16 @@ class Variable:
             selected = availability == reason
         return PointMask(self._dataset, selected)
 
-    def __getitem__(self, index: int | slice) -> NativeValue | tuple[NativeValue, ...]:
+    @overload
+    def __getitem__(self, index: int) -> T | None: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[T | None, ...]: ...
+
+    def __getitem__(
+        self,
+        index: int | slice,
+    ) -> T | None | tuple[T | None, ...]:
         return self.values[index]
 
     def __lt__(self, other: object) -> PointMask:
@@ -355,7 +431,10 @@ class Dataset:
     _raw: MeasurementDataset
     _entry: RunContentEntry
     _view_dimensions: Mapping[str, int | None] = field(init=False, repr=False)
-    _variables: Mapping[str, Variable] = field(init=False, repr=False)
+    _variables: Mapping[str, Variable[NativeAvailableValue]] = field(
+        init=False,
+        repr=False,
+    )
     _xarray: xr.Dataset = field(init=False, repr=False)
 
     def __init__(
@@ -455,11 +534,11 @@ class Dataset:
         return self._view_dimensions
 
     @property
-    def variables(self) -> Mapping[str, Variable]:
+    def variables(self) -> Mapping[str, Variable[NativeAvailableValue]]:
         return self._variables
 
     @property
-    def coords(self) -> Mapping[str, Variable]:
+    def coords(self) -> Mapping[str, Variable[NativeAvailableValue]]:
         return MappingProxyType(
             {
                 variable_id: variable
@@ -469,7 +548,7 @@ class Dataset:
         )
 
     @property
-    def data_vars(self) -> Mapping[str, Variable]:
+    def data_vars(self) -> Mapping[str, Variable[NativeAvailableValue]]:
         return MappingProxyType(
             {
                 variable_id: variable
@@ -478,13 +557,67 @@ class Dataset:
             }
         )
 
-    def __getitem__(self, variable_id: str) -> Variable:
+    @overload
+    def __getitem__[T](self, variable_id: RecordRef[T]) -> Variable[T]: ...
+
+    @overload
+    def __getitem__(self, variable_id: ValueRef[Quantity]) -> Variable[float]: ...
+
+    @overload
+    def __getitem__(self, variable_id: ValueRef[EntityRef]) -> Variable[str]: ...
+
+    @overload
+    def __getitem__[T: bool | int | float | str](
+        self,
+        variable_id: ValueRef[T],
+    ) -> Variable[T]: ...
+
+    @overload
+    def __getitem__(
+        self,
+        variable_id: ValueRef[object],
+    ) -> Variable[NativeAvailableValue]: ...
+
+    @overload
+    def __getitem__(self, variable_id: str) -> Variable[NativeAvailableValue]: ...
+
+    def __getitem__(
+        self,
+        variable_id: str | RecordRef[object] | ValueRef[object],
+    ) -> Variable[object]:
+        if isinstance(variable_id, ValueRef):
+            return self._variable_from_point_ref(variable_id)
+        if not isinstance(variable_id, str):
+            return self._variable_from_record_ref(variable_id)
         try:
             return self.variables[variable_id]
         except KeyError as error:
             raise KeyError(
                 f"measurement dataset has no variable {variable_id!r}"
             ) from error
+
+    def _variable_from_record_ref[T](self, ref: RecordRef[T]) -> Variable[T]:
+        try:
+            variable = self.variables[ref.id]
+        except KeyError as error:
+            raise KeyError(f"measurement dataset has no variable {ref.id!r}") from error
+        _require_record_ref_matches(ref, variable.definition)
+        return cast("Variable[T]", variable)
+
+    def _variable_from_point_ref(self, ref: ValueRef[object]) -> Variable[object]:
+        point_id = internal_value_ref_point_id(ref)
+        if point_id is None:
+            raise TypeError(
+                "dataset value handles must be direct experiment point coordinates"
+            )
+        try:
+            variable = self.variables[point_id]
+        except KeyError as error:
+            raise KeyError(
+                f"measurement dataset has no variable {point_id!r}"
+            ) from error
+        _require_point_ref_matches(ref, variable.definition)
+        return cast("Variable[object]", variable)
 
     def __len__(self) -> int:
         return len(self._records)
@@ -1301,6 +1434,106 @@ def _native_value(value: MeasurementValue) -> NativeValue:
     return value.values
 
 
+def _require_record_ref_matches(
+    ref: RecordRef[object],
+    definition: MeasurementVariable,
+) -> None:
+    """Validate an authored type promise at the durable-data boundary."""
+
+    expected = {
+        "id": ref.id,
+        "role": ref.role,
+        "dtype": ref.dtype,
+        "unit": ref.unit,
+        "dims": ref.dims,
+        "source_product_id": ref.source_product_id,
+        "source_value_id": ref.source_value_id,
+        "recording_group_id": ref.recording_group_id,
+    }
+    actual = {
+        "id": definition.id,
+        "role": definition.role,
+        "dtype": definition.dtype,
+        "unit": definition.unit,
+        "dims": tuple(definition.dims),
+        "source_product_id": definition.source_product_id,
+        "source_value_id": definition.source_value_id,
+        "recording_group_id": definition.recording_group_id,
+    }
+    mismatches = tuple(
+        name for name, value in expected.items() if actual[name] != value
+    )
+    if not mismatches:
+        return
+    rendered = ", ".join(
+        f"{name}={actual[name]!r} (expected {expected[name]!r})" for name in mismatches
+    )
+    raise TypeError(
+        f"record reference {ref.id!r} does not match the dataset schema: {rendered}"
+    )
+
+
+def _require_point_ref_matches(
+    ref: ValueRef[object],
+    definition: MeasurementVariable,
+) -> None:
+    point_id = internal_value_ref_point_id(ref)
+    if point_id is None:
+        raise TypeError("dataset value handles must be direct point coordinates")
+    dtype, unit = _point_ref_value_spec(ref)
+    expected = {
+        "id": point_id,
+        "role": "coordinate",
+        "dtype": dtype,
+        "unit": unit,
+        "dims": ("point",),
+        "source_product_id": None,
+        "source_value_id": None,
+        "recording_group_id": None,
+    }
+    actual = {
+        "id": definition.id,
+        "role": definition.role,
+        "dtype": definition.dtype,
+        "unit": definition.unit,
+        "dims": tuple(definition.dims),
+        "source_product_id": definition.source_product_id,
+        "source_value_id": definition.source_value_id,
+        "recording_group_id": definition.recording_group_id,
+    }
+    mismatches = tuple(
+        name for name, value in expected.items() if actual[name] != value
+    )
+    if not mismatches:
+        return
+    rendered = ", ".join(
+        f"{name}={actual[name]!r} (expected {expected[name]!r})" for name in mismatches
+    )
+    raise TypeError(
+        f"point coordinate {point_id!r} does not match the dataset schema: {rendered}"
+    )
+
+
+def _point_ref_value_spec(
+    ref: ValueRef[object],
+) -> tuple[MeasurementDType, str | None]:
+    value_type = ref.value_type
+    if not isinstance(value_type, Scalar):
+        raise TypeError("dataset point coordinate handles must be scalar")
+    atom = value_type.atom
+    if isinstance(atom, Bool):
+        return "bool", None
+    if isinstance(atom, Int):
+        return "int64", None
+    if isinstance(atom, Float):
+        return "float64", None
+    if isinstance(atom, QuantityType):
+        return "float64", atom.unit
+    if isinstance(atom, String | Entity):
+        return "string", None
+    raise TypeError("opaque payload coordinates are not dataset variables")
+
+
 def _native_leaf(value: object) -> object:
     if isinstance(value, np.generic):
         return value.item()
@@ -1574,7 +1807,7 @@ def _normalize_index(index: int, *, size: int, label: str) -> int:
     return selected
 
 
-def _selection_value(value: object, variable: Variable) -> object:
+def _selection_value(value: object, variable: Variable[object]) -> object:
     if isinstance(value, Quantity):
         if variable.unit is None:
             raise ValueError(
@@ -1597,7 +1830,7 @@ def _selection_value(value: object, variable: Variable) -> object:
 
 def _selection_tolerance(
     tolerance: float | Quantity | None,
-    variable: Variable,
+    variable: Variable[object],
 ) -> float | None:
     if tolerance is None:
         return None
@@ -1932,4 +2165,4 @@ def _optional_module(name: str) -> object:
         ) from error
 
 
-__all__ = ["Dataset", "PointMask", "Variable"]
+__all__ = ["Dataset", "NativeAvailableValue", "PointMask", "Variable"]

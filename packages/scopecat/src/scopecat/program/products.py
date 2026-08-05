@@ -17,13 +17,18 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar
-from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
+from scopecat.measurements.references import RecordRef
+from scopecat.measurements.value_spec import (
+    MeasurementDType,
+    MeasurementVariableRole,
+    NativeMeasurementScalar,
+    NativeMeasurementValue,
+)
 from scopecat.program.input_capture import capture_runtime_input, empty_program_mapping
 from scopecat.program.value_refs import (
     ValueRef,
 )
 from scopecat.program.values import MetadataValue
-from scopecat.records.measurement import MeasurementArrayData
 
 # ProductRef provenance is private to the recorder implementation in this module.
 # pyright: reportPrivateUsage=false
@@ -32,8 +37,8 @@ type AxisSizeInput = (
     ValueRef | Quantity | int | float | tuple[EntityRef | str, ...] | None
 )
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
-type ProductNativeScalar = bool | int | float | complex | str
-type ProductNativeValue = ProductNativeScalar | MeasurementArrayData
+type ProductNativeScalar = NativeMeasurementScalar
+type ProductNativeValue = NativeMeasurementValue
 _ProductT_co = TypeVar(
     "_ProductT_co",
     covariant=True,
@@ -214,6 +219,32 @@ class ProductRef(Generic[_ProductT_co]):
         return "observable" if self._recording is None else self._recording.role
 
 
+def record_ref_from_product[ValueT](
+    product: ProductRef[ValueT],
+    selection: RecordSelection,
+) -> RecordRef[ValueT]:
+    """Project one authored product selection into its typed dataset handle."""
+
+    record_id = selection.record_id
+    if record_id is None:
+        raise AssertionError("product record selections require a resolved id")
+    return RecordRef(
+        variable_id=record_id,
+        dtype=product.value_spec.dtype,
+        unit=product.value_spec.unit,
+        dims=(
+            "point",
+            *(
+                _product_axis_dimension_id(product.product_id, axis)
+                for axis in product.value_spec.axes
+            ),
+        ),
+        role=selection.role,
+        source_product_id=product.id,
+        recording_group_id=selection.recording_group_id,
+    )
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class ProductRefs(Mapping[str, ProductRef]):
     """Read-only attribute and mapping view of occurrence-owned products."""
@@ -345,13 +376,21 @@ def product_axis_dimension_id(
 ) -> str:
     """Keep product-owned and explicitly shared dimensions disjoint."""
 
+    return _product_axis_dimension_id(product.product_id, axis)
+
+
+def _product_axis_dimension_id(
+    product_id: ProductId,
+    axis: ProductAxis,
+) -> str:
+
     if axis.shared_as is not None:
         return SymbolId(
-            scope=("shared", *product.scope),
+            scope=("shared", *product_id.scope),
             local_id=axis.shared_as,
         ).qualified_name
     return SymbolId(
-        scope=("product", *product.scope, product.id),
+        scope=("product", *product_id.scope, product_id.local_id),
         local_id=axis.id,
     ).qualified_name
 

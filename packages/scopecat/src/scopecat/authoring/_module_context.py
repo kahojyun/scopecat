@@ -30,7 +30,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.value_types import Payload
 from scopecat.measurements.postprocessor_contract import MeasurementPostprocessorKernel
-from scopecat.measurements.results import MeasurementDType
+from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.program.bindings import (
     BindingIntent,
     EnsureStateIntent,

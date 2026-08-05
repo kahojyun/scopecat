@@ -28,6 +28,7 @@ from scopecat.measurements.records import (
     plan_value_records,
     validate_record_plan,
 )
+from scopecat.measurements.value_spec import MeasurementVariableRole
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCatalog,
@@ -37,7 +38,6 @@ from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementRecord,
     MeasurementValue,
-    MeasurementVariableRole,
 )
 
 

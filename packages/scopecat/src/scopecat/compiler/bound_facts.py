@@ -33,7 +33,7 @@ from scopecat.measurements.products import (
     ProductDef,
 )
 from scopecat.measurements.records import BoundRecordUse, RecordUse, ValueRecordUse
-from scopecat.measurements.results import MeasurementVariableRole
+from scopecat.measurements.value_spec import MeasurementVariableRole
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
     MeasurementPostprocessorId,

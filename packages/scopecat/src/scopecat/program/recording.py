@@ -9,7 +9,7 @@ from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.value_types import Scalar
-from scopecat.measurements.results import MeasurementVariableRole
+from scopecat.measurements.value_spec import MeasurementVariableRole
 from scopecat.program.input_capture import empty_program_mapping
 from scopecat.program.products import RecordSelection
 from scopecat.program.value_refs import ValueRef

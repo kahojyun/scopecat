@@ -45,7 +45,7 @@ from scopecat.measurements.products import (
     ProductDef,
 )
 from scopecat.measurements.records import BoundRecordUse
-from scopecat.measurements.results import MeasurementDType
+from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,

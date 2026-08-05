@@ -6,7 +6,8 @@ import pytest
 
 import scopecat as sc
 from scopecat.kernel.errors import ProviderContractError
-from scopecat.measurements.results import MeasurementDType, MeasurementScalar
+from scopecat.measurements.results import MeasurementScalar
+from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,

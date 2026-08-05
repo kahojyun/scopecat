@@ -39,13 +39,15 @@ from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.results import (
     MeasurementDatasetSchema,
     MeasurementDimension,
-    MeasurementDType,
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
     MeasurementProductGridPointDomain,
     MeasurementScalar,
     MeasurementVariable,
+)
+from scopecat.measurements.value_spec import (
+    MeasurementDType,
     MeasurementVariableRole,
 )
 

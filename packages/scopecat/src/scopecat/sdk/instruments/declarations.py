@@ -42,7 +42,10 @@ from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_types import String as StringType
-from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
+from scopecat.measurements.value_spec import (
+    MeasurementDType,
+    MeasurementVariableRole,
+)
 from scopecat.program.state import StateBinding
 from scopecat.sdk.instruments.contracts import (
     AcquisitionAxisSpec,

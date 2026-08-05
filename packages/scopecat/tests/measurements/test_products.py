@@ -28,7 +28,7 @@ from scopecat.measurements.records import (
     RecordUse,
     validate_record_plan,
 )
-from scopecat.measurements.results import MeasurementDType
+from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.program.logical import AcquireEffect
 from scopecat.records.config import RoutingGraph
 from tests.testkit.authoring import load_config

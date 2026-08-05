@@ -63,7 +63,7 @@ from scopecat.kernel.instrument_members import (
 from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.measurements.postprocessor_contract import MeasurementPostprocessorKernel
-from scopecat.measurements.results import MeasurementDType
+from scopecat.measurements.value_spec import MeasurementDType
 from scopecat.program.bindings import BindingIntent
 from scopecat.program.definitions import (
     ExperimentDef,

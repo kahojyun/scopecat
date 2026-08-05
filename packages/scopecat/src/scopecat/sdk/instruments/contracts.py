@@ -43,7 +43,10 @@ from scopecat.kernel.value_validation import (
 from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
 )
-from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
+from scopecat.measurements.value_spec import (
+    MeasurementDType,
+    MeasurementVariableRole,
+)
 from scopecat.records.instrument import (
     InstrumentPropertyState as _InstrumentPropertyState,
 )

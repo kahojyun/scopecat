@@ -15,7 +15,10 @@ from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.kernel.value_types import ValueType
 from scopecat.kernel.value_validation import coerce_literal
-from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
+from scopecat.measurements.value_spec import (
+    MeasurementDType,
+    MeasurementVariableRole,
+)
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments import (
     AcquisitionRef,

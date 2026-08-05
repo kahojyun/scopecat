@@ -18,6 +18,7 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
+from scopecat.measurements.value_spec import MeasurementArrayData
 from scopecat.program.identities import InvocationKey
 from scopecat.program.module import ModuleInstanceLookup, ModuleProductExport
 from scopecat.program.products import (
@@ -27,8 +28,9 @@ from scopecat.program.products import (
     RecordSelection,
     product_axis,
     product_axis_dimension_id,
+    record_product,
+    record_ref_from_product,
 )
-from scopecat.records.measurement import MeasurementArrayData
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
 
@@ -78,6 +80,33 @@ def test_typed_product_schema_survives_export_projection() -> None:
     assert export.value_spec == expected
     assert projected.value_spec == expected
     assert projected_ref.value_spec == expected
+
+
+def test_product_record_handle_preserves_schema_identity_and_group() -> None:
+    axis = product_axis("sample", size=4, kind="sample", unit="s")
+    declaration: ModuleProductDecl[MeasurementArrayData] = ModuleProductDecl(
+        "trace",
+        scope=("capture",),
+        unit="V",
+        dtype="complex128",
+        axes=(axis,),
+    )
+    product = ProductRef.from_declaration(declaration)
+    selection = record_product(
+        product,
+        record_id="calibration/trace",
+        recording_group_id="calibration/readout",
+    )
+
+    record = record_ref_from_product(product, selection)
+
+    assert_type(record, sc.RecordRef[MeasurementArrayData])
+    assert record.id == "calibration/trace"
+    assert record.dtype == "complex128"
+    assert record.unit == "V"
+    assert record.dims == ("point", "product/capture/trace/sample")
+    assert record.source_product_id == "capture/trace"
+    assert record.recording_group_id == "calibration/readout"
 
 
 def test_product_schema_survives_module_definition_and_nested_invocation() -> None:
