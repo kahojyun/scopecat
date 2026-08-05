@@ -11,6 +11,7 @@ from scopecat.authoring import (
     ModuleContext,
     PerEntity,
     ProductRef,
+    RecordRef,
     coordinate,
     each,
     experiment,
@@ -28,12 +29,14 @@ from scopecat.program.recording import ProgramRecordSelection
 
 from scopecat_instruments import (
     DCMonitorCurrentProducts,
+    DCMonitorCurrentRecords,
     DCMonitorGroupTarget,
     DCMonitorTarget,
     DCMonitorVoltageProducts,
     DCSourceGroupTarget,
     DCSourceTarget,
     NetworkSweepProducts,
+    NetworkSweepRecords,
     NetworkSweepTarget,
     RFOutputGroupTarget,
     RFOutputTarget,
@@ -48,6 +51,7 @@ from scopecat_instruments import (
     SymbolicTemperatureReadoutClient,
     SymbolicTemperatureReadoutGroup,
     TemperatureSampleProducts,
+    TemperatureSampleRecords,
     dc_source,
     dc_source_monitor,
     network_sweep,
@@ -422,7 +426,9 @@ def test_typed_result_members_keep_their_declared_recording_roles() -> None:
     vna.ensure(points=11)
 
     trace = vna.sweep()
-    context.record(trace.frequency, trace.s_parameter)
+    records = assert_type(context.record(trace), NetworkSweepRecords)
+    assert_type(records.frequency, RecordRef[MeasurementArrayData])
+    assert_type(records.s_parameter, RecordRef[MeasurementArrayData])
 
     definition = context.close_definition_internal(
         id="test.symbolic.record-members",
@@ -857,3 +863,22 @@ def test_temperature_sample_declares_all_contract_products() -> None:
         sample.temperature,
         sample.resistance,
     ]
+
+
+def test_generated_product_bundles_record_to_their_typed_companions() -> None:
+    context = ExperimentContext()
+    vna = network_sweep(context, "vna")
+    vna.ensure(points=2)
+
+    current = context.record(dc_source_monitor(context, "source").measure_current())
+    trace = context.record(vna.sweep())
+    temperature = context.record(temperature_readout(context, "thermometer").sample())
+
+    assert_type(current, DCMonitorCurrentRecords)
+    assert_type(current.current, RecordRef[float])
+    assert_type(trace, NetworkSweepRecords)
+    assert_type(trace.frequency, RecordRef[MeasurementArrayData])
+    assert_type(trace.s_parameter, RecordRef[MeasurementArrayData])
+    assert_type(temperature, TemperatureSampleRecords)
+    assert_type(temperature.temperature, RecordRef[float])
+    assert_type(temperature.resistance, RecordRef[float])

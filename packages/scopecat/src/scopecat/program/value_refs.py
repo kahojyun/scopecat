@@ -275,6 +275,8 @@ def internal_module_export_value_ref(
     invocation_key: InvocationKey,
     export_id: str,
     value_type: ValueType,
+    *,
+    record_id: str | None = None,
 ) -> ValueRef:
     """Create an unresolved use of one invocation's exported value.
 
@@ -287,6 +289,7 @@ def internal_module_export_value_ref(
         source: _ValueSource = ModuleExportScalarExpr(
             invocation_key=invocation_key,
             export_id=export_id,
+            record_id=record_id,
             value_type=value_type,
         )
     else:
@@ -345,6 +348,8 @@ def internal_value_ref_record_id(value: ValueRef) -> str | None:
             scope=(source.use.table_id,),
             local_id=source.use.column_id,
         ).qualified_name
+    if isinstance(source, ModuleExportScalarExpr):
+        return source.record_id
     return None
 
 

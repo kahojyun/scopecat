@@ -109,6 +109,10 @@ def test_typed_record_lookup_validates_schema_and_narrows_values() -> None:
         Quantity(2000.0, "mV"),
     )
     assert signal[0] is signal.values[0]
+    traces = dataset.traces(signal_ref)
+    assert len(traces) == 3
+    assert traces[0].coordinate_id == "frequency"
+    assert traces[0].observable_id == "signal"
 
 
 def test_direct_point_handle_narrows_a_dataset_coordinate() -> None:
@@ -1156,6 +1160,10 @@ def _dataset_with_record_sources() -> Dataset:
     dataset = _dataset()
     source_fields = {
         "bias": {"source_value_id": "bias"},
+        "frequency": {
+            "source_product_id": "readout/frequency",
+            "recording_group_id": "readout",
+        },
         "temperature": {"source_product_id": "thermometer/temperature"},
         "signal": {"source_product_id": "readout/signal"},
     }

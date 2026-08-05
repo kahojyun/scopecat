@@ -24,8 +24,7 @@ import xarray as xr
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_types import Bool, Entity, Float, Int, Scalar, String
-from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.arrow_values import measurement_values_to_arrow_array
 from scopecat.measurements.references import RecordRef
 from scopecat.measurements.traces import Trace, measurement_traces
@@ -34,6 +33,7 @@ from scopecat.measurements.value_spec import (
     MeasurementDType,
     NativeMeasurementScalar,
     NativeMeasurementValue,
+    measurement_value_spec_from_scalar,
 )
 from scopecat.program.value_refs import ValueRef, internal_value_ref_point_id
 from scopecat.records.artifact import RunContentEntry
@@ -558,7 +558,10 @@ class Dataset:
         )
 
     @overload
-    def __getitem__[T](self, variable_id: RecordRef[T]) -> Variable[T]: ...
+    def __getitem__[T: NativeAvailableValue](
+        self,
+        variable_id: RecordRef[T],
+    ) -> Variable[T]: ...
 
     @overload
     def __getitem__(self, variable_id: ValueRef[Quantity]) -> Variable[float]: ...
@@ -583,7 +586,7 @@ class Dataset:
 
     def __getitem__(
         self,
-        variable_id: str | RecordRef[object] | ValueRef[object],
+        variable_id: str | RecordRef[NativeAvailableValue] | ValueRef[object],
     ) -> Variable[object]:
         if isinstance(variable_id, ValueRef):
             return self._variable_from_point_ref(variable_id)
@@ -596,7 +599,10 @@ class Dataset:
                 f"measurement dataset has no variable {variable_id!r}"
             ) from error
 
-    def _variable_from_record_ref[T](self, ref: RecordRef[T]) -> Variable[T]:
+    def _variable_from_record_ref[T: NativeAvailableValue](
+        self,
+        ref: RecordRef[T],
+    ) -> Variable[T]:
         try:
             variable = self.variables[ref.id]
         except KeyError as error:
@@ -874,18 +880,39 @@ class Dataset:
 
     def traces(
         self,
-        observable: str | None = None,
+        observable: str | RecordRef[MeasurementArrayData] | None = None,
         *,
-        coordinate: str | None = None,
+        coordinate: str | RecordRef[MeasurementArrayData] | None = None,
         group: str | None = None,
     ) -> tuple[Trace, ...]:
-        """Select trace series by observable and optional coordinate or group."""
+        """Select traces by typed record handle, variable id, or recording group."""
+
+        reference_groups: set[str] = set()
+        if isinstance(observable, RecordRef):
+            _ = self[observable]
+            selected_observable = observable.id
+            if observable.recording_group_id is not None:
+                reference_groups.add(observable.recording_group_id)
+        else:
+            selected_observable = observable
+        if isinstance(coordinate, RecordRef):
+            _ = self[coordinate]
+            selected_coordinate = coordinate.id
+            if coordinate.recording_group_id is not None:
+                reference_groups.add(coordinate.recording_group_id)
+        else:
+            selected_coordinate = coordinate
+        if group is not None:
+            reference_groups.add(group)
+        if len(reference_groups) > 1:
+            raise ValueError("trace record handles must belong to one recording group")
+        selected_group = next(iter(reference_groups), None)
 
         return measurement_traces(
             self._raw,
-            observable,
-            coordinate=coordinate,
-            group=group,
+            selected_observable,
+            coordinate=selected_coordinate,
+            group=selected_group,
         )
 
     def to_xarray(self, *, layout: XarrayLayout = "points") -> xr.Dataset:
@@ -1435,7 +1462,7 @@ def _native_value(value: MeasurementValue) -> NativeValue:
 
 
 def _require_record_ref_matches(
-    ref: RecordRef[object],
+    ref: RecordRef[NativeAvailableValue],
     definition: MeasurementVariable,
 ) -> None:
     """Validate an authored type promise at the durable-data boundary."""
@@ -1480,7 +1507,10 @@ def _require_point_ref_matches(
     point_id = internal_value_ref_point_id(ref)
     if point_id is None:
         raise TypeError("dataset value handles must be direct point coordinates")
-    dtype, unit = _point_ref_value_spec(ref)
+    value_type = ref.value_type
+    if not isinstance(value_type, Scalar):
+        raise TypeError("dataset point coordinate handles must be scalar")
+    dtype, unit = measurement_value_spec_from_scalar(value_type)
     expected = {
         "id": point_id,
         "role": "coordinate",
@@ -1512,26 +1542,6 @@ def _require_point_ref_matches(
     raise TypeError(
         f"point coordinate {point_id!r} does not match the dataset schema: {rendered}"
     )
-
-
-def _point_ref_value_spec(
-    ref: ValueRef[object],
-) -> tuple[MeasurementDType, str | None]:
-    value_type = ref.value_type
-    if not isinstance(value_type, Scalar):
-        raise TypeError("dataset point coordinate handles must be scalar")
-    atom = value_type.atom
-    if isinstance(atom, Bool):
-        return "bool", None
-    if isinstance(atom, Int):
-        return "int64", None
-    if isinstance(atom, Float):
-        return "float64", None
-    if isinstance(atom, QuantityType):
-        return "float64", atom.unit
-    if isinstance(atom, String | Entity):
-        return "string", None
-    raise TypeError("opaque payload coordinates are not dataset variables")
 
 
 def _native_leaf(value: object) -> object:

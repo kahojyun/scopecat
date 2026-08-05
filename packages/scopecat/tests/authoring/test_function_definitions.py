@@ -28,6 +28,12 @@ class _StructuralValues:
     named: Mapping[str, sc.ValueRef[int]]
 
 
+@dataclass(frozen=True, slots=True)
+class _CountDataset:
+    count: sc.ValueRef[int]
+    recorded_count: sc.RecordRef[int]
+
+
 def _identity_count(*, value: object) -> object:
     return value
 
@@ -148,13 +154,54 @@ def test_experiment_infers_identity_description_and_runtime_defaults() -> None:
     assert signature.parameters["count"].default == 2
     assert signature.return_annotation is sc.ExperimentInvocation
     assert isinstance(count_experiment, sc.Experiment)
-    invocation = assert_type(count_experiment(3), sc.ExperimentInvocation)
+    invocation = assert_type(count_experiment(3), sc.ExperimentInvocation[None])
     assert invocation.definition is default_invocation.definition
     assert invocation.input_overrides == {"count": 3}
 
     if TYPE_CHECKING:
         count_experiment(count="invalid")  # pyright: ignore[reportArgumentType]
         count_experiment(unknown=3)  # pyright: ignore[reportCallIssue]
+
+
+def test_experiment_returns_a_typed_dataset_schema() -> None:
+    @sc.experiment
+    def count_experiment(
+        experiment: sc.ExperimentContext,
+    ) -> _CountDataset:
+        count = experiment.scan("count", (1, 2, 3))
+        return _CountDataset(
+            count=count,
+            recorded_count=experiment.record(count, record_id="count_copy"),
+        )
+
+    invocation = assert_type(
+        count_experiment(),
+        sc.ExperimentInvocation[_CountDataset],
+    )
+    output = assert_type(invocation.output, _CountDataset)
+
+    assert output.count is invocation.with_repeat(2).output.count
+    assert output.recorded_count.id == "count_copy"
+    assert output.recorded_count.source_value_id == "count"
+
+
+def test_experiment_rejects_unrecorded_output_values_and_products() -> None:
+    def computed(experiment: sc.ExperimentContext) -> sc.ValueRef[object]:
+        count = experiment.scan("count", (1, 2, 3))
+        return count + 1
+
+    with pytest.raises(TypeError, match="computed values must be recorded"):
+        sc.experiment(computed)
+
+    @sc.module
+    def product_source(module: sc.ModuleContext) -> sc.ProductRef:
+        return module._product("signal")
+
+    def product(experiment: sc.ExperimentContext) -> sc.ProductRef:
+        return experiment.use(product_source())
+
+    with pytest.raises(TypeError, match="products must be recorded"):
+        sc.experiment(product)
 
 
 def test_analysis_decorator_preserves_configuration_signature() -> None:
@@ -253,7 +300,10 @@ def test_plain_experiment_arguments_are_structural() -> None:
     assert signature.parameters["count"].default == 2
     assert signature.return_annotation is sc.ExperimentInvocation
     default_invocation = count_experiment()
-    selected_invocation = assert_type(count_experiment(3), sc.ExperimentInvocation)
+    selected_invocation = assert_type(
+        count_experiment(3),
+        sc.ExperimentInvocation[None],
+    )
     assert elaborations == 2
     assert default_invocation.definition.inputs == ()
     assert selected_invocation.input_overrides == {}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import assert_type
+from collections.abc import Callable
+from typing import assert_type, cast
 
 import pytest
 
@@ -191,18 +192,24 @@ def test_per_entity_record_id_still_requires_one_expanded_product() -> None:
 
     with pytest.raises(
         ValueError,
-        match="record_id can only be used with one recorded value",
+        match="record_id cannot name a PerEntity record set",
     ):
-        context.record(products, record_id="combined")
+        cast("Callable[..., object]", context.record)(
+            products,
+            record_id="combined",
+        )
 
 
-def test_per_entity_record_rejects_an_explicit_empty_record_id() -> None:
+def test_per_entity_record_rejects_any_explicit_record_id() -> None:
     context = sc.ExperimentContext()
     q0 = sc.EntityRef(id="q0", kind="logical_device")
     products = sc.PerEntity(((q0, context._product("signal")),))
 
-    with pytest.raises(ValueError, match="record id must be non-empty"):
-        context.record(products, record_id="")
+    with pytest.raises(
+        ValueError,
+        match="record_id cannot name a PerEntity record set",
+    ):
+        cast("Callable[..., object]", context.record)(products, record_id="")
 
 
 def test_record_namespace_is_non_empty_and_exclusive_with_record_id() -> None:

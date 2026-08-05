@@ -258,6 +258,18 @@ def test_codegen_types_products_by_native_point_value() -> None:
     assert "    floating: ProductRef[float]" in scalar.stdout
     assert "    complex_value: ProductRef[complex]" in scalar.stdout
     assert "    text: ProductRef[str]" in scalar.stdout
+    assert "class NativeScalarRecords:" in scalar.stdout
+    assert "    boolean: RecordRef[bool]" in scalar.stdout
+    assert "    integer: RecordRef[int]" in scalar.stdout
+    assert "    floating: RecordRef[float]" in scalar.stdout
+    assert "    complex_value: RecordRef[complex]" in scalar.stdout
+    assert "    text: RecordRef[str]" in scalar.stdout
+    assert (
+        "class NativeScalarProducts(ProductBundle[NativeScalarRecords]):"
+        in scalar.stdout
+    )
+    assert "boolean=record(self.boolean)," in scalar.stdout
+    assert "text=record(self.text)," in scalar.stdout
     assert "MeasurementArrayData" not in scalar.stdout
 
     array = _render_surface("DriverFixedAcquisitionInterface")
@@ -268,6 +280,10 @@ def test_codegen_types_products_by_native_point_value() -> None:
         in array.stdout
     )
     assert "    response: ProductRef[MeasurementArrayData]" in array.stdout
+    assert "    response: RecordRef[MeasurementArrayData]" in array.stdout
+    assert (
+        "class DriverFixedProducts(ProductBundle[DriverFixedRecords]):" in array.stdout
+    )
 
 
 def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
@@ -292,11 +308,21 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "DCMonitorPatch" in completed.stdout
     assert "class DCMonitorCurrentReadback:" in completed.stdout
     assert "    current: MeasurementValue" in completed.stdout
-    assert "class DCMonitorCurrentProducts(ProductBundle):" in completed.stdout
+    assert "class DCMonitorCurrentRecords:" in completed.stdout
+    assert "    current: RecordRef[float]" in completed.stdout
+    assert (
+        "class DCMonitorCurrentProducts(ProductBundle[DCMonitorCurrentRecords]):"
+        in completed.stdout
+    )
     assert "    current: ProductRef[float]" in completed.stdout
     assert "class DCMonitorVoltageReadback:" in completed.stdout
     assert "    voltage: MeasurementValue" in completed.stdout
-    assert "class DCMonitorVoltageProducts(ProductBundle):" in completed.stdout
+    assert "class DCMonitorVoltageRecords:" in completed.stdout
+    assert "    voltage: RecordRef[float]" in completed.stdout
+    assert (
+        "class DCMonitorVoltageProducts(ProductBundle[DCMonitorVoltageRecords]):"
+        in completed.stdout
+    )
     assert "    voltage: ProductRef[float]" in completed.stdout
     assert "DCMonitorCurrentResults" not in completed.stdout
     assert "DCMonitorVoltageResults" not in completed.stdout

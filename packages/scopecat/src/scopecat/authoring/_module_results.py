@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import fields, is_dataclass, replace
-from typing import cast
+from typing import Protocol, cast
 
 from scopecat.authoring.entity_selection import PerEntity
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.product_identity import ProductId
+from scopecat.measurements.references import RecordRef
+from scopecat.measurements.value_spec import NativeMeasurementValue
 from scopecat.program.module import ModuleValueExport
 from scopecat.program.products import ProductRef
 from scopecat.program.value_refs import ValueRef
@@ -16,18 +18,30 @@ from scopecat.program.value_refs import ValueRef
 type _ProductKey = tuple[ProductId, tuple[object, ...]]
 
 
-class ProductBundle:
-    """Marker base for a dataclass tree that can be recorded as one product group."""
+class _RecordProduct(Protocol):
+    def __call__[T: NativeMeasurementValue](
+        self,
+        product: ProductRef[T],
+        /,
+    ) -> RecordRef[T]: ...
+
+
+class ProductBundle[RecordsT = object]:
+    """Typed acquisition products paired with their durable record shape."""
 
     __slots__ = ()
 
+    def _records_internal(
+        self,
+        record: _RecordProduct,
+        /,
+    ) -> RecordsT:
+        """Map every product leaf to its generated record companion."""
 
-def recording_products(products: ProductBundle) -> tuple[ProductRef, ...]:
-    """Flatten one recordable dataclass bundle in declaration order."""
-
-    selected: list[ProductRef] = []
-    _append_recording_products(selected, products)
-    return tuple(selected)
+        del record
+        raise NotImplementedError(
+            f"{type(self).__qualname__} must define its typed record companion"
+        )
 
 
 def module_result_value_exports(result: object) -> tuple[ModuleValueExport, ...]:
@@ -76,11 +90,10 @@ def _relocate_result_value(
     if value is None:
         return None
     if isinstance(value, ProductRef):
-        product = cast("ProductRef", value)
         try:
-            return product_replacements[_product_key(product)]
+            return product_replacements[_product_key(value)]
         except KeyError:
-            msg = f"module return exposes product {product.id!r} outside its body"
+            msg = f"module return exposes product {value.id!r} outside its body"
             raise ValueError(msg) from None
     if isinstance(value, ValueRef):
         try:
@@ -141,32 +154,6 @@ def _append_result_values(selected: list[ValueRef], value: object) -> None:
     raise TypeError(
         "module functions must return None, ValueRef, ProductRef, or a "
         "dataclass/PerEntity tree of references"
-    )
-
-
-def _append_recording_products(
-    selected: list[ProductRef],
-    value: object,
-) -> None:
-    if isinstance(value, ProductRef):
-        selected.append(cast("ProductRef", value))
-        return
-    if isinstance(value, PerEntity):
-        for item in value.values():
-            _append_recording_products(selected, item)
-        return
-    if is_dataclass(value) and not isinstance(value, type):
-        members = fields(value)
-        if not members:
-            raise TypeError("product bundle dataclasses must not be empty")
-        for member in members:
-            _append_recording_products(
-                selected,
-                cast("object", getattr(value, member.name)),
-            )
-        return
-    raise TypeError(
-        "product bundles must be dataclass/PerEntity trees of ProductRef values"
     )
 
 

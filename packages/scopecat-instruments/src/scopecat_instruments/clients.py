@@ -16,7 +16,9 @@ from scopecat.authoring import (
     ProductRef,
     Symbolic,
 )
+from scopecat.authoring._module_results import _RecordProduct
 from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.references import RecordRef
 from scopecat.measurements.value_spec import MeasurementArrayData
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import (
@@ -352,11 +354,30 @@ class TemperatureReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class TemperatureSampleProducts(ProductBundle):
+class TemperatureSampleRecords:
+    """Typed durable records selected from sample."""
+
+    temperature: RecordRef[float]
+    resistance: RecordRef[float]
+
+
+@dataclass(frozen=True, slots=True)
+class TemperatureSampleProducts(ProductBundle[TemperatureSampleRecords]):
     """Typed logical products produced by sample."""
 
     temperature: ProductRef[float]
     resistance: ProductRef[float]
+
+    @override
+    def _records_internal(
+        self,
+        record: _RecordProduct,
+        /,
+    ) -> TemperatureSampleRecords:
+        return TemperatureSampleRecords(
+            temperature=record(self.temperature),
+            resistance=record(self.resistance),
+        )
 
 
 class TemperatureReadoutClient(InstrumentClientBase):
@@ -836,10 +857,27 @@ class DCMonitorCurrentReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorCurrentProducts(ProductBundle):
+class DCMonitorCurrentRecords:
+    """Typed durable records selected from measure_current."""
+
+    current: RecordRef[float]
+
+
+@dataclass(frozen=True, slots=True)
+class DCMonitorCurrentProducts(ProductBundle[DCMonitorCurrentRecords]):
     """Typed logical products produced by measure_current."""
 
     current: ProductRef[float]
+
+    @override
+    def _records_internal(
+        self,
+        record: _RecordProduct,
+        /,
+    ) -> DCMonitorCurrentRecords:
+        return DCMonitorCurrentRecords(
+            current=record(self.current),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -851,10 +889,27 @@ class DCMonitorVoltageReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorVoltageProducts(ProductBundle):
+class DCMonitorVoltageRecords:
+    """Typed durable records selected from measure_voltage."""
+
+    voltage: RecordRef[float]
+
+
+@dataclass(frozen=True, slots=True)
+class DCMonitorVoltageProducts(ProductBundle[DCMonitorVoltageRecords]):
     """Typed logical products produced by measure_voltage."""
 
     voltage: ProductRef[float]
+
+    @override
+    def _records_internal(
+        self,
+        record: _RecordProduct,
+        /,
+    ) -> DCMonitorVoltageRecords:
+        return DCMonitorVoltageRecords(
+            voltage=record(self.voltage),
+        )
 
 
 class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
@@ -1285,11 +1340,30 @@ class NetworkSweepReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class NetworkSweepProducts(ProductBundle):
+class NetworkSweepRecords:
+    """Typed durable records selected from sweep."""
+
+    frequency: RecordRef[MeasurementArrayData]
+    s_parameter: RecordRef[MeasurementArrayData]
+
+
+@dataclass(frozen=True, slots=True)
+class NetworkSweepProducts(ProductBundle[NetworkSweepRecords]):
     """Typed logical products produced by sweep."""
 
     frequency: ProductRef[MeasurementArrayData]
     s_parameter: ProductRef[MeasurementArrayData]
+
+    @override
+    def _records_internal(
+        self,
+        record: _RecordProduct,
+        /,
+    ) -> NetworkSweepRecords:
+        return NetworkSweepRecords(
+            frequency=record(self.frequency),
+            s_parameter=record(self.s_parameter),
+        )
 
 
 class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
@@ -1474,14 +1548,17 @@ __all__ = [
     "DCMonitorClient",
     "DCMonitorCurrentProducts",
     "DCMonitorCurrentReadback",
+    "DCMonitorCurrentRecords",
     "DCMonitorVoltageProducts",
     "DCMonitorVoltageReadback",
+    "DCMonitorVoltageRecords",
     "DCSourceClient",
     "DCSourceMonitorClient",
     "DCSourceMonitorState",
     "NetworkSweepClient",
     "NetworkSweepProducts",
     "NetworkSweepReadback",
+    "NetworkSweepRecords",
     "RFOutputClient",
     "SymbolicDCMonitorClient",
     "SymbolicDCMonitorGroup",
@@ -1498,6 +1575,7 @@ __all__ = [
     "TemperatureReadback",
     "TemperatureReadoutClient",
     "TemperatureSampleProducts",
+    "TemperatureSampleRecords",
     "dc_monitor",
     "dc_source",
     "dc_source_monitor",

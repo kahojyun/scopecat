@@ -76,6 +76,7 @@ from scopecat.program.values import (
 
 _ModuleProductT_co = TypeVar(
     "_ModuleProductT_co",
+    bound=ProductNativeValue,
     covariant=True,
     default=ProductNativeValue,
 )
@@ -124,7 +125,7 @@ class ModuleProductExport(Generic[_ModuleProductT_co]):
     recording: ProductRecording | None = None
 
     @staticmethod
-    def from_declaration[ValueT](
+    def from_declaration[ValueT: ProductNativeValue](
         product: ModuleProductDecl[ValueT],
     ) -> ModuleProductExport[ValueT]:
         symbol_id = product.product_id

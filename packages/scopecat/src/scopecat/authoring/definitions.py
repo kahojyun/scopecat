@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, is_dataclass, replace
 from types import UnionType
 from typing import (
     Annotated,
@@ -35,7 +35,6 @@ from scopecat.authoring._module_invocation import (
 from scopecat.authoring._module_results import (
     ProductBundle,
     module_result_value_exports,
-    recording_products,
 )
 from scopecat.authoring.entity_selection import PerEntity
 from scopecat.authoring.experiments import (
@@ -63,7 +62,12 @@ from scopecat.kernel.instrument_members import (
 from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.measurements.postprocessor_contract import MeasurementPostprocessorKernel
-from scopecat.measurements.value_spec import MeasurementDType
+from scopecat.measurements.references import RecordRef
+from scopecat.measurements.value_spec import (
+    MeasurementDType,
+    NativeMeasurementValue,
+    measurement_value_spec_from_scalar,
+)
 from scopecat.program.bindings import BindingIntent
 from scopecat.program.definitions import (
     ExperimentDef,
@@ -80,6 +84,7 @@ from scopecat.program.products import (
     ProductRefs,
     record_coordinate,
     record_product,
+    record_ref_from_product,
 )
 from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
 from scopecat.program.scans import (
@@ -94,6 +99,8 @@ from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     ValueRef,
     internal_value_ref_point_dependencies,
+    internal_value_ref_point_id,
+    internal_value_ref_record_id,
     internal_value_ref_requires_execution,
 )
 from scopecat.program.value_types import (
@@ -125,12 +132,6 @@ type Symbolic[T] = T | ValueRef[T]
 type Input[T] = T | ValueRef[T]
 
 
-type RecordProductInput = (
-    ProductRef | ProductBundle | PerEntity[ProductRef | ProductBundle]
-)
-type RecordInput = RecordProductInput | ValueRef
-
-
 def input_ref[T](value: Input[T]) -> ValueRef[T]:
     """View a decorator function input as its symbolic authoring reference.
 
@@ -141,32 +142,6 @@ def input_ref[T](value: Input[T]) -> ValueRef[T]:
     """
 
     return cast("ValueRef[T]", value)
-
-
-def _expand_record_inputs(
-    values: Sequence[RecordInput],
-) -> tuple[ProductRef | ValueRef, ...]:
-    selected: list[ProductRef | ValueRef] = []
-    for value in values:
-        if isinstance(value, ValueRef):
-            selected.append(value)
-            continue
-        if isinstance(value, PerEntity):
-            for entity_value in value.values():
-                _append_record_product(selected, entity_value)
-            continue
-        _append_record_product(selected, value)
-    return tuple(selected)
-
-
-def _append_record_product(
-    selected: list[ProductRef | ValueRef],
-    product: ProductRef | ProductBundle,
-) -> None:
-    if isinstance(product, ProductRef):
-        selected.append(product)
-        return
-    selected.extend(recording_products(product))
 
 
 def _recording_role_is_coordinate(product: ProductRef) -> bool:
@@ -616,69 +591,236 @@ class ExperimentContext:
         )
         self._point_domain_mode = "explicit"
 
-    def record(
+    @overload
+    def record[T: NativeMeasurementValue](
         self,
-        *values: RecordInput,
+        value: ProductRef[T],
+        /,
+        *,
         record_id: str | None = None,
         namespace: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> None:
-        """Persist symbolic values or complete acquisition bundles.
+    ) -> RecordRef[T]: ...
 
-        ``ProductBundle`` and ``PerEntity`` inputs expand structurally while
-        retaining each product's declared role, axes, acquisition group, and
-        entity identity. A scalar ``ValueRef`` becomes an ordinary plottable
-        dataset value when its declared type is durable.
-        """
+    @overload
+    def record[RecordsT](
+        self,
+        value: ProductBundle[RecordsT],
+        /,
+        *,
+        record_id: None = None,
+        namespace: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> RecordsT: ...
+
+    @overload
+    def record[T: NativeMeasurementValue](
+        self,
+        value: PerEntity[ProductRef[T]],
+        /,
+        *,
+        record_id: None = None,
+        namespace: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> PerEntity[RecordRef[T]]: ...
+
+    @overload
+    def record[RecordsT](
+        self,
+        value: PerEntity[ProductBundle[RecordsT]],
+        /,
+        *,
+        record_id: None = None,
+        namespace: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> PerEntity[RecordsT]: ...
+
+    @overload
+    def record(
+        self,
+        value: ValueRef[QuantityValue],
+        /,
+        *,
+        record_id: str | None = None,
+        namespace: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> RecordRef[float]: ...
+
+    @overload
+    def record(
+        self,
+        value: ValueRef[EntityRef | str],
+        /,
+        *,
+        record_id: str | None = None,
+        namespace: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> RecordRef[str]: ...
+
+    @overload
+    def record[T: bool | int | float | str](
+        self,
+        value: ValueRef[T],
+        /,
+        *,
+        record_id: str | None = None,
+        namespace: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> RecordRef[T]: ...
+
+    @overload
+    def record(
+        self,
+        value: ValueRef[object],
+        /,
+        *,
+        record_id: str | None = None,
+        namespace: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> RecordRef[NativeMeasurementValue]: ...
+
+    def record(
+        self,
+        value: ProductRef | ProductBundle | PerEntity[object] | ValueRef,
+        /,
+        *,
+        record_id: str | None = None,
+        namespace: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> object:
+        """Persist one typed value or complete acquisition bundle."""
 
         if record_id is not None and namespace is not None:
             raise ValueError("record_id and namespace cannot be used together")
+        if isinstance(value, PerEntity):
+            if record_id is not None:
+                raise ValueError("record_id cannot name a PerEntity record set")
+
+            def record_entity(item: object) -> object:
+                if not isinstance(item, ProductRef | ProductBundle):
+                    raise TypeError(
+                        "PerEntity records must contain products or product bundles"
+                    )
+                return self.record(
+                    item,
+                    namespace=namespace,
+                    metadata=metadata,
+                )
+
+            return value.map(record_entity)
+        if isinstance(value, ProductBundle):
+            if record_id is not None:
+                raise ValueError("record_id cannot name a product bundle")
+
+            def record_product_leaf[T: NativeMeasurementValue](
+                product: ProductRef[T],
+                /,
+            ) -> RecordRef[T]:
+                return self._record_product(
+                    product,
+                    namespace=namespace,
+                    metadata=metadata,
+                )
+
+            return value._records_internal(record_product_leaf)
+        if isinstance(value, ProductRef):
+            return self._record_product(
+                value,
+                record_id=record_id,
+                namespace=namespace,
+                metadata=metadata,
+            )
+        return self._record_value(
+            value,
+            record_id=record_id,
+            namespace=namespace,
+            metadata=metadata,
+        )
+
+    def _record_product[T: NativeMeasurementValue](
+        self,
+        value: ProductRef[T],
+        *,
+        record_id: str | None = None,
+        namespace: str | None,
+        metadata: Mapping[str, MetadataValue] | None,
+    ) -> RecordRef[T]:
         namespace_segments = (
             () if namespace is None else _record_namespace_segments(namespace)
         )
-        selected = _expand_record_inputs(values)
-        if record_id is not None and len(selected) != 1:
-            raise ValueError("record_id can only be used with one recorded value")
-        selected_metadata = freeze_json_mapping(metadata or {})
-        for value in selected:
-            if isinstance(value, ProductRef):
-                selection = (
-                    record_coordinate
-                    if _recording_role_is_coordinate(value)
-                    else record_product
-                )(
-                    value,
-                    record_id=(
-                        _namespaced_record_id(value, namespace_segments)
-                        if namespace_segments
-                        else record_id
-                    ),
-                    recording_group_id=(
-                        _recording_group_id(value, namespace_segments)
-                        if namespace_segments
-                        else None
-                    ),
-                    metadata=selected_metadata,
-                )
-                self._record_selections.append(selection)
-                continue
-            value_type = value.value_type
-            if not isinstance(value_type, Scalar):
-                raise TypeError("dataset value records must be scalar")
-            if isinstance(value_type.atom, Payload):
-                raise TypeError("opaque payload values cannot be recorded in a dataset")
-            if isinstance(value_type.atom, Quantity) and value_type.atom.unit is None:
-                raise TypeError(
-                    "recorded quantity values require an explicit declared unit"
-                )
-            self._record_selections.append(
-                ValueRecordSelection(
-                    value=value,
-                    record_id=record_id,
-                    namespace=namespace_segments,
-                    metadata=selected_metadata,
-                )
+        selection_factory = (
+            record_coordinate
+            if _recording_role_is_coordinate(value)
+            else record_product
+        )
+        selection = selection_factory(
+            value,
+            record_id=(
+                _namespaced_record_id(value, namespace_segments)
+                if namespace_segments
+                else record_id
+            ),
+            recording_group_id=(
+                _recording_group_id(value, namespace_segments)
+                if namespace_segments
+                else None
+            ),
+            metadata=freeze_json_mapping(metadata or {}),
+        )
+        self._record_selections.append(selection)
+        return record_ref_from_product(value, selection)
+
+    def _record_value(
+        self,
+        value: ValueRef,
+        *,
+        record_id: str | None,
+        namespace: str | None,
+        metadata: Mapping[str, MetadataValue] | None,
+    ) -> RecordRef[NativeMeasurementValue]:
+        value_type = value.value_type
+        if not isinstance(value_type, Scalar):
+            raise TypeError("dataset value records must be scalar")
+        atom = value_type.atom
+        if isinstance(atom, Payload):
+            raise TypeError("opaque payload values cannot be recorded in a dataset")
+        if isinstance(atom, Quantity) and atom.unit is None:
+            raise TypeError(
+                "recorded quantity values require an explicit declared unit"
             )
+        namespace_segments = (
+            () if namespace is None else _record_namespace_segments(namespace)
+        )
+        default_id = internal_value_ref_record_id(value)
+        if record_id is None and default_id is None:
+            raise ValueError(
+                "recording an unnamed symbolic expression requires record_id"
+            )
+        source_value_id = default_id or record_id
+        if source_value_id is None:
+            raise AssertionError("value record identity was not resolved")
+        selected_id = (
+            record_id
+            or parse_product_id(source_value_id)
+            .prefixed(*namespace_segments)
+            .qualified_name
+        )
+        self._record_selections.append(
+            ValueRecordSelection(
+                value=value,
+                record_id=record_id,
+                namespace=namespace_segments,
+                metadata=freeze_json_mapping(metadata or {}),
+            )
+        )
+        dtype, unit = measurement_value_spec_from_scalar(value_type)
+        return RecordRef(
+            variable_id=selected_id,
+            dtype=dtype,
+            unit=unit,
+            dims=("point",),
+            source_value_id=source_value_id,
+        )
 
     def on_success[StateT](
         self,
@@ -763,18 +905,18 @@ def module[ResultT, **P](
 
 
 @overload
-def experiment[**P](
-    definition: Callable[Concatenate[ExperimentContext, P], None],
+def experiment[ResultT, **P](
+    definition: Callable[Concatenate[ExperimentContext, P], ResultT],
     /,
     *,
     id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> Experiment[P]: ...
+) -> Experiment[P, ResultT]: ...
 
 
 @overload
-def experiment[**P](
+def experiment[ResultT, **P](
     definition: None = None,
     /,
     *,
@@ -782,23 +924,23 @@ def experiment[**P](
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> Callable[
-    [Callable[Concatenate[ExperimentContext, P], None]],
-    Experiment[P],
+    [Callable[Concatenate[ExperimentContext, P], ResultT]],
+    Experiment[P, ResultT],
 ]: ...
 
 
-def experiment[**P](
-    definition: Callable[Concatenate[ExperimentContext, P], None] | None = None,
+def experiment[ResultT, **P](
+    definition: Callable[Concatenate[ExperimentContext, P], ResultT] | None = None,
     /,
     *,
     id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
-    Experiment[P]
+    Experiment[P, ResultT]
     | Callable[
-        [Callable[Concatenate[ExperimentContext, P], None]],
-        Experiment[P],
+        [Callable[Concatenate[ExperimentContext, P], ResultT]],
+        Experiment[P, ResultT],
     ]
 ):
     """Define one experiment with explicit runtime and structural arguments.
@@ -809,8 +951,8 @@ def experiment[**P](
     """
 
     def decorate(
-        fn: Callable[Concatenate[ExperimentContext, P], None],
-    ) -> Experiment[P]:
+        fn: Callable[Concatenate[ExperimentContext, P], ResultT],
+    ) -> Experiment[P, ResultT]:
         return _experiment_from_function(
             fn,
             id=id,
@@ -907,13 +1049,13 @@ def _module_from_function[ResultT, **P](
     )
 
 
-def _experiment_from_function[**P](
-    fn: Callable[Concatenate[ExperimentContext, P], None],
+def _experiment_from_function[ResultT, **P](
+    fn: Callable[Concatenate[ExperimentContext, P], ResultT],
     *,
     id: str | None,
     kind: str | None,
     metadata: Mapping[str, MetadataValue] | None,
-) -> Experiment[P]:
+) -> Experiment[P, ResultT]:
     source = cast("DefinitionFunction", fn)
     contract = _experiment_contract(source)
     signature = contract.signature
@@ -938,10 +1080,10 @@ def _experiment_from_function[**P](
     selected_metadata = dict(freeze_json_mapping(selected_metadata))
     selected_id = id or _definition_id(source)
     selected_kind = kind or source.__name__
-    cached_definition: ExperimentDef | None = None
+    cached_build: tuple[ExperimentDef, ResultT] | None = None
 
-    def build(arguments: Mapping[str, object]) -> ExperimentInvocation:
-        nonlocal cached_definition
+    def build(arguments: Mapping[str, object]) -> ExperimentInvocation[ResultT]:
+        nonlocal cached_build
         values: dict[str, object] = dict(contract.runtime_values)
         runtime_inputs: dict[str, RuntimeInput] = {}
         for parameter in signature.parameters.values():
@@ -960,11 +1102,11 @@ def _experiment_from_function[**P](
                 continue
             raise TypeError(f"missing required structural argument: {parameter.name!r}")
 
-        definition = cached_definition
-        if definition is None:
+        built = cached_build
+        if built is None:
             context = ExperimentContext()
-            result = source(context, **values)
-            _require_definition_none(result, kind="experiment")
+            output = cast("ResultT", source(context, **values))
+            _validate_experiment_output(output)
             definition = context.close_definition_internal(
                 id=selected_id,
                 kind=selected_kind,
@@ -977,7 +1119,9 @@ def _experiment_from_function[**P](
                 required_inputs=tuple(required_inputs),
             )
             if not contract.structural_names:
-                cached_definition = definition
+                cached_build = (definition, output)
+        else:
+            definition, output = built
         captured_inputs = capture_experiment_inputs(runtime_inputs)
         validate_experiment_inputs(
             definitions=definition.inputs,
@@ -987,10 +1131,11 @@ def _experiment_from_function[**P](
             definition=definition,
             input_overrides=captured_inputs,
             point_plan_override=None,
+            _output=output,
         )
 
     authored = Experiment(
-        _callable=cast("Callable[P, object]", fn),
+        _callable=cast("Callable[P, ResultT]", fn),
         _signature=signature.replace(
             return_annotation=ExperimentInvocation,
         ),
@@ -1087,9 +1232,37 @@ def _context_signature(
     return signature.replace(parameters=parameters[1:])
 
 
-def _require_definition_none(value: object, *, kind: str) -> None:
-    if value is not None:
-        raise TypeError(f"@{kind} definition functions must return None")
+def _validate_experiment_output(value: object) -> None:
+    if value is None or isinstance(value, RecordRef):
+        return
+    if isinstance(value, ValueRef):
+        if internal_value_ref_point_id(value) is None:
+            raise TypeError(
+                "experiment outputs may expose scan coordinates, but computed "
+                "values must be recorded first"
+            )
+        return
+    if isinstance(value, ProductRef | ProductBundle):
+        raise TypeError("experiment products must be recorded before being returned")
+    if isinstance(value, PerEntity):
+        for item in value.values():
+            _validate_experiment_output(item)
+        return
+    if isinstance(value, tuple):
+        for item in cast("tuple[object, ...]", value):
+            _validate_experiment_output(item)
+        return
+    if is_dataclass(value) and not isinstance(value, type):
+        members = fields(value)
+        if not members:
+            raise TypeError("experiment output dataclasses must not be empty")
+        for member in members:
+            _validate_experiment_output(cast("object", getattr(value, member.name)))
+        return
+    raise TypeError(
+        "experiment functions must return None or a tuple/dataclass/PerEntity "
+        "tree of scan coordinates and recorded values"
+    )
 
 
 def _is_runtime_input_annotation(annotation: object) -> bool:

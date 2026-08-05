@@ -64,6 +64,7 @@ from scopecat.program.products import (
     ProductRecording,
     ProductRef,
     ProductRefs,
+    ProductValueSpec,
 )
 from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
@@ -254,14 +255,17 @@ class ModuleContext:
         products = tuple(
             replace(
                 product,
-                axes=tuple(
-                    replace(
-                        axis,
-                        size=self._capture_domain_value(axis.size),
-                    )
-                    if isinstance(axis.size, ValueRef)
-                    else axis
-                    for axis in product.axes
+                value_spec=replace(
+                    product.value_spec,
+                    axes=tuple(
+                        replace(
+                            axis,
+                            size=self._capture_domain_value(axis.size),
+                        )
+                        if isinstance(axis.size, ValueRef)
+                        else axis
+                        for axis in product.axes
+                    ),
                 ),
             )
             for product in call.product_declarations
@@ -596,9 +600,11 @@ class ModuleContext:
             id,
             scope=tuple(scope),
             origin=(object(),),
-            unit=unit,
-            dtype=dtype,
-            axes=selected_axes,
+            value_spec=ProductValueSpec(
+                dtype=dtype,
+                unit=unit,
+                axes=selected_axes,
+            ),
             recording=recording,
             metadata=freeze_json_mapping(metadata or {}),
         )

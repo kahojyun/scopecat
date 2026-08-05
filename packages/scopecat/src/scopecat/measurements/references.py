@@ -13,6 +13,7 @@ from scopecat.measurements.value_spec import (
 
 _RecordT_co = TypeVar(
     "_RecordT_co",
+    bound=NativeMeasurementValue,
     covariant=True,
     default=NativeMeasurementValue,
 )

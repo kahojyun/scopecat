@@ -29,6 +29,7 @@ from scopecat.program.logical import (
 from scopecat.program.point_domain import point_axis_values
 from scopecat.program.products import (
     ModuleProductDecl,
+    ProductValueSpec,
     RecordSelection,
     entity_axis,
     product_axis,
@@ -451,7 +452,9 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
             experiment_id="test.graph.payload-collision",
             kind="graph",
             point_domain=(point_source,),
-            product_declarations=(ModuleProductDecl(id="payload"),),
+            product_declarations=(
+                ModuleProductDecl(id="payload", value_spec=ProductValueSpec()),
+            ),
             record_selections=(record_product("payload"),),
         )
     )
@@ -473,8 +476,8 @@ def test_recording_rejects_an_unknown_product() -> None:
 
 
 def test_recording_rejects_one_use_identity_for_two_products() -> None:
-    signal = ModuleProductDecl("signal")
-    phase = ModuleProductDecl("phase")
+    signal = ModuleProductDecl("signal", value_spec=ProductValueSpec())
+    phase = ModuleProductDecl("phase", value_spec=ProductValueSpec())
     shared_id = ProductUseId("shared-use")
 
     with pytest.raises(CheckFailed) as error:
@@ -519,7 +522,9 @@ def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
                 experiment_id="test.graph.coordinate-collision",
                 kind="graph",
                 point_domain=(point_source,),
-                product_declarations=(ModuleProductDecl(id="coordinate"),),
+                product_declarations=(
+                    ModuleProductDecl(id="coordinate", value_spec=ProductValueSpec()),
+                ),
                 record_selections=(record_product("coordinate"),),
             )
         )

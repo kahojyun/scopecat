@@ -5,12 +5,19 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Literal, cast, override
 
 import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, model_validator
-from scopecat import ExperimentContext, ModuleContext, ProductBundle, ProductRef
+from scopecat import (
+    ExperimentContext,
+    ModuleContext,
+    ProductBundle,
+    ProductRef,
+    RecordRef,
+)
+from scopecat.authoring._module_results import _RecordProduct
 from scopecat.measurements.results import (
     MeasurementArray,
     MeasurementScalar,
@@ -56,11 +63,30 @@ class BinaryIqDiscriminator(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class BinaryIqProbabilityProducts(ProductBundle):
+class BinaryIqProbabilityRecords:
+    """Typed durable records selected from binary IQ probabilities."""
+
+    probability_0: RecordRef[float]
+    probability_1: RecordRef[float]
+
+
+@dataclass(frozen=True, slots=True)
+class BinaryIqProbabilityProducts(ProductBundle[BinaryIqProbabilityRecords]):
     """Typed products emitted by one binary IQ discrimination step."""
 
     probability_0: ProductRef[float]
     probability_1: ProductRef[float]
+
+    @override
+    def _records_internal(
+        self,
+        record: _RecordProduct,
+        /,
+    ) -> BinaryIqProbabilityRecords:
+        return BinaryIqProbabilityRecords(
+            probability_0=record(self.probability_0),
+            probability_1=record(self.probability_1),
+        )
 
 
 def binary_iq_probabilities(
@@ -158,6 +184,7 @@ def _binary_iq_probability_value(
 __all__ = [
     "BinaryIqDiscriminator",
     "BinaryIqProbabilityProducts",
+    "BinaryIqProbabilityRecords",
     "IqCentroid",
     "binary_iq_probabilities",
 ]

@@ -24,16 +24,9 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import (
-    Bool,
     Entity,
-    Float,
-    Int,
     Scalar,
-    String,
     TableColumn,
-)
-from scopecat.kernel.value_types import (
-    Quantity as QuantityType,
 )
 from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.results import (
@@ -49,6 +42,7 @@ from scopecat.measurements.results import (
 from scopecat.measurements.value_spec import (
     MeasurementDType,
     MeasurementVariableRole,
+    measurement_value_spec_from_scalar,
 )
 
 
@@ -242,10 +236,10 @@ def plan_value_records(
             id=record.id,
             value_id=record.value_id,
             source_value_id=record.source_value_id,
-            dtype=_value_record_dtype(record.value_type),
+            dtype=measurement_value_spec_from_scalar(record.value_type)[0],
             requires_execution=record.requires_execution,
             role=record.role,
-            unit=_value_record_unit(record.value_type),
+            unit=measurement_value_spec_from_scalar(record.value_type)[1],
             metadata=_value_record_metadata(record),
         )
         for record in record_uses
@@ -522,24 +516,6 @@ def _record_variable(record: DatasetRecordPlan) -> MeasurementVariable:
     )
 
 
-def _value_record_dtype(value_type: Scalar) -> MeasurementDType:
-    atom = value_type.atom
-    if isinstance(atom, Bool):
-        return "bool"
-    if isinstance(atom, Int):
-        return "int64"
-    if isinstance(atom, Float | QuantityType):
-        return "float64"
-    if isinstance(atom, String | Entity):
-        return "string"
-    raise TypeError("opaque payload values cannot be recorded in a dataset")
-
-
-def _value_record_unit(value_type: Scalar) -> str | None:
-    atom = value_type.atom
-    return atom.unit if isinstance(atom, QuantityType) else None
-
-
 def _value_record_metadata(record: ValueRecordUse) -> Mapping[str, JsonValue]:
     atom = record.value_type.atom
     if not isinstance(atom, Entity) or atom.entity_kind is None:
@@ -583,7 +559,7 @@ def _coordinate_variable(
     return MeasurementVariable(
         id=column.id,
         role="coordinate",
-        dtype=_value_record_dtype(column.value_type),
+        dtype=measurement_value_spec_from_scalar(column.value_type)[0],
         unit=_coordinate_unit(column, axis_values=axis_values),
         dims=["point"],
         metadata=metadata,
@@ -595,7 +571,7 @@ def _coordinate_unit(
     *,
     axis_values: Sequence[CellValue],
 ) -> str | None:
-    declared = _value_record_unit(column.value_type)
+    declared = measurement_value_spec_from_scalar(column.value_type)[1]
     observed = {value.unit for value in axis_values if isinstance(value, Quantity)}
     if len(observed) > 1:
         raise ValueError(

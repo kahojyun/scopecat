@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import cast
+from typing import Generic, Self, TypeVar, cast
 
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.value_types import ValueType
@@ -45,6 +45,12 @@ class _InputDefaultMissing:
 
 
 _INPUT_DEFAULT_MISSING = _InputDefaultMissing()
+
+_ExperimentResultT_co = TypeVar(
+    "_ExperimentResultT_co",
+    covariant=True,
+    default=object,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,12 +96,23 @@ class ExperimentDef:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ExperimentInvocation:
+class ExperimentInvocation(Generic[_ExperimentResultT_co]):
     definition: ExperimentDef
     input_overrides: Mapping[str, RuntimeInput] = field(
         default_factory=empty_program_mapping
     )
     point_plan_override: PointPlan | None = None
+    _output: _ExperimentResultT_co = field(
+        default=cast("_ExperimentResultT_co", None),
+        repr=False,
+        compare=False,
+    )
+
+    @property
+    def output(self) -> _ExperimentResultT_co:
+        """Return the typed dataset schema authored by the experiment."""
+
+        return self._output
 
     @property
     def point_plan(self) -> PointPlan:
@@ -103,7 +120,7 @@ class ExperimentInvocation:
 
         return self.point_plan_override or self.definition.default_point_plan
 
-    def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:
+    def bind(self, **inputs: RuntimeInput) -> Self:
         captured_inputs = capture_experiment_inputs(inputs)
         validate_experiment_inputs(
             definitions=self.definition.inputs,
@@ -116,7 +133,7 @@ class ExperimentInvocation:
             input_overrides=FrozenMapping(selected.items()),
         )
 
-    def unbind(self, *input_ids: str) -> ExperimentInvocation:
+    def unbind(self, *input_ids: str) -> Self:
         """Remove invocation overrides so definition defaults apply again."""
 
         allowed = {definition.id for definition in self.definition.inputs}
@@ -131,7 +148,7 @@ class ExperimentInvocation:
             input_overrides=FrozenMapping(selected.items()),
         )
 
-    def grid(self, *axes: AxisSpec) -> ExperimentInvocation:
+    def grid(self, *axes: AxisSpec) -> Self:
         """Replace the complete point domain with a Cartesian grid."""
 
         return replace(
@@ -147,7 +164,7 @@ class ExperimentInvocation:
         rows: Sequence[PointRow],
         *,
         coordinates: Sequence[ValueRef] = (),
-    ) -> ExperimentInvocation:
+    ) -> Self:
         """Replace the complete point domain with ordered explicit points."""
 
         return replace(
@@ -159,7 +176,7 @@ class ExperimentInvocation:
             ),
         )
 
-    def reset_points(self) -> ExperimentInvocation:
+    def reset_points(self) -> Self:
         """Discard the complete point-plan override and inherit the definition."""
 
         return replace(self, point_plan_override=None)
@@ -169,7 +186,7 @@ class ExperimentInvocation:
         count: int,
         *,
         mode: RepeatMode = "point",
-    ) -> ExperimentInvocation:
+    ) -> Self:
         """Replace point- or sweep-repeat policy without changing the domain."""
 
         return replace(
@@ -184,7 +201,7 @@ class ExperimentInvocation:
     def with_traversal(
         self,
         traversal: PointTraversal,
-    ) -> ExperimentInvocation:
+    ) -> Self:
         """Replace physical traversal policy without changing logical points."""
 
         return replace(
@@ -195,7 +212,7 @@ class ExperimentInvocation:
             ),
         )
 
-    def with_axis(self, axis: AxisSpec) -> ExperimentInvocation:
+    def with_axis(self, axis: AxisSpec) -> Self:
         """Replace one grid axis in place, or append it when newly introduced."""
 
         domain = self.point_plan.domain
@@ -214,7 +231,7 @@ class ExperimentInvocation:
             ),
         )
 
-    def without_axis(self, target: ValueRef | str) -> ExperimentInvocation:
+    def without_axis(self, target: ValueRef | str) -> Self:
         """Remove one named grid axis while preserving the remaining order."""
 
         domain = self.point_plan.domain

@@ -407,6 +407,7 @@ class _AcquisitionModel:
     result_type_name: str
     result_fields: tuple[_AcquisitionResultModel, ...]
     readback_name: str
+    records_name: str
     products_name: str
 
     @property
@@ -2385,7 +2386,9 @@ def render_client_module(
         _render_interface_refs(models),
         _render_descriptors(models),
     ]
-    rendered_result_types: set[tuple[str, str, tuple[tuple[str, str], ...]]] = set()
+    rendered_result_types: set[tuple[str, str, str, tuple[tuple[str, str], ...]]] = (
+        set()
+    )
     for model in models:
         sections.extend(
             (
@@ -2810,6 +2813,10 @@ def _validate_generated_symbols(
                 f"{result_owner} live",
             )
             register(
+                acquisition.records_name,
+                f"{result_owner} durable",
+            )
+            register(
                 acquisition.products_name,
                 f"{result_owner} symbolic",
             )
@@ -2926,6 +2933,10 @@ def _acquisition_model(
             f"{override_prefix}.readback",
             f"{result_stem}Readback",
         ),
+        records_name=overrides.get(
+            f"{override_prefix}.records",
+            f"{result_stem}Records",
+        ),
         products_name=overrides.get(
             f"{override_prefix}.products",
             f"{result_stem}Products",
@@ -2981,7 +2992,10 @@ def _render_header(
         imports["scopecat.authoring"].add("Symbolic")
     if has_acquisitions:
         imports["dataclasses"] = {"dataclass", "field"}
+        imports.setdefault("typing", set()).add("override")
         imports["scopecat.authoring"].update({"ProductBundle", "ProductRef"})
+        imports["scopecat.authoring._module_results"] = {"_RecordProduct"}
+        imports["scopecat.measurements.references"] = {"RecordRef"}
         imports["scopecat.records.measurement"] = {"MeasurementValue"}
         if any(
             field.product_value_annotation == "MeasurementArrayData"
@@ -3372,12 +3386,13 @@ def _render_client_ref_argument(expression: str, *, indent: int) -> str:
 def _render_result_types(
     model: _InterfaceModel,
     *,
-    rendered: set[tuple[str, str, tuple[tuple[str, str], ...]]],
+    rendered: set[tuple[str, str, str, tuple[tuple[str, str], ...]]],
 ) -> str:
     sections: list[str] = []
     for item in model.root.acquisitions:
         identity = (
             item.readback_name,
+            item.records_name,
             item.products_name,
             item.result_field_signature,
         )
@@ -3392,6 +3407,14 @@ def _render_result_types(
             f"    {field.python_name}: ProductRef[{field.product_value_annotation}]\n"
             for field in item.result_fields
         )
+        record_fields = "".join(
+            f"    {field.python_name}: RecordRef[{field.product_value_annotation}]\n"
+            for field in item.result_fields
+        )
+        record_assignments = "".join(
+            f"            {field.python_name}=record(self.{field.python_name}),\n"
+            for field in item.result_fields
+        )
         sections.append(
             "\n\n"
             "@dataclass(frozen=True, slots=True)\n"
@@ -3403,11 +3426,28 @@ def _render_result_types(
             "    receipt: CollectReceipt = field(repr=False)\n"
             "\n\n"
             "@dataclass(frozen=True, slots=True)\n"
-            f"class {item.products_name}(ProductBundle):\n"
+            f"class {item.records_name}:\n"
+            f'    """Typed durable records selected from '
+            f'{item.method_name}."""\n'
+            "\n"
+            f"{record_fields}"
+            "\n\n"
+            "@dataclass(frozen=True, slots=True)\n"
+            f"class {item.products_name}(ProductBundle[{item.records_name}]):\n"
             f'    """Typed logical products produced by '
             f'{item.method_name}."""\n'
             "\n"
             f"{product_fields}"
+            "\n"
+            "    @override\n"
+            "    def _records_internal(\n"
+            "        self,\n"
+            "        record: _RecordProduct,\n"
+            "        /,\n"
+            f"    ) -> {item.records_name}:\n"
+            f"        return {item.records_name}(\n"
+            f"{record_assignments}"
+            "        )\n"
         )
     return "".join(sections)
 
@@ -3971,7 +4011,13 @@ def _client_export_names(
             }
         )
         for acquisition in scope.acquisitions:
-            exports.update({acquisition.products_name, acquisition.readback_name})
+            exports.update(
+                {
+                    acquisition.products_name,
+                    acquisition.readback_name,
+                    acquisition.records_name,
+                }
+            )
     return tuple(sorted(exports))
 
 

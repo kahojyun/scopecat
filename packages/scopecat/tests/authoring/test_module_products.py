@@ -40,16 +40,14 @@ _SAMPLE = _SCALAR_SIGNAL.acquisition("sample")
 
 def test_typed_product_schema_survives_export_projection() -> None:
     axis = product_axis("sample", size=4, kind="sample", unit="s")
-    declaration: ModuleProductDecl[MeasurementArrayData] = ModuleProductDecl(
-        "trace",
-        unit="V",
-        dtype="complex128",
-        axes=(axis,),
-    )
     expected: ProductValueSpec[MeasurementArrayData] = ProductValueSpec(
         dtype="complex128",
         unit="V",
         axes=(axis,),
+    )
+    declaration: ModuleProductDecl[MeasurementArrayData] = ModuleProductDecl(
+        "trace",
+        value_spec=expected,
     )
 
     declared_ref = ProductRef.from_declaration(declaration)
@@ -75,7 +73,10 @@ def test_typed_product_schema_survives_export_projection() -> None:
         assert product_declaration.id == product_export.id == product_ref.local_id
 
     accept_default_types(declaration, export, declared_ref)
-    assert declaration.value_spec == expected
+    assert declaration.value_spec is expected
+    assert declaration.dtype == expected.dtype
+    assert declaration.unit == expected.unit
+    assert declaration.axes == expected.axes
     assert declared_ref.value_spec == expected
     assert export.value_spec == expected
     assert projected.value_spec == expected
@@ -87,9 +88,11 @@ def test_product_record_handle_preserves_schema_identity_and_group() -> None:
     declaration: ModuleProductDecl[MeasurementArrayData] = ModuleProductDecl(
         "trace",
         scope=("capture",),
-        unit="V",
-        dtype="complex128",
-        axes=(axis,),
+        value_spec=ProductValueSpec(
+            unit="V",
+            dtype="complex128",
+            axes=(axis,),
+        ),
     )
     product = ProductRef.from_declaration(declaration)
     selection = record_product(
@@ -352,9 +355,14 @@ def test_variable_product_axis_lowers_without_inventing_a_fixed_extent() -> None
 
 
 def test_local_and_shared_axis_namespaces_cannot_collide() -> None:
-    local_product = ModuleProductDecl(id="capture", scope=("nested",))
+    local_product = ModuleProductDecl(
+        id="capture",
+        value_spec=ProductValueSpec(),
+        scope=("nested",),
+    )
     shared_product = ModuleProductDecl(
         id="derived",
+        value_spec=ProductValueSpec(),
         scope=("nested", "capture"),
     )
     local_axis = product_axis("sample", size=2)
@@ -485,11 +493,9 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
     @sc.experiment(id="test.products.result-mapping", kind="module_products")
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
-        experiment.record(
-            call.result.first,
-            call.result.second,
-            call.result.default,
-        )
+        experiment.record(call.result.first)
+        experiment.record(call.result.second)
+        experiment.record(call.result.default)
 
     resolved = bind_invocation(
         experiment_definition(),

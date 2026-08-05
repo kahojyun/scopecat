@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 
+from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.program.expression_analysis import expression_input_refs
 from scopecat.program.expression_binding import substitute_scalar_input_refs
@@ -12,6 +13,7 @@ from scopecat.program.expressions import (
     BinaryScalarExpr,
     ComputeResultScalarExpr,
     InputScalarExpr,
+    ModuleExportScalarExpr,
     ParameterLookupScalarExpr,
     ScalarExpr,
 )
@@ -20,6 +22,7 @@ from scopecat.program.value_refs import (
     ValueRef,
     internal_value_ref_first_module_export,
     internal_value_ref_module_export,
+    internal_value_ref_record_id,
     internal_value_ref_requires_execution,
 )
 
@@ -52,9 +55,21 @@ def internal_scope_value_ref(
 
     if not scope and not origin:
         return value
+    source = value.source
+    if isinstance(source, ModuleExportScalarExpr):
+        record_id = source.record_id
+        if record_id is None:
+            return value
+        return ValueRef(
+            source=replace(
+                source,
+                record_id=parse_product_id(record_id).prefixed(*scope).qualified_name,
+            ),
+            value_type=value.value_type,
+            id=value.id,
+        )
     if internal_value_ref_module_export(value) is not None:
         return value
-    source = value.source
     selected_source = (
         _scope_scalar_expression(source, scope=scope, origin=origin)
         if isinstance(source, ScalarExpr)
@@ -65,6 +80,22 @@ def internal_scope_value_ref(
         value_type=value.value_type,
         id=value.id.prefixed(*scope),
     )
+
+
+def internal_project_value_ref_record_id(
+    value: ValueRef,
+    inputs: Mapping[str, ValueRef],
+    *,
+    scope: tuple[str, ...],
+    origin: tuple[object, ...],
+) -> str | None:
+    """Derive the stable identity produced by one module-boundary projection."""
+
+    projected = internal_bind_value_ref_inputs(
+        internal_scope_value_ref(value, *scope, origin=origin),
+        inputs,
+    )
+    return internal_value_ref_record_id(projected)
 
 
 def internal_bind_value_ref_inputs(

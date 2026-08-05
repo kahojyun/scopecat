@@ -69,8 +69,10 @@ def _domain_module() -> tuple[
             products={
                 "counts": ModuleProductDecl(
                     "counts",
-                    unit="count",
-                    dtype="int64",
+                    value_spec=ProductValueSpec(
+                        unit="count",
+                        dtype="int64",
+                    ),
                 )
             },
         )
@@ -165,7 +167,9 @@ def test_structural_domain_call_captures_external_values_once() -> None:
         products={
             "result": ModuleProductDecl(
                 "result",
-                axes=(ProductAxis("sample", size=count_value),),
+                value_spec=ProductValueSpec(
+                    axes=(ProductAxis("sample", size=count_value),),
+                ),
             )
         },
     )
@@ -215,9 +219,11 @@ def test_domain_call_result_preserves_its_complete_product_schema() -> None:
         products={
             "trace": ModuleProductDecl(
                 "trace",
-                dtype="complex128",
-                unit="V",
-                axes=(axis,),
+                value_spec=ProductValueSpec(
+                    dtype="complex128",
+                    unit="V",
+                    axes=(axis,),
+                ),
             )
         },
     )

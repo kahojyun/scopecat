@@ -16,7 +16,7 @@ from scopecat.planning.point_materialization import (
     materialize_bound_points,
 )
 from scopecat.program.domain import domain_program
-from scopecat.program.products import ModuleProductDecl
+from scopecat.program.products import ModuleProductDecl, ProductValueSpec
 from scopecat.sdk.domain import (
     DomainBatchRequest,
     DomainPointRef,
@@ -74,8 +74,10 @@ def _domain_scenario(
             products={
                 "raw": ModuleProductDecl(
                     "raw",
-                    unit="count",
-                    dtype="int64",
+                    value_spec=ProductValueSpec(
+                        unit="count",
+                        dtype="int64",
+                    ),
                 )
             },
         )

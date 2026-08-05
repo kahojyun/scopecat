@@ -41,6 +41,7 @@ type ProductNativeScalar = NativeMeasurementScalar
 type ProductNativeValue = NativeMeasurementValue
 _ProductT_co = TypeVar(
     "_ProductT_co",
+    bound=ProductNativeValue,
     covariant=True,
     default=ProductNativeValue,
 )
@@ -94,7 +95,7 @@ class ProductValueSpec(Generic[_ProductT_co]):
     axes: tuple[ProductAxis, ...] = ()
 
 
-class _ProductExport[ValueT](Protocol):
+class _ProductExport[ValueT: ProductNativeValue](Protocol):
     @property
     def symbol_id(self) -> ProductId: ...
 
@@ -123,11 +124,9 @@ class ModuleProductDecl(Generic[_ProductT_co]):
     """
 
     id: str
+    value_spec: ProductValueSpec[_ProductT_co]
     scope: tuple[str, ...] = ()
     origin: tuple[object, ...] = field(default=(), repr=False, compare=False)
-    unit: str | None = None
-    dtype: MeasurementDType = "float64"
-    axes: tuple[ProductAxis, ...] = ()
     recording: ProductRecording | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
@@ -149,14 +148,22 @@ class ModuleProductDecl(Generic[_ProductT_co]):
         return self.product_id.qualified_name
 
     @property
-    def value_spec(self) -> ProductValueSpec[_ProductT_co]:
-        """Derive the handle schema from the canonical declaration fields."""
+    def dtype(self) -> MeasurementDType:
+        """Convenient access to the canonical product value schema."""
 
-        return ProductValueSpec(
-            dtype=self.dtype,
-            unit=self.unit,
-            axes=self.axes,
-        )
+        return self.value_spec.dtype
+
+    @property
+    def unit(self) -> str | None:
+        """Convenient access to the canonical product value schema."""
+
+        return self.value_spec.unit
+
+    @property
+    def axes(self) -> tuple[ProductAxis, ...]:
+        """Convenient access to the canonical product value schema."""
+
+        return self.value_spec.axes
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -173,7 +180,7 @@ class ProductRef(Generic[_ProductT_co]):
     )
 
     @staticmethod
-    def from_declaration[ValueT](
+    def from_declaration[ValueT: ProductNativeValue](
         product: ModuleProductDecl[ValueT],
     ) -> ProductRef[ValueT]:
         """Create a handle without restating any declaration schema."""
@@ -186,7 +193,7 @@ class ProductRef(Generic[_ProductT_co]):
         )
 
     @staticmethod
-    def from_export[ValueT](
+    def from_export[ValueT: ProductNativeValue](
         product: _ProductExport[ValueT],
     ) -> ProductRef[ValueT]:
         """Create a handle without restating any projected export schema."""
@@ -219,7 +226,7 @@ class ProductRef(Generic[_ProductT_co]):
         return "observable" if self._recording is None else self._recording.role
 
 
-def record_ref_from_product[ValueT](
+def record_ref_from_product[ValueT: ProductNativeValue](
     product: ProductRef[ValueT],
     selection: RecordSelection,
 ) -> RecordRef[ValueT]:
@@ -521,13 +528,16 @@ def localize_product_input_refs(
 ) -> ModuleProductDecl:
     return replace(
         product,
-        axes=tuple(
-            _localize_product_axis_input_refs(
-                axis,
-                inputs,
-                localize_value_ref=localize_value_ref,
-            )
-            for axis in product.axes
+        value_spec=replace(
+            product.value_spec,
+            axes=tuple(
+                _localize_product_axis_input_refs(
+                    axis,
+                    inputs,
+                    localize_value_ref=localize_value_ref,
+                )
+                for axis in product.axes
+            ),
         ),
     )
 
