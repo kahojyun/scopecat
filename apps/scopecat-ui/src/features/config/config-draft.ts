@@ -142,11 +142,12 @@ function deriveKeyedTableUpdates(
   const insertedRows = [...editedRows].flatMap(([identity, rows]) =>
     baseRows.has(identity) ? rows.slice(1) : rows,
   );
-  if (insertedRows.length > 0) {
+  const [firstInsertedRow, ...remainingInsertedRows] = insertedRows;
+  if (firstInsertedRow !== undefined) {
     updates.push({
       kind: "insert_parameter_rows",
       parameter_id: base.id,
-      rows: insertedRows as [Record<string, ParameterAtom>, ...Record<string, ParameterAtom>[]],
+      rows: [firstInsertedRow, ...remainingInsertedRows],
     });
   }
   return updates;
