@@ -247,7 +247,7 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
 
   await expect(
     page.getByRole("heading", {
-      name: "scopecat_lab.first_run",
+      name: "__main__.first_run",
       exact: true,
     }),
   ).toBeVisible();
