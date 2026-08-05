@@ -139,14 +139,13 @@ def _invocation_product_refs(
 ) -> ProductRefs:
     return ProductRefs(
         {
-            port.qualified_id: ProductRef(
-                product_id=port.symbol_id.prefixed(instance_id),
-                origin=(key, *port.target_origin),
-                _recording=(
-                    None
-                    if port.recording is None
-                    else port.recording.prefixed(instance_id)
-                ),
+            port.qualified_id: ProductRef.from_export(
+                port.projected_by(
+                    ModuleInstanceLookup(
+                        invocation_key=key,
+                        instance_id=instance_id,
+                    )
+                )
             )
             for port in module.definition.products
         }

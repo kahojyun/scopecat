@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import assert_type
 
 import pytest
 
@@ -17,17 +18,96 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.identities import InvocationKey
+from scopecat.program.module import ModuleInstanceLookup, ModuleProductExport
 from scopecat.program.products import (
     ModuleProductDecl,
+    ProductRef,
+    ProductValueSpec,
     RecordSelection,
     product_axis,
     product_axis_dimension_id,
 )
+from scopecat.records.measurement import MeasurementArrayData
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
 
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SAMPLE = _SCALAR_SIGNAL.acquisition("sample")
+
+
+def test_typed_product_schema_survives_export_projection() -> None:
+    axis = product_axis("sample", size=4, kind="sample", unit="s")
+    declaration: ModuleProductDecl[MeasurementArrayData] = ModuleProductDecl(
+        "trace",
+        unit="V",
+        dtype="complex128",
+        axes=(axis,),
+    )
+    expected: ProductValueSpec[MeasurementArrayData] = ProductValueSpec(
+        dtype="complex128",
+        unit="V",
+        axes=(axis,),
+    )
+
+    declared_ref = ProductRef.from_declaration(declaration)
+    export = ModuleProductExport.from_declaration(declaration)
+    projected = export.projected_by(
+        ModuleInstanceLookup(
+            invocation_key=InvocationKey.fresh(),
+            instance_id="child",
+        )
+    )
+    projected_ref = ProductRef.from_export(projected)
+
+    assert_type(declared_ref, ProductRef[MeasurementArrayData])
+    assert_type(export, ModuleProductExport[MeasurementArrayData])
+    assert_type(projected, ModuleProductExport[MeasurementArrayData])
+    assert_type(projected_ref, ProductRef[MeasurementArrayData])
+
+    def accept_default_types(
+        product_declaration: ModuleProductDecl,
+        product_export: ModuleProductExport,
+        product_ref: ProductRef,
+    ) -> None:
+        assert product_declaration.id == product_export.id == product_ref.local_id
+
+    accept_default_types(declaration, export, declared_ref)
+    assert declaration.value_spec == expected
+    assert declared_ref.value_spec == expected
+    assert export.value_spec == expected
+    assert projected.value_spec == expected
+    assert projected_ref.value_spec == expected
+
+
+def test_product_schema_survives_module_definition_and_nested_invocation() -> None:
+    axis = product_axis("sample", size=8, kind="sample", unit="s")
+    expected = ProductValueSpec(
+        dtype="complex128",
+        unit="V",
+        axes=(axis,),
+    )
+
+    @sc.module(id="test.products.typed-source")
+    def source(context: sc.ModuleContext) -> sc.ProductRef:
+        return context._product(
+            "trace",
+            unit="V",
+            dtype="complex128",
+            axes=(axis,),
+        )
+
+    child = source.instantiate("child")
+
+    @sc.module(id="test.products.typed-wrapper")
+    def wrapper(context: sc.ModuleContext) -> sc.ProductRef:
+        context.use(child)
+        return child.result
+
+    assert source.definition.products[0].value_spec == expected
+    assert source().result.value_spec == expected
+    assert wrapper.definition.products[0].value_spec == expected
+    assert wrapper().result.value_spec == expected
 
 
 @dataclass(frozen=True, slots=True)

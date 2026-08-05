@@ -76,10 +76,11 @@ def _relocate_result_value(
     if value is None:
         return None
     if isinstance(value, ProductRef):
+        product = cast("ProductRef", value)
         try:
-            return product_replacements[_product_key(value)]
+            return product_replacements[_product_key(product)]
         except KeyError:
-            msg = f"module return exposes product {value.id!r} outside its body"
+            msg = f"module return exposes product {product.id!r} outside its body"
             raise ValueError(msg) from None
     if isinstance(value, ValueRef):
         try:
@@ -148,7 +149,7 @@ def _append_recording_products(
     value: object,
 ) -> None:
     if isinstance(value, ProductRef):
-        selected.append(value)
+        selected.append(cast("ProductRef", value))
         return
     if isinstance(value, PerEntity):
         for item in value.values():

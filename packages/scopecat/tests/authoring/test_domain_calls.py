@@ -22,7 +22,11 @@ from scopecat.planning.domain_results import domain_result_product_use_ids
 from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.program.domain import DomainCall, domain_execution, domain_program
 from scopecat.program.expressions import PointColumnScalarExpr
-from scopecat.program.products import ModuleProductDecl, ProductAxis
+from scopecat.program.products import (
+    ModuleProductDecl,
+    ProductAxis,
+    ProductValueSpec,
+)
 from scopecat.program.table_values import InputTableSource, LiteralTableSource
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
@@ -194,6 +198,39 @@ def test_structural_domain_call_captures_external_values_once() -> None:
         context.record(context.use(invocation))
 
     compile_invocation(experiment())
+
+
+def test_domain_call_result_preserves_its_complete_product_schema() -> None:
+    program = domain_program(
+        "schema-program",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        results={"trace": None},
+    )
+    axis = ProductAxis("sample", size=16, kind="sample", unit="s")
+    selected = domain_call(
+        program,
+        id="capture",
+        products={
+            "trace": ModuleProductDecl(
+                "trace",
+                dtype="complex128",
+                unit="V",
+                axes=(axis,),
+            )
+        },
+    )
+    expected = ProductValueSpec(
+        dtype="complex128",
+        unit="V",
+        axes=(axis,),
+    )
+
+    [declaration] = selected.product_declarations
+    assert declaration.value_spec == expected
+    assert selected.results.trace.value_spec == expected
+    assert dict(selected.execution.result_bindings)["trace"].value_spec == expected
 
 
 def test_structural_domain_call_captures_a_parent_table_input() -> None:

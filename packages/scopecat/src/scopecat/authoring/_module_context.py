@@ -603,11 +603,7 @@ class ModuleContext:
             metadata=freeze_json_mapping(metadata or {}),
         )
         self._product_declarations.append(declaration)
-        return ProductRef(
-            product_id=declaration.product_id,
-            origin=declaration.origin,
-            _recording=declaration.recording,
-        )
+        return ProductRef.from_declaration(declaration)
 
     def _acquire(
         self,
@@ -666,25 +662,15 @@ class ModuleContext:
     def _products(self) -> ProductRefs:
         products = (
             *(
-                ProductRef(
-                    product_id=product.symbol_id.prefixed(instance.instance_id),
-                    origin=(instance.invocation_key, *product.target_origin),
-                    _recording=(
-                        None
-                        if product.recording is None
-                        else product.recording.prefixed(instance.instance_id)
-                    ),
+                ProductRef.from_export(
+                    product.projected_by(instance.lookup),
                 )
                 for instance in self._effects
                 if isinstance(instance, ModuleInstance)
                 for product in instance.module.products
             ),
             *(
-                ProductRef(
-                    product_id=product.product_id,
-                    origin=product.origin,
-                    _recording=product.recording,
-                )
+                ProductRef.from_declaration(product)
                 for product in self._product_declarations
             ),
         )

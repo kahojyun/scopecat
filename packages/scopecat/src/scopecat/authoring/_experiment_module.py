@@ -287,11 +287,7 @@ def create_parametric_experiment_module_internal[ResultT, **P](
 def _definition_product_refs(module_def: ModuleDef) -> ProductRefs:
     return ProductRefs(
         {
-            port.qualified_id: ProductRef(
-                product_id=port.symbol_id,
-                origin=port.target_origin,
-                _recording=port.recording,
-            )
+            port.qualified_id: ProductRef.from_export(port)
             for port in module_def.products
         }
     )

@@ -52,6 +52,7 @@ from scopecat.authoring.state_projection import (
 )
 from scopecat.program.products import (
     ProductRef,
+    ProductValueSpec,
 )
 from scopecat.program.value_types import (
     Bool as BoolType,
@@ -132,6 +133,7 @@ __all__ = [
     "PointRow",
     "ProductBundle",
     "ProductRef",
+    "ProductValueSpec",
     "QuantityType",
     "RuntimeInput",
     "ScalarInput",

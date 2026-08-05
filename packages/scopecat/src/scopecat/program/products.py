@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import cast, override
+from typing import Generic, Protocol, TypeVar, cast, override
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
@@ -23,6 +23,7 @@ from scopecat.program.value_refs import (
     ValueRef,
 )
 from scopecat.program.values import MetadataValue
+from scopecat.records.measurement import MeasurementArrayData
 
 # ProductRef provenance is private to the recorder implementation in this module.
 # pyright: reportPrivateUsage=false
@@ -31,6 +32,13 @@ type AxisSizeInput = (
     ValueRef | Quantity | int | float | tuple[EntityRef | str, ...] | None
 )
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
+type ProductNativeScalar = bool | int | float | complex | str
+type ProductNativeValue = ProductNativeScalar | MeasurementArrayData
+_ProductT_co = TypeVar(
+    "_ProductT_co",
+    covariant=True,
+    default=ProductNativeValue,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,8 +75,36 @@ class ProductAxis:
             raise ValueError(msg)
 
 
+@dataclass(frozen=True, slots=True)
+class ProductValueSpec(Generic[_ProductT_co]):
+    """Runtime value schema attached to one typed logical product handle.
+
+    ``T`` is the available native value at one logical point. It is a scalar
+    for scalar products and an array for products with local axes. Units stay
+    in the runtime schema rather than becoming static literal types.
+    """
+
+    dtype: MeasurementDType = "float64"
+    unit: str | None = None
+    axes: tuple[ProductAxis, ...] = ()
+
+
+class _ProductExport[ValueT](Protocol):
+    @property
+    def symbol_id(self) -> ProductId: ...
+
+    @property
+    def target_origin(self) -> tuple[object, ...]: ...
+
+    @property
+    def value_spec(self) -> ProductValueSpec[ValueT]: ...
+
+    @property
+    def recording(self) -> ProductRecording | None: ...
+
+
 @dataclass(frozen=True)
-class ModuleProductDecl:
+class ModuleProductDecl(Generic[_ProductT_co]):
     """Declare one reusable product independently of execution and storage.
 
     A declaration describes only the logical product schema available at a
@@ -107,18 +143,59 @@ class ModuleProductDecl:
     def qualified_id(self) -> str:
         return self.product_id.qualified_name
 
+    @property
+    def value_spec(self) -> ProductValueSpec[_ProductT_co]:
+        """Derive the handle schema from the canonical declaration fields."""
+
+        return ProductValueSpec(
+            dtype=self.dtype,
+            unit=self.unit,
+            axes=self.axes,
+        )
+
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ProductRef:
+class ProductRef(Generic[_ProductT_co]):
     """Opaque hygienic reference to one module or module-instance product."""
 
     product_id: ProductId
     origin: tuple[object, ...] = field(repr=False, compare=False)
+    _value_spec: ProductValueSpec[_ProductT_co] = field(repr=False)
     _recording: ProductRecording | None = field(
         default=None,
         repr=False,
         compare=False,
     )
+
+    @staticmethod
+    def from_declaration[ValueT](
+        product: ModuleProductDecl[ValueT],
+    ) -> ProductRef[ValueT]:
+        """Create a handle without restating any declaration schema."""
+
+        return ProductRef(
+            product_id=product.product_id,
+            origin=product.origin,
+            _value_spec=product.value_spec,
+            _recording=product.recording,
+        )
+
+    @staticmethod
+    def from_export[ValueT](
+        product: _ProductExport[ValueT],
+    ) -> ProductRef[ValueT]:
+        """Create a handle without restating any projected export schema."""
+
+        return ProductRef(
+            product_id=product.symbol_id,
+            origin=product.target_origin,
+            _value_spec=product.value_spec,
+            _recording=product.recording,
+        )
+
+    @property
+    def value_spec(self) -> ProductValueSpec[_ProductT_co]:
+        return self._value_spec
 
     @property
     def id(self) -> str:

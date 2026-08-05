@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, cast
+from typing import Generic, Protocol, TypeVar, cast
 
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import freeze_json_mapping
@@ -50,8 +50,10 @@ from scopecat.program.operations import (
 )
 from scopecat.program.products import (
     ModuleProductDecl,
+    ProductNativeValue,
     ProductRecording,
     ProductRef,
+    ProductValueSpec,
 )
 from scopecat.program.value_refs import (
     ValueRef,
@@ -70,6 +72,12 @@ from scopecat.program.value_types import ValueType
 from scopecat.program.values import (
     ComputeFunction,
     MetadataValue,
+)
+
+_ModuleProductT_co = TypeVar(
+    "_ModuleProductT_co",
+    covariant=True,
+    default=ProductNativeValue,
 )
 
 
@@ -106,35 +114,47 @@ class ModuleValueExport:
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleProductExport:
+class ModuleProductExport(Generic[_ModuleProductT_co]):
     """Interface projection to one product declaration in the module body."""
 
     symbol_id: ProductId
     target_id: ProductId
     target_origin: tuple[object, ...] = field(repr=False, compare=False)
+    _value_spec: ProductValueSpec[_ModuleProductT_co] = field(repr=False)
     recording: ProductRecording | None = None
 
-    @classmethod
-    def from_declaration(cls, product: ModuleProductDecl) -> ModuleProductExport:
+    @staticmethod
+    def from_declaration[ValueT](
+        product: ModuleProductDecl[ValueT],
+    ) -> ModuleProductExport[ValueT]:
         symbol_id = product.product_id
-        return cls(
+        return ModuleProductExport(
             symbol_id=symbol_id,
             target_id=symbol_id,
             target_origin=product.origin,
+            _value_spec=product.value_spec,
             recording=product.recording,
         )
 
-    def projected_by(self, instance: ModuleInstanceLookup) -> ModuleProductExport:
+    def projected_by(
+        self,
+        instance: ModuleInstanceLookup,
+    ) -> ModuleProductExport[_ModuleProductT_co]:
         return ModuleProductExport(
             symbol_id=self.symbol_id.prefixed(instance.instance_id),
             target_id=self.target_id.prefixed(instance.instance_id),
             target_origin=(instance.invocation_key, *self.target_origin),
+            _value_spec=self.value_spec,
             recording=(
                 None
                 if self.recording is None
                 else self.recording.prefixed(instance.instance_id)
             ),
         )
+
+    @property
+    def value_spec(self) -> ProductValueSpec[_ModuleProductT_co]:
+        return self._value_spec
 
     @property
     def id(self) -> str:
