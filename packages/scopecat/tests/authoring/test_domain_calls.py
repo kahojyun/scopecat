@@ -385,7 +385,7 @@ def test_experiment_domain_execution_lowers_plan_inputs_and_composed_product_use
 
     point_x_count = sc.coordinate(
         "x_count",
-        sc.ScalarType(sc.IntType(minimum=0)),
+        sc.IntType(minimum=0),
     )
 
     @sc.module(id="test.domain.root")

@@ -119,7 +119,8 @@ from scopecat.program.verification import validate_experiment_inputs
 # pyright: reportPrivateUsage=false
 
 type DefinitionFunction = Callable[..., object]
-type Input[T] = T | ValueRef
+type Symbolic[T] = T | ValueRef[T]
+type Input[T] = T | ValueRef[T]
 
 
 type RecordProductInput = (
@@ -128,7 +129,7 @@ type RecordProductInput = (
 type RecordInput = RecordProductInput | ValueRef
 
 
-def input_ref[T](value: Input[T]) -> ValueRef:
+def input_ref[T](value: Input[T]) -> ValueRef[T]:
     """View a decorator function input as its symbolic authoring reference.
 
     ``@module`` and ``@experiment`` evaluate their Python bodies with symbolic
@@ -137,7 +138,7 @@ def input_ref[T](value: Input[T]) -> ValueRef:
     transform, needs that distinction for static typing.
     """
 
-    return cast("ValueRef", value)
+    return cast("ValueRef[T]", value)
 
 
 def _expand_record_inputs(
@@ -447,6 +448,83 @@ class ExperimentContext:
             traversal=traversal,
         )
 
+    @overload
+    def scan[T: ScanValue](
+        self,
+        id: str,
+        values: Iterable[T],
+        *,
+        value_type: ScanValueType | None = None,
+        overlay: None = None,
+        unit: None = None,
+    ) -> ValueRef[T]: ...
+
+    @overload
+    def scan(
+        self,
+        id: str,
+        values: Iterable[int | float],
+        *,
+        value_type: ScanValueType | None = None,
+        overlay: None = None,
+        unit: str,
+    ) -> ValueRef[QuantityValue]: ...
+
+    @overload
+    def scan[T](
+        self,
+        id: str,
+        values: None = None,
+        *,
+        value_type: ScanValueType | None = None,
+        overlay: ValueRef[T],
+        unit: str | None = None,
+        span: ScanCoordinate,
+        points: int,
+    ) -> ValueRef[T]: ...
+
+    @overload
+    def scan(
+        self,
+        id: str,
+        values: None = None,
+        *,
+        value_type: ScanValueType | None = None,
+        overlay: None = None,
+        unit: str | None = None,
+        start: QuantityValue | str,
+        stop: QuantityValue | str,
+        points: int,
+    ) -> ValueRef[QuantityValue]: ...
+
+    @overload
+    def scan(
+        self,
+        id: str,
+        values: None = None,
+        *,
+        value_type: ScanValueType | None = None,
+        overlay: None = None,
+        unit: None = None,
+        start: int,
+        stop: int,
+        points: int,
+    ) -> ValueRef[int]: ...
+
+    @overload
+    def scan(
+        self,
+        id: str,
+        values: None = None,
+        *,
+        value_type: ScanValueType | None = None,
+        overlay: None = None,
+        unit: None = None,
+        start: float,
+        stop: float,
+        points: int,
+    ) -> ValueRef[float]: ...
+
     def scan(
         self,
         id: str,
@@ -460,7 +538,7 @@ class ExperimentContext:
         center: ScanCenterInput | None = None,
         span: ScanCoordinate | None = None,
         points: int | None = None,
-    ) -> ValueRef:
+    ) -> ValueRef[object]:
         """Declare one inferred grid coordinate and return its symbolic value."""
 
         if self._point_domain_mode == "explicit":
@@ -1064,6 +1142,7 @@ __all__ = [
     "Experiment",
     "ExperimentContext",
     "Input",
+    "Symbolic",
     "experiment",
     "input_ref",
     "module",

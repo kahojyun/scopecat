@@ -24,6 +24,26 @@ def _identity_count(*, value: object) -> object:
     return value
 
 
+def test_symbolic_factories_preserve_python_value_types() -> None:
+    assert_type(
+        sc.coordinate("enabled", sc.BoolType()),
+        sc.ValueRef[bool],
+    )
+    assert_type(
+        sc.parameter("frequency", sc.QuantityType(unit="GHz")),
+        sc.ValueRef[sc.Quantity],
+    )
+    assert_type(
+        sc.parameter_lookup(
+            "device_parameters",
+            key={"device": "q0"},
+            column="label",
+            value_type=sc.StringType(),
+        ),
+        sc.ValueRef[str],
+    )
+
+
 def test_module_decorator_injects_one_explicit_context() -> None:
     elaborations = 0
 
@@ -36,7 +56,7 @@ def test_module_decorator_injects_one_explicit_context() -> None:
 
         nonlocal elaborations
         elaborations += 1
-        count_ref = assert_type(sc.input_ref(count), sc.ValueRef)
+        count_ref = assert_type(sc.input_ref(count), sc.ValueRef[int])
         counter = module._resource("test.counter/v1", requires=(_COUNTER,))
         module._bind_property(counter, _COUNTER_COUNT, value=count_ref)
 

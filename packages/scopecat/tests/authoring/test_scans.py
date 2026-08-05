@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Annotated
+from typing import Annotated, assert_type
 
 import numpy as np
 import pytest
@@ -22,12 +22,15 @@ def test_experiment_scan_infers_bounded_values_and_quantity_ranges() -> None:
 
     @sc.experiment
     def inferred(experiment: sc.ExperimentContext) -> None:
-        count = experiment.scan("count", (1, 2, 3))
-        bias = experiment.scan(
-            "bias",
-            start=sc.Quantity(-0.25, "V"),
-            stop=sc.Quantity(0.25, "V"),
-            points=3,
+        count: sc.ValueRef[int] = experiment.scan("count", (1, 2, 3))
+        bias: sc.ValueRef[sc.Quantity] = assert_type(
+            experiment.scan(
+                "bias",
+                start=sc.Quantity(-0.25, "V"),
+                stop=sc.Quantity(0.25, "V"),
+                points=3,
+            ),
+            sc.ValueRef[sc.Quantity],
         )
         experiment.use(bounded_consumer(count=count, bias=bias))
 

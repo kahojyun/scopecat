@@ -44,7 +44,7 @@ def bind_invocation(
 
 DRIVE_FREQUENCY_POINT = authoring.coordinate(
     "drive_frequency",
-    authoring.ScalarType(authoring.QuantityType(unit="GHz")),
+    authoring.QuantityType(unit="GHz"),
 )
 
 

@@ -510,9 +510,10 @@ def test_result_refs_are_nominally_owned_by_the_used_instance() -> None:
 
 
 def test_result_roots_preserve_free_inputs_and_value_provenance() -> None:
-    value_type = sc.ScalarType(sc.FloatType())
-    parameter = sc.parameter("result_parameter", value_type)
-    point = sc.coordinate("result_point", value_type)
+    atom_type = sc.FloatType()
+    value_type = sc.ScalarType(atom_type)
+    parameter = sc.parameter("result_parameter", atom_type)
+    point = sc.coordinate("result_point", atom_type)
 
     @sc.module(id="test.results.roots")
     def source(

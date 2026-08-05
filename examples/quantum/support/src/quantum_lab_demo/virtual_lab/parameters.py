@@ -27,10 +27,10 @@ _QUBIT_PARAMETERS = sc.parameter(
 )
 
 _Q0 = EntityRef(id="q0", kind="logical_qubit")
-_DRAG_BETA_VALUE_TYPE = _NS_VALUE_TYPE
+_DRAG_BETA_VALUE_TYPE = sc.QuantityType(unit="ns")
 
 
-def qubit_parameters() -> sc.ValueRef:
+def qubit_parameters() -> sc.ValueRef[list[dict[str, object]]]:
     """Expose the accepted qubit table as one compiler-only collection."""
 
     return _QUBIT_PARAMETERS
@@ -50,7 +50,7 @@ _Q0_DRAG_BETA_LOOKUP = sc.parameter_lookup(
 )
 
 
-def q0_drag_beta_lookup() -> sc.ValueRef:
+def q0_drag_beta_lookup() -> sc.ValueRef[sc.Quantity]:
     """Reference the accepted q0 DRAG beta cell."""
 
     return _Q0_DRAG_BETA_LOOKUP

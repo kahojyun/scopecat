@@ -39,8 +39,9 @@ def _domain_scenario(
     namespace: str,
     record_raw: bool = True,
 ) -> MaterializedBoundPoints:
-    count_type = sc.ScalarType(sc.IntType(minimum=0))
-    count = sc.coordinate(f"{namespace}_count", count_type)
+    count_atom = sc.IntType(minimum=0)
+    count_type = sc.ScalarType(count_atom)
+    count = sc.coordinate(f"{namespace}_count", count_atom)
     program = domain_program(
         "program",
         dialect_id="test.context",

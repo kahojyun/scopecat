@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 from scopecat.compiler.frontend.logical_closure import (
     LogicalProgramBuilder,
@@ -317,7 +318,7 @@ def _elaborate_hierarchy(
     )
     for root_value in (*value_roots, *success_state_values):
         if isinstance(root_value, ValueRef):
-            composer.logical.add_value_root(root_value)
+            composer.logical.add_value_root(cast("ValueRef[object]", root_value))
     return composer.logical.finish(
         experiment_id=experiment_id,
         kind=kind,

@@ -57,7 +57,7 @@ and full coordinate width:
 ```python
 power = sc.coordinate(
     "source_power",
-    sc.ScalarType(sc.QuantityType(unit="dBm")),
+    sc.QuantityType(unit="dBm"),
 )
 start_stop_power = sc.axis(
     power,
@@ -84,7 +84,7 @@ do not form a rectangular product:
 ```python
 bias = sc.coordinate(
     "bias",
-    sc.ScalarType(sc.QuantityType(unit="V")),
+    sc.QuantityType(unit="V"),
 )
 experiment.points(
     (

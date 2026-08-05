@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import cast, override
+from typing import Self, cast, override
 from uuid import uuid4
 
 from scopecat.kernel.entity import EntityRef
@@ -95,7 +95,7 @@ class PointValueDependency:
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class ValueRef:
+class ValueRef[T = object]:
     """Opaque public handle for one typed canonical program value.
 
     Values are created by DSL factories such as :func:`scopecat.input` and
@@ -126,10 +126,10 @@ class ValueRef:
             msg = "module export table source must be assignable to its value type"
             raise TypeError(msg)
 
-    def __copy__(self) -> ValueRef:
+    def __copy__(self) -> Self:
         return self
 
-    def __deepcopy__(self, memo: dict[int, object]) -> ValueRef:
+    def __deepcopy__(self, memo: dict[int, object]) -> Self:
         del memo
         return self
 
@@ -151,28 +151,28 @@ class ValueRef:
     def __hash__(self) -> int:
         return hash(self.id)
 
-    def __add__(self, other: object) -> ValueRef:
+    def __add__(self, other: object) -> ValueRef[object]:
         return _binary_value(self, other, "+")
 
-    def __radd__(self, other: object) -> ValueRef:
+    def __radd__(self, other: object) -> ValueRef[object]:
         return _binary_value(other, self, "+")
 
-    def __sub__(self, other: object) -> ValueRef:
+    def __sub__(self, other: object) -> ValueRef[object]:
         return _binary_value(self, other, "-")
 
-    def __rsub__(self, other: object) -> ValueRef:
+    def __rsub__(self, other: object) -> ValueRef[object]:
         return _binary_value(other, self, "-")
 
-    def __mul__(self, other: object) -> ValueRef:
+    def __mul__(self, other: object) -> ValueRef[object]:
         return _binary_value(self, other, "*")
 
-    def __rmul__(self, other: object) -> ValueRef:
+    def __rmul__(self, other: object) -> ValueRef[object]:
         return _binary_value(other, self, "*")
 
-    def __truediv__(self, other: object) -> ValueRef:
+    def __truediv__(self, other: object) -> ValueRef[object]:
         return _binary_value(self, other, "/")
 
-    def __rtruediv__(self, other: object) -> ValueRef:
+    def __rtruediv__(self, other: object) -> ValueRef[object]:
         return _binary_value(other, self, "/")
 
 

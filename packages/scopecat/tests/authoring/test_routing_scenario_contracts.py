@@ -157,7 +157,7 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
     )
     qubit = authoring.coordinate(
         "qubit",
-        authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
+        authoring.EntityType(entity_kind="logical_device"),
     )
 
     @authoring.module(id="test.resource-binding-scenarios.entity-routing")
@@ -247,7 +247,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
     )
     qubit = authoring.coordinate(
         "qubit",
-        authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
+        authoring.EntityType(entity_kind="logical_device"),
     )
 
     @authoring.module(id="test.resource-binding-scenarios.channel-selection")

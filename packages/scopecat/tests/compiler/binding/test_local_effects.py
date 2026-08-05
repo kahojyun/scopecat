@@ -432,7 +432,7 @@ def test_composed_module_input_keeps_its_declared_compute_input_type() -> None:
     program_argument = play.argument("program")
     frequency = sc.coordinate(
         "frequency",
-        sc.ScalarType(sc.QuantityType(dimension="frequency")),
+        sc.QuantityType(dimension="frequency"),
     )
 
     @sc.module(id="test.compute-input-type.child")
@@ -475,7 +475,7 @@ def test_composed_state_expression_keeps_its_declared_value_type() -> None:
     set_frequency = InterfaceRef("test.set_frequency/v1")
     frequency = sc.coordinate(
         "frequency",
-        sc.ScalarType(sc.QuantityType(unit="MHz")),
+        sc.QuantityType(unit="MHz"),
     )
 
     @sc.module(id="test.state-value-type.child")
