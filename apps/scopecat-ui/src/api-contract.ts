@@ -95,12 +95,7 @@ export type ParameterDefinition = components["schemas"]["ParameterDefinition"];
 export type ParameterEntity = components["schemas"]["EntityRef-Input"];
 export type ParameterUpdate = components["schemas"]["ParameterUpdate"];
 export type ParameterQuantity = components["schemas"]["scopecat__kernel__quantity__Quantity"];
-export type ParameterScalarType =
-  | Extract<components["schemas"]["PersistableValueType"], { shape: "scalar" }>["atom"]
-  | Extract<
-      components["schemas"]["PersistableValueType"],
-      { shape: "table" }
-    >["columns"][number]["value_type"];
+export type ParameterScalarType = components["schemas"]["PersistableScalarWire"];
 export type ParameterValueDelta = Omit<
   components["schemas"]["ParameterValueDelta-Output"],
   "before" | "after"

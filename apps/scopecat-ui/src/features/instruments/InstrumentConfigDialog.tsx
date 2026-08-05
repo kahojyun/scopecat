@@ -643,7 +643,7 @@ function scalarOptionFields(schema: unknown): OptionField[] {
       {
         id,
         label: typeof value.title === "string" ? value.title : titleCase(id),
-        type: type as OptionField["type"],
+        type,
         defaultValue: scalarOptionValue(value.default),
         minimum: typeof value.minimum === "number" ? value.minimum : undefined,
         maximum: typeof value.maximum === "number" ? value.maximum : undefined,
@@ -657,7 +657,7 @@ function defaultOptions(schema: unknown): ConnectionOptions {
     scalarOptionFields(schema).flatMap((field) =>
       field.defaultValue === undefined ? [] : [[field.id, field.defaultValue]],
     ),
-  ) as ConnectionOptions;
+  );
 }
 
 function scalarOptionValue(value: unknown): OptionValue | undefined {

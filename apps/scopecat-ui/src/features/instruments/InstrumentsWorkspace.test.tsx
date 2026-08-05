@@ -941,7 +941,7 @@ describe("instrument workspace", () => {
       items: [delegatedInstrument],
     });
     vi.mocked(openInstrumentSession).mockResolvedValue(
-      session({ descriptions: [delegatedInstrument.description!] }),
+      session({ descriptions: [delegatedInstrument.description] }),
     );
 
     renderWorkspace();

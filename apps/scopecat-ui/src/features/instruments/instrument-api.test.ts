@@ -547,7 +547,7 @@ function activeConfig(): ActiveConfig {
       recorded_at: "2026-07-27T08:00:00Z",
     },
     config,
-  } as ActiveConfig;
+  };
 }
 
 function session(): InstrumentSession {

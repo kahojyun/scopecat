@@ -18,11 +18,14 @@
   ],
   "options": {
     "denyWarnings": true,
-    "reportUnusedDisableDirectives": "error"
+    "reportUnusedDisableDirectives": "error",
+    "typeAware": true
   },
   "rules": {
     "jsx-a11y/prefer-tag-over-role": "off",
     "react/react-in-jsx-scope": "off",
+    "typescript/consistent-return": "off",
+    "typescript/no-unsafe-type-assertion": "off",
     "unicorn/no-array-sort": "off",
     "vitest/expect-expect": "off",
     "vitest/require-mock-type-parameters": "off"
