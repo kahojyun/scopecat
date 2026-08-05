@@ -22,8 +22,8 @@ from scopecat.program.value_refs import (
     ValueRef,
     internal_value_ref_first_module_export,
     internal_value_ref_module_export,
-    internal_value_ref_record_id,
     internal_value_ref_requires_execution,
+    internal_value_ref_source_id,
 )
 
 
@@ -57,13 +57,15 @@ def internal_scope_value_ref(
         return value
     source = value.source
     if isinstance(source, ModuleExportScalarExpr):
-        record_id = source.record_id
-        if record_id is None:
+        source_value_id = source.source_value_id
+        if source_value_id is None:
             return value
         return ValueRef(
             source=replace(
                 source,
-                record_id=parse_product_id(record_id).prefixed(*scope).qualified_name,
+                source_value_id=(
+                    parse_product_id(source_value_id).prefixed(*scope).qualified_name
+                ),
             ),
             value_type=value.value_type,
             id=value.id,
@@ -82,7 +84,7 @@ def internal_scope_value_ref(
     )
 
 
-def internal_project_value_ref_record_id(
+def internal_project_value_ref_source_id(
     value: ValueRef,
     inputs: Mapping[str, ValueRef],
     *,
@@ -95,7 +97,7 @@ def internal_project_value_ref_record_id(
         internal_scope_value_ref(value, *scope, origin=origin),
         inputs,
     )
-    return internal_value_ref_record_id(projected)
+    return internal_value_ref_source_id(projected)
 
 
 def internal_bind_value_ref_inputs(

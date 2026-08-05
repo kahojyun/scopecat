@@ -13,11 +13,10 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from scopecat import (
     ExperimentContext,
     ModuleContext,
-    ProductBundle,
     ProductRef,
     RecordRef,
 )
-from scopecat.authoring._module_results import _RecordProduct
+from scopecat.authoring._module_results import ProductBundle, _RecordProduct
 from scopecat.measurements.results import (
     MeasurementArray,
     MeasurementScalar,

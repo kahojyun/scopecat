@@ -8,15 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, overload, override
 
-from scopecat.authoring import (
-    EachEntity,
-    OneEntity,
-    PerEntity,
-    ProductBundle,
-    ProductRef,
-    Symbolic,
-)
-from scopecat.authoring._module_results import _RecordProduct
+from scopecat.authoring import EachEntity, OneEntity, PerEntity, ProductRef, Symbolic
+from scopecat.authoring._module_results import ProductBundle, _RecordProduct
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.references import RecordRef
 from scopecat.measurements.value_spec import MeasurementArrayData

@@ -19,7 +19,7 @@ from scopecat.measurements.references import RecordRef
 from scopecat.measurements.results import Dataset, PointMask, Variable
 from scopecat.measurements.value_spec import MeasurementArrayData, MeasurementDType
 from scopecat.program.value_types import Quantity as QuantityType
-from scopecat.program.values import coordinate
+from scopecat.program.values import CoordinateRef, coordinate
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -81,7 +81,7 @@ def test_dataset_exposes_labeled_variables_and_raw_records() -> None:
 def test_typed_record_lookup_validates_schema_and_narrows_values() -> None:
     dataset = _dataset_with_record_sources()
     bias_ref: RecordRef[float] = RecordRef(
-        variable_id="bias",
+        id="bias",
         dtype="float64",
         unit="V",
         dims=("point",),
@@ -89,7 +89,7 @@ def test_typed_record_lookup_validates_schema_and_narrows_values() -> None:
         source_value_id="bias",
     )
     signal_ref: RecordRef[MeasurementArrayData] = RecordRef(
-        variable_id="signal",
+        id="signal",
         dtype="complex128",
         unit="ratio",
         dims=("point", "sample"),
@@ -115,23 +115,21 @@ def test_typed_record_lookup_validates_schema_and_narrows_values() -> None:
     assert traces[0].observable_id == "signal"
 
 
-def test_direct_point_handle_narrows_a_dataset_coordinate() -> None:
+def test_coordinate_handle_narrows_a_dataset_coordinate() -> None:
     dataset = _dataset()
     bias_ref = coordinate("bias", QuantityType(unit="V"))
 
+    assert_type(bias_ref, CoordinateRef[Quantity])
     bias = dataset[bias_ref]
 
     assert_type(bias, Variable[float])
     assert bias.require_quantities("mV")[1] == Quantity(1000.0, "mV")
 
-    with pytest.raises(TypeError, match="direct experiment point coordinates"):
-        _ = dataset[bias_ref + Quantity(1.0, "V")]
-
 
 def test_variable_require_helpers_reject_unavailable_rows() -> None:
     dataset = _dataset_with_record_sources()
     temperature_ref: RecordRef[float] = RecordRef(
-        variable_id="temperature",
+        id="temperature",
         dtype="float64",
         unit="K",
         dims=("point",),
@@ -154,7 +152,7 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
     "ref",
     [
         RecordRef[float](
-            variable_id="bias",
+            id="bias",
             dtype="int64",
             unit="V",
             dims=("point",),
@@ -162,7 +160,7 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
             source_value_id="bias",
         ),
         RecordRef[float](
-            variable_id="bias",
+            id="bias",
             dtype="float64",
             unit="A",
             dims=("point",),
@@ -170,7 +168,7 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
             source_value_id="bias",
         ),
         RecordRef[float](
-            variable_id="bias",
+            id="bias",
             dtype="float64",
             unit="V",
             dims=("point", "sample"),
@@ -178,14 +176,14 @@ def test_variable_require_helpers_reject_unavailable_rows() -> None:
             source_value_id="bias",
         ),
         RecordRef[float](
-            variable_id="bias",
+            id="bias",
             dtype="float64",
             unit="V",
             dims=("point",),
             source_value_id="bias",
         ),
         RecordRef[float](
-            variable_id="bias",
+            id="bias",
             dtype="float64",
             unit="V",
             dims=("point",),

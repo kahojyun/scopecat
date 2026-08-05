@@ -24,7 +24,6 @@ import xarray as xr
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.arrow_values import measurement_values_to_arrow_array
 from scopecat.measurements.references import RecordRef
 from scopecat.measurements.traces import Trace, measurement_traces
@@ -35,7 +34,7 @@ from scopecat.measurements.value_spec import (
     NativeMeasurementValue,
     measurement_value_spec_from_scalar,
 )
-from scopecat.program.value_refs import ValueRef, internal_value_ref_point_id
+from scopecat.program.value_refs import CoordinateRef, internal_coordinate_ref_id
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -564,21 +563,24 @@ class Dataset:
     ) -> Variable[T]: ...
 
     @overload
-    def __getitem__(self, variable_id: ValueRef[Quantity]) -> Variable[float]: ...
+    def __getitem__(self, variable_id: CoordinateRef[Quantity]) -> Variable[float]: ...
 
     @overload
-    def __getitem__(self, variable_id: ValueRef[EntityRef]) -> Variable[str]: ...
+    def __getitem__(
+        self,
+        variable_id: CoordinateRef[EntityRef | str],
+    ) -> Variable[str]: ...
 
     @overload
     def __getitem__[T: bool | int | float | str](
         self,
-        variable_id: ValueRef[T],
+        variable_id: CoordinateRef[T],
     ) -> Variable[T]: ...
 
     @overload
     def __getitem__(
         self,
-        variable_id: ValueRef[object],
+        variable_id: CoordinateRef[object],
     ) -> Variable[NativeAvailableValue]: ...
 
     @overload
@@ -586,9 +588,9 @@ class Dataset:
 
     def __getitem__(
         self,
-        variable_id: str | RecordRef[NativeAvailableValue] | ValueRef[object],
+        variable_id: str | RecordRef[NativeAvailableValue] | CoordinateRef[object],
     ) -> Variable[object]:
-        if isinstance(variable_id, ValueRef):
+        if isinstance(variable_id, CoordinateRef):
             return self._variable_from_point_ref(variable_id)
         if not isinstance(variable_id, str):
             return self._variable_from_record_ref(variable_id)
@@ -610,12 +612,8 @@ class Dataset:
         _require_record_ref_matches(ref, variable.definition)
         return cast("Variable[T]", variable)
 
-    def _variable_from_point_ref(self, ref: ValueRef[object]) -> Variable[object]:
-        point_id = internal_value_ref_point_id(ref)
-        if point_id is None:
-            raise TypeError(
-                "dataset value handles must be direct experiment point coordinates"
-            )
+    def _variable_from_point_ref(self, ref: CoordinateRef[object]) -> Variable[object]:
+        point_id = internal_coordinate_ref_id(ref)
         try:
             variable = self.variables[point_id]
         except KeyError as error:
@@ -1501,15 +1499,11 @@ def _require_record_ref_matches(
 
 
 def _require_point_ref_matches(
-    ref: ValueRef[object],
+    ref: CoordinateRef[object],
     definition: MeasurementVariable,
 ) -> None:
-    point_id = internal_value_ref_point_id(ref)
-    if point_id is None:
-        raise TypeError("dataset value handles must be direct point coordinates")
+    point_id = internal_coordinate_ref_id(ref)
     value_type = ref.value_type
-    if not isinstance(value_type, Scalar):
-        raise TypeError("dataset point coordinate handles must be scalar")
     dtype, unit = measurement_value_spec_from_scalar(value_type)
     expected = {
         "id": point_id,

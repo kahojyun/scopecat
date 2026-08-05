@@ -10,7 +10,6 @@ from scopecat.authoring._module_context import ModuleContext
 from scopecat.authoring._module_invocation import (
     ModuleInvocation,
 )
-from scopecat.authoring._module_results import ProductBundle
 from scopecat.authoring.definitions import (
     Experiment,
     ExperimentContext,
@@ -89,6 +88,7 @@ from scopecat.program.value_types import (
 )
 from scopecat.program.values import (
     ComputeInput,
+    CoordinateRef,
     MetadataValue,
     ModuleInput,
     ParameterKeyInput,
@@ -105,6 +105,7 @@ __all__ = [
     "BoolType",
     "ComputeInput",
     "ConcreteEntityInput",
+    "CoordinateRef",
     "EachEntity",
     "EntityInput",
     "EntitySelection",
@@ -132,7 +133,6 @@ __all__ = [
     "PayloadType",
     "PerEntity",
     "PointRow",
-    "ProductBundle",
     "ProductRef",
     "ProductValueSpec",
     "QuantityType",

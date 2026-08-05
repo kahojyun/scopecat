@@ -39,9 +39,10 @@ from scopecat.program.scans import (
     ValuesScanSource as _ValuesScanSource,
 )
 from scopecat.program.value_refs import (
+    CoordinateRef,
     ValueRef,
+    internal_coordinate_ref_id,
     internal_value_ref_parameter_lookup,
-    internal_value_ref_point_id,
 )
 from scopecat.program.values import coordinate
 
@@ -51,7 +52,7 @@ type ScanValueType = Scalar | Bool | Entity | Float | Int | QuantityType | Strin
 
 
 def axis(
-    target: ValueRef,
+    target: CoordinateRef,
     values: Iterable[ScanValue] | None = None,
     *,
     overlay: ValueRef | None = None,
@@ -71,7 +72,36 @@ def axis(
     """
 
     axis_id, value_type = _point_target(target)
-    _validate_overlay(target, overlay)
+    return _axis(
+        axis_id,
+        value_type,
+        values,
+        overlay=overlay,
+        unit=unit,
+        start=start,
+        stop=stop,
+        center=center,
+        span=span,
+        points=points,
+    )
+
+
+def _axis(
+    axis_id: str,
+    value_type: Scalar,
+    values: Iterable[ScanValue] | None = None,
+    *,
+    overlay: ValueRef | None = None,
+    unit: str | None = None,
+    start: ScanCoordinate | None = None,
+    stop: ScanCoordinate | None = None,
+    center: ScanCenterInput | None = None,
+    span: ScanCoordinate | None = None,
+    points: int | None = None,
+) -> Axis:
+    """Build an axis from an already resolved coordinate identity and type."""
+
+    _validate_overlay(value_type, overlay)
     if overlay is not None and center is not None:
         raise ValueError("axis overlay supplies the center; omit center")
     selected_center = overlay if overlay is not None else center
@@ -89,7 +119,7 @@ def axis(
             id=axis_id,
             value_type=_explicit_value_type(value_type, unit=unit),
             source=_ValuesScanSource(
-                values=_capture_scan_values(target, selected_values, unit=unit),
+                values=_capture_scan_values(value_type, selected_values, unit=unit),
             ),
             overlay=overlay,
         )
@@ -101,7 +131,7 @@ def axis(
             msg = "axis range form requires start, stop, and points"
             raise ValueError(msg)
         range_type, captured_start, captured_stop = _capture_range_scan(
-            target,
+            value_type,
             start=start,
             stop=stop,
             points=points,
@@ -130,7 +160,7 @@ def axis(
         msg = "axis around form requires a center or overlay, plus span and points"
         raise ValueError(msg)
     around_type, captured_center, captured_span = _capture_around_scan(
-        target,
+        value_type,
         center=selected_center,
         span=span,
         points=points,
@@ -160,7 +190,7 @@ def scan_axis(
     center: ScanCenterInput | None = None,
     span: ScanCoordinate | None = None,
     points: int | None = None,
-) -> tuple[ValueRef, Axis]:
+) -> tuple[CoordinateRef, Axis]:
     """Build one inferred coordinate and its matching axis declaration."""
 
     selected_values = None if values is None else tuple(values)
@@ -177,9 +207,9 @@ def scan_axis(
             span=span,
         )
     )
-    target = coordinate(id, selected_type)
-    selected_axis = axis(
-        target,
+    selected_axis = _axis(
+        id,
+        selected_type,
         selected_values,
         overlay=overlay,
         unit=unit,
@@ -189,20 +219,7 @@ def scan_axis(
         span=span,
         points=points,
     )
-    if selected_axis.value_type != selected_type:
-        target = coordinate(id, selected_axis.value_type)
-        selected_axis = axis(
-            target,
-            selected_values,
-            overlay=overlay,
-            unit=unit,
-            start=start,
-            stop=stop,
-            center=center,
-            span=span,
-            points=points,
-        )
-    return target, selected_axis
+    return coordinate(id, selected_axis.value_type), selected_axis
 
 
 def _normalize_scan_value_type(value_type: ScanValueType) -> Scalar:
@@ -389,24 +406,17 @@ def _inferred_quantities(
     return tuple(quantities)
 
 
-def _validate_overlay(target: ValueRef, overlay: ValueRef | None) -> None:
+def _validate_overlay(value_type: Scalar, overlay: ValueRef | None) -> None:
     if overlay is None:
         return
     if internal_value_ref_parameter_lookup(overlay) is None:
         raise TypeError("axis overlay requires a direct scopecat.parameter_lookup")
-    if overlay.value_type != target.value_type:
+    if overlay.value_type != value_type:
         raise TypeError("axis overlay and coordinate must use the same value type")
 
 
-def _point_target(target: ValueRef) -> tuple[str, Scalar]:
-    point_id = internal_value_ref_point_id(target)
-    if point_id is None:
-        msg = "axis target must be created with scopecat.coordinate"
-        raise TypeError(msg)
-    if not isinstance(target.value_type, Scalar):
-        msg = "axis target must carry a scalar value type"
-        raise TypeError(msg)
-    return point_id, target.value_type
+def _point_target(target: CoordinateRef) -> tuple[str, Scalar]:
+    return internal_coordinate_ref_id(target), target.value_type
 
 
 def _explicit_value_type(value_type: Scalar, *, unit: str | None) -> Scalar:
@@ -417,7 +427,7 @@ def _explicit_value_type(value_type: Scalar, *, unit: str | None) -> Scalar:
 
 
 def _capture_scan_values(
-    target: ValueRef,
+    value_type: Scalar,
     values: Sequence[ScanValue],
     *,
     unit: str | None,
@@ -431,7 +441,7 @@ def _capture_scan_values(
                 raise TypeError(msg)
             selected = Quantity(value=float(value), unit=unit)
         validate_literal(
-            target.value_type,
+            value_type,
             selected,
             path=("axis", "values", index),
         )
@@ -440,7 +450,7 @@ def _capture_scan_values(
 
 
 def _capture_range_scan(
-    target: ValueRef,
+    value_type: Scalar,
     *,
     start: ScanCoordinate,
     stop: ScanCoordinate,
@@ -448,7 +458,6 @@ def _capture_range_scan(
     unit: str | None,
 ) -> tuple[Scalar, ScanRangeValue, ScanRangeValue]:
     _validate_scan_points(points)
-    value_type = cast("Scalar", target.value_type)
     atom = value_type.atom
     if isinstance(atom, QuantityType):
         start_quantity = _optional_scan_quantity(start, path="axis.start")
@@ -468,8 +477,8 @@ def _capture_range_scan(
             unit=coordinate_unit,
             path="axis.stop",
         )
-        validate_literal(target.value_type, captured_start, path=("axis", "start"))
-        validate_literal(target.value_type, captured_stop, path=("axis", "stop"))
+        validate_literal(value_type, captured_start, path=("axis", "start"))
+        validate_literal(value_type, captured_stop, path=("axis", "stop"))
         return (
             _explicit_value_type(value_type, unit=coordinate_unit),
             cast("Quantity", capture_runtime_input(captured_start)),
@@ -481,8 +490,8 @@ def _capture_range_scan(
     if isinstance(atom, Float):
         start_value = _numeric_scan_coordinate(start, path="axis.start")
         stop_value = _numeric_scan_coordinate(stop, path="axis.stop")
-        validate_literal(target.value_type, start_value, path=("axis", "start"))
-        validate_literal(target.value_type, stop_value, path=("axis", "stop"))
+        validate_literal(value_type, start_value, path=("axis", "start"))
+        validate_literal(value_type, stop_value, path=("axis", "stop"))
         return (
             value_type,
             cast("float", capture_runtime_input(float(start_value))),
@@ -497,8 +506,8 @@ def _capture_range_scan(
         ):
             msg = "integer axis range endpoints must be integers"
             raise TypeError(msg)
-        validate_literal(target.value_type, start, path=("axis", "start"))
-        validate_literal(target.value_type, stop, path=("axis", "stop"))
+        validate_literal(value_type, start, path=("axis", "start"))
+        validate_literal(value_type, stop, path=("axis", "stop"))
         if (stop - start) % (points - 1) != 0:
             msg = "integer axis range must have an integral step"
             raise ValueError(msg)
@@ -508,14 +517,14 @@ def _capture_range_scan(
 
 
 def _capture_around_scan(
-    target: ValueRef,
+    value_type: Scalar,
     *,
     center: ScanCenterInput,
     span: ScanCoordinate,
     points: int,
     unit: str | None,
 ) -> tuple[Scalar, ScanCenter, Quantity]:
-    target_type = _validate_around_target(target, points=points)
+    target_type = _validate_around_target(value_type, points=points)
     literal_center = (
         None
         if isinstance(center, ValueRef)
@@ -544,9 +553,8 @@ def _capture_around_scan(
             literal_span,
         ),
     )
-    target_scalar = cast("Scalar", target.value_type)
     axis_type = _explicit_value_type(
-        target_scalar,
+        value_type,
         unit=coordinate_unit,
     )
     if (
@@ -557,7 +565,7 @@ def _capture_around_scan(
         if unit is not None:
             msg = "axis.center must declare a unit for a unit-specific axis"
             raise TypeError(msg)
-        axis_type = target_scalar
+        axis_type = value_type
     if isinstance(center, ValueRef):
         _require_quantity_unit(
             cast("QuantityType", center_type),
@@ -573,7 +581,7 @@ def _capture_around_scan(
             normalize=unit is not None,
         )
         validate_literal(
-            target.value_type,
+            value_type,
             selected_center,
             path=("axis", "center"),
         )
@@ -598,15 +606,12 @@ def _capture_around_scan(
     )
 
 
-def _validate_around_target(target: ValueRef, *, points: int) -> QuantityType:
-    target_type = target.value_type
-    if not isinstance(target_type, Scalar) or not isinstance(
-        target_type.atom, QuantityType
-    ):
+def _validate_around_target(value_type: Scalar, *, points: int) -> QuantityType:
+    if not isinstance(value_type.atom, QuantityType):
         msg = "around axis target must be a typed quantity point"
         raise TypeError(msg)
     _validate_scan_points(points)
-    return target_type.atom
+    return value_type.atom
 
 
 def _validate_scan_points(points: int) -> None:

@@ -31,7 +31,7 @@ _Q0 = _DEVICES.row(
 
 def test_parameter_schema_owns_catalog_table_and_stable_refs() -> None:
     frequency = assert_type(
-        _Q0.cell(_FREQUENCY),
+        _Q0[_FREQUENCY],
         sc.ParameterCell[sc.Quantity],
     )
     assert_type(frequency.ref, sc.ValueRef[sc.Quantity])
@@ -96,7 +96,7 @@ def test_parameter_rows_reject_incomplete_keys_and_foreign_fields() -> None:
     with pytest.raises(ValueError, match="another schema"):
         _DEVICES.row(other_key.key("q0"))
     with pytest.raises(ValueError, match="another schema"):
-        _Q0.cell(other)
+        _Q0[other]
     with pytest.raises(ValueError, match="cover every field"):
         _Q0.values(_FREQUENCY.value(sc.Quantity(5.0, "GHz")))
     with pytest.raises(ValueError, match="cannot replace key"):

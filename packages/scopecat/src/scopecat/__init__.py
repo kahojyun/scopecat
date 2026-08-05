@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from scopecat.authoring import (
         Axis,
         BoolType,
+        CoordinateRef,
         EachEntity,
         EntityType,
         Experiment,
@@ -56,7 +57,6 @@ if TYPE_CHECKING:
         ParameterSchema,
         PayloadType,
         PerEntity,
-        ProductBundle,
         ProductRef,
         ProductValueSpec,
         QuantityType,
@@ -105,6 +105,7 @@ if TYPE_CHECKING:
 _EXPORTS: dict[str, tuple[str, str]] = {
     "Axis": ("scopecat.authoring", "Axis"),
     "BoolType": ("scopecat.authoring", "BoolType"),
+    "CoordinateRef": ("scopecat.authoring", "CoordinateRef"),
     "EachEntity": ("scopecat.authoring", "EachEntity"),
     "EntityType": ("scopecat.authoring", "EntityType"),
     "Experiment": ("scopecat.authoring", "Experiment"),
@@ -126,7 +127,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ParameterSchema": ("scopecat.authoring", "ParameterSchema"),
     "PayloadType": ("scopecat.authoring", "PayloadType"),
     "PerEntity": ("scopecat.authoring", "PerEntity"),
-    "ProductBundle": ("scopecat.authoring", "ProductBundle"),
     "ProductRef": ("scopecat.authoring", "ProductRef"),
     "ProductValueSpec": ("scopecat.authoring", "ProductValueSpec"),
     "QuantityType": ("scopecat.authoring", "QuantityType"),

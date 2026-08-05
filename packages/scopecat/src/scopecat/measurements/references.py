@@ -23,7 +23,7 @@ _RecordT_co = TypeVar(
 class RecordRef(Generic[_RecordT_co]):
     """Typed identity and schema promise for one durable dataset variable."""
 
-    variable_id: str
+    id: str
     dtype: MeasurementDType
     unit: str | None
     dims: tuple[str, ...]
@@ -33,7 +33,7 @@ class RecordRef(Generic[_RecordT_co]):
     recording_group_id: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.variable_id:
+        if not self.id:
             raise ValueError("record reference id must be non-empty")
         if not self.dims or self.dims[0] != "point":
             raise ValueError("record reference dimensions must begin with point")
@@ -44,10 +44,6 @@ class RecordRef(Generic[_RecordT_co]):
             )
         if self.recording_group_id is not None and not self.recording_group_id:
             raise ValueError("record reference group id must be non-empty")
-
-    @property
-    def id(self) -> str:
-        return self.variable_id
 
 
 __all__ = ["RecordRef"]

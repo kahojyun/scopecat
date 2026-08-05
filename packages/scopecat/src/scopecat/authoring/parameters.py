@@ -284,10 +284,9 @@ class ParameterRow:
         compare=False,
     )
 
-    def cell[T: ParameterScalar](
+    def __getitem__[T: ParameterScalar](
         self,
         selected: ParameterField[T],
-        /,
     ) -> ParameterCell[T]:
         """Return the stable typed cell handle for one field."""
 
@@ -299,12 +298,6 @@ class ParameterRow:
         created = ParameterCell(row=self, field=selected)
         self._cells[cache_key] = created
         return created
-
-    def __getitem__[T: ParameterScalar](
-        self,
-        selected: ParameterField[T],
-    ) -> ParameterCell[T]:
-        return self.cell(selected)
 
     def values(
         self,

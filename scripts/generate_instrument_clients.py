@@ -2993,8 +2993,11 @@ def _render_header(
     if has_acquisitions:
         imports["dataclasses"] = {"dataclass", "field"}
         imports.setdefault("typing", set()).add("override")
-        imports["scopecat.authoring"].update({"ProductBundle", "ProductRef"})
-        imports["scopecat.authoring._module_results"] = {"_RecordProduct"}
+        imports["scopecat.authoring"].add("ProductRef")
+        imports["scopecat.authoring._module_results"] = {
+            "ProductBundle",
+            "_RecordProduct",
+        }
         imports["scopecat.measurements.references"] = {"RecordRef"}
         imports["scopecat.records.measurement"] = {"MeasurementValue"}
         if any(

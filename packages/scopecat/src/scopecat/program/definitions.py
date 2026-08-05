@@ -29,7 +29,11 @@ from scopecat.program.scans import (
     RepeatMode,
     points_spec,
 )
-from scopecat.program.value_refs import ValueRef, internal_value_ref_point_id
+from scopecat.program.value_refs import (
+    CoordinateRef,
+    ValueRef,
+    internal_value_ref_point_id,
+)
 from scopecat.program.values import (
     MetadataValue,
     RuntimeInput,
@@ -102,17 +106,11 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
         default_factory=empty_program_mapping
     )
     point_plan_override: PointPlan | None = None
-    _output: _ExperimentResultT_co = field(
-        default=cast("_ExperimentResultT_co", None),
+    output: _ExperimentResultT_co = field(
+        kw_only=True,
         repr=False,
         compare=False,
     )
-
-    @property
-    def output(self) -> _ExperimentResultT_co:
-        """Return the typed dataset schema authored by the experiment."""
-
-        return self._output
 
     @property
     def point_plan(self) -> PointPlan:
@@ -163,7 +161,7 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
         self,
         rows: Sequence[PointRow],
         *,
-        coordinates: Sequence[ValueRef] = (),
+        coordinates: Sequence[CoordinateRef] = (),
     ) -> Self:
         """Replace the complete point domain with ordered explicit points."""
 

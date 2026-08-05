@@ -176,6 +176,14 @@ class ValueRef[T = object]:
         return _binary_value(other, self, "/")
 
 
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
+class CoordinateRef[T = object](ValueRef[T]):
+    """A direct experiment-point coordinate accepted by dataset lookups."""
+
+    source: PointColumnScalarExpr
+    value_type: Scalar
+
+
 def internal_input_value_ref(input_id: str, value_type: ValueType) -> ValueRef:
     return ValueRef(
         source=(
@@ -214,13 +222,19 @@ def internal_operation_result_value_ref(
     )
 
 
-def internal_point_value_ref(point_id: str, value_type: Scalar) -> ValueRef:
+def internal_point_value_ref(point_id: str, value_type: Scalar) -> CoordinateRef:
     """Create a typed value supplied by the current experiment point."""
 
-    return ValueRef(
+    return CoordinateRef(
         source=point_col(point_id, value_type),
         value_type=value_type,
     )
+
+
+def internal_coordinate_ref_id(value: CoordinateRef) -> str:
+    """Return the canonical point id carried by a coordinate handle."""
+
+    return value.source.name
 
 
 def internal_parameter_lookup_value_ref(
@@ -276,7 +290,7 @@ def internal_module_export_value_ref(
     export_id: str,
     value_type: ValueType,
     *,
-    record_id: str | None = None,
+    source_value_id: str | None = None,
 ) -> ValueRef:
     """Create an unresolved use of one invocation's exported value.
 
@@ -289,7 +303,7 @@ def internal_module_export_value_ref(
         source: _ValueSource = ModuleExportScalarExpr(
             invocation_key=invocation_key,
             export_id=export_id,
-            record_id=record_id,
+            source_value_id=source_value_id,
             value_type=value_type,
         )
     else:
@@ -331,8 +345,8 @@ def internal_value_ref_operation_origin(value: ValueRef) -> tuple[object, ...]:
     return source.origin if isinstance(source, ComputeResultScalarExpr) else ()
 
 
-def internal_value_ref_record_id(value: ValueRef) -> str | None:
-    """Return a stable user-facing id for a directly named scalar value."""
+def internal_value_ref_source_id(value: ValueRef) -> str | None:
+    """Return the stable source identity of a directly named scalar value."""
 
     operation_id = internal_value_ref_operation_id(value)
     if operation_id is not None:
@@ -349,7 +363,7 @@ def internal_value_ref_record_id(value: ValueRef) -> str | None:
             local_id=source.use.column_id,
         ).qualified_name
     if isinstance(source, ModuleExportScalarExpr):
-        return source.record_id
+        return source.source_value_id
     return None
 
 

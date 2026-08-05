@@ -24,8 +24,8 @@ DEFAULT_AMPLIFICATIONS = (1, 2, 3)
 class DragBetaDataset:
     """Typed dataset schema produced by one DRAG-beta experiment."""
 
-    beta: sc.ValueRef[Quantity]
-    amplification: sc.ValueRef[int]
+    beta: sc.CoordinateRef[Quantity]
+    amplification: sc.CoordinateRef[int]
     probabilities: BinaryIqProbabilityRecords
 
 

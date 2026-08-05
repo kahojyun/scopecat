@@ -195,7 +195,7 @@ def test_experiment_records_a_compute_result_as_a_named_dataset_value() -> None:
     assert record.value_id == logical.compute_nodes[0].result_id
 
 
-def test_experiment_derives_value_record_id_after_resolving_a_module_result() -> None:
+def test_experiment_derives_record_id_from_module_source_identity() -> None:
     @sc.module(id="test.value_source")
     def value_source(module: sc.ModuleContext) -> sc.ValueRef:
         return module.compute(

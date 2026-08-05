@@ -236,7 +236,7 @@ def record_ref_from_product[ValueT: ProductNativeValue](
     if record_id is None:
         raise AssertionError("product record selections require a resolved id")
     return RecordRef(
-        variable_id=record_id,
+        id=record_id,
         dtype=product.value_spec.dtype,
         unit=product.value_spec.unit,
         dims=(

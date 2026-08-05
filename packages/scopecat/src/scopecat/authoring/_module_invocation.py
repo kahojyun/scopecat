@@ -26,7 +26,7 @@ from scopecat.program.value_refs import (
     ValueRef,
     internal_module_export_value_ref,
 )
-from scopecat.program.value_transforms import internal_project_value_ref_record_id
+from scopecat.program.value_transforms import internal_project_value_ref_source_id
 
 
 class DomainCallProvider(Protocol):
@@ -118,7 +118,7 @@ def create_module_invocation[ResultT](
                 key,
                 port.id,
                 port.value_type,
-                record_id=internal_project_value_ref_record_id(
+                source_value_id=internal_project_value_ref_source_id(
                     port.source,
                     inputs,
                     scope=(instance_id,),

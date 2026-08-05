@@ -17,17 +17,18 @@ from scopecat.program.parameters import (
     merge_parameter_contracts,
 )
 from scopecat.program.value_refs import (
+    CoordinateRef,
     ScalarOperand,
     ValueRef,
+    internal_coordinate_ref_id,
     internal_value_ref_parameter_contracts,
     internal_value_ref_parameter_lookup,
-    internal_value_ref_point_id,
 )
 
 type ScanValue = Quantity | EntityRef | str | int | float | bool | None
 type ScanCenter = ValueRef | Quantity
 type ScanRangeValue = Quantity | int | float
-type PointRow = Mapping[ValueRef, ScanValue]
+type PointRow = Mapping[CoordinateRef, ScanValue]
 type RepeatMode = Literal["point", "sweep"]
 type PointTraversal = Literal["forward", "snake"]
 
@@ -200,7 +201,7 @@ def _repeat_axis(values: tuple[int, ...], *, maximum: int) -> AxisSpec:
 def points_spec(
     rows: Sequence[PointRow],
     *,
-    coordinates: Sequence[ValueRef] = (),
+    coordinates: Sequence[CoordinateRef] = (),
 ) -> PointsSpec:
     """Capture ordered point rows as equal-length typed coordinate columns."""
 
@@ -245,13 +246,14 @@ def points_spec(
     )
 
 
-def _point_coordinate(coordinate: ValueRef) -> tuple[ValueRef, str, Scalar]:
-    coordinate_id = internal_value_ref_point_id(coordinate)
-    if coordinate_id is None:
-        raise TypeError("points coordinates must be created with scopecat.coordinate")
-    if not isinstance(coordinate.value_type, Scalar):
-        raise TypeError("points coordinates must carry scalar value types")
-    return coordinate, coordinate_id, coordinate.value_type
+def _point_coordinate(
+    coordinate: CoordinateRef,
+) -> tuple[CoordinateRef, str, Scalar]:
+    return (
+        coordinate,
+        internal_coordinate_ref_id(coordinate),
+        coordinate.value_type,
+    )
 
 
 def _capture_point_value(

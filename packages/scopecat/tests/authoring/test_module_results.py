@@ -20,7 +20,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.value_graph import OperationId
-from scopecat.program.value_refs import internal_value_ref_record_id
+from scopecat.program.value_refs import internal_value_ref_source_id
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.expressions import evaluate_scalar
@@ -143,13 +143,7 @@ def _float_producer_module() -> sc.ExperimentModule[sc.ValueRef[float], ...]:
     return module
 
 
-def test_direct_export_carries_its_projected_record_identity() -> None:
-    invocation = _float_producer_module().instantiate("producer")
-
-    assert internal_value_ref_record_id(invocation.result) == "producer/score"
-
-
-def test_nested_export_carries_the_full_instance_record_identity() -> None:
+def test_nested_export_carries_the_full_instance_source_identity() -> None:
     child = _float_producer_module().instantiate("child")
 
     @sc.module(id="test.results.record-identity-wrapper")
@@ -159,10 +153,10 @@ def test_nested_export_carries_the_full_instance_record_identity() -> None:
 
     outer = wrapper.instantiate("outer")
 
-    assert internal_value_ref_record_id(outer.result) == "outer/child/score"
+    assert internal_value_ref_source_id(outer.result) == "outer/child/score"
 
 
-def test_input_export_inherits_its_bound_value_record_identity() -> None:
+def test_input_export_inherits_its_bound_value_source_identity() -> None:
     source = _float_producer_module().instantiate("source")
 
     @sc.module(id="test.results.record-identity-passthrough")
@@ -175,7 +169,7 @@ def test_input_export_inherits_its_bound_value_record_identity() -> None:
 
     invocation = passthrough.instantiate("passthrough", value=source.result)
 
-    assert internal_value_ref_record_id(invocation.result) == "source/score"
+    assert internal_value_ref_source_id(invocation.result) == "source/score"
 
 
 def test_explicit_instances_return_hygienic_compute_values_to_siblings(

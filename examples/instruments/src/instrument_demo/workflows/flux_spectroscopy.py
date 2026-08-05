@@ -29,7 +29,7 @@ SWEEP_STOP = sc.Quantity(5.08, "GHz")
 class FluxSpectroscopyDataset:
     """Typed handles for the durable flux-spectroscopy dataset."""
 
-    dc_bias: sc.ValueRef[sc.Quantity]
+    dc_bias: sc.CoordinateRef[sc.Quantity]
     trace: NetworkSweepRecords
     temperature: sc.RecordRef[float]
 

@@ -30,7 +30,7 @@ class _StructuralValues:
 
 @dataclass(frozen=True, slots=True)
 class _CountDataset:
-    count: sc.ValueRef[int]
+    count: sc.CoordinateRef[int]
     recorded_count: sc.RecordRef[int]
 
 
@@ -41,7 +41,7 @@ def _identity_count(*, value: object) -> object:
 def test_symbolic_factories_preserve_python_value_types() -> None:
     assert_type(
         sc.coordinate("enabled", sc.BoolType()),
-        sc.ValueRef[bool],
+        sc.CoordinateRef[bool],
     )
     assert_type(
         sc.parameter("frequency", sc.QuantityType(unit="GHz")),

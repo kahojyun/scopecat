@@ -97,11 +97,12 @@ from scopecat.program.scans import (
 )
 from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
+    CoordinateRef,
     ValueRef,
     internal_value_ref_point_dependencies,
     internal_value_ref_point_id,
-    internal_value_ref_record_id,
     internal_value_ref_requires_execution,
+    internal_value_ref_source_id,
 )
 from scopecat.program.value_types import (
     Bool,
@@ -442,7 +443,7 @@ class ExperimentContext:
         value_type: ScanValueType | None = None,
         overlay: None = None,
         unit: None = None,
-    ) -> ValueRef[T]: ...
+    ) -> CoordinateRef[T]: ...
 
     @overload
     def scan(
@@ -453,7 +454,7 @@ class ExperimentContext:
         value_type: ScanValueType | None = None,
         overlay: None = None,
         unit: str,
-    ) -> ValueRef[QuantityValue]: ...
+    ) -> CoordinateRef[QuantityValue]: ...
 
     @overload
     def scan[T](
@@ -466,7 +467,7 @@ class ExperimentContext:
         unit: str | None = None,
         span: ScanCoordinate,
         points: int,
-    ) -> ValueRef[T]: ...
+    ) -> CoordinateRef[T]: ...
 
     @overload
     def scan(
@@ -480,7 +481,7 @@ class ExperimentContext:
         start: QuantityValue | str,
         stop: QuantityValue | str,
         points: int,
-    ) -> ValueRef[QuantityValue]: ...
+    ) -> CoordinateRef[QuantityValue]: ...
 
     @overload
     def scan(
@@ -494,7 +495,7 @@ class ExperimentContext:
         start: int,
         stop: int,
         points: int,
-    ) -> ValueRef[int]: ...
+    ) -> CoordinateRef[int]: ...
 
     @overload
     def scan(
@@ -508,7 +509,7 @@ class ExperimentContext:
         start: float,
         stop: float,
         points: int,
-    ) -> ValueRef[float]: ...
+    ) -> CoordinateRef[float]: ...
 
     def scan(
         self,
@@ -523,7 +524,7 @@ class ExperimentContext:
         center: ScanCenterInput | None = None,
         span: ScanCoordinate | None = None,
         points: int | None = None,
-    ) -> ValueRef[object]:
+    ) -> CoordinateRef[object]:
         """Declare one inferred grid coordinate and return its symbolic value."""
 
         if self._point_domain_mode == "explicit":
@@ -555,7 +556,7 @@ class ExperimentContext:
         self,
         rows: Sequence[PointRow],
         *,
-        coordinates: Sequence[ValueRef] = (),
+        coordinates: Sequence[CoordinateRef] = (),
         repeat: int = 1,
         repeat_mode: RepeatMode = "point",
     ) -> None:
@@ -791,12 +792,12 @@ class ExperimentContext:
         namespace_segments = (
             () if namespace is None else _record_namespace_segments(namespace)
         )
-        default_id = internal_value_ref_record_id(value)
-        if record_id is None and default_id is None:
+        default_source_id = internal_value_ref_source_id(value)
+        if record_id is None and default_source_id is None:
             raise ValueError(
                 "recording an unnamed symbolic expression requires record_id"
             )
-        source_value_id = default_id or record_id
+        source_value_id = default_source_id or record_id
         if source_value_id is None:
             raise AssertionError("value record identity was not resolved")
         selected_id = (
@@ -815,7 +816,7 @@ class ExperimentContext:
         )
         dtype, unit = measurement_value_spec_from_scalar(value_type)
         return RecordRef(
-            variable_id=selected_id,
+            id=selected_id,
             dtype=dtype,
             unit=unit,
             dims=("point",),
@@ -1131,7 +1132,7 @@ def _experiment_from_function[ResultT, **P](
             definition=definition,
             input_overrides=captured_inputs,
             point_plan_override=None,
-            _output=output,
+            output=output,
         )
 
     authored = Experiment(

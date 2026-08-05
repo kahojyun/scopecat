@@ -32,6 +32,7 @@ from scopecat.program.identities import ComputeDeclarationKey
 from scopecat.program.input_capture import capture_runtime_input
 from scopecat.program.table_values import ParameterTableSource
 from scopecat.program.value_refs import (
+    CoordinateRef,
     ValueRef,
     internal_input_value_ref,
     internal_operation_result_value_ref,
@@ -139,38 +140,38 @@ def input(
 
 
 @overload
-def coordinate(id: str, value_type: Bool) -> ValueRef[bool]: ...
+def coordinate(id: str, value_type: Bool) -> CoordinateRef[bool]: ...
 
 
 @overload
-def coordinate(id: str, value_type: Entity) -> ValueRef[EntityRef | str]: ...
+def coordinate(id: str, value_type: Entity) -> CoordinateRef[EntityRef | str]: ...
 
 
 @overload
-def coordinate(id: str, value_type: Float) -> ValueRef[float]: ...
+def coordinate(id: str, value_type: Float) -> CoordinateRef[float]: ...
 
 
 @overload
-def coordinate(id: str, value_type: Int) -> ValueRef[int]: ...
+def coordinate(id: str, value_type: Int) -> CoordinateRef[int]: ...
 
 
 @overload
-def coordinate(id: str, value_type: Payload) -> ValueRef[PayloadValue]: ...
+def coordinate(id: str, value_type: Payload) -> CoordinateRef[PayloadValue]: ...
 
 
 @overload
-def coordinate(id: str, value_type: QuantityType) -> ValueRef[Quantity]: ...
+def coordinate(id: str, value_type: QuantityType) -> CoordinateRef[Quantity]: ...
 
 
 @overload
-def coordinate(id: str, value_type: String) -> ValueRef[str]: ...
+def coordinate(id: str, value_type: String) -> CoordinateRef[str]: ...
 
 
 @overload
-def coordinate(id: str, value_type: Scalar) -> ValueRef[object]: ...
+def coordinate(id: str, value_type: Scalar) -> CoordinateRef[object]: ...
 
 
-def coordinate(id: str, value_type: Scalar | ScalarValueType) -> ValueRef[object]:
+def coordinate(id: str, value_type: Scalar | ScalarValueType) -> CoordinateRef[object]:
     """Declare a typed scalar coordinate supplied by each experiment point.
 
     Pass the same value to module bindings and axis declarations. This keeps the
@@ -470,6 +471,7 @@ def _validate_compute_function(
 __all__ = [
     "Compute",
     "ComputeInput",
+    "CoordinateRef",
     "MetadataValue",
     "ModuleInput",
     "ParameterKeyInput",

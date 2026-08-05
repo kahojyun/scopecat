@@ -12,7 +12,7 @@ from scopecat.program.values import compute as program_compute
 from scopecat.records.run_request import AxisAroundSourceRecord, GridDomainRecord
 
 
-def _quantity_scan_target() -> sc.ValueRef:
+def _quantity_scan_target() -> sc.CoordinateRef:
     quantity_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
     return sc.coordinate("frequency", quantity_type)
 
