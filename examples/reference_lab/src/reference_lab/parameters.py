@@ -75,10 +75,36 @@ READOUT_RESONATORS = sc.parameter_schema(
 Q0_READOUT = READOUT_RESONATORS.row(RESONATOR.key("q0"))
 Q1_READOUT = READOUT_RESONATORS.row(RESONATOR.key("q1"))
 
+CHANNEL_QUBIT = sc.parameter_field(
+    "qubit",
+    sc.EntityType(entity_kind="logical_qubit"),
+)
+FLUX_CHANNEL = sc.parameter_field("flux_channel", sc.StringType())
+DRIVE_CHANNEL = sc.parameter_field("drive_channel", sc.StringType())
+READOUT_CHANNEL = sc.parameter_field("readout_channel", sc.StringType())
+ACQUISITION_CHANNEL = sc.parameter_field("acquisition_channel", sc.StringType())
+CHANNEL_DELAY = sc.parameter_field("channel_delay", sc.QuantityType(unit="ns"))
+QUBIT_CHANNELS = sc.parameter_schema(
+    "qubit_channels",
+    fields=(
+        CHANNEL_QUBIT,
+        FLUX_CHANNEL,
+        DRIVE_CHANNEL,
+        READOUT_CHANNEL,
+        ACQUISITION_CHANNEL,
+        CHANNEL_DELAY,
+    ),
+    primary_key=(CHANNEL_QUBIT,),
+    description="Reviewed logical-to-physical channel assignments and timing.",
+)
+Q0_CHANNELS = QUBIT_CHANNELS.row(CHANNEL_QUBIT.key("q0"))
+Q1_CHANNELS = QUBIT_CHANNELS.row(CHANNEL_QUBIT.key("q1"))
+
 REFERENCE_PARAMETER_CATALOG = sc.parameter_catalog(
     "reference-lab-parameter-catalog",
     QUBITS,
     READOUT_RESONATORS,
+    QUBIT_CHANNELS,
 )
 
 
@@ -120,23 +146,51 @@ def reference_lab_parameter_snapshot() -> ParameterSnapshot:
                     ),
                 ),
             ),
+            TableParameterValue(
+                id=QUBIT_CHANNELS.id,
+                rows=(
+                    Q0_CHANNELS.values(
+                        FLUX_CHANNEL.value("flux.dac0.ch0"),
+                        DRIVE_CHANNEL.value("drive.awg0.ch1"),
+                        READOUT_CHANNEL.value("readout.mux0"),
+                        ACQUISITION_CHANNEL.value("digitizer.demod0"),
+                        CHANNEL_DELAY.value(0.0),
+                    ),
+                    Q1_CHANNELS.values(
+                        FLUX_CHANNEL.value("unassigned"),
+                        DRIVE_CHANNEL.value("drive.awg0.ch2"),
+                        READOUT_CHANNEL.value("readout.mux0"),
+                        ACQUISITION_CHANNEL.value("digitizer.demod1"),
+                        CHANNEL_DELAY.value(1.5),
+                    ),
+                ),
+            ),
         ),
     )
 
 
 __all__ = [
+    "ACQUISITION_CHANNEL",
+    "CHANNEL_DELAY",
+    "CHANNEL_QUBIT",
     "DRAG_BETA",
+    "DRIVE_CHANNEL",
+    "FLUX_CHANNEL",
     "FLUX_SWEET_SPOT",
     "Q0",
+    "Q0_CHANNELS",
     "Q0_DRAG_BETA",
     "Q0_READOUT",
     "Q1",
+    "Q1_CHANNELS",
     "Q1_READOUT",
     "QUARTER_TURN_AMPLITUDE",
     "QUARTER_TURN_DURATION",
     "QUARTER_TURN_SIGMA",
     "QUBIT",
     "QUBITS",
+    "QUBIT_CHANNELS",
+    "READOUT_CHANNEL",
     "READOUT_RESONATORS",
     "REFERENCE_PARAMETER_CATALOG",
     "RESONANCE_FREQUENCY",

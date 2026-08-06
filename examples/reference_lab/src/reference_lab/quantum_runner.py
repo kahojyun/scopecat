@@ -13,7 +13,7 @@ from scopecat_quantum.measurement_postprocessors import (
 
 from reference_lab.parameters import QUBITS
 
-_BINARY_IQ_DISCRIMINATOR = BinaryIqDiscriminator(
+BINARY_IQ_DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
     state_1_centroid=IqCentroid(real=1.0, imag=0.0),
     tie_policy="state_0",
@@ -32,7 +32,7 @@ def quantum_capture(
     return binary_iq_probabilities(
         module,
         results.iq_shots,
-        discriminator=_BINARY_IQ_DISCRIMINATOR,
+        discriminator=BINARY_IQ_DISCRIMINATOR,
     )
 
 
@@ -51,4 +51,4 @@ def run_quantum(
     experiment.record(experiment.use(quantum_capture(call)))
 
 
-__all__ = ["quantum_capture", "run_quantum"]
+__all__ = ["BINARY_IQ_DISCRIMINATOR", "quantum_capture", "run_quantum"]

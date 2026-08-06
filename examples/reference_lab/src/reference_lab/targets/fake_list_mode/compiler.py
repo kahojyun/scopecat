@@ -27,6 +27,7 @@ from scopecat_quantum.pulses import (
     Acquire,
     AcquireSignal,
     Constant,
+    Delay,
     DriveSignal,
     Play,
     ReadoutSignal,
@@ -271,6 +272,8 @@ class FakeListTargetCompiler:
                                 sample_count=duration_sample_count,
                             )
                         )
+                case Delay():
+                    pass
                 case _:
                     _unsupported_issue(issues, entry.id, event.id.value)
         if duration_samples is None or duration_samples <= 0:
@@ -311,7 +314,8 @@ class FakeListTargetCompiler:
                 message=(f"output signal {_signal_label(signal)} has no AWG binding"),
             )
         if (
-            channel_id is not None
+            isinstance(signal, DriveSignal)
+            and channel_id is not None
             and start_sample is not None
             and sample_count is not None
             and sample_count > 0
@@ -377,7 +381,15 @@ class FakeListTargetCompiler:
         }
         for play in plan.plays:
             end_sample = play.start_sample + play.sample_count
-            buffers[play.channel_id][play.start_sample : end_sample] = play.samples
+            channel = buffers[play.channel_id]
+            channel[play.start_sample : end_sample] = (
+                existing + incoming
+                for existing, incoming in zip(
+                    channel[play.start_sample : end_sample],
+                    play.samples,
+                    strict=True,
+                )
+            )
         return FakeListEntry(
             list_index=plan.list_index,
             entry_id=plan.source.id,

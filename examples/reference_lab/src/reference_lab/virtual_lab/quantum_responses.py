@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import cast
 
 from scopecat import Quantity
@@ -16,8 +17,16 @@ from reference_lab.virtual_lab.responses.drag_beta import (
     DragBetaAcquisitionResponse,
     DragBetaResponsePoint,
 )
+from reference_lab.virtual_lab.responses.ramsey import (
+    RamseyAcquisitionResponse,
+    RamseyResponsePoint,
+)
 from reference_lab.workflows.drag_beta_calibration import (
     drag_beta_program,
+)
+from reference_lab.workflows.ramsey import (
+    parallel_two_qubit_ramsey_program,
+    ramsey_program,
 )
 
 
@@ -29,20 +38,62 @@ def quantum_lab_response(
 ) -> FakeAcquisitionResponse | None:
     """Select the one workflow-specific response used by the demo."""
 
-    if program.id != drag_beta_program.id:
+    if program.id == drag_beta_program.id:
+        [result] = program.results
+        return DragBetaAcquisitionResponse(
+            points=tuple(
+                DragBetaResponsePoint(
+                    address=_result_address(entry, result.acquisition_slot_id),
+                    beta=cast("Quantity", point.value("beta")),
+                    amplification=cast("int", point.value("amplification")),
+                )
+                for entry, point in zip(entries, points, strict=True)
+            ),
+            shots=shots,
+        )
+    if program.id not in {
+        ramsey_program.id,
+        parallel_two_qubit_ramsey_program.id,
+    }:
         return None
-    [result] = program.results
-    return DragBetaAcquisitionResponse(
+    return RamseyAcquisitionResponse(
         points=tuple(
-            DragBetaResponsePoint(
+            RamseyResponsePoint(
                 address=_result_address(entry, result.acquisition_slot_id),
-                beta=cast("Quantity", point.value("beta")),
-                amplification=cast("int", point.value("amplification")),
+                phase_rad=float(
+                    cast(
+                        "Quantity",
+                        point.value(
+                            result.id.removesuffix("_iq_shots") + "_phase"
+                            if result.id != "iq_shots"
+                            else "phase"
+                        ),
+                    )
+                    .to("rad")
+                    .value
+                )
+                + _ramsey_precession(cast("Quantity", point.value("delay"))),
+                contrast=_ramsey_contrast(cast("Quantity", point.value("delay"))),
+                available=not (
+                    result.id == "q1_iq_shots"
+                    and cast("Quantity", point.value("delay")) == Quantity(128, "ns")
+                ),
             )
             for entry, point in zip(entries, points, strict=True)
+            for result in program.results
         ),
         shots=shots,
     )
+
+
+def _ramsey_contrast(delay: Quantity) -> float:
+    delay_ns = float(delay.to("ns").value)
+    return 0.9 * math.exp(-delay_ns / 400.0)
+
+
+def _ramsey_precession(delay: Quantity) -> float:
+    delay_ns = float(delay.to("ns").value)
+    return 2.0 * math.pi * 0.0125 * delay_ns
 
 
 def _result_address(

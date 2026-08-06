@@ -107,24 +107,6 @@
         "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
-      },
-      {
-        "id": "q0-thermometer",
-        "exclusivity_key": "q0-thermometer",
-        "driver_id": "scopecat.virtual.temperature_monitor",
-        "connection": { "kind": "virtual" },
-        "run_start": "preserve",
-        "success_action": "release",
-        "failure_action": "abort_and_release"
-      },
-      {
-        "id": "q1-thermometer",
-        "exclusivity_key": "q1-thermometer",
-        "driver_id": "scopecat.virtual.temperature_monitor",
-        "connection": { "kind": "virtual" },
-        "run_start": "preserve",
-        "success_action": "release",
-        "failure_action": "abort_and_release"
       }
     ]
   },
@@ -146,7 +128,25 @@
         "instrument_id": "readout-stack",
         "interface_id": "quantum_lab.acquire_iq/v1",
         "entity_id": "q0",
+        "channel_id": "digitizer.demod0"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "interface_id": "quantum_lab.play_pulse_program/v1",
+        "entity_id": "q1",
+        "channel_id": "drive.awg0.ch2"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.readout_pulse/v1",
+        "entity_id": "q1",
         "channel_id": "readout.mux0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.acquire_iq/v1",
+        "entity_id": "q1",
+        "channel_id": "digitizer.demod1"
       },
       {
         "instrument_id": "pump-source",
@@ -154,11 +154,15 @@
       },
       {
         "instrument_id": "flux-source",
-        "interface_id": "scopecat.dc_source/v3"
+        "interface_id": "scopecat.dc_source/v3",
+        "entity_id": "q0",
+        "channel_id": "flux.dac0.ch0"
       },
       {
         "instrument_id": "flux-source",
-        "interface_id": "scopecat.dc_monitor/v4"
+        "interface_id": "scopecat.dc_monitor/v4",
+        "entity_id": "q0",
+        "channel_id": "flux.dac0.ch0"
       },
       {
         "instrument_id": "mixing-chamber",
@@ -172,16 +176,6 @@
       {
         "instrument_id": "event-digitizer",
         "interface_id": "reference_lab.event_capture/v1"
-      },
-      {
-        "instrument_id": "q0-thermometer",
-        "interface_id": "scopecat.temperature_readout/v1",
-        "entity_id": "q0"
-      },
-      {
-        "instrument_id": "q1-thermometer",
-        "interface_id": "scopecat.temperature_readout/v1",
-        "entity_id": "q1"
       }
     ]
   },

@@ -27,7 +27,7 @@ from reference_lab.targets.fake_list_mode.model import (
     signal_key,
 )
 
-type FakeDigitizerValue = complex
+type FakeDigitizerValue = complex | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,6 +245,8 @@ def _run_fingerprint(
 
 
 def _value_payload(value: FakeDigitizerValue) -> object:
+    if value is None:
+        return None
     return [float(value.real).hex(), float(value.imag).hex()]
 
 

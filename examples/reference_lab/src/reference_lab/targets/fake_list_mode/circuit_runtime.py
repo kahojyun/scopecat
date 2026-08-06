@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scopecat.measurements.results import MeasurementArray
+from scopecat.measurements.results import (
+    MeasurementArray,
+    MeasurementUnavailable,
+    MeasurementValue,
+)
 from scopecat.sdk.domain import (
     DomainResultValue,
 )
@@ -105,7 +109,19 @@ def _frames_for_result_address(
 
 def _realize_integrated_iq_value(
     frames: tuple[FakeDigitizerFrame, ...],
-) -> MeasurementArray:
+) -> MeasurementValue:
+    if all(frame.value is None for frame in frames):
+        return MeasurementUnavailable.create(
+            dtype="complex128",
+            unit=_FAKE_RESPONSE_UNIT,
+            shape=(len(frames),),
+            reason="missing",
+            metadata={"source": "virtual-demodulator", "detail": "no lock"},
+        )
+    if any(frame.value is None for frame in frames):
+        raise ValueError(
+            "one acquisition result cannot mix available and missing shots"
+        )
     return MeasurementArray.create(
         dtype="complex128",
         unit=_FAKE_RESPONSE_UNIT,

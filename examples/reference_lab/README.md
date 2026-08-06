@@ -3,8 +3,9 @@
 This is the single runnable gallery for Scopecat. A coupled virtual RF source,
 DC source, temperature monitor, VNA, event digitizer, quantum drive stack, and
 quantum readout stack all belong to one q0/q1 laboratory project. Every recipe
-uses the same daemon, immutable configuration history, nine-device inventory,
-and two reviewable parameter tables: `qubits` and `readout_resonators`.
+uses the same daemon, immutable configuration history, seven-device inventory,
+and three reviewable parameter tables: `qubits`, `readout_resonators`, and
+`qubit_channels`.
 
 ## Start the lab
 
@@ -38,19 +39,33 @@ Run these scripts in order, or execute their `# %%` cells in an editor:
    `readout_resonators` row for `q0`.
 4. `notebooks/21_scan_shapes.py` runs an ordered point cloud with duplicate
    points and a repeated two-dimensional snake-traversed grid.
-5. `notebooks/22_multi_entity_routing.py` routes one symbolic thermometer group
-   to the q0 and q1 sensors and records entity-aligned results.
-6. `notebooks/30_drag_calibration.py` runs the two-dimensional DRAG experiment,
+5. `notebooks/22_channel_map.py` shows q0/q1 drive, shared readout, and distinct
+   acquisition channel routing before pulse execution.
+6. `notebooks/23_q0_ramsey.py` introduces one Ramsey delay scan on q0.
+7. `notebooks/24_flux_ramsey.py` composes q0 flux bias and Ramsey delay into one
+   two-dimensional experiment.
+8. `notebooks/25_entity_routed_ramsey.py` reuses the Ramsey workflow while
+   point-locally switching between the q0 and q1 channel sets.
+9. `notebooks/26_parallel_multiplexed_ramsey.py` runs independent q0/q1 drive
+   channels concurrently, sums their shared readout waveform, and collects two
+   demodulation channels.
+10. `notebooks/27_channel_timing_candidate.py` proposes a reviewed q1 timing
+    update and checks it with a pinned candidate config.
+11. `notebooks/28_channel_conflict_diagnostic.py` shows the precise diagnostic
+    for overlapping work on the q0 drive route.
+12. `notebooks/29_channel_unavailable.py` keeps q0 IQ data available when the
+    q1 demodulation channel reports a structured missing result.
+13. `notebooks/30_drag_calibration.py` runs the two-dimensional DRAG experiment,
    analyzes it, checks the candidate without changing the default, accepts the
    reviewed `qubits` row update, uses it in a production run, and undoes the
    activation while retaining the audit trail.
-7. `notebooks/31_adaptive_tuneup.py` runs a bounded tune-up, rediscovers its
+14. `notebooks/31_adaptive_tuneup.py` runs a bounded tune-up, rediscovers its
    durable lineage, and resumes it to a measurement-dependent stop condition.
-8. `notebooks/32_quantum_program_inspection.py` displays typed ports and the
+15. `notebooks/32_quantum_program_inspection.py` displays typed ports and the
    authored sequence/repeat/parallel structure without touching hardware.
-9. `notebooks/40_measurement_workbench.py` demonstrates selection, filtering,
+16. `notebooks/40_measurement_workbench.py` demonstrates selection, filtering,
    grouping, Xarray grid restoration, Arrow export, and paged reads.
-10. `notebooks/50_ragged_and_partial_data.py` records variable-length and
+17. `notebooks/50_ragged_and_partial_data.py` records variable-length and
    unavailable arrays, slices available ragged data, and inspects the committed
    prefix of a deterministically failed run.
 
@@ -59,7 +74,14 @@ uv run python examples/reference_lab/notebooks/00_lab_tour.py
 uv run python examples/reference_lab/notebooks/10_direct_control.py
 uv run python examples/reference_lab/notebooks/20_flux_spectroscopy.py
 uv run python examples/reference_lab/notebooks/21_scan_shapes.py
-uv run python examples/reference_lab/notebooks/22_multi_entity_routing.py
+uv run python examples/reference_lab/notebooks/22_channel_map.py
+uv run python examples/reference_lab/notebooks/23_q0_ramsey.py
+uv run python examples/reference_lab/notebooks/24_flux_ramsey.py
+uv run python examples/reference_lab/notebooks/25_entity_routed_ramsey.py
+uv run python examples/reference_lab/notebooks/26_parallel_multiplexed_ramsey.py
+uv run python examples/reference_lab/notebooks/27_channel_timing_candidate.py
+uv run python examples/reference_lab/notebooks/28_channel_conflict_diagnostic.py
+uv run python examples/reference_lab/notebooks/29_channel_unavailable.py
 uv run python examples/reference_lab/notebooks/30_drag_calibration.py
 uv run python examples/reference_lab/notebooks/31_adaptive_tuneup.py
 uv run python examples/reference_lab/notebooks/32_quantum_program_inspection.py
@@ -76,8 +98,8 @@ so the same workflows can be routed to compatible real devices.
 
 | Path | Responsibility |
 |---|---|
-| `config/system-infrastructure.json` | One nine-device inventory, routing graph, topology, and quantum target. |
-| `src/reference_lab/parameters.py` | The `qubits` and `readout_resonators` schemas and bootstrap rows. |
+| `config/system-infrastructure.json` | One seven-device inventory, q0/q1 channel routing, topology, and quantum target. |
+| `src/reference_lab/parameters.py` | The three shared calibration and channel schemas with q0/q1 bootstrap rows. |
 | `src/reference_lab/provider.py` | Combined deterministic instrument provider and flux abort policy. |
 | `src/reference_lab/workflows/` | Copyable experiment, analysis, and production workflows. |
 | `notebooks/` | User-facing gallery recipes. |

@@ -65,7 +65,7 @@ change; it does not make the daemon watch or rewrite Python. `export` produces
 a complete JSON snapshot for review or backup, not a primary editing format.
 
 The reference lab is the complete local project. Its `scopecat.toml`, Python
-application and backend, bootstrap snapshot, nine-device inventory, and two
+application and backend, bootstrap snapshot, seven-device inventory, and three
 parameter tables are version controlled; one daemon owns its `.scopecat` state:
 
 ```sh

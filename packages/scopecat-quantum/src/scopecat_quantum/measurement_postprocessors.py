@@ -95,6 +95,7 @@ def binary_iq_probabilities(
     *,
     discriminator: BinaryIqDiscriminator,
     id: str = "binary-iq-probability",
+    output_prefix: str | None = None,
 ) -> BinaryIqProbabilityProducts:
     """Declare binary state probabilities independently at each scan point."""
 
@@ -102,7 +103,7 @@ def binary_iq_probabilities(
         probability_0=cast(
             "ProductRef[float]",
             context._product(
-                "probability_0",
+                _output_id(output_prefix, "probability_0"),
                 dtype="float64",
                 unit="ratio",
             ),
@@ -110,7 +111,7 @@ def binary_iq_probabilities(
         probability_1=cast(
             "ProductRef[float]",
             context._product(
-                "probability_1",
+                _output_id(output_prefix, "probability_1"),
                 dtype="float64",
                 unit="ratio",
             ),
@@ -134,6 +135,10 @@ def binary_iq_probabilities(
         kernel=calculate,
     )
     return products
+
+
+def _output_id(prefix: str | None, name: str) -> str:
+    return name if prefix is None else f"{prefix}_{name}"
 
 
 def _binary_iq_probability_value(

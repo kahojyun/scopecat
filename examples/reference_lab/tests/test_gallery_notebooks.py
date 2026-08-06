@@ -27,10 +27,12 @@ def test_lab_tour_shows_one_inventory_and_parameter_catalog(
         "mixing-chamber",
         "readout-vna",
         "event-digitizer",
-        "q0-thermometer",
-        "q1-thermometer",
     }
-    assert summary["parameter_rows"] == {"qubits": 2, "readout_resonators": 2}
+    assert summary["parameter_rows"] == {
+        "qubits": 2,
+        "readout_resonators": 2,
+        "qubit_channels": 2,
+    }
 
 
 def test_scan_shapes_run_as_real_lab_experiments(demo_daemon: _DemoDaemon) -> None:
@@ -48,18 +50,113 @@ def test_scan_shapes_run_as_real_lab_experiments(demo_daemon: _DemoDaemon) -> No
     }
 
 
-def test_multi_entity_group_routes_and_records_each_result(
+def test_channel_map_exposes_independent_drive_and_demod_routes(
     demo_daemon: _DemoDaemon,
 ) -> None:
     assert demo_daemon.url.startswith("http://127.0.0.1:")
-    namespace = run_path(str(NOTEBOOKS / "22_multi_entity_routing.py"))
-    summary = cast("dict[str, object]", namespace["multi_entity_summary"])
+    namespace = run_path(str(NOTEBOOKS / "22_channel_map.py"))
+    summary = cast("dict[str, object]", namespace["channel_map_summary"])
 
-    assert summary["point_count"] == 1
-    assert summary["record_count"] == 1
-    assert summary["q0_samples"] == 1
-    assert summary["q1_samples"] == 1
-    assert len(cast("list[str]", summary["variables"])) == 2
+    assert summary == {
+        "drive": {"q0": "drive.awg0.ch1", "q1": "drive.awg0.ch2"},
+        "readout": {"q0": "readout.mux0", "q1": "readout.mux0"},
+        "acquisition": {"q0": "digitizer.demod0", "q1": "digitizer.demod1"},
+    }
+
+
+def test_q0_ramsey_runs_on_the_reference_channels(demo_daemon: _DemoDaemon) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "23_q0_ramsey.py"))
+    summary = cast("dict[str, object]", namespace["q0_ramsey_summary"])
+
+    assert summary == {
+        "points": 5,
+        "records": 5,
+        "probability_samples": 5,
+        "status": "completed",
+    }
+
+
+def test_flux_ramsey_composes_local_bias_and_quantum_channels(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "24_flux_ramsey.py"))
+    summary = cast("dict[str, object]", namespace["flux_ramsey_summary"])
+
+    assert summary["points"] == 15
+    assert summary["records"] == 15
+    assert summary["status"] == "completed"
+    assert sorted(cast("dict[str, int]", summary["dimensions"]).values()) == [3, 5]
+
+
+def test_entity_routed_ramsey_switches_channel_sets_by_point(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "25_entity_routed_ramsey.py"))
+    summary = cast("dict[str, object]", namespace["entity_ramsey_summary"])
+
+    assert summary == {
+        "points": 6,
+        "records": 6,
+        "qubit_groups": 2,
+        "status": "completed",
+    }
+
+
+def test_parallel_ramsey_uses_two_drive_and_demod_channels(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "26_parallel_multiplexed_ramsey.py"))
+    summary = cast("dict[str, object]", namespace["parallel_ramsey_summary"])
+
+    assert summary == {
+        "points": 3,
+        "records": 3,
+        "q0_samples": 3,
+        "q1_samples": 3,
+        "status": "completed",
+    }
+
+
+def test_channel_timing_candidate_preserves_analysis_provenance(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "27_channel_timing_candidate.py"))
+    summary = cast("dict[str, object]", namespace["channel_candidate_summary"])
+
+    assert summary["proposal_id"] == "q1-channel-delay"
+    assert summary["candidate_status"] == "completed"
+    assert summary["candidate_provenance"] is True
+
+
+def test_channel_conflict_names_the_logical_drive_route(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "28_channel_conflict_diagnostic.py"))
+    summary = cast("dict[str, object]", namespace["channel_conflict_summary"])
+
+    assert "pulse_signal_overlap" in cast("list[str]", summary["codes"])
+    assert summary["mentions_drive_q0"] is True
+
+
+def test_one_unavailable_demod_channel_preserves_the_other_channel(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "29_channel_unavailable.py"))
+    summary = cast("dict[str, object]", namespace["channel_unavailable_summary"])
+
+    assert summary == {
+        "records": 2,
+        "q0_unavailable": 0,
+        "q1_unavailable": 1,
+        "q1_available_records": 1,
+    }
 
 
 def test_adaptive_tuneup_rediscovers_and_resumes(demo_daemon: _DemoDaemon) -> None:

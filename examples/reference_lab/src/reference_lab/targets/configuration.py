@@ -29,8 +29,8 @@ class ConfiguredQuantumRoute:
 
     @property
     def endpoint_id(self) -> str:
-        # Target schedulers need one lane per logical route even when several
-        # entities share a multiplexed physical channel.
+        if self.interface_id == READOUT_PULSE.interface_id:
+            return f"{self.instrument_id}:{self.channel_id}"
         return f"{self.instrument_id}:{self.channel_id}:{self.entity_id}"
 
 

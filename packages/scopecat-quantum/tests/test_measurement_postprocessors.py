@@ -152,3 +152,25 @@ def test_binary_iq_postprocessor_rejects_non_iq_input() -> None:
         postprocessor.kernel(
             MeasurementScalar.create(dtype="float64", value=0.0, unit="ratio")
         )
+
+
+def test_binary_iq_postprocessor_can_namespace_parallel_outputs() -> None:
+    @authoring.program(id="test.binary-iq.namespaced")
+    def acquire_iq(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.measure(qubit, result="iq_shots")
+
+    @sc.module(id="test.binary-iq.namespaced")
+    def discriminate(module: sc.ModuleContext) -> BinaryIqProbabilityProducts:
+        call = acquire_iq("q0").with_shots(2)
+        module.use(call)
+        return binary_iq_probabilities(
+            module,
+            call.results.iq_shots,
+            discriminator=_discriminator(),
+            output_prefix="q0",
+        )
+
+    products = discriminate().result
+
+    assert products.probability_0.id == "namespaced/q0_probability_0"
+    assert products.probability_1.id == "namespaced/q0_probability_1"
