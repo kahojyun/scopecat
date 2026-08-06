@@ -17,6 +17,7 @@ from scopecat.sdk.instruments.authoring import (
     DriverRejected,
     DriverScalar,
     DriverState,
+    DriverStateEntry,
     DriverStatePatch,
     DriverSuccess,
 )
@@ -43,15 +44,20 @@ def project_state(
                 component_path=list(target.component_path),
                 property_id=target.property_id,
                 value=StateValue(value),
+                entity_ids=list(entry.entity_ids),
+                channel_bindings=list(entry.channel_bindings),
             )
-            for target, value in sorted(
-                state.values.items(),
+            for entry in sorted(
+                state.entries,
                 key=lambda item: (
-                    item[0].interface_id,
-                    item[0].component_path,
-                    item[0].property_id,
+                    item.target.interface_id,
+                    item.target.component_path,
+                    item.target.property_id,
+                    item.entity_ids,
+                    tuple(binding.channel_id for binding in item.channel_bindings),
                 ),
             )
+            for target, value in ((entry.target, entry.value),)
         ],
         metadata=state.metadata,
     )
@@ -62,7 +68,17 @@ def lower_state_patch(request: BackendApplyRequest) -> DriverStatePatch:
         values={
             assignment.target: cast("DriverScalar", assignment.value.root)
             for assignment in request.assignments
-        }
+        },
+        scoped_values=tuple(
+            DriverStateEntry(
+                target=assignment.target,
+                value=cast("DriverScalar", assignment.value.root),
+                entity_ids=assignment.entity_ids,
+                channel_bindings=assignment.channel_bindings,
+            )
+            for assignment in request.assignments
+            if assignment.channel_bindings
+        ),
     )
 
 
@@ -122,6 +138,8 @@ def lower_acquisition(request: BackendCollectRequest) -> DriverAcquisition:
     return DriverAcquisition(
         target=request.target,
         results=frozenset(request.result_target(result) for result in request.results),
+        entity_ids=request.entity_ids,
+        channel_bindings=request.channel_bindings,
     )
 
 

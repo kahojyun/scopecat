@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.authoring import (
     DriverArgument,
     DriverOperation,
@@ -48,6 +49,8 @@ class BackendPropertyWrite(_BackendRequestModel):
     component_path: tuple[_NonEmptyId, ...] = ()
     property_id: _NonEmptyId
     value: StateValue
+    entity_ids: tuple[_NonEmptyId, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
     @property
     def target(self) -> PropertyRef:
@@ -84,6 +87,8 @@ class BackendInvokeRequest(_BackendRequestModel):
     operation_id: _NonEmptyId
     arguments: tuple[BackendOperationArgument, ...] = ()
     payloads: dict[str, BackendPayload] = Field(default_factory=dict)
+    entity_ids: tuple[_NonEmptyId, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
     @model_validator(mode="after")
     def validate_payload_bindings(self) -> BackendInvokeRequest:
@@ -114,6 +119,8 @@ class BackendCollectRequest(_BackendRequestModel):
     component_path: tuple[_NonEmptyId, ...] = ()
     acquisition_id: _NonEmptyId
     results: tuple[BackendCollectResult, ...] = Field(min_length=1)
+    entity_ids: tuple[_NonEmptyId, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
     @property
     def target(self) -> AcquisitionRef:
@@ -150,6 +157,8 @@ def lower_backend_apply_request(
                 component_path=tuple(assignment.component_path),
                 property_id=assignment.property_id,
                 value=assignment.value,
+                entity_ids=tuple(assignment.entity_ids),
+                channel_bindings=tuple(assignment.channel_bindings),
             )
             for assignment in command.assignments
         )
@@ -170,6 +179,8 @@ def lower_backend_invoke_request(
             for argument in command.arguments
         ),
         payloads=dict(materialized_payloads),
+        entity_ids=tuple(command.entity_ids),
+        channel_bindings=tuple(command.channel_bindings),
     )
 
 
@@ -201,6 +212,8 @@ def decode_driver_operation(
             request.operation_id,
         ),
         arguments=arguments,
+        entity_ids=request.entity_ids,
+        channel_bindings=request.channel_bindings,
     )
 
 
@@ -217,6 +230,8 @@ def lower_backend_collect_request(command: CollectCommand) -> BackendCollectRequ
             )
             for request in command.requests
         ),
+        entity_ids=tuple(target.entity_ids),
+        channel_bindings=tuple(target.channel_bindings),
     )
 
 

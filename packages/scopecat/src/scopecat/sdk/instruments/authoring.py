@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pydantic import JsonValue
 
 from scopecat.kernel.quantity import Quantity
+from scopecat.records.instrument import CommandChannelBinding
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
@@ -21,14 +22,48 @@ type DriverScalar = bool | int | float | str | Quantity
 
 
 @dataclass(frozen=True, slots=True)
+class DriverStateEntry:
+    target: PropertyRef
+    value: DriverScalar
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class DriverState:
-    values: Mapping[PropertyRef, DriverScalar]
+    values: Mapping[PropertyRef, DriverScalar] = field(
+        default_factory=lambda: dict[PropertyRef, DriverScalar]()
+    )
+    scoped_values: tuple[DriverStateEntry, ...] = ()
     metadata: dict[str, JsonValue] = field(default_factory=dict)
+
+    @property
+    def entries(self) -> tuple[DriverStateEntry, ...]:
+        return (
+            *(
+                DriverStateEntry(target=target, value=value)
+                for target, value in self.values.items()
+            ),
+            *self.scoped_values,
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class DriverStatePatch:
-    values: Mapping[PropertyRef, DriverScalar]
+    values: Mapping[PropertyRef, DriverScalar] = field(
+        default_factory=lambda: dict[PropertyRef, DriverScalar]()
+    )
+    scoped_values: tuple[DriverStateEntry, ...] = ()
+
+    @property
+    def entries(self) -> tuple[DriverStateEntry, ...]:
+        return (
+            *(
+                DriverStateEntry(target=target, value=value)
+                for target, value in self.values.items()
+            ),
+            *self.scoped_values,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,12 +83,16 @@ class DriverOperation:
     arguments: Mapping[str, DriverArgument] = field(
         default_factory=lambda: dict[str, DriverArgument]()
     )
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class DriverAcquisition:
     target: AcquisitionRef
     results: frozenset[AcquisitionResultRef]
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +132,7 @@ __all__ = [
     "DriverRejected",
     "DriverScalar",
     "DriverState",
+    "DriverStateEntry",
     "DriverStatePatch",
     "DriverSuccess",
     "DriverUnknown",

@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         DriverRejected,
         DriverScalar,
         DriverState,
+        DriverStateEntry,
         DriverStatePatch,
         DriverSuccess,
         DriverUnknown,
@@ -162,6 +163,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DriverRejected": ("scopecat.sdk.instruments.authoring", "DriverRejected"),
     "DriverScalar": ("scopecat.sdk.instruments.authoring", "DriverScalar"),
     "DriverState": ("scopecat.sdk.instruments.authoring", "DriverState"),
+    "DriverStateEntry": (
+        "scopecat.sdk.instruments.authoring",
+        "DriverStateEntry",
+    ),
     "DriverStatePatch": (
         "scopecat.sdk.instruments.authoring",
         "DriverStatePatch",
