@@ -1,4 +1,4 @@
-"""Demo quantum lab package."""
+"""Runnable reference laboratory package."""
 
 __all__ = ["__version__"]
 

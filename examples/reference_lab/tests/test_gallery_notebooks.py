@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+from pathlib import Path
+from runpy import run_path
+from typing import Protocol, cast
+
+
+class _DemoDaemon(Protocol):
+    url: str
+
+
+NOTEBOOKS = Path(__file__).parents[1] / "notebooks"
+
+
+def test_lab_tour_shows_one_inventory_and_parameter_catalog(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "00_lab_tour.py"))
+    summary = cast("dict[str, object]", namespace["lab_tour_summary"])
+
+    assert set(cast("list[str]", summary["instruments"])) == {
+        "drive-stack",
+        "readout-stack",
+        "pump-source",
+        "flux-source",
+        "mixing-chamber",
+        "readout-vna",
+        "event-digitizer",
+        "q0-thermometer",
+        "q1-thermometer",
+    }
+    assert summary["parameter_rows"] == {"qubits": 2, "readout_resonators": 2}
+
+
+def test_scan_shapes_run_as_real_lab_experiments(demo_daemon: _DemoDaemon) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "21_scan_shapes.py"))
+    summary = cast("dict[str, object]", namespace["scan_shapes_summary"])
+
+    assert summary == {
+        "point_cloud_points": 4,
+        "point_cloud_layout": "point_cloud",
+        "point_cloud_rows": 4,
+        "repeated_grid_points": 8,
+        "repeated_grid_layout": "product_grid",
+        "repeated_grid_rows": 8,
+    }
+
+
+def test_multi_entity_group_routes_and_records_each_result(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "22_multi_entity_routing.py"))
+    summary = cast("dict[str, object]", namespace["multi_entity_summary"])
+
+    assert summary["point_count"] == 1
+    assert summary["record_count"] == 1
+    assert summary["q0_samples"] == 1
+    assert summary["q1_samples"] == 1
+    assert len(cast("list[str]", summary["variables"])) == 2
+
+
+def test_adaptive_tuneup_rediscovers_and_resumes(demo_daemon: _DemoDaemon) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "31_adaptive_tuneup.py"))
+    summary = cast("dict[str, object]", namespace["adaptive_summary"])
+
+    assert summary["initial_stages"] == 2
+    assert summary["stopped_by_limit"] is True
+    assert summary["rediscovered_stages"] == 2
+    assert summary["completed_stages"] == 3
+    assert summary["resumed_to_completion"] is True
+
+
+def test_quantum_program_is_inspectable_without_hardware() -> None:
+    namespace = run_path(str(NOTEBOOKS / "32_quantum_program_inspection.py"))
+    summary = cast("dict[str, object]", namespace["program_inspection_summary"])
+
+    assert summary == {
+        "program_id": "drag-beta-rough-calibration",
+        "description_has_ports": True,
+        "tree_has_repeat": True,
+        "tree_has_parallel_readout": True,
+    }
+
+
+def test_measurement_workbench_uses_real_durable_data(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "40_measurement_workbench.py"))
+    summary = cast("dict[str, object]", namespace["measurement_summary"])
+
+    assert summary["points"] == 3
+    assert summary["nearest_points"] == 1
+    assert summary["first_two_points"] == 2
+    assert summary["available_points"] == 3
+    assert summary["groups"] == 3
+    assert summary["arrow_rows"] == 3
+    assert summary["batch_sizes"] == [2, 1]
+    assert summary["batch_offsets"] == [0, 2]
+
+
+def test_ragged_and_partial_data_survive_daemon_boundaries(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "50_ragged_and_partial_data.py"))
+    summary = cast("dict[str, object]", namespace["ragged_summary"])
+
+    assert summary["ragged_shapes"] == [[2], [4], None, [1]]
+    assert summary["window_shapes"] == [[2], [2], [1]]
+    assert summary["partial_status"] == "failed"
+    assert summary["partial_records"] == 1
+    assert summary["expected_records"] == 3

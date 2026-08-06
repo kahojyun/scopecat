@@ -24,6 +24,11 @@ from scopecat_instruments.members import DC_SOURCE_OUTPUT_ENABLED
 from scopecat_instruments.virtual import VirtualLabWorld
 
 from reference_lab.virtual_lab.provider import QuantumLabVirtualProvider
+from reference_lab.workflows.event_capture import (
+    EVENT_CAPTURE_DRIVER_ID,
+    EVENT_CAPTURE_DRIVER_SPEC,
+    VirtualEventDigitizer,
+)
 
 FLUX_SOURCE_ID = "flux-source"
 
@@ -41,6 +46,7 @@ class ReferenceLabProvider:
             drivers=(
                 *self._instruments.driver_catalog.drivers,
                 *self._quantum.driver_catalog.drivers,
+                EVENT_CAPTURE_DRIVER_SPEC,
             ),
         )
 
@@ -66,6 +72,7 @@ class ReferenceLabProvider:
             binding
             for binding in context.bindings
             if binding.driver_id not in instrument_driver_ids
+            and binding.driver_id != EVENT_CAPTURE_DRIVER_ID
         )
         descriptions = (
             self._instruments.describe(InstrumentProviderContext(instrument_bindings)),
@@ -73,10 +80,17 @@ class ReferenceLabProvider:
         )
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
-            instruments=tuple(
-                instrument
-                for description in descriptions
-                for instrument in description.instruments
+            instruments=(
+                *tuple(
+                    instrument
+                    for description in descriptions
+                    for instrument in description.instruments
+                ),
+                *tuple(
+                    VirtualEventDigitizer(binding.id).describe()
+                    for binding in context.bindings
+                    if binding.driver_id == EVENT_CAPTURE_DRIVER_ID
+                ),
             ),
             problems=tuple(
                 problem
@@ -96,6 +110,8 @@ class ReferenceLabProvider:
                 if driver.instrument_id == FLUX_SOURCE_ID
                 else driver
             )
+        if context.binding.driver_id == EVENT_CAPTURE_DRIVER_ID:
+            return VirtualEventDigitizer(context.binding.id)
         return self._quantum.connect(context)
 
 

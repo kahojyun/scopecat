@@ -1,1 +1,1 @@
-"""Unit tests for the quantum lab support package."""
+"""Unit tests for the reference laboratory support package."""

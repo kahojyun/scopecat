@@ -1,5 +1,5 @@
 {
-  "id": "quantum-demo-system",
+  "id": "reference-lab-system",
   "primary_entity_id": "q0",
   "instrument_registry": {
     "instruments": [
@@ -98,6 +98,33 @@
         "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
+      },
+      {
+        "id": "event-digitizer",
+        "exclusivity_key": "event-digitizer",
+        "driver_id": "reference_lab.virtual.event_digitizer",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "q0-thermometer",
+        "exclusivity_key": "q0-thermometer",
+        "driver_id": "scopecat.virtual.temperature_monitor",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "q1-thermometer",
+        "exclusivity_key": "q1-thermometer",
+        "driver_id": "scopecat.virtual.temperature_monitor",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
       }
     ]
   },
@@ -135,11 +162,26 @@
       },
       {
         "instrument_id": "mixing-chamber",
-        "interface_id": "scopecat.temperature_readout/v1"
+        "interface_id": "scopecat.temperature_readout/v1",
+        "entity_id": "cryostat"
       },
       {
         "instrument_id": "readout-vna",
         "interface_id": "scopecat.network_sweep/v1"
+      },
+      {
+        "instrument_id": "event-digitizer",
+        "interface_id": "reference_lab.event_capture/v1"
+      },
+      {
+        "instrument_id": "q0-thermometer",
+        "interface_id": "scopecat.temperature_readout/v1",
+        "entity_id": "q0"
+      },
+      {
+        "instrument_id": "q1-thermometer",
+        "interface_id": "scopecat.temperature_readout/v1",
+        "entity_id": "q1"
       }
     ]
   },
@@ -148,6 +190,14 @@
       {
         "id": "q0",
         "kind": "logical_qubit"
+      },
+      {
+        "id": "q1",
+        "kind": "logical_qubit"
+      },
+      {
+        "id": "cryostat",
+        "kind": "cryostat"
       }
     ]
   },

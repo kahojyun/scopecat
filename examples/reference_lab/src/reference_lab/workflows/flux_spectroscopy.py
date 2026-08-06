@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import scopecat as sc
+from scopecat.kernel.entity import EntityRef
 from scopecat_instruments import (
     DCSourceTarget,
     NetworkSweepRecords,
@@ -16,6 +17,7 @@ from scopecat_instruments import (
 FLUX_SOURCE_RESOURCE = "flux-source"
 TEMPERATURE_RESOURCE = "mixing-chamber"
 VNA_RESOURCE = "readout-vna"
+CRYOSTAT = EntityRef(id="cryostat", kind="cryostat")
 
 TRACE_POINTS = 751
 BIAS_POINTS = 11
@@ -47,7 +49,11 @@ def flux_spectroscopy(
         points=BIAS_POINTS,
     )
     flux_source = dc_source(experiment, FLUX_SOURCE_RESOURCE)
-    temperature = temperature_readout(experiment, TEMPERATURE_RESOURCE)
+    temperature = temperature_readout(
+        experiment,
+        TEMPERATURE_RESOURCE,
+        for_=sc.one(CRYOSTAT),
+    )
     readout = network_sweep(experiment, VNA_RESOURCE)
 
     flux_source.ensure(
