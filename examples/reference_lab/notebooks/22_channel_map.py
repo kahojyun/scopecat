@@ -1,4 +1,4 @@
-"""Inspect the stable q0/q1 physical channel map before running pulses."""
+"""Inspect the stable four-qubit signal and DC channel map."""
 
 from __future__ import annotations
 
@@ -31,6 +31,12 @@ channel_map_summary = {
         binding.entity_id: binding.channel_id
         for binding in quantum_routes
         if binding.interface_id == "quantum_lab.acquire_iq/v1"
+    },
+    "flux": {
+        binding.entity_id: (binding.instrument_id, binding.channel_id)
+        for binding in config.routing.bindings
+        if binding.interface_id == "scopecat.dc_source/v3"
+        and binding.entity_id is not None
     },
 }
 print(channel_map_summary)

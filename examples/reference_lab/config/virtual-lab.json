@@ -12,7 +12,13 @@
       "id": "pump-source"
     },
     {
-      "id": "flux-source"
+      "id": "bench-source"
+    },
+    {
+      "id": "flux-dac-a"
+    },
+    {
+      "id": "flux-dac-b"
     },
     {
       "id": "mixing-chamber"

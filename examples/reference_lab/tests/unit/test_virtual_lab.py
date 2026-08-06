@@ -38,7 +38,9 @@ def test_virtual_lab_profile_loads_configured_devices() -> None:
         "drive-stack",
         "readout-stack",
         "pump-source",
-        "flux-source",
+        "bench-source",
+        "flux-dac-a",
+        "flux-dac-b",
         "mixing-chamber",
         "readout-vna",
     )

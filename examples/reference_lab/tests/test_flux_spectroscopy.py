@@ -228,7 +228,9 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert first_evidence[s_parameter_record_id].result_id == "s_parameter"
     assert first_evidence[temperature_record_id].instrument_id == "mixing-chamber"
     assert first_evidence[temperature_record_id].result_id == "temperature"
-    assert not provider.world.dc_source(FLUX_SOURCE_ID).output_enabled
+    assert not provider.world.dc_source(
+        f"{FLUX_SOURCE_ID}:flux.dac_a.ch1"
+    ).output_enabled
 
     traces = run.measurements().traces(schema.trace.s_parameter)
     assert len(traces) == BIAS_POINTS
@@ -282,7 +284,7 @@ def test_direct_control_notebook_completes_through_the_project_daemon(
     inventory = cast("list[tuple[str, str]]", result["inventory"])
     trace_results = cast("dict[str, dict[str, object]]", result["trace_results"])
     assert {instrument_id for instrument_id, _availability in inventory} >= {
-        "flux-source",
+        "bench-source",
         "mixing-chamber",
         "readout-vna",
     }
@@ -337,7 +339,9 @@ def test_flux_spectroscopy_failure_aborts_with_bias_disabled(
 
     [run] = lab.runs()
     assert run.manifest.status == "unknown"
-    assert not provider.world.dc_source(FLUX_SOURCE_ID).output_enabled
+    assert not provider.world.dc_source(
+        f"{FLUX_SOURCE_ID}:flux.dac_a.ch1"
+    ).output_enabled
 
 
 def _readout_quantity(

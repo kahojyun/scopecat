@@ -35,49 +35,29 @@
         "failure_action": "abort_and_release"
       },
       {
-        "id": "flux-source",
-        "exclusivity_key": "flux-source",
+        "id": "bench-source",
+        "exclusivity_key": "bench-source",
         "driver_id": "scopecat.virtual.dc_source",
         "connection": { "kind": "virtual" },
-        "default_state": [
-          {
-            "interface_id": "scopecat.dc_source/v3",
-            "component_path": [],
-            "property_id": "voltage_protection",
-            "value": { "value": 1.0, "unit": "V" }
-          },
-          {
-            "interface_id": "scopecat.dc_source/v3",
-            "component_path": [],
-            "property_id": "current_protection",
-            "value": { "value": 0.01, "unit": "A" }
-          },
-          {
-            "interface_id": "scopecat.dc_source/v3",
-            "component_path": [],
-            "property_id": "output_enabled",
-            "value": false
-          },
-          {
-            "interface_id": "scopecat.dc_monitor/v4",
-            "component_path": [],
-            "property_id": "measurement_enabled",
-            "value": true
-          },
-          {
-            "interface_id": "scopecat.dc_monitor/v4",
-            "component_path": [],
-            "property_id": "integration_cycles",
-            "value": 1
-          },
-          {
-            "interface_id": "scopecat.dc_monitor/v4",
-            "component_path": [],
-            "property_id": "measurement_delay",
-            "value": { "value": 0.0, "unit": "s" }
-          }
-        ],
-        "run_start": "apply_default_state",
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "flux-dac-a",
+        "exclusivity_key": "flux-dac-a",
+        "driver_id": "reference_lab.virtual.multichannel_dc_source",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "flux-dac-b",
+        "exclusivity_key": "flux-dac-b",
+        "driver_id": "reference_lab.virtual.multichannel_dc_source",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
       },
@@ -149,20 +129,92 @@
         "channel_id": "digitizer.demod1"
       },
       {
+        "instrument_id": "drive-stack",
+        "interface_id": "quantum_lab.play_pulse_program/v1",
+        "entity_id": "q2",
+        "channel_id": "drive.awg0.ch3"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.readout_pulse/v1",
+        "entity_id": "q2",
+        "channel_id": "readout.mux0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.acquire_iq/v1",
+        "entity_id": "q2",
+        "channel_id": "digitizer.demod2"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "interface_id": "quantum_lab.play_pulse_program/v1",
+        "entity_id": "q3",
+        "channel_id": "drive.awg0.ch4"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.readout_pulse/v1",
+        "entity_id": "q3",
+        "channel_id": "readout.mux0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.acquire_iq/v1",
+        "entity_id": "q3",
+        "channel_id": "digitizer.demod3"
+      },
+      {
         "instrument_id": "pump-source",
         "interface_id": "scopecat.rf_output/v1"
       },
       {
-        "instrument_id": "flux-source",
+        "instrument_id": "flux-dac-a",
         "interface_id": "scopecat.dc_source/v3",
         "entity_id": "q0",
-        "channel_id": "flux.dac0.ch0"
+        "channel_id": "flux.dac_a.ch1"
       },
       {
-        "instrument_id": "flux-source",
+        "instrument_id": "flux-dac-a",
         "interface_id": "scopecat.dc_monitor/v4",
         "entity_id": "q0",
-        "channel_id": "flux.dac0.ch0"
+        "channel_id": "flux.dac_a.ch1"
+      },
+      {
+        "instrument_id": "flux-dac-a",
+        "interface_id": "scopecat.dc_source/v3",
+        "entity_id": "q1",
+        "channel_id": "flux.dac_a.ch2"
+      },
+      {
+        "instrument_id": "flux-dac-a",
+        "interface_id": "scopecat.dc_monitor/v4",
+        "entity_id": "q1",
+        "channel_id": "flux.dac_a.ch2"
+      },
+      {
+        "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_source/v3",
+        "entity_id": "q2",
+        "channel_id": "flux.dac_b.ch1"
+      },
+      {
+        "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_monitor/v4",
+        "entity_id": "q2",
+        "channel_id": "flux.dac_b.ch1"
+      },
+      {
+        "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_source/v3",
+        "entity_id": "q3",
+        "channel_id": "flux.dac_b.ch2"
+      },
+      {
+        "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_monitor/v4",
+        "entity_id": "q3",
+        "channel_id": "flux.dac_b.ch2"
       },
       {
         "instrument_id": "mixing-chamber",
@@ -187,6 +239,14 @@
       },
       {
         "id": "q1",
+        "kind": "logical_qubit"
+      },
+      {
+        "id": "q2",
+        "kind": "logical_qubit"
+      },
+      {
+        "id": "q3",
         "kind": "logical_qubit"
       },
       {

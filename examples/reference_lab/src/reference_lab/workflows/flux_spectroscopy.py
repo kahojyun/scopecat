@@ -14,7 +14,7 @@ from scopecat_instruments import (
     temperature_readout,
 )
 
-FLUX_SOURCE_RESOURCE = "flux-source"
+FLUX_SOURCE_RESOURCE = "flux-dac-a"
 TEMPERATURE_RESOURCE = "mixing-chamber"
 VNA_RESOURCE = "readout-vna"
 CRYOSTAT = EntityRef(id="cryostat", kind="cryostat")

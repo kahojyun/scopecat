@@ -23,15 +23,17 @@ def test_lab_tour_shows_one_inventory_and_parameter_catalog(
         "drive-stack",
         "readout-stack",
         "pump-source",
-        "flux-source",
+        "bench-source",
+        "flux-dac-a",
+        "flux-dac-b",
         "mixing-chamber",
         "readout-vna",
         "event-digitizer",
     }
     assert summary["parameter_rows"] == {
-        "qubits": 2,
-        "readout_resonators": 2,
-        "qubit_channels": 2,
+        "qubits": 4,
+        "readout_resonators": 4,
+        "channel_calibrations": 4,
     }
 
 
@@ -58,9 +60,50 @@ def test_channel_map_exposes_independent_drive_and_demod_routes(
     summary = cast("dict[str, object]", namespace["channel_map_summary"])
 
     assert summary == {
-        "drive": {"q0": "drive.awg0.ch1", "q1": "drive.awg0.ch2"},
-        "readout": {"q0": "readout.mux0", "q1": "readout.mux0"},
-        "acquisition": {"q0": "digitizer.demod0", "q1": "digitizer.demod1"},
+        "drive": {
+            "q0": "drive.awg0.ch1",
+            "q1": "drive.awg0.ch2",
+            "q2": "drive.awg0.ch3",
+            "q3": "drive.awg0.ch4",
+        },
+        "readout": {
+            "q0": "readout.mux0",
+            "q1": "readout.mux0",
+            "q2": "readout.mux0",
+            "q3": "readout.mux0",
+        },
+        "acquisition": {
+            "q0": "digitizer.demod0",
+            "q1": "digitizer.demod1",
+            "q2": "digitizer.demod2",
+            "q3": "digitizer.demod3",
+        },
+        "flux": {
+            "q0": ("flux-dac-a", "flux.dac_a.ch1"),
+            "q1": ("flux-dac-a", "flux.dac_a.ch2"),
+            "q2": ("flux-dac-b", "flux.dac_b.ch1"),
+            "q3": ("flux-dac-b", "flux.dac_b.ch2"),
+        },
+    }
+
+
+def test_multichannel_dc_bias_spans_two_devices_and_four_routes(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "30_multichannel_dc_bias.py"))
+    summary = cast("dict[str, object]", namespace["multichannel_dc_bias_summary"])
+
+    assert summary == {
+        "devices": ["flux-dac-a", "flux-dac-b"],
+        "routes": {
+            "q0": ("flux-dac-a", "flux.dac_a.ch1"),
+            "q1": ("flux-dac-a", "flux.dac_a.ch2"),
+            "q2": ("flux-dac-b", "flux.dac_b.ch1"),
+            "q3": ("flux-dac-b", "flux.dac_b.ch2"),
+        },
+        "records": 1,
+        "status": "completed",
     }
 
 

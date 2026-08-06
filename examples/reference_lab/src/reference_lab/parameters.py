@@ -43,6 +43,8 @@ Q0 = QUBITS.row(
 Q1 = QUBITS.row(
     QUBIT.key("q1"),
 )
+Q2 = QUBITS.row(QUBIT.key("q2"))
+Q3 = QUBITS.row(QUBIT.key("q3"))
 Q0_DRAG_BETA = Q0[DRAG_BETA]
 
 RESONATOR = sc.parameter_field(
@@ -74,37 +76,37 @@ READOUT_RESONATORS = sc.parameter_schema(
 )
 Q0_READOUT = READOUT_RESONATORS.row(RESONATOR.key("q0"))
 Q1_READOUT = READOUT_RESONATORS.row(RESONATOR.key("q1"))
+Q2_READOUT = READOUT_RESONATORS.row(RESONATOR.key("q2"))
+Q3_READOUT = READOUT_RESONATORS.row(RESONATOR.key("q3"))
 
-CHANNEL_QUBIT = sc.parameter_field(
+CALIBRATION_QUBIT = sc.parameter_field(
     "qubit",
     sc.EntityType(entity_kind="logical_qubit"),
 )
-FLUX_CHANNEL = sc.parameter_field("flux_channel", sc.StringType())
-DRIVE_CHANNEL = sc.parameter_field("drive_channel", sc.StringType())
-READOUT_CHANNEL = sc.parameter_field("readout_channel", sc.StringType())
-ACQUISITION_CHANNEL = sc.parameter_field("acquisition_channel", sc.StringType())
 CHANNEL_DELAY = sc.parameter_field("channel_delay", sc.QuantityType(unit="ns"))
-QUBIT_CHANNELS = sc.parameter_schema(
-    "qubit_channels",
+FLUX_GAIN = sc.parameter_field("flux_gain", sc.QuantityType(unit="V"))
+FLUX_OFFSET = sc.parameter_field("flux_offset", sc.QuantityType(unit="V"))
+CHANNEL_CALIBRATIONS = sc.parameter_schema(
+    "channel_calibrations",
     fields=(
-        CHANNEL_QUBIT,
-        FLUX_CHANNEL,
-        DRIVE_CHANNEL,
-        READOUT_CHANNEL,
-        ACQUISITION_CHANNEL,
+        CALIBRATION_QUBIT,
         CHANNEL_DELAY,
+        FLUX_GAIN,
+        FLUX_OFFSET,
     ),
-    primary_key=(CHANNEL_QUBIT,),
-    description="Reviewed logical-to-physical channel assignments and timing.",
+    primary_key=(CALIBRATION_QUBIT,),
+    description="Reviewed per-qubit line calibration; physical routes live in config.",
 )
-Q0_CHANNELS = QUBIT_CHANNELS.row(CHANNEL_QUBIT.key("q0"))
-Q1_CHANNELS = QUBIT_CHANNELS.row(CHANNEL_QUBIT.key("q1"))
+Q0_CHANNEL_CALIBRATION = CHANNEL_CALIBRATIONS.row(CALIBRATION_QUBIT.key("q0"))
+Q1_CHANNEL_CALIBRATION = CHANNEL_CALIBRATIONS.row(CALIBRATION_QUBIT.key("q1"))
+Q2_CHANNEL_CALIBRATION = CHANNEL_CALIBRATIONS.row(CALIBRATION_QUBIT.key("q2"))
+Q3_CHANNEL_CALIBRATION = CHANNEL_CALIBRATIONS.row(CALIBRATION_QUBIT.key("q3"))
 
 REFERENCE_PARAMETER_CATALOG = sc.parameter_catalog(
     "reference-lab-parameter-catalog",
     QUBITS,
     READOUT_RESONATORS,
-    QUBIT_CHANNELS,
+    CHANNEL_CALIBRATIONS,
 )
 
 
@@ -129,6 +131,18 @@ def reference_lab_parameter_snapshot() -> ParameterSnapshot:
                         QUARTER_TURN_AMPLITUDE.value(0.18),
                         QUARTER_TURN_SIGMA.value(4.5),
                     ),
+                    Q2.values(
+                        DRAG_BETA.value(0.4),
+                        QUARTER_TURN_DURATION.value(20.0),
+                        QUARTER_TURN_AMPLITUDE.value(0.17),
+                        QUARTER_TURN_SIGMA.value(5.0),
+                    ),
+                    Q3.values(
+                        DRAG_BETA.value(0.35),
+                        QUARTER_TURN_DURATION.value(22.0),
+                        QUARTER_TURN_AMPLITUDE.value(0.16),
+                        QUARTER_TURN_SIGMA.value(5.5),
+                    ),
                 ),
             ),
             TableParameterValue(
@@ -144,24 +158,40 @@ def reference_lab_parameter_snapshot() -> ParameterSnapshot:
                         RESONATOR_LINEWIDTH.value(2.2e6),
                         FLUX_SWEET_SPOT.value(0.02),
                     ),
+                    Q2_READOUT.values(
+                        RESONANCE_FREQUENCY.value(5.4e9),
+                        RESONATOR_LINEWIDTH.value(2.4e6),
+                        FLUX_SWEET_SPOT.value(-0.01),
+                    ),
+                    Q3_READOUT.values(
+                        RESONANCE_FREQUENCY.value(5.6e9),
+                        RESONATOR_LINEWIDTH.value(2.6e6),
+                        FLUX_SWEET_SPOT.value(0.03),
+                    ),
                 ),
             ),
             TableParameterValue(
-                id=QUBIT_CHANNELS.id,
+                id=CHANNEL_CALIBRATIONS.id,
                 rows=(
-                    Q0_CHANNELS.values(
-                        FLUX_CHANNEL.value("flux.dac0.ch0"),
-                        DRIVE_CHANNEL.value("drive.awg0.ch1"),
-                        READOUT_CHANNEL.value("readout.mux0"),
-                        ACQUISITION_CHANNEL.value("digitizer.demod0"),
+                    Q0_CHANNEL_CALIBRATION.values(
                         CHANNEL_DELAY.value(0.0),
+                        FLUX_GAIN.value(0.98),
+                        FLUX_OFFSET.value(0.0),
                     ),
-                    Q1_CHANNELS.values(
-                        FLUX_CHANNEL.value("unassigned"),
-                        DRIVE_CHANNEL.value("drive.awg0.ch2"),
-                        READOUT_CHANNEL.value("readout.mux0"),
-                        ACQUISITION_CHANNEL.value("digitizer.demod1"),
+                    Q1_CHANNEL_CALIBRATION.values(
                         CHANNEL_DELAY.value(1.5),
+                        FLUX_GAIN.value(1.02),
+                        FLUX_OFFSET.value(0.002),
+                    ),
+                    Q2_CHANNEL_CALIBRATION.values(
+                        CHANNEL_DELAY.value(-0.5),
+                        FLUX_GAIN.value(1.01),
+                        FLUX_OFFSET.value(-0.001),
+                    ),
+                    Q3_CHANNEL_CALIBRATION.values(
+                        CHANNEL_DELAY.value(0.75),
+                        FLUX_GAIN.value(0.99),
+                        FLUX_OFFSET.value(0.003),
                     ),
                 ),
             ),
@@ -170,27 +200,31 @@ def reference_lab_parameter_snapshot() -> ParameterSnapshot:
 
 
 __all__ = [
-    "ACQUISITION_CHANNEL",
+    "CALIBRATION_QUBIT",
+    "CHANNEL_CALIBRATIONS",
     "CHANNEL_DELAY",
-    "CHANNEL_QUBIT",
     "DRAG_BETA",
-    "DRIVE_CHANNEL",
-    "FLUX_CHANNEL",
+    "FLUX_GAIN",
+    "FLUX_OFFSET",
     "FLUX_SWEET_SPOT",
     "Q0",
-    "Q0_CHANNELS",
+    "Q0_CHANNEL_CALIBRATION",
     "Q0_DRAG_BETA",
     "Q0_READOUT",
     "Q1",
-    "Q1_CHANNELS",
+    "Q1_CHANNEL_CALIBRATION",
     "Q1_READOUT",
+    "Q2",
+    "Q2_CHANNEL_CALIBRATION",
+    "Q2_READOUT",
+    "Q3",
+    "Q3_CHANNEL_CALIBRATION",
+    "Q3_READOUT",
     "QUARTER_TURN_AMPLITUDE",
     "QUARTER_TURN_DURATION",
     "QUARTER_TURN_SIGMA",
     "QUBIT",
     "QUBITS",
-    "QUBIT_CHANNELS",
-    "READOUT_CHANNEL",
     "READOUT_RESONATORS",
     "REFERENCE_PARAMETER_CATALOG",
     "RESONANCE_FREQUENCY",

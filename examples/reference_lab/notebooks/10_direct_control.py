@@ -13,7 +13,7 @@ from scopecat_instruments import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-FLUX_SOURCE = dc_source("flux-source")
+FLUX_SOURCE = dc_source("bench-source")
 MIXING_CHAMBER = temperature_readout("mixing-chamber")
 READOUT_VNA = network_sweep("readout-vna")
 
