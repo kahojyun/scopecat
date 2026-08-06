@@ -1684,8 +1684,12 @@ export interface components {
          * @description One physical persistent-property value.
          */
         InstrumentPropertyState: {
+            /** Channel Bindings */
+            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
             /** Component Path */
             component_path?: components["schemas"]["_NonEmptyId"][];
+            /** Entity Ids */
+            entity_ids?: components["schemas"]["_NonEmptyId"][];
             interface_id: components["schemas"]["InterfaceId"];
             property_id: components["schemas"]["_NonEmptyId"];
             value: components["schemas"]["StateValue"];

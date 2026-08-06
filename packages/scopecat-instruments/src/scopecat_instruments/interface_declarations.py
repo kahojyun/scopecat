@@ -22,6 +22,74 @@ type SParameter = Literal["S11", "S21", "S12", "S22"]
 
 
 @instrument_state
+class DCBiasState:
+    """A settled DC voltage target suitable for coherent channel batches."""
+
+    target_voltage: Quantity = member_field(
+        unit="V",
+        label="Target voltage",
+        description="Requested final voltage for this routed channel.",
+    )
+    ramp_duration: Quantity = member_field(
+        unit="s",
+        minimum=0.0,
+        label="Ramp duration",
+        description="Minimum duration for the transition to the target voltage.",
+    )
+    settle_tolerance: Quantity = member_field(
+        unit="V",
+        minimum=0.0,
+        label="Settle tolerance",
+        description="Maximum readback error accepted before the batch completes.",
+    )
+    actual_voltage: Quantity = member_field(
+        unit="V",
+        access="read_only",
+        label="Actual voltage",
+        description="Voltage read back after the most recent transition.",
+    )
+    settled: bool = member_field(
+        access="read_only",
+        label="Settled",
+        description="Whether readback is within the requested tolerance.",
+    )
+
+
+@instrument_result
+class DCBiasReadbackResults:
+    """Per-channel result after a coherent bias transition."""
+
+    actual_voltage: float = result_field(
+        dtype="float64",
+        unit="V",
+        label="Actual voltage",
+        description="Voltage read back from this routed channel.",
+    )
+    settled: bool = result_field(
+        dtype="bool",
+        label="Settled",
+        description="Whether the readback is within the requested tolerance.",
+    )
+
+
+@instrument_interface(
+    "scopecat.dc_bias/v1",
+    state=DCBiasState,
+    label="DC bias ramp",
+    description=(
+        "Settled voltage transitions that a multi-channel device may apply as one "
+        "coherent batch."
+    ),
+)
+class DCBiasInterface(Protocol):
+    @acquisition(
+        label="Read back bias",
+        description="Read the settled voltage status for one routed channel.",
+    )
+    def readback(self) -> DCBiasReadbackResults: ...
+
+
+@instrument_state
 class DCSourceState:
     """Complete DC-source state, including the hardware-selected source mode."""
 

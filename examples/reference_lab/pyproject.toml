@@ -1,0 +1,36 @@
+[project]
+name = "reference-lab"
+version = "0.1.0"
+description = "One hardware-free reference laboratory for the Scopecat gallery."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "numpy>=2",
+  "scipy>=1.16",
+  "scopecat",
+  "scopecat-instruments",
+  "scopecat-quantum",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.20,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest]
+minversion = "9.0"
+pythonpath = ["../../packages/scopecat"]
+strict_config = true
+strict_markers = true
+testpaths = ["tests"]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+src = ["src", "tests"]
+exclude = [
+  ".scopecat-examples",
+]
+
+[tool.uv.sources]
+scopecat = { workspace = true }
+scopecat-instruments = { workspace = true }
+scopecat-quantum = { workspace = true }

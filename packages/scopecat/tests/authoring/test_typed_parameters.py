@@ -112,3 +112,31 @@ def test_parameter_fields_normalize_schema_constrained_values() -> None:
     )
     with pytest.raises(ValueError, match="quantity must use dimension"):
         _FREQUENCY.value(sc.Quantity(5.0, "ns"))
+
+
+def test_parameter_schema_join_closes_composite_keys_in_declaration_order() -> None:
+    profile = sc.parameter_field("profile", sc.StringType())
+    entity = sc.parameter_field(
+        "entity",
+        sc.EntityType(entity_kind="logical_device"),
+    )
+    value = sc.parameter_field("value", sc.QuantityType(unit="V"))
+    profiles = sc.parameter_schema(
+        "bias_profiles",
+        fields=(profile, entity, value),
+        primary_key=(profile, entity),
+    )
+    q0 = sc.EntityRef(id="q0", kind="logical_device")
+
+    rows = profiles.join(
+        sc.each(q0),
+        on=entity,
+        where=(profile.key("operate"),),
+    )
+
+    mapped = rows.map(lambda row: row[value].ref)
+    assert tuple(rows) == (q0,)
+    assert rows[q0].key == (profile.key("operate"), entity.key(q0))
+    assert mapped[q0] is rows[q0][value].ref
+    with pytest.raises(ValueError, match="close every primary-key field"):
+        profiles.join(sc.each(q0), on=entity)

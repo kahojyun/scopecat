@@ -26,6 +26,7 @@ from scopecat_instruments.drivers import (
     YokogawaGS200,
 )
 from scopecat_instruments.interfaces import (
+    dc_bias_interface,
     dc_monitor_interface,
     dc_source_interface,
     network_sweep_interface,
@@ -70,6 +71,7 @@ def test_member_catalog_resolves_against_the_interface_contracts() -> None:
         interface.id: interface
         for interface in (
             rf_output_interface(),
+            dc_bias_interface(),
             dc_source_interface(),
             dc_monitor_interface(),
             temperature_readout_interface(),

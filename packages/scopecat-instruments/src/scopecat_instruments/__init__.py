@@ -11,6 +11,10 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from scopecat_instruments.clients import (
+        DCBiasClient,
+        DCBiasReadbackProducts,
+        DCBiasReadbackReadback,
+        DCBiasReadbackRecords,
         DCMonitorClient,
         DCMonitorCurrentProducts,
         DCMonitorCurrentReadback,
@@ -26,6 +30,8 @@ if TYPE_CHECKING:
         NetworkSweepReadback,
         NetworkSweepRecords,
         RFOutputClient,
+        SymbolicDCBiasClient,
+        SymbolicDCBiasGroup,
         SymbolicDCMonitorClient,
         SymbolicDCMonitorGroup,
         SymbolicDCSourceClient,
@@ -42,6 +48,7 @@ if TYPE_CHECKING:
         TemperatureReadoutClient,
         TemperatureSampleProducts,
         TemperatureSampleRecords,
+        dc_bias,
         dc_monitor,
         dc_source,
         dc_source_monitor,
@@ -51,6 +58,10 @@ if TYPE_CHECKING:
     )
     from scopecat_instruments.provider import ConfiguredInstrumentProvider
     from scopecat_instruments.states import (
+        DCBiasGroupTarget,
+        DCBiasPatch,
+        DCBiasState,
+        DCBiasTarget,
         DCMonitorGroupTarget,
         DCMonitorPatch,
         DCMonitorState,
@@ -75,6 +86,14 @@ if TYPE_CHECKING:
 
 _PUBLIC_EXPORT_MODULES: dict[str, str] = {
     "ConfiguredInstrumentProvider": "scopecat_instruments.provider",
+    "DCBiasClient": "scopecat_instruments.clients",
+    "DCBiasGroupTarget": "scopecat_instruments.states",
+    "DCBiasPatch": "scopecat_instruments.states",
+    "DCBiasReadbackProducts": "scopecat_instruments.clients",
+    "DCBiasReadbackReadback": "scopecat_instruments.clients",
+    "DCBiasReadbackRecords": "scopecat_instruments.clients",
+    "DCBiasState": "scopecat_instruments.states",
+    "DCBiasTarget": "scopecat_instruments.states",
     "DCMonitorClient": "scopecat_instruments.clients",
     "DCMonitorCurrentProducts": "scopecat_instruments.clients",
     "DCMonitorCurrentReadback": "scopecat_instruments.clients",
@@ -108,6 +127,8 @@ _PUBLIC_EXPORT_MODULES: dict[str, str] = {
     "RFOutputTarget": "scopecat_instruments.states",
     "ReferenceSource": "scopecat_instruments.states",
     "SParameter": "scopecat_instruments.states",
+    "SymbolicDCBiasClient": "scopecat_instruments.clients",
+    "SymbolicDCBiasGroup": "scopecat_instruments.clients",
     "SymbolicDCMonitorClient": "scopecat_instruments.clients",
     "SymbolicDCMonitorGroup": "scopecat_instruments.clients",
     "SymbolicDCSourceClient": "scopecat_instruments.clients",
@@ -125,6 +146,7 @@ _PUBLIC_EXPORT_MODULES: dict[str, str] = {
     "TemperatureReadoutState": "scopecat_instruments.states",
     "TemperatureSampleProducts": "scopecat_instruments.clients",
     "TemperatureSampleRecords": "scopecat_instruments.clients",
+    "dc_bias": "scopecat_instruments.clients",
     "dc_monitor": "scopecat_instruments.clients",
     "dc_source": "scopecat_instruments.clients",
     "dc_source_monitor": "scopecat_instruments.clients",

@@ -13,6 +13,7 @@ from scopecat_instruments.connection_options import (
     NoConnectionOptions,
 )
 from scopecat_instruments.interface_declarations import (
+    DCBiasInterface,
     DCMonitorInterface,
     DCSourceInterface,
     NetworkSweepInterface,
@@ -187,6 +188,7 @@ PACKAGE_MANIFEST = InstrumentPackageManifest(
             public_name_overrides=(("sample.readback", "TemperatureReadback"),),
         ),
         InterfaceSurfaceRegistration(RFOutputInterface),
+        InterfaceSurfaceRegistration(DCBiasInterface),
         InterfaceSurfaceRegistration(DCSourceInterface),
         InterfaceSurfaceRegistration(DCMonitorInterface),
         CompositeSurfaceRegistration(

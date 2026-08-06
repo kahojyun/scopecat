@@ -24,7 +24,7 @@ from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import Problem
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records._metadata import JsonMetadata
-from scopecat.records.instrument import InstrumentReadback
+from scopecat.records.instrument import CommandChannelBinding, InstrumentReadback
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementScalar,
@@ -101,6 +101,8 @@ class _InvokeDescriptor(_WireModel):
     component_path: tuple[_NonEmptyText, ...] = ()
     operation_id: _NonEmptyText
     arguments: tuple[BackendOperationArgument, ...] = ()
+    entity_ids: tuple[_NonEmptyText, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
 
 class _PayloadDescriptor(_WireModel):
@@ -272,6 +274,8 @@ def split_invoke_request(
             component_path=request.component_path,
             operation_id=request.operation_id,
             arguments=request.arguments,
+            entity_ids=request.entity_ids,
+            channel_bindings=request.channel_bindings,
         ),
         payloads=tuple(payloads),
         attachments=tuple(manifests),
@@ -348,6 +352,8 @@ def join_invoke_request(
             operation_id=descriptor.request.operation_id,
             arguments=descriptor.request.arguments,
             payloads=payloads,
+            entity_ids=descriptor.request.entity_ids,
+            channel_bindings=descriptor.request.channel_bindings,
         )
     except ValidationError as error:
         raise WorkerWireError("invalid worker invoke request") from error

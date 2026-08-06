@@ -17,6 +17,7 @@ from scopecat.sdk.instruments import (
 )
 
 from scopecat_instruments.interface_declarations import (
+    DCBiasState,
     DCMonitorState,
     DCSourceState,
     NetworkSweepState,
@@ -24,6 +25,11 @@ from scopecat_instruments.interface_declarations import (
     TemperatureReadoutState,
 )
 from scopecat_instruments.members import (
+    DC_BIAS_ACTUAL_VOLTAGE,
+    DC_BIAS_RAMP_DURATION,
+    DC_BIAS_SETTLE_TOLERANCE,
+    DC_BIAS_SETTLED,
+    DC_BIAS_TARGET_VOLTAGE,
     DC_MONITOR_INTEGRATION_CYCLES,
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
@@ -64,7 +70,7 @@ class RFOutputDriverPatch(TypedDict, total=False):
 
 def decode_rf_output_patch(request: DriverStatePatch, /) -> RFOutputDriverPatch:
     decoded: RFOutputDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if RF_OUTPUT_FREQUENCY in values:
         decoded["frequency"] = cast(
             "Quantity",
@@ -97,6 +103,43 @@ def encode_rf_output_state(state: RFOutputState, /) -> dict[PropertyRef, DriverS
     }
 
 
+class DCBiasDriverPatch(TypedDict, total=False):
+    target_voltage: Quantity
+    ramp_duration: Quantity
+    settle_tolerance: Quantity
+
+
+def decode_dc_bias_patch(request: DriverStatePatch, /) -> DCBiasDriverPatch:
+    decoded: DCBiasDriverPatch = {}
+    values = {entry.target: entry.value for entry in request.entries}
+    if DC_BIAS_TARGET_VOLTAGE in values:
+        decoded["target_voltage"] = cast(
+            "Quantity",
+            values[DC_BIAS_TARGET_VOLTAGE],
+        )
+    if DC_BIAS_RAMP_DURATION in values:
+        decoded["ramp_duration"] = cast(
+            "Quantity",
+            values[DC_BIAS_RAMP_DURATION],
+        )
+    if DC_BIAS_SETTLE_TOLERANCE in values:
+        decoded["settle_tolerance"] = cast(
+            "Quantity",
+            values[DC_BIAS_SETTLE_TOLERANCE],
+        )
+    return decoded
+
+
+def encode_dc_bias_state(state: DCBiasState, /) -> dict[PropertyRef, DriverScalar]:
+    return {
+        DC_BIAS_TARGET_VOLTAGE: state.target_voltage,
+        DC_BIAS_RAMP_DURATION: state.ramp_duration,
+        DC_BIAS_SETTLE_TOLERANCE: state.settle_tolerance,
+        DC_BIAS_ACTUAL_VOLTAGE: state.actual_voltage,
+        DC_BIAS_SETTLED: state.settled,
+    }
+
+
 class DCSourceDriverPatch(TypedDict, total=False):
     voltage_protection: Quantity
     current_protection: Quantity
@@ -105,7 +148,7 @@ class DCSourceDriverPatch(TypedDict, total=False):
 
 def decode_dc_source_patch(request: DriverStatePatch, /) -> DCSourceDriverPatch:
     decoded: DCSourceDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if DC_SOURCE_VOLTAGE_PROTECTION in values:
         decoded["voltage_protection"] = cast(
             "Quantity",
@@ -141,7 +184,7 @@ class DCMonitorDriverPatch(TypedDict, total=False):
 
 def decode_dc_monitor_patch(request: DriverStatePatch, /) -> DCMonitorDriverPatch:
     decoded: DCMonitorDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if DC_MONITOR_MEASUREMENT_ENABLED in values:
         decoded["measurement_enabled"] = cast(
             "bool",
@@ -181,7 +224,7 @@ class NetworkSweepDriverPatch(TypedDict, total=False):
 
 def decode_network_sweep_patch(request: DriverStatePatch, /) -> NetworkSweepDriverPatch:
     decoded: NetworkSweepDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if NETWORK_SWEEP_START_FREQUENCY in values:
         decoded["start_frequency"] = cast(
             "Quantity",
@@ -242,14 +285,17 @@ def encode_driver_state(
 
 
 __all__ = [
+    "DCBiasDriverPatch",
     "DCMonitorDriverPatch",
     "DCSourceDriverPatch",
     "NetworkSweepDriverPatch",
     "RFOutputDriverPatch",
+    "decode_dc_bias_patch",
     "decode_dc_monitor_patch",
     "decode_dc_source_patch",
     "decode_network_sweep_patch",
     "decode_rf_output_patch",
+    "encode_dc_bias_state",
     "encode_dc_monitor_state",
     "encode_dc_source_state",
     "encode_driver_state",

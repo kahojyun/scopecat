@@ -1,0 +1,299 @@
+{
+  "id": "reference-lab-system",
+  "primary_entity_id": "q0",
+  "instrument_registry": {
+    "instruments": [
+      {
+        "id": "drive-stack",
+        "exclusivity_key": "drive-stack",
+        "driver_id": "reference_lab.virtual_lab.drive_stack",
+        "connection": {
+          "kind": "virtual"
+        },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "readout-stack",
+        "exclusivity_key": "readout-stack",
+        "driver_id": "reference_lab.virtual_lab.readout_stack",
+        "connection": {
+          "kind": "virtual"
+        },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "pump-source",
+        "exclusivity_key": "pump-source",
+        "driver_id": "scopecat.virtual.rf_source",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "bench-source",
+        "exclusivity_key": "bench-source",
+        "driver_id": "scopecat.virtual.dc_source",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "flux-dac-a",
+        "exclusivity_key": "flux-dac-a",
+        "driver_id": "reference_lab.virtual.multichannel_dc_source",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "flux-dac-b",
+        "exclusivity_key": "flux-dac-b",
+        "driver_id": "reference_lab.virtual.multichannel_dc_source",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "mixing-chamber",
+        "exclusivity_key": "mixing-chamber",
+        "driver_id": "scopecat.virtual.temperature_monitor",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "readout-vna",
+        "exclusivity_key": "readout-vna",
+        "driver_id": "scopecat.virtual.vna",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "event-digitizer",
+        "exclusivity_key": "event-digitizer",
+        "driver_id": "reference_lab.virtual.event_digitizer",
+        "connection": { "kind": "virtual" },
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      }
+    ]
+  },
+  "routing": {
+    "bindings": [
+      {
+        "instrument_id": "drive-stack",
+        "interface_id": "quantum_lab.play_pulse_program/v1",
+        "entity_id": "q0",
+        "channel_id": "drive.awg0.ch1"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.readout_pulse/v1",
+        "entity_id": "q0",
+        "channel_id": "readout.mux0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.acquire_iq/v1",
+        "entity_id": "q0",
+        "channel_id": "digitizer.demod0"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "interface_id": "quantum_lab.play_pulse_program/v1",
+        "entity_id": "q1",
+        "channel_id": "drive.awg0.ch2"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.readout_pulse/v1",
+        "entity_id": "q1",
+        "channel_id": "readout.mux0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.acquire_iq/v1",
+        "entity_id": "q1",
+        "channel_id": "digitizer.demod1"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "interface_id": "quantum_lab.play_pulse_program/v1",
+        "entity_id": "q2",
+        "channel_id": "drive.awg0.ch3"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.readout_pulse/v1",
+        "entity_id": "q2",
+        "channel_id": "readout.mux0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.acquire_iq/v1",
+        "entity_id": "q2",
+        "channel_id": "digitizer.demod2"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "interface_id": "quantum_lab.play_pulse_program/v1",
+        "entity_id": "q3",
+        "channel_id": "drive.awg0.ch4"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.readout_pulse/v1",
+        "entity_id": "q3",
+        "channel_id": "readout.mux0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "interface_id": "quantum_lab.acquire_iq/v1",
+        "entity_id": "q3",
+        "channel_id": "digitizer.demod3"
+      },
+      {
+        "instrument_id": "pump-source",
+        "interface_id": "scopecat.rf_output/v1"
+      },
+      {
+        "instrument_id": "flux-dac-a",
+        "interface_id": "scopecat.dc_source/v3",
+        "entity_id": "q0",
+        "channel_id": "flux.dac_a.ch1"
+      },
+      {
+        "instrument_id": "flux-dac-a",
+        "interface_id": "scopecat.dc_bias/v1",
+        "entity_id": "q0",
+        "channel_id": "flux.dac_a.ch1"
+      },
+      {
+        "instrument_id": "flux-dac-a",
+        "interface_id": "scopecat.dc_monitor/v4",
+        "entity_id": "q0",
+        "channel_id": "flux.dac_a.ch1"
+      },
+      {
+        "instrument_id": "flux-dac-a",
+        "interface_id": "scopecat.dc_source/v3",
+        "entity_id": "q1",
+        "channel_id": "flux.dac_a.ch2"
+      },
+      {
+        "instrument_id": "flux-dac-a",
+        "interface_id": "scopecat.dc_bias/v1",
+        "entity_id": "q1",
+        "channel_id": "flux.dac_a.ch2"
+      },
+      {
+        "instrument_id": "flux-dac-a",
+        "interface_id": "scopecat.dc_monitor/v4",
+        "entity_id": "q1",
+        "channel_id": "flux.dac_a.ch2"
+      },
+      {
+        "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_source/v3",
+        "entity_id": "q2",
+        "channel_id": "flux.dac_b.ch1"
+      },
+      {
+        "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_bias/v1",
+        "entity_id": "q2",
+        "channel_id": "flux.dac_b.ch1"
+      },
+      {
+        "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_monitor/v4",
+        "entity_id": "q2",
+        "channel_id": "flux.dac_b.ch1"
+      },
+      {
+        "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_source/v3",
+        "entity_id": "q3",
+        "channel_id": "flux.dac_b.ch2"
+      },
+      {
+        "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_bias/v1",
+        "entity_id": "q3",
+        "channel_id": "flux.dac_b.ch2"
+      },
+      {
+        "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_monitor/v4",
+        "entity_id": "q3",
+        "channel_id": "flux.dac_b.ch2"
+      },
+      {
+        "instrument_id": "mixing-chamber",
+        "interface_id": "scopecat.temperature_readout/v1",
+        "entity_id": "cryostat"
+      },
+      {
+        "instrument_id": "readout-vna",
+        "interface_id": "scopecat.network_sweep/v1"
+      },
+      {
+        "instrument_id": "event-digitizer",
+        "interface_id": "reference_lab.event_capture/v1"
+      }
+    ]
+  },
+  "topology": {
+    "entities": [
+      {
+        "id": "q0",
+        "kind": "logical_qubit"
+      },
+      {
+        "id": "q1",
+        "kind": "logical_qubit"
+      },
+      {
+        "id": "q2",
+        "kind": "logical_qubit"
+      },
+      {
+        "id": "q3",
+        "kind": "logical_qubit"
+      },
+      {
+        "id": "cryostat",
+        "kind": "cryostat"
+      }
+    ]
+  },
+  "domain_target": {
+    "id": "reference-lab.fake-list-mode.v1",
+    "exclusivity_key": "reference-lab.fake-list-mode.v1",
+    "kind": "reference_lab.fake-list-mode",
+    "members": [
+      {
+        "kind": "instrument",
+        "role": "drive-stack",
+        "instrument_id": "drive-stack"
+      },
+      {
+        "kind": "instrument",
+        "role": "readout-stack",
+        "instrument_id": "readout-stack"
+      }
+    ]
+  }
+}

@@ -1350,16 +1350,63 @@ def test_state_command_rejects_duplicate_physical_targets() -> None:
         )
 
 
-def test_instrument_property_state_contains_only_a_physical_target() -> None:
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        RecordInstrumentPropertyState.model_validate(
-            {
-                "interface_id": "test.control/v1",
-                "property_id": "gain",
-                "value": 1.0,
-                "entity_ids": ["logical-channel"],
-            }
-        )
+def test_state_command_accepts_same_property_on_distinct_routed_channels() -> None:
+    command = InstrumentStateCommand.model_validate(
+        {
+            "command_id": "two-channel-state",
+            "instrument_id": "source-0",
+            "assignments": [
+                {
+                    "resource_id": "source-0",
+                    "interface_id": "test.dc/v1",
+                    "property_id": "output_enabled",
+                    "value": False,
+                    "entity_ids": [entity_id],
+                    "channel_bindings": [
+                        {
+                            "entity_id": entity_id,
+                            "channel_id": channel_id,
+                            "interface_id": "test.dc/v1",
+                        }
+                    ],
+                }
+                for entity_id, channel_id in (
+                    ("q0", "source.ch1"),
+                    ("q1", "source.ch2"),
+                )
+            ],
+        }
+    )
+
+    assert [
+        assignment.channel_bindings[0].channel_id for assignment in command.assignments
+    ] == ["source.ch1", "source.ch2"]
+    patch = lower_state_patch(lower_backend_apply_request(command))
+    assert patch.values == {}
+    assert [entry.channel_bindings[0].channel_id for entry in patch.entries] == [
+        "source.ch1",
+        "source.ch2",
+    ]
+
+
+def test_instrument_property_state_accepts_a_routed_channel_scope() -> None:
+    state = RecordInstrumentPropertyState.model_validate(
+        {
+            "interface_id": "test.control/v1",
+            "property_id": "gain",
+            "value": 1.0,
+            "entity_ids": ["logical-channel"],
+            "channel_bindings": [
+                {
+                    "entity_id": "logical-channel",
+                    "channel_id": "output.ch1",
+                    "interface_id": "test.control/v1",
+                }
+            ],
+        }
+    )
+
+    assert state.channel_bindings[0].channel_id == "output.ch1"
 
 
 def test_state_snapshot_requires_every_static_observable_scope() -> None:
@@ -2138,7 +2185,7 @@ def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
     assert [result.result_id for result in instrument.collect_requests[0].results] == [
         "signal"
     ]
-    assert next(iter(instrument.applied[0].values)).interface_id == (
+    assert instrument.applied[0].entries[0].target.interface_id == (
         "test.set_frequency/v1"
     )
 

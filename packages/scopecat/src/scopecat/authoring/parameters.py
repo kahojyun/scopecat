@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Protocol, cast, overload
 
+from scopecat.authoring.entity_selection import EachEntity, PerEntity
 from scopecat.config.parameter_updates import (
     UpdateParameterRows,
     update_parameter_rows,
@@ -239,6 +240,47 @@ class ParameterSchema:
             if fields_by_id.get(item.field.id) is not item.field:
                 raise ValueError("parameter row key field belongs to another schema")
         return ParameterRow(self, tuple(key))
+
+    def join(
+        self,
+        entities: EachEntity,
+        *,
+        on: ParameterField[EntityRef | str],
+        where: tuple[ParameterRowKey, ...] = (),
+    ) -> PerEntity[ParameterRow]:
+        """Join concrete entities to rows through one entity primary-key field.
+
+        ``where`` closes any other primary-key fields in declaration order.
+        The returned rows retain entity identity through ``PerEntity``, so
+        callers can project cells with ``map`` without positional alignment.
+        """
+
+        self.require_field_internal(on)
+        expected = self.primary_key
+        selected = (*where, on.key(entities.entities[0]))
+        selected_fields = tuple(item.field for item in selected)
+        selected_field_ids = tuple(id(field) for field in selected_fields)
+        expected_field_ids = tuple(id(field) for field in expected)
+        if len(set(selected_field_ids)) != len(expected_field_ids) or set(
+            selected_field_ids
+        ) != set(expected_field_ids):
+            raise ValueError(
+                "parameter join keys must close every primary-key field exactly once"
+            )
+
+        where_by_field_id = {id(item.field): item for item in where}
+        return PerEntity(
+            (
+                entity,
+                self.row(
+                    *(
+                        on.key(entity) if field is on else where_by_field_id[id(field)]
+                        for field in expected
+                    )
+                ),
+            )
+            for entity in entities
+        )
 
     def require_field_internal(self, selected: _ParameterFieldIdentity) -> None:
         if not any(item is selected for item in self.fields):

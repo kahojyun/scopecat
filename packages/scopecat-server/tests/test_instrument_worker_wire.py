@@ -8,7 +8,7 @@ from typing import cast
 
 import pytest
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.records.instrument import InstrumentReadback
+from scopecat.records.instrument import CommandChannelBinding, InstrumentReadback
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementScalar,
@@ -58,6 +58,14 @@ def _request(*payloads: BackendPayload) -> BackendInvokeRequest:
             for payload in payloads
         ),
         payloads={payload.id: payload for payload in reversed(payloads)},
+        entity_ids=("q0",),
+        channel_bindings=(
+            CommandChannelBinding(
+                entity_id="q0",
+                channel_id="drive.ch1",
+                interface_id="tests.program_player/v1",
+            ),
+        ),
     )
 
 
@@ -101,6 +109,8 @@ def test_invoke_wire_separates_json_descriptor_from_binary_content() -> None:
         "component_path",
         "interface_id",
         "operation_id",
+        "entity_ids",
+        "channel_bindings",
     }
     assert set(document["payloads"][0]) == {
         "codec_id",

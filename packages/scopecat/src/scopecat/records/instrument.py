@@ -21,6 +21,8 @@ type PropertyTargetIdentity = tuple[
     str,
     tuple[str, ...],
     str,
+    tuple[str, ...],
+    tuple[tuple[str, str, str | None], ...],
 ]
 
 
@@ -72,6 +74,8 @@ def property_target_identity(
     interface_id: str,
     component_path: Sequence[str],
     property_id: str,
+    entity_ids: Sequence[str] = (),
+    channel_bindings: Sequence[CommandChannelBinding] = (),
 ) -> PropertyTargetIdentity:
     scope = state_target_scope_identity(
         interface_id,
@@ -81,6 +85,11 @@ def property_target_identity(
         scope[0],
         scope[1],
         property_id,
+        tuple(entity_ids) if channel_bindings else (),
+        tuple(
+            (binding.entity_id, binding.channel_id, binding.interface_id)
+            for binding in channel_bindings
+        ),
     )
 
 
@@ -97,6 +106,13 @@ class InstrumentPropertyState(BaseModel):
     component_path: list[_NonEmptyId] = Field(default_factory=list)
     property_id: _NonEmptyId
     value: StateValue
+    entity_ids: list[_NonEmptyId] = Field(default_factory=list)
+    channel_bindings: list[CommandChannelBinding] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> InstrumentPropertyState:
+        validate_entity_target(self.entity_ids, self.channel_bindings)
+        return self
 
 
 class InstrumentStateSnapshot(BaseModel):
@@ -115,6 +131,8 @@ class InstrumentStateSnapshot(BaseModel):
                 item.interface_id,
                 item.component_path,
                 item.property_id,
+                item.entity_ids,
+                item.channel_bindings,
             )
             for item in self.properties
         ]

@@ -40,7 +40,7 @@ def decode_catalog_projection_patch(
     request: DriverStatePatch, /
 ) -> CatalogProjectionDriverPatch:
     decoded: CatalogProjectionDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if CATALOG_PROJECTION_ENABLED in values:
         decoded["enabled"] = cast(
             "bool",
@@ -66,7 +66,7 @@ def decode_shared_state_first_patch(
     request: DriverStatePatch, /
 ) -> SharedStateFirstDriverPatch:
     decoded: SharedStateFirstDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if SHARED_STATE_FIRST_ENABLED in values:
         decoded["enabled"] = cast(
             "bool",
@@ -91,7 +91,7 @@ def decode_shared_state_second_patch(
     request: DriverStatePatch, /
 ) -> SharedStateSecondDriverPatch:
     decoded: SharedStateSecondDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if SHARED_STATE_SECOND_ENABLED in values:
         decoded["enabled"] = cast(
             "bool",
@@ -115,7 +115,7 @@ class DriverSourceDriverPatch(TypedDict, total=False):
 
 def decode_driver_source_patch(request: DriverStatePatch, /) -> DriverSourceDriverPatch:
     decoded: DriverSourceDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if DRIVER_SOURCE_ENABLED in values:
         decoded["enabled"] = cast(
             "bool",
@@ -146,7 +146,7 @@ def decode_driver_monitor_patch(
     request: DriverStatePatch, /
 ) -> DriverMonitorDriverPatch:
     decoded: DriverMonitorDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if DRIVER_MONITOR_ENABLED in values:
         decoded["enabled"] = cast(
             "bool",

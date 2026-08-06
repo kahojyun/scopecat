@@ -614,6 +614,8 @@ def state_assignment_satisfied(
         assignment.interface_id,
         assignment.component_path,
         assignment.property_id,
+        assignment.entity_ids,
+        assignment.channel_bindings,
     )
     actual = next(
         (
@@ -623,11 +625,34 @@ def state_assignment_satisfied(
                 item.interface_id,
                 item.component_path,
                 item.property_id,
+                item.entity_ids,
+                item.channel_bindings,
             )
             == identity
         ),
         None,
     )
+    if actual is None and assignment.channel_bindings:
+        unscoped_identity = _property_target_identity(
+            assignment.interface_id,
+            assignment.component_path,
+            assignment.property_id,
+        )
+        actual = next(
+            (
+                item.value
+                for item in state.properties
+                if _property_target_identity(
+                    item.interface_id,
+                    item.component_path,
+                    item.property_id,
+                    item.entity_ids,
+                    item.channel_bindings,
+                )
+                == unscoped_identity
+            ),
+            None,
+        )
     return actual is not None and scalar_values_equal(
         actual.root,
         assignment.value.root,
@@ -1762,6 +1787,8 @@ def project_instrument_state(
             item.interface_id,
             item.component_path,
             item.property_id,
+            item.entity_ids,
+            item.channel_bindings,
         ): item.model_copy(deep=True)
         for item in state.properties
     }
@@ -1792,12 +1819,16 @@ def project_instrument_state(
                 assignment.interface_id,
                 assignment.component_path,
                 assignment.property_id,
+                assignment.entity_ids,
+                assignment.channel_bindings,
             )
         ] = _InstrumentPropertyState(
             interface_id=assignment.interface_id,
             component_path=list(assignment.component_path),
             property_id=assignment.property_id,
             value=assignment.value,
+            entity_ids=list(assignment.entity_ids),
+            channel_bindings=list(assignment.channel_bindings),
         )
     return _ProjectedInstrumentState(
         instrument_id=state.instrument_id,

@@ -1,0 +1,37 @@
+"""Notebook-side compiler and experiment-system composition."""
+
+from __future__ import annotations
+
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.system import ExperimentSystem
+from scopecat.records.config import ConfigProfileSnapshot
+
+from reference_lab.compiler import QuantumLabCompiler
+from reference_lab.payloads import quantum_lab_payload_codecs
+from reference_lab.targets.fake_list_mode import configured_fake_list_target
+
+
+def reference_lab_system(
+    *,
+    config: ConfigProfileSnapshot,
+    instrument_catalog: InstrumentContractCatalog,
+) -> ExperimentSystem:
+    """Compose one process-local system for notebook execution.
+
+    Keeping domain dispatch at this single boundary gives every example the
+    same routing, resource model, and target pipeline while each operation
+    still specializes its own accepted parameter snapshot.
+    """
+
+    return ExperimentSystem(
+        instrument_catalog=instrument_catalog,
+        domain_compiler=QuantumLabCompiler(
+            target=configured_fake_list_target(config),
+        ),
+        payload_codecs=quantum_lab_payload_codecs(),
+    )
+
+
+__all__ = [
+    "reference_lab_system",
+]

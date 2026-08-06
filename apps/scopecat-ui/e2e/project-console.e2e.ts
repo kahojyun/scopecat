@@ -63,9 +63,9 @@ import time
 from pathlib import Path
 
 import scopecat as sc
-from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
-from quantum_lab_demo.lab import quantum_lab_system
-from quantum_lab_demo.workflows.drag_beta_experiment import (
+from reference_lab.configuration import bootstrap_config
+from reference_lab.lab import reference_lab_system
+from reference_lab.workflows.drag_beta_experiment import (
     drag_beta_experiment,
 )
 
@@ -87,11 +87,11 @@ def wait_for_release(path: Path) -> None:
         time.sleep(0.02)
 
 
-config = quantum_lab_bootstrap_config()
+config = bootstrap_config()
 
 
 def build_system(selected, instrument_catalog):
-    return quantum_lab_system(
+    return reference_lab_system(
         config=selected,
         instrument_catalog=instrument_catalog,
     )

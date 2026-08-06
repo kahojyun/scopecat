@@ -59,6 +59,8 @@ def test_apply_command_lowers_to_backend_property_writes() -> None:
                 "component_path": ["channel-a"],
                 "property_id": "level",
                 "value": 1.25,
+                "entity_ids": ["logical-source"],
+                "channel_bindings": [],
             }
         ]
     }
@@ -128,9 +130,9 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
         "command_id",
         "instrument_id",
         "resource_id",
-        "entity_ids",
-        "channel_bindings",
     }.isdisjoint(backend_request.model_dump())
+    assert backend_request.entity_ids == ("logical-drive",)
+    assert backend_request.channel_bindings == ()
     assert (
         BackendInvokeRequest.model_validate(backend_request.model_dump())
         == backend_request
@@ -288,6 +290,8 @@ def test_collect_command_lowers_to_one_acquisition_request() -> None:
                 "result_id": "s_parameter",
             },
         ],
+        "entity_ids": ["logical-vna"],
+        "channel_bindings": [],
     }
     acquisition = (
         InterfaceRef("test.network_sweep/v1").component("trace-a").acquisition("sweep")

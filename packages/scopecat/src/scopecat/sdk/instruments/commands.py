@@ -70,6 +70,8 @@ class InstrumentStateCommand(BaseModel):
                 assignment.interface_id,
                 assignment.component_path,
                 assignment.property_id,
+                assignment.entity_ids,
+                assignment.channel_bindings,
             )
             for assignment in self.assignments
         ]
@@ -181,6 +183,15 @@ class CollectCommand(BaseModel):
                 request.interface_id,
                 tuple(request.component_path),
                 request.acquisition_id,
+                tuple(request.entity_ids) if request.channel_bindings else (),
+                tuple(
+                    (
+                        binding.entity_id,
+                        binding.channel_id,
+                        binding.interface_id,
+                    )
+                    for binding in request.channel_bindings
+                ),
             )
             for request in self.requests
         }

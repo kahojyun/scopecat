@@ -22,8 +22,8 @@ owns them.
 - `packages/scopecat-instruments`: minimal real SCPI drivers and coupled
   virtual laboratory devices.
 - `packages/scopecat-quantum`: hardware-independent quantum building blocks.
-- `examples/instruments`: hardware-free GUI and notebook direct-control tour.
-- `examples/quantum`: notebook-first examples and a local demonstration lab.
+- `examples/reference_lab`: one hardware-free lab gallery spanning direct
+  control, characterization, data workflows, and quantum calibration.
 - `fixtures`: test-only inputs; runnable projects own their bootstrap config.
 - `docs`: long-term product direction.
 
@@ -64,15 +64,14 @@ default. `apply` validates the same snapshot and records one immutable default
 change; it does not make the daemon watch or rewrite Python. `export` produces
 a complete JSON snapshot for review or backup, not a primary editing format.
 
-The quantum example is the fuller local lab project. Its `scopecat.toml` and
-Python application and backend—including construction of its bootstrap
-snapshot and virtual devices—are version controlled; one daemon owns its
-`.scopecat` state:
+The reference lab is the complete local project. Its `scopecat.toml`, Python
+application and backend, bootstrap snapshot, seven-device inventory, and three
+parameter tables are version controlled; one daemon owns its `.scopecat` state:
 
 ```sh
-uv run scopecat config check examples/quantum
-uv run scopecat start examples/quantum --static-dir apps/scopecat-ui/dist
-uv run scopecat open examples/quantum
+uv run scopecat config check examples/reference_lab
+uv run scopecat start examples/reference_lab --static-dir apps/scopecat-ui/dist
+uv run scopecat open examples/reference_lab
 ```
 
 `config check` validates the version-controlled bootstrap source without
@@ -83,7 +82,7 @@ configuration history, parameter values, runs, data, and saved analysis.
 Run the notebook-style walkthrough in another terminal:
 
 ```sh
-uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
+uv run python examples/reference_lab/notebooks/30_drag_calibration.py
 ```
 
 The walkthrough runs the supported DRAG-beta calibration from measurement
@@ -91,13 +90,11 @@ through candidate acceptance, production use, and undo. The daemon records
 every immutable revision, acceptance decision, and activation while keeping
 entry ids and concurrency generations out of the ordinary workflow.
 
-For a hardware-free instrument-control tour instead, start
-`examples/instruments` and open the **Instruments** workspace:
+The same project also provides a hardware-free instrument-control tour. Open
+the **Instruments** workspace and run:
 
 ```sh
-uv run scopecat start examples/instruments --static-dir apps/scopecat-ui/dist
-uv run scopecat open examples/instruments
-uv run python examples/instruments/notebooks/01_direct_control.py
+uv run python examples/reference_lab/notebooks/10_direct_control.py
 ```
 
 Its coupled virtual DC source, temperature monitor, RF source, and VNA use the
@@ -123,7 +120,7 @@ my-lab/
 
 See the [lab daemon model](docs/lab-daemon.md) and
 [`scopecat-server` setup](packages/scopecat-server/README.md), then continue
-with [the quantum examples](examples/quantum/README.md). The
+with [the reference lab gallery](examples/reference_lab/README.md). The
 [measurement data workflow](docs/measurement-data.md) covers explicit point
 rows, ragged results, notebook slicing, ecosystem exports, and automatic GUI
 plots. The package READMEs
@@ -149,9 +146,8 @@ uv run ruff check packages examples docs scripts
 uv run ruff format --check packages examples docs scripts
 ```
 
-The default test run includes all package tests and one end-to-end quantum
-first-use slice. Run the complete demo suite explicitly with
-`uv run pytest examples/quantum/tests examples/quantum/support/tests`.
+The default test run includes the complete reference-lab gallery suite and all
+package tests.
 
 To assemble release artifacts without modifying either source tree:
 

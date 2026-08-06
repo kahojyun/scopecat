@@ -86,7 +86,7 @@ def capture(
 or composed. A one-off root experiment can instantiate the same symbolic clients
 directly, as shown in the
 [instrument-control guide](../../docs/instrument-control.md) and the
-[flux-spectroscopy workflow](../../examples/instruments/src/instrument_demo/workflows/flux_spectroscopy.py).
+[flux-spectroscopy workflow](../../examples/reference_lab/src/reference_lab/workflows/flux_spectroscopy.py).
 
 The verb carries the distinction: `source_voltage(...)` records an ordered
 mode/range/level transition, `apply(...)` updates persistent state now, and
@@ -126,6 +126,15 @@ protection, output, and reported source mode form one state schema; the mode is
 `read_only`, while typed `source_voltage(...)` and
 `source_current(...)` operations carry the required range and level.
 
+`scopecat.dc_bias/v1` is an optional capability for devices that can ramp routed
+voltage channels as coherent state batches. It carries target voltage, ramp
+duration, settle tolerance, actual-voltage state, settled state, and a typed
+per-channel readback acquisition. A group `ensure(...)` is recorded as one state
+intent; after routing, targets on the same physical instrument arrive in one
+scoped `DriverStatePatch`. The driver decides whether its hardware can make that
+batch atomic and returns channel-specific status metadata. Ordinary DC sources
+do not advertise this capability.
+
 Run the generator from the repository root after changing a supported
 declaration, and use its check mode in validation or CI:
 
@@ -143,6 +152,9 @@ independently for every argument, performs exact
 identity joins for all mappings before recording any effect, and then records
 one scalar invocation per entity. Mapping order is therefore irrelevant, while
 missing or extra entity identities fail before partial effects are created.
+Group state differs deliberately: one group `ensure(...)` remains coherent
+across its entity resources, allowing the planner to batch channels that resolve
+to the same device without merging adjacent transitions.
 
 The optional `DCSource`/`DCMonitor` composition is package presentation metadata
 over two existing wire interfaces. The generator emits the explicit

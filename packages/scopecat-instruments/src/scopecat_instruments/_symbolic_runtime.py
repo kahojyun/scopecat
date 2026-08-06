@@ -67,6 +67,11 @@ class _SymbolicInstrumentRecorder(Protocol):
         assignments: Mapping[PropertyRef, StateBinding],
     ) -> None: ...
 
+    def _ensure_many(
+        self,
+        targets: Sequence[StateTarget],
+    ) -> None: ...
+
     def _invoke(
         self,
         id: str,
@@ -240,7 +245,7 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
     sugar over independently routable scalar resources, not a vector driver.
     """
 
-    __slots__ = ("_clients", "_entities", "_id")
+    __slots__ = ("_clients", "_entities", "_id", "_recorder")
 
     def __init__(
         self,
@@ -250,6 +255,7 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
         for_: EachEntity,
         client_factory: _SymbolicClientFactory[ClientT],
     ) -> None:
+        self._recorder = recorder
         self._id = resource_id
         self._entities = for_
         self._clients = PerEntity(
@@ -322,8 +328,12 @@ class DeclaredStateSymbolicGroupBase[
         state: GroupStateT | PerEntity[StateT],
         /,
     ) -> None:
+        targets: list[StateTarget] = []
         for entity, assignments in self._aligned_state_assignments(state):
-            self._state_client(entity)._ensure(assignments)
+            client = self._state_client(entity)
+            client._state_assignments.update(assignments)
+            targets.append((client._resource, assignments))
+        self._recorder._ensure_many(targets)
 
     def state_targets(
         self,

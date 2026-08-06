@@ -1,10 +1,10 @@
 # Examples
 
-Examples are executable learning paths. They are allowed to include local
-support packages when that makes the user workflow easier to copy into a real
-project.
+Examples are executable learning paths built around one hardware-free reference
+laboratory.
 
-- `quantum/`: notebook-first quantum-flavored examples plus the local
-  `quantum_lab_demo` support package.
+- [`reference_lab/`](reference_lab/): direct instrument control, resonator
+  characterization, quantum calibration, data access, and operational recipes
+  using one project, instrument inventory, and parameter catalog.
 
-Example support packages are copyable teaching code, not product packages.
+The lab package is copyable teaching code, not a product package.

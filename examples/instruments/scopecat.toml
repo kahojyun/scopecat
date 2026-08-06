@@ -1,3 +1,0 @@
-[lab]
-application = "instrument_demo.application:create_application"
-instrument_backend = "instrument_demo.backend:create_backend"
