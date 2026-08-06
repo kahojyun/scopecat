@@ -94,8 +94,10 @@ class _VirtualInstrumentDriver:
         self,
         request: DriverStatePatch,
     ) -> DriverOutcome[DriverState | None]:
-        for target, value in request.values.items():
-            self._state[(target.interface_id, target.property_id)] = value
+        for entry in request.entries:
+            self._state[(entry.target.interface_id, entry.target.property_id)] = (
+                entry.value
+            )
         return DriverSuccess(None)
 
     def invoke(

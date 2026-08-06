@@ -463,7 +463,9 @@ class _VariantDriver(_TrackingDriver):
         request: DriverStatePatch,
     ) -> DriverOutcome[DriverState | None]:
         self.applied.append(request)
-        for target, value in request.values.items():
+        for entry in request.entries:
+            target = entry.target
+            value = entry.value
             if target.property_id == "mode":
                 assert isinstance(value, str)
                 self.mode = value

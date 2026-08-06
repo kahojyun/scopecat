@@ -1381,6 +1381,12 @@ def test_state_command_accepts_same_property_on_distinct_routed_channels() -> No
     assert [
         assignment.channel_bindings[0].channel_id for assignment in command.assignments
     ] == ["source.ch1", "source.ch2"]
+    patch = lower_state_patch(lower_backend_apply_request(command))
+    assert patch.values == {}
+    assert [entry.channel_bindings[0].channel_id for entry in patch.entries] == [
+        "source.ch1",
+        "source.ch2",
+    ]
 
 
 def test_instrument_property_state_accepts_a_routed_channel_scope() -> None:
@@ -2179,7 +2185,7 @@ def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
     assert [result.result_id for result in instrument.collect_requests[0].results] == [
         "signal"
     ]
-    assert next(iter(instrument.applied[0].values)).interface_id == (
+    assert instrument.applied[0].entries[0].target.interface_id == (
         "test.set_frequency/v1"
     )
 

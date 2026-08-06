@@ -265,7 +265,7 @@ class MultiChannelVirtualDcSource:
         request: DriverStatePatch,
     ) -> DriverOutcome[DriverState | None]:
         grouped: dict[str, list[DriverStateEntry]] = {}
-        for entry in request.scoped_values:
+        for entry in request.entries:
             channel_id = self._channel_id(
                 entry.target.interface_id,
                 entry.channel_bindings,

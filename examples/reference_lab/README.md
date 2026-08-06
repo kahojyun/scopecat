@@ -55,18 +55,18 @@ Run these scripts in order, or execute their `# %%` cells in an editor:
     for overlapping work on the q0 drive route.
 12. `notebooks/29_channel_unavailable.py` keeps q0 IQ data available when the
     q1 demodulation channel reports a structured missing result.
-13. `notebooks/30_multichannel_dc_bias.py` joins a named logical bias profile
-    to per-qubit gain/polarity/offset calibration, applies the four resulting
-    voltages through two physical DC sources, parks them, and disables every
-    routed output.
-14. `notebooks/30_drag_calibration.py` runs the two-dimensional DRAG experiment,
+13. `notebooks/30_drag_calibration.py` runs the two-dimensional DRAG experiment,
    analyzes it, checks the candidate without changing the default, accepts the
    reviewed `qubits` row update, uses it in a production run, and undoes the
    activation while retaining the audit trail.
-15. `notebooks/31_adaptive_tuneup.py` runs a bounded tune-up, rediscovers its
+14. `notebooks/31_adaptive_tuneup.py` runs a bounded tune-up, rediscovers its
    durable lineage, and resumes it to a measurement-dependent stop condition.
-16. `notebooks/32_quantum_program_inspection.py` displays typed ports and the
+15. `notebooks/32_quantum_program_inspection.py` displays typed ports and the
    authored sequence/repeat/parallel structure without touching hardware.
+16. `notebooks/33_multichannel_dc_bias.py` joins a named logical bias profile
+    to per-qubit gain/polarity/offset calibration, applies the four resulting
+    voltages through two physical DC sources, parks them, and disables every
+    routed output.
 17. `notebooks/40_measurement_workbench.py` demonstrates selection, filtering,
    grouping, Xarray grid restoration, Arrow export, and paged reads.
 18. `notebooks/50_ragged_and_partial_data.py` records variable-length and
@@ -86,10 +86,10 @@ uv run python examples/reference_lab/notebooks/26_parallel_multiplexed_ramsey.py
 uv run python examples/reference_lab/notebooks/27_channel_timing_candidate.py
 uv run python examples/reference_lab/notebooks/28_channel_conflict_diagnostic.py
 uv run python examples/reference_lab/notebooks/29_channel_unavailable.py
-uv run python examples/reference_lab/notebooks/30_multichannel_dc_bias.py
 uv run python examples/reference_lab/notebooks/30_drag_calibration.py
 uv run python examples/reference_lab/notebooks/31_adaptive_tuneup.py
 uv run python examples/reference_lab/notebooks/32_quantum_program_inspection.py
+uv run python examples/reference_lab/notebooks/33_multichannel_dc_bias.py
 uv run python examples/reference_lab/notebooks/40_measurement_workbench.py
 uv run python examples/reference_lab/notebooks/50_ragged_and_partial_data.py
 ```

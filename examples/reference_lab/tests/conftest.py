@@ -24,7 +24,7 @@ if str(EXAMPLE_ROOT) not in sys.path:
 
 
 @dataclass(frozen=True, slots=True)
-class DemoDaemon:
+class ReferenceLabDaemon:
     url: str
     runtime: LocalDaemonRuntime
 
@@ -36,7 +36,9 @@ def isolate_project_loader() -> Generator[None]:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def demo_daemon(tmp_path_factory: pytest.TempPathFactory) -> Generator[DemoDaemon]:
+def reference_lab_daemon(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[ReferenceLabDaemon]:
     """Run every notebook against one real HTTP daemon instance."""
 
     project_root = tmp_path_factory.mktemp("reference-lab-project")
@@ -85,7 +87,7 @@ def demo_daemon(tmp_path_factory: pytest.TempPathFactory) -> Generator[DemoDaemo
     url = f"http://127.0.0.1:{port}"
     os.environ[DAEMON_URL_ENV] = url
     try:
-        yield DemoDaemon(url=url, runtime=runtime)
+        yield ReferenceLabDaemon(url=url, runtime=runtime)
     finally:
         if previous_url is None:
             os.environ.pop(DAEMON_URL_ENV, None)

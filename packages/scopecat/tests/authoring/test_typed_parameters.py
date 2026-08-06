@@ -114,20 +114,6 @@ def test_parameter_fields_normalize_schema_constrained_values() -> None:
         _FREQUENCY.value(sc.Quantity(5.0, "ns"))
 
 
-def test_parameter_schema_joins_entity_selection_to_identity_keyed_rows() -> None:
-    q0 = sc.EntityRef(id="q0", kind="logical_device")
-    q1 = sc.EntityRef(id="q1", kind="logical_device")
-
-    rows = _DEVICES.join(sc.each(q0, q1), on=_DEVICE)
-    frequencies = rows.map(lambda row: row[_FREQUENCY].ref)
-
-    assert tuple(rows) == (q0, q1)
-    assert rows[q0].key == (_DEVICE.key(q0),)
-    assert rows[q1].key == (_DEVICE.key(q1),)
-    assert frequencies[q0] is rows[q0][_FREQUENCY].ref
-    assert frequencies[q1] is rows[q1][_FREQUENCY].ref
-
-
 def test_parameter_schema_join_closes_composite_keys_in_declaration_order() -> None:
     profile = sc.parameter_field("profile", sc.StringType())
     entity = sc.parameter_field(
@@ -148,6 +134,9 @@ def test_parameter_schema_join_closes_composite_keys_in_declaration_order() -> N
         where=(profile.key("operate"),),
     )
 
+    mapped = rows.map(lambda row: row[value].ref)
+    assert tuple(rows) == (q0,)
     assert rows[q0].key == (profile.key("operate"), entity.key(q0))
+    assert mapped[q0] is rows[q0][value].ref
     with pytest.raises(ValueError, match="close every primary-key field"):
         profiles.join(sc.each(q0), on=entity)

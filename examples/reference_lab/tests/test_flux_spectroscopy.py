@@ -47,7 +47,7 @@ from reference_lab.workflows.flux_spectroscopy_analysis import (
 )
 
 
-class _DemoDaemon(Protocol):
+class _ReferenceLabDaemon(Protocol):
     url: str
 
 
@@ -274,9 +274,9 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
 
 
 def test_direct_control_notebook_completes_through_the_project_daemon(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     result = run_path(
         str(Path(__file__).parents[1] / "notebooks" / "10_direct_control.py")
     )
@@ -293,9 +293,9 @@ def test_direct_control_notebook_completes_through_the_project_daemon(
 
 
 def test_flux_spectroscopy_notebook_completes_through_the_project_daemon(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     result = run_path(
         str(Path(__file__).parents[1] / "notebooks" / "20_flux_spectroscopy.py")
     )

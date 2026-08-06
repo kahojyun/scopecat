@@ -1,4 +1,4 @@
-"""The unified domain compiler for the demo quantum laboratory."""
+"""The unified domain compiler for the reference quantum laboratory."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ class _CompiledQuantumPoint:
 
 
 class QuantumLabCompiler:
-    """Own the demo lab's single domain-compilation boundary.
+    """Own the reference lab's single domain-compilation boundary.
 
     Every bounded request contains the accepted point-local program and
     calibration inputs. Compilation closes the target artifact, result

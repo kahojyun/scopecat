@@ -70,7 +70,7 @@ class RFOutputDriverPatch(TypedDict, total=False):
 
 def decode_rf_output_patch(request: DriverStatePatch, /) -> RFOutputDriverPatch:
     decoded: RFOutputDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if RF_OUTPUT_FREQUENCY in values:
         decoded["frequency"] = cast(
             "Quantity",
@@ -111,7 +111,7 @@ class DCBiasDriverPatch(TypedDict, total=False):
 
 def decode_dc_bias_patch(request: DriverStatePatch, /) -> DCBiasDriverPatch:
     decoded: DCBiasDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if DC_BIAS_TARGET_VOLTAGE in values:
         decoded["target_voltage"] = cast(
             "Quantity",
@@ -148,7 +148,7 @@ class DCSourceDriverPatch(TypedDict, total=False):
 
 def decode_dc_source_patch(request: DriverStatePatch, /) -> DCSourceDriverPatch:
     decoded: DCSourceDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if DC_SOURCE_VOLTAGE_PROTECTION in values:
         decoded["voltage_protection"] = cast(
             "Quantity",
@@ -184,7 +184,7 @@ class DCMonitorDriverPatch(TypedDict, total=False):
 
 def decode_dc_monitor_patch(request: DriverStatePatch, /) -> DCMonitorDriverPatch:
     decoded: DCMonitorDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if DC_MONITOR_MEASUREMENT_ENABLED in values:
         decoded["measurement_enabled"] = cast(
             "bool",
@@ -224,7 +224,7 @@ class NetworkSweepDriverPatch(TypedDict, total=False):
 
 def decode_network_sweep_patch(request: DriverStatePatch, /) -> NetworkSweepDriverPatch:
     decoded: NetworkSweepDriverPatch = {}
-    values = request.values
+    values = {entry.target: entry.value for entry in request.entries}
     if NETWORK_SWEEP_START_FREQUENCY in values:
         decoded["start_frequency"] = cast(
             "Quantity",

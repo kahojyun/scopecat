@@ -178,7 +178,8 @@ class VirtualEventDigitizer:
         self,
         request: DriverStatePatch,
     ) -> DriverOutcome[DriverState | None]:
-        self._event_count = cast("float", request.values[EVENT_CAPTURE_GAIN])
+        values = {entry.target: entry.value for entry in request.entries}
+        self._event_count = cast("float", values[EVENT_CAPTURE_GAIN])
         return DriverSuccess(None)
 
     def invoke(

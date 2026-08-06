@@ -5,7 +5,7 @@ from runpy import run_path
 from typing import Protocol, cast
 
 
-class _DemoDaemon(Protocol):
+class _ReferenceLabDaemon(Protocol):
     url: str
 
 
@@ -13,9 +13,9 @@ NOTEBOOKS = Path(__file__).parents[1] / "notebooks"
 
 
 def test_lab_tour_shows_one_inventory_and_parameter_catalog(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "00_lab_tour.py"))
     summary = cast("dict[str, object]", namespace["lab_tour_summary"])
 
@@ -38,8 +38,10 @@ def test_lab_tour_shows_one_inventory_and_parameter_catalog(
     }
 
 
-def test_scan_shapes_run_as_real_lab_experiments(demo_daemon: _DemoDaemon) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+def test_scan_shapes_run_as_real_lab_experiments(
+    reference_lab_daemon: _ReferenceLabDaemon,
+) -> None:
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "21_scan_shapes.py"))
     summary = cast("dict[str, object]", namespace["scan_shapes_summary"])
 
@@ -54,9 +56,9 @@ def test_scan_shapes_run_as_real_lab_experiments(demo_daemon: _DemoDaemon) -> No
 
 
 def test_channel_map_exposes_independent_drive_and_demod_routes(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "22_channel_map.py"))
     summary = cast("dict[str, object]", namespace["channel_map_summary"])
 
@@ -89,10 +91,10 @@ def test_channel_map_exposes_independent_drive_and_demod_routes(
 
 
 def test_multichannel_dc_bias_spans_two_devices_and_four_routes(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
-    namespace = run_path(str(NOTEBOOKS / "30_multichannel_dc_bias.py"))
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "33_multichannel_dc_bias.py"))
     summary = cast("dict[str, object]", namespace["multichannel_dc_bias_summary"])
 
     assert summary == {
@@ -122,8 +124,10 @@ def test_multichannel_dc_bias_spans_two_devices_and_four_routes(
     }
 
 
-def test_q0_ramsey_runs_on_the_reference_channels(demo_daemon: _DemoDaemon) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+def test_q0_ramsey_runs_on_the_reference_channels(
+    reference_lab_daemon: _ReferenceLabDaemon,
+) -> None:
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "23_q0_ramsey.py"))
     summary = cast("dict[str, object]", namespace["q0_ramsey_summary"])
 
@@ -136,9 +140,9 @@ def test_q0_ramsey_runs_on_the_reference_channels(demo_daemon: _DemoDaemon) -> N
 
 
 def test_flux_ramsey_composes_local_bias_and_quantum_channels(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "24_flux_ramsey.py"))
     summary = cast("dict[str, object]", namespace["flux_ramsey_summary"])
 
@@ -149,9 +153,9 @@ def test_flux_ramsey_composes_local_bias_and_quantum_channels(
 
 
 def test_entity_routed_ramsey_switches_channel_sets_by_point(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "25_entity_routed_ramsey.py"))
     summary = cast("dict[str, object]", namespace["entity_ramsey_summary"])
 
@@ -164,9 +168,9 @@ def test_entity_routed_ramsey_switches_channel_sets_by_point(
 
 
 def test_parallel_ramsey_uses_two_drive_and_demod_channels(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "26_parallel_multiplexed_ramsey.py"))
     summary = cast("dict[str, object]", namespace["parallel_ramsey_summary"])
 
@@ -180,9 +184,9 @@ def test_parallel_ramsey_uses_two_drive_and_demod_channels(
 
 
 def test_channel_timing_candidate_preserves_analysis_provenance(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "27_channel_timing_candidate.py"))
     summary = cast("dict[str, object]", namespace["channel_candidate_summary"])
 
@@ -192,9 +196,9 @@ def test_channel_timing_candidate_preserves_analysis_provenance(
 
 
 def test_channel_conflict_names_the_logical_drive_route(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "28_channel_conflict_diagnostic.py"))
     summary = cast("dict[str, object]", namespace["channel_conflict_summary"])
 
@@ -203,9 +207,9 @@ def test_channel_conflict_names_the_logical_drive_route(
 
 
 def test_one_unavailable_demod_channel_preserves_the_other_channel(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "29_channel_unavailable.py"))
     summary = cast("dict[str, object]", namespace["channel_unavailable_summary"])
 
@@ -217,8 +221,10 @@ def test_one_unavailable_demod_channel_preserves_the_other_channel(
     }
 
 
-def test_adaptive_tuneup_rediscovers_and_resumes(demo_daemon: _DemoDaemon) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+def test_adaptive_tuneup_rediscovers_and_resumes(
+    reference_lab_daemon: _ReferenceLabDaemon,
+) -> None:
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "31_adaptive_tuneup.py"))
     summary = cast("dict[str, object]", namespace["adaptive_summary"])
 
@@ -241,10 +247,24 @@ def test_quantum_program_is_inspectable_without_hardware() -> None:
     }
 
 
-def test_measurement_workbench_uses_real_durable_data(
-    demo_daemon: _DemoDaemon,
+def test_drag_calibration_closes_the_reviewed_config_loop(
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "30_drag_calibration.py"))
+    summary = cast("dict[str, object]", namespace["drag_beta_summary"])
+
+    assert summary["status"] == "completed"
+    assert summary["point_count"] == 15
+    assert summary["candidate_run_uses_analysis"]
+    assert summary["accepted_as_default"]
+    assert summary["default_restored"]
+
+
+def test_measurement_workbench_uses_real_durable_data(
+    reference_lab_daemon: _ReferenceLabDaemon,
+) -> None:
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "40_measurement_workbench.py"))
     summary = cast("dict[str, object]", namespace["measurement_summary"])
 
@@ -259,9 +279,9 @@ def test_measurement_workbench_uses_real_durable_data(
 
 
 def test_ragged_and_partial_data_survive_daemon_boundaries(
-    demo_daemon: _DemoDaemon,
+    reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
-    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
     namespace = run_path(str(NOTEBOOKS / "50_ragged_and_partial_data.py"))
     summary = cast("dict[str, object]", namespace["ragged_summary"])
 

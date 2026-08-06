@@ -26,7 +26,7 @@ from reference_lab.virtual_lab.provider import (
     QuantumLabVirtualProvider,
 )
 
-from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
+from .reference_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 
 
 def test_virtual_lab_profile_loads_configured_devices() -> None:

@@ -2108,7 +2108,7 @@ def _render_driver_patch_decoder(
             return_type=patch_name,
         ),
         f"    decoded: {patch_name} = {{}}\n",
-        "    values = request.values\n",
+        "    values = {entry.target: entry.value for entry in request.entries}\n",
     ]
     for property_id, annotation in fields:
         member_name = _join_constant_name(model.constant_prefix, property_id)

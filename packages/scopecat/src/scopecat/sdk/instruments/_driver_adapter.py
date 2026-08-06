@@ -68,6 +68,7 @@ def lower_state_patch(request: BackendApplyRequest) -> DriverStatePatch:
         values={
             assignment.target: cast("DriverScalar", assignment.value.root)
             for assignment in request.assignments
+            if not assignment.channel_bindings
         },
         scoped_values=tuple(
             DriverStateEntry(
