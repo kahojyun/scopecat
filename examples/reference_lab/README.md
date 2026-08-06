@@ -55,8 +55,10 @@ Run these scripts in order, or execute their `# %%` cells in an editor:
     for overlapping work on the q0 drive route.
 12. `notebooks/29_channel_unavailable.py` keeps q0 IQ data available when the
     q1 demodulation channel reports a structured missing result.
-13. `notebooks/30_multichannel_dc_bias.py` applies four independent bias levels
-    through two physical DC sources using one entity-group operation.
+13. `notebooks/30_multichannel_dc_bias.py` joins a named logical bias profile
+    to per-qubit gain/polarity/offset calibration, applies the four resulting
+    voltages through two physical DC sources, parks them, and disables every
+    routed output.
 14. `notebooks/30_drag_calibration.py` runs the two-dimensional DRAG experiment,
    analyzes it, checks the candidate without changing the default, accepts the
    reviewed `qubits` row update, uses it in a production run, and undoes the

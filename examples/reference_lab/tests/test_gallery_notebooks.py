@@ -102,6 +102,13 @@ def test_multichannel_dc_bias_spans_two_devices_and_four_routes(
             "q2": ("flux-dac-b", "flux.dac_b.ch1"),
             "q3": ("flux-dac-b", "flux.dac_b.ch2"),
         },
+        "profile": "operate",
+        "physical_bias_mv": {
+            "q0": -78.4,
+            "q1": 22.4,
+            "q2": 39.4,
+            "q3": -96.0,
+        },
         "records": 1,
         "status": "completed",
     }

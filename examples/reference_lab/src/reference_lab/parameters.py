@@ -84,7 +84,8 @@ CALIBRATION_QUBIT = sc.parameter_field(
     sc.EntityType(entity_kind="logical_qubit"),
 )
 CHANNEL_DELAY = sc.parameter_field("channel_delay", sc.QuantityType(unit="ns"))
-FLUX_GAIN = sc.parameter_field("flux_gain", sc.QuantityType(unit="V"))
+FLUX_GAIN = sc.parameter_field("flux_gain", sc.FloatType())
+FLUX_POLARITY = sc.parameter_field("flux_polarity", sc.IntType())
 FLUX_OFFSET = sc.parameter_field("flux_offset", sc.QuantityType(unit="V"))
 CHANNEL_CALIBRATIONS = sc.parameter_schema(
     "channel_calibrations",
@@ -92,6 +93,7 @@ CHANNEL_CALIBRATIONS = sc.parameter_schema(
         CALIBRATION_QUBIT,
         CHANNEL_DELAY,
         FLUX_GAIN,
+        FLUX_POLARITY,
         FLUX_OFFSET,
     ),
     primary_key=(CALIBRATION_QUBIT,),
@@ -102,11 +104,38 @@ Q1_CHANNEL_CALIBRATION = CHANNEL_CALIBRATIONS.row(CALIBRATION_QUBIT.key("q1"))
 Q2_CHANNEL_CALIBRATION = CHANNEL_CALIBRATIONS.row(CALIBRATION_QUBIT.key("q2"))
 Q3_CHANNEL_CALIBRATION = CHANNEL_CALIBRATIONS.row(CALIBRATION_QUBIT.key("q3"))
 
+BIAS_PROFILE = sc.parameter_field("profile", sc.StringType())
+BIAS_QUBIT = sc.parameter_field(
+    "qubit",
+    sc.EntityType(entity_kind="logical_qubit"),
+)
+LOGICAL_BIAS = sc.parameter_field("logical_bias", sc.QuantityType(unit="V"))
+BIAS_PROFILES = sc.parameter_schema(
+    "bias_profiles",
+    fields=(BIAS_PROFILE, BIAS_QUBIT, LOGICAL_BIAS),
+    primary_key=(BIAS_PROFILE, BIAS_QUBIT),
+    description=(
+        "Named logical operating planes; channel gain, polarity, and offset are "
+        "applied separately."
+    ),
+)
+
+
+def _bias_profile_row(profile: str, qubit: str) -> sc.ParameterRow:
+    return BIAS_PROFILES.row(BIAS_PROFILE.key(profile), BIAS_QUBIT.key(qubit))
+
+
+PARKED_BIAS_ROWS = tuple(_bias_profile_row("parked", f"q{index}") for index in range(4))
+OPERATE_BIAS_ROWS = tuple(
+    _bias_profile_row("operate", f"q{index}") for index in range(4)
+)
+
 REFERENCE_PARAMETER_CATALOG = sc.parameter_catalog(
     "reference-lab-parameter-catalog",
     QUBITS,
     READOUT_RESONATORS,
     CHANNEL_CALIBRATIONS,
+    BIAS_PROFILES,
 )
 
 
@@ -176,23 +205,38 @@ def reference_lab_parameter_snapshot() -> ParameterSnapshot:
                     Q0_CHANNEL_CALIBRATION.values(
                         CHANNEL_DELAY.value(0.0),
                         FLUX_GAIN.value(0.98),
+                        FLUX_POLARITY.value(1),
                         FLUX_OFFSET.value(0.0),
                     ),
                     Q1_CHANNEL_CALIBRATION.values(
                         CHANNEL_DELAY.value(1.5),
                         FLUX_GAIN.value(1.02),
+                        FLUX_POLARITY.value(-1),
                         FLUX_OFFSET.value(0.002),
                     ),
                     Q2_CHANNEL_CALIBRATION.values(
                         CHANNEL_DELAY.value(-0.5),
                         FLUX_GAIN.value(1.01),
+                        FLUX_POLARITY.value(1),
                         FLUX_OFFSET.value(-0.001),
                     ),
                     Q3_CHANNEL_CALIBRATION.values(
                         CHANNEL_DELAY.value(0.75),
                         FLUX_GAIN.value(0.99),
+                        FLUX_POLARITY.value(-1),
                         FLUX_OFFSET.value(0.003),
                     ),
+                ),
+            ),
+            TableParameterValue(
+                id=BIAS_PROFILES.id,
+                rows=tuple(
+                    row.values(LOGICAL_BIAS.value(value))
+                    for row, value in zip(
+                        (*PARKED_BIAS_ROWS, *OPERATE_BIAS_ROWS),
+                        (0.0, 0.0, 0.0, 0.0, -0.08, -0.02, 0.04, 0.10),
+                        strict=True,
+                    )
                 ),
             ),
         ),
@@ -200,13 +244,20 @@ def reference_lab_parameter_snapshot() -> ParameterSnapshot:
 
 
 __all__ = [
+    "BIAS_PROFILE",
+    "BIAS_PROFILES",
+    "BIAS_QUBIT",
     "CALIBRATION_QUBIT",
     "CHANNEL_CALIBRATIONS",
     "CHANNEL_DELAY",
     "DRAG_BETA",
     "FLUX_GAIN",
     "FLUX_OFFSET",
+    "FLUX_POLARITY",
     "FLUX_SWEET_SPOT",
+    "LOGICAL_BIAS",
+    "OPERATE_BIAS_ROWS",
+    "PARKED_BIAS_ROWS",
     "Q0",
     "Q0_CHANNEL_CALIBRATION",
     "Q0_DRAG_BETA",
