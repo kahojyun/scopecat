@@ -1,0 +1,354 @@
+from __future__ import annotations
+
+from collections.abc import Iterable
+from pathlib import Path
+from runpy import run_path
+from typing import Protocol, TypedDict, assert_type, cast
+
+import numpy as np
+import pytest
+import scopecat as sc
+from scopecat.kernel.errors import RunIndeterminate
+from scopecat.program.bindings import EnsureStateIntent
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementScalar,
+)
+from scopecat.records.parameter import TableParameterValue
+from scopecat.sdk.instruments import (
+    DriverAcquisition,
+    DriverOutcome,
+    DriverReadback,
+)
+from scopecat_instruments.virtual import VirtualNetworkAnalyzer
+from tests.testkit.in_process_lab import in_process_lab
+from tests.testkit.instrument_host import compose_test_instruments
+
+from reference_lab.configuration import bootstrap_config
+from reference_lab.parameters import (
+    Q0_READOUT,
+    RESONANCE_FREQUENCY,
+    RESONATOR_LINEWIDTH,
+)
+from reference_lab.provider import FLUX_SOURCE_ID, ReferenceLabProvider
+from reference_lab.workflows.flux_spectroscopy import (
+    BIAS_POINTS,
+    BIAS_START,
+    BIAS_STOP,
+    TRACE_POINTS,
+    FluxSpectroscopyDataset,
+    flux_spectroscopy,
+)
+from reference_lab.workflows.flux_spectroscopy_analysis import (
+    fit_flux_spectroscopy,
+    fit_resonator_trace,
+    flux_spectroscopy_analysis,
+)
+
+
+class _DemoDaemon(Protocol):
+    url: str
+
+
+class _FluxNotebookSummary(TypedDict):
+    status: str
+    point_count: int
+    measurement_records: int
+    analysis_id: str
+    candidate_config_id: str
+
+
+def test_complex_notch_fit_recovers_delay_and_ignores_one_outlier() -> None:
+    frequencies_hz = np.linspace(4.96e9, 5.04e9, 601)
+    resonance_hz = 5.0037e9
+    linewidth_hz = 1.8e6
+    amplitude = 0.84
+    depth = 0.63
+    delay_s = 0.8e-9
+    detuning = 2.0 * (frequencies_hz - resonance_hz) / linewidth_hz
+    baseline = amplitude * np.exp(
+        1j * (0.42 - 2.0 * np.pi * (frequencies_hz - 5.0e9) * delay_s)
+    )
+    modeled_samples = cast(
+        "Iterable[complex]",
+        baseline * (1.0 - depth / (1.0 + 1j * detuning)),
+    )
+    samples = [complex(value) for value in modeled_samples]
+    samples[47] += complex(0.25, -0.15)
+
+    fit = fit_resonator_trace(
+        tuple(float(value) for value in frequencies_hz),
+        samples,
+        dc_bias=sc.Quantity(0.1, "V"),
+        temperature=sc.Quantity(20.0, "mK"),
+    )
+
+    assert float(fit.resonance_frequency.to("Hz").value) == pytest.approx(
+        resonance_hz,
+        abs=5.0e3,
+    )
+    assert float(fit.linewidth.to("Hz").value) == pytest.approx(
+        linewidth_hz,
+        rel=0.01,
+    )
+    assert fit.baseline_power == pytest.approx(amplitude**2, rel=0.005)
+    assert fit.minimum_power == pytest.approx(
+        (amplitude * (1.0 - depth)) ** 2,
+        rel=0.02,
+    )
+    assert fit.complex_rmse < 0.02
+
+
+def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
+    provider = ReferenceLabProvider(
+        profile=Path(__file__).parents[1] / "config" / "virtual-lab.json",
+        seed=7,
+    )
+    config = bootstrap_config()
+    composition = compose_test_instruments(config=config, provider=provider)
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
+    )
+
+    invocation = flux_spectroscopy()
+    schema = assert_type(invocation.output, FluxSpectroscopyDataset)
+    frequency_record_id = schema.trace.frequency.id
+    s_parameter_record_id = schema.trace.s_parameter.id
+    temperature_record_id = schema.temperature.id
+    definition = invocation.definition
+    success_state = definition.success_state
+    assert isinstance(success_state, EnsureStateIntent)
+    assert [
+        (assignment.property_id, assignment.value)
+        for assignment in success_state.assignments
+    ] == [("output_enabled", False)]
+    assert [
+        assignment.value
+        for effect in definition.body.effects
+        if isinstance(effect, EnsureStateIntent)
+        for assignment in effect.assignments
+        if assignment.property_id == "output_enabled"
+    ] == [False, True]
+
+    prepared = lab.prepare(invocation)
+    preview = prepared.preview()
+    run = prepared.run()
+
+    assert preview.point_count == BIAS_POINTS
+    assert preview.coordinate_ids == ("dc_bias",)
+    assert preview.points[0].coordinates["dc_bias"] == BIAS_START
+    assert preview.points[-1].coordinates["dc_bias"] == BIAS_STOP
+    assert preview.primary_observables == (
+        s_parameter_record_id,
+        temperature_record_id,
+    )
+    assert preview.schema is not None
+    assert preview.schema.primary_coordinates == ("dc_bias", frequency_record_id)
+    dimensions = {dimension.id: dimension for dimension in preview.schema.dimensions}
+    assert dimensions["shared/readout-vna/frequency"].label == "frequency"
+    variables = {variable.id: variable for variable in preview.schema.variables}
+    assert variables["dc_bias"].role == "coordinate"
+    assert variables["dc_bias"].dims == ("point",)
+    assert variables[frequency_record_id].role == "coordinate"
+    assert variables[frequency_record_id].recording_group_id == "readout-vna/sweep"
+    assert variables[frequency_record_id].dims == (
+        "point",
+        "shared/readout-vna/frequency",
+    )
+    assert variables[s_parameter_record_id].role == "observable"
+    assert variables[s_parameter_record_id].recording_group_id == "readout-vna/sweep"
+    assert variables[s_parameter_record_id].dims == (
+        "point",
+        "shared/readout-vna/frequency",
+    )
+    assert variables[temperature_record_id].role == "observable"
+    assert (
+        variables[temperature_record_id].recording_group_id == "mixing-chamber/sample"
+    )
+    assert variables[temperature_record_id].dims == ("point",)
+    preview_records = {record.id: record for record in preview.records}
+    assert preview_records[frequency_record_id].role == "coordinate"
+    assert (
+        preview_records[frequency_record_id].recording_group_id == "readout-vna/sweep"
+    )
+    assert preview_records[frequency_record_id].dims == (
+        "point",
+        "shared/readout-vna/frequency",
+    )
+    assert preview_records[s_parameter_record_id].role == "observable"
+    assert (
+        preview_records[s_parameter_record_id].recording_group_id == "readout-vna/sweep"
+    )
+    assert preview_records[s_parameter_record_id].dims == (
+        "point",
+        "shared/readout-vna/frequency",
+    )
+    assert preview_records[temperature_record_id].role == "observable"
+    assert preview_records[temperature_record_id].dims == ("point",)
+    assert run.manifest.status == "completed"
+    records = run.measurements().records
+    assert len(records) == BIAS_POINTS
+    assert all(
+        set(record.coordinates) == {"dc_bias", frequency_record_id}
+        and set(record.observables) == {s_parameter_record_id, temperature_record_id}
+        and set(record.acquisition_evidence)
+        == {
+            frequency_record_id,
+            s_parameter_record_id,
+            temperature_record_id,
+        }
+        for record in records
+    )
+    for record in records:
+        frequency = record.coordinates[frequency_record_id]
+        assert isinstance(frequency, MeasurementArray)
+        assert frequency.shape == (TRACE_POINTS,)
+        assert frequency.dtype == "float64"
+        assert frequency.unit == "Hz"
+
+        s_parameter = record.observables[s_parameter_record_id]
+        assert isinstance(s_parameter, MeasurementArray)
+        assert s_parameter.shape == (TRACE_POINTS,)
+        assert s_parameter.dtype == "complex128"
+        assert s_parameter.unit == "ratio"
+        assert s_parameter.values.dtype == np.dtype(np.complex128)
+        assert np.iscomplexobj(s_parameter.values)
+
+        temperature = record.observables[temperature_record_id]
+        assert isinstance(temperature, MeasurementScalar)
+        assert temperature.unit == "K"
+    first_evidence = records[0].acquisition_evidence
+    assert first_evidence[frequency_record_id].instrument_id == "readout-vna"
+    assert first_evidence[frequency_record_id].result_id == "frequency"
+    assert first_evidence[s_parameter_record_id].instrument_id == "readout-vna"
+    assert first_evidence[s_parameter_record_id].result_id == "s_parameter"
+    assert first_evidence[temperature_record_id].instrument_id == "mixing-chamber"
+    assert first_evidence[temperature_record_id].result_id == "temperature"
+    assert not provider.world.dc_source(FLUX_SOURCE_ID).output_enabled
+
+    traces = run.measurements().traces(schema.trace.s_parameter)
+    assert len(traces) == BIAS_POINTS
+    assert traces[0].recording_group_id == "readout-vna/sweep"
+    assert traces[0].coordinate_unit == "Hz"
+    assert traces[0].observable_unit == "ratio"
+    assert len(traces[0].x) == TRACE_POINTS
+    assert np.iscomplexobj(traces[0].y)
+
+    fits = fit_flux_spectroscopy(run.measurements())
+    sweet_spot = max(
+        fits,
+        key=lambda fit: float(fit.resonance_frequency.to("Hz").value),
+    )
+    assert float(sweet_spot.dc_bias.to("V").value) == pytest.approx(0.0, abs=1.0e-12)
+    assert float(sweet_spot.resonance_frequency.to("GHz").value) == pytest.approx(
+        5.06,
+        abs=0.001,
+    )
+    assert float(sweet_spot.linewidth.to("MHz").value) == pytest.approx(
+        1.0,
+        rel=0.2,
+    )
+
+    analysis = run.analyze(flux_spectroscopy_analysis())
+    saved = analysis.save()
+    candidate = lab.resolve_config(config=analysis.candidate_config())
+    assert saved.record.id == "analysis-reference_lab-flux_spectroscopy-analysis"
+    assert [output.kind for output in analysis.outputs] == [
+        "table",
+        "table",
+        "figure",
+        "parameter_change_proposal",
+    ]
+    fitted_frequency = _readout_quantity(candidate, RESONANCE_FREQUENCY.id)
+    fitted_linewidth = _readout_quantity(candidate, RESONATOR_LINEWIDTH.id)
+    assert float(fitted_frequency.to("GHz").value) == pytest.approx(5.06, abs=0.001)
+    assert float(fitted_linewidth.to("MHz").value) == pytest.approx(1.0, rel=0.2)
+    active_frequency = _readout_quantity(lab.resolve_config(), RESONANCE_FREQUENCY.id)
+    assert float(active_frequency.to("GHz").value) == pytest.approx(5.0)
+
+
+def test_direct_control_notebook_completes_through_the_project_daemon(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    result = run_path(
+        str(Path(__file__).parents[1] / "notebooks" / "10_direct_control.py")
+    )
+
+    inventory = cast("list[tuple[str, str]]", result["inventory"])
+    trace_results = cast("dict[str, dict[str, object]]", result["trace_results"])
+    assert {instrument_id for instrument_id, _availability in inventory} >= {
+        "flux-source",
+        "mixing-chamber",
+        "readout-vna",
+    }
+    assert trace_results["frequency"]["shape"] == [201]
+    assert trace_results["s_parameter"]["shape"] == [201]
+
+
+def test_flux_spectroscopy_notebook_completes_through_the_project_daemon(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    assert demo_daemon.url.startswith("http://127.0.0.1:")
+    result = run_path(
+        str(Path(__file__).parents[1] / "notebooks" / "20_flux_spectroscopy.py")
+    )
+
+    summary = cast("_FluxNotebookSummary", result["summary"])
+    assert summary["status"] == "completed"
+    assert summary["point_count"] == BIAS_POINTS
+    assert summary["measurement_records"] == BIAS_POINTS
+    assert summary["analysis_id"] == (
+        "analysis-reference_lab-flux_spectroscopy-analysis"
+    )
+    assert summary["candidate_config_id"] == "candidate-readout-resonator-fit"
+
+
+def test_flux_spectroscopy_failure_aborts_with_bias_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_collect(
+        _driver: VirtualNetworkAnalyzer,
+        _request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        raise RuntimeError("injected VNA acquisition failure")
+
+    monkeypatch.setattr(VirtualNetworkAnalyzer, "collect", fail_collect)
+    provider = ReferenceLabProvider(
+        profile=Path(__file__).parents[1] / "config" / "virtual-lab.json",
+        seed=7,
+    )
+    config = bootstrap_config()
+    composition = compose_test_instruments(config=config, provider=provider)
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
+    )
+
+    with pytest.raises(RunIndeterminate):
+        lab.prepare(flux_spectroscopy()).run()
+
+    [run] = lab.runs()
+    assert run.manifest.status == "unknown"
+    assert not provider.world.dc_source(FLUX_SOURCE_ID).output_enabled
+
+
+def _readout_quantity(
+    config: ConfigProfileSnapshot,
+    field_id: str,
+) -> sc.Quantity:
+    value = config.parameter_snapshot.get("readout_resonators")
+    assert isinstance(value, TableParameterValue)
+    row = next(
+        item for item in value.rows if item["resonator"] == Q0_READOUT.key[0].value
+    )
+    selected = row[field_id]
+    assert isinstance(selected, sc.Quantity)
+    return selected

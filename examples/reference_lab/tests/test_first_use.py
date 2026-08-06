@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+from typing import Protocol
+
+import scopecat as sc
+from scopecat.records.run import (
+    AnalysisCandidateRunConfigSource,
+    ConfigRegistryRunConfigSource,
+)
+
+from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.workflows.drag_beta_analysis import drag_beta_analysis
+from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
+
+
+class _DemoDaemon(Protocol):
+    url: str
+
+
+def test_drag_beta_first_use_closes_config_provenance_loop(
+    demo_daemon: _DemoDaemon,
+) -> None:
+    """Exercise run, candidate, accept, history, and undo through one daemon."""
+
+    with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as lab:
+        baseline = lab.prepare(drag_beta_experiment()).run(
+            name="first-use smoke",
+            tags=("first-use",),
+        )
+        analysis = baseline.analyze(drag_beta_analysis())
+        saved = analysis.save()
+        candidate = analysis.candidate_config()
+        candidate_run = lab.prepare(
+            drag_beta_experiment(),
+            config=candidate,
+        ).run(
+            name="first-use candidate",
+            tags=("first-use", "candidate"),
+        )
+        accepted = lab.config.accept(
+            candidate,
+            note="accept the first-use fit",
+        )
+        default_run = lab.prepare(drag_beta_experiment()).run(
+            name="first-use accepted default",
+            tags=("first-use", "default"),
+        )
+        restored = lab.config.undo(note="restore the first-use default")
+
+    with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as observer:
+        detail = observer.control.run_detail(baseline.id)
+        request = observer.get_run(baseline.id).request
+        candidate_detail = observer.control.run_detail(candidate_run.id)
+        default_detail = observer.control.run_detail(default_run.id)
+        proposals = observer.config.proposals(baseline.id)
+        registry = observer.config.registry()
+
+    assert detail.manifest.status == "completed"
+    assert request.display_name == "first-use smoke"
+    assert request.tags == ("first-use",)
+    assert saved.record.id == candidate.analysis_record_id
+    candidate_source = candidate_detail.manifest.config_source
+    assert isinstance(candidate_source, AnalysisCandidateRunConfigSource)
+    assert candidate_source.source_run_id == baseline.id
+    assert candidate_source.analysis_record_id == candidate.analysis_record_id
+    assert candidate_source.proposal_id == candidate.proposal_id
+    default_source = default_detail.manifest.config_source
+    assert isinstance(default_source, ConfigRegistryRunConfigSource)
+    assert default_source.entry_id == accepted.entry.id
+    assert proposals.items[0].approval is not None
+    assert proposals.items[0].approval.actor == "operator"
+    assert registry.activation is not None
+    assert registry.activation == restored.activation
+    assert registry.activation.entry_id != accepted.entry.id

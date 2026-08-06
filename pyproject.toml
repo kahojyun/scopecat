@@ -5,8 +5,7 @@ description = "Workspace for Scopecat packages, examples, and fixtures."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-  "instrument-demo",
-  "quantum-lab-demo",
+  "reference-lab",
   "scopecat",
   "scopecat-instruments",
   "scopecat-quantum",
@@ -36,12 +35,9 @@ include = [
   "packages/scopecat-instruments/tests",
   "packages/scopecat-quantum/src",
   "packages/scopecat-quantum/tests",
-  "examples/instruments/src",
-  "examples/instruments/notebooks",
-  "examples/instruments/tests",
-  "examples/quantum/support/src",
-  "examples/quantum/support/tests",
-  "examples/quantum",
+  "examples/reference_lab/src",
+  "examples/reference_lab/notebooks",
+  "examples/reference_lab/tests",
   "scripts",
 ]
 exclude = [
@@ -61,10 +57,8 @@ extraPaths = [
   "packages/scopecat-instruments/src",
   "packages/scopecat-quantum",
   "packages/scopecat-quantum/src",
-  "examples/instruments/src",
-  "examples/quantum/support",
-  "examples/quantum/support/src",
-  "examples/quantum",
+  "examples/reference_lab",
+  "examples/reference_lab/src",
 ]
 reportMissingImports = "error"
 reportMissingTypeStubs = "none"
@@ -79,11 +73,7 @@ reportUnreachable = "hint"
 # Execution environments use first-match semantics, so nested and test-specific
 # roots must precede their parent projects.
 [[tool.basedpyright.executionEnvironments]]
-root = "examples/quantum/support/tests"
-reportPrivateUsage = "none"
-
-[[tool.basedpyright.executionEnvironments]]
-root = "examples/quantum/tests"
+root = "examples/reference_lab/tests"
 reportPrivateUsage = "none"
 
 [[tool.basedpyright.executionEnvironments]]
@@ -210,8 +200,7 @@ pythonpath = [
 strict_config = true
 strict_markers = true
 testpaths = [
-  "examples/instruments/tests",
-  "examples/quantum/tests/test_first_use.py",
+  "examples/reference_lab/tests",
   "packages/scopecat-instruments/tests",
   "packages/scopecat-quantum/tests",
   "packages/scopecat-server/tests",
@@ -230,11 +219,9 @@ src = [
   "packages/scopecat/tests",
   "packages/scopecat-quantum/src",
   "packages/scopecat-quantum/tests",
-  "examples/instruments/src",
-  "examples/instruments/notebooks",
-  "examples/quantum/support/src",
-  "examples/quantum/support/tests",
-  "examples/quantum",
+  "examples/reference_lab/src",
+  "examples/reference_lab/notebooks",
+  "examples/reference_lab/tests",
   "scripts",
 ]
 
@@ -289,7 +276,7 @@ select = [
   "ARG001",
   "S101",
 ]
-"examples/quantum/notebooks/*.py" = [
+"examples/reference_lab/notebooks/*.py" = [
   "S101",
 ]
 
@@ -302,16 +289,14 @@ default-groups = ["dev"]
 package = false
 
 [tool.uv.sources]
-instrument-demo = { workspace = true }
+reference-lab = { workspace = true }
 scopecat = { workspace = true }
 scopecat-instruments = { workspace = true }
 scopecat-quantum = { workspace = true }
 scopecat-server = { workspace = true }
-quantum-lab-demo = { workspace = true }
 
 [tool.uv.workspace]
 members = [
   "packages/*",
-  "examples/instruments",
-  "examples/quantum/support",
+  "examples/reference_lab",
 ]

@@ -86,7 +86,7 @@ def capture(
 or composed. A one-off root experiment can instantiate the same symbolic clients
 directly, as shown in the
 [instrument-control guide](../../docs/instrument-control.md) and the
-[flux-spectroscopy workflow](../../examples/instruments/src/instrument_demo/workflows/flux_spectroscopy.py).
+[flux-spectroscopy workflow](../../examples/reference_lab/src/reference_lab/workflows/flux_spectroscopy.py).
 
 The verb carries the distinction: `source_voltage(...)` records an ordered
 mode/range/level transition, `apply(...)` updates persistent state now, and

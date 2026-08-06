@@ -1,0 +1,24 @@
+{
+  "format_version": "reference_lab.virtual_lab_profile.v1",
+  "id": "reference_lab.virtual_lab",
+  "devices": [
+    {
+      "id": "drive-stack"
+    },
+    {
+      "id": "readout-stack"
+    },
+    {
+      "id": "pump-source"
+    },
+    {
+      "id": "flux-source"
+    },
+    {
+      "id": "mixing-chamber"
+    },
+    {
+      "id": "readout-vna"
+    }
+  ]
+}

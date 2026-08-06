@@ -1,3 +1,0 @@
-[lab]
-application = "quantum_lab_demo.application:quantum_lab_application"
-instrument_backend = "quantum_lab_demo.backend:quantum_lab_backend"

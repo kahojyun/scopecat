@@ -62,9 +62,9 @@ Place it with `context.use(call)` inside either `@sc.module` or
 injects compiler inputs, measurement postprocessing, recording policy, and
 independent auxiliary-device work; the program call remains one domain effect
 rather than becoming the whole experiment. The
-[quantum demo runner](../../examples/quantum/README.md) shows that path.
+[reference lab runner](../../examples/reference_lab/README.md) shows that path.
 
 Compiler-owned defaults can use the pure row maps in
 `scopecat_quantum.pulse_recipes`. The complete supported example is the
-[DRAG-beta workflow](../../examples/quantum/README.md), including parameter-axis
+[DRAG-beta workflow](../../examples/reference_lab/README.md), including parameter-axis
 overlays, analysis, candidate acceptance, target lowering, and production use.
