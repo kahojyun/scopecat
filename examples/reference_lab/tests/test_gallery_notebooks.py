@@ -34,6 +34,7 @@ def test_lab_tour_shows_one_inventory_and_parameter_catalog(
         "qubits": 4,
         "readout_resonators": 4,
         "channel_calibrations": 4,
+        "bias_profiles": 8,
     }
 
 
