@@ -19,6 +19,15 @@ RF_OUTPUT_FREQUENCY = RF_OUTPUT.property("frequency")
 RF_OUTPUT_POWER = RF_OUTPUT.property("power")
 RF_OUTPUT_ENABLED = RF_OUTPUT.property("output_enabled")
 RF_OUTPUT_REFERENCE_SOURCE = RF_OUTPUT.property("reference_source")
+DC_BIAS = InterfaceRef("scopecat.dc_bias/v1")
+DC_BIAS_TARGET_VOLTAGE = DC_BIAS.property("target_voltage")
+DC_BIAS_RAMP_DURATION = DC_BIAS.property("ramp_duration")
+DC_BIAS_SETTLE_TOLERANCE = DC_BIAS.property("settle_tolerance")
+DC_BIAS_ACTUAL_VOLTAGE = DC_BIAS.property("actual_voltage")
+DC_BIAS_SETTLED = DC_BIAS.property("settled")
+DC_BIAS_READBACK = DC_BIAS.acquisition("readback")
+DC_BIAS_ACTUAL_VOLTAGE_RESULT = DC_BIAS_READBACK.result("actual_voltage")
+DC_BIAS_SETTLED_RESULT = DC_BIAS_READBACK.result("settled")
 DC_SOURCE = InterfaceRef("scopecat.dc_source/v3")
 DC_SOURCE_VOLTAGE_PROTECTION = DC_SOURCE.property("voltage_protection")
 DC_SOURCE_CURRENT_PROTECTION = DC_SOURCE.property("current_protection")
@@ -50,6 +59,15 @@ NETWORK_SWEEP_FREQUENCY_RESULT = NETWORK_SWEEP_ACQUISITION.result("frequency")
 NETWORK_SWEEP_S_PARAMETER_RESULT = NETWORK_SWEEP_ACQUISITION.result("s_parameter")
 
 __all__ = [
+    "DC_BIAS",
+    "DC_BIAS_ACTUAL_VOLTAGE",
+    "DC_BIAS_ACTUAL_VOLTAGE_RESULT",
+    "DC_BIAS_RAMP_DURATION",
+    "DC_BIAS_READBACK",
+    "DC_BIAS_SETTLED",
+    "DC_BIAS_SETTLED_RESULT",
+    "DC_BIAS_SETTLE_TOLERANCE",
+    "DC_BIAS_TARGET_VOLTAGE",
     "DC_MONITOR",
     "DC_MONITOR_CURRENT_RESULT",
     "DC_MONITOR_INTEGRATION_CYCLES",

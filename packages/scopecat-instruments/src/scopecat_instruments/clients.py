@@ -40,6 +40,7 @@ from scopecat_instruments._symbolic_runtime import (
     _SymbolicInstrumentRecorder,
 )
 from scopecat_instruments.interface_declarations import (
+    DCBiasState,
     DCMonitorState,
     DCSourceState,
     NetworkSweepState,
@@ -47,6 +48,9 @@ from scopecat_instruments.interface_declarations import (
     TemperatureReadoutState,
 )
 from scopecat_instruments.states import (
+    DCBiasGroupTarget,
+    DCBiasPatch,
+    DCBiasTarget,
     DCMonitorGroupTarget,
     DCMonitorPatch,
     DCMonitorTarget,
@@ -64,6 +68,8 @@ from scopecat_instruments.states import (
 _TEMPERATURE_READOUT_REF = InterfaceRef("scopecat.temperature_readout/v1")
 
 _RF_OUTPUT_REF = InterfaceRef("scopecat.rf_output/v1")
+
+_DC_BIAS_REF = InterfaceRef("scopecat.dc_bias/v1")
 
 _DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v3")
 
@@ -145,6 +151,75 @@ _RF_OUTPUT_STATE_SCHEMA = ClientStateSchema(
             client_property_value_type(
                 '{"type":"string","choices":["internal","external"]}'
             ),
+        ),
+    ),
+)
+
+_DC_BIAS_STATE_SCHEMA = ClientStateSchema(
+    DCBiasState,
+    fields=(
+        ClientStateField(
+            "target_voltage",
+            InterfaceRef("scopecat.dc_bias/v1").property("target_voltage"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"V","minimum":null,"maxim'
+                'um":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "ramp_duration",
+            InterfaceRef("scopecat.dc_bias/v1").property("ramp_duration"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"s","minimum":0.0,"maximu'
+                'm":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "settle_tolerance",
+            InterfaceRef("scopecat.dc_bias/v1").property("settle_tolerance"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"V","minimum":0.0,"maximu'
+                'm":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "actual_voltage",
+            InterfaceRef("scopecat.dc_bias/v1").property("actual_voltage"),
+            client_property_value_type(
+                '{"type":"quantity","dimension":nul'
+                'l,"unit":"V","minimum":null,"maxim'
+                'um":null,"finite":true}'
+            ),
+        ),
+        ClientStateField(
+            "settled",
+            InterfaceRef("scopecat.dc_bias/v1").property("settled"),
+            client_property_value_type('{"type":"bool"}'),
+        ),
+    ),
+)
+
+_DC_BIAS_READBACK_DECLARATION = ClientAcquisition(
+    ref=_DC_BIAS_REF.acquisition("readback"),
+    result_fields=(
+        ClientAcquisitionResult(
+            "actual_voltage",
+            _DC_BIAS_REF.acquisition("readback").result("actual_voltage"),
+            dtype="float64",
+            unit="V",
+            role="observable",
+            axes=(),
+        ),
+        ClientAcquisitionResult(
+            "settled",
+            _DC_BIAS_REF.acquisition("readback").result("settled"),
+            dtype="bool",
+            unit=None,
+            role="observable",
+            axes=(),
         ),
     ),
 )
@@ -603,6 +678,209 @@ rf_output: InstrumentFamily[
     SymbolicRFOutputClient,
     SymbolicRFOutputGroup,
     requires=(_RF_OUTPUT_REF,),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class DCBiasReadbackReadback:
+    """Named readback results plus their effect receipt."""
+
+    actual_voltage: MeasurementValue
+    settled: MeasurementValue
+    receipt: CollectReceipt = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class DCBiasReadbackRecords:
+    """Typed durable records selected from readback."""
+
+    actual_voltage: RecordRef[float]
+    settled: RecordRef[bool]
+
+
+@dataclass(frozen=True, slots=True)
+class DCBiasReadbackProducts(ProductBundle[DCBiasReadbackRecords]):
+    """Typed logical products produced by readback."""
+
+    actual_voltage: ProductRef[float]
+    settled: ProductRef[bool]
+
+    @override
+    def _records_internal(
+        self,
+        record: _RecordProduct,
+        /,
+    ) -> DCBiasReadbackRecords:
+        return DCBiasReadbackRecords(
+            actual_voltage=record(self.actual_voltage),
+            settled=record(self.settled),
+        )
+
+
+class DCBiasClient(DeclaredStateClientBase[DCBiasPatch]):
+    @overload
+    def apply(
+        self,
+        patch: DCBiasPatch,
+    ) -> ApplyReceipt: ...
+
+    @overload
+    def apply(
+        self,
+        *,
+        target_voltage: Quantity = ...,
+        ramp_duration: Quantity = ...,
+        settle_tolerance: Quantity = ...,
+    ) -> ApplyReceipt: ...
+
+    @override
+    def apply(
+        self,
+        patch: DCBiasPatch | None = None,
+        **fields: object,
+    ) -> ApplyReceipt:
+        return self._apply_projected(
+            patch,
+            DCBiasPatch,
+            fields,
+        )
+
+    def state(self) -> DCBiasState:
+        snapshot = self._session.observed_state(self.instrument_id)
+        return _DC_BIAS_STATE_SCHEMA.decode(snapshot)
+
+    def refresh_state(self) -> DCBiasState:
+        snapshot = self._session.read_state(self.instrument_id)
+        return _DC_BIAS_STATE_SCHEMA.decode(snapshot)
+
+    def readback(self) -> DCBiasReadbackReadback:
+        return self._collect(
+            _DC_BIAS_READBACK_DECLARATION,
+            DCBiasReadbackReadback,
+        )
+
+
+class SymbolicDCBiasClient(DeclaredStateSymbolicClientBase[DCBiasTarget]):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: _SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: OneEntity | None = None,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            requires=(_DC_BIAS_REF,),
+            for_=for_,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: DCBiasTarget,
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        target_voltage: Symbolic[Quantity] = ...,
+        ramp_duration: Symbolic[Quantity] = ...,
+        settle_tolerance: Symbolic[Quantity] = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: DCBiasTarget | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            DCBiasTarget,
+            fields,
+        )
+
+    def readback(
+        self,
+        *,
+        id: str | None = None,
+    ) -> DCBiasReadbackProducts:
+        return self._acquire(
+            _DC_BIAS_READBACK_DECLARATION,
+            DCBiasReadbackProducts,
+            id=id,
+        )
+
+
+class SymbolicDCBiasGroup(
+    DeclaredStateSymbolicGroupBase[
+        DCBiasTarget, DCBiasGroupTarget, SymbolicDCBiasClient
+    ]
+):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        recorder: _SymbolicInstrumentRecorder,
+        resource_id: str,
+        *,
+        for_: EachEntity,
+    ) -> None:
+        super().__init__(
+            recorder,
+            resource_id,
+            for_=for_,
+            client_factory=SymbolicDCBiasClient,
+        )
+
+    @overload
+    def ensure(
+        self,
+        state: DCBiasGroupTarget | PerEntity[DCBiasTarget],
+    ) -> None: ...
+
+    @overload
+    def ensure(
+        self,
+        *,
+        target_voltage: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        ramp_duration: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+        settle_tolerance: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = ...,
+    ) -> None: ...
+
+    @override
+    def ensure(
+        self,
+        state: DCBiasGroupTarget | PerEntity[DCBiasTarget] | None = None,
+        **fields: object,
+    ) -> None:
+        self._ensure_projected(
+            state,
+            DCBiasGroupTarget,
+            fields,
+        )
+
+    def readback(
+        self,
+        *,
+        id: str | None = None,
+    ) -> PerEntity[DCBiasReadbackProducts]:
+        return self._clients.map(lambda client: client.readback(id=id))
+
+
+dc_bias: InstrumentFamily[
+    DCBiasClient,
+    SymbolicDCBiasClient,
+    SymbolicDCBiasGroup,
+] = InstrumentFamily(
+    DCBiasClient,
+    SymbolicDCBiasClient,
+    SymbolicDCBiasGroup,
+    requires=(_DC_BIAS_REF,),
 )
 
 
@@ -1538,6 +1816,10 @@ network_sweep: InstrumentFamily[
 )
 
 __all__ = [
+    "DCBiasClient",
+    "DCBiasReadbackProducts",
+    "DCBiasReadbackReadback",
+    "DCBiasReadbackRecords",
     "DCMonitorClient",
     "DCMonitorCurrentProducts",
     "DCMonitorCurrentReadback",
@@ -1553,6 +1835,8 @@ __all__ = [
     "NetworkSweepReadback",
     "NetworkSweepRecords",
     "RFOutputClient",
+    "SymbolicDCBiasClient",
+    "SymbolicDCBiasGroup",
     "SymbolicDCMonitorClient",
     "SymbolicDCMonitorGroup",
     "SymbolicDCSourceClient",
@@ -1569,6 +1853,7 @@ __all__ = [
     "TemperatureReadoutClient",
     "TemperatureSampleProducts",
     "TemperatureSampleRecords",
+    "dc_bias",
     "dc_monitor",
     "dc_source",
     "dc_source_monitor",

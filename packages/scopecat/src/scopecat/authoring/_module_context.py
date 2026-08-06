@@ -534,6 +534,31 @@ class ModuleContext:
             build_ensure_state_intent(resource.port_id, selected_assignments)
         )
 
+    def _ensure_many(
+        self,
+        targets: Sequence[
+            tuple[DefinitionResource, Mapping[PropertyRef, StateBinding]]
+        ],
+    ) -> None:
+        """Record one coherent state effect spanning logical resources."""
+
+        bindings: list[BindingIntent] = []
+        for resource, assignments in targets:
+            self._require_owned_resource(resource)
+            selected_assignments = {
+                property: cast("StateBinding", self._capture_domain_value(value))
+                for property, value in assignments.items()
+            }
+            bindings.extend(
+                build_ensure_state_intent(
+                    resource.port_id,
+                    selected_assignments,
+                ).assignments
+            )
+        if not bindings:
+            raise ValueError("ensure requires at least one target assignment")
+        self._effects.append(EnsureStateIntent(tuple(bindings)))
+
     def _invoke(
         self,
         id: str,

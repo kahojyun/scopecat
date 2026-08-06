@@ -176,6 +176,12 @@
       },
       {
         "instrument_id": "flux-dac-a",
+        "interface_id": "scopecat.dc_bias/v1",
+        "entity_id": "q0",
+        "channel_id": "flux.dac_a.ch1"
+      },
+      {
+        "instrument_id": "flux-dac-a",
         "interface_id": "scopecat.dc_monitor/v4",
         "entity_id": "q0",
         "channel_id": "flux.dac_a.ch1"
@@ -188,6 +194,12 @@
       },
       {
         "instrument_id": "flux-dac-a",
+        "interface_id": "scopecat.dc_bias/v1",
+        "entity_id": "q1",
+        "channel_id": "flux.dac_a.ch2"
+      },
+      {
+        "instrument_id": "flux-dac-a",
         "interface_id": "scopecat.dc_monitor/v4",
         "entity_id": "q1",
         "channel_id": "flux.dac_a.ch2"
@@ -200,6 +212,12 @@
       },
       {
         "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_bias/v1",
+        "entity_id": "q2",
+        "channel_id": "flux.dac_b.ch1"
+      },
+      {
+        "instrument_id": "flux-dac-b",
         "interface_id": "scopecat.dc_monitor/v4",
         "entity_id": "q2",
         "channel_id": "flux.dac_b.ch1"
@@ -207,6 +225,12 @@
       {
         "instrument_id": "flux-dac-b",
         "interface_id": "scopecat.dc_source/v3",
+        "entity_id": "q3",
+        "channel_id": "flux.dac_b.ch2"
+      },
+      {
+        "instrument_id": "flux-dac-b",
+        "interface_id": "scopecat.dc_bias/v1",
         "entity_id": "q3",
         "channel_id": "flux.dac_b.ch2"
       },

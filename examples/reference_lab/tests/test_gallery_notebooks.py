@@ -109,6 +109,13 @@ def test_multichannel_dc_bias_spans_two_devices_and_four_routes(
             "q2": 39.4,
             "q3": -96.0,
         },
+        "readback_mv": {
+            "q0": -78.4,
+            "q1": 22.4,
+            "q2": 39.4,
+            "q3": -96.0,
+        },
+        "settled": {"q0": True, "q1": True, "q2": True, "q3": True},
         "records": 1,
         "status": "completed",
     }

@@ -301,7 +301,8 @@ def test_generated_rf_group_aligns_state_and_success_state() -> None:
         for effect in definition.body.effects
         if isinstance(effect, EnsureStateIntent)
     )
-    assert [effect.assignments[0].value for effect in ensures] == [False, True]
+    assert len(ensures) == 1
+    assert [assignment.value for assignment in ensures[0].assignments] == [False, True]
     assert definition.success_state is not None
     assert [
         assignment.value for assignment in definition.success_state.assignments
@@ -330,12 +331,10 @@ def test_group_target_lifts_each_field_independently() -> None:
         for effect in definition.body.effects
         if isinstance(effect, EnsureStateIntent)
     )
-    assert len(ensures) == 2
+    assert len(ensures) == 1
     assert [assignment.value for assignment in ensures[0].assignments] == [
         Quantity(-20, "dBm"),
         False,
-    ]
-    assert [assignment.value for assignment in ensures[1].assignments] == [
         Quantity(-20, "dBm"),
         True,
     ]

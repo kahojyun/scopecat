@@ -26,6 +26,7 @@ from scopecat_instruments.drivers import (
     YokogawaGS200,
 )
 from scopecat_instruments.interfaces import (
+    dc_bias_interface,
     dc_monitor_interface,
     dc_source_interface,
     network_sweep_interface,
@@ -70,6 +71,7 @@ def test_member_catalog_resolves_against_the_interface_contracts() -> None:
         interface.id: interface
         for interface in (
             rf_output_interface(),
+            dc_bias_interface(),
             dc_source_interface(),
             dc_monitor_interface(),
             temperature_readout_interface(),
@@ -143,6 +145,12 @@ def test_declared_network_sweep_preserves_the_contract_fingerprint() -> None:
 def test_declared_rf_output_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(rf_output_interface()) == (
         "2bda603a084e8dbb487b6dea5cecb8be4037e2753eb9a6bd0fcbfabfcbff2dbc"
+    )
+
+
+def test_declared_dc_bias_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(dc_bias_interface()) == (
+        "ea7221ffa7a80c9c404850959d7328419867bb5d321900018379b13df3be80b9"
     )
 
 

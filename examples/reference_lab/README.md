@@ -104,8 +104,8 @@ so the same workflows can be routed to compatible real devices.
 | Path | Responsibility |
 |---|---|
 | `config/system-infrastructure.json` | One nine-device inventory, four-qubit quantum routes, and two two-channel DC sources. |
-| `src/reference_lab/parameters.py` | Three shared calibration schemas with four-qubit bootstrap rows; physical channel IDs are not duplicated here. |
-| `src/reference_lab/provider.py` | Combined deterministic instrument provider and flux abort policy. |
+| `src/reference_lab/parameters.py` | Four shared calibration/profile schemas with four-qubit bootstrap rows; physical channel IDs are not duplicated here. |
+| `src/reference_lab/provider.py` | Combined deterministic instrument provider, coherent two-channel bias ramps/readback, and flux abort policy. |
 | `src/reference_lab/workflows/` | Copyable experiment, analysis, and production workflows. |
 | `notebooks/` | User-facing gallery recipes. |
 | `tests/` | Real daemon, worker, storage, analysis, and configuration checks for the gallery. |
@@ -119,6 +119,18 @@ The flux routes describe active DC source channels only. A passive bias tee is
 part of the lab wiring assumption, not an instrument interface or config
 record. Fast-flux pulses remain quantum signals on the routed pulse target;
 they are not exposed as a DC-instrument capability.
+
+The reference DACs additionally expose optional `scopecat.dc_bias/v1`: each
+named profile transition becomes one scoped driver patch per physical DAC, and
+the gallery records actual voltage plus settled status for every qubit. This is
+slow bias control, not a fast-flux waveform interface. Hardware list memory and
+external-trigger sequencing are intentionally not modeled until a concrete
+driver and gallery workflow consume them; `ramp_duration` covers the present
+park/operate/park UX without inventing a trigger abstraction.
+
+Each physical DAC keeps one exclusivity key. Channel-level concurrent ownership
+would conflict with shared device connection, trigger, and list-memory state, so
+the current lab claims the whole device while still batching its routed channels.
 
 ## Checks
 

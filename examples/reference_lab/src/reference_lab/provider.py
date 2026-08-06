@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
+import scopecat as sc
+from pydantic import JsonValue
 from scopecat.records.instrument import CommandChannelBinding
+from scopecat.records.measurement import MeasurementScalar, MeasurementValue
 from scopecat.sdk.instruments import (
+    AcquisitionResultRef,
     DriverAcquisition,
     DriverCatalog,
     DriverConnectionSpec,
@@ -24,8 +29,22 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
 )
 from scopecat_instruments import ConfiguredInstrumentProvider
-from scopecat_instruments.interfaces import dc_monitor_interface, dc_source_interface
-from scopecat_instruments.members import DC_SOURCE_OUTPUT_ENABLED
+from scopecat_instruments.interfaces import (
+    dc_bias_interface,
+    dc_monitor_interface,
+    dc_source_interface,
+)
+from scopecat_instruments.members import (
+    DC_BIAS_ACTUAL_VOLTAGE,
+    DC_BIAS_ACTUAL_VOLTAGE_RESULT,
+    DC_BIAS_RAMP_DURATION,
+    DC_BIAS_READBACK,
+    DC_BIAS_SETTLE_TOLERANCE,
+    DC_BIAS_SETTLED,
+    DC_BIAS_SETTLED_RESULT,
+    DC_BIAS_TARGET_VOLTAGE,
+    DC_SOURCE_OUTPUT_ENABLED,
+)
 from scopecat_instruments.virtual import VirtualDcSource, VirtualLabWorld
 
 from reference_lab.virtual_lab.provider import QuantumLabVirtualProvider
@@ -163,6 +182,8 @@ class MultiChannelVirtualDcSource:
         self._unrouted = VirtualDcSource(f"{instrument_id}:unrouted", world)
         self._drivers: dict[str, VirtualDcSource] = {}
         self._bindings: dict[str, CommandChannelBinding] = {}
+        self._ramp_duration_s: dict[str, float] = {}
+        self._settle_tolerance_v: dict[str, float] = {}
 
     def describe(self) -> InstrumentDescription:
         return InstrumentDescription(
@@ -174,15 +195,54 @@ class MultiChannelVirtualDcSource:
                 "Independently routed DC source/monitor channels in one physical "
                 "instrument."
             ),
-            interfaces=[dc_source_interface(), dc_monitor_interface()],
+            interfaces=[
+                dc_bias_interface(),
+                dc_source_interface(),
+                dc_monitor_interface(),
+            ],
         )
 
     def read_state(self) -> DriverState:
         if not self._drivers:
-            return self._unrouted.read_state()
+            baseline = self._unrouted.read_state()
+            return DriverState(
+                values={
+                    **baseline.values,
+                    DC_BIAS_TARGET_VOLTAGE: sc.Quantity(0.0, "V"),
+                    DC_BIAS_RAMP_DURATION: sc.Quantity(0.0, "s"),
+                    DC_BIAS_SETTLE_TOLERANCE: sc.Quantity(0.0001, "V"),
+                    DC_BIAS_ACTUAL_VOLTAGE: sc.Quantity(0.0, "V"),
+                    DC_BIAS_SETTLED: True,
+                },
+                metadata=baseline.metadata,
+            )
         entries: list[DriverStateEntry] = []
         for channel_id, binding in self._bindings.items():
-            for entry in self._drivers[channel_id].read_state().entries:
+            source = self._world.dc_source(f"{self.instrument_id}:{channel_id}")
+            channel_entries = (
+                *self._drivers[channel_id].read_state().entries,
+                DriverStateEntry(
+                    target=DC_BIAS_TARGET_VOLTAGE,
+                    value=sc.Quantity(source.voltage_level_v, "V"),
+                ),
+                DriverStateEntry(
+                    target=DC_BIAS_RAMP_DURATION,
+                    value=sc.Quantity(self._ramp_duration_s.get(channel_id, 0.0), "s"),
+                ),
+                DriverStateEntry(
+                    target=DC_BIAS_SETTLE_TOLERANCE,
+                    value=sc.Quantity(
+                        self._settle_tolerance_v.get(channel_id, 0.0001),
+                        "V",
+                    ),
+                ),
+                DriverStateEntry(
+                    target=DC_BIAS_ACTUAL_VOLTAGE,
+                    value=sc.Quantity(source.voltage_level_v, "V"),
+                ),
+                DriverStateEntry(target=DC_BIAS_SETTLED, value=True),
+            )
+            for entry in channel_entries:
                 entries.append(
                     DriverStateEntry(
                         target=entry.target,
@@ -213,15 +273,56 @@ class MultiChannelVirtualDcSource:
             grouped.setdefault(channel_id, []).append(
                 DriverStateEntry(target=entry.target, value=entry.value)
             )
+        channel_results: dict[str, JsonValue] = {}
         for channel_id, entries in grouped.items():
+            bias_values = {
+                entry.target: entry.value
+                for entry in entries
+                if entry.target.interface_id == "scopecat.dc_bias/v1"
+            }
+            if bias_values:
+                duration = bias_values.get(DC_BIAS_RAMP_DURATION)
+                tolerance = bias_values.get(DC_BIAS_SETTLE_TOLERANCE)
+                target = bias_values.get(DC_BIAS_TARGET_VOLTAGE)
+                if isinstance(duration, sc.Quantity):
+                    self._ramp_duration_s[channel_id] = duration.to("s").value
+                if isinstance(tolerance, sc.Quantity):
+                    self._settle_tolerance_v[channel_id] = tolerance.to("V").value
+                if isinstance(target, sc.Quantity):
+                    outcome = self._drivers[channel_id].handle_source_voltage(
+                        range=sc.Quantity(1.0, "V"),
+                        level=target,
+                    )
+                    if not isinstance(outcome, DriverSuccess):
+                        return outcome
+                source = self._world.dc_source(f"{self.instrument_id}:{channel_id}")
+                channel_results[channel_id] = {
+                    "status": "settled",
+                    "actual_voltage_v": source.voltage_level_v,
+                }
+            source_entries = tuple(
+                entry
+                for entry in entries
+                if entry.target.interface_id != "scopecat.dc_bias/v1"
+            )
+            if not source_entries:
+                continue
             outcome = self._drivers[channel_id].apply_state(
                 DriverStatePatch(
-                    values={entry.target: entry.value for entry in entries}
+                    values={entry.target: entry.value for entry in source_entries}
                 )
             )
             if not isinstance(outcome, DriverSuccess):
                 return outcome
-        return DriverSuccess(self.read_state())
+        return cast(
+            "DriverOutcome[DriverState | None]",
+            DriverSuccess(
+                self.read_state(),
+                metadata=(
+                    {"channel_results": channel_results} if channel_results else {}
+                ),
+            ),
+        )
 
     def invoke(
         self,
@@ -243,6 +344,26 @@ class MultiChannelVirtualDcSource:
             request.target.interface_id,
             request.channel_bindings,
         )
+        if request.target == DC_BIAS_READBACK:
+            source = self._world.dc_source(f"{self.instrument_id}:{channel_id}")
+            values: dict[AcquisitionResultRef, MeasurementValue] = {}
+            if DC_BIAS_ACTUAL_VOLTAGE_RESULT in request.results:
+                values[DC_BIAS_ACTUAL_VOLTAGE_RESULT] = MeasurementScalar.create(
+                    dtype="float64",
+                    unit="V",
+                    value=source.voltage_level_v,
+                )
+            if DC_BIAS_SETTLED_RESULT in request.results:
+                values[DC_BIAS_SETTLED_RESULT] = MeasurementScalar.create(
+                    dtype="bool",
+                    value=True,
+                )
+            return DriverSuccess(
+                DriverReadback(
+                    values=values,
+                    metadata={"channel_id": channel_id},
+                )
+            )
         return self._drivers[channel_id].collect(
             DriverAcquisition(target=request.target, results=request.results)
         )

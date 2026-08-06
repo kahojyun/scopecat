@@ -76,6 +76,60 @@ def rf_output_interface() -> InterfaceSpec:
     return InterfaceSpec.model_validate_json(_RF_OUTPUT_SPEC_JSON)
 
 
+_DC_BIAS_SPEC_JSON = (
+    '{"id":"scopecat.dc_bias/v1","label":"DC '
+    'bias ramp","description":"Settled voltag'
+    "e transitions that a multi-channel devic"
+    'e may apply as one coherent batch.","pro'
+    'perties":[{"id":"target_voltage","label"'
+    ':"Target voltage","description":"Request'
+    "ed final voltage for this routed channel"
+    '.","access":"read_write","value_type":{"'
+    'type":"quantity","dimension":null,"unit"'
+    ':"V","minimum":null,"maximum":null,"fini'
+    'te":true}},{"id":"ramp_duration","label"'
+    ':"Ramp duration","description":"Minimum '
+    "duration for the transition to the targe"
+    't voltage.","access":"read_write","value'
+    '_type":{"type":"quantity","dimension":nu'
+    'll,"unit":"s","minimum":0.0,"maximum":nu'
+    'll,"finite":true}},{"id":"settle_toleran'
+    'ce","label":"Settle tolerance","descript'
+    'ion":"Maximum readback error accepted be'
+    'fore the batch completes.","access":"rea'
+    'd_write","value_type":{"type":"quantity"'
+    ',"dimension":null,"unit":"V","minimum":0'
+    '.0,"maximum":null,"finite":true}},{"id":'
+    '"actual_voltage","label":"Actual voltage'
+    '","description":"Voltage read back after'
+    ' the most recent transition.","access":"'
+    'read_only","value_type":{"type":"quantit'
+    'y","dimension":null,"unit":"V","minimum"'
+    ':null,"maximum":null,"finite":true}},{"i'
+    'd":"settled","label":"Settled","descript'
+    'ion":"Whether readback is within the req'
+    'uested tolerance.","access":"read_only",'
+    '"value_type":{"type":"bool"}}],"operatio'
+    'ns":[],"acquisitions":[{"id":"readback",'
+    '"label":"Read back bias","description":"'
+    "Read the settled voltage status for one "
+    'routed channel.","preconditions":[],"res'
+    'ults":[{"id":"actual_voltage","label":"A'
+    'ctual voltage","description":"Voltage re'
+    'ad back from this routed channel.","role'
+    '":"observable","dtype":"float64","unit":'
+    '"V","axes":[]},{"id":"settled","label":"'
+    'Settled","description":"Whether the read'
+    'back is within the requested tolerance."'
+    ',"role":"observable","dtype":"bool","uni'
+    't":null,"axes":[]}]}],"components":[]}'
+)
+
+
+def dc_bias_interface() -> InterfaceSpec:
+    return InterfaceSpec.model_validate_json(_DC_BIAS_SPEC_JSON)
+
+
 _DC_SOURCE_SPEC_JSON = (
     '{"id":"scopecat.dc_source/v3","label":"D'
     'C source","description":"DC voltage/curr'
@@ -247,6 +301,7 @@ def network_sweep_interface() -> InterfaceSpec:
 
 
 __all__ = [
+    "dc_bias_interface",
     "dc_monitor_interface",
     "dc_source_interface",
     "network_sweep_interface",

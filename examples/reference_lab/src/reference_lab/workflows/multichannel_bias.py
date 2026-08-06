@@ -7,7 +7,13 @@ from typing import cast
 
 import scopecat as sc
 from scopecat.kernel.entity import EntityRef
-from scopecat_instruments import DCSourceGroupTarget, dc_source, temperature_readout
+from scopecat_instruments import (
+    DCBiasReadbackRecords,
+    DCSourceGroupTarget,
+    dc_bias,
+    dc_source,
+    temperature_readout,
+)
 
 from reference_lab.parameters import (
     BIAS_PROFILE,
@@ -62,6 +68,7 @@ def _physical_bias_profile(
 class MultiChannelBiasDataset:
     temperature: sc.RecordRef[float]
     physical_bias: sc.PerEntity[sc.RecordRef[float]]
+    readback: sc.PerEntity[DCBiasReadbackRecords]
 
 
 @sc.experiment(id="reference_lab.multichannel_dc_bias")
@@ -73,20 +80,21 @@ def multichannel_dc_bias(
     parked = _physical_bias_profile(PARKED_PROFILE)
     operate = _physical_bias_profile(OPERATE_PROFILE)
     biases = dc_source(experiment, "flux-bias", for_=QUBIT_SELECTION)
+    bias_ramps = dc_bias(experiment, "flux-ramp", for_=QUBIT_SELECTION)
     biases.ensure(
         current_protection=sc.Quantity(100.0, "uA"),
         output_enabled=False,
     )
-    biases.source_voltage(
-        range=sc.Quantity(1.0, "V"),
-        level=parked,
-        effect_id="park-before-enable",
+    bias_ramps.ensure(
+        target_voltage=parked,
+        ramp_duration=sc.Quantity(100.0, "ms"),
+        settle_tolerance=sc.Quantity(0.1, "mV"),
     )
     biases.ensure(output_enabled=True)
-    biases.source_voltage(
-        range=sc.Quantity(1.0, "V"),
-        level=operate,
-        effect_id="apply-operate-profile",
+    bias_ramps.ensure(
+        target_voltage=operate,
+        ramp_duration=sc.Quantity(250.0, "ms"),
+        settle_tolerance=sc.Quantity(0.1, "mV"),
     )
     thermometer = temperature_readout(
         experiment,
@@ -94,6 +102,7 @@ def multichannel_dc_bias(
         for_=sc.one(CRYOSTAT),
     )
     sample = thermometer.sample()
+    readback = experiment.record(bias_ramps.readback(id="operate-readback"))
     physical_bias = sc.PerEntity(
         (
             qubit,
@@ -104,16 +113,17 @@ def multichannel_dc_bias(
         )
         for qubit in QUBIT_SELECTION
     )
-    biases.source_voltage(
-        range=sc.Quantity(1.0, "V"),
-        level=parked,
-        effect_id="return-to-park",
+    bias_ramps.ensure(
+        target_voltage=parked,
+        ramp_duration=sc.Quantity(250.0, "ms"),
+        settle_tolerance=sc.Quantity(0.1, "mV"),
     )
     biases.ensure(output_enabled=False)
     experiment.on_success(biases, DCSourceGroupTarget(output_enabled=False))
     return MultiChannelBiasDataset(
         temperature=experiment.record(sample.temperature),
         physical_bias=physical_bias,
+        readback=readback,
     )
 
 

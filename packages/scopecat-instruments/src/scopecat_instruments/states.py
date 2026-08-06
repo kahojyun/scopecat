@@ -16,6 +16,9 @@ from scopecat.sdk.instruments.declarations import (
 )
 
 from scopecat_instruments.interface_declarations import (
+    DCBiasState as DCBiasState,
+)
+from scopecat_instruments.interface_declarations import (
     DCMonitorState as DCMonitorState,
 )
 from scopecat_instruments.interface_declarations import (
@@ -37,6 +40,9 @@ from scopecat_instruments.interface_declarations import (
     TemperatureReadoutState as TemperatureReadoutState,
 )
 from scopecat_instruments.members import (
+    DC_BIAS_RAMP_DURATION,
+    DC_BIAS_SETTLE_TOLERANCE,
+    DC_BIAS_TARGET_VOLTAGE,
     DC_MONITOR_INTEGRATION_CYCLES,
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
@@ -96,6 +102,42 @@ class RFOutputGroupTarget:
         Symbolic[Literal["internal", "external"]]
         | PerEntity[Symbolic[Literal["internal", "external"]]]
     ) = state_projection_field()
+
+
+_DC_BIAS_STATE_LAYOUT = StateProjectionLayout(
+    fields=(
+        StateProjectionField("target_voltage", DC_BIAS_TARGET_VOLTAGE),
+        StateProjectionField("ramp_duration", DC_BIAS_RAMP_DURATION),
+        StateProjectionField("settle_tolerance", DC_BIAS_SETTLE_TOLERANCE),
+    ),
+)
+
+
+@instrument_state_projection(_DC_BIAS_STATE_LAYOUT)
+class DCBiasPatch:
+    target_voltage: Quantity = state_projection_field()
+    ramp_duration: Quantity = state_projection_field()
+    settle_tolerance: Quantity = state_projection_field()
+
+
+@instrument_state_projection(_DC_BIAS_STATE_LAYOUT)
+class DCBiasTarget:
+    target_voltage: Symbolic[Quantity] = state_projection_field()
+    ramp_duration: Symbolic[Quantity] = state_projection_field()
+    settle_tolerance: Symbolic[Quantity] = state_projection_field()
+
+
+@instrument_state_projection(_DC_BIAS_STATE_LAYOUT)
+class DCBiasGroupTarget:
+    target_voltage: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
+        state_projection_field()
+    )
+    ramp_duration: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
+        state_projection_field()
+    )
+    settle_tolerance: Symbolic[Quantity] | PerEntity[Symbolic[Quantity]] = (
+        state_projection_field()
+    )
 
 
 _DC_SOURCE_STATE_LAYOUT = StateProjectionLayout(
@@ -226,6 +268,10 @@ class NetworkSweepGroupTarget:
 
 
 __all__ = [
+    "DCBiasGroupTarget",
+    "DCBiasPatch",
+    "DCBiasState",
+    "DCBiasTarget",
     "DCMonitorGroupTarget",
     "DCMonitorPatch",
     "DCMonitorState",

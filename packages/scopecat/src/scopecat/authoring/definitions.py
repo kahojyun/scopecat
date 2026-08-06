@@ -327,6 +327,16 @@ class ExperimentContext:
 
         self._program._ensure(resource, assignments)
 
+    def _ensure_many(
+        self,
+        targets: Sequence[
+            tuple[DefinitionResource, Mapping[PropertyRef, StateBinding]]
+        ],
+    ) -> None:
+        """Declare one coherent state target across logical resources."""
+
+        self._program._ensure_many(targets)
+
     def _invoke(
         self,
         id: str,

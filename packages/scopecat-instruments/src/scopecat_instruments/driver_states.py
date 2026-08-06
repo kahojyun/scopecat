@@ -17,6 +17,7 @@ from scopecat.sdk.instruments import (
 )
 
 from scopecat_instruments.interface_declarations import (
+    DCBiasState,
     DCMonitorState,
     DCSourceState,
     NetworkSweepState,
@@ -24,6 +25,11 @@ from scopecat_instruments.interface_declarations import (
     TemperatureReadoutState,
 )
 from scopecat_instruments.members import (
+    DC_BIAS_ACTUAL_VOLTAGE,
+    DC_BIAS_RAMP_DURATION,
+    DC_BIAS_SETTLE_TOLERANCE,
+    DC_BIAS_SETTLED,
+    DC_BIAS_TARGET_VOLTAGE,
     DC_MONITOR_INTEGRATION_CYCLES,
     DC_MONITOR_MEASUREMENT_DELAY,
     DC_MONITOR_MEASUREMENT_ENABLED,
@@ -94,6 +100,43 @@ def encode_rf_output_state(state: RFOutputState, /) -> dict[PropertyRef, DriverS
         RF_OUTPUT_POWER: state.power,
         RF_OUTPUT_ENABLED: state.output_enabled,
         RF_OUTPUT_REFERENCE_SOURCE: state.reference_source,
+    }
+
+
+class DCBiasDriverPatch(TypedDict, total=False):
+    target_voltage: Quantity
+    ramp_duration: Quantity
+    settle_tolerance: Quantity
+
+
+def decode_dc_bias_patch(request: DriverStatePatch, /) -> DCBiasDriverPatch:
+    decoded: DCBiasDriverPatch = {}
+    values = request.values
+    if DC_BIAS_TARGET_VOLTAGE in values:
+        decoded["target_voltage"] = cast(
+            "Quantity",
+            values[DC_BIAS_TARGET_VOLTAGE],
+        )
+    if DC_BIAS_RAMP_DURATION in values:
+        decoded["ramp_duration"] = cast(
+            "Quantity",
+            values[DC_BIAS_RAMP_DURATION],
+        )
+    if DC_BIAS_SETTLE_TOLERANCE in values:
+        decoded["settle_tolerance"] = cast(
+            "Quantity",
+            values[DC_BIAS_SETTLE_TOLERANCE],
+        )
+    return decoded
+
+
+def encode_dc_bias_state(state: DCBiasState, /) -> dict[PropertyRef, DriverScalar]:
+    return {
+        DC_BIAS_TARGET_VOLTAGE: state.target_voltage,
+        DC_BIAS_RAMP_DURATION: state.ramp_duration,
+        DC_BIAS_SETTLE_TOLERANCE: state.settle_tolerance,
+        DC_BIAS_ACTUAL_VOLTAGE: state.actual_voltage,
+        DC_BIAS_SETTLED: state.settled,
     }
 
 
@@ -242,14 +285,17 @@ def encode_driver_state(
 
 
 __all__ = [
+    "DCBiasDriverPatch",
     "DCMonitorDriverPatch",
     "DCSourceDriverPatch",
     "NetworkSweepDriverPatch",
     "RFOutputDriverPatch",
+    "decode_dc_bias_patch",
     "decode_dc_monitor_patch",
     "decode_dc_source_patch",
     "decode_network_sweep_patch",
     "decode_rf_output_patch",
+    "encode_dc_bias_state",
     "encode_dc_monitor_state",
     "encode_dc_source_state",
     "encode_driver_state",

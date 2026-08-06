@@ -27,6 +27,14 @@ physical_bias_mv = {
     entity.id: round(data[record].require_quantities("mV")[0].value, 6)
     for entity, record in MULTICHANNEL_DC_BIAS.output.physical_bias.items()
 }
+readback_mv = {
+    entity.id: round(data[records.actual_voltage].require_quantities("mV")[0].value, 6)
+    for entity, records in MULTICHANNEL_DC_BIAS.output.readback.items()
+}
+settled = {
+    entity.id: data[records.settled].require_values()[0]
+    for entity, records in MULTICHANNEL_DC_BIAS.output.readback.items()
+}
 
 multichannel_dc_bias_summary = {
     "devices": sorted({binding.instrument_id for binding in flux_routes}),
@@ -36,6 +44,8 @@ multichannel_dc_bias_summary = {
     },
     "profile": OPERATE_PROFILE,
     "physical_bias_mv": physical_bias_mv,
+    "readback_mv": readback_mv,
+    "settled": settled,
     "records": len(data),
     "status": status,
 }

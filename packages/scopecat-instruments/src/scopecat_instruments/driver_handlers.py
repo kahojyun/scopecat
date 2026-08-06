@@ -28,14 +28,17 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.problems import ProblemPhase, model_location, problem
 
 from scopecat_instruments.driver_states import (
+    DCBiasDriverPatch,
     DCMonitorDriverPatch,
     DCSourceDriverPatch,
     NetworkSweepDriverPatch,
     RFOutputDriverPatch,
+    decode_dc_bias_patch,
     decode_dc_monitor_patch,
     decode_dc_source_patch,
     decode_network_sweep_patch,
     decode_rf_output_patch,
+    encode_dc_bias_state,
     encode_dc_monitor_state,
     encode_dc_source_state,
     encode_driver_state,
@@ -44,6 +47,7 @@ from scopecat_instruments.driver_states import (
     encode_temperature_readout_state,
 )
 from scopecat_instruments.interface_declarations import (
+    DCBiasState,
     DCMonitorState,
     DCSourceState,
     NetworkSweepState,
@@ -51,6 +55,9 @@ from scopecat_instruments.interface_declarations import (
     TemperatureReadoutState,
 )
 from scopecat_instruments.members import (
+    DC_BIAS_ACTUAL_VOLTAGE_RESULT,
+    DC_BIAS_READBACK,
+    DC_BIAS_SETTLED_RESULT,
     DC_MONITOR_CURRENT_RESULT,
     DC_MONITOR_MEASURE_CURRENT,
     DC_MONITOR_MEASURE_VOLTAGE,
@@ -87,6 +94,13 @@ def _unsupported_driver_request(
 class TemperatureReadoutSampleDriverReadback:
     temperature: MeasurementValue
     resistance: MeasurementValue
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class DCBiasReadbackDriverReadback:
+    actual_voltage: MeasurementValue
+    settled: MeasurementValue
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
 
@@ -240,6 +254,96 @@ class RFOutputDriverAdapter(ABC):
         self,
         request: DriverAcquisition,
     ) -> DriverOutcome[DriverReadback]:
+        return _unsupported_driver_request(
+            self.instrument_id,
+            "acquisition",
+            request.target.acquisition_id,
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DCBiasDriverSnapshot:
+    state: DCBiasState
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
+
+
+class DCBiasDriverAdapter(ABC):
+    instrument_id: str
+
+    @abstractmethod
+    def read_dc_bias_state(self) -> DCBiasDriverSnapshot: ...
+
+    @abstractmethod
+    def apply_dc_bias_state(
+        self,
+        patch: DCBiasDriverPatch,
+        /,
+    ) -> DriverOutcome[None]: ...
+
+    @abstractmethod
+    def handle_readback(
+        self,
+    ) -> DriverOutcome[DCBiasReadbackDriverReadback]: ...
+
+    def read_state(self) -> DriverState:
+        snapshot = self.read_dc_bias_state()
+        encoded: list[Mapping[PropertyRef, DriverScalar]] = []
+        encoded.append(encode_dc_bias_state(snapshot.state))
+        return encode_driver_state(*encoded, metadata=snapshot.metadata)
+
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        dc_bias_patch = decode_dc_bias_patch(request)
+        outcome = self.apply_dc_bias_state(dc_bias_patch)
+        if isinstance(outcome, DriverSuccess):
+            return DriverSuccess(None, metadata=outcome.metadata)
+        return outcome
+
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        return _unsupported_driver_request(
+            self.instrument_id,
+            "operation",
+            request.target.operation_id,
+        )
+
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        if request.target == DC_BIAS_READBACK:
+            for result in request.results:
+                if result not in (
+                    DC_BIAS_ACTUAL_VOLTAGE_RESULT,
+                    DC_BIAS_SETTLED_RESULT,
+                ):
+                    return _unsupported_driver_request(
+                        self.instrument_id,
+                        "acquisition_result",
+                        result.result_id,
+                    )
+            outcome_readback = self.handle_readback()
+            if not isinstance(outcome_readback, DriverSuccess):
+                return outcome_readback
+            readback_readback = outcome_readback.value
+            values_readback: dict[AcquisitionResultRef, MeasurementValue] = {}
+            if DC_BIAS_ACTUAL_VOLTAGE_RESULT in request.results:
+                values_readback[DC_BIAS_ACTUAL_VOLTAGE_RESULT] = (
+                    readback_readback.actual_voltage
+                )
+            if DC_BIAS_SETTLED_RESULT in request.results:
+                values_readback[DC_BIAS_SETTLED_RESULT] = readback_readback.settled
+            return DriverSuccess(
+                DriverReadback(
+                    values=values_readback,
+                    metadata=readback_readback.metadata,
+                ),
+                metadata=outcome_readback.metadata,
+            )
         return _unsupported_driver_request(
             self.instrument_id,
             "acquisition",
@@ -712,6 +816,9 @@ class NetworkSweepDriverAdapter(ABC):
 
 
 __all__ = [
+    "DCBiasDriverAdapter",
+    "DCBiasDriverSnapshot",
+    "DCBiasReadbackDriverReadback",
     "DCMonitorDriverAdapter",
     "DCMonitorDriverSnapshot",
     "DCMonitorMeasureCurrentDriverReadback",
