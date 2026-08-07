@@ -32,9 +32,9 @@ type RunRequestJsonValue = Annotated[
     | bool
     | int
     | float
-    | None
     | list[RunRequestJsonValue]
-    | dict[str, RunRequestJsonValue],
+    | dict[str, RunRequestJsonValue]
+    | None,
     BeforeValidator(normalize_json_value),
 ]
 

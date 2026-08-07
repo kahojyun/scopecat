@@ -1798,8 +1798,10 @@ def _render_adapter_apply_state(
         lines.extend(
             (
                 "        del request\n",
-                "        return _unsupported_driver_request("
-                'self.instrument_id, "state", "state")\n',
+                (
+                    "        return _unsupported_driver_request("
+                    'self.instrument_id, "state", "state")\n'
+                ),
             )
         )
         return "".join(lines)
@@ -1818,8 +1820,10 @@ def _render_adapter_apply_state(
                 (
                     f"        if {decoded_name} and not self._driver_{flag}_enabled:\n",
                     "            return _unsupported_driver_request(\n",
-                    f'                self.instrument_id, "state", '
-                    f"{_string_literal(constituent.layout.compiled.ref.interface_id)}\n",
+                    (
+                        f'                self.instrument_id, "state", '
+                        f"{_string_literal(constituent.layout.compiled.ref.interface_id)}\n"
+                    ),
                     "            )\n",
                 )
             )
@@ -1905,8 +1909,10 @@ def _render_adapter_invoke(
         lines.extend(
             (
                 "            if isinstance(outcome, DriverSuccess):\n",
-                "                return DriverSuccess(None, "
-                "metadata=outcome.metadata)\n",
+                (
+                    "                return DriverSuccess(None, "
+                    "metadata=outcome.metadata)\n"
+                ),
                 "            return outcome\n",
             )
         )
@@ -1988,8 +1994,10 @@ def _render_adapter_collect(
                 f"            if not isinstance({outcome_name}, DriverSuccess):\n",
                 f"                return {outcome_name}\n",
                 f"            {readback_name} = {outcome_name}.value\n",
-                f"            {values_name}: dict[AcquisitionResultRef, "
-                "MeasurementValue] = {}\n",
+                (
+                    f"            {values_name}: dict[AcquisitionResultRef, "
+                    "MeasurementValue] = {}\n"
+                ),
             )
         )
         for field in model.fields:

@@ -1211,8 +1211,7 @@ def _compile_state_fields(
     )
     state_fields = {state_field.name: state_field for state_field in fields(state_type)}
     properties: list[PropertySpec] = []
-    for field_name in state_fields:
-        state_field = state_fields[field_name]
+    for field_name, state_field in state_fields.items():
         annotation = hints.get(field_name)
         if annotation is None:
             raise TypeError(f"state field {field_name!r} must be annotated")
@@ -1566,8 +1565,7 @@ def _compile_results(
         result_field.name: result_field for result_field in fields(result_class)
     }
     compiled: list[AcquisitionResultSpec] = []
-    for field_name in result_fields:
-        result_field = result_fields[field_name]
+    for field_name, result_field in result_fields.items():
         annotation = hints.get(result_field.name)
         if annotation is None:
             raise TypeError(f"result field {result_field.name!r} must be annotated")

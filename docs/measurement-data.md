@@ -230,10 +230,10 @@ before entering the measurement stream.
 ```python
 data = run.measurements()
 
-data.xarray                    # independent copy of the cached xr.Dataset
-data.coords                    # coordinate variables by id
-data.data_vars                 # observable variables by id
-data.point_indices             # durable identities in current row order
+data.xarray  # independent copy of the cached xr.Dataset
+data.coords  # coordinate variables by id
+data.data_vars  # observable variables by id
+data.point_indices  # durable identities in current row order
 data["readout.dc_bias"].values
 
 near_zero = data.sel(
@@ -288,12 +288,12 @@ Xarray and Arrow are core dependencies and are available on every measurement
 view. Install the `scopecat[pandas]` extra only for explicit pandas exports:
 
 ```python
-xds = data.to_xarray()                     # explicit conversion spelling
-another = data.xarray                      # equivalent property shorthand
-assert xds is not another                  # snapshots never share identity
-grid = data.to_xarray(layout="grid")       # complete product grids only
+xds = data.to_xarray()  # explicit conversion spelling
+another = data.xarray  # equivalent property shorthand
+assert xds is not another  # snapshots never share identity
+grid = data.to_xarray(layout="grid")  # complete product grids only
 table = data.to_arrow()
-frame = data.to_pandas()                  # one row per experiment point
+frame = data.to_pandas()  # one row per experiment point
 long_frame = data.to_pandas(layout="long")
 ```
 

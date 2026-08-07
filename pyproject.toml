@@ -19,7 +19,7 @@ dev = [
   "import-linter>=2.13",
   "pytest>=9",
   "pytest-xdist>=3.8",
-  "ruff>=0.15.14",
+  "ruff>=0.16.0",
 ]
 notebook = [
   "ipykernel>=6.29",
@@ -233,6 +233,8 @@ ignore = [
   "A004",
   # Assertions express test expectations and trusted internal invariants.
   "S101",
+  # Public package facades derive their export lists from internal registries.
+  "PLE0605",
 ]
 select = [
   "A",
@@ -252,6 +254,8 @@ select = [
   "PERF102",
   "PERF402",
   "PIE",
+  "PLC0206",
+  "PLE",
   "PTH",
   "PT011",
   "PT017",
@@ -262,6 +266,7 @@ select = [
   "SIM",
   "T10",
   "TC006",
+  "TRY203",
   "TRY400",
   "UP",
   "W",

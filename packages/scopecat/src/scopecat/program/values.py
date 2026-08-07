@@ -54,10 +54,10 @@ type RuntimeInput = (
     | int
     | float
     | bool
-    | None
     | list[RuntimeInput]
     | tuple[RuntimeInput, ...]
     | Mapping[str, RuntimeInput]
+    | None
 )
 type MetadataValue = JsonValue
 type ModuleInput = (

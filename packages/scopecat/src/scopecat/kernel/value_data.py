@@ -8,7 +8,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 
-type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | PayloadValue
+type ScalarValue = str | int | float | bool | Quantity | EntityRef | PayloadValue | None
 type CellValue = ScalarValue | dict[str, object]
 type Row = dict[str, CellValue]
 
