@@ -2,8 +2,8 @@
 
 This document describes the current daemon architecture. It is not a product
 requirement or roadmap. Ownership, persistence, and process boundaries may be
-simplified when that makes the workflows in the
-[project charter](project-charter.md) easier to adopt and use.
+evolved when that better serves the adoption and growth paths in the
+[project charter](project-charter.md).
 
 Scopecat has one durable writer per lab instance: a long-running local daemon.
 GUI and Python processes are clients, even when Python executes an experiment
@@ -144,6 +144,14 @@ Server-sent events expose the same durable, globally ordered event log used by
 the replay endpoint. A reconnecting GUI resumes from an event cursor and then
 refreshes canonical state; it does not maintain an offline cache or a second
 source of truth.
+
+## Scalability boundary
+
+The single daemon, SQLite writer, and local object store form the current
+single-lab durability and ordering boundary. Large content remains in binary
+objects; execution commits evidence at batch or checkpoint granularity; and
+interactive queries and events use bounded pages, selections, and summaries.
+The [scalability benchmarks](scalability-benchmarks.md) measure this boundary.
 
 ## Storage ownership
 

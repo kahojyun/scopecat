@@ -54,8 +54,11 @@ safe run cancellation, and attention resolution are available through
 `lab.control`.
 
 `run.measurements()` captures an immutable analysis snapshot with NumPy, Xarray,
-and Arrow support. See the [measurement workflow](../../docs/measurement-data.md)
-for slicing and exports; install `scopecat[pandas]` only for pandas conversion.
+and Arrow support for data that fits in notebook memory. Large runs remain
+available through `run.measurement_batches(...)`; selections and exports can be
+applied to each yielded batch. See the
+[measurement workflow](../../docs/measurement-data.md) for details; install
+`scopecat[pandas]` only for pandas conversion.
 
 See the [repository README](../../README.md) for setup and development commands,
 and the [daemon model](../../docs/lab-daemon.md) for durable ownership and

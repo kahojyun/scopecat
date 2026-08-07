@@ -119,9 +119,22 @@ earlier measurements, use a bounded, resumable
 [staged experiment](adaptive-experiments.md) instead of a hidden intra-run
 control loop.
 
+The current planner materializes both explicit rows and product-grid points
+before admission. The [scalability benchmarks](scalability-benchmarks.md) track
+that operating envelope; row order, logical ordinals, schema, and result identity
+remain its stable semantics.
+
 The schema records whether the domain is a `product_grid` or `point_cloud`.
 Consumers should use that semantic layout instead of trying to infer a grid
 from coincidentally regular values.
+
+Logical points describe experiment conditions. Repeated shots, measured
+entities or channels, and instrument-native sample axes contribute separate
+workload dimensions and retain their structure in acquisition results. A VNA
+frequency trace, digitizer waveform, or per-shot readout array can therefore
+grow independently of the outer point domain instead of being flattened into
+control-plane points. This keeps batching, storage, slicing, and visualization
+aligned with the physical acquisition.
 
 ## Repeat, traverse, and edit a point plan
 
@@ -283,6 +296,11 @@ table = data.to_arrow()
 frame = data.to_pandas()                  # one row per experiment point
 long_frame = data.to_pandas(layout="long")
 ```
+
+These complete conversions materialize the selected measurement snapshot and
+are intended for datasets that fit in notebook memory. For larger runs,
+`run.measurement_batches(...)` is the bounded notebook read path; select within
+each yielded batch before exporting it.
 
 The default Xarray layout keeps the durable `point` row dimension, which also
 works for point clouds, live batches, partial selections, and ragged results.

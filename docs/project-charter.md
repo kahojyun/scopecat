@@ -1,52 +1,75 @@
 # Scopecat Project Charter
 
-Scopecat is a local-first Python toolkit for running laboratory experiments
-with less setup and less repetitive code than ad hoc scripts and small internal
-scan frameworks.
+Scopecat is a local-first Python toolkit for laboratory experiment workflows,
+from a first scan to sustained, large-scale quantum experiments. It combines an
+approachable starting point with typed experiment structure, bounded execution,
+live visibility, and durable results as a workflow grows.
 
-It should fit naturally into notebooks and existing Python workflows. Users
-should gain useful structure, live visibility, and reusable results without
-first adopting a new operational process.
+It integrates naturally with notebooks and existing Python projects. Ordinary
+Python remains available for composition, analysis, and adaptive orchestration,
+while declarative experiment abstractions capture the structure needed for
+planning, compilation, reproducibility, and scalable execution.
 
 ## Current Stage
 
-Scopecat is an early, single-user project. Its current goal is to prove that it
-is easier and more useful than the tools researchers already use.
+Scopecat is an early, single-user project. Its current goal is to prove that
+researchers can adopt it with little more effort than an ad hoc experiment and
+continue using the same experiment and data model as their work grows.
 
 Success currently means:
 
-- a new user can run a virtual experiment quickly;
-- direct instrument control remains familiar to Python users;
-- common scans require little application code;
-- progress, measurements, and failures are easy to inspect;
-- results remain available after the notebook finishes;
-- moving from exploratory notebook code to a reusable experiment is incremental.
+- a new user can run a virtual experiment quickly and control instruments
+  through familiar Python APIs;
+- small experiments remain concise without exposing storage, coordination, or
+  compilation machinery;
+- typed experiment definitions support validation, batching, durable data, and
+  reuse while ordinary Python retains its natural roles;
+- progress, partial measurements, failures, results, and workflow lineage remain
+  easy to inspect beyond the originating notebook;
+- datasets larger than notebook memory remain usable through bounded notebook
+  batches and GUI previews;
+- exploratory work can grow into reusable, time-bounded runs and related
+  analysis-driven workflows incrementally rather than through a rewrite.
 
-New features and abstractions that do not improve one of these paths should
-normally wait.
+Features and abstractions should advance one of these adoption or growth paths.
 
-## Product Direction
+## Scalability Direction
 
-Scopecat should help users:
+Near-term scalability focuses on a single-lab NISQ workflow. The reference
+envelope includes hundreds of qubits, couplers, and control channels;
+repeated-shot and structured acquisition data larger than notebook memory; and
+analysis-driven workflows spanning many related runs over hours or days.
 
-- control instruments and build scans through clear Python APIs;
-- organize measurements automatically by run and scan point;
-- inspect live progress and completed results from a local GUI;
-- reuse experiment definitions without hiding ordinary Python;
-- retain enough configuration and context to understand useful results;
-- add lab-specific devices and domain logic without changing the core.
+Individual runs should fit a useful hardware and stability window. Workload
+volume commonly grows through shots, measured entities, and point-local sample
+axes, then continues through analysis into later runs and refined point domains.
+Dense spectroscopy and characterization provide an additional case with a much
+larger logical point domain in one run.
+
+Planning, execution, persistence, observation, and analysis should remain
+bounded and incremental. Resource use and control-plane activity should follow
+physical batches, checkpoints, and data chunks rather than individual shots or
+samples. Logical point, product, and lineage identities should remain stable
+across physical batching choices.
 
 ## Principles
 
-- Optimize first use and common workflows before rare failure modes.
-- Keep ordinary use no more complicated than a small internal scan framework.
-- Introduce concepts only when demonstrated workflows require them.
-- Hide storage, coordination, and execution machinery from normal user code.
+- Optimize both adoption cost and growth cost.
+- Keep user-visible complexity proportional to the workflow and expose advanced
+  controls progressively.
+- Use typed, declarative abstractions when a closed representation enables
+  validation, batching, reproducibility, or durable interpretation; use ordinary
+  Python for composition, analysis, and adaptive orchestration.
+- Hide storage, coordination, compilation, and execution machinery from normal
+  user code.
+- Keep planning, data movement, queries, and visualization within explicit
+  batch, page, chunk, or preview budgets.
+- Preserve scalable semantics early and evolve their implementation through
+  measured reference workloads.
 - Make advanced provenance and recovery available progressively.
 - Do not silently retry a hardware write when its outcome is unknown.
-- Prefer simple models and direct breaking changes while the project is internal.
-- Judge architecture by the user workflows it enables, not by theoretical
-  completeness.
+- Prefer simple models and decisive internal changes, judging architecture by
+  the user workflows it enables.
 
 ## Current Non-Goals
 

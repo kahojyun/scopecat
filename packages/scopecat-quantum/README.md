@@ -68,3 +68,22 @@ Compiler-owned defaults can use the pure row maps in
 `scopecat_quantum.pulse_recipes`. The complete supported example is the
 [DRAG-beta workflow](../../examples/reference_lab/README.md), including parameter-axis
 overlays, analysis, candidate acceptance, target lowering, and production use.
+
+## Scaling model
+
+Qubits, configured topology, parameter bindings, shots, and result shape
+contribute to the physical workload without changing the authored meaning of a
+program call. A domain compiler declares its point capacity and receives
+bounded `compile_batch` requests. The target runtime may further group qubits
+and chunk shots or binary results inside its own contract.
+
+Physical batch size and target placement do not enter logical point, program,
+or product identity. This lets an integration tune compilation, upload, and
+acquisition capacity while retaining the same measurement schema and durable
+lineage. Point-level aggregates belong in the canonical measurement stream;
+large shot-level or trace payloads should cross the data boundary as typed
+binary content rather than control-plane records.
+
+The [scalability benchmarks](../../docs/scalability-benchmarks.md) cover
+multi-run calibration, shot-heavy acquisition, structured traces, and dense
+spectroscopy.
