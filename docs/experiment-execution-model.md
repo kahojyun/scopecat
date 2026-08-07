@@ -227,6 +227,10 @@ behavior, or incidental batch counts.
 Point composition remains symbolic through verification and specialization.
 Linking materializes one ordered point sequence; host lowering, parameter
 overlays, entity selection, and domain projection consume those same point rows.
+This eager representation is the current implementation. The stable contract is
+one canonical, ordered logical domain whose point identities and results remain
+independent of physical partitioning. The
+[scalability benchmarks](scalability-benchmarks.md) track its operating envelope.
 
 Partial evaluation binds accepted inputs and configuration values, applies the
 invocation's point-plan override, folds pure subgraphs, removes undemanded work,
@@ -285,10 +289,11 @@ devices are explicit desired-state or domain effects. Selecting replacement
 hardware requires another accepted configuration and plan so the physical
 choice stays reproducible.
 
-Planning materializes every coverage block before admission, then derives one
-flat run-level claim set from the concrete effects: the configured domain target
-and its independently addressable instrument members, plus each instrument
-actually used by residual host operations. Target-private endpoints are
+The current planner materializes every coverage block before admission, then
+derives one flat run-level claim set from the concrete effects. The claim set
+contains the configured domain target and its independently addressable
+instrument members, plus each instrument actually used by residual host
+operations. Target-private endpoints are
 connections owned exclusively by the target backend; they are not advertised as
 instruments and are covered by the target claim. The target claim uses a stable
 configuration-owned exclusivity key rather than the logical target id, and

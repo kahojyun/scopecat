@@ -42,3 +42,8 @@ including a callback deferred by an earlier limit, and then executes newly
 proposed stages. Rediscovered sequences report `stopped_by_limit` as `None`
 because run lineage is durable but the previous notebook loop's stop reason is
 not.
+
+The current boundary deliberately keeps orchestration decisions in Python:
+completed stages, measurements, configuration, and lineage are durable, while
+the callback and optimizer state remain notebook-owned. A sequence can be
+inspected and explicitly resumed after a notebook restart.

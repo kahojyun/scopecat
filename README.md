@@ -2,16 +2,16 @@
 
 <p align="center"><img src="assets/branding/app-icon.svg" alt="Scopecat app icon" width="160"></p>
 
-Scopecat is a local-first Python toolkit for controlling laboratory
-instruments, running scans, and keeping measurements and their context
-together. It is designed to fit into notebooks and existing Python workflows
-without making ordinary experiments more complicated than ad hoc scripts or
-small internal scan frameworks.
+Scopecat is a local-first Python toolkit for laboratory experiment workflows,
+from direct instrument control and a first scan to sustained, large-scale
+quantum experiments. It integrates with notebooks and existing Python projects
+while adding typed experiment structure, bounded execution, live visibility,
+and durable results as workflows grow.
 
 The [project charter](docs/project-charter.md) defines the current product
 priorities. The execution, daemon, and instrument-control documents describe
 the current architecture; they are implementation choices rather than product
-requirements and may be simplified to improve the primary workflows.
+requirements and may evolve with demonstrated workflows.
 Implementation contracts and local design rationale live beside the code that
 owns them.
 
@@ -65,7 +65,7 @@ change; it does not make the daemon watch or rewrite Python. `export` produces
 a complete JSON snapshot for review or backup, not a primary editing format.
 
 The reference lab is the complete local project. Its `scopecat.toml`, Python
-application and backend, bootstrap snapshot, seven-device inventory, and three
+application and backend, bootstrap snapshot, nine-device inventory, and three
 parameter tables are version controlled; one daemon owns its `.scopecat` state:
 
 ```sh

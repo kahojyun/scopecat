@@ -2,8 +2,8 @@
 
 The project charter is the product authority for current priorities. The other
 documents describe the present architecture and its important semantics. They
-are not a roadmap: implementation choices may change or be removed when a
-simpler design better serves the workflows in the charter.
+are not a roadmap: implementation choices may change as demonstrated workflows
+reveal a clearer or more scalable way to serve the charter.
 
 - [Project charter](project-charter.md): current product priorities, principles,
   and scope boundaries.
@@ -18,6 +18,8 @@ simpler design better serves the workflows in the charter.
   visualization.
 - [Adaptive experiments](adaptive-experiments.md): bounded, durable notebook
   loops whose next stage depends on earlier measurements.
+- [Scalability benchmarks](scalability-benchmarks.md): current implementation
+  boundaries, representative NISQ workloads, measurements, and target envelopes.
 
 Keep implementation architecture, package inventories, completed migration
 plans, and current interface lists close to the code and tests that own them.
