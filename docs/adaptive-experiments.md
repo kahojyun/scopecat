@@ -10,6 +10,7 @@ def choose_next(stage):
     candidate = optimizer.ask(data)
     return None if candidate is None else point_experiment(candidate)
 
+
 sequence = lab.run_staged(
     point_experiment(initial_point),
     next_stage=choose_next,

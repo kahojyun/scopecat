@@ -26,7 +26,7 @@ from scopecat.records.measurement import (
 )
 
 type MeasurementValueContractPathItem = str | int
-type MeasurementValueContractFact = str | int | None | tuple[int | None, ...]
+type MeasurementValueContractFact = str | int | tuple[int | None, ...] | None
 
 
 class MeasurementValueContractIssueCode(StrEnum):

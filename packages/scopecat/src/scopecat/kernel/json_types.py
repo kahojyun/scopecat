@@ -9,8 +9,8 @@ type JsonValue = (
     | bool
     | int
     | float
-    | None
     | list[JsonValue]
     | tuple[JsonValue, ...]
     | Mapping[str, JsonValue]
+    | None
 )

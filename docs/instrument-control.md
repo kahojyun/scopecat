@@ -217,16 +217,13 @@ For every group argument, a scalar broadcasts and `PerEntity[T]` supplies
 different values by entity:
 
 ```python
-points = sc.PerEntity(
-    (entity, 501 if entity.id == "q0" else 801)
-    for entity in targets
-)
+points = sc.PerEntity((entity, 501 if entity.id == "q0" else 801) for entity in targets)
 
 many.ensure(
     start_frequency=sc.Quantity(4.9, "GHz"),  # broadcast
-    stop_frequency=sc.Quantity(5.1, "GHz"),   # broadcast
-    points=points,                              # mapped by entity
-    s_parameter="S21",                         # broadcast
+    stop_frequency=sc.Quantity(5.1, "GHz"),  # broadcast
+    points=points,  # mapped by entity
+    s_parameter="S21",  # broadcast
 )
 traces = many.sweep()  # PerEntity[NetworkSweepProducts]
 experiment.record(traces)

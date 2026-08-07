@@ -142,8 +142,8 @@ uv run pytest
 uv run --package scopecat --extra pandas pytest packages/scopecat/tests/measurements/test_dataset.py
 uv run basedpyright
 uv run lint-imports
-uv run ruff check packages examples docs scripts
-uv run ruff format --check packages examples docs scripts
+uv run ruff check .
+uv run ruff format --check .
 ```
 
 The default test run includes the complete reference-lab gallery suite and all

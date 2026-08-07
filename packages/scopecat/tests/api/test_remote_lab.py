@@ -939,10 +939,7 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
         )
         deadline = time.monotonic() + 1
         while True:
-            try:
-                session.commit_terminal(terminal)
-            except ExecutorLeaseLostError:
-                raise
+            session.commit_terminal(terminal)
             if time.monotonic() >= deadline:
                 raise AssertionError("heartbeat failure did not fence effects")
             time.sleep(0.001)

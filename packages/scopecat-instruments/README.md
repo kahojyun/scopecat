@@ -66,6 +66,7 @@ from typing import Annotated
 import scopecat as sc
 from scopecat_instruments import dc_source
 
+
 @sc.module
 def capture(
     module: sc.ModuleContext,

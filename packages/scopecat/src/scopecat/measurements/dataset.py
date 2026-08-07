@@ -353,7 +353,7 @@ class Variable[T = NativeAvailableValue]:
     def __getitem__(
         self,
         index: int | slice,
-    ) -> T | None | tuple[T | None, ...]:
+    ) -> T | tuple[T | None, ...] | None:
         return self.values[index]
 
     def __lt__(self, other: object) -> PointMask:
