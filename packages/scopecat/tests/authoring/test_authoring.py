@@ -33,10 +33,6 @@ from scopecat.program.value_refs import (
     internal_value_ref_point_dependencies,
 )
 from scopecat.program.values import compute as program_compute
-from scopecat.records.config import (
-    RoutingEndpointBinding,
-    RoutingGraph,
-)
 from scopecat.records.parameter import (
     ParameterDefinition,
     TableParameterValue,
@@ -55,6 +51,7 @@ from tests.testkit.materialized_effects import (
     materialized_state_properties,
     measurement_projection_contract,
 )
+from tests.testkit.routing import routing_endpoint, routing_graph
 
 
 def _identity_value(*, value: object) -> object:
@@ -355,15 +352,15 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
                     ]
                 }
             ),
-            "routing": RoutingGraph(
+            "routing": routing_graph(
                 bindings=[
-                    RoutingEndpointBinding(
+                    routing_endpoint(
                         instrument_id="source-0",
                         interface_id="test.set_frequency/v1",
                         entity_id="q0",
                         channel_id="drive-q0",
                     ),
-                    RoutingEndpointBinding(
+                    routing_endpoint(
                         instrument_id="source-1",
                         interface_id="test.set_frequency/v1",
                         entity_id="q1",
@@ -963,15 +960,15 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
                     ]
                 }
             ),
-            "routing": RoutingGraph(
+            "routing": routing_graph(
                 bindings=[
-                    RoutingEndpointBinding(
+                    routing_endpoint(
                         instrument_id="source-0",
                         interface_id="test.set_frequency/v1",
                         entity_id="q0",
                         channel_id="drive-q0",
                     ),
-                    RoutingEndpointBinding(
+                    routing_endpoint(
                         instrument_id="source-1",
                         interface_id="test.set_frequency/v1",
                         entity_id="q1",

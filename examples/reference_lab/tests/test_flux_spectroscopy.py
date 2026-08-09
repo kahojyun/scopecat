@@ -149,43 +149,45 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert preview.schema is not None
     assert preview.schema.primary_coordinates == ("dc_bias", frequency_record_id)
     dimensions = {dimension.id: dimension for dimension in preview.schema.dimensions}
-    assert dimensions["shared/readout-vna/frequency"].label == "frequency"
+    assert dimensions["shared/network_sweep.sweep/frequency"].label == "frequency"
     variables = {variable.id: variable for variable in preview.schema.variables}
     assert variables["dc_bias"].role == "coordinate"
     assert variables["dc_bias"].dims == ("point",)
     assert variables[frequency_record_id].role == "coordinate"
-    assert variables[frequency_record_id].recording_group_id == "readout-vna/sweep"
+    assert variables[frequency_record_id].recording_group_id == "network_sweep.sweep"
     assert variables[frequency_record_id].dims == (
         "point",
-        "shared/readout-vna/frequency",
+        "shared/network_sweep.sweep/frequency",
     )
     assert variables[s_parameter_record_id].role == "observable"
-    assert variables[s_parameter_record_id].recording_group_id == "readout-vna/sweep"
+    assert variables[s_parameter_record_id].recording_group_id == "network_sweep.sweep"
     assert variables[s_parameter_record_id].dims == (
         "point",
-        "shared/readout-vna/frequency",
+        "shared/network_sweep.sweep/frequency",
     )
     assert variables[temperature_record_id].role == "observable"
     assert (
-        variables[temperature_record_id].recording_group_id == "mixing-chamber/sample"
+        variables[temperature_record_id].recording_group_id
+        == "temperature_readout.sample"
     )
     assert variables[temperature_record_id].dims == ("point",)
     preview_records = {record.id: record for record in preview.records}
     assert preview_records[frequency_record_id].role == "coordinate"
     assert (
-        preview_records[frequency_record_id].recording_group_id == "readout-vna/sweep"
+        preview_records[frequency_record_id].recording_group_id == "network_sweep.sweep"
     )
     assert preview_records[frequency_record_id].dims == (
         "point",
-        "shared/readout-vna/frequency",
+        "shared/network_sweep.sweep/frequency",
     )
     assert preview_records[s_parameter_record_id].role == "observable"
     assert (
-        preview_records[s_parameter_record_id].recording_group_id == "readout-vna/sweep"
+        preview_records[s_parameter_record_id].recording_group_id
+        == "network_sweep.sweep"
     )
     assert preview_records[s_parameter_record_id].dims == (
         "point",
-        "shared/readout-vna/frequency",
+        "shared/network_sweep.sweep/frequency",
     )
     assert preview_records[temperature_record_id].role == "observable"
     assert preview_records[temperature_record_id].dims == ("point",)
@@ -234,7 +236,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
 
     traces = run.measurements().traces(schema.trace.s_parameter)
     assert len(traces) == BIAS_POINTS
-    assert traces[0].recording_group_id == "readout-vna/sweep"
+    assert traces[0].recording_group_id == "network_sweep.sweep"
     assert traces[0].coordinate_unit == "Hz"
     assert traces[0].observable_unit == "ratio"
     assert len(traces[0].x) == TRACE_POINTS

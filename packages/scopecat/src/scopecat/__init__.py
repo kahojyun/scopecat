@@ -33,6 +33,8 @@ if TYPE_CHECKING:
         analysis_step,
     )
     from scopecat.authoring import (
+        ANY_RESOURCE_ROLE,
+        DEFAULT_RESOURCE_ROLE,
         Axis,
         BoolType,
         CoordinateRef,
@@ -61,6 +63,7 @@ if TYPE_CHECKING:
         ProductValueSpec,
         QuantityType,
         RecordRef,
+        ResourceRoleSelector,
         ScalarType,
         StringType,
         Symbolic,
@@ -80,6 +83,7 @@ if TYPE_CHECKING:
         parameter_field,
         parameter_lookup,
         parameter_schema,
+        resource_role,
     )
     from scopecat.config.parameters import (
         delete_parameter_rows,
@@ -103,9 +107,11 @@ if TYPE_CHECKING:
     )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "ANY_RESOURCE_ROLE": ("scopecat.authoring", "ANY_RESOURCE_ROLE"),
     "Axis": ("scopecat.authoring", "Axis"),
     "BoolType": ("scopecat.authoring", "BoolType"),
     "CoordinateRef": ("scopecat.authoring", "CoordinateRef"),
+    "DEFAULT_RESOURCE_ROLE": ("scopecat.authoring", "DEFAULT_RESOURCE_ROLE"),
     "EachEntity": ("scopecat.authoring", "EachEntity"),
     "EntityType": ("scopecat.authoring", "EntityType"),
     "Experiment": ("scopecat.authoring", "Experiment"),
@@ -131,6 +137,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ProductValueSpec": ("scopecat.authoring", "ProductValueSpec"),
     "QuantityType": ("scopecat.authoring", "QuantityType"),
     "RecordRef": ("scopecat.authoring", "RecordRef"),
+    "ResourceRoleSelector": ("scopecat.authoring", "ResourceRoleSelector"),
     "ScalarType": ("scopecat.authoring", "ScalarType"),
     "StringType": ("scopecat.authoring", "StringType"),
     "Symbolic": ("scopecat.authoring", "Symbolic"),
@@ -149,6 +156,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "parameter_field": ("scopecat.authoring", "parameter_field"),
     "parameter_lookup": ("scopecat.authoring", "parameter_lookup"),
     "parameter_schema": ("scopecat.authoring", "parameter_schema"),
+    "resource_role": ("scopecat.authoring", "resource_role"),
     "axis": ("scopecat.authoring", "axis"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
     "PayloadCodec": ("scopecat.sdk.payloads", "PayloadCodec"),

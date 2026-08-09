@@ -1651,7 +1651,7 @@ function activeConfig(): Awaited<ReturnType<typeof getActiveConfig>> {
         primary_entity_id: "q0",
         topology: { entities: [] },
         instrument_registry: { instruments: [configuredInstrument()] },
-        routing: { bindings: [] },
+        routing: { roles: [], routes: [] },
         domain_target: null,
         parameter_catalog: { id: "parameters", definitions: [] },
       },

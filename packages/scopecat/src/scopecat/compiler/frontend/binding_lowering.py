@@ -59,6 +59,7 @@ def build_resource_requirements(
                     )
                     for input_id in port.selector.entity_inputs
                 ),
+                role=port.selector.role,
             )
         )
     return resource_requirements

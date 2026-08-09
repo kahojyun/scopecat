@@ -606,7 +606,7 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
 
 def test_publish_runs_full_config_semantic_validation(tmp_path: Path) -> None:
     config = load_config()
-    invalid_binding = config.routing.bindings[0].model_copy(
+    invalid_route = config.routing.routes[0].model_copy(
         update={"instrument_id": "missing-source"}
     )
     invalid_config = config.model_copy(
@@ -614,7 +614,7 @@ def test_publish_runs_full_config_semantic_validation(tmp_path: Path) -> None:
             "system": config.system.model_copy(
                 update={
                     "routing": config.routing.model_copy(
-                        update={"bindings": [invalid_binding]}
+                        update={"routes": [invalid_route]}
                     )
                 }
             )
@@ -629,7 +629,7 @@ def test_publish_runs_full_config_semantic_validation(tmp_path: Path) -> None:
         )
 
     assert error.value.problems[0].code == (
-        "configuration.unknown_routing_binding_instrument"
+        "configuration.unknown_resource_route_instrument"
     )
     assert (
         list_config_registry_entries(
@@ -781,9 +781,9 @@ def test_publish_allows_logical_instrument_rename_with_the_same_key(
     )
     renamed_routing = config.routing.model_copy(
         update={
-            "bindings": [
-                binding.model_copy(update={"instrument_id": renamed_id})
-                for binding in config.routing.bindings
+            "routes": [
+                route.model_copy(update={"instrument_id": renamed_id})
+                for route in config.routing.routes
             ]
         }
     )
@@ -842,9 +842,9 @@ def test_publish_rejects_logical_rename_that_also_rekeys(
                     ),
                     "routing": config.routing.model_copy(
                         update={
-                            "bindings": [
-                                binding.model_copy(update={"instrument_id": renamed_id})
-                                for binding in config.routing.bindings
+                            "routes": [
+                                route.model_copy(update={"instrument_id": renamed_id})
+                                for route in config.routing.routes
                             ]
                         }
                     ),
@@ -976,9 +976,9 @@ def test_inventory_migration_plan_ignores_non_destructive_inventory_changes() ->
                     ),
                     "routing": config.routing.model_copy(
                         update={
-                            "bindings": [
-                                binding.model_copy(update={"instrument_id": renamed_id})
-                                for binding in config.routing.bindings
+                            "routes": [
+                                route.model_copy(update={"instrument_id": renamed_id})
+                                for route in config.routing.routes
                             ]
                         }
                     ),
@@ -1000,7 +1000,7 @@ def test_inventory_migration_plan_ignores_non_destructive_inventory_changes() ->
 def test_inventory_migration_plan_validates_target_before_returning_keys() -> None:
     config = load_config()
     target, change, _affected_keys = _inventory_migration_case(config, "rekey")
-    invalid_binding = target.routing.bindings[0].model_copy(
+    invalid_route = target.routing.routes[0].model_copy(
         update={"instrument_id": "missing-source"}
     )
     invalid = target.model_copy(
@@ -1008,7 +1008,7 @@ def test_inventory_migration_plan_validates_target_before_returning_keys() -> No
             "system": target.system.model_copy(
                 update={
                     "routing": target.routing.model_copy(
-                        update={"bindings": [invalid_binding]}
+                        update={"routes": [invalid_route]}
                     )
                 }
             )
@@ -1023,7 +1023,7 @@ def test_inventory_migration_plan_validates_target_before_returning_keys() -> No
         )
 
     assert error.value.problems[0].code == (
-        "configuration.unknown_routing_binding_instrument"
+        "configuration.unknown_resource_route_instrument"
     )
 
 
@@ -1219,7 +1219,7 @@ def _inventory_migration_case(
     [instrument] = config.instrument_registry.instruments
     if kind == "remove":
         instruments = []
-        bindings = []
+        routes = []
         change = InstrumentInventoryMigrationDelta(
             kind="remove",
             old_instrument_id=instrument.id,
@@ -1229,7 +1229,7 @@ def _inventory_migration_case(
         instruments = [
             instrument.model_copy(update={"exclusivity_key": "replacement-key"})
         ]
-        bindings = config.routing.bindings
+        routes = config.routing.routes
         change = InstrumentInventoryMigrationDelta(
             kind="rekey",
             old_instrument_id=instrument.id,
@@ -1247,9 +1247,9 @@ def _inventory_migration_case(
                 }
             )
         ]
-        bindings = [
-            binding.model_copy(update={"instrument_id": renamed_id})
-            for binding in config.routing.bindings
+        routes = [
+            route.model_copy(update={"instrument_id": renamed_id})
+            for route in config.routing.routes
         ]
         change = InstrumentInventoryMigrationDelta(
             kind="rename_rekey",
@@ -1266,7 +1266,7 @@ def _inventory_migration_case(
                     "instrument_registry": config.instrument_registry.model_copy(
                         update={"instruments": instruments}
                     ),
-                    "routing": config.routing.model_copy(update={"bindings": bindings}),
+                    "routing": config.routing.model_copy(update={"routes": routes}),
                 }
             ),
         }

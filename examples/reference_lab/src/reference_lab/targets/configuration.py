@@ -50,25 +50,26 @@ def configured_quantum_routes(
         )
     instrument_ids = set(target.instrument_ids)
     routes: list[ConfiguredQuantumRoute] = []
-    for binding in config.routing.bindings:
-        if binding.instrument_id not in instrument_ids:
+    for resource_route in config.routing.routes:
+        if resource_route.instrument_id not in instrument_ids:
             continue
-        if binding.entity_id is None or binding.channel_id is None:
-            continue
-        entity = config.topology.entity(binding.entity_id)
-        if entity is None or entity.kind is None:
-            raise ValueError(
-                f"quantum route requires a typed entity {binding.entity_id!r}"
+        for endpoint in resource_route.endpoints:
+            if endpoint.entity_id is None or endpoint.channel_id is None:
+                continue
+            entity = config.topology.entity(endpoint.entity_id)
+            if entity is None or entity.kind is None:
+                raise ValueError(
+                    f"quantum route requires a typed entity {endpoint.entity_id!r}"
+                )
+            routes.append(
+                ConfiguredQuantumRoute(
+                    instrument_id=resource_route.instrument_id,
+                    interface_id=endpoint.interface_id,
+                    entity_id=endpoint.entity_id,
+                    entity_kind=entity.kind,
+                    channel_id=endpoint.channel_id,
+                )
             )
-        routes.append(
-            ConfiguredQuantumRoute(
-                instrument_id=binding.instrument_id,
-                interface_id=binding.interface_id,
-                entity_id=binding.entity_id,
-                entity_kind=entity.kind,
-                channel_id=binding.channel_id,
-            )
-        )
     if not routes:
         raise ValueError("configured quantum target has no routed endpoints")
     return target.id, tuple(routes)

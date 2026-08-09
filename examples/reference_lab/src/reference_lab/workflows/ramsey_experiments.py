@@ -17,7 +17,6 @@ from reference_lab.quantum_runner import (
     BINARY_IQ_DISCRIMINATOR,
     quantum_capture,
 )
-from reference_lab.workflows.flux_spectroscopy import FLUX_SOURCE_RESOURCE
 from reference_lab.workflows.ramsey import (
     conflicting_drive_program,
     parallel_two_qubit_ramsey_program,
@@ -78,7 +77,7 @@ def flux_ramsey(experiment: sc.ExperimentContext) -> FluxRamseyDataset:
 
     dc_bias = experiment.scan("dc_bias", FLUX_BIASES)
     delay = experiment.scan("delay", RAMSEY_DELAYS)
-    source = dc_source(experiment, FLUX_SOURCE_RESOURCE, for_=sc.one(Q0))
+    source = dc_source(experiment, for_=sc.one(Q0))
     source.ensure(
         current_protection=sc.Quantity(100.0, "uA"),
         output_enabled=False,

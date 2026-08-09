@@ -512,7 +512,7 @@ function activeConfig(): ActiveConfig {
           },
         ],
       },
-      routing: { bindings: [] },
+      routing: { roles: [], routes: [] },
       domain_target: null,
       parameter_catalog: { id: "parameters", definitions: [] },
     },

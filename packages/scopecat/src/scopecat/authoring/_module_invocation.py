@@ -9,8 +9,6 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from scopecat.authoring._module_results import relocate_module_result
-from scopecat.kernel.frozen import FrozenMapping
-from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.program.domain import DomainCall
 from scopecat.program.identities import InvocationKey
 from scopecat.program.input_capture import empty_program_mapping
@@ -19,7 +17,6 @@ from scopecat.program.module import (
     ModuleImportBinding,
     ModuleInstance,
     ModuleInstanceLookup,
-    ModuleResourceBinding,
 )
 from scopecat.program.products import ProductRef, ProductRefs
 from scopecat.program.value_refs import (
@@ -46,12 +43,6 @@ class ModuleHandle(Protocol):
     def _product_refs_internal(self) -> ProductRefs: ...
 
 
-def _empty_resource_bindings() -> FrozenMapping[
-    LogicalResourcePortId, LogicalResourcePortId
-]:
-    return FrozenMapping()
-
-
 @dataclass(frozen=True, slots=True, repr=False)
 class ModuleInvocation[ResultT]:
     """One occurrence produced by calling or instantiating an experiment module."""
@@ -60,9 +51,6 @@ class ModuleInvocation[ResultT]:
     instance_id: str
     _result: ResultT = field(repr=False, compare=False)
     inputs: Mapping[str, ValueRef] = field(default_factory=empty_program_mapping)
-    resource_bindings: Mapping[LogicalResourcePortId, LogicalResourcePortId] = field(
-        default_factory=_empty_resource_bindings
-    )
     _key: InvocationKey = field(
         default_factory=InvocationKey.fresh,
         repr=False,
@@ -97,7 +85,6 @@ def create_module_invocation[ResultT](
     module: ModuleHandle,
     instance_id: str,
     inputs: Mapping[str, ValueRef],
-    resource_bindings: Mapping[LogicalResourcePortId, LogicalResourcePortId],
     result: ResultT,
 ) -> ModuleInvocation[ResultT]:
     """Close values validated and normalized by ``ExperimentModule``."""
@@ -133,7 +120,6 @@ def create_module_invocation[ResultT](
         instance_id=instance_id,
         _result=relocated_result,
         inputs=inputs,
-        resource_bindings=resource_bindings,
         _key=key,
     )
 
@@ -173,10 +159,6 @@ def module_instance[ResultT](
         ),
         module=invocation.module.definition,
         input_bindings=bindings,
-        resource_bindings=tuple(
-            ModuleResourceBinding(import_id=child_id, source_id=parent_id)
-            for child_id, parent_id in invocation.resource_bindings.items()
-        ),
     )
 
 

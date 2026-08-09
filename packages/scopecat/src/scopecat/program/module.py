@@ -184,14 +184,6 @@ class ModuleImportBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleResourceBinding:
-    """Bind one child resource import to a resource port of its parent."""
-
-    import_id: LogicalResourcePortId
-    source_id: LogicalResourcePortId
-
-
-@dataclass(frozen=True, slots=True)
 class ModuleInterface:
     imports: tuple[ModuleInputPort, ...] = ()
     exports: tuple[ModuleValueExport, ...] = ()
@@ -211,7 +203,6 @@ class ModuleInstance:
     lookup: ModuleInstanceLookup
     module: ModuleDef
     input_bindings: tuple[ModuleImportBinding, ...]
-    resource_bindings: tuple[ModuleResourceBinding, ...] = ()
 
     @property
     def instance_id(self) -> str:
@@ -599,39 +590,6 @@ def _check_module_resources(
     add_problem: _ModuleProblemAdder,
 ) -> None:
     declared = {port.symbol_id for port in module.interface.resources}
-    parent_ports = {port.symbol_id: port for port in module.interface.resources}
-    for instance in module.body.child_instances:
-        child_ports = {
-            port.symbol_id: port for port in instance.module.interface.resources
-        }
-        for binding in instance.resource_bindings:
-            parent_port = parent_ports.get(binding.source_id)
-            if parent_port is None:
-                add_problem(
-                    "module_resource_binding_undeclared",
-                    f"{instance.instance_id}/{binding.source_id.qualified_name}",
-                    message=(
-                        f"module instance {instance.instance_id!r} binds to "
-                        f"undeclared parent resource "
-                        f"{binding.source_id.qualified_name!r}"
-                    ),
-                )
-                continue
-            child_port = child_ports[binding.import_id]
-            missing_interfaces = sorted(
-                set(child_port.selector.interfaces)
-                - set(parent_port.selector.interfaces)
-            )
-            if missing_interfaces:
-                add_problem(
-                    "module_resource_binding_interface_mismatch",
-                    f"{instance.instance_id}/{binding.import_id.qualified_name}",
-                    message=(
-                        f"parent resource {binding.source_id.qualified_name!r} "
-                        "does not provide child interfaces: "
-                        + ", ".join(missing_interfaces)
-                    ),
-                )
     for resource_id in _module_resource_uses(module):
         if resource_id not in declared:
             add_problem(

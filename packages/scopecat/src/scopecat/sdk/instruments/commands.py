@@ -70,7 +70,6 @@ class InstrumentStateCommand(BaseModel):
                 assignment.interface_id,
                 assignment.component_path,
                 assignment.property_id,
-                assignment.entity_ids,
                 assignment.channel_bindings,
             )
             for assignment in self.assignments

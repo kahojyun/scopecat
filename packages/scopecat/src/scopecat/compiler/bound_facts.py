@@ -23,7 +23,9 @@ from scopecat.kernel.product_identity import (
     product_use,
 )
 from scopecat.kernel.resource_identity import (
+    DEFAULT_RESOURCE_ROLE,
     LogicalResourcePortId,
+    ResourceRoleSelector,
 )
 from scopecat.measurements.products import (
     ProductAxisDef,
@@ -73,14 +75,16 @@ class BoundMeasurementPostprocessor:
 class LogicalResourceRequirement:
     """Stable logical interfaces plus point-local object selection.
 
-    ``interfaces`` is the compile-time contract for the logical port, while
-    ``entity_uses`` selects its objects at each point. Physical instrument and
+    ``interfaces`` is the compile-time contract for the logical port,
+    ``entity_uses`` selects its objects at each point, and ``role``
+    distinguishes equivalent endpoints by lab purpose. Physical instrument and
     channel identity enter only during target materialization.
     """
 
     port_id: LogicalResourcePortId
     interfaces: tuple[InterfaceId, ...] = ()
     entity_uses: tuple[ScalarExpr, ...] = ()
+    role: ResourceRoleSelector = DEFAULT_RESOURCE_ROLE
 
 
 @dataclass(frozen=True, slots=True)

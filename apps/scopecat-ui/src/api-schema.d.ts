@@ -2607,34 +2607,58 @@ export interface components {
         /** @enum {string} */
         ResourceOwnerKind: "run" | "instrument_session";
         /**
-         * RoutingEndpointBinding
-         * @description Accepted physical ownership fact for one instrument endpoint.
-         *
-         *     A binding is reproducible configuration, not a runtime alternative. Devices
-         *     that change a physical path, such as switches or valves, are modeled as
-         *     explicit desired-state effects or domain programs instead of replacing this
-         *     ownership fact.
+         * ResourceRoleSpec
+         * @description One documented purpose that authors may select explicitly.
          */
-        RoutingEndpointBinding: {
-            /** Channel Id */
-            channel_id?: string | null;
-            /** Entity Id */
-            entity_id?: string | null;
+        ResourceRoleSpec: {
+            /** Description */
+            description?: string | null;
+            /** Id */
+            id: string;
+        };
+        /**
+         * ResourceRoute
+         * @description A selectable physical resource and all endpoints it owns together.
+         */
+        ResourceRoute: {
+            /** Endpoints */
+            endpoints: components["schemas"]["RoutingEndpoint"][];
+            /** Id */
+            id: string;
             /** Instrument Id */
             instrument_id: string;
+            /** Role Id */
+            role_id?: string | null;
+        };
+        /**
+         * RoutingEndpoint
+         * @description One logical binding onto a physical interface component.
+         */
+        RoutingEndpoint: {
+            /** Channel Id */
+            channel_id?: string | null;
+            /**
+             * Component Path
+             * @default []
+             */
+            component_path: string[];
+            /** Entity Id */
+            entity_id?: string | null;
             interface_id: components["schemas"]["InterfaceId"];
         };
         /**
          * RoutingGraph
-         * @description Finite static endpoint index stored in an accepted system snapshot.
+         * @description Finite static resource-route catalog in an accepted system snapshot.
          *
          *     Planning may project logical interface and entity selections through this
-         *     index, but it never uses it for live availability, load balancing, or
+         *     catalog, but it never uses it for live availability, load balancing, or
          *     implicit failover.
          */
         RoutingGraph: {
-            /** Bindings */
-            bindings?: components["schemas"]["RoutingEndpointBinding"][];
+            /** Roles */
+            roles?: components["schemas"]["ResourceRoleSpec"][];
+            /** Routes */
+            routes?: components["schemas"]["ResourceRoute"][];
         };
         /** RunAdmissionView */
         RunAdmissionView: {

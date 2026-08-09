@@ -2966,7 +2966,7 @@ def _render_header(
     has_plain_root = any(model.live_state_type_name is None for model in models)
 
     imports: dict[str, set[str]] = {
-        "scopecat.authoring": {"EachEntity", "OneEntity"},
+        "scopecat.authoring": {"EachEntity", "OneEntity", "ResourceRoleInput"},
         "scopecat.sdk.instruments": {"InterfaceRef"},
         "scopecat_instruments._symbolic_runtime": {"_SymbolicInstrumentRecorder"},
     }
@@ -3696,13 +3696,17 @@ def _render_symbolic_scope(model: _InterfaceModel, scope: _ScopeModel) -> str:
             "        recorder: _SymbolicInstrumentRecorder,\n",
             "        resource_id: str,\n",
             "        *,\n",
+            "        namespace_hint: str,\n",
             "        for_: OneEntity | None = None,\n",
+            "        role: ResourceRoleInput = None,\n",
             "    ) -> None:\n",
             "        super().__init__(\n",
             "            recorder,\n",
             "            resource_id,\n",
+            "            namespace_hint=namespace_hint,\n",
             f"            requires={model.requires_expression},\n",
             "            for_=for_,\n",
+            "            role=role,\n",
             "        )\n",
         )
     )
@@ -3789,13 +3793,17 @@ def _render_symbolic_group_scope(
             "        recorder: _SymbolicInstrumentRecorder,\n",
             "        resource_id: str,\n",
             "        *,\n",
+            "        namespace_hint: str,\n",
             "        for_: EachEntity,\n",
+            "        role: ResourceRoleInput = None,\n",
             "    ) -> None:\n",
             "        super().__init__(\n",
             "            recorder,\n",
             "            resource_id,\n",
+            "            namespace_hint=namespace_hint,\n",
             "            for_=for_,\n",
             f"            client_factory={scope.symbolic_client_name},\n",
+            "            role=role,\n",
             "        )\n",
         )
     )
@@ -3990,6 +3998,7 @@ def _render_family(model: _InterfaceModel) -> str:
         f"    {model.live_client_name},\n"
         f"    {model.symbolic_client_name},\n"
         f"    {model.symbolic_group_name},\n"
+        f'    name="{model.factory_name}",\n'
         f"    requires={model.requires_expression},\n"
         ")\n"
     )

@@ -14,10 +14,11 @@ from reference_lab.workflows.multichannel_bias import (
 with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     config = lab.resolve_config()
     flux_routes = [
-        binding
-        for binding in config.routing.bindings
-        if binding.interface_id == "scopecat.dc_source/v3"
-        and binding.entity_id is not None
+        (route.instrument_id, endpoint)
+        for route in config.routing.routes
+        for endpoint in route.endpoints
+        if endpoint.interface_id == "scopecat.dc_source/v3"
+        and endpoint.entity_id is not None
     ]
     run = lab.run(MULTICHANNEL_DC_BIAS)
     data = run.measurements()
@@ -37,10 +38,10 @@ settled = {
 }
 
 multichannel_dc_bias_summary = {
-    "devices": sorted({binding.instrument_id for binding in flux_routes}),
+    "devices": sorted({instrument_id for instrument_id, _endpoint in flux_routes}),
     "routes": {
-        binding.entity_id: (binding.instrument_id, binding.channel_id)
-        for binding in flux_routes
+        endpoint.entity_id: (instrument_id, endpoint.channel_id)
+        for instrument_id, endpoint in flux_routes
     },
     "profile": OPERATE_PROFILE,
     "physical_bias_mv": physical_bias_mv,

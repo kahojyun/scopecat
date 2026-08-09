@@ -21,8 +21,7 @@ type PropertyTargetIdentity = tuple[
     str,
     tuple[str, ...],
     str,
-    tuple[str, ...],
-    tuple[tuple[str, str, str | None], ...],
+    tuple[tuple[str, str | None], ...],
 ]
 
 
@@ -74,7 +73,6 @@ def property_target_identity(
     interface_id: str,
     component_path: Sequence[str],
     property_id: str,
-    entity_ids: Sequence[str] = (),
     channel_bindings: Sequence[CommandChannelBinding] = (),
 ) -> PropertyTargetIdentity:
     scope = state_target_scope_identity(
@@ -85,10 +83,8 @@ def property_target_identity(
         scope[0],
         scope[1],
         property_id,
-        tuple(entity_ids) if channel_bindings else (),
         tuple(
-            (binding.entity_id, binding.channel_id, binding.interface_id)
-            for binding in channel_bindings
+            (binding.channel_id, binding.interface_id) for binding in channel_bindings
         ),
     )
 
@@ -131,7 +127,6 @@ class InstrumentStateSnapshot(BaseModel):
                 item.interface_id,
                 item.component_path,
                 item.property_id,
-                item.entity_ids,
                 item.channel_bindings,
             )
             for item in self.properties

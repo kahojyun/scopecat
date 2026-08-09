@@ -139,37 +139,38 @@ def test_primary_entity_must_be_declared_in_topology() -> None:
     assert "configuration.unknown_primary_entity" in _problem_codes(config)
 
 
-def test_routing_binding_must_reference_registered_instrument() -> None:
+def test_resource_route_must_reference_registered_instrument() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"]["bindings"][0]["instrument_id"] = "missing"
+    config_data["system"]["routing"]["routes"][0]["instrument_id"] = "missing"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    assert "configuration.unknown_routing_binding_instrument" in _problem_codes(config)
+    assert "configuration.unknown_resource_route_instrument" in _problem_codes(config)
 
 
-def test_routing_binding_must_reference_declared_entity() -> None:
+def test_resource_route_endpoint_must_reference_declared_entity() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"]["bindings"][0]["entity_id"] = "missing"
+    config_data["system"]["routing"]["routes"][0]["endpoints"][0]["entity_id"] = (
+        "missing"
+    )
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    assert "configuration.unknown_routing_binding_entity" in _problem_codes(config)
+    assert "configuration.unknown_resource_route_entity" in _problem_codes(config)
 
 
-def test_routing_channel_binding_requires_an_entity() -> None:
+def test_resource_route_channel_requires_an_entity() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"]["bindings"][0]["entity_id"] = None
+    config_data["system"]["routing"]["routes"][0]["endpoints"][0]["entity_id"] = None
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    assert "configuration.routing_binding_channel_without_entity" in _problem_codes(
+    assert "configuration.resource_route_channel_without_entity" in _problem_codes(
         config
     )
 
 
 def test_one_endpoint_key_can_map_to_multiple_explicit_channels() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"]["bindings"].append(
+    config_data["system"]["routing"]["routes"][0]["endpoints"].append(
         {
-            "instrument_id": "source-0",
             "interface_id": "test.set_frequency/v1",
             "entity_id": "q0",
             "channel_id": "readout-q0",

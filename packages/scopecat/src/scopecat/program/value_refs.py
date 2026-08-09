@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Self, cast, override
+from typing import Self, cast, overload, override
 from uuid import uuid4
 
 from scopecat.kernel.entity import EntityRef
@@ -151,13 +151,31 @@ class ValueRef[T = object]:
     def __hash__(self) -> int:
         return hash(self.id)
 
-    def __add__(self, other: object) -> ValueRef[object]:
+    @overload
+    def __add__(
+        self: ValueRef[Quantity],
+        other: ValueRef[Quantity] | Quantity,
+    ) -> ValueRef[Quantity]: ...
+
+    @overload
+    def __add__(self, other: object) -> ValueRef[object]: ...
+
+    def __add__(self, other: object) -> ValueRef:
         return _binary_value(self, other, "+")
 
     def __radd__(self, other: object) -> ValueRef[object]:
         return _binary_value(other, self, "+")
 
-    def __sub__(self, other: object) -> ValueRef[object]:
+    @overload
+    def __sub__(
+        self: ValueRef[Quantity],
+        other: ValueRef[Quantity] | Quantity,
+    ) -> ValueRef[Quantity]: ...
+
+    @overload
+    def __sub__(self, other: object) -> ValueRef[object]: ...
+
+    def __sub__(self, other: object) -> ValueRef:
         return _binary_value(self, other, "-")
 
     def __rsub__(self, other: object) -> ValueRef[object]:

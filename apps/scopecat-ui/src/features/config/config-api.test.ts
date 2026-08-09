@@ -273,7 +273,7 @@ function configProfile(id: string): ConfigProfileSnapshot {
           },
         ],
       },
-      routing: { bindings: [] },
+      routing: { roles: [], routes: [] },
       domain_target: null,
       parameter_catalog: {
         id: "parameters",

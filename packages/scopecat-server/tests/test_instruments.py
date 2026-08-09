@@ -1507,9 +1507,9 @@ def test_exclusivity_key_survives_logical_instrument_rename(tmp_path: Path) -> N
             )
             routing = original_config.routing.model_copy(
                 update={
-                    "bindings": [
-                        binding.model_copy(update={"instrument_id": renamed_id})
-                        for binding in original_config.routing.bindings
+                    "routes": [
+                        route.model_copy(update={"instrument_id": renamed_id})
+                        for route in original_config.routing.routes
                     ]
                 }
             )

@@ -168,58 +168,109 @@ class InstrumentRegistry(BaseModel):
         return instruments
 
 
-class RoutingEndpointBinding(BaseModel):
-    """Accepted physical ownership fact for one instrument endpoint.
+class ResourceRoleSpec(BaseModel):
+    """One documented purpose that authors may select explicitly."""
 
-    A binding is reproducible configuration, not a runtime alternative. Devices
-    that change a physical path, such as switches or valves, are modeled as
-    explicit desired-state effects or domain programs instead of replacing this
-    ownership fact.
-    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1)
+    description: str | None = Field(default=None, min_length=1)
 
-    instrument_id: str = Field(min_length=1)
+
+class RoutingEndpoint(BaseModel):
+    """One logical binding onto a physical interface component."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     interface_id: InterfaceId
     entity_id: str | None = None
     channel_id: str | None = None
+    component_path: tuple[
+        Annotated[str, Field(min_length=1)],
+        ...,
+    ] = ()
+
+
+class ResourceRoute(BaseModel):
+    """A selectable physical resource and all endpoints it owns together."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1)
+    instrument_id: str = Field(min_length=1)
+    role_id: str | None = Field(default=None, min_length=1)
+    endpoints: list[RoutingEndpoint] = Field(min_length=1)
+
+    @field_validator("endpoints")
+    @classmethod
+    def validate_endpoints(cls, value: list[RoutingEndpoint]) -> list[RoutingEndpoint]:
+        seen: set[tuple[str, str | None, str | None, tuple[str, ...]]] = set()
+        for endpoint in value:
+            identity = (
+                endpoint.interface_id,
+                endpoint.entity_id,
+                endpoint.channel_id,
+                endpoint.component_path,
+            )
+            if identity in seen:
+                msg = (
+                    "duplicate resource route endpoint: "
+                    f"interface={endpoint.interface_id}, entity={endpoint.entity_id}, "
+                    f"channel={endpoint.channel_id}, "
+                    f"component_path={endpoint.component_path}"
+                )
+                raise ValueError(msg)
+            seen.add(identity)
+        return value
 
 
 class RoutingGraph(BaseModel):
-    """Finite static endpoint index stored in an accepted system snapshot.
+    """Finite static resource-route catalog in an accepted system snapshot.
 
     Planning may project logical interface and entity selections through this
-    index, but it never uses it for live availability, load balancing, or
+    catalog, but it never uses it for live availability, load balancing, or
     implicit failover.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    bindings: list[RoutingEndpointBinding] = Field(default_factory=list)
+    roles: list[ResourceRoleSpec] = Field(default_factory=list)
+    routes: list[ResourceRoute] = Field(default_factory=list)
 
-    @field_validator("bindings")
+    @field_validator("roles")
     @classmethod
-    def validate_bindings(
-        cls, value: list[RoutingEndpointBinding]
-    ) -> list[RoutingEndpointBinding]:
-        seen: set[tuple[str, str, str | None, str | None]] = set()
-        for binding in value:
-            identity = (
-                binding.instrument_id,
-                binding.interface_id,
-                binding.entity_id,
-                binding.channel_id,
-            )
-            if identity in seen:
+    def validate_roles(cls, value: list[ResourceRoleSpec]) -> list[ResourceRoleSpec]:
+        return _ensure_unique(value, "resource role")
+
+    @field_validator("routes")
+    @classmethod
+    def validate_routes(cls, value: list[ResourceRoute]) -> list[ResourceRoute]:
+        return _ensure_unique(value, "resource route")
+
+    @model_validator(mode="after")
+    def validate_role_references_and_ownership(self) -> RoutingGraph:
+        role_ids = {role.id for role in self.roles}
+        ownership: dict[tuple[str | None, str, str | None], str] = {}
+        for route in self.routes:
+            if route.role_id is not None and route.role_id not in role_ids:
                 msg = (
-                    "duplicate routing endpoint binding: "
-                    f"instrument={binding.instrument_id}, "
-                    f"interface={binding.interface_id}, "
-                    f"entity={binding.entity_id}, channel={binding.channel_id}"
+                    f"resource route {route.id!r} references unknown role "
+                    f"{route.role_id!r}"
                 )
                 raise ValueError(msg)
-            seen.add(identity)
-        return value
+            for endpoint in route.endpoints:
+                identity = (route.role_id, endpoint.interface_id, endpoint.entity_id)
+                owner = ownership.get(identity)
+                if owner is not None and owner != route.id:
+                    msg = (
+                        "resource endpoint has multiple routes for the same role: "
+                        f"routes={owner!r}, {route.id!r}, role={route.role_id!r}, "
+                        f"interface={endpoint.interface_id}, "
+                        f"entity={endpoint.entity_id!r}"
+                    )
+                    raise ValueError(msg)
+                ownership[identity] = route.id
+        return self
 
 
 class DomainTargetInstrumentMember(BaseModel):

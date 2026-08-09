@@ -23,7 +23,33 @@ manually join coordinate and observable names.
 
 Scalar inputs, parameters, and point coordinates may also be recorded. The
 resulting schema always has a `point` dimension; acquisition-local axes follow
-it in each variable's dimension list.
+it in each variable's dimension list. Symbolic values default to observables;
+pass `role="coordinate"` when an expression derives an independent physical
+coordinate.
+
+An experiment that intentionally scans an LO should record its physical RF
+coordinate at authoring time instead of requiring an analysis script to
+reconstruct the x-axis. A signed IF keeps the lab convention explicit:
+
+```python
+lo = experiment.scan("lo_frequency", (4.9, 5.0, 5.1), unit="GHz")
+signed_if = sc.Quantity(-100, "MHz")
+rf = lo + signed_if
+experiment.record(
+    rf,
+    record_id="rf_frequency",
+    role="coordinate",
+    metadata={
+        "relation": "rf_frequency = lo_frequency + signed_if",
+        "signed_if_hz": float(signed_if.to("Hz").value),
+    },
+)
+```
+
+The LO scan is already recorded as a point coordinate. The extra record makes
+RF directly available to plots while the metadata preserves how it was derived.
+This pattern can live in the few lab experiments that need it; the measurement
+model does not need a mixer-specific frequency-plan type.
 
 ## Choose the point-domain shape explicitly
 

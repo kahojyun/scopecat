@@ -204,6 +204,7 @@ def resolve_resource_port(
             entity_inputs=tuple(
                 resolver.resolve(value) for value in port.selector.entity_inputs
             ),
+            role=port.selector.role,
         ),
     )
 

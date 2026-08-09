@@ -34,6 +34,7 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.instruments import (
     acquisition_result as expected_result,
 )
+from scopecat.sdk.instruments import component as expected_component
 from scopecat.sdk.instruments import (
     interface as expected_interface,
 )
@@ -62,6 +63,7 @@ from scopecat.sdk.instruments.declarations import (
     declared_operation_ref,
     declared_property_ref,
     declared_result_ref,
+    instrument_component,
     instrument_interface,
     instrument_result,
     instrument_state,
@@ -408,6 +410,44 @@ class OperationBindingContract(Protocol):
     ) -> None: ...
 
 
+@instrument_state
+class LocalOscillatorState:
+    frequency: Quantity = member_field(unit="Hz")
+    output_enabled: bool = member_field()
+
+
+@instrument_result
+class LocalOscillatorLockReadback:
+    locked: bool = result_field()
+
+
+@instrument_component(state=LocalOscillatorState)
+class LocalOscillatorComponent(Protocol):
+    @operation()
+    def reset(self) -> None: ...
+
+    @acquisition(
+        preconditions=(
+            precondition(
+                state_field(LocalOscillatorState, "output_enabled"),
+                value=True,
+                unavailable_reason="LO output is disabled",
+            ),
+        )
+    )
+    def read_lock(self) -> LocalOscillatorLockReadback: ...
+
+
+@instrument_interface(
+    "test.lo_bank/v1",
+    components={
+        "lo0": LocalOscillatorComponent,
+        "lo1": LocalOscillatorComponent,
+    },
+)
+class LocalOscillatorBank(Protocol): ...
+
+
 def test_declaration_decorators_build_typed_python_dataclasses() -> None:
     state = assert_type(
         SweepState(
@@ -494,6 +534,36 @@ def test_field_specifiers_support_factories_and_override_annotated_metadata() ->
 
     compiled = compile_interface(PriorityContract)
     assert compiled.spec.properties == [int_property("native", minimum=2)]
+
+
+def test_interface_declaration_mounts_reusable_component_capabilities() -> None:
+    compiled = compile_interface(LocalOscillatorBank)
+    assert [component.id for component in compiled.spec.components] == ["lo0", "lo1"]
+    expected_properties = [
+        quantity_property("frequency", unit="Hz"),
+        bool_property("output_enabled"),
+    ]
+    assert compiled.spec.components[0] == expected_component(
+        "lo0",
+        properties=expected_properties,
+        operations=[expected_operation("reset")],
+        acquisitions=[
+            expected_acquisition(
+                "read_lock",
+                preconditions=[
+                    expected_precondition(
+                        declared_interface_ref(LocalOscillatorBank)
+                        .component("lo0")
+                        .property("output_enabled"),
+                        value=True,
+                        unavailable_reason="LO output is disabled",
+                    )
+                ],
+                results=[expected_result("locked", dtype="bool")],
+            )
+        ],
+    )
+    assert compiled.spec.components[1].properties == expected_properties
 
 
 def test_ordinary_interface_metadata_inheritance_is_preserved() -> None:

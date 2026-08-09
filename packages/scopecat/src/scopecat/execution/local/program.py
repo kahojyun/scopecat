@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.product_identity import ProductUseId
+from scopecat.kernel.resource_identity import (
+    LogicalResourcePortId,
+    ResourceRoleSelector,
+)
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Scalar
 from scopecat.program.value_graph import ComputeOutput
@@ -68,12 +72,23 @@ class ComputeOperation:
 
 
 @dataclass(frozen=True, slots=True)
+class ResourceProvenance:
+    """Logical request and accepted route behind one physical operation."""
+
+    logical_port_id: LogicalResourcePortId
+    requested_role: ResourceRoleSelector
+    route_id: str
+    route_role_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class StateTarget:
     """One property that must hold before subsequent point stages execute."""
 
     interface_id: InterfaceId
     property_id: str
     value: StateValue
+    resource: ResourceProvenance
     component_path: tuple[str, ...] = ()
     entity_ids: tuple[str, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
@@ -114,6 +129,7 @@ class InvokeOperation:
     component_path: tuple[str, ...]
     operation_id: str
     arguments: tuple[InstrumentOperationArgument, ...]
+    resource: ResourceProvenance
     entity_ids: tuple[str, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
@@ -134,6 +150,7 @@ class CollectOperation:
     instrument_id: str
     command: CollectCommand
     result_bindings: tuple[CollectionResultBinding, ...]
+    resource: ResourceProvenance
 
 
 type LocalOperation = (
@@ -153,5 +170,6 @@ __all__ = [
     "LocalOperation",
     "OutputInput",
     "PayloadSlot",
+    "ResourceProvenance",
     "StateTarget",
 ]

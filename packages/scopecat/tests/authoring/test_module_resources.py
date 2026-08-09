@@ -144,11 +144,8 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     ]
 
 
-def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
-    child = _resource_module().instantiate(
-        "nested",
-        resource_bindings={"drive.v1": "shared"},
-    )
+def test_child_and_parent_resources_remain_independent_logical_ports() -> None:
+    child = _resource_module().instantiate("nested")
 
     @sc.module(id="test.resources.bound-root")
     def root(context: sc.ModuleContext) -> None:
@@ -157,13 +154,43 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
 
     assembly = compose_module(root.definition)
 
-    assert tuple(port.qualified_id for port in assembly.resource_ports) == ("shared",)
-    assert tuple(binding.port_id.qualified_name for binding in assembly.bindings) == (
+    assert {port.qualified_id for port in assembly.resource_ports} == {
         "shared",
+        "nested/drive.v1",
+    }
+    assert tuple(binding.port_id.qualified_name for binding in assembly.bindings) == (
+        "nested/drive.v1",
     )
     assert tuple(
         acquire.resource_port_id.qualified_name for acquire in assembly.acquisitions
-    ) == ("shared",)
+    ) == ("nested/drive.v1",)
+
+
+def test_child_and_parent_roles_are_independent() -> None:
+    @sc.module(id="test.resources.role-child")
+    def child(context: sc.ModuleContext) -> None:
+        context._resource(
+            "source",
+            requires=(_SET_FREQUENCY,),
+            role="readout",
+        )
+
+    instance = child.instantiate("nested")
+
+    @sc.module(id="test.resources.role-root")
+    def root(context: sc.ModuleContext) -> None:
+        context._resource(
+            "source",
+            requires=(_SET_FREQUENCY,),
+            role="drive",
+        )
+        context.use(instance)
+
+    assembly = compose_module(root.definition)
+    assert {port.selector.role.role_id for port in assembly.resource_ports} == {
+        "drive",
+        "readout",
+    }
 
 
 def test_nested_instances_prefix_resource_references_once_per_level() -> None:
@@ -219,10 +246,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
             results={_SET_FREQUENCY_SAMPLE_SIGNAL: signal},
         )
 
-    child = child_module.instantiate(
-        "child",
-        resource_bindings={"drive.v1": "drive.v1"},
-    )
+    child = child_module.instantiate("child")
 
     @sc.module(id="test.effects.root")
     def module(context: sc.ModuleContext) -> None:
@@ -261,7 +285,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         for effect in assembly.effects
     ] == [
         ("binding", "drive.v1"),
-        ("binding", "drive.v1"),
+        ("binding", "child/drive.v1"),
         ("domain", "child/call/noop"),
         ("acquire", "child/read-signal"),
         ("binding", "drive.v1"),

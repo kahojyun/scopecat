@@ -12,6 +12,7 @@ from scopecat.authoring import (
     EntityType,
     OneEntity,
     PerEntity,
+    ResourceRoleInput,
     ScalarType,
     StateTarget,
     ValueRef,
@@ -53,12 +54,17 @@ class _SymbolicInstrumentRecorder(Protocol):
     making this package depend on either concrete context type.
     """
 
+    def _allocate_resource_id(self, name_hint: str) -> str: ...
+
+    def _allocate_effect_id(self, name_hint: str, *, explicit: bool = False) -> str: ...
+
     def _resource(
         self,
         id: str,
         *,
         requires: Sequence[InterfaceRef],
         for_entities: Sequence[ValueRef],
+        role: ResourceRoleInput = None,
     ) -> DefinitionResource: ...
 
     def _ensure(
@@ -102,23 +108,27 @@ class _SymbolicInstrumentRecorder(Protocol):
 
 
 class SymbolicInstrumentClientBase:
-    __slots__ = ("_recorder", "_resource", "_state_assignments")
+    __slots__ = ("_namespace_hint", "_recorder", "_resource", "_state_assignments")
 
     def __init__(
         self,
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         requires: Sequence[InterfaceRef],
         for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
     ) -> None:
         self._recorder = recorder
+        self._namespace_hint = namespace_hint
         self._resource = recorder._resource(
             resource_id,
             requires=requires,
             for_entities=(
                 () if (for_entity := _one_entity_value(for_)) is None else (for_entity,)
             ),
+            role=role,
         )
         self._state_assignments: dict[PropertyRef, StateBinding] = {}
 
@@ -140,11 +150,15 @@ class SymbolicInstrumentClientBase:
         arguments: Mapping[OperationArgumentRef, StateBinding],
         /,
     ) -> None:
-        occurrence_id = operation.operation_id if effect_id is None else effect_id
-        if not occurrence_id:
+        occurrence_name = operation.operation_id if effect_id is None else effect_id
+        if not occurrence_name:
             raise ValueError("symbolic operation effect id must be non-empty")
+        occurrence_id = self._recorder._allocate_effect_id(
+            f"{self._namespace_hint}.{occurrence_name}",
+            explicit=effect_id is not None,
+        )
         self._recorder._invoke(
-            f"{self.id}.{occurrence_id}",
+            occurrence_id,
             resource=self._resource,
             operation=operation,
             arguments=arguments,
@@ -158,26 +172,28 @@ class SymbolicInstrumentClientBase:
         *,
         id: str | None,
     ) -> OutputT:
-        occurrence_id = acquisition.ref.acquisition_id if id is None else id
-        if not occurrence_id:
+        occurrence_name = acquisition.ref.acquisition_id if id is None else id
+        if not occurrence_name:
             raise ValueError("symbolic acquisition id must be non-empty")
-        effect_id = f"{self.id}.{occurrence_id}"
+        effect_id = self._recorder._allocate_effect_id(
+            f"{self._namespace_hint}.{occurrence_name}",
+            explicit=id is not None,
+        )
         products: dict[str, ProductRef] = {}
         for field in acquisition.result_fields:
             products[field.python_name] = self._recorder._product(
-                _join_id(id, field.result_id),
-                scope=(self.id,),
+                field.result_id,
+                scope=(effect_id,),
                 unit=field.unit,
                 dtype=field.dtype,
                 axes=_product_axes(
                     field.axes,
                     state_assignments=self._state_assignments,
-                    namespace=id,
                 ),
                 recording=ProductRecording(
                     occurrence=SymbolId(
-                        scope=(self.id,),
-                        local_id=occurrence_id,
+                        scope=(),
+                        local_id=effect_id,
                     ),
                     result_id=field.result_id,
                     role=field.role,
@@ -233,7 +249,9 @@ class _SymbolicClientFactory[ClientT: SymbolicInstrumentClientBase](Protocol):
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
     ) -> ClientT: ...
 
 
@@ -252,8 +270,10 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: EachEntity,
         client_factory: _SymbolicClientFactory[ClientT],
+        role: ResourceRoleInput = None,
     ) -> None:
         self._recorder = recorder
         self._id = resource_id
@@ -264,7 +284,9 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
                 client_factory(
                     recorder,
                     f"{resource_id}.{_entity_token(entity)}",
+                    namespace_hint=f"{namespace_hint}.{_entity_token(entity)}",
                     for_=one(entity),
+                    role=role,
                 ),
             )
             for entity in for_
@@ -410,17 +432,10 @@ def _entity_token(entity: EntityRef) -> str:
     return f"{slug}-{digest}"
 
 
-def _join_id(namespace: str | None, id: str | None) -> str:
-    if not namespace:
-        return id or ""
-    return f"{namespace}.{id}" if id else namespace
-
-
 def _product_axes(
     axes: Sequence[ClientAcquisitionAxis],
     *,
     state_assignments: Mapping[PropertyRef, StateBinding],
-    namespace: str | None,
 ) -> tuple[ProductAxis, ...]:
     return tuple(
         ProductAxis(
@@ -428,7 +443,7 @@ def _product_axes(
             size=_product_axis_size(axis, state_assignments=state_assignments),
             kind=axis.kind,
             unit=axis.unit,
-            shared_as=axis.id if namespace is None else f"{namespace}.{axis.id}",
+            shared_as=axis.id,
         )
         for axis in axes
     )

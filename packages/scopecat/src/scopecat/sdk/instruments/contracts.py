@@ -614,7 +614,6 @@ def state_assignment_satisfied(
         assignment.interface_id,
         assignment.component_path,
         assignment.property_id,
-        assignment.entity_ids,
         assignment.channel_bindings,
     )
     actual = next(
@@ -625,7 +624,6 @@ def state_assignment_satisfied(
                 item.interface_id,
                 item.component_path,
                 item.property_id,
-                item.entity_ids,
                 item.channel_bindings,
             )
             == identity
@@ -646,7 +644,6 @@ def state_assignment_satisfied(
                     item.interface_id,
                     item.component_path,
                     item.property_id,
-                    item.entity_ids,
                     item.channel_bindings,
                 )
                 == unscoped_identity
@@ -1787,7 +1784,6 @@ def project_instrument_state(
             item.interface_id,
             item.component_path,
             item.property_id,
-            item.entity_ids,
             item.channel_bindings,
         ): item.model_copy(deep=True)
         for item in state.properties
@@ -1819,7 +1815,6 @@ def project_instrument_state(
                 assignment.interface_id,
                 assignment.component_path,
                 assignment.property_id,
-                assignment.entity_ids,
                 assignment.channel_bindings,
             )
         ] = _InstrumentPropertyState(

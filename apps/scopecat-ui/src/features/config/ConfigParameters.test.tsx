@@ -39,7 +39,7 @@ function snapshot(driveFrequency: number, readoutFrequency: number): ConfigProfi
         entities: [{ id: "q0", kind: "logical_qubit", metadata: {} }],
       },
       instrument_registry: { instruments: [] },
-      routing: { bindings: [] },
+      routing: { roles: [], routes: [] },
       domain_target: null,
       parameter_catalog: {
         id: "calibration",

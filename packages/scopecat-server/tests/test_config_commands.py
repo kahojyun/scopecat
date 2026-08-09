@@ -84,7 +84,7 @@ def test_source_config_rejects_missing_or_invalid_bootstrap(
         load_source_config(project)
 
     config = load_config_snapshot_document(_CONFIG_FIXTURE)
-    invalid_binding = config.routing.bindings[0].model_copy(
+    invalid_route = config.routing.routes[0].model_copy(
         update={"instrument_id": "missing-source"}
     )
     invalid = config.model_copy(
@@ -92,7 +92,7 @@ def test_source_config_rejects_missing_or_invalid_bootstrap(
             "system": config.system.model_copy(
                 update={
                     "routing": config.routing.model_copy(
-                        update={"bindings": [invalid_binding]}
+                        update={"routes": [invalid_route]}
                     )
                 }
             )

@@ -15,6 +15,7 @@ from scopecat.compiler.value_resolution import resolve_bound_value
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     InvokeOperation,
+    ResourceProvenance,
     StateTarget,
 )
 from scopecat.kernel.graph_identity import ValueId
@@ -30,10 +31,10 @@ from scopecat.planning.local_effects import (
     evaluate_state_assignment,
 )
 from scopecat.planning.local_resources import (
-    ChannelSignature,
+    PhysicalChannelSignature,
     ResourceEntitySelection,
-    bind_state_resource,
-    channel_signature,
+    bind_interface_resource,
+    physical_channel_signature,
 )
 from scopecat.planning.routing import ResourceBindingError
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
@@ -105,8 +106,7 @@ def bind_desired_state(
                 InterfaceId,
                 tuple[str, ...],
                 str,
-                tuple[str, ...],
-                ChannelSignature,
+                PhysicalChannelSignature,
             ],
             StateTarget,
         ],
@@ -117,21 +117,9 @@ def bind_desired_state(
             InterfaceId,
             tuple[str, ...],
             str,
-            tuple[str, ...],
-            ChannelSignature,
+            PhysicalChannelSignature,
         ],
         set[str],
-    ] = {}
-    owners: dict[
-        tuple[
-            str,
-            InterfaceId,
-            tuple[str, ...],
-            str,
-            tuple[str, ...],
-            ChannelSignature,
-        ],
-        set[LogicalResourcePortId],
     ] = {}
     for record in records:
         interface_id = record.interface_id
@@ -174,10 +162,11 @@ def bind_desired_state(
             )
             continue
         try:
-            binding = bind_state_resource(
+            binding = bind_interface_resource(
                 record.resource_target,
                 interface_id=interface_id,
                 resources=resources,
+                missing_code="state_resource_port_unbound",
             )
         except ResourceBindingError as error:
             problems.append(
@@ -188,13 +177,13 @@ def bind_desired_state(
                 )
             )
             continue
-        channel_key = channel_signature(binding.channel_bindings)
+        component_path = (*binding.component_path, *component_path)
+        channel_key = physical_channel_signature(binding.channel_bindings)
         group = grouped.setdefault(binding.instrument_id, {})
         key = (
             interface_id,
             component_path,
             property_id,
-            binding.entity_ids,
             channel_key,
         )
         signature_key = (
@@ -202,13 +191,11 @@ def bind_desired_state(
             interface_id,
             component_path,
             property_id,
-            binding.entity_ids,
             channel_key,
         )
         signatures.setdefault(signature_key, set()).add(
             selected_value.model_dump_json()
         )
-        owners.setdefault(signature_key, set()).add(record.resource_target)
         group.setdefault(
             key,
             StateTarget(
@@ -216,6 +203,12 @@ def bind_desired_state(
                 component_path=component_path,
                 property_id=property_id,
                 value=selected_value,
+                resource=ResourceProvenance(
+                    logical_port_id=binding.port_id,
+                    requested_role=binding.requested_role,
+                    route_id=binding.route_id,
+                    route_role_id=binding.route_role_id,
+                ),
                 entity_ids=binding.entity_ids,
                 channel_bindings=binding.channel_bindings,
             ),
@@ -225,7 +218,6 @@ def bind_desired_state(
         interface,
         component_path,
         property_id,
-        _entities,
         _channel,
     ), values in signatures.items():
         if len(values) > 1:
@@ -235,24 +227,6 @@ def bind_desired_state(
                     f"{resource}.{interface}/"
                     f"{'/'.join(component_path)}.{property_id} receives "
                     f"multiple values at {selected_context}",
-                    selected_location,
-                )
-            )
-    for (
-        resource,
-        interface,
-        component_path,
-        property_id,
-        _entities,
-        _channel,
-    ), target_owners in owners.items():
-        if len(target_owners) > 1:
-            problems.append(
-                compiler_problem(
-                    "experiment_aliased_desired_state_target",
-                    f"{resource}.{interface}/"
-                    f"{'/'.join(component_path)}.{property_id} is owned by multiple "
-                    f"resource targets at {selected_context}",
                     selected_location,
                 )
             )
@@ -279,10 +253,11 @@ def bind_invocation(
     problems: list[Problem],
 ) -> InvokeOperation | None:
     try:
-        binding = bind_state_resource(
+        binding = bind_interface_resource(
             effect.port_id,
             interface_id=effect.interface_id,
             resources=resources,
+            missing_code="invocation_resource_port_unbound",
         )
     except ResourceBindingError as error:
         problems.append(
@@ -377,9 +352,15 @@ def bind_invocation(
         instrument_id=binding.instrument_id,
         resource_id=binding.instrument_id,
         interface_id=effect.interface_id,
-        component_path=effect.component_path,
+        component_path=(*binding.component_path, *effect.component_path),
         operation_id=effect.operation_id,
         arguments=tuple(arguments),
+        resource=ResourceProvenance(
+            logical_port_id=binding.port_id,
+            requested_role=binding.requested_role,
+            route_id=binding.route_id,
+            route_role_id=binding.route_role_id,
+        ),
         entity_ids=binding.entity_ids,
         channel_bindings=binding.channel_bindings,
     )

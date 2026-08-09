@@ -31,8 +31,8 @@ from scopecat.program.logical import (
 )
 from scopecat.records.instrument import CommandChannelBinding
 
-type ChannelBindingIdentity = tuple[str, str, InterfaceId | None]
-type ChannelSignature = tuple[ChannelBindingIdentity, ...]
+type PhysicalChannelIdentity = tuple[str, InterfaceId | None]
+type PhysicalChannelSignature = tuple[PhysicalChannelIdentity, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,19 +166,35 @@ def bind_single_resource(
     return resource.select_one()
 
 
-def bind_state_resource(
+def bind_interface_resource(
     target: LogicalResourcePortId,
     *,
     interface_id: InterfaceId,
     resources: Mapping[LogicalResourcePortId, ResourceEntitySelection],
+    missing_code: str,
 ) -> ResourceBinding:
     resource = resources.get(target)
     if resource is None:
         raise ResourceBindingError(
-            "state_resource_port_unbound",
-            f"logical state resource port {target.qualified_name!r} is not bound",
+            missing_code,
+            f"logical resource port {target.qualified_name!r} is not bound",
         )
     binding = resource.select_one()
+    endpoints = tuple(
+        endpoint
+        for endpoint in binding.endpoints
+        if endpoint.interface_id == interface_id
+    )
+    component_paths = tuple(
+        dict.fromkeys(endpoint.component_path for endpoint in endpoints)
+    )
+    if len(component_paths) != 1:
+        rendered = ", ".join("/".join(path) or "<root>" for path in component_paths)
+        raise ResourceBindingError(
+            "resource_interface_component_ambiguous",
+            f"logical resource port {target.qualified_name!r} maps interface "
+            f"{interface_id!r} to multiple physical components: {rendered}",
+        )
     channel_bindings = tuple(
         channel_binding
         for channel_binding in binding.channel_bindings
@@ -192,6 +208,7 @@ def bind_state_resource(
     )
     return replace(
         binding,
+        component_path=component_paths[0],
         entity_ids=entity_ids,
         channel_bindings=channel_bindings,
     )
@@ -207,13 +224,10 @@ def collection_channel_bindings(
     )
 
 
-def channel_signature(
+def physical_channel_signature(
     bindings: Sequence[CommandChannelBinding],
-) -> ChannelSignature:
-    return tuple(
-        (binding.entity_id, binding.channel_id, binding.interface_id)
-        for binding in bindings
-    )
+) -> PhysicalChannelSignature:
+    return tuple((binding.channel_id, binding.interface_id) for binding in bindings)
 
 
 def _select_point_resources(

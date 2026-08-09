@@ -8,7 +8,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, overload, override
 
-from scopecat.authoring import EachEntity, OneEntity, PerEntity, ProductRef, Symbolic
+from scopecat.authoring import (
+    EachEntity,
+    OneEntity,
+    PerEntity,
+    ProductRef,
+    ResourceRoleInput,
+    Symbolic,
+)
 from scopecat.authoring._module_results import ProductBundle, _RecordProduct
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.measurement_types import MeasurementArrayData
@@ -472,13 +479,17 @@ class SymbolicTemperatureReadoutClient(SymbolicInstrumentClientBase):
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             requires=(_TEMPERATURE_READOUT_REF,),
             for_=for_,
+            role=role,
         )
 
     def sample(
@@ -503,13 +514,17 @@ class SymbolicTemperatureReadoutGroup(
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: EachEntity,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicTemperatureReadoutClient,
+            role=role,
         )
 
     def sample(
@@ -528,6 +543,7 @@ temperature_readout: InstrumentFamily[
     TemperatureReadoutClient,
     SymbolicTemperatureReadoutClient,
     SymbolicTemperatureReadoutGroup,
+    name="temperature_readout",
     requires=(_TEMPERATURE_READOUT_REF,),
 )
 
@@ -578,13 +594,17 @@ class SymbolicRFOutputClient(DeclaredStateSymbolicClientBase[RFOutputTarget]):
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             requires=(_RF_OUTPUT_REF,),
             for_=for_,
+            role=role,
         )
 
     @overload
@@ -628,13 +648,17 @@ class SymbolicRFOutputGroup(
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: EachEntity,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicRFOutputClient,
+            role=role,
         )
 
     @overload
@@ -677,6 +701,7 @@ rf_output: InstrumentFamily[
     RFOutputClient,
     SymbolicRFOutputClient,
     SymbolicRFOutputGroup,
+    name="rf_output",
     requires=(_RF_OUTPUT_REF,),
 )
 
@@ -768,13 +793,17 @@ class SymbolicDCBiasClient(DeclaredStateSymbolicClientBase[DCBiasTarget]):
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             requires=(_DC_BIAS_REF,),
             for_=for_,
+            role=role,
         )
 
     @overload
@@ -828,13 +857,17 @@ class SymbolicDCBiasGroup(
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: EachEntity,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicDCBiasClient,
+            role=role,
         )
 
     @overload
@@ -880,6 +913,7 @@ dc_bias: InstrumentFamily[
     DCBiasClient,
     SymbolicDCBiasClient,
     SymbolicDCBiasGroup,
+    name="dc_bias",
     requires=(_DC_BIAS_REF,),
 )
 
@@ -957,13 +991,17 @@ class SymbolicDCSourceClient(DeclaredStateSymbolicClientBase[DCSourceTarget]):
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             requires=(_DC_SOURCE_REF,),
             for_=for_,
+            role=role,
         )
 
     @overload
@@ -1038,13 +1076,17 @@ class SymbolicDCSourceGroup(
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: EachEntity,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicDCSourceClient,
+            role=role,
         )
 
     @overload
@@ -1115,6 +1157,7 @@ dc_source: InstrumentFamily[
     DCSourceClient,
     SymbolicDCSourceClient,
     SymbolicDCSourceGroup,
+    name="dc_source",
     requires=(_DC_SOURCE_REF,),
 )
 
@@ -1240,13 +1283,17 @@ class SymbolicDCMonitorClient(DeclaredStateSymbolicClientBase[DCMonitorTarget]):
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             requires=(_DC_MONITOR_REF,),
             for_=for_,
+            role=role,
         )
 
     @overload
@@ -1311,13 +1358,17 @@ class SymbolicDCMonitorGroup(
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: EachEntity,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicDCMonitorClient,
+            role=role,
         )
 
     @overload
@@ -1370,6 +1421,7 @@ dc_monitor: InstrumentFamily[
     DCMonitorClient,
     SymbolicDCMonitorClient,
     SymbolicDCMonitorGroup,
+    name="dc_monitor",
     requires=(_DC_MONITOR_REF,),
 )
 
@@ -1455,13 +1507,17 @@ class SymbolicDCSourceMonitorClient(
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             requires=(_DC_SOURCE_REF, _DC_MONITOR_REF),
             for_=for_,
+            role=role,
         )
 
     def source_voltage(
@@ -1533,13 +1589,17 @@ class SymbolicDCSourceMonitorGroup(
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: EachEntity,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicDCSourceMonitorClient,
+            role=role,
         )
 
     def source_voltage(
@@ -1597,6 +1657,7 @@ dc_source_monitor: InstrumentFamily[
     DCSourceMonitorClient,
     SymbolicDCSourceMonitorClient,
     SymbolicDCSourceMonitorGroup,
+    name="dc_source_monitor",
     requires=(_DC_SOURCE_REF, _DC_MONITOR_REF),
 )
 
@@ -1691,13 +1752,17 @@ class SymbolicNetworkSweepClient(DeclaredStateSymbolicClientBase[NetworkSweepTar
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             requires=(_NETWORK_SWEEP_REF,),
             for_=for_,
+            role=role,
         )
 
     @overload
@@ -1754,13 +1819,17 @@ class SymbolicNetworkSweepGroup(
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: EachEntity,
+        role: ResourceRoleInput = None,
     ) -> None:
         super().__init__(
             recorder,
             resource_id,
+            namespace_hint=namespace_hint,
             for_=for_,
             client_factory=SymbolicNetworkSweepClient,
+            role=role,
         )
 
     @overload
@@ -1812,6 +1881,7 @@ network_sweep: InstrumentFamily[
     NetworkSweepClient,
     SymbolicNetworkSweepClient,
     SymbolicNetworkSweepGroup,
+    name="network_sweep",
     requires=(_NETWORK_SWEEP_REF,),
 )
 

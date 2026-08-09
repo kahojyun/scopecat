@@ -137,9 +137,9 @@ experiment with one point.
 
 ## Declare the same work for later
 
-Passing an experiment context and logical resource id to the same factory
-creates the symbolic client. Its verbs retain the device meaning while recording
-work instead of executing it:
+Passing an experiment context to the same factory creates the symbolic client.
+Its verbs retain the device meaning while recording work instead of executing
+it:
 
 ```python
 import scopecat as sc
@@ -148,7 +148,7 @@ from scopecat_instruments import network_sweep
 
 @sc.experiment
 def capture(experiment: sc.ExperimentContext) -> None:
-    vna = network_sweep(experiment, "readout")
+    vna = network_sweep(experiment)
     vna.ensure(
         start_frequency=sc.Quantity(4.9, "GHz"),
         stop_frequency=sc.Quantity(5.1, "GHz"),
@@ -169,10 +169,139 @@ bundle. Defining the experiment touches no hardware. A reusable `@module` is an
 optional extraction for shared or composed work, not a prerequisite for using
 an instrument.
 
+Product and recording namespaces come from the instrument family and the
+effect occurrence, not from the internal logical resource-port id. Pass an
+explicit acquisition `id=` when that occurrence is part of a durable data
+contract; inserting an unused client will not rename existing data.
+
 The experiment is the orchestration boundary, not a single-device runner. One
 experiment may coordinate several typed instrument clients, reusable modules,
 and domain calls; their value and effect dependencies determine the executable
 order while the lab configuration supplies physical resources.
+
+### Distinguish equivalent resources by role
+
+The context allocates logical resource identities automatically. When one
+entity has multiple instruments implementing the same interface, use a stable
+lab role to express why each one is needed:
+
+```python
+from scopecat_instruments import rf_output
+
+
+drive = rf_output(
+    experiment,
+    for_=sc.one("q0", kind="logical_device"),
+    role="drive",
+)
+readout = rf_output(
+    experiment,
+    for_=sc.one("q0", kind="logical_device"),
+    role="readout",
+)
+```
+
+The accepted configuration catalogs the role and attaches it to a selectable
+resource route. A route groups every endpoint that must be chosen together:
+
+```json
+{
+  "roles": [
+    {"id": "readout", "description": "source used for qubit readout"}
+  ],
+  "routes": [
+    {
+      "id": "readout-source",
+      "instrument_id": "readout-source-0",
+      "role_id": "readout",
+      "endpoints": [
+        {
+          "interface_id": "scopecat.rf_output/v1",
+          "entity_id": "q0",
+          "channel_id": "readout-q0",
+          "component_path": ["outputs", "readout-q0"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+`role` is a routing qualifier, not a physical instrument id. A string selects
+that exact cataloged role. Omitting `role` selects only routes with no role;
+it is not a wildcard. Rare authoring code that intentionally accepts any role
+can pass `sc.ANY_RESOURCE_ROLE`, after which planning must still find exactly
+one complete route.
+
+### Put shared state on its physical owner
+
+An entity binding selects a logical user of hardware; it is not the identity
+of a mutable state slot. Device-wide properties live at the interface root,
+tile-wide properties at a tile component, LO frequency at an LO-group
+component, and channel-only properties at a channel component. Route endpoint
+`component_path` mounts the authored interface member onto that physical
+owner.
+
+Two qubits may therefore route an RF-output frequency property to the same
+component path. Equal frequency requirements coalesce into one command. If the
+requirements differ at one point, planning reports
+`experiment_conflicting_desired_state` before hardware execution. Logical
+entity ids remain command provenance but do not manufacture independent copies
+of shared state.
+
+There is no separate channel-group or LO-group topology object. For a given
+property, entities belong to the same effective group precisely when their
+routes resolve to the same physical property target. That distinction matters
+because grouping is capability-specific: two channels can share an LO while
+belonging to different clock or trigger domains. Model those owners as reusable
+instrument components such as `lo_groups/0`, `clock_domains/1`, and
+`trigger_domains/0`, then mount each routed interface member at the appropriate
+component path.
+
+Roles still choose hardware by logical purpose. They do not encode shared-state
+membership, and LO groups are not entities merely because an experiment may
+need to change their state.
+
+### Scan LO without losing the physical RF coordinate
+
+Most experiments should express physical RF intent and leave device-specific
+mixing to their lab implementation. The uncommon experiment that deliberately
+scans an LO can keep its convention in a small lab-local helper. Use a signed
+IF and the single relation `RF = LO + IF`; positive and negative values select
+the two IQ sidebands without a second sideband flag:
+
+```python
+def fixed_if_lo_sweep(experiment, source, *, signed_if):
+    lo_frequency = experiment.scan(
+        "lo_frequency",
+        (4.9, 5.0, 5.1),
+        unit="GHz",
+    )
+    rf_frequency = lo_frequency + signed_if
+
+    source.ensure(frequency=lo_frequency)
+    experiment.record(
+        rf_frequency,
+        record_id="rf_frequency",
+        role="coordinate",
+        metadata={
+            "relation": "rf_frequency = lo_frequency + signed_if",
+            "signed_if_hz": float(signed_if.to("Hz").value),
+        },
+    )
+    return rf_frequency
+```
+
+The scanned LO is already a durable point coordinate. Recording the derived RF
+adds a plot-ready physical coordinate while retaining the exact control value
+and signed-IF convention. If IF varies by qubit, the helper can obtain it from a
+normal parameter lookup; it does not require a frequency-plan or LO-topology API.
+
+Which source is changed still comes from routing. If several selected entities
+route the source-frequency property to one component path, equal requests
+coalesce and differing requests fail during planning. An experiment only needs
+special grouping logic when it intentionally wants to schedule distinct scans
+per resolved physical owner; that remains lab policy rather than core topology.
 
 ### Record the result as a bundle
 
@@ -200,12 +329,11 @@ Entity cardinality is selected at the factory boundary:
 ```python
 single = network_sweep(
     experiment,
-    "readout",
     for_=sc.one("q0", kind="logical_device"),
 )
 
 targets = sc.each("q0", "q1", kind="logical_device")
-many = network_sweep(experiment, "readout", for_=targets)
+many = network_sweep(experiment, for_=targets)
 ```
 
 `one(...)` returns one scalar symbolic client. Its entity may be concrete or a

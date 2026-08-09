@@ -75,7 +75,7 @@ def capture(
         sc.QuantityType(unit="V"),
     ],
 ) -> None:
-    flux = dc_source(module, "flux")
+    flux = dc_source(module)
     flux.source_voltage(
         range=sc.Quantity(1, "V"),
         level=dc_bias,
@@ -166,9 +166,12 @@ types. Group state and operation arguments still accept broadcasts or
 Payload-bearing operations are currently rejected only by the client source
 generator, until their schema-specific live and symbolic carriers are defined.
 The declaration compiler and generated driver handlers already support decoded
-payload operations. Nested or repeated component trees remain a low-level
-`InterfaceSpec` shape for explicit contract builders and hand-written clients;
-the decorator DSL does not mirror them as recursive Python classes.
+payload operations. The decorator DSL can mount one reusable
+`@instrument_component` capability under several component ids and compiles
+nested state, operations, and acquisitions into `InterfaceSpec`. Generated
+client families remain rooted at an interface; experiment resource routes add
+their endpoint `component_path` when a root member targets a particular
+physical component.
 
 ## Driver authoring
 

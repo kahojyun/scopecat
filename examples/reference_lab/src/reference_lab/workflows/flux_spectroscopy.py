@@ -14,9 +14,6 @@ from scopecat_instruments import (
     temperature_readout,
 )
 
-FLUX_SOURCE_RESOURCE = "flux-dac-a"
-TEMPERATURE_RESOURCE = "mixing-chamber"
-VNA_RESOURCE = "readout-vna"
 CRYOSTAT = EntityRef(id="cryostat", kind="cryostat")
 Q0 = EntityRef(id="q0", kind="logical_qubit")
 
@@ -51,15 +48,13 @@ def flux_spectroscopy(
     )
     flux_source = dc_source(
         experiment,
-        FLUX_SOURCE_RESOURCE,
         for_=sc.one(Q0),
     )
     temperature = temperature_readout(
         experiment,
-        TEMPERATURE_RESOURCE,
         for_=sc.one(CRYOSTAT),
     )
-    readout = network_sweep(experiment, VNA_RESOURCE)
+    readout = network_sweep(experiment)
 
     flux_source.ensure(
         current_protection=sc.Quantity(100.0, "uA"),

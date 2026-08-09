@@ -71,7 +71,7 @@ def test_config_check_reports_invalid_snapshot(
 ) -> None:
     _write_manifest(tmp_path)
     config = load_config_snapshot_document(_CONFIG_FIXTURE)
-    invalid_binding = config.routing.bindings[0].model_copy(
+    invalid_route = config.routing.routes[0].model_copy(
         update={"instrument_id": "missing-source"}
     )
     invalid_config = config.model_copy(
@@ -79,7 +79,7 @@ def test_config_check_reports_invalid_snapshot(
             "system": config.system.model_copy(
                 update={
                     "routing": config.routing.model_copy(
-                        update={"bindings": [invalid_binding]}
+                        update={"routes": [invalid_route]}
                     )
                 }
             )
@@ -96,7 +96,7 @@ def test_config_check_reports_invalid_snapshot(
 
     assert result.exit_code == 1
     assert "error:" in result.output
-    assert "configuration.unknown_routing_binding_instrument" in result.output
+    assert "configuration.unknown_resource_route_instrument" in result.output
     assert not (tmp_path / ".scopecat").exists()
 
 

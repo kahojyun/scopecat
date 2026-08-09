@@ -11,6 +11,7 @@ from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.execution.local.program import (
     CollectionResultBinding,
     CollectOperation,
+    ResourceProvenance,
 )
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.frozen import thaw_json_value
@@ -21,10 +22,10 @@ from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.measurements.products import ProductDef
 from scopecat.planning.local_resources import (
     ResourceEntitySelection,
-    bind_single_resource,
+    bind_interface_resource,
     collection_channel_bindings,
 )
-from scopecat.planning.routing import ResourceBindingError
+from scopecat.planning.routing import ResourceBinding, ResourceBindingError
 from scopecat.program.logical import AcquireEffect
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.commands import (
@@ -55,7 +56,7 @@ def bind_collect(
     if not requested:
         return None
     try:
-        instrument_id, entity_ids, channel_bindings = _bind_record_target(
+        binding, entity_ids, channel_bindings = _bind_record_target(
             acquire.resource_port_id,
             interface_id=acquire.interface_id,
             resources=resources,
@@ -75,6 +76,7 @@ def bind_collect(
             )
         )
         return None
+    instrument_id = binding.instrument_id
     selected = tuple(
         (
             result,
@@ -101,6 +103,12 @@ def bind_collect(
             )
             for result, _product, product_use_ids in selected
         ),
+        resource=ResourceProvenance(
+            logical_port_id=binding.port_id,
+            requested_role=binding.requested_role,
+            route_id=binding.route_id,
+            route_role_id=binding.route_role_id,
+        ),
         command=CollectCommand(
             command_id=operation_id,
             instrument_id=instrument_id,
@@ -110,7 +118,10 @@ def bind_collect(
                 CollectResultRequest(
                     id=result.result_id,
                     interface_id=acquire.interface_id,
-                    component_path=list(acquire.component_path),
+                    component_path=[
+                        *binding.component_path,
+                        *acquire.component_path,
+                    ],
                     acquisition_id=acquire.acquisition_id,
                     result_id=result.result_id,
                     unit=product.unit,
@@ -146,9 +157,14 @@ def _bind_record_target(
     *,
     interface_id: InterfaceId,
     resources: Mapping[LogicalResourcePortId, ResourceEntitySelection],
-) -> tuple[str, tuple[str, ...], tuple[CommandChannelBinding, ...]]:
-    binding = bind_single_resource(
+) -> tuple[
+    ResourceBinding,
+    tuple[str, ...],
+    tuple[CommandChannelBinding, ...],
+]:
+    binding = bind_interface_resource(
         target,
+        interface_id=interface_id,
         resources=resources,
         missing_code="record_resource_port_unbound",
     )
@@ -157,7 +173,7 @@ def _bind_record_target(
         interface_id=interface_id,
     )
     return (
-        binding.instrument_id,
+        binding,
         tuple(
             dict.fromkeys(
                 (

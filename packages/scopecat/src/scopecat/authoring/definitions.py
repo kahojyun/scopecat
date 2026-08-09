@@ -61,6 +61,7 @@ from scopecat.kernel.instrument_members import (
 )
 from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.kernel.resource_identity import ResourceRoleInput
 from scopecat.program.bindings import BindingIntent
 from scopecat.program.definitions import (
     ExperimentDef,
@@ -72,6 +73,7 @@ from scopecat.program.domain import DomainCall
 from scopecat.program.measurement_contracts import MeasurementPostprocessorKernel
 from scopecat.program.measurement_types import (
     MeasurementDType,
+    MeasurementVariableRole,
     NativeMeasurementValue,
     measurement_value_spec_from_scalar,
 )
@@ -298,6 +300,7 @@ class ExperimentContext:
         *,
         requires: Sequence[InterfaceRef] = (),
         for_entities: Sequence[ValueRef] = (),
+        role: ResourceRoleInput = None,
     ) -> DefinitionResource:
         """Declare a logical resource for a generated symbolic client."""
 
@@ -305,7 +308,18 @@ class ExperimentContext:
             id,
             requires=requires,
             for_entities=for_entities,
+            role=role,
         )
+
+    def _allocate_resource_id(self, name_hint: str) -> str:
+        """Allocate an internal namespace for a generated symbolic client."""
+
+        return self._program._allocate_resource_id(name_hint)
+
+    def _allocate_effect_id(self, name_hint: str, *, explicit: bool = False) -> str:
+        """Allocate a public effect/data namespace independently of routing."""
+
+        return self._program._allocate_effect_id(name_hint, explicit=explicit)
 
     def _bind_property(
         self,
@@ -654,6 +668,7 @@ class ExperimentContext:
         *,
         record_id: str | None = None,
         namespace: str | None = None,
+        role: MeasurementVariableRole = "observable",
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> RecordRef[float]: ...
 
@@ -665,6 +680,7 @@ class ExperimentContext:
         *,
         record_id: str | None = None,
         namespace: str | None = None,
+        role: MeasurementVariableRole = "observable",
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> RecordRef[str]: ...
 
@@ -676,6 +692,7 @@ class ExperimentContext:
         *,
         record_id: str | None = None,
         namespace: str | None = None,
+        role: MeasurementVariableRole = "observable",
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> RecordRef[T]: ...
 
@@ -687,6 +704,7 @@ class ExperimentContext:
         *,
         record_id: str | None = None,
         namespace: str | None = None,
+        role: MeasurementVariableRole = "observable",
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> RecordRef[NativeMeasurementValue]: ...
 
@@ -697,12 +715,19 @@ class ExperimentContext:
         *,
         record_id: str | None = None,
         namespace: str | None = None,
+        role: MeasurementVariableRole | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> object:
-        """Persist one typed value or complete acquisition bundle."""
+        """Persist one typed value or complete acquisition bundle.
+
+        Symbolic values may select their dataset role here. Product roles are
+        fixed by their interface declarations.
+        """
 
         if record_id is not None and namespace is not None:
             raise ValueError("record_id and namespace cannot be used together")
+        if role is not None and not isinstance(value, ValueRef):
+            raise TypeError("record role can only be selected for symbolic values")
         if isinstance(value, PerEntity):
             if record_id is not None:
                 raise ValueError("record_id cannot name a PerEntity record set")
@@ -745,6 +770,7 @@ class ExperimentContext:
             value,
             record_id=record_id,
             namespace=namespace,
+            role="observable" if role is None else role,
             metadata=metadata,
         )
 
@@ -787,6 +813,7 @@ class ExperimentContext:
         *,
         record_id: str | None,
         namespace: str | None,
+        role: MeasurementVariableRole,
         metadata: Mapping[str, MetadataValue] | None,
     ) -> RecordRef[NativeMeasurementValue]:
         value_type = value.value_type
@@ -821,6 +848,7 @@ class ExperimentContext:
                 value=value,
                 record_id=record_id,
                 namespace=namespace_segments,
+                role=role,
                 metadata=freeze_json_mapping(metadata or {}),
             )
         )
@@ -1048,7 +1076,6 @@ def _module_from_function[ResultT, **P](
         return closed._invocation(
             instance_id,
             runtime_inputs,
-            resource_bindings={},
         )
 
     return create_parametric_experiment_module_internal(

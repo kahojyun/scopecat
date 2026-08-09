@@ -25,45 +25,45 @@ def _problem(
     )
 
 
-def _routing_binding_problems(
+def _routing_route_problems(
     config: ConfigProfileSnapshot,
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
-    path = ("system", "routing", "bindings")
+    path = ("system", "routing", "routes")
     instrument_ids = {
         instrument.id for instrument in config.instrument_registry.instruments
     }
     entity_ids = {entity.id for entity in config.topology.entities}
 
-    for binding in config.routing.bindings:
-        if binding.instrument_id not in instrument_ids:
+    for route in config.routing.routes:
+        if route.instrument_id not in instrument_ids:
             problems.append(
                 _problem(
-                    "unknown_routing_binding_instrument",
-                    "routing binding references unknown instrument "
-                    f"{binding.instrument_id}",
+                    "unknown_resource_route_instrument",
+                    "resource route references unknown instrument "
+                    f"{route.instrument_id}",
                     path,
                 )
             )
-        if binding.entity_id is not None and binding.entity_id not in entity_ids:
-            problems.append(
-                _problem(
-                    "unknown_routing_binding_entity",
-                    f"routing binding references unknown entity {binding.entity_id}",
-                    path,
+        for endpoint in route.endpoints:
+            if endpoint.entity_id is not None and endpoint.entity_id not in entity_ids:
+                problems.append(
+                    _problem(
+                        "unknown_resource_route_entity",
+                        "resource route references unknown entity "
+                        f"{endpoint.entity_id}",
+                        path,
+                    )
                 )
-            )
-        if binding.channel_id is None:
-            continue
-        if binding.entity_id is None:
-            problems.append(
-                _problem(
-                    "routing_binding_channel_without_entity",
-                    f"routing binding for channel {binding.channel_id} must "
-                    "declare an entity",
-                    path,
+            if endpoint.channel_id is not None and endpoint.entity_id is None:
+                problems.append(
+                    _problem(
+                        "resource_route_channel_without_entity",
+                        f"resource route channel {endpoint.channel_id} must "
+                        "declare an entity",
+                        path,
+                    )
                 )
-            )
     return tuple(problems)
 
 
@@ -89,7 +89,7 @@ def validate_config_profile(
             )
         )
 
-    problems.extend(_routing_binding_problems(config))
+    problems.extend(_routing_route_problems(config))
 
     if include_parameter_values:
         problems.extend(resolve_config_parameters(config).problems)

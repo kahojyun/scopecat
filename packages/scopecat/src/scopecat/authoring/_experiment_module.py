@@ -15,7 +15,6 @@ from scopecat.authoring._module_invocation import (
 )
 from scopecat.authoring._module_results import relocate_module_result
 from scopecat.kernel.frozen import FrozenMapping
-from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.program.input_capture import capture_module_inputs, empty_program_mapping
 from scopecat.program.module import ModuleDef
@@ -90,8 +89,6 @@ class ExperimentModule[ResultT, **P]:
         instance_id: str,
         mapped_inputs: Mapping[str, ModuleInput] | None = None,
         /,
-        *,
-        resource_bindings: Mapping[str, str] | None = None,
         **inputs: ModuleInput,
     ) -> ModuleInvocation[ResultT]:
         """Create a hygienic, explicitly named module instance."""
@@ -106,7 +103,6 @@ class ExperimentModule[ResultT, **P]:
         return self._invocation(
             instance_id,
             selected_inputs,
-            resource_bindings=resource_bindings or {},
         )
 
     def call(
@@ -144,15 +140,12 @@ class ExperimentModule[ResultT, **P]:
         return self._invocation(
             instance_id,
             cast("Mapping[str, ModuleInput]", arguments),
-            resource_bindings={},
         )
 
     def _invocation(
         self,
         instance_id: str,
         inputs: Mapping[str, ModuleInput],
-        *,
-        resource_bindings: Mapping[str, str],
     ) -> ModuleInvocation[ResultT]:
         if not instance_id:
             msg = "module instance id must be non-empty"
@@ -201,28 +194,10 @@ class ExperimentModule[ResultT, **P]:
             missing = ", ".join(repr(input_id) for input_id in missing_inputs)
             msg = f"module instance {instance_id!r} must connect all inputs: {missing}"
             raise ValueError(msg)
-        normalized_resource_bindings = FrozenMapping(
-            (
-                logical_resource_port_id(child_id),
-                logical_resource_port_id(parent_id),
-            )
-            for child_id, parent_id in resource_bindings.items()
-        )
-        declared_resources = {port.symbol_id for port in module_def.interface.resources}
-        unknown_resources = sorted(
-            item.qualified_name
-            for item in set(normalized_resource_bindings) - declared_resources
-        )
-        if unknown_resources:
-            msg = "module instance binds undeclared resources: " + ", ".join(
-                unknown_resources
-            )
-            raise ValueError(msg)
         return create_module_invocation(
             module=self,
             instance_id=instance_id,
             inputs=normalized,
-            resource_bindings=normalized_resource_bindings,
             result=self._result,
         )
 

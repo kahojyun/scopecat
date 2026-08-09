@@ -106,7 +106,7 @@ function testConfig(): ConfigProfileSnapshot {
         entities,
       },
       instrument_registry: { instruments: [] },
-      routing: { bindings: [] },
+      routing: { roles: [], routes: [] },
       domain_target: null,
       parameter_catalog: {
         id: "parameters",
