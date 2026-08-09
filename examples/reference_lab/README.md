@@ -130,8 +130,10 @@ so the same workflows can be routed to compatible real devices.
 |---|---|
 | `config/system-infrastructure.json` | One fourteen-device inventory, static target capabilities, one timing-domain trigger controller, component-scoped LO distribution routes, physical drive/readout I/Q routes, one ADC with four demod slots, configurable bare-device channel counts, two two-channel DC sources, and an entityless AWG/scope bench route. |
 | `src/reference_lab/parameters.py` | Six reviewed calibration/profile schemas, including carrier, shared-LO, and affine IQ-mixer values; physical channel IDs and LO membership are not duplicated here. |
+| `src/reference_lab/quantum_compilation/` | Reviewed point-effective compiler parameters and pulse recipes, independent of the selected instrument provider. |
 | `src/reference_lab/provider.py` | Deterministic bare-device provider, including shared AWGs, digitizer, the coupled AWG/scope world, and coherent two-channel bias ramps/readback. |
-| `src/reference_lab/targets/list_mode/` | Compiler-owned AWG and digitizer programs, target preparation, signed-IF lowering, and the worker command adapter; the virtual-plant adapter feeds the same triggered worker/device path. |
+| `src/reference_lab/targets/list_mode/` | Provider-neutral AWG and digitizer programs, target preparation, signed-IF lowering, and the worker command adapter. |
+| `src/reference_lab/virtual_lab/` | Synthetic quantum responses and the explicitly injected plant adapter that feeds the same triggered worker/device path in this virtual application. |
 | `src/reference_lab/workflows/` | Copyable experiment, analysis, and production workflows. |
 | `notebooks/` | User-facing gallery recipes. |
 | `tests/` | Real daemon, worker, storage, analysis, and configuration checks for the gallery. |

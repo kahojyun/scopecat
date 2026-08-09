@@ -20,12 +20,12 @@ from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
 )
 
-from reference_lab.targets.list_mode.model import (
-    ListModeArtifact,
-)
-from reference_lab.targets.list_mode.runtime import (
+from reference_lab.targets.list_mode.execution_model import (
     DigitizerFrame,
     ListModeRun,
+)
+from reference_lab.targets.list_mode.model import (
+    ListModeArtifact,
 )
 
 _RESPONSE_UNIT = "ratio"

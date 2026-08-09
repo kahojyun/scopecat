@@ -11,7 +11,6 @@ from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 SAMPLED_WAVEFORM_SCHEMA_ID = "sampled_waveform"
 AWG_ENTRY_SCHEMA_ID = "reference_lab.awg_entry.v1"
 AWG_PROGRAM_SCHEMA_ID = "reference_lab.awg_program.v1"
-VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID = "reference_lab.virtual_capture_queue.v1"
 TRIGGER_EPOCH_SCHEMA_ID = "reference_lab.trigger_epoch.v1"
 DIGITIZER_DSP_PROGRAM_SCHEMA_ID = "reference_lab.digitizer_dsp_program.v1"
 
@@ -35,23 +34,6 @@ class DecodedAwgEntry:
 @dataclass(frozen=True, slots=True)
 class DecodedAwgProgram:
     entries: tuple[DecodedAwgEntry, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class DecodedVirtualCaptureTrace:
-    instrument_id: str
-    component_path: tuple[str, ...]
-    samples: tuple[float, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class DecodedVirtualCapture:
-    traces: tuple[DecodedVirtualCaptureTrace, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class DecodedVirtualCaptureQueue:
-    captures: tuple[DecodedVirtualCapture, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,26 +84,6 @@ class _AwgProgramDocument(BaseModel):
     entries: tuple[_AwgEntryDocument, ...] = Field(min_length=1)
 
 
-class _VirtualCaptureTraceDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    instrument_id: str = Field(min_length=1)
-    component_path: tuple[str, ...] = Field(min_length=1)
-    samples: tuple[float, ...] = Field(min_length=1)
-
-
-class _VirtualCaptureDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    traces: tuple[_VirtualCaptureTraceDocument, ...] = ()
-
-
-class _VirtualCaptureQueueDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    captures: tuple[_VirtualCaptureDocument, ...] = Field(min_length=1)
-
-
 class _TriggerEpochDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -149,6 +111,11 @@ class _DigitizerDspProgramDocument(BaseModel):
 
 
 def reference_lab_payload_codecs() -> PayloadCodecRegistry:
+    from reference_lab.virtual_lab.capture_payload import (
+        VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID,
+        virtual_capture_queue_codec,
+    )
+
     return PayloadCodecRegistry(
         {
             DIGITIZER_DSP_PROGRAM_SCHEMA_ID: PayloadCodec(
@@ -165,13 +132,7 @@ def reference_lab_payload_codecs() -> PayloadCodecRegistry:
                 encoder=_encode_trigger_epoch,
                 decoder=_decode_trigger_epoch,
             ),
-            VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID: PayloadCodec(
-                id="reference_lab.virtual-capture-queue-json",
-                version=1,
-                media_type="application/json",
-                encoder=_encode_virtual_capture_queue,
-                decoder=_decode_virtual_capture_queue,
-            ),
+            VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID: virtual_capture_queue_codec(),
             AWG_PROGRAM_SCHEMA_ID: PayloadCodec(
                 id="reference_lab.awg-program-json",
                 version=1,
@@ -241,30 +202,6 @@ def _decoded_awg_entry(document: _AwgEntryDocument) -> DecodedAwgEntry:
     )
 
 
-def _encode_virtual_capture_queue(value: object) -> bytes:
-    document = _VirtualCaptureQueueDocument.model_validate(value)
-    return document.model_dump_json().encode("utf-8")
-
-
-def _decode_virtual_capture_queue(content: bytes) -> object:
-    document = _VirtualCaptureQueueDocument.model_validate_json(content)
-    return DecodedVirtualCaptureQueue(
-        captures=tuple(
-            DecodedVirtualCapture(
-                traces=tuple(
-                    DecodedVirtualCaptureTrace(
-                        instrument_id=trace.instrument_id,
-                        component_path=trace.component_path,
-                        samples=trace.samples,
-                    )
-                    for trace in capture.traces
-                )
-            )
-            for capture in document.captures
-        )
-    )
-
-
 def _encode_trigger_epoch(value: object) -> bytes:
     document = _TriggerEpochDocument.model_validate(value)
     return document.model_dump_json().encode("utf-8")
@@ -308,7 +245,6 @@ __all__ = [
     "DIGITIZER_DSP_PROGRAM_SCHEMA_ID",
     "SAMPLED_WAVEFORM_SCHEMA_ID",
     "TRIGGER_EPOCH_SCHEMA_ID",
-    "VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID",
     "DecodedAwgChannelWaveform",
     "DecodedAwgEntry",
     "DecodedAwgProgram",
@@ -316,8 +252,5 @@ __all__ = [
     "DecodedDigitizerDspWindow",
     "DecodedSampledWaveform",
     "DecodedTriggerEpoch",
-    "DecodedVirtualCapture",
-    "DecodedVirtualCaptureQueue",
-    "DecodedVirtualCaptureTrace",
     "reference_lab_payload_codecs",
 ]

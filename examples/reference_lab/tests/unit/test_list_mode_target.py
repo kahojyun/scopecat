@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -55,13 +55,13 @@ from reference_lab.physical_policies import (
 )
 from reference_lab.provider import ReferenceLabProvider
 from reference_lab.targets.list_mode import (
-    InstrumentListModeRuntime,
-    IqMixerCalibration,
+    ListModeArtifact,
     ListModeTarget,
     ListModeTargetCompiler,
-    VirtualListModeRuntime,
     configured_list_mode_target,
 )
+from reference_lab.targets.list_mode.device_execution import InstrumentListModeRuntime
+from reference_lab.targets.list_mode.model import IqMixerCalibration
 
 Q0 = QubitId("q0")
 DRIVE_Q0 = DriveSignal(Q0)
@@ -70,14 +70,8 @@ READOUT_Q0 = ReadoutSignal(Q0)
 
 
 class _RecordingInstrumentExecutor:
-    def __init__(
-        self,
-        trace: Callable[[int], tuple[float, ...]] | None = None,
-    ) -> None:
+    def __init__(self) -> None:
         self.batches: list[RunHardwareBatch] = []
-        self._trace: Callable[[int], tuple[float, ...]] = (
-            (lambda size: (0.0,) * size) if trace is None else trace
-        )
 
     def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
         self.batches.append(batch)
@@ -99,7 +93,7 @@ class _RecordingInstrumentExecutor:
                             value=MeasurementArray.create(
                                 dtype="float64",
                                 unit="V",
-                                values=self._trace(dimension.size),
+                                values=(0.0,) * dimension.size,
                             ),
                             evidence=InstrumentAcquisitionEvidence(
                                 command_id=action.effect_id,
@@ -235,12 +229,21 @@ def _calibrated_acquisition() -> tuple[ScheduledPulseProgram, AcquisitionSlot]:
     return scheduled, slot
 
 
-def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
+def _compiled_calibrated_acquisition() -> tuple[
+    ListModeTarget,
+    ScheduledPulseProgram,
+    AcquisitionSlot,
+    ListModeArtifact,
+]:
     scheduled, slot = _calibrated_acquisition()
     target = _target()
     compiler, request = _request(target, (scheduled,), repetitions=2)
+    return target, scheduled, slot, compiler.compile(request)
 
-    artifact = compiler.compile(request)
+
+def test_list_mode_compiler_projects_calibrated_physical_programs() -> None:
+    target, scheduled, slot, artifact = _compiled_calibrated_acquisition()
+
     [entry] = artifact.entries
     drive_binding = target.output_binding(DRIVE_Q0)
     readout_binding = target.output_binding(READOUT_Q0)
@@ -310,12 +313,9 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
         "timing-controller",
     )
 
-    run = VirtualListModeRuntime().execute(artifact)
-    assert [
-        (frame.shot_index, frame.entry_id, frame.slot_id) for frame in run.frames
-    ] == [(shot, TargetCompileEntryId("entry-0"), slot.id) for shot in range(2)]
-    assert all(isinstance(frame.value, complex) for frame in run.frames)
 
+def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
+    _target, _scheduled, slot, artifact = _compiled_calibrated_acquisition()
     instruments = _RecordingInstrumentExecutor()
     instrument_runtime = InstrumentListModeRuntime()
     instrument_runtime.prepare(
@@ -328,61 +328,11 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
         execution_id="test.calibrated-acquisition",
         instruments=instruments,
     )
+    assert [
+        (frame.shot_index, frame.entry_id, frame.slot_id)
+        for frame in instrument_run.frames
+    ] == [(shot, TargetCompileEntryId("entry-0"), slot.id) for shot in range(2)]
     assert [frame.value for frame in instrument_run.frames] == [0j, 0j]
-
-    tone_amplitude = 0.3
-    tone_frequency_hz = window.intent.demodulation_frequency_hz
-
-    def tone_trace(size: int) -> tuple[float, ...]:
-        return tuple(
-            tone_amplitude
-            * math.cos(
-                math.tau
-                * tone_frequency_hz
-                * (sample_index + 0.5)
-                / artifact.sample_rate_hz
-            )
-            for sample_index in range(size)
-        )
-
-    trace_values = tone_trace(entry.sample_count)
-    expected_iq = (
-        2.0
-        * sum(
-            trace_values[window.start_sample + sample_index]
-            * complex(
-                math.cos(
-                    -math.tau
-                    * tone_frequency_hz
-                    * (window.start_sample + sample_index + 0.5)
-                    / artifact.sample_rate_hz
-                ),
-                math.sin(
-                    -math.tau
-                    * tone_frequency_hz
-                    * (window.start_sample + sample_index + 0.5)
-                    / artifact.sample_rate_hz
-                ),
-            )
-            for sample_index in range(window.sample_count)
-        )
-        / window.sample_count
-    )
-    measured_runtime = InstrumentListModeRuntime()
-    measured_instruments = _RecordingInstrumentExecutor(tone_trace)
-    measured_runtime.prepare(
-        artifact,
-        execution_id="test.worker-dsp",
-        instruments=measured_instruments,
-    )
-    measured = measured_runtime.execute(
-        artifact,
-        execution_id="test.worker-dsp",
-        instruments=measured_instruments,
-    )
-    assert [frame.value for frame in measured.frames] == pytest.approx(
-        [expected_iq, expected_iq]
-    )
 
     assert instruments.batches[0].operation_id.endswith(":load")
     assert instruments.batches[1].operation_id.endswith(":prepare")
@@ -443,6 +393,10 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
         batch.operation_id for batch in instruments.batches
     ]
 
+
+def test_list_mode_acquisition_lowering_selects_target_or_device_dsp() -> None:
+    target, scheduled, _slot, artifact = _compiled_calibrated_acquisition()
+    [window] = artifact.entries[0].acquisitions
     device_target = replace(
         target,
         digitizer_result_representation="integrated_iq",

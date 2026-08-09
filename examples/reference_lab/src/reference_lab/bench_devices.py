@@ -74,8 +74,6 @@ from reference_lab.bench_interfaces import (
     TRIGGER_FIRE,
     TRIGGER_FIRE_EPOCH,
     TRIGGER_IDEMPOTENT_EPOCH,
-    VIRTUAL_CAPTURE_LOAD,
-    VIRTUAL_CAPTURE_QUEUE,
     analog_waveform_output_interface,
     awg_sequencer_interface,
     digitizer_control_interface,
@@ -83,7 +81,6 @@ from reference_lab.bench_interfaces import (
     oscilloscope_control_interface,
     oscilloscope_input_interface,
     trigger_coordinator_interface,
-    virtual_capture_source_interface,
 )
 from reference_lab.interfaces import (
     CLOCK_REFERENCE_FREQUENCY,
@@ -97,10 +94,15 @@ from reference_lab.payloads import (
     DecodedDigitizerDspProgram,
     DecodedSampledWaveform,
     DecodedTriggerEpoch,
-    DecodedVirtualCaptureQueue,
 )
 from reference_lab.targets.list_mode.iq_semantics import (
     integrate_rectangular_iq,
+)
+from reference_lab.virtual_lab.capture_payload import DecodedVirtualCaptureQueue
+from reference_lab.virtual_lab.capture_plant import (
+    VIRTUAL_CAPTURE_LOAD,
+    VIRTUAL_CAPTURE_QUEUE,
+    virtual_capture_source_interface,
 )
 
 AWG_OUTPUT_COMPONENT_IDS = tuple(f"ch{index}" for index in range(1, 9))

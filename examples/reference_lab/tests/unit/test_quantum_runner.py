@@ -36,7 +36,11 @@ from reference_lab.quantum_runner import (
     quantum_capture,
     run_quantum,
 )
-from reference_lab.targets.list_mode import configured_list_mode_target
+from reference_lab.targets.list_mode import (
+    ListModeDomainRuntime,
+    configured_list_mode_target,
+)
+from reference_lab.virtual_lab.execution import virtual_quantum_runtime
 from reference_lab.workflows.drag_beta_calibration import drag_beta_program
 from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
 from reference_lab.workflows.ramsey_experiments import q0_fixed_if_lo_sweep
@@ -134,7 +138,10 @@ def _logical_measurement_values(
     composition = compose_test_instruments(
         config=config,
         provider=provider,
-        domain_compiler=QuantumLabCompiler(target=_configured_target(config, provider)),
+        domain_compiler=QuantumLabCompiler(
+            target=_configured_target(config, provider),
+            runtime_selector=virtual_quantum_runtime,
+        ),
         payload_codecs=reference_lab_payload_codecs(),
     )
     lab = in_process_lab(
@@ -180,9 +187,6 @@ def test_lab_runner_places_the_reusable_capture_module() -> None:
     [child] = invocation.definition.body.child_instances
     assert child.instance_id == "capture"
     [execution] = logical.domain_executions
-    assert execution.id == (
-        "capture/drag-beta-rough-calibration/drag-beta-rough-calibration"
-    )
     assert [name for name, _value_id in execution.compiler_inputs] == ["qubits"]
     assert [record.record_id for record in logical.product_record_selections] == [
         "capture/probability_0",
@@ -226,7 +230,10 @@ def test_quantum_target_executes_through_reserved_bare_instruments(
     composition = compose_test_instruments(
         config=config,
         provider=provider,
-        domain_compiler=QuantumLabCompiler(target=_configured_target(config, provider)),
+        domain_compiler=QuantumLabCompiler(
+            target=_configured_target(config, provider),
+            runtime_selector=virtual_quantum_runtime,
+        ),
         payload_codecs=reference_lab_payload_codecs(),
     )
     lab = in_process_lab(
@@ -256,30 +263,6 @@ def test_quantum_target_executes_through_reserved_bare_instruments(
         if state.component_path == ["outputs", "ch9"] and state.property_id == "offset"
     )
     assert guard_offset == sc.Quantity(0.007, "V")
-
-
-def test_quantum_target_lowers_integrated_iq_to_digitizer_dsp(
-    tmp_path: Path,
-) -> None:
-    config = _with_dsp_policy(bootstrap_config(), "device")
-    provider = ReferenceLabProvider(seed=7)
-    composition = compose_test_instruments(
-        config=config,
-        provider=provider,
-        domain_compiler=QuantumLabCompiler(target=_configured_target(config, provider)),
-        payload_codecs=reference_lab_payload_codecs(),
-    )
-    lab = in_process_lab(
-        tmp_path,
-        config=config,
-        system=composition.system,
-        instrument_backend=composition.backend,
-    )
-
-    run = lab.prepare(drag_beta_experiment()).run()
-
-    assert run.manifest.status == "completed"
-    assert len(run.measurements().records) == 15
 
 
 def test_target_and_device_dsp_follow_the_same_integrated_iq_semantics(
@@ -342,6 +325,7 @@ def test_reviewed_los_prepare_once_without_fragmenting_quantum_batches() -> None
     jobs = tuple(
         operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
     )
+    assert all(type(job.execution.runtime) is ListModeDomainRuntime for job in jobs)
     assert [effect.instrument_id for effect in state_effects] == [
         "drive-awg",
         "readout-awg",

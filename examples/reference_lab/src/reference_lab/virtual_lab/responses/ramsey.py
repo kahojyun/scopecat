@@ -10,15 +10,15 @@ from typing import override
 
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
+from reference_lab.targets.list_mode.execution_model import (
+    AcquisitionResponse,
+    AwgPlayback,
+    DigitizerValue,
+)
 from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
     acquisition_slot_identity_payload,
     canonical_fingerprint,
-)
-from reference_lab.targets.list_mode.runtime import (
-    AcquisitionResponse,
-    AwgPlayback,
-    DigitizerValue,
 )
 
 

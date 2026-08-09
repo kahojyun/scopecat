@@ -24,7 +24,6 @@ from reference_lab.payloads import (
     DIGITIZER_DSP_PROGRAM_SCHEMA_ID,
     SAMPLED_WAVEFORM_SCHEMA_ID,
     TRIGGER_EPOCH_SCHEMA_ID,
-    VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID,
 )
 
 AWG_SEQUENCER = InterfaceRef("reference_lab.awg_sequencer/v1")
@@ -88,10 +87,6 @@ TRIGGER_FIRE = TRIGGER_COORDINATOR.operation("fire")
 TRIGGER_EPOCH = TRIGGER_FIRE.argument("epoch")
 TRIGGER_FIRE_EPOCH = TRIGGER_COORDINATOR.operation("fire_epoch")
 TRIGGER_IDEMPOTENT_EPOCH = TRIGGER_FIRE_EPOCH.argument("epoch")
-
-VIRTUAL_CAPTURE_SOURCE = InterfaceRef("reference_lab.virtual_capture_source/v1")
-VIRTUAL_CAPTURE_LOAD = VIRTUAL_CAPTURE_SOURCE.operation("load")
-VIRTUAL_CAPTURE_QUEUE = VIRTUAL_CAPTURE_LOAD.argument("captures")
 
 
 def awg_sequencer_interface() -> InterfaceSpec:
@@ -448,26 +443,6 @@ def trigger_coordinator_interface() -> InterfaceSpec:
     )
 
 
-def virtual_capture_source_interface() -> InterfaceSpec:
-    return interface(
-        VIRTUAL_CAPTURE_SOURCE.interface_id,
-        label="Virtual capture source",
-        description="Test-only plant input for queued raw ADC captures.",
-        operations=(
-            operation(
-                VIRTUAL_CAPTURE_LOAD.operation_id,
-                label="Load raw capture queue",
-                arguments=(
-                    operation_argument(
-                        VIRTUAL_CAPTURE_QUEUE.argument_id,
-                        value_type=Scalar(Payload(VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID)),
-                    ),
-                ),
-            ),
-        ),
-    )
-
-
 __all__ = [
     "ANALOG_WAVEFORM_OUTPUT",
     "ANALOG_WAVEFORM_OUTPUT_AMPLITUDE",
@@ -519,9 +494,6 @@ __all__ = [
     "TRIGGER_FIRE",
     "TRIGGER_FIRE_EPOCH",
     "TRIGGER_IDEMPOTENT_EPOCH",
-    "VIRTUAL_CAPTURE_LOAD",
-    "VIRTUAL_CAPTURE_QUEUE",
-    "VIRTUAL_CAPTURE_SOURCE",
     "analog_waveform_output_interface",
     "awg_sequencer_interface",
     "digitizer_control_interface",
@@ -529,5 +501,4 @@ __all__ = [
     "oscilloscope_control_interface",
     "oscilloscope_input_interface",
     "trigger_coordinator_interface",
-    "virtual_capture_source_interface",
 ]

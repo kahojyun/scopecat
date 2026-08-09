@@ -13,7 +13,7 @@ from scopecat_quantum.pulse_recipes import (
 )
 from scopecat_quantum.standard_gates import X90, XM90
 
-from reference_lab.virtual_lab.compiler_parameters import (
+from reference_lab.quantum_compilation.compiler_parameters import (
     QuantumCompilerParameters,
     QubitPulseParameters,
 )

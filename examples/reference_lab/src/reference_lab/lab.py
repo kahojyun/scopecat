@@ -9,6 +9,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from reference_lab.compiler import QuantumLabCompiler
 from reference_lab.payloads import reference_lab_payload_codecs
 from reference_lab.targets.list_mode import configured_list_mode_target
+from reference_lab.virtual_lab.execution import virtual_quantum_runtime
 
 
 def reference_lab_system(
@@ -27,6 +28,7 @@ def reference_lab_system(
         instrument_catalog=instrument_catalog,
         domain_compiler=QuantumLabCompiler(
             target=configured_list_mode_target(config, instrument_catalog),
+            runtime_selector=virtual_quantum_runtime,
         ),
         payload_codecs=reference_lab_payload_codecs(),
     )

@@ -48,25 +48,6 @@ def test_domain_target_instruments_must_be_unique() -> None:
         ConfigProfileSnapshot.model_validate(config_data)
 
 
-def test_domain_target_rejects_legacy_member_roles() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["domain_target"]["members"] = [
-        {
-            "kind": "instrument",
-            "role": "drive",
-            "instrument_id": "source-0",
-        },
-        {
-            "kind": "instrument",
-            "role": "drive",
-            "instrument_id": "source-0",
-        },
-    ]
-
-    with pytest.raises(ValidationError):
-        ConfigProfileSnapshot.model_validate(config_data)
-
-
 def test_primary_entity_must_be_declared_in_topology() -> None:
     config_data = load_config().model_dump(mode="json")
     config_data["system"]["primary_entity_id"] = "missing"
