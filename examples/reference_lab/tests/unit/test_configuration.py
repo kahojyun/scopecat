@@ -18,6 +18,7 @@ from reference_lab.bench_interfaces import (
     DIGITIZER_CONTROL,
     TRIGGER_COORDINATOR,
     TRIGGER_FIRE_EPOCH,
+    TRIGGER_START_PROGRAM_EPOCH,
 )
 from reference_lab.configuration import bootstrap_config
 from reference_lab.parameters import (
@@ -151,7 +152,11 @@ def _without_session_trigger_epochs(
                             "operations": [
                                 operation
                                 for operation in interface.operations
-                                if operation.id != TRIGGER_FIRE_EPOCH.operation_id
+                                if operation.id
+                                not in {
+                                    TRIGGER_FIRE_EPOCH.operation_id,
+                                    TRIGGER_START_PROGRAM_EPOCH.operation_id,
+                                }
                             ]
                         }
                     )

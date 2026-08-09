@@ -85,7 +85,7 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     return cast(
         "dict[str, JsonValue]",
         {
-            "schema": "reference_lab.list_mode_execution_summary.v4",
+            "schema": "reference_lab.list_mode_execution_summary.v5",
             "waveform_outputs": {
                 program.instrument_id: sorted(
                     {
@@ -125,7 +125,7 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
             },
             "preparation": {
                 "scope": "invocation",
-                "order": "reassert_before_program_load",
+                "order": "program_load_then_host_reassert_then_realtime_prepare",
             },
             "host_state_requirements": {
                 "policy_id": artifact.host_state_requirements.policy_id,

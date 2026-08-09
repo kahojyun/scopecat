@@ -17,16 +17,22 @@ from scopecat_quantum.pulses import AcquireSignal
 
 from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT,
+    AWG_ARM_PROGRAM,
+    AWG_LOAD_PROGRAM,
+    AWG_SEQUENCER,
+    DIGITIZER_ARM_PROGRAM,
     DIGITIZER_CONFIGURE_DSP,
     DIGITIZER_CONTROL,
-    DIGITIZER_FETCH,
-    DIGITIZER_FETCH_IQ,
-    DIGITIZER_FETCH_IQ_VALUE,
-    DIGITIZER_FETCH_VOLTAGE,
+    DIGITIZER_FETCH_PROGRAM,
+    DIGITIZER_FETCH_PROGRAM_IQ,
+    DIGITIZER_FETCH_PROGRAM_IQ_VALUE,
+    DIGITIZER_FETCH_PROGRAM_VALUE,
     DIGITIZER_INPUT,
+    DIGITIZER_LOAD_PROGRAM,
     TRIGGER_COORDINATOR,
-    TRIGGER_FIRE,
-    TRIGGER_FIRE_EPOCH,
+    TRIGGER_LOAD_PROGRAM,
+    TRIGGER_START_PROGRAM,
+    TRIGGER_START_PROGRAM_EPOCH,
 )
 from reference_lab.parameters import (
     AWG_OUTPUT_BASELINES,
@@ -227,6 +233,17 @@ def configured_list_mode_target(
         routes,
         output_bindings=output_bindings,
     )
+    _validate_program_devices(
+        output_instrument_ids={
+            channel.instrument_id
+            for binding in output_bindings
+            for channel in binding.channel_ids
+        },
+        digitizer_instrument_ids={
+            binding.input_id.instrument_id for binding in acquisition_bindings
+        },
+        instrument_catalog=instrument_catalog,
+    )
     digitizer_result_representation = _digitizer_result_representation(
         acquisition_bindings,
         policy=settings.capabilities.acquisition_dsp_policy,
@@ -348,21 +365,74 @@ def _trigger_guarantee(
         if interface is None
         else {operation.id for operation in interface.operations}
     )
-    if TRIGGER_FIRE_EPOCH.operation_id in operation_ids:
+    if TRIGGER_LOAD_PROGRAM.operation_id not in operation_ids:
+        raise ValueError("trigger instrument cannot load realtime programs")
+    if TRIGGER_START_PROGRAM_EPOCH.operation_id in operation_ids:
         return "session_idempotent"
     if timing.trigger_policy == "require_session_idempotent":
-        raise ValueError("trigger policy requires session-idempotent epoch support")
-    if TRIGGER_FIRE.operation_id not in operation_ids:
-        raise ValueError("trigger instrument advertises no supported fire operation")
+        raise ValueError("trigger policy requires session-idempotent program support")
+    if TRIGGER_START_PROGRAM.operation_id not in operation_ids:
+        raise ValueError("trigger instrument cannot start realtime programs")
     return "fire_only"
+
+
+def _validate_program_devices(
+    *,
+    output_instrument_ids: set[str],
+    digitizer_instrument_ids: set[str],
+    instrument_catalog: InstrumentContractCatalog,
+) -> None:
+    descriptions = {
+        description.instrument_id: description
+        for description in instrument_catalog.instruments
+    }
+    for instrument_id in sorted(output_instrument_ids):
+        description = descriptions.get(instrument_id)
+        if description is None or not _has_operations(
+            description,
+            interface_id=AWG_SEQUENCER.interface_id,
+            operation_ids={
+                AWG_LOAD_PROGRAM.operation_id,
+                AWG_ARM_PROGRAM.operation_id,
+            },
+        ):
+            raise ValueError(
+                f"list-mode AWG {instrument_id!r} cannot run loaded programs"
+            )
+    for instrument_id in sorted(digitizer_instrument_ids):
+        description = descriptions.get(instrument_id)
+        if description is None or not _has_operations(
+            description,
+            interface_id=DIGITIZER_CONTROL.interface_id,
+            operation_ids={
+                DIGITIZER_LOAD_PROGRAM.operation_id,
+                DIGITIZER_ARM_PROGRAM.operation_id,
+            },
+        ):
+            raise ValueError(
+                f"list-mode digitizer {instrument_id!r} cannot run loaded programs"
+            )
+
+
+def _has_operations(
+    description: InstrumentDescription,
+    *,
+    interface_id: object,
+    operation_ids: set[str],
+) -> bool:
+    return any(
+        operation_ids <= {operation.id for operation in interface.operations}
+        for interface in description.interfaces
+        if interface.id == interface_id
+    )
 
 
 def _supports_raw_trace(description: InstrumentDescription) -> bool:
     return _has_acquisition_result(
         description,
         interface_id=DIGITIZER_INPUT.interface_id,
-        acquisition_id=DIGITIZER_FETCH.acquisition_id,
-        result_id=DIGITIZER_FETCH_VOLTAGE.result_id,
+        acquisition_id=DIGITIZER_FETCH_PROGRAM.acquisition_id,
+        result_id=DIGITIZER_FETCH_PROGRAM_VALUE.result_id,
         dtype="float64",
     )
 
@@ -383,8 +453,8 @@ def _supports_integrated_iq(description: InstrumentDescription) -> bool:
     return has_configuration and _has_acquisition_result(
         description,
         interface_id=DIGITIZER_INPUT.interface_id,
-        acquisition_id=DIGITIZER_FETCH_IQ.acquisition_id,
-        result_id=DIGITIZER_FETCH_IQ_VALUE.result_id,
+        acquisition_id=DIGITIZER_FETCH_PROGRAM_IQ.acquisition_id,
+        result_id=DIGITIZER_FETCH_PROGRAM_IQ_VALUE.result_id,
         dtype="complex128",
     )
 

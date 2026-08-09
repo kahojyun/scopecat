@@ -39,6 +39,7 @@ from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT_RESET,
     ANALOG_WAVEFORM_OUTPUT_WAVEFORM,
     AWG_ARM_ENTRY,
+    AWG_ARM_PROGRAM,
     AWG_ENTRY,
     AWG_ENTRY_INDEX,
     AWG_LOAD_PROGRAM,
@@ -47,13 +48,19 @@ from reference_lab.bench_interfaces import (
     AWG_RUN_MODE,
     AWG_SAMPLE_RATE,
     AWG_START,
+    DIGITIZER_ARM,
+    DIGITIZER_ARM_PROGRAM,
     DIGITIZER_CONFIGURE_DSP,
     DIGITIZER_DSP_PROGRAM,
     DIGITIZER_FETCH_IQ,
+    DIGITIZER_FETCH_PROGRAM,
+    DIGITIZER_FETCH_PROGRAM_IQ,
     DIGITIZER_FETCH_TIME,
     DIGITIZER_INPUT_COUPLING,
     DIGITIZER_INPUT_ENABLED,
     DIGITIZER_INPUT_RANGE,
+    DIGITIZER_LOAD_PROGRAM,
+    DIGITIZER_PROGRAM,
     DIGITIZER_RECORD_LENGTH,
     DIGITIZER_SAMPLE_RATE,
     DIGITIZER_TRIGGER_SOURCE,
@@ -74,6 +81,10 @@ from reference_lab.bench_interfaces import (
     TRIGGER_FIRE,
     TRIGGER_FIRE_EPOCH,
     TRIGGER_IDEMPOTENT_EPOCH,
+    TRIGGER_LOAD_PROGRAM,
+    TRIGGER_PROGRAM,
+    TRIGGER_START_PROGRAM,
+    TRIGGER_START_PROGRAM_EPOCH,
     analog_waveform_output_interface,
     awg_sequencer_interface,
     digitizer_control_interface,
@@ -92,8 +103,10 @@ from reference_lab.payloads import (
     DecodedAwgEntry,
     DecodedAwgProgram,
     DecodedDigitizerDspProgram,
+    DecodedDigitizerProgram,
     DecodedSampledWaveform,
     DecodedTriggerEpoch,
+    DecodedTriggerProgram,
 )
 from reference_lab.targets.list_mode.iq_semantics import (
     integrate_rectangular_iq,
@@ -200,11 +213,20 @@ class BenchSignalWorld:
     scope_record_length: int = 16
     capture: CapturedBenchTrace | None = None
     armed_awgs: dict[str, tuple[ArmedAwgWaveform, ...]] = field(default_factory=dict)
+    armed_awg_programs: dict[str, tuple[tuple[ArmedAwgWaveform, ...], ...]] = field(
+        default_factory=dict
+    )
     armed_digitizers: dict[str, int] = field(default_factory=dict)
+    armed_digitizer_programs: dict[str, DecodedDigitizerProgram] = field(
+        default_factory=dict
+    )
     triggered_digitizers: dict[str, int] = field(default_factory=dict)
     digitizer_captures: dict[tuple[str, tuple[str, ...]], tuple[float, ...]] = field(
         default_factory=dict
     )
+    digitizer_program_captures: dict[
+        tuple[str, tuple[str, ...]], tuple[tuple[int, tuple[float, ...]], ...]
+    ] = field(default_factory=dict)
     capture_queue: list[dict[tuple[str, tuple[str, ...]], tuple[float, ...]]] = field(
         default_factory=list
     )
@@ -212,6 +234,7 @@ class BenchSignalWorld:
     trigger_epochs: dict[str, tuple[DecodedTriggerEpoch, int, int]] = field(
         default_factory=dict
     )
+    trigger_programs: dict[str, DecodedTriggerProgram] = field(default_factory=dict)
 
     def arm_scope(self, *, sample_rate_hz: float, record_length: int) -> None:
         self.scope_armed = True
@@ -273,12 +296,32 @@ class BenchSignalWorld:
     def is_awg_armed(self, instrument_id: str) -> bool:
         return instrument_id in self.armed_awgs
 
+    def arm_awg_program(
+        self,
+        instrument_id: str,
+        entries: tuple[tuple[ArmedAwgWaveform, ...], ...],
+    ) -> None:
+        self.armed_awg_programs[instrument_id] = entries
+
+    def is_awg_program_armed(self, instrument_id: str) -> bool:
+        return instrument_id in self.armed_awg_programs
+
     def arm_digitizer(self, instrument_id: str, *, record_length: int) -> None:
         self.armed_digitizers[instrument_id] = record_length
         self.triggered_digitizers.pop(instrument_id, None)
 
     def is_digitizer_armed(self, instrument_id: str) -> bool:
         return instrument_id in self.armed_digitizers
+
+    def arm_digitizer_program(
+        self,
+        instrument_id: str,
+        program: DecodedDigitizerProgram,
+    ) -> None:
+        self.armed_digitizer_programs[instrument_id] = program
+
+    def is_digitizer_program_armed(self, instrument_id: str) -> bool:
+        return instrument_id in self.armed_digitizer_programs
 
     def load_capture_queue(self, queue: DecodedVirtualCaptureQueue) -> None:
         self.capture_queue = [
@@ -306,6 +349,131 @@ class BenchSignalWorld:
     def fire_once(self, epoch: DecodedTriggerEpoch) -> tuple[int, int, bool]:
         awg_count, digitizer_count = self._fire_once(epoch)
         return awg_count, digitizer_count, False
+
+    def run_program(
+        self,
+        program: DecodedTriggerProgram,
+        *,
+        idempotent: bool,
+    ) -> tuple[int, int, bool]:
+        cached = self.trigger_programs.get(program.program_id)
+        if idempotent and cached is not None:
+            if cached != program:
+                raise ValueError(
+                    "trigger program id was reused with different contents"
+                )
+            return (0, 0, True)
+
+        awg_count, digitizer_count = self._run_program_once(program)
+        if idempotent:
+            self.trigger_programs[program.program_id] = program
+        return awg_count, digitizer_count, False
+
+    def _run_program_once(
+        self,
+        program: DecodedTriggerProgram,
+    ) -> tuple[int, int]:
+        expected_awgs = tuple(
+            sorted(
+                {
+                    instrument_id
+                    for entry in program.entries
+                    for instrument_id in entry.awg_instrument_ids
+                }
+            )
+        )
+        expected_digitizers = tuple(
+            sorted(
+                {
+                    instrument_id
+                    for entry in program.entries
+                    for instrument_id in entry.digitizer_instrument_ids
+                }
+            )
+        )
+        if tuple(sorted(self.armed_awg_programs)) != expected_awgs:
+            raise ValueError("armed AWG programs do not match trigger participants")
+        if tuple(sorted(self.armed_digitizer_programs)) != expected_digitizers:
+            raise ValueError(
+                "armed digitizer programs do not match trigger participants"
+            )
+        if any(
+            len(entries) != len(program.entries)
+            for entries in self.armed_awg_programs.values()
+        ) or any(
+            len(digitizer.entries) != len(program.entries)
+            for digitizer in self.armed_digitizer_programs.values()
+        ):
+            raise ValueError("armed device programs do not match trigger entry count")
+
+        captures: dict[
+            tuple[str, tuple[str, ...]], list[tuple[int, tuple[float, ...]]]
+        ] = {}
+        for _shot_index in range(program.repetitions):
+            for entry_index, trigger_entry in enumerate(program.entries):
+                awg_ids = tuple(
+                    sorted(
+                        instrument_id
+                        for instrument_id, entries in self.armed_awg_programs.items()
+                        if entries[entry_index]
+                    )
+                )
+                digitizer_ids = tuple(
+                    sorted(
+                        instrument_id
+                        for instrument_id, digitizer in (
+                            self.armed_digitizer_programs.items()
+                        )
+                        if digitizer.entries[entry_index].input_component_paths
+                    )
+                )
+                if awg_ids != trigger_entry.awg_instrument_ids:
+                    raise ValueError(
+                        "AWG program entry does not match trigger participants"
+                    )
+                if digitizer_ids != trigger_entry.digitizer_instrument_ids:
+                    raise ValueError(
+                        "digitizer program entry does not match trigger participants"
+                    )
+
+                for instrument_id in trigger_entry.awg_instrument_ids:
+                    for waveform in self.armed_awg_programs[instrument_id][entry_index]:
+                        self.emit(
+                            component_path=waveform.component_path,
+                            normalized_samples=waveform.normalized_samples,
+                            sample_rate_hz=waveform.sample_rate_hz,
+                            amplitude_v=waveform.amplitude_v,
+                            offset_v=waveform.offset_v,
+                            output_enabled=waveform.output_enabled,
+                            repeat=waveform.repeat,
+                        )
+                selected_capture = (
+                    self.capture_queue.pop(0) if self.capture_queue else {}
+                )
+                for instrument_id in trigger_entry.digitizer_instrument_ids:
+                    digitizer_entry = self.armed_digitizer_programs[
+                        instrument_id
+                    ].entries[entry_index]
+                    for component_path in digitizer_entry.input_component_paths:
+                        captures.setdefault((instrument_id, component_path), []).append(
+                            (
+                                entry_index,
+                                selected_capture.get(
+                                    (instrument_id, component_path),
+                                    (0.0,) * digitizer_entry.sample_count,
+                                ),
+                            )
+                        )
+                self.trigger_count += 1
+
+        self.digitizer_program_captures = {
+            key: tuple(value) for key, value in captures.items()
+        }
+        awg_count = len(self.armed_awg_programs)
+        digitizer_count = len(self.armed_digitizer_programs)
+        self.armed_awg_programs.clear()
+        self.armed_digitizer_programs.clear()
+        return awg_count, digitizer_count
 
     def _fire_once(self, epoch: DecodedTriggerEpoch) -> tuple[int, int]:
         armed_awg_ids = tuple(sorted(self.armed_awgs))
@@ -355,13 +523,30 @@ class BenchSignalWorld:
             (0.0,) * record_length,
         )
 
+    def digitizer_program_segments(
+        self,
+        instrument_id: str,
+        component_path: tuple[str, ...],
+    ) -> tuple[tuple[int, tuple[float, ...]], ...]:
+        return self.digitizer_program_captures.get(
+            (instrument_id, component_path),
+            (),
+        )
+
     def abort_instrument(self, instrument_id: str) -> None:
         self.disarm_awg(instrument_id)
+        self.armed_awg_programs.pop(instrument_id, None)
         self.armed_digitizers.pop(instrument_id, None)
+        self.armed_digitizer_programs.pop(instrument_id, None)
         self.triggered_digitizers.pop(instrument_id, None)
         self.digitizer_captures = {
             key: value
             for key, value in self.digitizer_captures.items()
+            if key[0] != instrument_id
+        }
+        self.digitizer_program_captures = {
+            key: value
+            for key, value in self.digitizer_program_captures.items()
             if key[0] != instrument_id
         }
         self.armed_digitizers.pop(instrument_id, None)
@@ -460,6 +645,7 @@ class VirtualAwg:
                     if self._world.is_awg_armed(self.instrument_id)
                     else None
                 ),
+                "program_armed": self._world.is_awg_program_armed(self.instrument_id),
             },
         )
 
@@ -535,6 +721,25 @@ class VirtualAwg:
                 metadata={
                     "operation_id": AWG_ARM_ENTRY.operation_id,
                     "entry_index": entry_index,
+                },
+            )
+
+        if request.target.operation_id == AWG_ARM_PROGRAM.operation_id:
+            if self._loaded_program is None:
+                raise ValueError("AWG has no loaded program")
+            self._armed_entry_index = None
+            self._world.arm_awg_program(
+                self.instrument_id,
+                tuple(
+                    self._armed_waveforms(entry)
+                    for entry in self._loaded_program.entries
+                ),
+            )
+            return DriverSuccess(
+                self.read_state(),
+                metadata={
+                    "operation_id": AWG_ARM_PROGRAM.operation_id,
+                    "entry_count": len(self._loaded_program.entries),
                 },
             )
 
@@ -750,6 +955,7 @@ class VirtualDigitizer:
         self._world = world
         self._armed = False
         self._dsp_program: DecodedDigitizerDspProgram | None = None
+        self._loaded_program: DecodedDigitizerProgram | None = None
         self._input_component_ids = tuple(
             f"ch{index}" for index in range(1, input_count + 1)
         )
@@ -810,6 +1016,14 @@ class VirtualDigitizer:
             metadata={
                 "mode": "virtual",
                 "armed": self._world.is_digitizer_armed(self.instrument_id),
+                "program_armed": self._world.is_digitizer_program_armed(
+                    self.instrument_id
+                ),
+                "loaded_entry_count": (
+                    0
+                    if self._loaded_program is None
+                    else len(self._loaded_program.entries)
+                ),
             },
         )
 
@@ -845,17 +1059,94 @@ class VirtualDigitizer:
                 self.read_state(),
                 metadata={"dsp_window_count": len(self._dsp_program.windows)},
             )
-        self._armed = True
-        self._world.arm_digitizer(
-            self.instrument_id,
-            record_length=cast("int", self._state[DIGITIZER_RECORD_LENGTH]),
+        if request.target.operation_id == DIGITIZER_LOAD_PROGRAM.operation_id:
+            self._loaded_program = cast(
+                "DecodedDigitizerProgram",
+                cast(
+                    "DriverPayload",
+                    request.arguments[DIGITIZER_PROGRAM.argument_id],
+                ).value,
+            )
+            return DriverSuccess(
+                self.read_state(),
+                metadata={"entry_count": len(self._loaded_program.entries)},
+            )
+        if request.target.operation_id == DIGITIZER_ARM_PROGRAM.operation_id:
+            if self._loaded_program is None:
+                raise ValueError("digitizer has no loaded program")
+            self._world.arm_digitizer_program(
+                self.instrument_id,
+                self._loaded_program,
+            )
+            return DriverSuccess(
+                self.read_state(),
+                metadata={
+                    "program_armed": True,
+                    "entry_count": len(self._loaded_program.entries),
+                },
+            )
+        if request.target.operation_id == DIGITIZER_ARM.operation_id:
+            self._armed = True
+            self._world.arm_digitizer(
+                self.instrument_id,
+                record_length=cast("int", self._state[DIGITIZER_RECORD_LENGTH]),
+            )
+            return DriverSuccess(self.read_state(), metadata={"armed": True})
+        raise ValueError(
+            f"unsupported digitizer operation {request.target.operation_id!r}"
         )
-        return DriverSuccess(self.read_state(), metadata={"armed": True})
 
     def collect(self, request: DriverAcquisition) -> DriverOutcome[DriverReadback]:
         record_length = cast("int", self._state[DIGITIZER_RECORD_LENGTH])
         sample_rate = _quantity_value(self._state[DIGITIZER_SAMPLE_RATE], "Hz")
         values: dict[AcquisitionResultRef, MeasurementValue] = {}
+        if request.target.acquisition_id in {
+            DIGITIZER_FETCH_PROGRAM.acquisition_id,
+            DIGITIZER_FETCH_PROGRAM_IQ.acquisition_id,
+        }:
+            assert self._loaded_program is not None
+            segments = self._world.digitizer_program_segments(
+                self.instrument_id,
+                request.target.component_path,
+            )
+            if (
+                request.target.acquisition_id
+                == DIGITIZER_FETCH_PROGRAM_IQ.acquisition_id
+            ):
+                block: tuple[float, ...] | tuple[complex, ...] = tuple(
+                    integrate_rectangular_iq(
+                        trace,
+                        start_sample=window.start_sample,
+                        sample_count=window.sample_count,
+                        sample_rate_hz=sample_rate,
+                        demodulation_frequency_hz=(window.demodulation_frequency_hz),
+                    )
+                    for entry_index, trace in segments
+                    for window in self._loaded_program.entries[entry_index].windows
+                    if window.component_path == request.target.component_path
+                )
+                dtype = "complex128"
+            else:
+                block = tuple(
+                    sample for _entry_index, trace in segments for sample in trace
+                )
+                dtype = "float64"
+            for result in request.results:
+                values[result] = MeasurementArray.create(
+                    dtype=dtype,
+                    unit="V",
+                    values=block,
+                )
+            return DriverSuccess(
+                DriverReadback(
+                    values=values,
+                    metadata={
+                        "triggered": True,
+                        "mode": "virtual",
+                        "segment_count": len(segments),
+                    },
+                )
+            )
         if request.target.acquisition_id == DIGITIZER_FETCH_IQ.acquisition_id:
             assert self._dsp_program is not None
             trace = self._world.digitizer_trace(
@@ -933,6 +1224,7 @@ class VirtualTimingController:
     def __init__(self, instrument_id: str, world: BenchSignalWorld) -> None:
         self.instrument_id = instrument_id
         self._world = world
+        self._loaded_program: DecodedTriggerProgram | None = None
 
     def describe(self) -> InstrumentDescription:
         return InstrumentDescription(
@@ -953,7 +1245,15 @@ class VirtualTimingController:
     def read_state(self) -> DriverState:
         return DriverState(
             values={},
-            metadata={"mode": "virtual", "trigger_count": self._world.trigger_count},
+            metadata={
+                "mode": "virtual",
+                "trigger_count": self._world.trigger_count,
+                "loaded_program_id": (
+                    None
+                    if self._loaded_program is None
+                    else self._loaded_program.program_id
+                ),
+            },
         )
 
     def apply_state(
@@ -979,6 +1279,45 @@ class VirtualTimingController:
             return DriverSuccess(
                 self.read_state(),
                 metadata={"capture_count": len(queue.captures)},
+            )
+        if request.target.operation_id == TRIGGER_LOAD_PROGRAM.operation_id:
+            self._loaded_program = cast(
+                "DecodedTriggerProgram",
+                cast(
+                    "DriverPayload",
+                    request.arguments[TRIGGER_PROGRAM.argument_id],
+                ).value,
+            )
+            return DriverSuccess(
+                self.read_state(),
+                metadata={
+                    "program_id": self._loaded_program.program_id,
+                    "entry_count": len(self._loaded_program.entries),
+                    "repetitions": self._loaded_program.repetitions,
+                },
+            )
+        if request.target.operation_id in {
+            TRIGGER_START_PROGRAM.operation_id,
+            TRIGGER_START_PROGRAM_EPOCH.operation_id,
+        }:
+            if self._loaded_program is None:
+                raise ValueError("timing controller has no loaded program")
+            awg_count, digitizer_count, replayed = self._world.run_program(
+                self._loaded_program,
+                idempotent=(
+                    request.target.operation_id
+                    == TRIGGER_START_PROGRAM_EPOCH.operation_id
+                ),
+            )
+            return DriverSuccess(
+                self.read_state(),
+                metadata={
+                    "armed_awg_count": awg_count,
+                    "armed_digitizer_count": digitizer_count,
+                    "trigger_count": self._world.trigger_count,
+                    "trigger_program_id": self._loaded_program.program_id,
+                    "replayed": replayed,
+                },
             )
         if request.target.operation_id in {
             TRIGGER_FIRE.operation_id,

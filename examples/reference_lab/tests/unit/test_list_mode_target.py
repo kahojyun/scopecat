@@ -335,7 +335,7 @@ def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
     ] == [(shot, TargetCompileEntryId("entry-0"), slot.id) for shot in range(2)]
     [first_value, second_value] = [frame.value for frame in instrument_run.frames]
     assert first_value is not None
-    assert second_value == pytest.approx(first_value * 2)
+    assert second_value == pytest.approx(first_value)
 
     assert instruments.batches[0].operation_id.endswith(":load")
     assert instruments.batches[1].operation_id.endswith(":prepare")
@@ -346,6 +346,8 @@ def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
     assert [action.kind for action in instruments.batches[0].actions] == [
         "invoke",
         "invoke",
+        "invoke",
+        "invoke",
     ]
     assert [batch.operation_id.rsplit(":", 1)[-1] for batch in instruments.batches] == [
         "load",
@@ -353,13 +355,6 @@ def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
         "execute",
     ]
     assert [action.kind for action in instruments.batches[2].actions] == [
-        "apply",
-        "invoke",
-        "invoke",
-        "invoke",
-        "invoke",
-        "collect",
-        "apply",
         "invoke",
         "invoke",
         "invoke",
@@ -397,6 +392,28 @@ def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
     assert [batch.operation_id for batch in retry.batches] == [
         batch.operation_id for batch in instruments.batches
     ]
+
+
+def test_list_mode_realtime_action_count_does_not_scale_with_repetitions() -> None:
+    _target, _scheduled, _slot, artifact = _compiled_calibrated_acquisition()
+    action_counts: list[list[int]] = []
+    for repetitions in (1, 32):
+        instruments = _RecordingInstrumentExecutor()
+        runtime = InstrumentListModeRuntime()
+        selected = replace(artifact, repetitions=repetitions)
+        runtime.prepare(
+            selected,
+            execution_id=f"test.repetitions-{repetitions}",
+            instruments=instruments,
+        )
+        runtime.execute(
+            selected,
+            execution_id=f"test.repetitions-{repetitions}",
+            instruments=instruments,
+        )
+        action_counts.append([len(batch.actions) for batch in instruments.batches])
+
+    assert action_counts == [[4, 3, 5], [4, 3, 5]]
 
 
 def test_list_mode_acquisition_lowering_selects_target_or_device_dsp() -> None:

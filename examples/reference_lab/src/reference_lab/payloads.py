@@ -13,6 +13,8 @@ AWG_ENTRY_SCHEMA_ID = "reference_lab.awg_entry.v1"
 AWG_PROGRAM_SCHEMA_ID = "reference_lab.awg_program.v1"
 TRIGGER_EPOCH_SCHEMA_ID = "reference_lab.trigger_epoch.v1"
 DIGITIZER_DSP_PROGRAM_SCHEMA_ID = "reference_lab.digitizer_dsp_program.v1"
+DIGITIZER_PROGRAM_SCHEMA_ID = "reference_lab.digitizer_program.v1"
+TRIGGER_PROGRAM_SCHEMA_ID = "reference_lab.trigger_program.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +59,31 @@ class DecodedDigitizerDspWindow:
 @dataclass(frozen=True, slots=True)
 class DecodedDigitizerDspProgram:
     windows: tuple[DecodedDigitizerDspWindow, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DecodedDigitizerProgramEntry:
+    sample_count: int
+    input_component_paths: tuple[tuple[str, ...], ...]
+    windows: tuple[DecodedDigitizerDspWindow, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DecodedDigitizerProgram:
+    entries: tuple[DecodedDigitizerProgramEntry, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DecodedTriggerProgramEntry:
+    awg_instrument_ids: tuple[str, ...]
+    digitizer_instrument_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DecodedTriggerProgram:
+    program_id: str
+    repetitions: int
+    entries: tuple[DecodedTriggerProgramEntry, ...]
 
 
 class _SampledWaveformDocument(BaseModel):
@@ -110,6 +137,35 @@ class _DigitizerDspProgramDocument(BaseModel):
     windows: tuple[_DigitizerDspWindowDocument, ...] = Field(min_length=1)
 
 
+class _DigitizerProgramEntryDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sample_count: int = Field(gt=0)
+    input_component_paths: tuple[tuple[str, ...], ...]
+    windows: tuple[_DigitizerDspWindowDocument, ...]
+
+
+class _DigitizerProgramDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entries: tuple[_DigitizerProgramEntryDocument, ...] = Field(min_length=1)
+
+
+class _TriggerProgramEntryDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    awg_instrument_ids: tuple[str, ...]
+    digitizer_instrument_ids: tuple[str, ...]
+
+
+class _TriggerProgramDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    program_id: str = Field(min_length=1)
+    repetitions: int = Field(gt=0)
+    entries: tuple[_TriggerProgramEntryDocument, ...] = Field(min_length=1)
+
+
 def reference_lab_payload_codecs() -> PayloadCodecRegistry:
     from reference_lab.virtual_lab.capture_payload import (
         VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID,
@@ -118,6 +174,13 @@ def reference_lab_payload_codecs() -> PayloadCodecRegistry:
 
     return PayloadCodecRegistry(
         {
+            DIGITIZER_PROGRAM_SCHEMA_ID: PayloadCodec(
+                id="reference_lab.digitizer-program-json",
+                version=1,
+                media_type="application/json",
+                encoder=_encode_digitizer_program,
+                decoder=_decode_digitizer_program,
+            ),
             DIGITIZER_DSP_PROGRAM_SCHEMA_ID: PayloadCodec(
                 id="reference_lab.digitizer-dsp-program-json",
                 version=1,
@@ -131,6 +194,13 @@ def reference_lab_payload_codecs() -> PayloadCodecRegistry:
                 media_type="application/json",
                 encoder=_encode_trigger_epoch,
                 decoder=_decode_trigger_epoch,
+            ),
+            TRIGGER_PROGRAM_SCHEMA_ID: PayloadCodec(
+                id="reference_lab.trigger-program-json",
+                version=1,
+                media_type="application/json",
+                encoder=_encode_trigger_program,
+                decoder=_decode_trigger_program,
             ),
             VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID: virtual_capture_queue_codec(),
             AWG_PROGRAM_SCHEMA_ID: PayloadCodec(
@@ -224,18 +294,62 @@ def _encode_digitizer_dsp_program(value: object) -> bytes:
 def _decode_digitizer_dsp_program(content: bytes) -> object:
     document = _DigitizerDspProgramDocument.model_validate_json(content)
     return DecodedDigitizerDspProgram(
-        windows=tuple(
-            DecodedDigitizerDspWindow(
-                component_path=window.component_path,
-                demodulator_slot_id=window.demodulator_slot_id,
-                start_sample=window.start_sample,
-                sample_count=window.sample_count,
-                demodulation_frequency_hz=window.demodulation_frequency_hz,
-                semantics_id=window.semantics_id,
-                normalization=window.normalization,
+        windows=tuple(_decoded_digitizer_window(window) for window in document.windows)
+    )
+
+
+def _encode_digitizer_program(value: object) -> bytes:
+    document = _DigitizerProgramDocument.model_validate(value)
+    return document.model_dump_json().encode("utf-8")
+
+
+def _decode_digitizer_program(content: bytes) -> object:
+    document = _DigitizerProgramDocument.model_validate_json(content)
+    return DecodedDigitizerProgram(
+        entries=tuple(
+            DecodedDigitizerProgramEntry(
+                sample_count=entry.sample_count,
+                input_component_paths=entry.input_component_paths,
+                windows=tuple(
+                    _decoded_digitizer_window(window) for window in entry.windows
+                ),
             )
-            for window in document.windows
+            for entry in document.entries
         )
+    )
+
+
+def _decoded_digitizer_window(
+    window: _DigitizerDspWindowDocument,
+) -> DecodedDigitizerDspWindow:
+    return DecodedDigitizerDspWindow(
+        component_path=window.component_path,
+        demodulator_slot_id=window.demodulator_slot_id,
+        start_sample=window.start_sample,
+        sample_count=window.sample_count,
+        demodulation_frequency_hz=window.demodulation_frequency_hz,
+        semantics_id=window.semantics_id,
+        normalization=window.normalization,
+    )
+
+
+def _encode_trigger_program(value: object) -> bytes:
+    document = _TriggerProgramDocument.model_validate(value)
+    return document.model_dump_json().encode("utf-8")
+
+
+def _decode_trigger_program(content: bytes) -> object:
+    document = _TriggerProgramDocument.model_validate_json(content)
+    return DecodedTriggerProgram(
+        program_id=document.program_id,
+        repetitions=document.repetitions,
+        entries=tuple(
+            DecodedTriggerProgramEntry(
+                awg_instrument_ids=entry.awg_instrument_ids,
+                digitizer_instrument_ids=entry.digitizer_instrument_ids,
+            )
+            for entry in document.entries
+        ),
     )
 
 
@@ -243,14 +357,20 @@ __all__ = [
     "AWG_ENTRY_SCHEMA_ID",
     "AWG_PROGRAM_SCHEMA_ID",
     "DIGITIZER_DSP_PROGRAM_SCHEMA_ID",
+    "DIGITIZER_PROGRAM_SCHEMA_ID",
     "SAMPLED_WAVEFORM_SCHEMA_ID",
     "TRIGGER_EPOCH_SCHEMA_ID",
+    "TRIGGER_PROGRAM_SCHEMA_ID",
     "DecodedAwgChannelWaveform",
     "DecodedAwgEntry",
     "DecodedAwgProgram",
     "DecodedDigitizerDspProgram",
     "DecodedDigitizerDspWindow",
+    "DecodedDigitizerProgram",
+    "DecodedDigitizerProgramEntry",
     "DecodedSampledWaveform",
     "DecodedTriggerEpoch",
+    "DecodedTriggerProgram",
+    "DecodedTriggerProgramEntry",
     "reference_lab_payload_codecs",
 ]

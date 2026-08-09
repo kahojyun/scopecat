@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from scopecat.kernel.errors import OperationFailure
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
+from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.measurement import MeasurementArray, MeasurementUnavailable
 from scopecat.sdk.domain import (
     DomainInstrumentExecutor,
@@ -37,29 +37,28 @@ from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT_AMPLITUDE,
     ANALOG_WAVEFORM_OUTPUT_ENABLED,
     ANALOG_WAVEFORM_OUTPUT_OFFSET,
-    AWG_ARM_ENTRY,
-    AWG_ENTRY_INDEX,
+    AWG_ARM_PROGRAM,
     AWG_LOAD_PROGRAM,
     AWG_PROGRAM,
     AWG_RUN_MODE,
     AWG_SAMPLE_RATE,
-    DIGITIZER_ARM,
-    DIGITIZER_CONFIGURE_DSP,
-    DIGITIZER_DSP_PROGRAM,
-    DIGITIZER_FETCH,
-    DIGITIZER_FETCH_IQ,
-    DIGITIZER_FETCH_IQ_VALUE,
-    DIGITIZER_FETCH_VOLTAGE,
+    DIGITIZER_ARM_PROGRAM,
+    DIGITIZER_FETCH_PROGRAM,
+    DIGITIZER_FETCH_PROGRAM_IQ,
+    DIGITIZER_FETCH_PROGRAM_IQ_VALUE,
+    DIGITIZER_FETCH_PROGRAM_VALUE,
     DIGITIZER_INPUT_COUPLING,
     DIGITIZER_INPUT_ENABLED,
     DIGITIZER_INPUT_RANGE,
+    DIGITIZER_LOAD_PROGRAM,
+    DIGITIZER_PROGRAM,
     DIGITIZER_RECORD_LENGTH,
     DIGITIZER_SAMPLE_RATE,
     DIGITIZER_TRIGGER_SOURCE,
-    TRIGGER_EPOCH,
-    TRIGGER_FIRE,
-    TRIGGER_FIRE_EPOCH,
-    TRIGGER_IDEMPOTENT_EPOCH,
+    TRIGGER_LOAD_PROGRAM,
+    TRIGGER_PROGRAM,
+    TRIGGER_START_PROGRAM,
+    TRIGGER_START_PROGRAM_EPOCH,
 )
 from reference_lab.interfaces import (
     CLOCK_REFERENCE_FREQUENCY,
@@ -67,8 +66,8 @@ from reference_lab.interfaces import (
 )
 from reference_lab.payloads import (
     AWG_PROGRAM_SCHEMA_ID,
-    DIGITIZER_DSP_PROGRAM_SCHEMA_ID,
-    TRIGGER_EPOCH_SCHEMA_ID,
+    DIGITIZER_PROGRAM_SCHEMA_ID,
+    TRIGGER_PROGRAM_SCHEMA_ID,
     reference_lab_payload_codecs,
 )
 from reference_lab.targets.list_mode.execution_model import (
@@ -93,14 +92,13 @@ from reference_lab.targets.list_mode.model import (
 class InstrumentListModeRuntime:
     """Execute target programs through the admitted instrument worker.
 
-    ``prepare`` loads AWG and digitizer programs as a destructive setup phase.
-    Core then reasserts host-owned offset requirements before ``execute`` applies
-    target-owned preparation and submits arm, one shared trigger, and fetch for
-    every shot and list entry as one ordered hardware block. The block preserves
-    action-level evidence without turning real-time sequencing into thousands of
-    separately durable control-plane operations. Its identity is scoped to the
-    domain execution so identical artifacts in two invocations do not share a
-    worker receipt.
+    ``prepare`` loads complete AWG, segmented-digitizer, and timing programs as a
+    destructive setup phase. Core then reasserts host-owned offset requirements
+    before ``execute`` applies target-owned preparation, arms each device once,
+    starts the timing program, and fetches one result block per ADC input. Shots
+    and list entries remain inside the realtime program rather than expanding into
+    host actions. Program identity is scoped to the domain execution so identical
+    artifacts in two invocations do not share a worker receipt.
     """
 
     def prepare(
@@ -132,6 +130,12 @@ class InstrumentListModeRuntime:
             instruments,
             _execution_batch(artifact, execution_id=execution_id),
         )
+        blocks = _result_blocks(
+            artifact,
+            receipt=receipt,
+            execution_id=execution_id,
+        )
+        block_offsets = dict.fromkeys(blocks, 0)
         playbacks: list[AwgPlayback] = []
         frames: list[DigitizerFrame] = []
         for shot_index in range(artifact.repetitions):
@@ -147,10 +151,14 @@ class InstrumentListModeRuntime:
                         artifact,
                         entry,
                         playback=playback,
-                        receipt=receipt,
-                        execution_id=execution_id,
+                        blocks=blocks,
+                        block_offsets=block_offsets,
                     )
                 )
+        if any(
+            block_offsets[input_id] != len(block) for input_id, block in blocks.items()
+        ):
+            raise RuntimeError("digitizer result block contains unclaimed values")
         selected_playbacks = tuple(playbacks)
         selected_frames = tuple(frames)
         return ListModeRun(
@@ -403,6 +411,121 @@ def _load_batch(
                 payloads={payload.id: payload},
             )
         )
+
+    for digitizer_program in artifact.digitizer_programs:
+        payload_id = f"digitizer-program-{digitizer_program.instrument_id}"
+        encoded = codecs.encode(
+            DIGITIZER_PROGRAM_SCHEMA_ID,
+            {
+                "entries": [
+                    {
+                        "sample_count": program_entry.sample_count,
+                        "input_component_paths": [
+                            list(input_id.component_path)
+                            for input_id in program_entry.input_ids
+                        ],
+                        "windows": [
+                            {
+                                "component_path": list(window.input_id.component_path),
+                                "demodulator_slot_id": (
+                                    window.demodulator_slot_id.value
+                                ),
+                                "start_sample": window.start_sample,
+                                "sample_count": window.sample_count,
+                                "demodulation_frequency_hz": (
+                                    window.intent.demodulation_frequency_hz
+                                ),
+                                "semantics_id": window.intent.semantics_id,
+                                "normalization": window.intent.normalization,
+                            }
+                            for window in artifact.entries[entry_index].acquisitions
+                            if window.input_id.instrument_id
+                            == digitizer_program.instrument_id
+                        ],
+                    }
+                    for entry_index, program_entry in enumerate(
+                        digitizer_program.entries
+                    )
+                ]
+            },
+        )
+        payload = command_payload_from_bytes(
+            id=payload_id,
+            schema_id=encoded.schema_id,
+            codec_id=encoded.codec_id,
+            codec_version=encoded.codec_version,
+            media_type=encoded.media_type,
+            content=encoded.content,
+        )
+        actions.append(
+            RunHardwareInvoke(
+                effect_id=f"{prefix}:load:{digitizer_program.instrument_id}",
+                instrument_id=digitizer_program.instrument_id,
+                resource_id=digitizer_program.instrument_id,
+                interface_id=DIGITIZER_LOAD_PROGRAM.interface_id,
+                operation_id=DIGITIZER_LOAD_PROGRAM.operation_id,
+                arguments=(
+                    InstrumentOperationArgument(
+                        id=DIGITIZER_PROGRAM.argument_id,
+                        value=StateValue(PayloadRef(payload_id=payload.id)),
+                    ),
+                ),
+                payloads={payload.id: payload},
+            )
+        )
+
+    timing = artifact.preparation.timing
+    timing_payload_id = f"trigger-program-{timing.trigger_instrument_id}"
+    encoded = codecs.encode(
+        TRIGGER_PROGRAM_SCHEMA_ID,
+        {
+            "program_id": prefix,
+            "repetitions": artifact.repetitions,
+            "entries": [
+                {
+                    "awg_instrument_ids": list(
+                        artifact.trigger_epoch(
+                            entry,
+                            execution_id=execution_id,
+                            shot_index=0,
+                        ).awg_instrument_ids
+                    ),
+                    "digitizer_instrument_ids": list(
+                        artifact.trigger_epoch(
+                            entry,
+                            execution_id=execution_id,
+                            shot_index=0,
+                        ).digitizer_instrument_ids
+                    ),
+                }
+                for entry in artifact.entries
+            ],
+        },
+    )
+    payload = command_payload_from_bytes(
+        id=timing_payload_id,
+        schema_id=encoded.schema_id,
+        codec_id=encoded.codec_id,
+        codec_version=encoded.codec_version,
+        media_type=encoded.media_type,
+        content=encoded.content,
+    )
+    actions.append(
+        RunHardwareInvoke(
+            effect_id=f"{prefix}:load:{timing.trigger_instrument_id}",
+            instrument_id=timing.trigger_instrument_id,
+            resource_id=timing.trigger_instrument_id,
+            interface_id=TRIGGER_LOAD_PROGRAM.interface_id,
+            operation_id=TRIGGER_LOAD_PROGRAM.operation_id,
+            arguments=(
+                InstrumentOperationArgument(
+                    id=TRIGGER_PROGRAM.argument_id,
+                    value=StateValue(PayloadRef(payload_id=payload.id)),
+                ),
+            ),
+            payloads={payload.id: payload},
+        )
+    )
     return RunHardwareBatch(
         operation_id=f"{prefix}:load",
         actions=tuple(actions),
@@ -414,251 +537,52 @@ def _execution_batch(
     *,
     execution_id: str,
 ) -> RunHardwareBatch:
-    actions: list[RunHardwareApply | RunHardwareInvoke | RunHardwareCollect] = []
-    for shot_index in range(artifact.repetitions):
-        for entry in artifact.entries:
-            for batch in (
-                _arm_batch(
-                    artifact,
-                    entry,
-                    execution_id=execution_id,
-                    shot_index=shot_index,
-                ),
-                _trigger_batch(
-                    artifact,
-                    entry,
-                    execution_id=execution_id,
-                    shot_index=shot_index,
-                ),
-                _fetch_batch(
-                    artifact,
-                    entry,
-                    execution_id=execution_id,
-                    shot_index=shot_index,
-                ),
-            ):
-                actions.extend(batch.actions)
-    return RunHardwareBatch(
-        operation_id=(
-            f"{_execution_prefix(artifact, execution_id=execution_id)}:execute"
-        ),
-        actions=tuple(actions),
-    )
-
-
-def _arm_batch(
-    artifact: ListModeArtifact,
-    entry: ListModeEntry,
-    *,
-    execution_id: str,
-    shot_index: int,
-) -> RunHardwareBatch:
-    prefix = _entry_prefix(
-        artifact,
-        entry,
-        execution_id=execution_id,
-        shot_index=shot_index,
-    )
-    actions: list[RunHardwareApply | RunHardwareInvoke] = []
+    prefix = _execution_prefix(artifact, execution_id=execution_id)
+    actions: list[RunHardwareInvoke | RunHardwareCollect] = []
     for digitizer_program in artifact.digitizer_programs:
-        program_entry = next(
-            selected
-            for selected in digitizer_program.entries
-            if selected.entry_id == entry.entry_id
-        )
-        if not program_entry.input_ids:
-            continue
-        actions.append(
-            RunHardwareApply(
-                effect_id=f"{prefix}:record-length:{digitizer_program.instrument_id}",
-                instrument_id=digitizer_program.instrument_id,
-                assignments=(
-                    _assignment(
-                        digitizer_program.instrument_id,
-                        DIGITIZER_RECORD_LENGTH,
-                        program_entry.sample_count,
-                    ),
-                ),
-            )
-        )
-        if digitizer_program.result_representation == "integrated_iq":
-            payload = _digitizer_dsp_payload(
-                entry,
-                instrument_id=digitizer_program.instrument_id,
-            )
-            actions.append(
-                RunHardwareInvoke(
-                    effect_id=(
-                        f"{prefix}:configure-dsp:{digitizer_program.instrument_id}"
-                    ),
-                    instrument_id=digitizer_program.instrument_id,
-                    resource_id=digitizer_program.instrument_id,
-                    interface_id=DIGITIZER_CONFIGURE_DSP.interface_id,
-                    operation_id=DIGITIZER_CONFIGURE_DSP.operation_id,
-                    arguments=(
-                        InstrumentOperationArgument(
-                            id=DIGITIZER_DSP_PROGRAM.argument_id,
-                            value=StateValue(PayloadRef(payload_id=payload.id)),
-                        ),
-                    ),
-                    payloads={payload.id: payload},
-                )
-            )
         actions.append(
             RunHardwareInvoke(
                 effect_id=f"{prefix}:arm:{digitizer_program.instrument_id}",
                 instrument_id=digitizer_program.instrument_id,
                 resource_id=digitizer_program.instrument_id,
-                interface_id=DIGITIZER_ARM.interface_id,
-                operation_id=DIGITIZER_ARM.operation_id,
+                interface_id=DIGITIZER_ARM_PROGRAM.interface_id,
+                operation_id=DIGITIZER_ARM_PROGRAM.operation_id,
             )
         )
     for awg_program in artifact.awg_programs:
-        program_entry = next(
-            selected
-            for selected in awg_program.entries
-            if selected.entry_id == entry.entry_id
-        )
-        if not program_entry.waveforms:
-            continue
         actions.append(
             RunHardwareInvoke(
                 effect_id=f"{prefix}:arm:{awg_program.instrument_id}",
                 instrument_id=awg_program.instrument_id,
                 resource_id=awg_program.instrument_id,
-                interface_id=AWG_ARM_ENTRY.interface_id,
-                operation_id=AWG_ARM_ENTRY.operation_id,
-                arguments=(
-                    InstrumentOperationArgument(
-                        id=AWG_ENTRY_INDEX.argument_id,
-                        value=StateValue(entry.list_index),
-                    ),
-                ),
+                interface_id=AWG_ARM_PROGRAM.interface_id,
+                operation_id=AWG_ARM_PROGRAM.operation_id,
             )
         )
-    return RunHardwareBatch(operation_id=f"{prefix}:arm", actions=tuple(actions))
-
-
-def _digitizer_dsp_payload(
-    entry: ListModeEntry,
-    *,
-    instrument_id: str,
-) -> CommandPayload:
-    encoded = reference_lab_payload_codecs().encode(
-        DIGITIZER_DSP_PROGRAM_SCHEMA_ID,
-        {
-            "windows": [
-                {
-                    "component_path": list(window.input_id.component_path),
-                    "demodulator_slot_id": window.demodulator_slot_id.value,
-                    "start_sample": window.start_sample,
-                    "sample_count": window.sample_count,
-                    "demodulation_frequency_hz": (
-                        window.intent.demodulation_frequency_hz
-                    ),
-                    "semantics_id": window.intent.semantics_id,
-                    "normalization": window.intent.normalization,
-                }
-                for window in entry.acquisitions
-                if window.input_id.instrument_id == instrument_id
-            ]
-        },
-    )
-    return command_payload_from_bytes(
-        id="digitizer-dsp-program",
-        schema_id=encoded.schema_id,
-        codec_id=encoded.codec_id,
-        codec_version=encoded.codec_version,
-        media_type=encoded.media_type,
-        content=encoded.content,
-    )
-
-
-def _trigger_batch(
-    artifact: ListModeArtifact,
-    entry: ListModeEntry,
-    *,
-    execution_id: str,
-    shot_index: int,
-) -> RunHardwareBatch:
-    prefix = _entry_prefix(
-        artifact,
-        entry,
-        execution_id=execution_id,
-        shot_index=shot_index,
-    )
     timing = artifact.preparation.timing
     trigger_operation = (
-        TRIGGER_FIRE_EPOCH
+        TRIGGER_START_PROGRAM_EPOCH
         if timing.trigger_guarantee == "session_idempotent"
-        else TRIGGER_FIRE
+        else TRIGGER_START_PROGRAM
     )
-    trigger_argument = (
-        TRIGGER_IDEMPOTENT_EPOCH
-        if timing.trigger_guarantee == "session_idempotent"
-        else TRIGGER_EPOCH
+    actions.append(
+        RunHardwareInvoke(
+            effect_id=f"{prefix}:start:{timing.trigger_instrument_id}",
+            instrument_id=timing.trigger_instrument_id,
+            resource_id=timing.trigger_instrument_id,
+            interface_id=trigger_operation.interface_id,
+            operation_id=trigger_operation.operation_id,
+        )
     )
-    epoch = artifact.trigger_epoch(
-        entry,
-        execution_id=execution_id,
-        shot_index=shot_index,
+    digitizer_inputs = sorted(
+        {window.input_id for entry in artifact.entries for window in entry.acquisitions}
     )
-    encoded = reference_lab_payload_codecs().encode(
-        TRIGGER_EPOCH_SCHEMA_ID,
-        {
-            "epoch_id": epoch.id,
-            "awg_instrument_ids": list(epoch.awg_instrument_ids),
-            "digitizer_instrument_ids": list(epoch.digitizer_instrument_ids),
-        },
-    )
-    payload = command_payload_from_bytes(
-        id="trigger-epoch",
-        schema_id=encoded.schema_id,
-        codec_id=encoded.codec_id,
-        codec_version=encoded.codec_version,
-        media_type=encoded.media_type,
-        content=encoded.content,
-    )
-    return RunHardwareBatch(
-        operation_id=f"{prefix}:trigger",
-        actions=(
-            RunHardwareInvoke(
-                effect_id=f"{prefix}:trigger:{timing.trigger_instrument_id}",
-                instrument_id=timing.trigger_instrument_id,
-                resource_id=timing.trigger_instrument_id,
-                interface_id=trigger_operation.interface_id,
-                operation_id=trigger_operation.operation_id,
-                arguments=(
-                    InstrumentOperationArgument(
-                        id=trigger_argument.argument_id,
-                        value=StateValue(PayloadRef(payload_id=payload.id)),
-                    ),
-                ),
-                payloads={payload.id: payload},
-            ),
-        ),
-    )
-
-
-def _fetch_batch(
-    artifact: ListModeArtifact,
-    entry: ListModeEntry,
-    *,
-    execution_id: str,
-    shot_index: int,
-) -> RunHardwareBatch:
-    prefix = _entry_prefix(
-        artifact,
-        entry,
-        execution_id=execution_id,
-        shot_index=shot_index,
-    )
-    actions: list[RunHardwareCollect] = []
-    digitizer_inputs = {window.input_id for window in entry.acquisitions}
-
-    for input_id in sorted(digitizer_inputs):
+    for input_id in digitizer_inputs:
         windows = tuple(
-            window for window in entry.acquisitions if window.input_id == input_id
+            window
+            for entry in artifact.entries
+            for window in entry.acquisitions
+            if window.input_id == input_id
         )
         representation = windows[0].lowering.device_result_representation
         request_id = (
@@ -674,17 +598,17 @@ def _fetch_batch(
                 requests=(
                     CollectResultRequest(
                         id=request_id,
-                        interface_id=DIGITIZER_FETCH.interface_id,
+                        interface_id=DIGITIZER_FETCH_PROGRAM.interface_id,
                         component_path=list(input_id.component_path),
                         acquisition_id=(
-                            DIGITIZER_FETCH.acquisition_id
+                            DIGITIZER_FETCH_PROGRAM.acquisition_id
                             if representation == "raw_trace"
-                            else DIGITIZER_FETCH_IQ.acquisition_id
+                            else DIGITIZER_FETCH_PROGRAM_IQ.acquisition_id
                         ),
                         result_id=(
-                            DIGITIZER_FETCH_VOLTAGE.result_id
+                            DIGITIZER_FETCH_PROGRAM_VALUE.result_id
                             if representation == "raw_trace"
-                            else DIGITIZER_FETCH_IQ_VALUE.result_id
+                            else DIGITIZER_FETCH_PROGRAM_IQ_VALUE.result_id
                         ),
                         unit="V",
                         dtype=(
@@ -701,9 +625,17 @@ def _fetch_batch(
                                     "time" if representation == "raw_trace" else "index"
                                 ),
                                 size=(
-                                    entry.sample_count
+                                    artifact.repetitions
+                                    * sum(
+                                        entry.sample_count
+                                        for entry in artifact.entries
+                                        if any(
+                                            window.input_id == input_id
+                                            for window in entry.acquisitions
+                                        )
+                                    )
                                     if representation == "raw_trace"
-                                    else len(windows)
+                                    else artifact.repetitions * len(windows)
                                 ),
                                 unit=("s" if representation == "raw_trace" else None),
                             )
@@ -718,24 +650,11 @@ def _fetch_batch(
                 ),
             )
         )
-    return RunHardwareBatch(operation_id=f"{prefix}:fetch", actions=tuple(actions))
+    return RunHardwareBatch(operation_id=f"{prefix}:execute", actions=tuple(actions))
 
 
 def _execution_prefix(artifact: ListModeArtifact, *, execution_id: str) -> str:
     return f"target:{execution_id}:{artifact.id.value}"
-
-
-def _entry_prefix(
-    artifact: ListModeArtifact,
-    entry: ListModeEntry,
-    *,
-    execution_id: str,
-    shot_index: int,
-) -> str:
-    return (
-        f"{_execution_prefix(artifact, execution_id=execution_id)}:"
-        f"shot-{shot_index}:entry-{entry.list_index}"
-    )
 
 
 def _assignment(
@@ -768,26 +687,20 @@ def _execute_batch(
     return receipt
 
 
-def _digitizer_frames(
+type _ResultBlock = tuple[float | complex | None, ...]
+
+
+def _result_blocks(
     artifact: ListModeArtifact,
-    entry: ListModeEntry,
     *,
-    playback: AwgPlayback,
     receipt: RunHardwareBatchReceipt,
     execution_id: str,
-) -> tuple[DigitizerFrame, ...]:
-    if not entry.acquisitions:
-        return ()
-    entry_prefix = _entry_prefix(
-        artifact,
-        entry,
-        execution_id=execution_id,
-        shot_index=playback.shot_index,
+) -> dict[DigitizerInputId, _ResultBlock]:
+    prefix = _execution_prefix(artifact, execution_id=execution_id)
+    inputs = sorted(
+        {window.input_id for entry in artifact.entries for window in entry.acquisitions}
     )
-    collect_effect_ids = {
-        f"{entry_prefix}:collect:{input_id.value}"
-        for input_id in {window.input_id for window in entry.acquisitions}
-    }
+    collect_effect_ids = {f"{prefix}:collect:{input_id.value}" for input_id in inputs}
     values = {
         value.value_id: value.value
         for value in receipt.values
@@ -795,34 +708,63 @@ def _digitizer_frames(
     }
     expected_ids = {
         (
-            _raw_value_id(window.input_id)
-            if window.lowering.device_result_representation == "raw_trace"
-            else _iq_value_id(window.input_id)
+            _raw_value_id(input_id)
+            if _input_representation(artifact, input_id) == "raw_trace"
+            else _iq_value_id(input_id)
         )
-        for window in entry.acquisitions
+        for input_id in inputs
     }
     if set(values) != expected_ids:
         raise RuntimeError(
             "digitizer receipt values do not match the target ADC program"
         )
 
+    blocks: dict[DigitizerInputId, _ResultBlock] = {}
+    for input_id in inputs:
+        representation = _input_representation(artifact, input_id)
+        result_count = _input_result_count(artifact, input_id)
+        value = values[
+            _raw_value_id(input_id)
+            if representation == "raw_trace"
+            else _iq_value_id(input_id)
+        ]
+        blocks[input_id] = _worker_result_block(
+            value,
+            representation=representation,
+            result_count=result_count,
+        )
+    return blocks
+
+
+def _digitizer_frames(
+    artifact: ListModeArtifact,
+    entry: ListModeEntry,
+    *,
+    playback: AwgPlayback,
+    blocks: dict[DigitizerInputId, _ResultBlock],
+    block_offsets: dict[DigitizerInputId, int],
+) -> tuple[DigitizerFrame, ...]:
     traces: dict[DigitizerInputId, tuple[float, ...] | None] = {}
     device_iq: dict[DigitizerAcquisitionWindow, complex | None] = {}
     windows_by_input: dict[DigitizerInputId, list[DigitizerAcquisitionWindow]] = {}
     for window in entry.acquisitions:
         windows_by_input.setdefault(window.input_id, []).append(window)
     for input_id, windows in windows_by_input.items():
+        offset = block_offsets[input_id]
         if windows[0].lowering.device_result_representation == "raw_trace":
-            value = values[_raw_value_id(input_id)]
-            traces[input_id] = _worker_trace(
-                value,
-                sample_count=entry.sample_count,
+            raw_values = blocks[input_id][offset : offset + entry.sample_count]
+            traces[input_id] = (
+                None
+                if any(value is None for value in raw_values)
+                else cast("tuple[float, ...]", raw_values)
             )
+            block_offsets[input_id] += entry.sample_count
             continue
-        lowered_values = _worker_iq_values(
-            values[_iq_value_id(input_id)],
-            result_count=len(windows),
+        lowered_values = cast(
+            "tuple[complex | None, ...]",
+            blocks[input_id][offset : offset + len(windows)],
         )
+        block_offsets[input_id] += len(windows)
         device_iq.update(zip(windows, lowered_values, strict=True))
 
     return tuple(
@@ -852,38 +794,52 @@ def _iq_value_id(input_id: DigitizerInputId) -> str:
     return f"integrated-iq:{input_id.value}"
 
 
-def _worker_trace(
-    value: object,
-    *,
-    sample_count: int,
-) -> tuple[float, ...] | None:
-    if isinstance(value, MeasurementUnavailable):
-        return None
-    if not isinstance(value, MeasurementArray):
-        raise RuntimeError("digitizer ADC result is not an array")
-    if value.dtype != "float64" or value.unit != "V" or value.shape != (sample_count,):
-        raise RuntimeError("digitizer ADC result does not match the requested trace")
-    samples = cast("NDArray[np.float64]", value.values)
-    return tuple(cast("list[float]", samples.tolist()))
+def _input_representation(
+    artifact: ListModeArtifact,
+    input_id: DigitizerInputId,
+) -> str:
+    return next(
+        window.lowering.device_result_representation
+        for entry in artifact.entries
+        for window in entry.acquisitions
+        if window.input_id == input_id
+    )
 
 
-def _worker_iq_values(
+def _input_result_count(
+    artifact: ListModeArtifact,
+    input_id: DigitizerInputId,
+) -> int:
+    if _input_representation(artifact, input_id) == "raw_trace":
+        per_shot = sum(
+            entry.sample_count
+            for entry in artifact.entries
+            if any(window.input_id == input_id for window in entry.acquisitions)
+        )
+    else:
+        per_shot = sum(
+            window.input_id == input_id
+            for entry in artifact.entries
+            for window in entry.acquisitions
+        )
+    return artifact.repetitions * per_shot
+
+
+def _worker_result_block(
     value: object,
     *,
+    representation: str,
     result_count: int,
-) -> tuple[complex | None, ...]:
+) -> _ResultBlock:
     if isinstance(value, MeasurementUnavailable):
         return (None,) * result_count
     if not isinstance(value, MeasurementArray):
-        raise RuntimeError("digitizer DSP result is not an array")
-    if (
-        value.dtype != "complex128"
-        or value.unit != "V"
-        or value.shape != (result_count,)
-    ):
-        raise RuntimeError("digitizer DSP result does not match requested IQ values")
-    values = cast("NDArray[np.complex128]", value.values)
-    return tuple(cast("list[complex]", values.tolist()))
+        raise RuntimeError("digitizer ADC result is not an array")
+    dtype = "float64" if representation == "raw_trace" else "complex128"
+    if value.dtype != dtype or value.unit != "V" or value.shape != (result_count,):
+        raise RuntimeError("digitizer result does not match requested program block")
+    values = cast("NDArray[np.float64] | NDArray[np.complex128]", value.values)
+    return tuple(cast("list[float | complex]", values.tolist()))
 
 
 def _demodulate(
