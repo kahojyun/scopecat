@@ -53,7 +53,7 @@ const UI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPOSITORY_ROOT = resolve(UI_ROOT, "../..");
 const UI_DIST = resolve(UI_ROOT, "dist");
 const LIVE_DISPLAY_NAME = "Live state browser E2E";
-const LIVE_EXPERIMENT_ID = "drag_beta_experiment";
+const LIVE_EXPERIMENT_ID = "ui_e2e_live_scan";
 const CONTROLLED_EXPERIMENT_SOURCE = `\
 """Exercise durable run states while a browser observes the daemon."""
 
@@ -63,11 +63,6 @@ import time
 from pathlib import Path
 
 import scopecat as sc
-from reference_lab.configuration import bootstrap_config
-from reference_lab.lab import reference_lab_system
-from reference_lab.workflows.drag_beta_experiment import (
-    drag_beta_experiment,
-)
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 CONTROL_ROOT = PROJECT_ROOT / ".scopecat"
@@ -87,26 +82,20 @@ def wait_for_release(path: Path) -> None:
         time.sleep(0.02)
 
 
-config = bootstrap_config()
-
-
-def build_system(selected, instrument_catalog):
-    return reference_lab_system(
-        config=selected,
-        instrument_catalog=instrument_catalog,
-    )
+@sc.experiment(id="ui_e2e_live_scan")
+def live_scan(experiment: sc.ExperimentContext) -> None:
+    value = experiment.scan("value", tuple(range(15)))
+    experiment.record(value, record_id="observed_value")
 
 
 project = sc.open_project(PROJECT_ROOT)
-with project.connect(build_experiment_system=build_system) as lab:
-    lab.config.set_default(config, entry_id="e2e-live-inventory")
+with project.connect() as lab:
     client = lab._client
     original_submit = client.submit_run
     original_start = client.start_executor
     original_append = client.append_measurements
     prepared = lab.prepare(
-        drag_beta_experiment(),
-        config=config,
+        live_scan(),
     )
 
     def gated_submit(submission):
