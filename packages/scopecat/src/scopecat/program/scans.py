@@ -100,7 +100,15 @@ type PointDomainSpec = GridSpec | PointsSpec
 
 @dataclass(frozen=True, slots=True)
 class PointPlan:
-    """One complete logical point plan for an experiment invocation."""
+    """One complete logical point plan for an experiment invocation.
+
+    ``domain`` is either a Cartesian grid or explicit ordered point rows.
+    ``repeat`` adds the canonical ``repeat`` coordinate: ``point`` mode keeps
+    repeats of each base point adjacent, while ``sweep`` mode keeps complete
+    sweeps adjacent. ``traversal`` may change physical grid execution order,
+    but logical point identities and result order remain canonical. Explicit
+    point rows therefore support only forward traversal.
+    """
 
     domain: PointDomainSpec = field(default_factory=GridSpec)
     repeat: int = 1

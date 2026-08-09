@@ -83,7 +83,14 @@ class DomainExecutionId(BaseModel):
 
 
 class DomainExecutionReceipt(BaseModel):
-    """Provider evidence for one complete synchronous target call."""
+    """Provider evidence for one complete synchronous target call.
+
+    ``completed`` supplies correlated result evidence and proves that the
+    realtime call completed. ``not_executed`` proves that realtime execution
+    did not begin, even if declared setup work changed state. ``unknown`` means
+    hardware may have changed without a correlated completion. Both negative
+    statuses carry problems and no result evidence.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

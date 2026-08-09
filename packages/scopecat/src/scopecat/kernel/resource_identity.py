@@ -36,7 +36,13 @@ class LogicalResourcePortId:
 
 @dataclass(frozen=True, slots=True)
 class ResourceRoleSelector:
-    """Structural selection of a configured resource role."""
+    """Structural selection of a configured resource role.
+
+    ``default`` selects the unlabelled route for normal use, ``exact`` selects
+    one named lab-purpose role, and ``any`` accepts the unique compatible route
+    regardless of role. Role selection is static routing intent, not runtime
+    availability or failover policy.
+    """
 
     kind: Literal["default", "exact", "any"] = "default"
     role_id: str | None = None

@@ -25,7 +25,8 @@ owns them.
 - `examples/reference_lab`: one hardware-free lab gallery spanning direct
   control, characterization, data workflows, and quantum calibration.
 - `fixtures`: test-only inputs; runnable projects own their bootstrap config.
-- `docs`: long-term product direction.
+- `docs`: the product charter plus guides to the current architecture and
+  workflows.
 
 ## Start Here
 
@@ -65,7 +66,7 @@ change; it does not make the daemon watch or rewrite Python. `export` produces
 a complete JSON snapshot for review or backup, not a primary editing format.
 
 The reference lab is the complete local project. Its `scopecat.toml`, Python
-application and backend, bootstrap snapshot, nine-device inventory, and three
+application and backend, bootstrap snapshot, fourteen-device inventory, and six
 parameter tables are version controlled; one daemon owns its `.scopecat` state:
 
 ```sh

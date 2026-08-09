@@ -818,6 +818,14 @@ def operation(
     arguments: (list[OperationArgumentSpec] | tuple[OperationArgumentSpec, ...]) = (),
     invalidates: Sequence[PropertyRef] = (),
 ) -> OperationSpec:
+    """Declare an imperative operation and the state knowledge it withdraws.
+
+    Each entry in ``invalidates`` names a property whose prior observed or
+    requested value cannot be trusted after the operation. Invalidation does
+    not assert a replacement value; a later readback or write establishes new
+    evidence.
+    """
+
     return OperationSpec(
         id=id,
         label=label,

@@ -89,7 +89,12 @@ class LogicalResourceRequirement:
 
 @dataclass(frozen=True, slots=True)
 class BoundProgramFacts:
-    """Facts introduced by binding one canonical logical program."""
+    """Transient facts introduced by binding one canonical logical program.
+
+    These facts belong to one accepted configuration and compiler pass. They
+    are neither part of the reusable program model nor a versioned wire or
+    persistence format.
+    """
 
     point_domain: PointDomain
     value_overrides: Mapping[ValueId, ScalarExpr] = field(
