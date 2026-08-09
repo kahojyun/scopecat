@@ -18,11 +18,13 @@ from scopecat.execution.local.program import (
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
 )
 from scopecat.kernel.value_types import Entity, Float, Scalar
+from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.products import ProductDef
 from scopecat.program.expressions import ScalarExpr, lit
 from scopecat.program.logical import AcquireEffect
@@ -53,6 +55,14 @@ def _port(value: str) -> LogicalResourcePortId:
 
 def _number(value: float) -> ScalarExpr:
     return verified_scalar_expr(lit(value), expected_type=Scalar(Float()))
+
+
+def _quantity(value: float, unit: str) -> ScalarExpr:
+    value_type = Scalar(QuantityType(dimension="frequency", unit=unit))
+    return verified_scalar_expr(
+        lit(Quantity(value, unit), value_type),
+        expected_type=value_type,
+    )
 
 
 def _entity(value: str) -> ScalarExpr:
@@ -390,27 +400,27 @@ def test_equal_demands_for_one_physical_state_owner_are_coalesced() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=left,
-                interfaces=("test.set_level/v1",),
+                interfaces=("test.set_frequency/v1",),
                 entity_uses=(_entity("q0"),),
             ),
             LogicalResourceRequirement(
                 port_id=right,
-                interfaces=("test.set_level/v1",),
+                interfaces=("test.set_frequency/v1",),
                 entity_uses=(_entity("q1"),),
             ),
         ),
         state=(
             state_property(
                 left,
-                interface_id="test.set_level/v1",
-                property_id="level",
-                value=_number(1.0),
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=_quantity(5.0, "GHz"),
             ),
             state_property(
                 right,
-                interface_id="test.set_level/v1",
-                property_id="level",
-                value=_number(1.0),
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=_quantity(5000.0, "MHz"),
             ),
         ),
     )
@@ -419,7 +429,16 @@ def test_equal_demands_for_one_physical_state_owner_are_coalesced() -> None:
 
     [operation] = operations_of_type(plan, ApplyStateOperation, point_index=0)
     assert len(operation.targets) == 1
-    assert operation.targets[0].component_path == ("lo_groups", "lo0")
+    [target] = operation.targets
+    assert target.component_path == ("lo_groups", "lo0")
+    assert target.entity_ids == ("q0", "q1")
+    assert [binding.channel_id for binding in target.channel_bindings] == [
+        "channel-q0",
+        "channel-q1",
+    ]
+    assert [
+        origin.resource.logical_port_id.qualified_name for origin in target.origins
+    ] == ["left", "right"]
 
 
 def test_conflicting_demands_for_one_physical_state_owner_are_rejected() -> None:
@@ -431,27 +450,27 @@ def test_conflicting_demands_for_one_physical_state_owner_are_rejected() -> None
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=left,
-                interfaces=("test.set_level/v1",),
+                interfaces=("test.set_frequency/v1",),
                 entity_uses=(_entity("q0"),),
             ),
             LogicalResourceRequirement(
                 port_id=right,
-                interfaces=("test.set_level/v1",),
+                interfaces=("test.set_frequency/v1",),
                 entity_uses=(_entity("q1"),),
             ),
         ),
         state=(
             state_property(
                 left,
-                interface_id="test.set_level/v1",
-                property_id="level",
-                value=_number(1.0),
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=_quantity(5.0, "GHz"),
             ),
             state_property(
                 right,
-                interface_id="test.set_level/v1",
-                property_id="level",
-                value=_number(2.0),
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=_quantity(5.1, "GHz"),
             ),
         ),
     )
@@ -462,6 +481,13 @@ def test_conflicting_demands_for_one_physical_state_owner_are_rejected() -> None
     assert "experiment_conflicting_desired_state" in {
         problem.code for problem in failure.value.problems
     }
+    [problem] = [
+        problem
+        for problem in failure.value.problems
+        if problem.code == "experiment_conflicting_desired_state"
+    ]
+    assert "q0 via left" in problem.message
+    assert "q1 via right" in problem.message
 
 
 def _same_instrument_record_config() -> ConfigProfileSnapshot:
@@ -586,8 +612,9 @@ def _shared_component_config() -> ConfigProfileSnapshot:
         bindings=[
             routing_endpoint(
                 instrument_id="source-0",
-                interface_id="test.set_level/v1",
+                interface_id="test.set_frequency/v1",
                 entity_id=entity_id,
+                channel_id=f"channel-{entity_id}",
                 component_path=("lo_groups", "lo0"),
             )
             for entity_id in ("q0", "q1")

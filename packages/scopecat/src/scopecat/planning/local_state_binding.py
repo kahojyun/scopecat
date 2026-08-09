@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
+from dataclasses import dataclass
 from typing import cast
 
 from scopecat.compiler.bind import BoundPlan
@@ -16,6 +17,7 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     InvokeOperation,
     ResourceProvenance,
+    StateDemandOrigin,
     StateTarget,
 )
 from scopecat.kernel.graph_identity import ValueId
@@ -24,6 +26,7 @@ from scopecat.kernel.problems import ModelLocation, Problem, model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.kernel.value_identity import scalar_values_equal
 from scopecat.kernel.value_types import Scalar
 from scopecat.planning.local_effects import (
     StateRecord,
@@ -31,15 +34,24 @@ from scopecat.planning.local_effects import (
     evaluate_state_assignment,
 )
 from scopecat.planning.local_resources import (
-    PhysicalChannelSignature,
     ResourceEntitySelection,
     bind_interface_resource,
-    physical_channel_signature,
 )
 from scopecat.planning.routing import ResourceBindingError
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.logical import LogicalInvocation, LogicalStateAssignment
 from scopecat.sdk.instruments.commands import InstrumentOperationArgument
+
+type _PhysicalPropertyKey = tuple[InterfaceId, tuple[str, ...], str]
+
+
+@dataclass(frozen=True, slots=True)
+class _StateDemand:
+    interface_id: InterfaceId
+    component_path: tuple[str, ...]
+    property_id: str
+    value: StateValue
+    origin: StateDemandOrigin
 
 
 def bound_scalar_value(bound: BoundPlan, value_id: ValueId) -> ScalarExpr:
@@ -99,28 +111,7 @@ def bind_desired_state(
         point_index,
         "desired_state",
     )
-    grouped: dict[
-        str,
-        dict[
-            tuple[
-                InterfaceId,
-                tuple[str, ...],
-                str,
-                PhysicalChannelSignature,
-            ],
-            StateTarget,
-        ],
-    ] = {}
-    signatures: dict[
-        tuple[
-            str,
-            InterfaceId,
-            tuple[str, ...],
-            str,
-            PhysicalChannelSignature,
-        ],
-        set[str],
-    ] = {}
+    grouped: dict[str, dict[_PhysicalPropertyKey, list[_StateDemand]]] = {}
     for record in records:
         interface_id = record.interface_id
         component_path = record.component_path
@@ -178,65 +169,86 @@ def bind_desired_state(
             )
             continue
         component_path = (*binding.component_path, *component_path)
-        channel_key = physical_channel_signature(binding.channel_bindings)
         group = grouped.setdefault(binding.instrument_id, {})
-        key = (
-            interface_id,
-            component_path,
-            property_id,
-            channel_key,
-        )
-        signature_key = (
-            binding.instrument_id,
-            interface_id,
-            component_path,
-            property_id,
-            channel_key,
-        )
-        signatures.setdefault(signature_key, set()).add(
-            selected_value.model_dump_json()
-        )
-        group.setdefault(
-            key,
-            StateTarget(
+        key = (interface_id, component_path, property_id)
+        group.setdefault(key, []).append(
+            _StateDemand(
                 interface_id=interface_id,
                 component_path=component_path,
                 property_id=property_id,
                 value=selected_value,
-                resource=ResourceProvenance(
-                    logical_port_id=binding.port_id,
-                    requested_role=binding.requested_role,
-                    route_id=binding.route_id,
-                    route_role_id=binding.route_role_id,
+                origin=StateDemandOrigin(
+                    resource=ResourceProvenance(
+                        logical_port_id=binding.port_id,
+                        requested_role=binding.requested_role,
+                        route_id=binding.route_id,
+                        route_role_id=binding.route_role_id,
+                    ),
+                    entity_ids=binding.entity_ids,
+                    channel_bindings=binding.channel_bindings,
                 ),
-                entity_ids=binding.entity_ids,
-                channel_bindings=binding.channel_bindings,
             ),
         )
-    for (
-        resource,
-        interface,
-        component_path,
-        property_id,
-        _channel,
-    ), values in signatures.items():
-        if len(values) > 1:
-            problems.append(
-                compiler_problem(
-                    "experiment_conflicting_desired_state",
-                    f"{resource}.{interface}/"
-                    f"{'/'.join(component_path)}.{property_id} receives "
-                    f"multiple values at {selected_context}",
-                    selected_location,
+    operations: list[ApplyStateOperation] = []
+    for instrument_id, targets in grouped.items():
+        merged: list[StateTarget] = []
+        for demands in targets.values():
+            first = demands[0]
+            if any(
+                not _state_values_equal(first.value, demand.value)
+                for demand in demands[1:]
+            ):
+                rendered_path = "/".join(first.component_path) or "<root>"
+                rendered_demands = "; ".join(
+                    _format_state_demand(demand) for demand in demands
+                )
+                problems.append(
+                    compiler_problem(
+                        "experiment_conflicting_desired_state",
+                        f"{instrument_id}.{first.interface_id}/{rendered_path}."
+                        f"{first.property_id} has conflicting demands at "
+                        f"{selected_context}: {rendered_demands}",
+                        selected_location,
+                    )
+                )
+                continue
+            merged.append(
+                StateTarget(
+                    interface_id=first.interface_id,
+                    component_path=first.component_path,
+                    property_id=first.property_id,
+                    value=first.value,
+                    origins=tuple(demand.origin for demand in demands),
                 )
             )
-    return tuple(
-        ApplyStateOperation(
-            operation_id=f"{point_uid}.state.{state_group_index}.{instrument_id}",
-            instrument_id=instrument_id,
-            targets=tuple(targets.values()),
-        )
-        for instrument_id, targets in grouped.items()
+        if merged:
+            operations.append(
+                ApplyStateOperation(
+                    operation_id=(
+                        f"{point_uid}.state.{state_group_index}.{instrument_id}"
+                    ),
+                    instrument_id=instrument_id,
+                    targets=tuple(merged),
+                )
+            )
+    return tuple(operations)
+
+
+def _state_values_equal(left: StateValue, right: StateValue) -> bool:
+    left_value = left.root
+    right_value = right.root
+    if isinstance(left_value, PayloadRef) or isinstance(right_value, PayloadRef):
+        return left_value == right_value
+    return scalar_values_equal(left_value, right_value)
+
+
+def _format_state_demand(demand: _StateDemand) -> str:
+    origin = demand.origin
+    entities = ",".join(origin.entity_ids) or "<unscoped>"
+    resource = origin.resource
+    return (
+        f"{entities} via {resource.logical_port_id.qualified_name} "
+        f"(route {resource.route_id}) = {demand.value.root!r}"
     )
 
 

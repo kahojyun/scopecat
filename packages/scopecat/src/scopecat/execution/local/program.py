@@ -82,16 +82,46 @@ class ResourceProvenance:
 
 
 @dataclass(frozen=True, slots=True)
+class StateDemandOrigin:
+    """One logical demand contributing to a physical state target."""
+
+    resource: ResourceProvenance
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class StateTarget:
     """One property that must hold before subsequent point stages execute."""
 
     interface_id: InterfaceId
     property_id: str
     value: StateValue
-    resource: ResourceProvenance
+    origins: tuple[StateDemandOrigin, ...]
     component_path: tuple[str, ...] = ()
-    entity_ids: tuple[str, ...] = ()
-    channel_bindings: tuple[CommandChannelBinding, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.origins:
+            raise ValueError("state target requires at least one demand origin")
+
+    @property
+    def entity_ids(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(
+                entity_id for origin in self.origins for entity_id in origin.entity_ids
+            )
+        )
+
+    @property
+    def channel_bindings(self) -> tuple[CommandChannelBinding, ...]:
+        selected: dict[tuple[str, str, InterfaceId | None], CommandChannelBinding] = {}
+        for origin in self.origins:
+            for binding in origin.channel_bindings:
+                selected.setdefault(
+                    (binding.entity_id, binding.channel_id, binding.interface_id),
+                    binding,
+                )
+        return tuple(selected.values())
 
     def command_assignment(
         self,
@@ -171,5 +201,6 @@ __all__ = [
     "OutputInput",
     "PayloadSlot",
     "ResourceProvenance",
+    "StateDemandOrigin",
     "StateTarget",
 ]

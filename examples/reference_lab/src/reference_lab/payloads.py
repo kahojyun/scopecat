@@ -2,52 +2,51 @@
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from pydantic import JsonValue, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 
-PULSE_PROGRAM_SCHEMA_ID = "pulse_program"
-_JSON_VALUE: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
+SAMPLED_WAVEFORM_SCHEMA_ID = "sampled_waveform"
 
 
 @dataclass(frozen=True, slots=True)
-class DecodedPulseProgram:
-    document: JsonValue = field(repr=False)
+class DecodedSampledWaveform:
+    samples: tuple[float, ...]
 
 
-def quantum_lab_payload_codecs() -> PayloadCodecRegistry:
+class _SampledWaveformDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    samples: tuple[float, ...] = Field(min_length=1)
+
+
+def reference_lab_payload_codecs() -> PayloadCodecRegistry:
     return PayloadCodecRegistry(
         {
-            PULSE_PROGRAM_SCHEMA_ID: PayloadCodec(
-                id="reference_lab.canonical-json",
+            SAMPLED_WAVEFORM_SCHEMA_ID: PayloadCodec(
+                id="reference_lab.sampled-waveform-json",
                 version=1,
                 media_type="application/json",
-                encoder=_encode_pulse_program,
-                decoder=_decode_pulse_program,
-            )
+                encoder=_encode_sampled_waveform,
+                decoder=_decode_sampled_waveform,
+            ),
         }
     )
 
 
-def _encode_pulse_program(value: object) -> bytes:
-    document = _JSON_VALUE.validate_python(value)
-    return json.dumps(
-        document,
-        allow_nan=False,
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
+def _encode_sampled_waveform(value: object) -> bytes:
+    document = _SampledWaveformDocument.model_validate(value)
+    return document.model_dump_json().encode("utf-8")
 
 
-def _decode_pulse_program(content: bytes) -> object:
-    return DecodedPulseProgram(document=_JSON_VALUE.validate_json(content))
+def _decode_sampled_waveform(content: bytes) -> object:
+    document = _SampledWaveformDocument.model_validate_json(content)
+    return DecodedSampledWaveform(samples=document.samples)
 
 
 __all__ = [
-    "PULSE_PROGRAM_SCHEMA_ID",
-    "DecodedPulseProgram",
-    "quantum_lab_payload_codecs",
+    "SAMPLED_WAVEFORM_SCHEMA_ID",
+    "DecodedSampledWaveform",
+    "reference_lab_payload_codecs",
 ]

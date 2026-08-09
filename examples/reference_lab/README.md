@@ -1,11 +1,17 @@
 # Scopecat Reference Lab
 
 This is the single runnable gallery for Scopecat. A coupled virtual RF source,
-DC sources, temperature monitor, VNA, event digitizer, quantum drive stack, and
-quantum readout stack all belong to one four-qubit laboratory project. Every recipe
-uses the same daemon, immutable configuration history, nine-device inventory,
-and three reviewable parameter tables: `qubits`, `readout_resonators`, and
-`channel_calibrations`.
+DC sources, temperature monitor, VNA, event digitizer, bench AWG/oscilloscope,
+quantum drive stack, and quantum readout stack all belong to one four-qubit
+laboratory project. Every recipe uses the same daemon, immutable configuration
+history, thirteen-device inventory, and four reviewable parameter tables:
+`qubits`, `readout_resonators`, `channel_calibrations`, and `bias_profiles`.
+
+The inventory intentionally combines alternative control architectures from
+different laboratory scenarios. The `integrated-drive` route models a packaged
+pulse-program stack, while `external-iq-drive` models a shared external LO plus
+a multi-channel IQ drive stack. Their coexistence makes routing choices reviewable;
+it is not meant to imply that a typical laboratory deploys both paths together.
 
 ## Start the lab
 
@@ -67,9 +73,15 @@ Run these scripts in order, or execute their `# %%` cells in an editor:
     to per-qubit gain/polarity/offset calibration, applies the four resulting
     voltages through two physical DC sources, parks them, and disables every
     routed output.
-17. `notebooks/40_measurement_workbench.py` demonstrates selection, filtering,
-   grouping, Xarray grid restoration, Arrow export, and paged reads.
-18. `notebooks/50_ragged_and_partial_data.py` records variable-length and
+17. `notebooks/34_xy_lo_sweep.py` composes one shared external LO, two mounted
+    IQ-drive outputs with signed IF and one stack-wide reference clock, then
+    records the requested carrier frequency without manual post-run conversion.
+18. `notebooks/35_awg_output_monitor.py` uses entityless bench resources to arm
+    a temporarily cabled oscilloscope, play one physical AWG output, fetch its
+    voltage trace, and keep the wiring intent in the run name and description.
+19. `notebooks/40_measurement_workbench.py` demonstrates selection, filtering,
+    grouping, Xarray grid restoration, Arrow export, and paged reads.
+20. `notebooks/50_ragged_and_partial_data.py` records variable-length and
    unavailable arrays, slices available ragged data, and inspects the committed
    prefix of a deterministically failed run.
 
@@ -90,6 +102,8 @@ uv run python examples/reference_lab/notebooks/30_drag_calibration.py
 uv run python examples/reference_lab/notebooks/31_adaptive_tuneup.py
 uv run python examples/reference_lab/notebooks/32_quantum_program_inspection.py
 uv run python examples/reference_lab/notebooks/33_multichannel_dc_bias.py
+uv run python examples/reference_lab/notebooks/34_xy_lo_sweep.py
+uv run python examples/reference_lab/notebooks/35_awg_output_monitor.py
 uv run python examples/reference_lab/notebooks/40_measurement_workbench.py
 uv run python examples/reference_lab/notebooks/50_ragged_and_partial_data.py
 ```
@@ -103,9 +117,9 @@ so the same workflows can be routed to compatible real devices.
 
 | Path | Responsibility |
 |---|---|
-| `config/system-infrastructure.json` | One nine-device inventory, four-qubit quantum routes, and two two-channel DC sources. |
+| `config/system-infrastructure.json` | One thirteen-device inventory, four-qubit quantum routes, two two-channel DC sources, an external-LO/two-channel-IQ fixture, and an entityless AWG/scope bench route. |
 | `src/reference_lab/parameters.py` | Four shared calibration/profile schemas with four-qubit bootstrap rows; physical channel IDs are not duplicated here. |
-| `src/reference_lab/provider.py` | Combined deterministic instrument provider, coherent two-channel bias ramps/readback, and flux abort policy. |
+| `src/reference_lab/provider.py` | Combined deterministic instrument provider, including the coupled bench AWG/scope world and coherent two-channel bias ramps/readback. |
 | `src/reference_lab/workflows/` | Copyable experiment, analysis, and production workflows. |
 | `notebooks/` | User-facing gallery recipes. |
 | `tests/` | Real daemon, worker, storage, analysis, and configuration checks for the gallery. |
@@ -131,6 +145,20 @@ park/operate/park UX without inventing a trigger abstraction.
 Each physical DAC keeps one exclusivity key. Channel-level concurrent ownership
 would conflict with shared device connection, trigger, and list-memory state, so
 the current lab claims the whole device while still batching its routed channels.
+
+The XY fixture keeps frequency planning in the lab integration rather than in
+Scopecat core. Its `xy_drive` facade accepts the LO and a signed IF directly;
+fixed-IF LO scans therefore remain concise, while the returned
+`carrier_frequency = LO + IF` value can be recorded alongside measurements.
+The same facade coalesces shared LO and clock demands but leaves the two mounted
+IQ outputs independent.
+
+The AWG/scope monitor deliberately has no entity selection. Its two configured
+routes identify reusable physical endpoints, not a persistent cable or qubit
+assignment. The notebook records the temporary connection and operator intent
+in the run name and description. This keeps the ordinary workflow concise
+without adding a separate run-scoped binding mechanism before an unregistered
+instrument or ambiguous bench inventory demonstrates that need.
 
 ## Checks
 

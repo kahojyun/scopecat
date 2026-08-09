@@ -32,11 +32,11 @@ def test_reference_lab_application_loads_selected_project_system(
 ) -> None:
     config_dir = tmp_path / "config"
     shutil.copytree(EXAMPLE_ROOT / "config", config_dir)
-    virtual_lab_path = config_dir / "virtual-lab.json"
-    virtual_lab_path.write_text(
-        virtual_lab_path.read_text().replace(
-            '"id": "reference_lab.virtual_lab"',
-            '"id": "selected-project-virtual-lab"',
+    infrastructure_path = config_dir / "system-infrastructure.json"
+    infrastructure_path.write_text(
+        infrastructure_path.read_text().replace(
+            '"id": "reference-lab-system"',
+            '"id": "selected-reference-lab-system"',
             1,
         )
     )

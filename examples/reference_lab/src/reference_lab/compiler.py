@@ -39,7 +39,7 @@ from scopecat_quantum.targets import TargetAcquisitionAddress
 from reference_lab.parameters import QUBITS
 from reference_lab.point_values import QuantumLabPointValues
 from reference_lab.targets.configuration import (
-    FAKE_LIST_TARGET_KIND,
+    LIST_MODE_TARGET_KIND,
 )
 from reference_lab.targets.fake_list_mode import (
     FakeAcquisitionResponse,
@@ -106,7 +106,7 @@ class QuantumLabCompiler:
 
     @property
     def target_kind(self) -> str:
-        return FAKE_LIST_TARGET_KIND
+        return LIST_MODE_TARGET_KIND
 
     @property
     def max_points_per_batch(self) -> int:

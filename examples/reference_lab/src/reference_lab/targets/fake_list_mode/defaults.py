@@ -6,7 +6,12 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat_quantum._ids import TargetId
 
 from reference_lab.targets.configuration import (
-    FAKE_LIST_TARGET_KIND,
+    DRIVE_I_ROLE,
+    DRIVE_Q_ROLE,
+    LIST_MODE_TARGET_KIND,
+    READOUT_I_ROLE,
+    READOUT_Q_ROLE,
+    ConfiguredQuantumRoute,
     configured_acquisition_signal,
     configured_output_signal,
     configured_quantum_routes,
@@ -17,6 +22,8 @@ from reference_lab.targets.fake_list_mode.model import (
     FakeDigitizerChannelId,
     FakeListTarget,
     FakeOutputBinding,
+    FakeOutputSignal,
+    signal_key,
 )
 
 
@@ -25,13 +32,9 @@ def configured_fake_list_target(config: ConfigProfileSnapshot) -> FakeListTarget
 
     target_id, routes = configured_quantum_routes(
         config,
-        target_kind=FAKE_LIST_TARGET_KIND,
+        target_kind=LIST_MODE_TARGET_KIND,
     )
-    output_bindings = tuple(
-        FakeOutputBinding(signal, FakeAwgChannelId(route.endpoint_id))
-        for route in routes
-        if (signal := configured_output_signal(route)) is not None
-    )
+    output_bindings = _configured_output_bindings(routes)
     acquisition_bindings = tuple(
         FakeAcquisitionBinding(
             signal,
@@ -45,6 +48,39 @@ def configured_fake_list_target(config: ConfigProfileSnapshot) -> FakeListTarget
         output_bindings=output_bindings,
         acquisition_bindings=acquisition_bindings,
     )
+
+
+def _configured_output_bindings(
+    routes: tuple[ConfiguredQuantumRoute, ...],
+) -> tuple[FakeOutputBinding, ...]:
+    selected: dict[
+        tuple[str, str, str],
+        tuple[FakeOutputSignal, dict[str, FakeAwgChannelId]],
+    ] = {}
+    for route in routes:
+        signal = configured_output_signal(route)
+        if signal is None or route.role_id is None:
+            continue
+        key = signal_key(signal)
+        bound_signal, channels = selected.setdefault(key, (signal, {}))
+        channels[route.role_id] = FakeAwgChannelId(route.endpoint_id)
+        selected[key] = (bound_signal, channels)
+
+    bindings: list[FakeOutputBinding] = []
+    for signal, channels in selected.values():
+        i_role, q_role = (
+            (DRIVE_I_ROLE, DRIVE_Q_ROLE)
+            if signal_key(signal)[0] == "drive"
+            else (READOUT_I_ROLE, READOUT_Q_ROLE)
+        )
+        bindings.append(
+            FakeOutputBinding(
+                signal=signal,
+                i_channel_id=channels[i_role],
+                q_channel_id=channels[q_role],
+            )
+        )
+    return tuple(bindings)
 
 
 def _fake_list_target(

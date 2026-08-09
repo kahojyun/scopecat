@@ -117,15 +117,17 @@ def test_fake_list_compiles_and_runs_one_calibrated_acquisition() -> None:
 
     artifact = compiler.compile(request)
     [entry] = artifact.entries
-    drive_channel = target.output_channel(DRIVE_Q0)
-    readout_channel = target.output_channel(READOUT_Q0)
-    assert drive_channel is not None
-    assert readout_channel is not None
+    drive_binding = target.output_binding(DRIVE_Q0)
+    readout_binding = target.output_binding(READOUT_Q0)
+    assert drive_binding is not None
+    assert readout_binding is not None
     waveforms = {waveform.channel_id: waveform.samples for waveform in entry.waveforms}
 
     assert scheduled.duration_seconds == Decimal("12e-9")
-    assert waveforms[drive_channel] == (0.25 + 0j,) * 4 + (0j,) * 8
-    assert waveforms[readout_channel] == (0j,) * 4 + (0.4 + 0j,) * 8
+    assert waveforms[drive_binding.i_channel_id] == (0.25,) * 4 + (0.0,) * 8
+    assert waveforms[drive_binding.q_channel_id] == (0.0,) * 12
+    assert waveforms[readout_binding.i_channel_id] == (0.0,) * 4 + (0.4,) * 8
+    assert waveforms[readout_binding.q_channel_id] == (0.0,) * 12
     [window] = entry.acquisitions
     assert window.slot_id == slot.id
     assert (window.start_sample, window.sample_count) == (4, 8)
@@ -160,7 +162,12 @@ def test_fake_list_samples_drag_and_tracks_beta_in_artifact_identity() -> None:
 
     target, baseline = compile_drag(0.5)
     _, changed = compile_drag(0.75)
-    samples = baseline.entries[0].waveforms[0].samples
+    binding = target.output_binding(DRIVE_Q0)
+    assert binding is not None
+    waveforms = {
+        waveform.channel_id: waveform.samples
+        for waveform in baseline.entries[0].waveforms
+    }
     offsets_ns = (-1.5, -0.5, 0.5, 1.5)
     gaussians = tuple(0.2 * math.exp(-(offset**2) / 2.0) for offset in offsets_ns)
     expected = tuple(
@@ -169,5 +176,10 @@ def test_fake_list_samples_drag_and_tracks_beta_in_artifact_identity() -> None:
     )
 
     assert target.supported_envelopes == ("constant", "drag")
-    assert samples == pytest.approx(expected)
+    assert waveforms[binding.i_channel_id] == pytest.approx(
+        tuple(sample.real for sample in expected)
+    )
+    assert waveforms[binding.q_channel_id] == pytest.approx(
+        tuple(sample.imag for sample in expected)
+    )
     assert changed.artifact_fingerprint != baseline.artifact_fingerprint

@@ -1,117 +1,121 @@
 from __future__ import annotations
 
-from scopecat.kernel.state import PayloadRef, StateValue
+import scopecat as sc
 from scopecat.records.config import InstrumentBindingSpec, VirtualInstrumentConnection
+from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments import (
-    DriverPayload,
+    DriverStateEntry,
+    DriverStatePatch,
     DriverSuccess,
     InstrumentConnectionContext,
     InstrumentProviderContext,
+    InterfaceRef,
 )
-from scopecat.sdk.instruments.backend import (
-    BackendInvokeRequest,
-    BackendOperationArgument,
-    BackendPayload,
-    decode_driver_operation,
+from scopecat_instruments.members import DC_BIAS_TARGET_VOLTAGE
+from scopecat_instruments.virtual import VirtualLabWorld
+
+from reference_lab.bench_interfaces import (
+    ANALOG_WAVEFORM_OUTPUT,
+    AWG_SEQUENCER,
+    DIGITIZER_CONTROL,
+    DIGITIZER_INPUT,
 )
-
-from reference_lab.backend import create_backend_from_profile
-from reference_lab.interfaces import (
-    PLAY_PULSE_PROGRAM_PLAY,
-    PLAY_PULSE_PROGRAM_PROGRAM,
+from reference_lab.interfaces import CLOCK_REFERENCE
+from reference_lab.provider import (
+    MultiChannelVirtualDcSource,
+    ReferenceLabProvider,
 )
-from reference_lab.payloads import PULSE_PROGRAM_SCHEMA_ID
-from reference_lab.virtual_lab.profiles import load_virtual_lab_profile
-from reference_lab.virtual_lab.provider import (
-    QuantumLabVirtualProvider,
-)
-
-from .reference_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
-
-
-def test_virtual_lab_profile_loads_configured_devices() -> None:
-    profile = load_virtual_lab_profile(EXPERIMENT_VIRTUAL_LAB_PROFILE)
-
-    assert profile.id == "reference_lab.virtual_lab"
-    assert profile.format_version == "reference_lab.virtual_lab_profile.v1"
-    assert tuple(device.id for device in profile.devices) == (
-        "drive-stack",
-        "readout-stack",
-        "pump-source",
-        "bench-source",
-        "flux-dac-a",
-        "flux-dac-b",
-        "mixing-chamber",
-        "readout-vna",
-    )
 
 
 def test_virtual_provider_catalog_and_connection_use_exact_bindings() -> None:
-    provider = QuantumLabVirtualProvider(EXPERIMENT_VIRTUAL_LAB_PROFILE)
+    provider = ReferenceLabProvider()
     binding = InstrumentBindingSpec(
-        id="drive-stack",
-        driver_id="reference_lab.virtual_lab.drive_stack",
+        id="drive-awg",
+        driver_id="reference_lab.virtual.awg",
         connection=VirtualInstrumentConnection(),
     )
 
     described = provider.describe(InstrumentProviderContext(bindings=(binding,)))
     connected = provider.connect(InstrumentConnectionContext(binding=binding))
 
-    assert [item.instrument_id for item in described.instruments] == ["drive-stack"]
-    assert connected.instrument_id == "drive-stack"
+    assert [item.instrument_id for item in described.instruments] == ["drive-awg"]
+    assert connected.instrument_id == "drive-awg"
     assert connected.implementation_id == binding.driver_id
     connected.disconnect()
 
 
-def test_drive_program_is_an_invocation_not_persistent_state() -> None:
-    # Resolve the type after loader fixtures select the active project module.
-    from reference_lab.payloads import DecodedPulseProgram
+def test_bare_control_devices_expose_physical_channel_interfaces() -> None:
+    provider = ReferenceLabProvider()
+    bindings = tuple(
+        InstrumentBindingSpec(
+            id=instrument_id,
+            driver_id=driver_id,
+            connection=VirtualInstrumentConnection(),
+        )
+        for instrument_id, driver_id in (
+            ("drive-awg", "reference_lab.virtual.awg"),
+            ("readout-digitizer", "reference_lab.virtual.digitizer"),
+        )
+    )
 
-    backend = create_backend_from_profile(EXPERIMENT_VIRTUAL_LAB_PROFILE)
-    binding = InstrumentBindingSpec(
-        id="drive-stack",
-        driver_id="reference_lab.virtual_lab.drive_stack",
-        connection=VirtualInstrumentConnection(),
-    )
-    driver = backend.provider.connect(InstrumentConnectionContext(binding=binding))
-    encoded = backend.payload_codecs.encode(
-        PULSE_PROGRAM_SCHEMA_ID,
-        {"instructions": []},
-    )
-    payload = BackendPayload(
-        id="program-0",
-        schema_id=encoded.schema_id,
-        codec_id=encoded.codec_id,
-        codec_version=encoded.codec_version,
-        media_type=encoded.media_type,
-        content=encoded.content,
-    )
-    before = driver.read_state()
+    described = provider.describe(InstrumentProviderContext(bindings=bindings))
+    awg, digitizer = described.instruments
 
-    operation = decode_driver_operation(
-        BackendInvokeRequest(
-            interface_id=PLAY_PULSE_PROGRAM_PLAY.interface_id,
-            component_path=PLAY_PULSE_PROGRAM_PLAY.component_path,
-            operation_id=PLAY_PULSE_PROGRAM_PLAY.operation_id,
-            arguments=(
-                BackendOperationArgument(
-                    id=PLAY_PULSE_PROGRAM_PROGRAM.argument_id,
-                    value=StateValue(PayloadRef(payload_id=payload.id)),
-                ),
-            ),
-            payloads={payload.id: payload},
+    assert {item.id for item in awg.interfaces} == {
+        AWG_SEQUENCER.interface_id,
+        ANALOG_WAVEFORM_OUTPUT.interface_id,
+        CLOCK_REFERENCE.interface_id,
+    }
+    assert len(awg.interface_mounts) == 8
+    assert {item.id for item in digitizer.interfaces} == {
+        DIGITIZER_CONTROL.interface_id,
+        DIGITIZER_INPUT.interface_id,
+    }
+    assert len(digitizer.interface_mounts) == 2
+
+
+def test_multichannel_driver_dispatches_by_component_with_shared_provenance() -> None:
+    world = VirtualLabWorld(seed=7)
+    driver = MultiChannelVirtualDcSource("flux-dac", world)
+    target = (
+        InterfaceRef(DC_BIAS_TARGET_VOLTAGE.interface_id)
+        .component("channels")
+        .component("ch1")
+        .property(DC_BIAS_TARGET_VOLTAGE.property_id)
+    )
+    bindings = (
+        CommandChannelBinding(
+            entity_id="q0",
+            channel_id="flux.ch1.primary",
+            interface_id=target.interface_id,
         ),
-        backend.payload_codecs,
+        CommandChannelBinding(
+            entity_id="coupler0",
+            channel_id="flux.ch1.secondary",
+            interface_id=target.interface_id,
+        ),
     )
-    receipt = driver.invoke(operation)
 
-    [argument] = operation.arguments.values()
-    assert isinstance(argument, DriverPayload)
-    assert isinstance(argument.value, DecodedPulseProgram)
-    assert argument.value.document == {"instructions": []}
-    assert operation.target == PLAY_PULSE_PROGRAM_PLAY
-    assert operation.arguments[PLAY_PULSE_PROGRAM_PROGRAM.argument_id] == argument
-    assert isinstance(receipt, DriverSuccess)
-    assert receipt.metadata["payload_count"] == 1
-    assert driver.read_state() == before
-    driver.disconnect()
+    outcome = driver.apply_state(
+        DriverStatePatch(
+            scoped_values=(
+                DriverStateEntry(
+                    target=target,
+                    value=sc.Quantity(0.125, "V"),
+                    entity_ids=("q0", "coupler0"),
+                    channel_bindings=bindings,
+                ),
+            )
+        )
+    )
+
+    assert isinstance(outcome, DriverSuccess)
+    assert world.dc_source("flux-dac:flux.ch1.primary").voltage_level_v == 0.125
+    state_entry = next(
+        entry for entry in driver.read_state().entries if entry.target == target
+    )
+    assert state_entry.entity_ids == ("q0", "coupler0")
+    assert {binding.channel_id for binding in state_entry.channel_bindings} == {
+        "flux.ch1.primary",
+        "flux.ch1.secondary",
+    }

@@ -164,10 +164,7 @@ def _waveform_fingerprint(entry: FakeListEntry) -> str:
             "waveforms": [
                 {
                     "channel_id": waveform.channel_id.value,
-                    "samples": [
-                        [float(sample.real).hex(), float(sample.imag).hex()]
-                        for sample in waveform.samples
-                    ],
+                    "samples": [float(sample).hex() for sample in waveform.samples],
                 }
                 for waveform in entry.waveforms
             ],

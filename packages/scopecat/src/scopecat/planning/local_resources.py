@@ -31,9 +31,6 @@ from scopecat.program.logical import (
 )
 from scopecat.records.instrument import CommandChannelBinding
 
-type PhysicalChannelIdentity = tuple[str, InterfaceId | None]
-type PhysicalChannelSignature = tuple[PhysicalChannelIdentity, ...]
-
 
 @dataclass(frozen=True, slots=True)
 class ResourceEntitySelection:
@@ -222,12 +219,6 @@ def collection_channel_bindings(
     return tuple(
         binding for binding in bindings if binding.interface_id == interface_id
     )
-
-
-def physical_channel_signature(
-    bindings: Sequence[CommandChannelBinding],
-) -> PhysicalChannelSignature:
-    return tuple((binding.channel_id, binding.interface_id) for binding in bindings)
 
 
 def _select_point_resources(

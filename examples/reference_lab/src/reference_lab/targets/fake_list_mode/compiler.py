@@ -48,6 +48,7 @@ from reference_lab.targets.fake_list_mode.model import (
     FakeListArtifact,
     FakeListEntry,
     FakeListTarget,
+    FakeOutputBinding,
     FakeOutputSignal,
     acquisition_slot_identity_payload,
     canonical_fingerprint,
@@ -58,7 +59,7 @@ from reference_lab.targets.fake_list_mode.model import (
 
 @dataclass(frozen=True, slots=True)
 class _PlaySpan:
-    channel_id: FakeAwgChannelId
+    binding: FakeOutputBinding
     start_sample: int
     samples: tuple[complex, ...]
 
@@ -77,7 +78,15 @@ class _EntryPlan:
 
     @property
     def waveform_channels(self) -> tuple[FakeAwgChannelId, ...]:
-        return tuple(sorted({play.channel_id for play in self.plays}))
+        return tuple(
+            sorted(
+                {
+                    channel_id
+                    for play in self.plays
+                    for channel_id in play.binding.channel_ids
+                }
+            )
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,8 +314,8 @@ class FakeListTargetCompiler:
         ):
             _unsupported_issue(issues, entry_id, event_id)
             return
-        channel_id = self.target.output_channel(signal)
-        if channel_id is None:
+        binding = self.target.output_binding(signal)
+        if binding is None:
             _entry_issue(
                 issues,
                 entry_id,
@@ -315,22 +324,23 @@ class FakeListTargetCompiler:
             )
         if (
             isinstance(signal, DriveSignal)
-            and channel_id is not None
+            and binding is not None
             and start_sample is not None
             and sample_count is not None
             and sample_count > 0
         ):
-            _claim_interval(
-                intervals=intervals,
-                channel_id=channel_id,
-                start_sample=start_sample,
-                sample_count=sample_count,
-                event_id=event_id,
-                entry_id=entry_id,
-                overlap_code="fake_list_physical_output_overlap",
-                resource_label="AWG channel",
-                issues=issues,
-            )
+            for channel_id in binding.channel_ids:
+                _claim_interval(
+                    intervals=intervals,
+                    channel_id=channel_id,
+                    start_sample=start_sample,
+                    sample_count=sample_count,
+                    event_id=event_id,
+                    entry_id=entry_id,
+                    overlap_code="fake_list_physical_output_overlap",
+                    resource_label="AWG channel",
+                    issues=issues,
+                )
         if envelope.amplitude.unit not in {"arb", "ratio"}:
             _entry_capability_issue(
                 issues,
@@ -363,11 +373,11 @@ class FakeListTargetCompiler:
                     f"{self.target.max_abs_amplitude!r}"
                 ),
             )
-        if channel_id is None or start_sample is None:
+        if binding is None or start_sample is None:
             return
         plays.append(
             _PlaySpan(
-                channel_id=channel_id,
+                binding=binding,
                 start_sample=start_sample,
                 samples=samples,
             )
@@ -376,20 +386,24 @@ class FakeListTargetCompiler:
     @staticmethod
     def _render_entry(plan: _EntryPlan) -> FakeListEntry:
         buffers = {
-            channel_id: [0j] * plan.sample_count
+            channel_id: [0.0] * plan.sample_count
             for channel_id in plan.waveform_channels
         }
         for play in plan.plays:
             end_sample = play.start_sample + play.sample_count
-            channel = buffers[play.channel_id]
-            channel[play.start_sample : end_sample] = (
-                existing + incoming
-                for existing, incoming in zip(
-                    channel[play.start_sample : end_sample],
-                    play.samples,
-                    strict=True,
+            for channel_id, incoming_samples in (
+                (play.binding.i_channel_id, (sample.real for sample in play.samples)),
+                (play.binding.q_channel_id, (sample.imag for sample in play.samples)),
+            ):
+                channel = buffers[channel_id]
+                channel[play.start_sample : end_sample] = (
+                    existing + incoming
+                    for existing, incoming in zip(
+                        channel[play.start_sample : end_sample],
+                        incoming_samples,
+                        strict=True,
+                    )
                 )
-            )
         return FakeListEntry(
             list_index=plan.list_index,
             entry_id=plan.source.id,
@@ -576,10 +590,7 @@ def _artifact_payload(
                 "waveforms": [
                     {
                         "channel_id": waveform.channel_id.value,
-                        "samples": [
-                            [float(sample.real).hex(), float(sample.imag).hex()]
-                            for sample in waveform.samples
-                        ],
+                        "samples": [float(sample).hex() for sample in waveform.samples],
                     }
                     for waveform in entry.waveforms
                 ],

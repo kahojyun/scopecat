@@ -23,6 +23,12 @@ type DriverScalar = bool | int | float | str | Quantity
 
 @dataclass(frozen=True, slots=True)
 class DriverStateEntry:
+    """One physical state slot addressed by ``target.component_path``.
+
+    Entity ids and channel bindings preserve demand and route provenance. They
+    do not select a second state slot or replace physical component dispatch.
+    """
+
     target: PropertyRef
     value: DriverScalar
     entity_ids: tuple[str, ...] = ()
@@ -79,6 +85,12 @@ type DriverArgument = DriverScalar | DriverPayload
 
 @dataclass(frozen=True, slots=True)
 class DriverOperation:
+    """One operation dispatched to the physical path in ``target``.
+
+    Entity ids and channel bindings are provenance for the resolved logical
+    resource; implementations must not use their cardinality as target identity.
+    """
+
     target: OperationRef
     arguments: Mapping[str, DriverArgument] = field(
         default_factory=lambda: dict[str, DriverArgument]()
@@ -89,6 +101,12 @@ class DriverOperation:
 
 @dataclass(frozen=True, slots=True)
 class DriverAcquisition:
+    """One acquisition dispatched to the physical path in ``target``.
+
+    Channel bindings describe the route that produced this request. The target
+    path remains the driver's authoritative physical dispatch key.
+    """
+
     target: AcquisitionRef
     results: frozenset[AcquisitionResultRef]
     entity_ids: tuple[str, ...] = ()

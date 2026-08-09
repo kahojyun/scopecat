@@ -12,9 +12,17 @@ from scopecat_quantum.pulses import (
     ReadoutSignal,
 )
 
-from reference_lab.interfaces import ACQUIRE_IQ, PLAY_PULSE_PROGRAM, READOUT_PULSE
+from reference_lab.bench_interfaces import (
+    ANALOG_WAVEFORM_OUTPUT,
+    DIGITIZER_INPUT,
+)
 
-FAKE_LIST_TARGET_KIND = "reference_lab.fake-list-mode"
+LIST_MODE_TARGET_KIND = "reference_lab.list-mode"
+DRIVE_I_ROLE = "drive-i"
+DRIVE_Q_ROLE = "drive-q"
+READOUT_I_ROLE = "readout-i"
+READOUT_Q_ROLE = "readout-q"
+READOUT_ACQUISITION_ROLE = "readout-acquisition"
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +30,7 @@ class ConfiguredQuantumRoute:
     """One complete logical-signal route owned by the selected target."""
 
     instrument_id: str
+    role_id: str | None
     interface_id: str
     entity_id: str
     entity_kind: str
@@ -29,9 +38,7 @@ class ConfiguredQuantumRoute:
 
     @property
     def endpoint_id(self) -> str:
-        if self.interface_id == READOUT_PULSE.interface_id:
-            return f"{self.instrument_id}:{self.channel_id}"
-        return f"{self.instrument_id}:{self.channel_id}:{self.entity_id}"
+        return f"{self.instrument_id}:{self.channel_id}"
 
 
 def configured_quantum_routes(
@@ -64,6 +71,7 @@ def configured_quantum_routes(
             routes.append(
                 ConfiguredQuantumRoute(
                     instrument_id=resource_route.instrument_id,
+                    role_id=resource_route.role_id,
                     interface_id=endpoint.interface_id,
                     entity_id=endpoint.entity_id,
                     entity_kind=entity.kind,
@@ -82,9 +90,15 @@ def configured_output_signal(
 
     if route.entity_kind == "logical_qubit":
         qubit = QubitId(route.entity_id)
-        if route.interface_id == PLAY_PULSE_PROGRAM.interface_id:
+        if (
+            route.interface_id == ANALOG_WAVEFORM_OUTPUT.interface_id
+            and route.role_id in {DRIVE_I_ROLE, DRIVE_Q_ROLE}
+        ):
             return DriveSignal(qubit)
-        if route.interface_id == READOUT_PULSE.interface_id:
+        if (
+            route.interface_id == ANALOG_WAVEFORM_OUTPUT.interface_id
+            and route.role_id in {READOUT_I_ROLE, READOUT_Q_ROLE}
+        ):
             return ReadoutSignal(qubit)
     return None
 
@@ -95,7 +109,8 @@ def configured_acquisition_signal(
     """Project one configured route into a logical acquisition signal."""
 
     if (
-        route.interface_id == ACQUIRE_IQ.interface_id
+        route.interface_id == DIGITIZER_INPUT.interface_id
+        and route.role_id == READOUT_ACQUISITION_ROLE
         and route.entity_kind == "logical_qubit"
     ):
         return AcquireSignal(QubitId(route.entity_id))
@@ -103,7 +118,12 @@ def configured_acquisition_signal(
 
 
 __all__ = [
-    "FAKE_LIST_TARGET_KIND",
+    "DRIVE_I_ROLE",
+    "DRIVE_Q_ROLE",
+    "LIST_MODE_TARGET_KIND",
+    "READOUT_ACQUISITION_ROLE",
+    "READOUT_I_ROLE",
+    "READOUT_Q_ROLE",
     "ConfiguredQuantumRoute",
     "configured_acquisition_signal",
     "configured_output_signal",

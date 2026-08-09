@@ -10,6 +10,11 @@ from scopecat.authoring._module_context import ModuleContext
 from scopecat.authoring._module_invocation import (
     ModuleInvocation,
 )
+from scopecat.authoring.capability_resources import (
+    CapabilityResource,
+    capability_resource,
+    ensure_state_targets,
+)
 from scopecat.authoring.definitions import (
     Experiment,
     ExperimentContext,
@@ -112,6 +117,7 @@ __all__ = [
     "DEFAULT_RESOURCE_ROLE",
     "Axis",
     "BoolType",
+    "CapabilityResource",
     "ComputeInput",
     "ConcreteEntityInput",
     "CoordinateRef",
@@ -161,8 +167,10 @@ __all__ = [
     "ValueType",
     "ValueValidationError",
     "axis",
+    "capability_resource",
     "coordinate",
     "each",
+    "ensure_state_targets",
     "experiment",
     "input_ref",
     "module",

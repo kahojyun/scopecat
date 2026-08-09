@@ -12,6 +12,7 @@ from scopecat.execution.local.program import (
     ComputeOperation,
     OutputInput,
     ResourceProvenance,
+    StateDemandOrigin,
     StateTarget,
 )
 from scopecat.execution.program import RunCoverageCheckpoint
@@ -96,6 +97,10 @@ def _provenance(instrument_id: str) -> ResourceProvenance:
         route_id=instrument_id,
         route_role_id=None,
     )
+
+
+def _state_origin(instrument_id: str) -> StateDemandOrigin:
+    return StateDemandOrigin(resource=_provenance(instrument_id))
 
 
 def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
@@ -863,7 +868,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
                         interface_id="test.set_gain/v1",
                         property_id="gain",
                         value=StateValue(1.0),
-                        resource=_provenance("source-a"),
+                        origins=(_state_origin("source-a"),),
                     ),
                 ),
             ),
@@ -875,7 +880,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
                         interface_id="test.set_gain/v1",
                         property_id="gain",
                         value=StateValue(2.0),
-                        resource=_provenance("source-b"),
+                        origins=(_state_origin("source-b"),),
                     ),
                 ),
             ),
@@ -915,7 +920,7 @@ def _gain_operation(instrument_id: str, value: float) -> ApplyStateOperation:
                 interface_id="test.set_gain/v1",
                 property_id="gain",
                 value=StateValue(value),
-                resource=_provenance(instrument_id),
+                origins=(_state_origin(instrument_id),),
             ),
         ),
     )

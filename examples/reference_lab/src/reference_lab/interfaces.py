@@ -1,62 +1,52 @@
-"""Quantum-lab interface identities shared by routing and virtual devices."""
+"""Reference-lab interfaces shared across physical device drivers."""
 
 from __future__ import annotations
 
-from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.sdk.instruments import (
     InterfaceRef,
     InterfaceSpec,
-    OperationArgumentRef,
-    OperationRef,
+    bool_property,
+    enum_property,
     interface,
-    operation,
-    operation_argument,
+    quantity_property,
 )
 
-PLAY_PULSE_PROGRAM: InterfaceRef = InterfaceRef("quantum_lab.play_pulse_program/v1")
-PLAY_PULSE_PROGRAM_PLAY: OperationRef = PLAY_PULSE_PROGRAM.operation("play")
-PLAY_PULSE_PROGRAM_PROGRAM: OperationArgumentRef = PLAY_PULSE_PROGRAM_PLAY.argument(
-    "program"
-)
-READOUT_PULSE: InterfaceRef = InterfaceRef("quantum_lab.readout_pulse/v1")
-ACQUIRE_IQ: InterfaceRef = InterfaceRef("quantum_lab.acquire_iq/v1")
+CLOCK_REFERENCE = InterfaceRef("reference_lab.clock_reference/v1")
+CLOCK_REFERENCE_SOURCE = CLOCK_REFERENCE.property("source")
+CLOCK_REFERENCE_FREQUENCY = CLOCK_REFERENCE.property("frequency")
+CLOCK_REFERENCE_LOCKED = CLOCK_REFERENCE.property("locked")
 
 
-def play_pulse_program_interface() -> InterfaceSpec:
+def clock_reference_interface() -> InterfaceSpec:
     return interface(
-        PLAY_PULSE_PROGRAM.interface_id,
-        label="Play pulse program",
-        operations=[
-            operation(
-                PLAY_PULSE_PROGRAM_PLAY.operation_id,
-                label="Play pulse program",
-                arguments=[
-                    operation_argument(
-                        PLAY_PULSE_PROGRAM_PROGRAM.argument_id,
-                        value_type=Scalar(Payload("pulse_program")),
-                        label="Pulse program",
-                    )
-                ],
-            )
-        ],
+        CLOCK_REFERENCE.interface_id,
+        label="Clock reference",
+        description="Instrument-wide reference clock configuration and lock state.",
+        properties=(
+            enum_property(
+                CLOCK_REFERENCE_SOURCE.property_id,
+                choices=("internal", "external"),
+                label="Reference source",
+            ),
+            quantity_property(
+                CLOCK_REFERENCE_FREQUENCY.property_id,
+                unit="Hz",
+                minimum=1.0,
+                label="Reference frequency",
+            ),
+            bool_property(
+                CLOCK_REFERENCE_LOCKED.property_id,
+                label="Reference locked",
+                access="read_only",
+            ),
+        ),
     )
 
 
-def readout_pulse_interface() -> InterfaceSpec:
-    return interface(READOUT_PULSE.interface_id, label="Readout pulse")
-
-
-def acquire_iq_interface() -> InterfaceSpec:
-    return interface(ACQUIRE_IQ.interface_id, label="Acquire IQ")
-
-
 __all__ = [
-    "ACQUIRE_IQ",
-    "PLAY_PULSE_PROGRAM",
-    "PLAY_PULSE_PROGRAM_PLAY",
-    "PLAY_PULSE_PROGRAM_PROGRAM",
-    "READOUT_PULSE",
-    "acquire_iq_interface",
-    "play_pulse_program_interface",
-    "readout_pulse_interface",
+    "CLOCK_REFERENCE",
+    "CLOCK_REFERENCE_FREQUENCY",
+    "CLOCK_REFERENCE_LOCKED",
+    "CLOCK_REFERENCE_SOURCE",
+    "clock_reference_interface",
 ]

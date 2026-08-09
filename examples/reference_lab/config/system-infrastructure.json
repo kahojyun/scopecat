@@ -4,34 +4,10 @@
   "instrument_registry": {
     "instruments": [
       {
-        "id": "drive-stack",
-        "exclusivity_key": "drive-stack",
-        "driver_id": "reference_lab.virtual_lab.drive_stack",
-        "connection": {
-          "kind": "virtual"
-        },
-        "run_start": "preserve",
-        "success_action": "release",
-        "failure_action": "abort_and_release"
-      },
-      {
-        "id": "readout-stack",
-        "exclusivity_key": "readout-stack",
-        "driver_id": "reference_lab.virtual_lab.readout_stack",
-        "connection": {
-          "kind": "virtual"
-        },
-        "run_start": "preserve",
-        "success_action": "release",
-        "failure_action": "abort_and_release"
-      },
-      {
         "id": "pump-source",
         "exclusivity_key": "pump-source",
         "driver_id": "scopecat.virtual.rf_source",
-        "connection": {
-          "kind": "virtual"
-        },
+        "connection": {"kind": "virtual"},
         "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
@@ -40,9 +16,52 @@
         "id": "bench-source",
         "exclusivity_key": "bench-source",
         "driver_id": "scopecat.virtual.dc_source",
-        "connection": {
-          "kind": "virtual"
-        },
+        "connection": {"kind": "virtual"},
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "xy-lo",
+        "exclusivity_key": "xy-lo",
+        "driver_id": "scopecat.virtual.rf_source",
+        "connection": {"kind": "virtual"},
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "drive-awg",
+        "exclusivity_key": "drive-awg",
+        "driver_id": "reference_lab.virtual.awg",
+        "connection": {"kind": "virtual"},
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "readout-awg",
+        "exclusivity_key": "readout-awg",
+        "driver_id": "reference_lab.virtual.awg",
+        "connection": {"kind": "virtual"},
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "readout-digitizer",
+        "exclusivity_key": "readout-digitizer",
+        "driver_id": "reference_lab.virtual.digitizer",
+        "connection": {"kind": "virtual"},
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "bench-scope",
+        "exclusivity_key": "bench-scope",
+        "driver_id": "reference_lab.virtual.oscilloscope",
+        "connection": {"kind": "virtual"},
         "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
@@ -51,9 +70,7 @@
         "id": "flux-dac-a",
         "exclusivity_key": "flux-dac-a",
         "driver_id": "reference_lab.virtual.multichannel_dc_source",
-        "connection": {
-          "kind": "virtual"
-        },
+        "connection": {"kind": "virtual"},
         "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
@@ -62,9 +79,7 @@
         "id": "flux-dac-b",
         "exclusivity_key": "flux-dac-b",
         "driver_id": "reference_lab.virtual.multichannel_dc_source",
-        "connection": {
-          "kind": "virtual"
-        },
+        "connection": {"kind": "virtual"},
         "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
@@ -73,9 +88,7 @@
         "id": "mixing-chamber",
         "exclusivity_key": "mixing-chamber",
         "driver_id": "scopecat.virtual.temperature_monitor",
-        "connection": {
-          "kind": "virtual"
-        },
+        "connection": {"kind": "virtual"},
         "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
@@ -84,20 +97,7 @@
         "id": "readout-vna",
         "exclusivity_key": "readout-vna",
         "driver_id": "scopecat.virtual.vna",
-        "connection": {
-          "kind": "virtual"
-        },
-        "run_start": "preserve",
-        "success_action": "release",
-        "failure_action": "abort_and_release"
-      },
-      {
-        "id": "event-digitizer",
-        "exclusivity_key": "event-digitizer",
-        "driver_id": "reference_lab.virtual.event_digitizer",
-        "connection": {
-          "kind": "virtual"
-        },
+        "connection": {"kind": "virtual"},
         "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
@@ -105,230 +105,192 @@
     ]
   },
   "routing": {
-    "roles": [],
+    "roles": [
+      {
+        "id": "drive-i",
+        "description": "In-phase DAC output of a qubit-drive IQ pair"
+      },
+      {
+        "id": "drive-q",
+        "description": "Quadrature DAC output of a qubit-drive IQ pair"
+      },
+      {
+        "id": "readout-i",
+        "description": "In-phase DAC output of the multiplexed readout pair"
+      },
+      {
+        "id": "readout-q",
+        "description": "Quadrature DAC output of the multiplexed readout pair"
+      },
+      {
+        "id": "readout-acquisition",
+        "description": "ADC input and target-owned demodulation slot"
+      }
+    ],
     "routes": [
       {
-        "id": "drive-stack",
-        "instrument_id": "drive-stack",
+        "id": "drive-awg-i",
+        "instrument_id": "drive-awg",
+        "role_id": "drive-i",
         "endpoints": [
-          {
-            "interface_id": "quantum_lab.play_pulse_program/v1",
-            "entity_id": "q0",
-            "channel_id": "drive.awg0.ch1"
-          },
-          {
-            "interface_id": "quantum_lab.play_pulse_program/v1",
-            "entity_id": "q1",
-            "channel_id": "drive.awg0.ch2"
-          },
-          {
-            "interface_id": "quantum_lab.play_pulse_program/v1",
-            "entity_id": "q2",
-            "channel_id": "drive.awg0.ch3"
-          },
-          {
-            "interface_id": "quantum_lab.play_pulse_program/v1",
-            "entity_id": "q3",
-            "channel_id": "drive.awg0.ch4"
-          }
+          {"interface_id": "reference_lab.awg_sequencer/v1", "entity_id": "q0"},
+          {"interface_id": "reference_lab.clock_reference/v1", "entity_id": "q0"},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q0", "channel_id": "drive.awg0.ch1", "component_path": ["outputs", "ch1"]},
+          {"interface_id": "reference_lab.awg_sequencer/v1", "entity_id": "q1"},
+          {"interface_id": "reference_lab.clock_reference/v1", "entity_id": "q1"},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q1", "channel_id": "drive.awg0.ch3", "component_path": ["outputs", "ch3"]},
+          {"interface_id": "reference_lab.awg_sequencer/v1", "entity_id": "q2"},
+          {"interface_id": "reference_lab.clock_reference/v1", "entity_id": "q2"},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q2", "channel_id": "drive.awg0.ch5", "component_path": ["outputs", "ch5"]},
+          {"interface_id": "reference_lab.awg_sequencer/v1", "entity_id": "q3"},
+          {"interface_id": "reference_lab.clock_reference/v1", "entity_id": "q3"},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q3", "channel_id": "drive.awg0.ch7", "component_path": ["outputs", "ch7"]}
         ]
       },
       {
-        "id": "event-digitizer",
-        "instrument_id": "event-digitizer",
+        "id": "drive-awg-q",
+        "instrument_id": "drive-awg",
+        "role_id": "drive-q",
         "endpoints": [
-          {
-            "interface_id": "reference_lab.event_capture/v1"
-          }
+          {"interface_id": "reference_lab.awg_sequencer/v1", "entity_id": "q0"},
+          {"interface_id": "reference_lab.clock_reference/v1", "entity_id": "q0"},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q0", "channel_id": "drive.awg0.ch2", "component_path": ["outputs", "ch2"]},
+          {"interface_id": "reference_lab.awg_sequencer/v1", "entity_id": "q1"},
+          {"interface_id": "reference_lab.clock_reference/v1", "entity_id": "q1"},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q1", "channel_id": "drive.awg0.ch4", "component_path": ["outputs", "ch4"]},
+          {"interface_id": "reference_lab.awg_sequencer/v1", "entity_id": "q2"},
+          {"interface_id": "reference_lab.clock_reference/v1", "entity_id": "q2"},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q2", "channel_id": "drive.awg0.ch6", "component_path": ["outputs", "ch6"]},
+          {"interface_id": "reference_lab.awg_sequencer/v1", "entity_id": "q3"},
+          {"interface_id": "reference_lab.clock_reference/v1", "entity_id": "q3"},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q3", "channel_id": "drive.awg0.ch8", "component_path": ["outputs", "ch8"]}
+        ]
+      },
+      {
+        "id": "readout-awg-i",
+        "instrument_id": "readout-awg",
+        "role_id": "readout-i",
+        "endpoints": [
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q0", "channel_id": "readout.awg0.ch1", "component_path": ["outputs", "ch1"]},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q1", "channel_id": "readout.awg0.ch1", "component_path": ["outputs", "ch1"]},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q2", "channel_id": "readout.awg0.ch1", "component_path": ["outputs", "ch1"]},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q3", "channel_id": "readout.awg0.ch1", "component_path": ["outputs", "ch1"]}
+        ]
+      },
+      {
+        "id": "readout-awg-q",
+        "instrument_id": "readout-awg",
+        "role_id": "readout-q",
+        "endpoints": [
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q0", "channel_id": "readout.awg0.ch2", "component_path": ["outputs", "ch2"]},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q1", "channel_id": "readout.awg0.ch2", "component_path": ["outputs", "ch2"]},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q2", "channel_id": "readout.awg0.ch2", "component_path": ["outputs", "ch2"]},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "entity_id": "q3", "channel_id": "readout.awg0.ch2", "component_path": ["outputs", "ch2"]}
+        ]
+      },
+      {
+        "id": "readout-digitizer",
+        "instrument_id": "readout-digitizer",
+        "role_id": "readout-acquisition",
+        "endpoints": [
+          {"interface_id": "reference_lab.digitizer_control/v1", "entity_id": "q0"},
+          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q0", "channel_id": "digitizer.adc0.demod0", "component_path": ["inputs", "ch1"]},
+          {"interface_id": "reference_lab.digitizer_control/v1", "entity_id": "q1"},
+          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q1", "channel_id": "digitizer.adc0.demod1", "component_path": ["inputs", "ch1"]},
+          {"interface_id": "reference_lab.digitizer_control/v1", "entity_id": "q2"},
+          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q2", "channel_id": "digitizer.adc0.demod2", "component_path": ["inputs", "ch1"]},
+          {"interface_id": "reference_lab.digitizer_control/v1", "entity_id": "q3"},
+          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q3", "channel_id": "digitizer.adc0.demod3", "component_path": ["inputs", "ch1"]}
+        ]
+      },
+      {
+        "id": "bench-awg-output",
+        "instrument_id": "drive-awg",
+        "endpoints": [
+          {"interface_id": "reference_lab.awg_sequencer/v1"},
+          {"interface_id": "reference_lab.analog_waveform_output/v1", "component_path": ["outputs", "ch1"]}
+        ]
+      },
+      {
+        "id": "bench-scope-monitor",
+        "instrument_id": "bench-scope",
+        "endpoints": [
+          {"interface_id": "reference_lab.oscilloscope_control/v1"},
+          {"interface_id": "reference_lab.oscilloscope_input/v1", "component_path": ["inputs", "ch1"]}
+        ]
+      },
+      {
+        "id": "xy-lo",
+        "instrument_id": "xy-lo",
+        "endpoints": [
+          {"interface_id": "scopecat.rf_output/v1", "entity_id": "q0"},
+          {"interface_id": "scopecat.rf_output/v1", "entity_id": "q1"}
         ]
       },
       {
         "id": "flux-dac-a",
         "instrument_id": "flux-dac-a",
         "endpoints": [
-          {
-            "interface_id": "scopecat.dc_source/v3",
-            "entity_id": "q0",
-            "channel_id": "flux.dac_a.ch1"
-          },
-          {
-            "interface_id": "scopecat.dc_bias/v1",
-            "entity_id": "q0",
-            "channel_id": "flux.dac_a.ch1"
-          },
-          {
-            "interface_id": "scopecat.dc_monitor/v4",
-            "entity_id": "q0",
-            "channel_id": "flux.dac_a.ch1"
-          },
-          {
-            "interface_id": "scopecat.dc_source/v3",
-            "entity_id": "q1",
-            "channel_id": "flux.dac_a.ch2"
-          },
-          {
-            "interface_id": "scopecat.dc_bias/v1",
-            "entity_id": "q1",
-            "channel_id": "flux.dac_a.ch2"
-          },
-          {
-            "interface_id": "scopecat.dc_monitor/v4",
-            "entity_id": "q1",
-            "channel_id": "flux.dac_a.ch2"
-          }
+          {"interface_id": "scopecat.dc_source/v3", "entity_id": "q0", "channel_id": "flux.dac_a.ch1", "component_path": ["channels", "ch1"]},
+          {"interface_id": "scopecat.dc_bias/v1", "entity_id": "q0", "channel_id": "flux.dac_a.ch1", "component_path": ["channels", "ch1"]},
+          {"interface_id": "scopecat.dc_monitor/v4", "entity_id": "q0", "channel_id": "flux.dac_a.ch1", "component_path": ["channels", "ch1"]},
+          {"interface_id": "scopecat.dc_source/v3", "entity_id": "q1", "channel_id": "flux.dac_a.ch2", "component_path": ["channels", "ch2"]},
+          {"interface_id": "scopecat.dc_bias/v1", "entity_id": "q1", "channel_id": "flux.dac_a.ch2", "component_path": ["channels", "ch2"]},
+          {"interface_id": "scopecat.dc_monitor/v4", "entity_id": "q1", "channel_id": "flux.dac_a.ch2", "component_path": ["channels", "ch2"]}
         ]
       },
       {
         "id": "flux-dac-b",
         "instrument_id": "flux-dac-b",
         "endpoints": [
-          {
-            "interface_id": "scopecat.dc_source/v3",
-            "entity_id": "q2",
-            "channel_id": "flux.dac_b.ch1"
-          },
-          {
-            "interface_id": "scopecat.dc_bias/v1",
-            "entity_id": "q2",
-            "channel_id": "flux.dac_b.ch1"
-          },
-          {
-            "interface_id": "scopecat.dc_monitor/v4",
-            "entity_id": "q2",
-            "channel_id": "flux.dac_b.ch1"
-          },
-          {
-            "interface_id": "scopecat.dc_source/v3",
-            "entity_id": "q3",
-            "channel_id": "flux.dac_b.ch2"
-          },
-          {
-            "interface_id": "scopecat.dc_bias/v1",
-            "entity_id": "q3",
-            "channel_id": "flux.dac_b.ch2"
-          },
-          {
-            "interface_id": "scopecat.dc_monitor/v4",
-            "entity_id": "q3",
-            "channel_id": "flux.dac_b.ch2"
-          }
+          {"interface_id": "scopecat.dc_source/v3", "entity_id": "q2", "channel_id": "flux.dac_b.ch1", "component_path": ["channels", "ch1"]},
+          {"interface_id": "scopecat.dc_bias/v1", "entity_id": "q2", "channel_id": "flux.dac_b.ch1", "component_path": ["channels", "ch1"]},
+          {"interface_id": "scopecat.dc_monitor/v4", "entity_id": "q2", "channel_id": "flux.dac_b.ch1", "component_path": ["channels", "ch1"]},
+          {"interface_id": "scopecat.dc_source/v3", "entity_id": "q3", "channel_id": "flux.dac_b.ch2", "component_path": ["channels", "ch2"]},
+          {"interface_id": "scopecat.dc_bias/v1", "entity_id": "q3", "channel_id": "flux.dac_b.ch2", "component_path": ["channels", "ch2"]},
+          {"interface_id": "scopecat.dc_monitor/v4", "entity_id": "q3", "channel_id": "flux.dac_b.ch2", "component_path": ["channels", "ch2"]}
         ]
       },
       {
         "id": "mixing-chamber",
         "instrument_id": "mixing-chamber",
         "endpoints": [
-          {
-            "interface_id": "scopecat.temperature_readout/v1",
-            "entity_id": "cryostat"
-          }
+          {"interface_id": "scopecat.temperature_readout/v1", "entity_id": "cryostat"}
         ]
       },
       {
         "id": "pump-source",
         "instrument_id": "pump-source",
         "endpoints": [
-          {
-            "interface_id": "scopecat.rf_output/v1"
-          }
-        ]
-      },
-      {
-        "id": "readout-stack",
-        "instrument_id": "readout-stack",
-        "endpoints": [
-          {
-            "interface_id": "quantum_lab.readout_pulse/v1",
-            "entity_id": "q0",
-            "channel_id": "readout.mux0"
-          },
-          {
-            "interface_id": "quantum_lab.acquire_iq/v1",
-            "entity_id": "q0",
-            "channel_id": "digitizer.demod0"
-          },
-          {
-            "interface_id": "quantum_lab.readout_pulse/v1",
-            "entity_id": "q1",
-            "channel_id": "readout.mux0"
-          },
-          {
-            "interface_id": "quantum_lab.acquire_iq/v1",
-            "entity_id": "q1",
-            "channel_id": "digitizer.demod1"
-          },
-          {
-            "interface_id": "quantum_lab.readout_pulse/v1",
-            "entity_id": "q2",
-            "channel_id": "readout.mux0"
-          },
-          {
-            "interface_id": "quantum_lab.acquire_iq/v1",
-            "entity_id": "q2",
-            "channel_id": "digitizer.demod2"
-          },
-          {
-            "interface_id": "quantum_lab.readout_pulse/v1",
-            "entity_id": "q3",
-            "channel_id": "readout.mux0"
-          },
-          {
-            "interface_id": "quantum_lab.acquire_iq/v1",
-            "entity_id": "q3",
-            "channel_id": "digitizer.demod3"
-          }
+          {"interface_id": "scopecat.rf_output/v1"}
         ]
       },
       {
         "id": "readout-vna",
         "instrument_id": "readout-vna",
         "endpoints": [
-          {
-            "interface_id": "scopecat.network_sweep/v1"
-          }
+          {"interface_id": "scopecat.network_sweep/v1"}
         ]
       }
     ]
   },
   "topology": {
     "entities": [
-      {
-        "id": "q0",
-        "kind": "logical_qubit"
-      },
-      {
-        "id": "q1",
-        "kind": "logical_qubit"
-      },
-      {
-        "id": "q2",
-        "kind": "logical_qubit"
-      },
-      {
-        "id": "q3",
-        "kind": "logical_qubit"
-      },
-      {
-        "id": "cryostat",
-        "kind": "cryostat"
-      }
+      {"id": "q0", "kind": "logical_qubit"},
+      {"id": "q1", "kind": "logical_qubit"},
+      {"id": "q2", "kind": "logical_qubit"},
+      {"id": "q3", "kind": "logical_qubit"},
+      {"id": "cryostat", "kind": "cryostat"}
     ]
   },
   "domain_target": {
-    "id": "reference-lab.fake-list-mode.v1",
-    "exclusivity_key": "reference-lab.fake-list-mode.v1",
-    "kind": "reference_lab.fake-list-mode",
+    "id": "reference-lab.list-mode.v1",
+    "exclusivity_key": "reference-lab.list-mode.v1",
+    "kind": "reference_lab.list-mode",
     "members": [
-      {
-        "kind": "instrument",
-        "role": "drive-stack",
-        "instrument_id": "drive-stack"
-      },
-      {
-        "kind": "instrument",
-        "role": "readout-stack",
-        "instrument_id": "readout-stack"
-      }
+      {"kind": "instrument", "role": "drive-awg", "instrument_id": "drive-awg"},
+      {"kind": "instrument", "role": "readout-awg", "instrument_id": "readout-awg"},
+      {"kind": "instrument", "role": "readout-digitizer", "instrument_id": "readout-digitizer"}
     ]
   }
 }

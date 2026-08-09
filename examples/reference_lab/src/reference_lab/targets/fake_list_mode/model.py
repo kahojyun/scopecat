@@ -59,10 +59,15 @@ def signal_key(
 
 @dataclass(frozen=True, slots=True)
 class FakeOutputBinding:
-    """Bind one logical pulse-output signal to a fake AWG channel."""
+    """Bind one logical complex envelope to two physical DAC channels."""
 
     signal: FakeOutputSignal
-    channel_id: FakeAwgChannelId
+    i_channel_id: FakeAwgChannelId
+    q_channel_id: FakeAwgChannelId
+
+    @property
+    def channel_ids(self) -> tuple[FakeAwgChannelId, FakeAwgChannelId]:
+        return (self.i_channel_id, self.q_channel_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +129,11 @@ class FakeListTarget:
         canonical_outputs = tuple(
             sorted(
                 self.output_bindings,
-                key=lambda binding: (*signal_key(binding.signal), binding.channel_id),
+                key=lambda binding: (
+                    *signal_key(binding.signal),
+                    binding.i_channel_id,
+                    binding.q_channel_id,
+                ),
             )
         )
         canonical_acquisitions = tuple(
@@ -151,10 +160,10 @@ class FakeListTarget:
 
         return ("constant", "drag")
 
-    def output_channel(self, signal: FakeOutputSignal) -> FakeAwgChannelId | None:
+    def output_binding(self, signal: FakeOutputSignal) -> FakeOutputBinding | None:
         for binding in self.output_bindings:
             if binding.signal == signal:
-                return binding.channel_id
+                return binding
         return None
 
     def acquisition_channel(
@@ -178,7 +187,8 @@ class FakeListTarget:
             "output_bindings": [
                 {
                     "signal": signal_key(binding.signal),
-                    "channel_id": binding.channel_id.value,
+                    "i_channel_id": binding.i_channel_id.value,
+                    "q_channel_id": binding.q_channel_id.value,
                 }
                 for binding in self.output_bindings
             ],
@@ -197,7 +207,7 @@ class FakeChannelWaveform:
     """One immutable, zero-padded AWG channel buffer."""
 
     channel_id: FakeAwgChannelId
-    samples: tuple[complex, ...]
+    samples: tuple[float, ...]
 
 
 @dataclass(frozen=True, slots=True)

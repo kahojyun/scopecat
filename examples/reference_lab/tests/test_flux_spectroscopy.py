@@ -101,10 +101,7 @@ def test_complex_notch_fit_recovers_delay_and_ignores_one_outlier() -> None:
 
 
 def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
-    provider = ReferenceLabProvider(
-        profile=Path(__file__).parents[1] / "config" / "virtual-lab.json",
-        seed=7,
-    )
+    provider = ReferenceLabProvider(seed=7)
     config = bootstrap_config()
     composition = compose_test_instruments(config=config, provider=provider)
     lab = in_process_lab(
@@ -323,10 +320,7 @@ def test_flux_spectroscopy_failure_aborts_with_bias_disabled(
         raise RuntimeError("injected VNA acquisition failure")
 
     monkeypatch.setattr(VirtualNetworkAnalyzer, "collect", fail_collect)
-    provider = ReferenceLabProvider(
-        profile=Path(__file__).parents[1] / "config" / "virtual-lab.json",
-        seed=7,
-    )
+    provider = ReferenceLabProvider(seed=7)
     config = bootstrap_config()
     composition = compose_test_instruments(config=config, provider=provider)
     lab = in_process_lab(

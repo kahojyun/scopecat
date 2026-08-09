@@ -176,6 +176,72 @@ def test_experiment_supports_direct_root_authoring() -> None:
     ] == ["signal"]
 
 
+def test_public_capability_resources_support_lab_owned_group_composition() -> None:
+    q0 = sc.EntityRef(id="q0", kind="logical_device")
+    q1 = sc.EntityRef(id="q1", kind="logical_device")
+    entities = sc.each(q0, q1)
+
+    @sc.experiment(id="test.capability-resource", kind="direct")
+    def direct(experiment: sc.ExperimentContext) -> None:
+        resources = sc.capability_resource(
+            experiment,
+            "drive",
+            requires=(_DEVICE,),
+            for_=entities,
+            role="xy",
+        )
+        sc.ensure_state_targets(
+            experiment,
+            tuple(
+                resources[entity].state_target(
+                    {
+                        _DEVICE_LEVEL: float(index),
+                        _DEVICE_ENABLED: True,
+                    }
+                )
+                for index, entity in enumerate(entities)
+            ),
+        )
+
+    invocation = direct()
+    assert [
+        (port.id, port.selector.role.role_id)
+        for port in invocation.definition.interface.resources
+    ] == [("drive.q0", "xy"), ("drive.q1", "xy")]
+    logical = compile_invocation(invocation).program.program
+    [effect] = logical.effects
+    assert isinstance(effect, LogicalEnsureState)
+    assert [
+        (assignment.port_id.local_id, assignment.property_id)
+        for assignment in effect.assignments
+    ] == [
+        ("drive.q0", "level"),
+        ("drive.q0", "enabled"),
+        ("drive.q1", "level"),
+        ("drive.q1", "enabled"),
+    ]
+
+
+def test_public_capability_resource_supports_lab_owned_acquisition() -> None:
+    @sc.experiment(id="test.capability-resource-acquisition", kind="direct")
+    def direct(experiment: sc.ExperimentContext) -> None:
+        monitor = sc.capability_resource(
+            experiment,
+            "monitor",
+            requires=(_DEVICE,),
+        )
+        signal = experiment._product("signal")
+        monitor.acquire({_DEVICE_SIGNAL: signal})
+        experiment.record(signal)
+
+    logical = compile_invocation(direct()).program.program
+
+    [acquisition] = logical.acquisitions
+    assert acquisition.resource_port_id.local_id == "monitor"
+    assert acquisition.acquisition_id == "sample"
+    assert acquisition.results[0].result_id == "signal"
+
+
 def test_experiment_records_a_compute_result_as_a_named_dataset_value() -> None:
     @sc.experiment(id="test.direct.value-record", kind="direct")
     def direct(experiment: sc.ExperimentContext) -> None:
