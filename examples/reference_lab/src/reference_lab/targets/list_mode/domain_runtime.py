@@ -121,7 +121,9 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
                 "trigger_instrument_id": (
                     artifact.preparation.timing.trigger_instrument_id
                 ),
-                "trigger_guarantee": artifact.preparation.timing.trigger_guarantee,
+                "program_start_guarantee": (
+                    artifact.preparation.timing.program_start_guarantee
+                ),
             },
             "preparation": {
                 "scope": "invocation",

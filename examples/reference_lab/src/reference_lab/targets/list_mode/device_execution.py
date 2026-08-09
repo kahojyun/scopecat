@@ -58,7 +58,7 @@ from reference_lab.bench_interfaces import (
     TRIGGER_LOAD_PROGRAM,
     TRIGGER_PROGRAM,
     TRIGGER_START_PROGRAM,
-    TRIGGER_START_PROGRAM_EPOCH,
+    TRIGGER_START_PROGRAM_IDEMPOTENT,
 )
 from reference_lab.interfaces import (
     CLOCK_REFERENCE_FREQUENCY,
@@ -476,6 +476,9 @@ def _load_batch(
 
     timing = artifact.preparation.timing
     timing_payload_id = f"trigger-program-{timing.trigger_instrument_id}"
+    trigger_entries = tuple(
+        artifact.trigger_participants(entry) for entry in artifact.entries
+    )
     encoded = codecs.encode(
         TRIGGER_PROGRAM_SCHEMA_ID,
         {
@@ -483,22 +486,10 @@ def _load_batch(
             "repetitions": artifact.repetitions,
             "entries": [
                 {
-                    "awg_instrument_ids": list(
-                        artifact.trigger_epoch(
-                            entry,
-                            execution_id=execution_id,
-                            shot_index=0,
-                        ).awg_instrument_ids
-                    ),
-                    "digitizer_instrument_ids": list(
-                        artifact.trigger_epoch(
-                            entry,
-                            execution_id=execution_id,
-                            shot_index=0,
-                        ).digitizer_instrument_ids
-                    ),
+                    "awg_instrument_ids": list(entry.awg_instrument_ids),
+                    "digitizer_instrument_ids": list(entry.digitizer_instrument_ids),
                 }
-                for entry in artifact.entries
+                for entry in trigger_entries
             ],
         },
     )
@@ -561,8 +552,8 @@ def _execution_batch(
         )
     timing = artifact.preparation.timing
     trigger_operation = (
-        TRIGGER_START_PROGRAM_EPOCH
-        if timing.trigger_guarantee == "session_idempotent"
+        TRIGGER_START_PROGRAM_IDEMPOTENT
+        if timing.program_start_guarantee == "session_idempotent"
         else TRIGGER_START_PROGRAM
     )
     actions.append(

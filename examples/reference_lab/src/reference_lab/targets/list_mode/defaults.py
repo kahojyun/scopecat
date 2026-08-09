@@ -21,7 +21,6 @@ from reference_lab.bench_interfaces import (
     AWG_LOAD_PROGRAM,
     AWG_SEQUENCER,
     DIGITIZER_ARM_PROGRAM,
-    DIGITIZER_CONFIGURE_DSP,
     DIGITIZER_CONTROL,
     DIGITIZER_FETCH_PROGRAM,
     DIGITIZER_FETCH_PROGRAM_IQ,
@@ -32,7 +31,7 @@ from reference_lab.bench_interfaces import (
     TRIGGER_COORDINATOR,
     TRIGGER_LOAD_PROGRAM,
     TRIGGER_START_PROGRAM,
-    TRIGGER_START_PROGRAM_EPOCH,
+    TRIGGER_START_PROGRAM_IDEMPOTENT,
 )
 from reference_lab.parameters import (
     AWG_OUTPUT_BASELINES,
@@ -129,7 +128,10 @@ class _TimingDomainModel(BaseModel):
 
     domain_id: str = Field(min_length=1)
     trigger_instrument_id: str = Field(min_length=1)
-    trigger_policy: Literal["require_session_idempotent", "allow_fire_only"]
+    trigger_policy: Literal[
+        "require_session_idempotent",
+        "allow_non_idempotent_program_start",
+    ]
     digitizer_trigger_source: Literal["external"]
     phase_reference: Literal["entry_trigger_reset"]
 
@@ -249,7 +251,7 @@ def configured_list_mode_target(
         policy=settings.capabilities.acquisition_dsp_policy,
         instrument_catalog=instrument_catalog,
     )
-    trigger_guarantee = _trigger_guarantee(
+    program_start_guarantee = _program_start_guarantee(
         settings.timing,
         instrument_catalog=instrument_catalog,
     )
@@ -273,7 +275,7 @@ def configured_list_mode_target(
         timing=TimingDomainPreparation(
             domain_id=settings.timing.domain_id,
             trigger_instrument_id=settings.timing.trigger_instrument_id,
-            trigger_guarantee=trigger_guarantee,
+            program_start_guarantee=program_start_guarantee,
             digitizer_trigger_source=settings.timing.digitizer_trigger_source,
             phase_reference=settings.timing.phase_reference,
         ),
@@ -337,11 +339,11 @@ def _digitizer_result_representation(
     return "raw_trace"
 
 
-def _trigger_guarantee(
+def _program_start_guarantee(
     timing: _TimingDomainModel,
     *,
     instrument_catalog: InstrumentContractCatalog,
-) -> Literal["fire_only", "session_idempotent"]:
+) -> Literal["non_idempotent", "session_idempotent"]:
     description = next(
         (
             description
@@ -367,13 +369,13 @@ def _trigger_guarantee(
     )
     if TRIGGER_LOAD_PROGRAM.operation_id not in operation_ids:
         raise ValueError("trigger instrument cannot load realtime programs")
-    if TRIGGER_START_PROGRAM_EPOCH.operation_id in operation_ids:
+    if TRIGGER_START_PROGRAM_IDEMPOTENT.operation_id in operation_ids:
         return "session_idempotent"
     if timing.trigger_policy == "require_session_idempotent":
         raise ValueError("trigger policy requires session-idempotent program support")
     if TRIGGER_START_PROGRAM.operation_id not in operation_ids:
         raise ValueError("trigger instrument cannot start realtime programs")
-    return "fire_only"
+    return "non_idempotent"
 
 
 def _validate_program_devices(
@@ -438,19 +440,7 @@ def _supports_raw_trace(description: InstrumentDescription) -> bool:
 
 
 def _supports_integrated_iq(description: InstrumentDescription) -> bool:
-    control = next(
-        (
-            interface
-            for interface in description.interfaces
-            if interface.id == DIGITIZER_CONTROL.interface_id
-        ),
-        None,
-    )
-    has_configuration = control is not None and any(
-        operation.id == DIGITIZER_CONFIGURE_DSP.operation_id
-        for operation in control.operations
-    )
-    return has_configuration and _has_acquisition_result(
+    return _has_acquisition_result(
         description,
         interface_id=DIGITIZER_INPUT.interface_id,
         acquisition_id=DIGITIZER_FETCH_PROGRAM_IQ.acquisition_id,

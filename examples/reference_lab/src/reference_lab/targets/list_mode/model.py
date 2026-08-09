@@ -134,11 +134,11 @@ class ListModeHostStateRequirements:
 
 @dataclass(frozen=True, slots=True, order=True)
 class TimingDomainPreparation:
-    """One shared edge and phase policy for all armed target members."""
+    """Programmed shared-trigger and phase policy for all target members."""
 
     domain_id: str
     trigger_instrument_id: str
-    trigger_guarantee: Literal["fire_only", "session_idempotent"]
+    program_start_guarantee: Literal["non_idempotent", "session_idempotent"]
     digitizer_trigger_source: Literal["external"]
     phase_reference: Literal["entry_trigger_reset"]
 
@@ -210,7 +210,7 @@ def preparation_payload(preparation: ListModePreparation) -> dict[str, object]:
         "timing": {
             "domain_id": preparation.timing.domain_id,
             "trigger_instrument_id": preparation.timing.trigger_instrument_id,
-            "trigger_guarantee": preparation.timing.trigger_guarantee,
+            "program_start_guarantee": (preparation.timing.program_start_guarantee),
             "digitizer_trigger_source": (preparation.timing.digitizer_trigger_source),
             "phase_reference": preparation.timing.phase_reference,
         },
@@ -518,14 +518,9 @@ class DigitizerProgram:
 
 
 @dataclass(frozen=True, slots=True)
-class TriggerEpoch:
-    """One session-idempotent shared edge and its exact armed participants.
+class TriggerParticipants:
+    """Physical devices participating in one timing-program entry."""
 
-    Idempotence depends on the current timing-device driver session and its epoch
-    cache. It is not a durable replay promise across reconnect or worker restart.
-    """
-
-    id: str
     awg_instrument_ids: tuple[str, ...]
     digitizer_instrument_ids: tuple[str, ...]
 
@@ -561,20 +556,13 @@ class ListModeArtifact:
             )
         )
 
-    def trigger_epoch(
+    def trigger_participants(
         self,
         entry: ListModeEntry,
-        *,
-        execution_id: str,
-        shot_index: int,
-    ) -> TriggerEpoch:
-        """Project one execution position into a stable shared-trigger epoch."""
+    ) -> TriggerParticipants:
+        """Project one list row into its shared-trigger participants."""
 
-        return TriggerEpoch(
-            id=(
-                f"{execution_id}:{self.id.value}:shot-{shot_index}:"
-                f"entry-{entry.list_index}"
-            ),
+        return TriggerParticipants(
             awg_instrument_ids=tuple(
                 program.instrument_id
                 for program in self.awg_programs
@@ -697,7 +685,7 @@ __all__ = [
     "OutputSignal",
     "TargetAcquisitionLowering",
     "TimingDomainPreparation",
-    "TriggerEpoch",
+    "TriggerParticipants",
     "host_state_policy_payload",
     "host_state_requirements_payload",
     "preparation_payload",

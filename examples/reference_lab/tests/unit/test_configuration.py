@@ -14,11 +14,10 @@ from scopecat_quantum._ids import QubitId
 from scopecat_quantum.pulses import DriveSignal
 
 from reference_lab.bench_interfaces import (
-    DIGITIZER_CONFIGURE_DSP,
-    DIGITIZER_CONTROL,
+    DIGITIZER_FETCH_PROGRAM_IQ,
+    DIGITIZER_INPUT,
     TRIGGER_COORDINATOR,
-    TRIGGER_FIRE_EPOCH,
-    TRIGGER_START_PROGRAM_EPOCH,
+    TRIGGER_START_PROGRAM_IDEMPOTENT,
 )
 from reference_lab.configuration import bootstrap_config
 from reference_lab.parameters import (
@@ -95,14 +94,15 @@ def _without_onboard_dsp(
                 "interfaces": [
                     interface.model_copy(
                         update={
-                            "operations": [
-                                operation
-                                for operation in interface.operations
-                                if operation.id != DIGITIZER_CONFIGURE_DSP.operation_id
+                            "acquisitions": [
+                                acquisition
+                                for acquisition in interface.acquisitions
+                                if acquisition.id
+                                != DIGITIZER_FETCH_PROGRAM_IQ.acquisition_id
                             ]
                         }
                     )
-                    if interface.id == DIGITIZER_CONTROL.interface_id
+                    if interface.id == DIGITIZER_INPUT.interface_id
                     else interface
                     for interface in description.interfaces
                 ]
@@ -140,7 +140,7 @@ def _with_trigger_policy(
     )
 
 
-def _without_session_trigger_epochs(
+def _without_idempotent_program_start(
     catalog: InstrumentContractCatalog,
 ) -> InstrumentContractCatalog:
     instruments = tuple(
@@ -153,10 +153,7 @@ def _without_session_trigger_epochs(
                                 operation
                                 for operation in interface.operations
                                 if operation.id
-                                not in {
-                                    TRIGGER_FIRE_EPOCH.operation_id,
-                                    TRIGGER_START_PROGRAM_EPOCH.operation_id,
-                                }
+                                != TRIGGER_START_PROGRAM_IDEMPOTENT.operation_id
                             ]
                         }
                     )
@@ -385,20 +382,23 @@ def test_trigger_policy_selects_an_explicit_guarantee() -> None:
     config = bootstrap_config()
     selected = _configured_target(config)
 
-    assert selected.preparation.timing.trigger_guarantee == "session_idempotent"
+    assert selected.preparation.timing.program_start_guarantee == "session_idempotent"
 
-    fire_only = _with_trigger_policy(config, "allow_fire_only")
+    non_idempotent = _with_trigger_policy(
+        config,
+        "allow_non_idempotent_program_start",
+    )
     selected = configured_list_mode_target(
-        fire_only,
-        _without_session_trigger_epochs(_instrument_catalog(fire_only)),
+        non_idempotent,
+        _without_idempotent_program_start(_instrument_catalog(non_idempotent)),
     )
 
-    assert selected.preparation.timing.trigger_guarantee == "fire_only"
+    assert selected.preparation.timing.program_start_guarantee == "non_idempotent"
 
     with pytest.raises(ValueError, match="requires session-idempotent"):
         configured_list_mode_target(
             config,
-            _without_session_trigger_epochs(_instrument_catalog(config)),
+            _without_idempotent_program_start(_instrument_catalog(config)),
         )
 
 

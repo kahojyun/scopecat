@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from scopecat.kernel.value_types import Int, Payload, Scalar
+from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.sdk.instruments import (
     InterfaceRef,
     InterfaceSpec,
@@ -19,26 +19,18 @@ from scopecat.sdk.instruments import (
 )
 
 from reference_lab.payloads import (
-    AWG_ENTRY_SCHEMA_ID,
     AWG_PROGRAM_SCHEMA_ID,
-    DIGITIZER_DSP_PROGRAM_SCHEMA_ID,
     DIGITIZER_PROGRAM_SCHEMA_ID,
     SAMPLED_WAVEFORM_SCHEMA_ID,
-    TRIGGER_EPOCH_SCHEMA_ID,
     TRIGGER_PROGRAM_SCHEMA_ID,
 )
 
 AWG_SEQUENCER = InterfaceRef("reference_lab.awg_sequencer/v1")
 AWG_SAMPLE_RATE = AWG_SEQUENCER.property("sample_rate")
 AWG_RUN_MODE = AWG_SEQUENCER.property("run_mode")
-AWG_PLAY_ENTRY = AWG_SEQUENCER.operation("play_entry")
-AWG_ENTRY = AWG_PLAY_ENTRY.argument("entry")
 AWG_LOAD_PROGRAM = AWG_SEQUENCER.operation("load_program")
 AWG_PROGRAM = AWG_LOAD_PROGRAM.argument("program")
-AWG_ARM_ENTRY = AWG_SEQUENCER.operation("arm_entry")
-AWG_ENTRY_INDEX = AWG_ARM_ENTRY.argument("entry_index")
 AWG_ARM_PROGRAM = AWG_SEQUENCER.operation("arm_program")
-AWG_START = AWG_SEQUENCER.operation("start")
 
 ANALOG_WAVEFORM_OUTPUT = InterfaceRef("reference_lab.analog_waveform_output/v1")
 ANALOG_WAVEFORM_OUTPUT_AMPLITUDE = ANALOG_WAVEFORM_OUTPUT.property("amplitude")
@@ -71,36 +63,26 @@ DIGITIZER_CONTROL = InterfaceRef("reference_lab.digitizer_control/v1")
 DIGITIZER_SAMPLE_RATE = DIGITIZER_CONTROL.property("sample_rate")
 DIGITIZER_RECORD_LENGTH = DIGITIZER_CONTROL.property("record_length")
 DIGITIZER_TRIGGER_SOURCE = DIGITIZER_CONTROL.property("trigger_source")
-DIGITIZER_CONFIGURE_DSP = DIGITIZER_CONTROL.operation("configure_dsp")
-DIGITIZER_DSP_PROGRAM = DIGITIZER_CONFIGURE_DSP.argument("program")
 DIGITIZER_LOAD_PROGRAM = DIGITIZER_CONTROL.operation("load_program")
 DIGITIZER_PROGRAM = DIGITIZER_LOAD_PROGRAM.argument("program")
-DIGITIZER_ARM = DIGITIZER_CONTROL.operation("arm")
 DIGITIZER_ARM_PROGRAM = DIGITIZER_CONTROL.operation("arm_program")
 
 DIGITIZER_INPUT = InterfaceRef("reference_lab.digitizer_input/v1")
 DIGITIZER_INPUT_ENABLED = DIGITIZER_INPUT.property("input_enabled")
 DIGITIZER_INPUT_RANGE = DIGITIZER_INPUT.property("input_range")
 DIGITIZER_INPUT_COUPLING = DIGITIZER_INPUT.property("coupling")
-DIGITIZER_FETCH = DIGITIZER_INPUT.acquisition("fetch")
-DIGITIZER_FETCH_TIME = DIGITIZER_FETCH.result("time")
-DIGITIZER_FETCH_VOLTAGE = DIGITIZER_FETCH.result("voltage")
-DIGITIZER_FETCH_IQ = DIGITIZER_INPUT.acquisition("fetch_integrated_iq")
-DIGITIZER_FETCH_IQ_VALUE = DIGITIZER_FETCH_IQ.result("value")
 DIGITIZER_FETCH_PROGRAM = DIGITIZER_INPUT.acquisition("fetch_program")
 DIGITIZER_FETCH_PROGRAM_VALUE = DIGITIZER_FETCH_PROGRAM.result("value")
 DIGITIZER_FETCH_PROGRAM_IQ = DIGITIZER_INPUT.acquisition("fetch_program_iq")
 DIGITIZER_FETCH_PROGRAM_IQ_VALUE = DIGITIZER_FETCH_PROGRAM_IQ.result("value")
 
 TRIGGER_COORDINATOR = InterfaceRef("reference_lab.trigger_coordinator/v2")
-TRIGGER_FIRE = TRIGGER_COORDINATOR.operation("fire")
-TRIGGER_EPOCH = TRIGGER_FIRE.argument("epoch")
-TRIGGER_FIRE_EPOCH = TRIGGER_COORDINATOR.operation("fire_epoch")
-TRIGGER_IDEMPOTENT_EPOCH = TRIGGER_FIRE_EPOCH.argument("epoch")
 TRIGGER_LOAD_PROGRAM = TRIGGER_COORDINATOR.operation("load_program")
 TRIGGER_PROGRAM = TRIGGER_LOAD_PROGRAM.argument("program")
 TRIGGER_START_PROGRAM = TRIGGER_COORDINATOR.operation("start_program")
-TRIGGER_START_PROGRAM_EPOCH = TRIGGER_COORDINATOR.operation("start_program_epoch")
+TRIGGER_START_PROGRAM_IDEMPOTENT = TRIGGER_COORDINATOR.operation(
+    "start_program_idempotent"
+)
 
 
 def awg_sequencer_interface() -> InterfaceSpec:
@@ -134,31 +116,8 @@ def awg_sequencer_interface() -> InterfaceSpec:
                 ),
             ),
             operation(
-                AWG_ARM_ENTRY.operation_id,
-                label="Arm one loaded entry",
-                arguments=(
-                    operation_argument(
-                        AWG_ENTRY_INDEX.argument_id,
-                        value_type=Scalar(Int(minimum=0)),
-                        label="Entry index",
-                    ),
-                ),
-            ),
-            operation(
                 AWG_ARM_PROGRAM.operation_id,
                 label="Arm the complete loaded list program",
-            ),
-            operation(AWG_START.operation_id, label="Start the armed entry"),
-            operation(
-                AWG_PLAY_ENTRY.operation_id,
-                label="Play one synchronized multi-channel entry",
-                arguments=(
-                    operation_argument(
-                        AWG_ENTRY.argument_id,
-                        value_type=Scalar(Payload(AWG_ENTRY_SCHEMA_ID)),
-                        label="AWG entry",
-                    ),
-                ),
             ),
         ),
     )
@@ -344,17 +303,6 @@ def digitizer_control_interface() -> InterfaceSpec:
         ),
         operations=(
             operation(
-                DIGITIZER_CONFIGURE_DSP.operation_id,
-                label="Configure onboard demodulation and integration",
-                arguments=(
-                    operation_argument(
-                        DIGITIZER_DSP_PROGRAM.argument_id,
-                        value_type=Scalar(Payload(DIGITIZER_DSP_PROGRAM_SCHEMA_ID)),
-                        label="DSP program",
-                    ),
-                ),
-            ),
-            operation(
                 DIGITIZER_LOAD_PROGRAM.operation_id,
                 label="Load a segmented acquisition program",
                 arguments=(
@@ -365,7 +313,6 @@ def digitizer_control_interface() -> InterfaceSpec:
                     ),
                 ),
             ),
-            operation(DIGITIZER_ARM.operation_id, label="Arm"),
             operation(
                 DIGITIZER_ARM_PROGRAM.operation_id,
                 label="Arm the complete segmented program",
@@ -412,35 +359,6 @@ def digitizer_input_interface() -> InterfaceSpec:
         ),
         acquisitions=(
             acquisition(
-                DIGITIZER_FETCH.acquisition_id,
-                label="Fetch raw capture",
-                results=(
-                    acquisition_result(
-                        DIGITIZER_FETCH_TIME.result_id,
-                        role="coordinate",
-                        unit="s",
-                        axes=(sample_axis,),
-                    ),
-                    acquisition_result(
-                        DIGITIZER_FETCH_VOLTAGE.result_id,
-                        unit="V",
-                        axes=(sample_axis,),
-                    ),
-                ),
-            ),
-            acquisition(
-                DIGITIZER_FETCH_IQ.acquisition_id,
-                label="Fetch onboard integrated IQ",
-                results=(
-                    acquisition_result(
-                        DIGITIZER_FETCH_IQ_VALUE.result_id,
-                        dtype="complex128",
-                        unit="V",
-                        axes=(demodulator_axis,),
-                    ),
-                ),
-            ),
-            acquisition(
                 DIGITIZER_FETCH_PROGRAM.acquisition_id,
                 label="Fetch one flattened segmented raw-capture block",
                 results=(
@@ -471,7 +389,7 @@ def trigger_coordinator_interface() -> InterfaceSpec:
     return interface(
         TRIGGER_COORDINATOR.interface_id,
         label="Trigger coordinator",
-        description="Emit one shared edge after every participating device is armed.",
+        description="Execute a shared multi-entry trigger program for armed devices.",
         operations=(
             operation(
                 TRIGGER_LOAD_PROGRAM.operation_id,
@@ -489,30 +407,8 @@ def trigger_coordinator_interface() -> InterfaceSpec:
                 label="Start one non-idempotent loaded trigger program",
             ),
             operation(
-                TRIGGER_START_PROGRAM_EPOCH.operation_id,
+                TRIGGER_START_PROGRAM_IDEMPOTENT.operation_id,
                 label="Start one session-idempotent loaded trigger program",
-            ),
-            operation(
-                TRIGGER_FIRE.operation_id,
-                label="Fire one non-idempotent trigger intent",
-                arguments=(
-                    operation_argument(
-                        TRIGGER_EPOCH.argument_id,
-                        value_type=Scalar(Payload(TRIGGER_EPOCH_SCHEMA_ID)),
-                        label="Trigger epoch",
-                    ),
-                ),
-            ),
-            operation(
-                TRIGGER_FIRE_EPOCH.operation_id,
-                label="Fire one session-idempotent trigger epoch",
-                arguments=(
-                    operation_argument(
-                        TRIGGER_IDEMPOTENT_EPOCH.argument_id,
-                        value_type=Scalar(Payload(TRIGGER_EPOCH_SCHEMA_ID)),
-                        label="Trigger epoch",
-                    ),
-                ),
             ),
         ),
     )
@@ -527,25 +423,15 @@ __all__ = [
     "ANALOG_WAVEFORM_OUTPUT_RESET",
     "ANALOG_WAVEFORM_OUTPUT_WAVEFORM",
     "AWG_ARM_PROGRAM",
-    "AWG_ENTRY",
-    "AWG_PLAY_ENTRY",
     "AWG_RUN_MODE",
     "AWG_SAMPLE_RATE",
     "AWG_SEQUENCER",
-    "DIGITIZER_ARM",
     "DIGITIZER_ARM_PROGRAM",
-    "DIGITIZER_CONFIGURE_DSP",
     "DIGITIZER_CONTROL",
-    "DIGITIZER_DSP_PROGRAM",
-    "DIGITIZER_FETCH",
-    "DIGITIZER_FETCH_IQ",
-    "DIGITIZER_FETCH_IQ_VALUE",
     "DIGITIZER_FETCH_PROGRAM",
     "DIGITIZER_FETCH_PROGRAM_IQ",
     "DIGITIZER_FETCH_PROGRAM_IQ_VALUE",
     "DIGITIZER_FETCH_PROGRAM_VALUE",
-    "DIGITIZER_FETCH_TIME",
-    "DIGITIZER_FETCH_VOLTAGE",
     "DIGITIZER_INPUT",
     "DIGITIZER_INPUT_COUPLING",
     "DIGITIZER_INPUT_ENABLED",
@@ -573,14 +459,10 @@ __all__ = [
     "OSCILLOSCOPE_VERTICAL_OFFSET",
     "OSCILLOSCOPE_VERTICAL_SCALE",
     "TRIGGER_COORDINATOR",
-    "TRIGGER_EPOCH",
-    "TRIGGER_FIRE",
-    "TRIGGER_FIRE_EPOCH",
-    "TRIGGER_IDEMPOTENT_EPOCH",
     "TRIGGER_LOAD_PROGRAM",
     "TRIGGER_PROGRAM",
     "TRIGGER_START_PROGRAM",
-    "TRIGGER_START_PROGRAM_EPOCH",
+    "TRIGGER_START_PROGRAM_IDEMPOTENT",
     "analog_waveform_output_interface",
     "awg_sequencer_interface",
     "digitizer_control_interface",

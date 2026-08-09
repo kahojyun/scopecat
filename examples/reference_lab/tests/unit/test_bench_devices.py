@@ -2,52 +2,133 @@ from __future__ import annotations
 
 import pytest
 from scopecat.records.config import InstrumentBindingSpec, VirtualInstrumentConnection
-from scopecat.sdk.instruments import InstrumentProviderContext
+from scopecat.sdk.instruments import (
+    DriverOperation,
+    DriverPayload,
+    DriverState,
+    DriverSuccess,
+    InstrumentProviderContext,
+)
 
-from reference_lab.bench_devices import BenchSignalWorld
+from reference_lab.bench_devices import (
+    ArmedAwgWaveform,
+    BenchSignalWorld,
+    VirtualTimingController,
+)
 from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT,
     AWG_SEQUENCER,
     DIGITIZER_CONTROL,
     DIGITIZER_INPUT,
+    TRIGGER_LOAD_PROGRAM,
+    TRIGGER_PROGRAM,
+    TRIGGER_START_PROGRAM_IDEMPOTENT,
 )
 from reference_lab.interfaces import CLOCK_REFERENCE
-from reference_lab.payloads import DecodedTriggerEpoch
+from reference_lab.payloads import (
+    DecodedDigitizerProgram,
+    DecodedDigitizerProgramEntry,
+    DecodedTriggerProgram,
+    DecodedTriggerProgramEntry,
+)
 from reference_lab.provider import ReferenceLabProvider
 
 
-def test_virtual_trigger_epochs_are_checked_and_idempotent() -> None:
+def test_virtual_trigger_programs_execute_complete_device_programs() -> None:
     world = BenchSignalWorld()
-    epoch = DecodedTriggerEpoch(
-        epoch_id="run-1:shot-0:entry-0",
-        awg_instrument_ids=("awg",),
-        digitizer_instrument_ids=("digitizer",),
+    awg_entries = (
+        (
+            ArmedAwgWaveform(
+                component_path=("outputs", "ch1"),
+                normalized_samples=(0.0, 1.0),
+                sample_rate_hz=1.0e9,
+                amplitude_v=0.25,
+                offset_v=0.0,
+                output_enabled=True,
+                repeat=False,
+            ),
+        ),
     )
-    world.arm_awg("awg", ())
-    world.arm_digitizer("digitizer", record_length=8)
-
-    assert world.fire_epoch(epoch) == (1, 1, False)
-    assert world.trigger_count == 1
-    assert world.fire_epoch(epoch) == (1, 1, True)
-    assert world.trigger_count == 1
-
-    with pytest.raises(ValueError, match="different participants"):
-        world.fire_epoch(
-            DecodedTriggerEpoch(
-                epoch_id=epoch.epoch_id,
-                awg_instrument_ids=("other-awg",),
+    digitizer = DecodedDigitizerProgram(
+        entries=(
+            DecodedDigitizerProgramEntry(
+                sample_count=2,
+                input_component_paths=(("inputs", "ch1"),),
+                windows=(),
+            ),
+        )
+    )
+    program = DecodedTriggerProgram(
+        program_id="run-1",
+        repetitions=2,
+        entries=(
+            DecodedTriggerProgramEntry(
+                awg_instrument_ids=("awg",),
                 digitizer_instrument_ids=("digitizer",),
+            ),
+        ),
+    )
+    world.arm_awg_program("awg", awg_entries)
+    world.arm_digitizer_program("digitizer", digitizer)
+
+    assert world.run_program(program) == (1, 1)
+    assert world.trigger_count == 2
+    assert world.digitizer_program_segments(
+        "digitizer",
+        ("inputs", "ch1"),
+    ) == ((0, (0.0, 0.0)), (0, (0.0, 0.0)))
+
+    world.arm_awg_program("awg", awg_entries)
+    world.arm_digitizer_program("digitizer", digitizer)
+    assert world.run_program(program) == (1, 1)
+    assert world.trigger_count == 4
+
+
+def test_virtual_trigger_idempotency_is_scoped_to_driver_session() -> None:
+    world = BenchSignalWorld()
+    program = DecodedTriggerProgram(
+        program_id="run-1",
+        repetitions=1,
+        entries=(DecodedTriggerProgramEntry((), ()),),
+    )
+
+    def load_and_start(
+        controller: VirtualTimingController,
+        loaded: DecodedTriggerProgram,
+    ) -> DriverSuccess[DriverState | None]:
+        controller.invoke(
+            DriverOperation(
+                target=TRIGGER_LOAD_PROGRAM,
+                arguments={
+                    TRIGGER_PROGRAM.argument_id: DriverPayload(
+                        schema_id="reference_lab.trigger_program.v1",
+                        value=loaded,
+                    )
+                },
             )
         )
+        outcome = controller.invoke(
+            DriverOperation(target=TRIGGER_START_PROGRAM_IDEMPOTENT)
+        )
+        assert isinstance(outcome, DriverSuccess)
+        return outcome
 
-    fire_only = BenchSignalWorld()
-    fire_only.arm_awg("awg", ())
-    fire_only.arm_digitizer("digitizer", record_length=8)
-    assert fire_only.fire_once(epoch) == (1, 1, False)
-    fire_only.arm_awg("awg", ())
-    fire_only.arm_digitizer("digitizer", record_length=8)
-    assert fire_only.fire_once(epoch) == (1, 1, False)
-    assert fire_only.trigger_count == 2
+    first_session = VirtualTimingController("timing", world)
+    assert load_and_start(first_session, program).metadata["replayed"] is False
+    assert load_and_start(first_session, program).metadata["replayed"] is True
+    assert world.trigger_count == 1
+
+    second_session = VirtualTimingController("timing", world)
+    assert load_and_start(second_session, program).metadata["replayed"] is False
+    assert world.trigger_count == 2
+
+    changed = DecodedTriggerProgram(
+        program_id=program.program_id,
+        repetitions=2,
+        entries=program.entries,
+    )
+    with pytest.raises(ValueError, match="different contents"):
+        load_and_start(first_session, changed)
 
 
 def test_bare_control_devices_expose_physical_channel_interfaces() -> None:

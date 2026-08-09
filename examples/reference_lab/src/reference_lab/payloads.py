@@ -9,10 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 
 SAMPLED_WAVEFORM_SCHEMA_ID = "sampled_waveform"
-AWG_ENTRY_SCHEMA_ID = "reference_lab.awg_entry.v1"
 AWG_PROGRAM_SCHEMA_ID = "reference_lab.awg_program.v1"
-TRIGGER_EPOCH_SCHEMA_ID = "reference_lab.trigger_epoch.v1"
-DIGITIZER_DSP_PROGRAM_SCHEMA_ID = "reference_lab.digitizer_dsp_program.v1"
 DIGITIZER_PROGRAM_SCHEMA_ID = "reference_lab.digitizer_program.v1"
 TRIGGER_PROGRAM_SCHEMA_ID = "reference_lab.trigger_program.v1"
 
@@ -39,13 +36,6 @@ class DecodedAwgProgram:
 
 
 @dataclass(frozen=True, slots=True)
-class DecodedTriggerEpoch:
-    epoch_id: str
-    awg_instrument_ids: tuple[str, ...]
-    digitizer_instrument_ids: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class DecodedDigitizerDspWindow:
     component_path: tuple[str, ...]
     demodulator_slot_id: str
@@ -54,11 +44,6 @@ class DecodedDigitizerDspWindow:
     demodulation_frequency_hz: float
     semantics_id: Literal["reference_lab.integrated_iq.ssb_midpoint.v1"]
     normalization: Literal["single_sideband_amplitude"]
-
-
-@dataclass(frozen=True, slots=True)
-class DecodedDigitizerDspProgram:
-    windows: tuple[DecodedDigitizerDspWindow, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,14 +96,6 @@ class _AwgProgramDocument(BaseModel):
     entries: tuple[_AwgEntryDocument, ...] = Field(min_length=1)
 
 
-class _TriggerEpochDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    epoch_id: str = Field(min_length=1)
-    awg_instrument_ids: tuple[str, ...]
-    digitizer_instrument_ids: tuple[str, ...]
-
-
 class _DigitizerDspWindowDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -129,12 +106,6 @@ class _DigitizerDspWindowDocument(BaseModel):
     demodulation_frequency_hz: float
     semantics_id: Literal["reference_lab.integrated_iq.ssb_midpoint.v1"]
     normalization: Literal["single_sideband_amplitude"]
-
-
-class _DigitizerDspProgramDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    windows: tuple[_DigitizerDspWindowDocument, ...] = Field(min_length=1)
 
 
 class _DigitizerProgramEntryDocument(BaseModel):
@@ -181,20 +152,6 @@ def reference_lab_payload_codecs() -> PayloadCodecRegistry:
                 encoder=_encode_digitizer_program,
                 decoder=_decode_digitizer_program,
             ),
-            DIGITIZER_DSP_PROGRAM_SCHEMA_ID: PayloadCodec(
-                id="reference_lab.digitizer-dsp-program-json",
-                version=1,
-                media_type="application/json",
-                encoder=_encode_digitizer_dsp_program,
-                decoder=_decode_digitizer_dsp_program,
-            ),
-            TRIGGER_EPOCH_SCHEMA_ID: PayloadCodec(
-                id="reference_lab.trigger-epoch-json",
-                version=1,
-                media_type="application/json",
-                encoder=_encode_trigger_epoch,
-                decoder=_decode_trigger_epoch,
-            ),
             TRIGGER_PROGRAM_SCHEMA_ID: PayloadCodec(
                 id="reference_lab.trigger-program-json",
                 version=1,
@@ -209,13 +166,6 @@ def reference_lab_payload_codecs() -> PayloadCodecRegistry:
                 media_type="application/json",
                 encoder=_encode_awg_program,
                 decoder=_decode_awg_program,
-            ),
-            AWG_ENTRY_SCHEMA_ID: PayloadCodec(
-                id="reference_lab.awg-entry-json",
-                version=1,
-                media_type="application/json",
-                encoder=_encode_awg_entry,
-                decoder=_decode_awg_entry,
             ),
             SAMPLED_WAVEFORM_SCHEMA_ID: PayloadCodec(
                 id="reference_lab.sampled-waveform-json",
@@ -236,16 +186,6 @@ def _encode_sampled_waveform(value: object) -> bytes:
 def _decode_sampled_waveform(content: bytes) -> object:
     document = _SampledWaveformDocument.model_validate_json(content)
     return DecodedSampledWaveform(samples=document.samples)
-
-
-def _encode_awg_entry(value: object) -> bytes:
-    document = _AwgEntryDocument.model_validate(value)
-    return document.model_dump_json().encode("utf-8")
-
-
-def _decode_awg_entry(content: bytes) -> object:
-    document = _AwgEntryDocument.model_validate_json(content)
-    return _decoded_awg_entry(document)
 
 
 def _encode_awg_program(value: object) -> bytes:
@@ -269,32 +209,6 @@ def _decoded_awg_entry(document: _AwgEntryDocument) -> DecodedAwgEntry:
             )
             for waveform in document.waveforms
         )
-    )
-
-
-def _encode_trigger_epoch(value: object) -> bytes:
-    document = _TriggerEpochDocument.model_validate(value)
-    return document.model_dump_json().encode("utf-8")
-
-
-def _decode_trigger_epoch(content: bytes) -> object:
-    document = _TriggerEpochDocument.model_validate_json(content)
-    return DecodedTriggerEpoch(
-        epoch_id=document.epoch_id,
-        awg_instrument_ids=document.awg_instrument_ids,
-        digitizer_instrument_ids=document.digitizer_instrument_ids,
-    )
-
-
-def _encode_digitizer_dsp_program(value: object) -> bytes:
-    document = _DigitizerDspProgramDocument.model_validate(value)
-    return document.model_dump_json().encode("utf-8")
-
-
-def _decode_digitizer_dsp_program(content: bytes) -> object:
-    document = _DigitizerDspProgramDocument.model_validate_json(content)
-    return DecodedDigitizerDspProgram(
-        windows=tuple(_decoded_digitizer_window(window) for window in document.windows)
     )
 
 
@@ -354,22 +268,17 @@ def _decode_trigger_program(content: bytes) -> object:
 
 
 __all__ = [
-    "AWG_ENTRY_SCHEMA_ID",
     "AWG_PROGRAM_SCHEMA_ID",
-    "DIGITIZER_DSP_PROGRAM_SCHEMA_ID",
     "DIGITIZER_PROGRAM_SCHEMA_ID",
     "SAMPLED_WAVEFORM_SCHEMA_ID",
-    "TRIGGER_EPOCH_SCHEMA_ID",
     "TRIGGER_PROGRAM_SCHEMA_ID",
     "DecodedAwgChannelWaveform",
     "DecodedAwgEntry",
     "DecodedAwgProgram",
-    "DecodedDigitizerDspProgram",
     "DecodedDigitizerDspWindow",
     "DecodedDigitizerProgram",
     "DecodedDigitizerProgramEntry",
     "DecodedSampledWaveform",
-    "DecodedTriggerEpoch",
     "DecodedTriggerProgram",
     "DecodedTriggerProgramEntry",
     "reference_lab_payload_codecs",
