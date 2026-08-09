@@ -17,8 +17,6 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.config import (
     ConfigProfileSnapshot,
-    RoutingEndpointBinding,
-    RoutingGraph,
 )
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
@@ -26,6 +24,11 @@ from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,
     materialized_state_properties,
+)
+from tests.testkit.routing import (
+    RoutingEndpointSpec,
+    routing_endpoint,
+    routing_graph,
 )
 
 _DRIVE_FREQUENCY = InterfaceRef("test.drive_frequency/v1")
@@ -39,7 +42,7 @@ _READOUT_EMIT_FREQUENCY = _READOUT_EMIT.property("frequency")
 def _resource_binding_config(
     *,
     instruments: Mapping[str, str],
-    bindings: Sequence[RoutingEndpointBinding],
+    bindings: Sequence[RoutingEndpointSpec],
     extra_entities: Sequence[EntityRef] = (),
 ) -> ConfigProfileSnapshot:
     seed = load_config()
@@ -69,7 +72,7 @@ def _resource_binding_config(
                     ]
                 }
             ),
-            "routing": RoutingGraph(
+            "routing": routing_graph(
                 bindings=list(bindings),
             ),
         }
@@ -83,12 +86,12 @@ def test_typed_each_resources_route_to_different_instruments() -> None:
     config = _resource_binding_config(
         instruments={"source-0": "vna", "source-1": "vna"},
         bindings=(
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="source-0",
                 interface_id=NETWORK_SWEEP.interface_id,
                 entity_id=q0.id,
             ),
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="source-1",
                 interface_id=NETWORK_SWEEP.interface_id,
                 entity_id=q1.id,
@@ -107,7 +110,6 @@ def test_typed_each_resources_route_to_different_instruments() -> None:
     ) -> None:
         analyzers = network_sweep(
             context,
-            "readout",
             for_=authoring.each(q0, q1),
         )
         analyzers.ensure(NetworkSweepGroupTarget(points=points))
@@ -138,16 +140,84 @@ def test_typed_each_resources_route_to_different_instruments() -> None:
     } == {"source-0": ("q0",), "source-1": ("q1",)}
 
 
+def test_resource_roles_route_one_entity_to_two_equivalent_instruments() -> None:
+    q0 = EntityRef(id="q0", kind="logical_device")
+    config = _resource_binding_config(
+        instruments={"drive-vna": "vna", "readout-vna": "vna"},
+        bindings=(
+            routing_endpoint(
+                instrument_id="drive-vna",
+                interface_id=NETWORK_SWEEP.interface_id,
+                entity_id=q0.id,
+                role_id="drive",
+            ),
+            routing_endpoint(
+                instrument_id="readout-vna",
+                interface_id=NETWORK_SWEEP.interface_id,
+                entity_id=q0.id,
+                role_id="readout",
+            ),
+        ),
+    )
+
+    @authoring.experiment(id="test.symbolic.role-routing", kind="symbolic_roles")
+    def experiment(context: authoring.ExperimentContext) -> None:
+        drive = network_sweep(
+            context,
+            for_=authoring.one(q0),
+            role="drive",
+        )
+        readout = network_sweep(
+            context,
+            for_=authoring.one(q0),
+            role="readout",
+        )
+        drive.ensure(points=3)
+        readout.ensure(points=3)
+        context.record(drive.sweep())
+        context.record(readout.sweep())
+
+    invocation = experiment()
+    assert [
+        port.selector.role.role_id for port in invocation.definition.interface.resources
+    ] == ["drive", "readout"]
+
+    bound = bind_invocation(invocation, config_profile=config)
+    preview = materialized_effects_contract(
+        bound,
+        bound.environment.parameters,
+        config=config,
+    )
+    operations = operations_of_type(preview, CollectOperation, point_index=0)
+
+    assert {operation.instrument_id for operation in operations} == {
+        "drive-vna",
+        "readout-vna",
+    }
+    assert {
+        (
+            operation.resource.logical_port_id.local_id,
+            operation.resource.requested_role.role_id,
+            operation.resource.route_id,
+            operation.resource.route_role_id,
+        )
+        for operation in operations
+    } == {
+        ("network_sweep", "drive", "drive-vna.drive", "drive"),
+        ("network_sweep.2", "readout", "readout-vna.readout", "readout"),
+    }
+
+
 def test_entity_resource_selection_is_deterministic_across_instruments() -> None:
     config = _resource_binding_config(
         instruments={"drive-awg-0": "awg", "drive-awg-1": "awg"},
         bindings=(
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="drive-awg-0",
                 interface_id="test.drive_frequency/v1",
                 entity_id="q0",
             ),
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="drive-awg-1",
                 interface_id="test.drive_frequency/v1",
                 entity_id="q1",
@@ -230,13 +300,13 @@ def test_acquisition_selects_point_local_instruments_and_channels(
     config = _resource_binding_config(
         instruments=dict.fromkeys(("digitizer-0", q1_instrument), "digitizer"),
         bindings=(
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="digitizer-0",
                 interface_id="test.readout_acquire/v1",
                 entity_id="q0",
                 channel_id="readout-q0",
             ),
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id=q1_instrument,
                 interface_id="test.readout_acquire/v1",
                 entity_id="q1",
@@ -319,12 +389,12 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
             "digitizer-0": "digitizer",
         },
         bindings=(
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="readout-source-0",
                 interface_id="test.readout_emit/v1",
                 entity_id="q0",
             ),
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="digitizer-0",
                 interface_id="test.readout_acquire/v1",
                 entity_id="q0",

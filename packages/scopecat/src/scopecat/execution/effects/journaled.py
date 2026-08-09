@@ -13,7 +13,11 @@ from scopecat.records.execution_journal import (
     ExecutionTransition,
     JournalEntryState,
 )
-from scopecat.sdk.journal import ExecutionJournal, commit_transition
+from scopecat.sdk.journal import (
+    ExecutionJournal,
+    claim_transition,
+    commit_transition,
+)
 from scopecat.sdk.runtime_problems import (
     contextualize_problems,
     problem_from_exception,
@@ -70,7 +74,7 @@ class JournaledEffectBoundary:
     ) -> ReceiptT | None:
         """Persist an effect intent, invoke it once, and close unknown outcomes."""
 
-        commit_transition(self.journal, entry)
+        claim_transition(self.journal, entry)
         if after_intent is not None:
             after_intent()
         try:

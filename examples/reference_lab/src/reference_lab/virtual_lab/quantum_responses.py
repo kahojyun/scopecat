@@ -1,4 +1,4 @@
-"""Deterministic acquisition responses for the fake quantum lab."""
+"""Deterministic acquisition responses for the virtual quantum lab."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from scopecat_quantum.program_targets import PreparedQuantumTargetEntry
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.point_values import QuantumLabPointValues
-from reference_lab.targets.fake_list_mode import FakeAcquisitionResponse
+from reference_lab.targets.list_mode import AcquisitionResponse
 from reference_lab.virtual_lab.responses.drag_beta import (
     DragBetaAcquisitionResponse,
     DragBetaResponsePoint,
@@ -35,7 +35,7 @@ def quantum_lab_response(
     points: tuple[QuantumLabPointValues, ...],
     entries: tuple[PreparedQuantumTargetEntry, ...],
     shots: int,
-) -> FakeAcquisitionResponse | None:
+) -> AcquisitionResponse | None:
     """Select the one workflow-specific response used by the demo."""
 
     if program.id == drag_beta_program.id:

@@ -15,14 +15,14 @@ def test_config_workflow_validates_complete_snapshot() -> None:
 
 def test_config_workflow_validation_rejects_problems() -> None:
     config = load_config()
-    binding = config.routing.bindings[0].model_copy(
+    route = config.routing.routes[0].model_copy(
         update={"instrument_id": "missing-source"}
     )
     invalid_config = config.model_copy(
         update={
             "system": config.system.model_copy(
                 update={
-                    "routing": config.routing.model_copy(update={"bindings": [binding]})
+                    "routing": config.routing.model_copy(update={"routes": [route]})
                 }
             )
         }
@@ -32,5 +32,5 @@ def test_config_workflow_validation_rejects_problems() -> None:
         validate_config_profile(invalid_config)
 
     assert error.value.problems[0].code == (
-        "configuration.unknown_routing_binding_instrument"
+        "configuration.unknown_resource_route_instrument"
     )

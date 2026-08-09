@@ -19,7 +19,8 @@ from scopecat.planning.measurement_projection import project_measurement_catalog
 from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.records.config import (
     ConfigProfileSnapshot,
-    RoutingEndpointBinding,
+    ResourceRoute,
+    RoutingEndpoint,
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_program import ProgramFixture
@@ -50,22 +51,29 @@ def config_with_physical_resources(
         instrument.id for instrument in config.instrument_registry.instruments
     }
     seed_instrument = config.instrument_registry.instruments[0]
-    routing_bindings = list(config.routing.bindings)
-    binding_keys = {
-        (binding.instrument_id, binding.interface_id) for binding in routing_bindings
+    routes_by_instrument = {
+        route.instrument_id: route for route in config.routing.routes
     }
     for resource_id, interfaces in resources.items():
+        route = routes_by_instrument.get(resource_id)
+        endpoints = list(route.endpoints) if route is not None else []
+        declared_interfaces = {endpoint.interface_id for endpoint in endpoints}
         for interface_id in dict.fromkeys(interfaces):
-            key = (resource_id, interface_id)
-            if key in binding_keys:
+            if interface_id in declared_interfaces:
                 continue
-            routing_bindings.append(
-                RoutingEndpointBinding(
-                    instrument_id=resource_id,
+            endpoints.append(
+                RoutingEndpoint(
                     interface_id=interface_id,
                 )
             )
-            binding_keys.add(key)
+            declared_interfaces.add(interface_id)
+        routes_by_instrument[resource_id] = ResourceRoute(
+            id=route.id if route is not None else resource_id,
+            instrument_id=resource_id,
+            role_id=route.role_id if route is not None else None,
+            entity_ids=list(route.entity_ids) if route is not None else [],
+            endpoints=endpoints,
+        )
 
     instruments = list(config.instrument_registry.instruments)
     instruments.extend(
@@ -80,7 +88,9 @@ def config_with_physical_resources(
             "instrument_registry": config.instrument_registry.model_copy(
                 update={"instruments": instruments}
             ),
-            "routing": config.routing.model_copy(update={"bindings": routing_bindings}),
+            "routing": config.routing.model_copy(
+                update={"routes": list(routes_by_instrument.values())}
+            ),
         }
     )
     return config.model_copy(update={"system": system})

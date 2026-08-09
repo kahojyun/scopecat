@@ -6,6 +6,7 @@ import pytest
 
 import scopecat as sc
 from scopecat.kernel.errors import ProviderContractError
+from scopecat.kernel.state import StateValue
 from scopecat.measurements.results import MeasurementScalar
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
@@ -23,6 +24,8 @@ from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainResultBinding,
     DomainResultMapping,
+    DomainStateAddress,
+    DomainStateRequirement,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.invocation import DomainOutputValue, seal_domain_output_values
@@ -31,9 +34,8 @@ from scopecat.sdk.domain.job import (
     DomainResultValue,
 )
 from scopecat.sdk.domain.runtime import (
-    DomainFetchReceipt,
-    DomainFetchResult,
-    DomainSubmitReceipt,
+    DomainExecutionReceipt,
+    DomainExecutionResult,
 )
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
@@ -42,21 +44,15 @@ type _ResultBinding = DomainResultBinding[str]
 
 
 class _NoEffectsRuntime:
-    def submit(
+    def execute(
         self,
-        submission_key: str,
+        execution_key: str,
         payload: dict[str, str],
-    ) -> DomainSubmitReceipt:
-        del submission_key, payload
-        raise AssertionError("preparation must not submit")
-
-    def fetch(
-        self,
-        submission_key: str,
-        job_id: str,
-    ) -> DomainFetchReceipt | DomainFetchResult[dict[str, str]]:
-        del submission_key, job_id
-        raise AssertionError("preparation must not fetch")
+        *,
+        instruments: object,
+    ) -> DomainExecutionReceipt | DomainExecutionResult[dict[str, str]]:
+        del execution_key, payload, instruments
+        raise AssertionError("preparation must not execute")
 
 
 def _preparation_context(
@@ -348,17 +344,61 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
         capability_fingerprint="test.interfaces.v1",
         artifact_id="test.artifact",
         artifact_fingerprint="test.artifact.v1",
+        execution_summary={"instruments": ["instrument-a", "instrument-b"]},
         target_intent={"mode": "test"},
         payload={"job": "test"},
     )
 
     def reject_realization(
-        fetched: DomainFetchResult[dict[str, str]],
+        executed: DomainExecutionResult[dict[str, str]],
     ) -> tuple[DomainResultValue[str], ...]:
-        del fetched
+        del executed
         raise AssertionError("preparation must not realize")
 
+    guard_enabled = DomainStateAddress(
+        instrument_id="guard-instrument",
+        interface_id="test.guard/v1",
+        property_id="enabled",
+    )
     prepared = preparation.build(
+        instrument_ids=("instrument-b", "instrument-a"),
+        setup_write_footprint=(
+            DomainStateAddress(
+                instrument_id="instrument-b",
+                interface_id="test.program/v1",
+                property_id="loaded",
+            ),
+        ),
+        state_requirements=(
+            DomainStateRequirement(
+                address=guard_enabled,
+                value=StateValue(True),
+            ),
+            DomainStateRequirement(
+                address=guard_enabled,
+                value=StateValue(True),
+            ),
+        ),
+        realtime_write_footprint=(
+            DomainStateAddress(
+                instrument_id="instrument-b",
+                interface_id="test.output/v1",
+                component_path=("channels", "2"),
+                property_id="enabled",
+            ),
+            DomainStateAddress(
+                instrument_id="instrument-a",
+                interface_id="test.clock/v1",
+                property_id="source",
+            ),
+        ),
+        realtime_state_invalidations=(
+            DomainStateAddress(
+                instrument_id="guard-instrument",
+                interface_id="test.guard/v1",
+                property_id="latched",
+            ),
+        ),
         mapping=mapping,
         invocation=invocation,
         runtime=_NoEffectsRuntime(),
@@ -366,3 +406,64 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
     )
 
     assert isinstance(prepared, PreparedDomainExecution)
+    assert prepared.instrument_ids == ("instrument-a", "instrument-b")
+    assert prepared.state_requirements == (
+        DomainStateRequirement(
+            address=guard_enabled,
+            value=StateValue(True),
+        ),
+    )
+    assert prepared.setup_write_footprint == (
+        DomainStateAddress(
+            instrument_id="instrument-b",
+            interface_id="test.program/v1",
+            property_id="loaded",
+        ),
+    )
+    assert prepared.realtime_write_footprint == (
+        DomainStateAddress(
+            instrument_id="instrument-a",
+            interface_id="test.clock/v1",
+            property_id="source",
+        ),
+        DomainStateAddress(
+            instrument_id="instrument-b",
+            interface_id="test.output/v1",
+            component_path=("channels", "2"),
+            property_id="enabled",
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"domain state requirements conflict for "
+            r"guard-instrument:test\.guard/v1\.enabled"
+        ),
+    ):
+        preparation.build(
+            instrument_ids=(),
+            state_requirements=(
+                DomainStateRequirement(
+                    address=guard_enabled,
+                    value=StateValue(True),
+                ),
+                DomainStateRequirement(
+                    address=guard_enabled,
+                    value=StateValue(False),
+                ),
+            ),
+            realtime_write_footprint=(),
+            realtime_state_invalidations=(),
+            mapping=mapping,
+            invocation=invocation,
+            runtime=_NoEffectsRuntime(),
+            realize=reject_realization,
+        )
+    assert prepared.realtime_state_invalidations == (
+        DomainStateAddress(
+            instrument_id="guard-instrument",
+            interface_id="test.guard/v1",
+            property_id="latched",
+        ),
+    )

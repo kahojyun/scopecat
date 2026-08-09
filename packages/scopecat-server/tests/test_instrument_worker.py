@@ -844,11 +844,20 @@ def _two_instrument_config() -> ConfigProfileSnapshot:
 
 def _ragged_point_cloud_config() -> ConfigProfileSnapshot:
     config = load_config()
-    [binding] = config.routing.bindings[:1]
+    [route] = config.routing.routes[:1]
+    [endpoint] = route.endpoints[:1]
     routing = config.routing.model_copy(
         update={
-            "bindings": [
-                binding.model_copy(update={"interface_id": "tests.control/v1"})
+            "routes": [
+                route.model_copy(
+                    update={
+                        "endpoints": [
+                            endpoint.model_copy(
+                                update={"interface_id": "tests.control/v1"}
+                            )
+                        ]
+                    }
+                )
             ]
         }
     )

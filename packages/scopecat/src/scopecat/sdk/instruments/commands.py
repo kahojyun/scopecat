@@ -70,8 +70,6 @@ class InstrumentStateCommand(BaseModel):
                 assignment.interface_id,
                 assignment.component_path,
                 assignment.property_id,
-                assignment.entity_ids,
-                assignment.channel_bindings,
             )
             for assignment in self.assignments
         ]
@@ -167,13 +165,13 @@ class CollectCommand(BaseModel):
 
     command_id: _NonEmptyId
     instrument_id: _NonEmptyId
-    point_index: int = Field(ge=0)
+    point_index: int | None = Field(default=None, ge=0)
     point_count: int = Field(ge=1)
     requests: list[CollectResultRequest] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_unique_requests(self) -> CollectCommand:
-        if self.point_index >= self.point_count:
+        if self.point_index is not None and self.point_index >= self.point_count:
             raise ValueError("collect command point index must be within point count")
         request_ids = [request.id for request in self.requests]
         if len(request_ids) != len(set(request_ids)):

@@ -188,14 +188,14 @@ def _transitions(run_id: str) -> tuple[ExecutionTransition, ...]:
         ExecutionTransition(
             run_id=run_id,
             operation_id="operation-0",
-            stage="domain_fetch",
+            stage="domain_execute",
             effect="read",
             state="started",
         ),
         ExecutionTransition(
             run_id=run_id,
             operation_id="operation-0",
-            stage="domain_fetch",
+            stage="domain_execute",
             effect="read",
             state="completed",
         ),
@@ -213,7 +213,7 @@ def test_execution_transitions_are_canonical_durable_events(tmp_path: Path) -> N
         ExecutionTransition(
             run_id="run-shared",
             operation_id="operation-0",
-            stage="domain_fetch",
+            stage="domain_execute",
             effect="read",
             state="completed",
         )
@@ -256,6 +256,18 @@ def test_transition_retry_replays_the_original_commit(tmp_path: Path) -> None:
     assert journal.entries() == (first, changed)
 
 
+def test_transition_claim_rejects_operation_reentry(tmp_path: Path) -> None:
+    journal = SQLiteExecutionJournal(_runs(tmp_path), run_id="run-claim")
+    started = _transitions("run-claim")[0]
+
+    claimed = journal.claim(started)
+
+    assert claimed.sequence == 0
+    with pytest.raises(ExecutionJournalConflict, match="already claimed"):
+        journal.claim(started)
+    assert journal.entries() == (claimed,)
+
+
 def test_transition_transport_identity_excludes_only_daemon_fields() -> None:
     selected = problem(
         "read_failed",
@@ -266,7 +278,7 @@ def test_transition_transport_identity_excludes_only_daemon_fields() -> None:
         sequence=7,
         run_id="run-identity",
         operation_id="operation-1",
-        stage="domain_fetch",
+        stage="domain_execute",
         effect="read",
         state="failed",
         timestamp=datetime(2026, 7, 23, 9, tzinfo=UTC),

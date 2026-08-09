@@ -18,7 +18,9 @@ if TYPE_CHECKING:
     from scopecat.api._instruments import (
         InstrumentClientFactory,
         InstrumentRef,
+        TemporaryInstrumentRef,
         instrument,
+        temporary_instrument,
     )
     from scopecat.api.analysis import (
         Analysis,
@@ -33,8 +35,11 @@ if TYPE_CHECKING:
         analysis_step,
     )
     from scopecat.authoring import (
+        ANY_RESOURCE_ROLE,
+        DEFAULT_RESOURCE_ROLE,
         Axis,
         BoolType,
+        CapabilityResource,
         CoordinateRef,
         EachEntity,
         EntityType,
@@ -61,6 +66,7 @@ if TYPE_CHECKING:
         ProductValueSpec,
         QuantityType,
         RecordRef,
+        ResourceRoleSelector,
         ScalarType,
         StringType,
         Symbolic,
@@ -69,8 +75,10 @@ if TYPE_CHECKING:
         ValueRef,
         ValueType,
         axis,
+        capability_resource,
         coordinate,
         each,
+        ensure_state_targets,
         experiment,
         input_ref,
         module,
@@ -80,6 +88,7 @@ if TYPE_CHECKING:
         parameter_field,
         parameter_lookup,
         parameter_schema,
+        resource_role,
     )
     from scopecat.config.parameters import (
         delete_parameter_rows,
@@ -103,9 +112,12 @@ if TYPE_CHECKING:
     )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "ANY_RESOURCE_ROLE": ("scopecat.authoring", "ANY_RESOURCE_ROLE"),
     "Axis": ("scopecat.authoring", "Axis"),
     "BoolType": ("scopecat.authoring", "BoolType"),
+    "CapabilityResource": ("scopecat.authoring", "CapabilityResource"),
     "CoordinateRef": ("scopecat.authoring", "CoordinateRef"),
+    "DEFAULT_RESOURCE_ROLE": ("scopecat.authoring", "DEFAULT_RESOURCE_ROLE"),
     "EachEntity": ("scopecat.authoring", "EachEntity"),
     "EntityType": ("scopecat.authoring", "EntityType"),
     "Experiment": ("scopecat.authoring", "Experiment"),
@@ -131,6 +143,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ProductValueSpec": ("scopecat.authoring", "ProductValueSpec"),
     "QuantityType": ("scopecat.authoring", "QuantityType"),
     "RecordRef": ("scopecat.authoring", "RecordRef"),
+    "ResourceRoleSelector": ("scopecat.authoring", "ResourceRoleSelector"),
     "ScalarType": ("scopecat.authoring", "ScalarType"),
     "StringType": ("scopecat.authoring", "StringType"),
     "Symbolic": ("scopecat.authoring", "Symbolic"),
@@ -139,7 +152,9 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ValueRef": ("scopecat.authoring", "ValueRef"),
     "ValueType": ("scopecat.authoring", "ValueType"),
     "coordinate": ("scopecat.authoring", "coordinate"),
+    "capability_resource": ("scopecat.authoring", "capability_resource"),
     "each": ("scopecat.authoring", "each"),
+    "ensure_state_targets": ("scopecat.authoring", "ensure_state_targets"),
     "experiment": ("scopecat.authoring", "experiment"),
     "input_ref": ("scopecat.authoring", "input_ref"),
     "module": ("scopecat.authoring", "module"),
@@ -149,6 +164,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "parameter_field": ("scopecat.authoring", "parameter_field"),
     "parameter_lookup": ("scopecat.authoring", "parameter_lookup"),
     "parameter_schema": ("scopecat.authoring", "parameter_schema"),
+    "resource_role": ("scopecat.authoring", "resource_role"),
     "axis": ("scopecat.authoring", "axis"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
     "PayloadCodec": ("scopecat.sdk.payloads", "PayloadCodec"),
@@ -185,10 +201,18 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "InstrumentClientFactory",
     ),
     "InstrumentRef": ("scopecat.api._instruments", "InstrumentRef"),
+    "TemporaryInstrumentRef": (
+        "scopecat.api._instruments",
+        "TemporaryInstrumentRef",
+    ),
     "Quantity": ("scopecat.kernel.quantity", "Quantity"),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
     "instrument": ("scopecat.api._instruments", "instrument"),
+    "temporary_instrument": (
+        "scopecat.api._instruments",
+        "temporary_instrument",
+    ),
 }
 
 

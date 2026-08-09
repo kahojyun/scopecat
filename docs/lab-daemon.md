@@ -1,177 +1,162 @@
 # Lab Daemon
 
-This document describes the current daemon architecture. It is not a product
-requirement or roadmap. Ownership, persistence, and process boundaries may be
-evolved when that better serves the adoption and growth paths in the
-[project charter](project-charter.md).
-
-Scopecat has one durable writer per lab instance: a long-running local daemon.
-GUI and Python processes are clients, even when Python executes an experiment
-itself.
+Scopecat uses one long-running local daemon as the durable writer for each lab
+instance. GUIs and Python processes are clients, including notebooks that retain
+local experiment closures.
 
 ```text
 GUI ─────────────────┐
                      ├─ HTTP + SSE ─ daemon ─ SQLite + object store
 notebook client ─────┘                    │
-  └─ client executor ──── fenced compute/results
-                         └─ hardware batches ─┘
+  └─ client executor ── fenced results ──┤
+                         hardware batches ─ instrument worker
 ```
 
 The daemon owns admission, run state, resource claims, executor leases,
-configuration activation, event ordering, and every durable write. SQLite
-transactions provide concurrency control inside that boundary. Content bytes
-remain in an immutable SHA-256 object store so large values do not inflate the
-control database. Clients never open either store.
+configuration activation, event order, and durable writes. SQLite is the
+transaction and ordering boundary. Large immutable content lives in a SHA-256
+object store, and clients open neither store directly.
 
-`ControlRun` is the durable lifecycle authority:
-`queued`, `leased`, `attention_required`, or `closed`. `RunManifest` keeps the
-accepted snapshot, content index, and optional terminal outcome; it does not
-duplicate scheduler state. Run list and detail queries read both in one SQLite
-snapshot.
+## Durable run ownership
 
-## Execution boundary
+`ControlRun` is the lifecycle authority with four states: `queued`, `leased`,
+`attention_required`, and `closed`. `RunManifest` retains the accepted request,
+configuration snapshot, content index, and optional terminal outcome. Run views
+join those records in one SQLite snapshot rather than duplicating scheduler
+state in the manifest.
 
-The notebook keeps its transient `RunProgram` and Python closures, while the
-daemon admits the plan, hosts process-long instrument actors, and persists
-execution results. A backend endpoint owns raw drivers behind opaque connection
-handles, keeping provider and driver details out of actors and services.
-The daemon projects accepted configuration to per-device bindings before
-calling that endpoint; worker providers cannot inspect topology, parameters,
-routing, or run-start policy.
-Hardware effects cross the boundary as ordered batches. The daemon acquires an
-owner epoch, freshly observes hardware, reconciles desired state against that
-baseline, validates and lowers complete commands to the driver backend ABI,
-deduplicates whole batches, records concise command and receipt evidence, and
-owns abort-on-failure, terminal readback, and connection retirement. Lowering
-finishes before a batch is recorded as started; driver requests contain no run,
-point, product, retry identity, or public payload transport body. Opaque payload
-bytes are carried separately from their worker-wire JSON descriptors, then
-decoded inside the worker before entering the driver API. Admission binds the
-expected provider and instrument-description fingerprint;
-provisioning verifies that contract before the first write. Renewable executor
-leases carry a unique fencing identity, so an expired client cannot continue
-writing. Collection arrays cross the same process boundary in the other
-direction as hash-checked binary attachments; the bounded control response
-contains only their typed descriptors and the rest of the receipt.
+Admission closes the complete instrument claim set before hardware access. It
+also binds the expected provider and instrument-description fingerprints. The
+executor then atomically acquires a renewable lease with a unique fencing
+identity. Every journal, measurement, and terminal command presents that
+identity, so an expired executor cannot continue writing.
 
-Admission and resource claims are durable before hardware access. The executor
-atomically acquires its control lease; all later journal, measurement, and
-terminal commands carry the lease identity. A measurement executor may also
-read durable append identities to reconcile an ambiguous append response.
-Lease validation, the effect receipt, and its durable event commit in one
-SQLite transaction. Heartbeats renew the executor lease deadline and return
-any durable cancellation request; the run's resource claims refer to their
-owner instead of copying token or expiry state. Routine heartbeats do not append
-project timeline events. Cancellation requests, lease grant and loss, and
-resource quarantine remain durable state-change events.
+Lease validation, effect evidence, and its event commit share one SQLite
+transaction. Heartbeats renew the lease and return durable cancellation state.
+Routine renewals stay out of the project timeline; lease grant or loss,
+cancellation, quarantine, and attention resolution remain visible state
+changes.
 
-The executor does not publish a second, process-local observation stream.
-Run and event views refresh from replayable project SSE; each initial
-connection or reconnection refreshes canonical queries to recover missed
-changes. The separate health poll is only a reachability signal.
+Each run claims a flat set of registered instruments. Planning derives it from
+residual host effects and the exact footprints of prepared domain executions.
+The scheduler holds those claims across provisioning and all coverage blocks.
+Interface, entity, channel, component, and property addresses remain exact
+command data, while instrument claims provide exclusion against other runs and
+direct sessions.
 
-Each admission carries one flat set of target and instrument claims closed by
-planning from the complete run program. The executor validates or acquires that
-set once and holds it across provider provisioning and all coverage blocks;
-there are no nested block leases or channel/group scheduler claims.
+Host orchestration and domain runtime may use the same provisioned instrument.
+Property-level write authority, state requirements, and invalidations are
+verified during planning; the daemon schedules only the resulting instrument
+claims. The [execution semantics](experiment-execution-model.md#physical-authority-and-shared-state)
+define that boundary.
 
-`sc.open_project(...).connect()` returns the normal notebook `LabClient`. It
-loads only the application's planning composition, resolves the accepted
-config, and asks the daemon for the serializable instrument-contract catalog
-bound to that exact snapshot. Concrete providers, transports, codecs, and
-drivers are constructed once in a spawned project instrument worker and never
-enter the notebook process. The daemon control plane retains only serializable
-catalogs and opaque connection handles. Transient client-planned invocations
-are planned and executed in the notebook when their closures or interactive
-objects cannot be reconstructed reliably in another process. Every durable
-effect still passes through the daemon, so the notebook never becomes a second
-writer.
+## Instrument workers and effects
 
-The same project client exposes event replay, `lab.control.cancel(run_id)`, and
-attention resolution through `lab.control`. Execution remains an internal
-implementation of `lab.run(...)`, so notebook code has one connection entry
-point and one owner for the HTTP transport.
+Concrete providers, transports, codecs, and drivers live in one spawned project
+instrument worker. The daemon control plane holds a serializable contract
+catalog and opaque connection handles. Worker providers receive per-device
+bindings projected from the accepted configuration; they do not receive the
+lab topology, parameter system, routing graph, or lifecycle policy.
 
-After execution, analysis records, parameter proposals, acceptance decisions,
-and default changes use the same daemon boundary. A notebook may calculate
-with arbitrary local Python state, but `Analysis.save()`,
-`lab.config.accept(...)`, and `lab.config.set_default(...)` cross into durable
-daemon commands rather than writing storage directly. Acceptance authority may
-be a person or a named, versioned automatic policy.
-Physical device removal and rekeying use
-`lab.config.migrate_instrument_inventory(...)`, a separate command that must
-declare the destructive diff and is rejected until the affected domains are
-drained.
+Hardware effects cross the boundary as ordered typed batches. For each claimed
+instrument the daemon-owned execution path:
+
+1. acquires a fresh owner epoch and observes initial hardware state;
+2. applies configured run-start policy to establish the baseline;
+3. validates and lowers complete commands before recording the batch as started;
+4. invokes the driver and records concise intent and receipt evidence;
+5. applies success or failure policy, gathers terminal readback, and retires the
+   connection when required.
+
+The driver ABI contains physical commands, not run, point, product, or retry
+semantics. Payload bytes and returned arrays cross the process boundary as
+hash-checked binary attachments; bounded JSON messages carry their typed
+descriptors and ordinary receipt fields.
+
+Whole-batch operation identities provide process-local duplicate detection and
+durable correlation. They never turn an unknown hardware outcome into a safe
+retry. Unknown effects stop dependent execution, initiate the available abort
+path, and quarantine resources whose final state cannot be established.
+
+Domain runtimes submit device programs through the same run-scoped instrument
+executor. They receive neither raw drivers nor connection handles and can reach
+only the instruments authorized by the prepared execution. Target-specific
+batch protocols, timing guarantees, DSP placement, and result realization are
+owned by the target implementation and retained as compact execution
+provenance, rather than duplicated in the daemon architecture.
+
+Observed, baseline, and final instrument snapshots are durable run evidence.
+Run summaries expose neutral change counts, affected instruments, and missing
+readbacks; full snapshots are loaded for diagnosis or provenance. Scientific
+datasets contain only values selected by `record(...)`.
+
+## Notebook execution and durable commands
+
+`sc.open_project(...).connect()` returns the normal `LabClient`. It loads the
+project's planning composition, resolves the accepted configuration, and asks
+the daemon for the instrument contract catalog bound to that snapshot.
+
+An invocation that contains local closures or interactive objects may retain its
+transient `RunProgram` and pure computation in the notebook process. The daemon
+still admits the plan, fences the client executor, owns instrument sessions, and
+writes every effect, measurement, and outcome. The notebook therefore remains a
+compute client rather than a second durable writer.
+
+The same client exposes replayable events, cancellation, and attention
+resolution through `lab.control`. Analysis records, parameter proposals,
+acceptance decisions, and default changes also use daemon commands. Local Python
+may calculate arbitrary candidates, while `Analysis.save()`,
+`lab.config.accept(...)`, and `lab.config.set_default(...)` establish durable
+state.
 
 A candidate may be used for one run without changing the default. That run
-records the producing run, analysis records, proposal ids, base config hash,
-and resolved candidate hash. Verification is optional evidence: acceptance may
-happen before it, after it, or without a dedicated verification run.
+retains its producing run, analysis, proposal, base configuration hash, and
+resolved candidate hash. Acceptance may be attributed to a person or a named,
+versioned automatic policy.
+
+## Cancellation and attention
 
 Cancelling queued work commits a known `cancelled` outcome immediately.
-Cancelling a leased run persists an idempotent request; the next executor
-heartbeat exposes it, and execution stops at the next operation, hardware-batch,
-coverage, or normal-completion boundary. An already-running hardware batch or
-domain call is not interrupted in the middle. Provisioned hardware then uses
-the normal failure finalization path before committing `cancelled`; if that
-cleanup has an unknown outcome, the terminal result remains cancelled but its
-certainty is indeterminate and the affected resources remain quarantined.
+Cancelling leased work stores an idempotent request. The executor observes it on
+a heartbeat and stops at the next operation, hardware-batch, coverage, or
+normal-completion boundary.
 
-Cancellation and terminal commit are ordered by the same SQLite writer. If the
-terminal commit wins, a later cancel returns `not_accepted` and does not rewrite
-history. If the request wins, a pending successful terminal intent becomes a
-known cancelled outcome and the client observes `RunCancelled`; a real failed
-or indeterminate intent still wins over cancellation. At this last boundary the
-effects and successful hardware finalization may already be complete, so the
-cancelled outcome does not claim that earlier work was interrupted.
+An active synchronous driver batch or domain call cannot be interrupted in the
+middle. Provisioned hardware follows normal failure finalization before the
+cancelled outcome is committed. If finalization has an unknown outcome, the run
+is cancelled with indeterminate certainty and affected resources remain
+quarantined.
 
-If an executor disappears, its resources remain quarantined. After reconciling
-external state, the GUI or `lab.control.resolve_attention(run_id)` atomically
-publishes an indeterminate failed outcome, closes the run, and releases its
-resources. The run cannot be resumed or requeued safely because the execution
-program has no general replay contract. Submit a new run to execute again.
+Cancellation and terminal commit are serialized by the SQLite writer:
 
-A restarted daemon immediately fences executors from the previous process
-instead of trusting their remaining TTL.
+- a completed terminal commit rejects a later cancellation request;
+- a prior request converts a pending successful intent to known cancellation;
+- actual failed or indeterminate evidence remains stronger than cancellation.
 
-## GUI and event stream
+If an executor disappears, its run enters `attention_required` and its resources
+stay quarantined. After externally reconciling hardware, an operator resolves
+attention through the GUI or `lab.control.resolve_attention(run_id)`. Resolution
+closes the run with an indeterminate failed outcome and releases the claims. The
+original program is not resumed because general effect replay is unsafe; another
+attempt is a new run.
 
-The daemon serves the bundled GUI and a versioned, typed HTTP API. The GUI
-reads health, run detail, resource state, and bounded measurement pages from
-that API.
+A daemon restart immediately fences executors from the previous process rather
+than trusting their remaining lease time.
 
-Server-sent events expose the same durable, globally ordered event log used by
-the replay endpoint. A reconnecting GUI resumes from an event cursor and then
-refreshes canonical state; it does not maintain an offline cache or a second
-source of truth.
+## API and event stream
 
-## Scalability boundary
+The daemon serves the bundled GUI and a versioned typed HTTP API. Run detail,
+resource state, configuration history, and measurements are exposed through
+bounded queries.
 
-The single daemon, SQLite writer, and local object store form the current
-single-lab durability and ordering boundary. Large content remains in binary
-objects; execution commits evidence at batch or checkpoint granularity; and
-interactive queries and events use bounded pages, selections, and summaries.
-The [scalability benchmarks](scalability-benchmarks.md) measure this boundary.
+Server-sent events replay the same durable globally ordered event log used by
+the API. On initial connection or reconnection, clients refresh canonical
+queries and continue from an event cursor. The separate health poll represents
+reachability only; it is not an observation stream or source of run state.
 
-## Storage ownership
+## Configuration and storage ownership
 
-A single process-owner lock prevents two daemons opening the same lab instance.
-Inside that boundary, SQLite transactions and fencing tokens coordinate all
-durable executor effects. Interactive and experiment instrument calls share
-daemon-owned sessions, while concrete drivers live in one project instrument
-worker.
-
-The process-owner lock answers only “which daemon owns this lab instance?” It is
-not a run coordination mechanism. Resource claims coordinate experiments and
-direct sessions, renewable ownership leases reclaim abandoned clients, executor
-tokens fence external run execution, and SQLite transactions make durable
-commits atomic.
-
-The default transport is a same-user local control plane. It binds to loopback
-and restricts accepted host names; it is not an authenticated remote service.
-Remote or multi-user access needs a separate security boundary.
-
-Each project has a `scopecat.toml` pointing separately at its version-controlled
+A project `scopecat.toml` points separately to its version-controlled
 control-plane application and worker backend:
 
 ```toml
@@ -180,27 +165,32 @@ application = "my_lab.application:create_application"
 instrument_backend = "my_lab.backend:create_backend"
 ```
 
-The application may lazily construct an initial `ConfigProfileSnapshot` with
-Python. The daemon loads the application at startup but invokes its bootstrap
-factory only if the registry has no entries; ordinary notebook connections do
-not read bootstrap inputs. After that point the registry is authoritative:
-importing another snapshot creates an immutable entry, activation changes an
-explicit generation, and restart never silently restores the application seed.
-User code and editable config inputs belong in Git; runs, accepted snapshots,
-activation history, measurements, and artifacts belong to the daemon.
+The application may construct an initial `ConfigProfileSnapshot` in Python. The
+daemon invokes that bootstrap factory only when the registry is empty. Once
+bootstrapped, immutable registry entries and their explicit activation
+generations are authoritative. Editing Python source does not mutate an active
+entry; publishing a changed snapshot is an explicit CLI or notebook action.
 
-The backend entry is imported only by the instrument worker. The daemon sees
-its serializable catalog and opaque handles, not provider, transport, codec, or
-driver objects.
+The backend entry is imported only by the instrument worker. The daemon sees its
+serializable catalog and opaque handles.
 
 | Owner | Contents |
 |---|---|
-| User project and Git | Python experiment/system/config code, `scopecat.toml`, and exported complete snapshots |
-| Lab daemon | Run requests and manifests, execution events, measurements, analysis, proposals, immutable config entries, and activation history |
-| GUI and notebooks | Views and commands against the daemon; transient client-planned computation may remain in the notebook process |
+| User project and Git | Experiment, system, and configuration code; `scopecat.toml`; exported snapshots |
+| Lab daemon | Requests, manifests, events, measurements, analysis, proposals, immutable configurations, activation history |
+| GUI and notebooks | Views, commands, and transient client-planned computation |
 
-Editing Git-owned Python config code does not mutate the active registry entry.
-The daemon does not watch, hot-reload, or rewrite that source; publishing a
-changed snapshot is an explicit CLI or notebook action. This keeps reproducible
-source separate from operator state and prevents an edit from silently changing
-later runs. The repository and server READMEs own the corresponding commands.
+One process-owner lock prevents two daemons from opening the same lab instance.
+Within that boundary, resource claims coordinate runs and direct sessions,
+leases reclaim abandoned clients, fencing identities reject stale executors,
+and SQLite transactions make durable commits atomic.
+
+The default transport is a same-user local control plane bound to loopback with
+restricted host names. Remote or multi-user operation requires a separate
+authenticated security boundary.
+
+The single daemon, SQLite writer, and local object store define the current
+single-lab scalability boundary. Large content remains in binary objects;
+execution commits at batch or checkpoint granularity; interactive reads use
+bounded pages and summaries. The
+[scalability benchmarks](scalability-benchmarks.md) measure this boundary.

@@ -26,10 +26,9 @@ from scopecat.records.artifact import CommandPayload
 from scopecat.sdk.instruments.commands import CollectResultRequest
 from scopecat.sdk.instruments.contracts import (
     AcquisitionResultSpec,
-    ComponentSpec,
     InstrumentDescription,
-    InterfaceSpec,
     OperationSpec,
+    resolve_implementation_component,
     validate_state_assignments,
 )
 
@@ -187,15 +186,13 @@ def _matching_result(
     )
     if selected_interface is None:
         return None
-    component: InterfaceSpec | ComponentSpec = selected_interface
-    for component_id in component_path:
-        selected_component = next(
-            (child for child in component.components if child.id == component_id),
-            None,
-        )
-        if selected_component is None:
-            return None
-        component = selected_component
+    component = resolve_implementation_component(
+        description,
+        selected_interface,
+        component_path,
+    )
+    if component is None:
+        return None
     selected_acquisition = next(
         (
             acquisition
@@ -229,15 +226,13 @@ def _matching_operation(
     )
     if selected_interface is None:
         return None
-    component: InterfaceSpec | ComponentSpec = selected_interface
-    for component_id in component_path:
-        selected_component = next(
-            (child for child in component.components if child.id == component_id),
-            None,
-        )
-        if selected_component is None:
-            return None
-        component = selected_component
+    component = resolve_implementation_component(
+        description,
+        selected_interface,
+        component_path,
+    )
+    if component is None:
+        return None
     return next(
         (
             operation

@@ -17,7 +17,6 @@ from scopecat.execution.local.program import (
     InvokeOperation,
 )
 from scopecat.execution.points import AdmittedPointLedger
-from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -31,6 +30,7 @@ from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.sdk.instruments.execution import RunInstrumentHost
 from scopecat.sdk.journal import ExecutionJournal, ExecutionJournalError
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 
@@ -78,7 +78,7 @@ class RunEffectInterpreter:
         self.logical_points: dict[int, LogicalPointId] = {}
         self.run_points: dict[int, RunPoint] = {}
         self.observed_state = list(instruments.observed_state)
-        self.prepared_state = list(instruments.prepared_state)
+        self.baseline_state = list(instruments.baseline_state)
         self.final_state: list[InstrumentStateSnapshot] = []
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
@@ -313,6 +313,7 @@ class RunEffectInterpreter:
                 job.execution,
                 logical_compute_node_id=job.id,
                 run_id=self.run_id,
+                instruments=self._instruments,
                 journal=self._journal.execution_journal,
             )
         except BaseException as error:
@@ -374,7 +375,7 @@ class RunEffectInterpreter:
         return effect_result.RunEffectResult(
             problems=tuple(self._journal.problems),
             observed_state=tuple(self.observed_state),
-            prepared_state=tuple(self.prepared_state),
+            baseline_state=tuple(self.baseline_state),
             final_state=tuple(self.final_state),
             admitted_points=self.point_ledger.points,
             indeterminate=self._journal.indeterminate,

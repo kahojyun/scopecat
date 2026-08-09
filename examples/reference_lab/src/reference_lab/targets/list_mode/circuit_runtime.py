@@ -1,4 +1,4 @@
-"""Correlate fake target evidence to Scopecat logical quantum outputs."""
+"""Correlate list-mode target evidence to Scopecat logical quantum outputs."""
 
 from __future__ import annotations
 
@@ -20,44 +20,44 @@ from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
 )
 
-from reference_lab.targets.fake_list_mode.model import (
-    FakeListArtifact,
+from reference_lab.targets.list_mode.execution_model import (
+    DigitizerFrame,
+    ListModeRun,
 )
-from reference_lab.targets.fake_list_mode.runtime import (
-    FakeDigitizerFrame,
-    FakeListRun,
+from reference_lab.targets.list_mode.model import (
+    ListModeArtifact,
 )
 
-_FAKE_RESPONSE_UNIT = "ratio"
+_RESPONSE_UNIT = "ratio"
 
-type _MappedFakeListTarget = MappedQuantumTarget[FakeListArtifact]
+type _MappedListModeTarget = MappedQuantumTarget[ListModeArtifact]
 
 
 @dataclass(frozen=True, slots=True)
-class CorrelatedFakeListRun:
+class CorrelatedListModeRun:
     """Canonically ordered raw target data after correlation."""
 
-    mapped_target: _MappedFakeListTarget
-    frames: tuple[FakeDigitizerFrame, ...]
+    mapped_target: _MappedListModeTarget
+    frames: tuple[DigitizerFrame, ...]
 
 
-def correlate_fake_list_run(
-    mapped_target: _MappedFakeListTarget,
-    target_run: FakeListRun,
-) -> CorrelatedFakeListRun:
-    """Correlate one raw fake run without interpreting values."""
+def correlate_list_mode_run(
+    mapped_target: _MappedListModeTarget,
+    target_run: ListModeRun,
+) -> CorrelatedListModeRun:
+    """Correlate one raw device run without interpreting values."""
 
     mapping = mapped_target.mapping
     artifact = mapped_target.artifact
     if target_run.artifact != artifact:
-        msg = "fake-list run does not retain the compiled target artifact"
+        msg = "list-mode run does not retain the compiled target artifact"
         raise ValueError(msg)
 
     raw_by_address_shot = {
         (frame.address, frame.shot_index): frame for frame in target_run.frames
     }
     if len(raw_by_address_shot) != len(target_run.frames):
-        msg = "fake-list run contains duplicate acquisition-address shots"
+        msg = "list-mode run contains duplicate acquisition-address shots"
         raise ValueError(msg)
     expected_keys = {
         (result.result_address, shot_index)
@@ -66,7 +66,7 @@ def correlate_fake_list_run(
     }
     if set(raw_by_address_shot) != expected_keys:
         msg = (
-            "fake-list frames must exactly cover every mapped acquisition for "
+            "list-mode frames must exactly cover every mapped acquisition for "
             "every shot"
         )
         raise ValueError(msg)
@@ -76,14 +76,14 @@ def correlate_fake_list_run(
         for result in mapping.results
         for shot_index in range(artifact.repetitions)
     )
-    return CorrelatedFakeListRun(
+    return CorrelatedListModeRun(
         mapped_target,
         correlated_frames,
     )
 
 
-def realize_fake_measurements(
-    correlated_run: CorrelatedFakeListRun,
+def realize_measurements(
+    correlated_run: CorrelatedListModeRun,
 ) -> tuple[DomainResultValue[TargetAcquisitionAddress], ...]:
     """Project one correlated run to canonical integrated-IQ values."""
 
@@ -99,21 +99,21 @@ def realize_fake_measurements(
 
 
 def _frames_for_result_address(
-    correlated_run: CorrelatedFakeListRun,
+    correlated_run: CorrelatedListModeRun,
     result_address: TargetAcquisitionAddress,
-) -> tuple[FakeDigitizerFrame, ...]:
+) -> tuple[DigitizerFrame, ...]:
     return tuple(
         frame for frame in correlated_run.frames if frame.address == result_address
     )
 
 
 def _realize_integrated_iq_value(
-    frames: tuple[FakeDigitizerFrame, ...],
+    frames: tuple[DigitizerFrame, ...],
 ) -> MeasurementValue:
     if all(frame.value is None for frame in frames):
         return MeasurementUnavailable.create(
             dtype="complex128",
-            unit=_FAKE_RESPONSE_UNIT,
+            unit=_RESPONSE_UNIT,
             shape=(len(frames),),
             reason="missing",
             metadata={"source": "virtual-demodulator", "detail": "no lock"},
@@ -124,7 +124,7 @@ def _realize_integrated_iq_value(
         )
     return MeasurementArray.create(
         dtype="complex128",
-        unit=_FAKE_RESPONSE_UNIT,
+        unit=_RESPONSE_UNIT,
         values=np.asarray(
             [frame.value for frame in frames],
             dtype=np.complex128,
@@ -133,7 +133,7 @@ def _realize_integrated_iq_value(
 
 
 __all__ = [
-    "CorrelatedFakeListRun",
-    "correlate_fake_list_run",
-    "realize_fake_measurements",
+    "CorrelatedListModeRun",
+    "correlate_list_mode_run",
+    "realize_measurements",
 ]

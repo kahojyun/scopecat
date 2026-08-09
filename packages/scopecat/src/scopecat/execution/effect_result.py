@@ -28,7 +28,7 @@ class RunEffectResult:
 
     problems: tuple[Problem, ...]
     observed_state: tuple[InstrumentStateSnapshot, ...]
-    prepared_state: tuple[InstrumentStateSnapshot, ...]
+    baseline_state: tuple[InstrumentStateSnapshot, ...]
     final_state: tuple[InstrumentStateSnapshot, ...]
     admitted_points: tuple[RunPoint, ...] = ()
     indeterminate: bool = False

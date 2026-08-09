@@ -35,11 +35,60 @@ class LogicalResourcePortId:
 
 
 @dataclass(frozen=True, slots=True)
+class ResourceRoleSelector:
+    """Structural selection of a configured resource role.
+
+    ``default`` selects the unlabelled route for normal use, ``exact`` selects
+    one named lab-purpose role, and ``any`` accepts the unique compatible route
+    regardless of role. Role selection is static routing intent, not runtime
+    availability or failover policy.
+    """
+
+    kind: Literal["default", "exact", "any"] = "default"
+    role_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind == "exact":
+            if not self.role_id:
+                raise ValueError("an exact resource role requires a non-empty id")
+        elif self.role_id is not None:
+            raise ValueError(f"resource role kind {self.kind!r} cannot carry an id")
+
+    @property
+    def description(self) -> str:
+        if self.kind == "exact":
+            return f"role {self.role_id!r}"
+        return f"{self.kind} role"
+
+
+DEFAULT_RESOURCE_ROLE = ResourceRoleSelector()
+ANY_RESOURCE_ROLE = ResourceRoleSelector(kind="any")
+
+type ResourceRoleInput = str | ResourceRoleSelector | None
+
+
+def resource_role(value: str) -> ResourceRoleSelector:
+    """Select one exact configured resource role."""
+
+    return ResourceRoleSelector(kind="exact", role_id=value)
+
+
+def normalize_resource_role(value: ResourceRoleInput) -> ResourceRoleSelector:
+    """Normalize public shorthand to one explicit structural selector."""
+
+    if value is None:
+        return DEFAULT_RESOURCE_ROLE
+    if isinstance(value, str):
+        return resource_role(value)
+    return value
+
+
+@dataclass(frozen=True, slots=True)
 class ResourceRequirement:
     """Logical resource identity required by one complete run."""
 
     id: str
-    kind: Literal["target", "instrument"] = "instrument"
+    kind: Literal["instrument"] = "instrument"
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -49,7 +98,7 @@ class ResourceRequirement:
 
 @dataclass(frozen=True, slots=True)
 class DomainTargetRequirement:
-    """One domain target and the complete instrument footprint it owns."""
+    """One domain target and the exact instrument footprint this run requires."""
 
     id: str
     kind: str

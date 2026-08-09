@@ -27,7 +27,6 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
 )
 from scopecat.control.models import RunPlanSummary
-from scopecat.execution.ports.instruments import RunHardwareBatch
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
@@ -60,6 +59,7 @@ from scopecat.records.run import (
 )
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import InstrumentDescription
+from scopecat.sdk.instruments.execution import RunHardwareBatch
 
 type NonEmptyText = Annotated[str, Field(min_length=1)]
 
@@ -374,10 +374,10 @@ class RunInstrumentProvisionCommand(_FencedOperationCommand):
 
 
 class RunInstrumentProvisionReceipt(_WireModel):
-    """State evidence around run preparation for daemon-owned instruments.
+    """State evidence around provisioning daemon-owned run instruments.
 
     ``observed_state`` is read after exclusive ownership is acquired.
-    ``prepared_state`` is the execution baseline after the run policy is applied.
+    ``baseline_state`` is the execution baseline after the run policy is applied.
     """
 
     run_id: NonEmptyText
@@ -386,7 +386,7 @@ class RunInstrumentProvisionReceipt(_WireModel):
     instrument_ids: tuple[NonEmptyText, ...] = ()
     problems: tuple[Problem, ...] = ()
     observed_state: tuple[InstrumentStateSnapshot, ...] = ()
-    prepared_state: tuple[InstrumentStateSnapshot, ...] = ()
+    baseline_state: tuple[InstrumentStateSnapshot, ...] = ()
 
     @model_validator(mode="after")
     def validate_result(self) -> RunInstrumentProvisionReceipt:
@@ -399,11 +399,11 @@ class RunInstrumentProvisionReceipt(_WireModel):
                 raise ValueError(
                     "ready run observed state must match instrument ids in order"
                 )
-            if tuple(state.instrument_id for state in self.prepared_state) != (
+            if tuple(state.instrument_id for state in self.baseline_state) != (
                 self.instrument_ids
             ):
                 raise ValueError(
-                    "ready run prepared state must match instrument ids in order"
+                    "ready run baseline state must match instrument ids in order"
                 )
             if self.problems:
                 raise ValueError(
@@ -411,7 +411,7 @@ class RunInstrumentProvisionReceipt(_WireModel):
                 )
         elif not self.problems:
             raise ValueError("rejected run instrument provisioning requires a problem")
-        elif self.observed_state or self.prepared_state:
+        elif self.observed_state or self.baseline_state:
             raise ValueError(
                 "rejected run instrument provisioning cannot expose state evidence"
             )
@@ -426,16 +426,22 @@ class RunHardwareFinishCommand(_FencedOperationCommand):
     failed: bool
 
 
-class ExecutionTransitionAppend(_FencedCommand):
-    """Append one transition using its content hash as the retry identity."""
-
+class _ExecutionTransitionCommand(_FencedCommand):
     transition: ExecutionTransition
 
     @model_validator(mode="after")
-    def validate_transition(self) -> ExecutionTransitionAppend:
+    def validate_transition(self) -> _ExecutionTransitionCommand:
         if self.transition.sequence is not None:
             raise ValueError("submitted transition sequence must be daemon-assigned")
         return self
+
+
+class ExecutionTransitionClaim(_ExecutionTransitionCommand):
+    """Atomically claim a new effect operation before executing it."""
+
+
+class ExecutionTransitionAppend(_ExecutionTransitionCommand):
+    """Append one transition using its content hash as the retry identity."""
 
 
 class MeasurementHeaderCommand(_FencedCommand):
@@ -534,11 +540,12 @@ class InstrumentDriverProbeReceipt(_WireModel):
 
 
 class InstrumentSessionOpenCommand(_WireModel):
-    """Acquire and synchronize instruments against the active config."""
+    """Acquire configured instruments plus optional session-only bindings."""
 
     operation_id: NonEmptyText
     actor: NonEmptyText
     instrument_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
+    temporary_bindings: tuple[InstrumentBindingSpec, ...] = ()
 
     @field_validator("instrument_ids")
     @classmethod
@@ -546,6 +553,23 @@ class InstrumentSessionOpenCommand(_WireModel):
         if len(value) != len(set(value)):
             raise ValueError("instrument session ids must be unique")
         return value
+
+    @model_validator(mode="after")
+    def validate_temporary_bindings(self) -> InstrumentSessionOpenCommand:
+        binding_ids = tuple(binding.id for binding in self.temporary_bindings)
+        if len(binding_ids) != len(set(binding_ids)):
+            raise ValueError("temporary instrument binding ids must be unique")
+        unknown = tuple(
+            instrument_id
+            for instrument_id in binding_ids
+            if instrument_id not in self.instrument_ids
+        )
+        if unknown:
+            raise ValueError(
+                "temporary bindings must belong to the opened session: "
+                + ", ".join(unknown)
+            )
+        return self
 
 
 class InstrumentSessionLeaseReceipt(_WireModel):
@@ -685,6 +709,7 @@ __all__ = [
     "ConfigUndoCommand",
     "DirectConfigRevisionSource",
     "ExecutionTransitionAppend",
+    "ExecutionTransitionClaim",
     "ExecutorHeartbeat",
     "ExecutorLease",
     "ExecutorStartRequest",

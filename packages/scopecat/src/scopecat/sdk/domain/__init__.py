@@ -2,10 +2,16 @@
 
 from scopecat.sdk.domain.batch import (
     DomainBatchInputs,
+    DomainBatchPartition,
     DomainBatchRequest,
+    DomainCompileRequest,
 )
 from scopecat.sdk.domain.compiler import DomainCompiler
-from scopecat.sdk.domain.execution import PreparedDomainExecution
+from scopecat.sdk.domain.execution import (
+    DomainStateAddress,
+    DomainStateRequirement,
+    PreparedDomainExecution,
+)
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResultValue,
@@ -17,11 +23,12 @@ from scopecat.sdk.domain.result_mapping import (
     DomainResultMapping,
 )
 from scopecat.sdk.domain.runtime import (
-    DomainFetchReceipt,
-    DomainFetchResult,
+    DomainExecutionId,
+    DomainExecutionReceipt,
+    DomainExecutionResult,
+    DomainInstrumentExecutor,
     DomainRuntime,
-    DomainSubmissionId,
-    DomainSubmitReceipt,
+    DomainSetup,
 )
 from scopecat.sdk.domain.view import (
     DomainCallView,
@@ -37,12 +44,16 @@ from scopecat.sdk.domain.view import (
 
 __all__ = [
     "DomainBatchInputs",
+    "DomainBatchPartition",
     "DomainBatchRequest",
     "DomainCallView",
+    "DomainCompileRequest",
     "DomainCompiler",
-    "DomainFetchReceipt",
-    "DomainFetchResult",
+    "DomainExecutionId",
+    "DomainExecutionReceipt",
+    "DomainExecutionResult",
     "DomainInputPortView",
+    "DomainInstrumentExecutor",
     "DomainInvocationSpec",
     "DomainMappedResult",
     "DomainPointRef",
@@ -57,7 +68,8 @@ __all__ = [
     "DomainResultPortView",
     "DomainResultValue",
     "DomainRuntime",
-    "DomainSubmissionId",
-    "DomainSubmitReceipt",
+    "DomainSetup",
+    "DomainStateAddress",
+    "DomainStateRequirement",
     "PreparedDomainExecution",
 ]

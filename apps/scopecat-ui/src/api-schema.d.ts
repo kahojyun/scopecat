@@ -1342,76 +1342,35 @@ export interface components {
         };
         /**
          * DomainTargetBinding
-         * @description One composite target instance and its complete physical membership.
+         * @description One composite target and the instruments it is authorized to coordinate.
          */
         "DomainTargetBinding-Input": {
-            /** Exclusivity Key */
-            exclusivity_key: string;
+            /** Configuration */
+            configuration?: {
+                [key: string]: components["schemas"]["JsonValue-Input"];
+            };
             /** Id */
             id: string;
+            /** Instrument Ids */
+            instrument_ids?: string[];
             /** Kind */
             kind: string;
-            /** Members */
-            members?: components["schemas"]["DomainTargetMember-Input"][];
         };
         /**
          * DomainTargetBinding
-         * @description One composite target instance and its complete physical membership.
+         * @description One composite target and the instruments it is authorized to coordinate.
          */
         "DomainTargetBinding-Output": {
-            /** Exclusivity Key */
-            exclusivity_key: string;
+            /** Configuration */
+            configuration?: {
+                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+            };
             /** Id */
             id: string;
+            /** Instrument Ids */
+            instrument_ids?: string[];
             /** Kind */
             kind: string;
-            /** Members */
-            members?: components["schemas"]["DomainTargetMember-Output"][];
-        };
-        /**
-         * DomainTargetInstrumentMember
-         * @description One independently addressable instrument coordinated by a domain target.
-         */
-        DomainTargetInstrumentMember: {
-            /** Instrument Id */
-            instrument_id: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "instrument";
-            /** Role */
-            role: string;
-        };
-        "DomainTargetMember-Input": components["schemas"]["DomainTargetInstrumentMember"] | components["schemas"]["DomainTargetPrivateEndpoint-Input"];
-        "DomainTargetMember-Output": components["schemas"]["DomainTargetInstrumentMember"] | components["schemas"]["DomainTargetPrivateEndpoint-Output"];
-        /**
-         * DomainTargetPrivateEndpoint
-         * @description One target-owned connection with no standalone instrument contract.
-         */
-        "DomainTargetPrivateEndpoint-Input": {
-            connection: components["schemas"]["InstrumentConnection-Input"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "private_endpoint";
-            /** Role */
-            role: string;
-        };
-        /**
-         * DomainTargetPrivateEndpoint
-         * @description One target-owned connection with no standalone instrument contract.
-         */
-        "DomainTargetPrivateEndpoint-Output": {
-            connection: components["schemas"]["InstrumentConnection-Output"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "private_endpoint";
-            /** Role */
-            role: string;
         };
         /** DriverCatalog */
         DriverCatalog: {
@@ -1590,6 +1549,19 @@ export interface components {
             id: string;
         };
         /**
+         * InstrumentComponentSpec
+         * @description One stable physical component in an instrument-owned topology.
+         */
+        InstrumentComponentSpec: {
+            /** Components */
+            components?: components["schemas"]["InstrumentComponentSpec"][];
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+        };
+        /**
          * InstrumentConfiguredDefaultsApplyCommand
          * @description Reconcile one session instrument with its pinned configured defaults.
          */
@@ -1621,6 +1593,8 @@ export interface components {
         InstrumentConnectionSummary: components["schemas"]["VirtualInstrumentConnectionSummary"] | components["schemas"]["TcpipSocketInstrumentConnectionSummary"];
         /** InstrumentDescription */
         InstrumentDescription: {
+            /** Components */
+            components?: components["schemas"]["InstrumentComponentSpec"][];
             /** Description */
             description?: string | null;
             /** Implementation Id */
@@ -1629,6 +1603,8 @@ export interface components {
             implementation_version: string;
             /** Instrument Id */
             instrument_id: string;
+            /** Interface Mounts */
+            interface_mounts?: components["schemas"]["InterfaceMountSpec"][];
             /** Interfaces */
             interfaces?: components["schemas"]["InterfaceSpec"][];
             /** Label */
@@ -1745,13 +1721,18 @@ export interface components {
         };
         /**
          * InstrumentSessionOpenCommand
-         * @description Acquire and synchronize instruments against the active config.
+         * @description Acquire configured instruments plus optional session-only bindings.
          */
         InstrumentSessionOpenCommand: {
             actor: components["schemas"]["NonEmptyText"];
             /** Instrument Ids */
             instrument_ids: components["schemas"]["NonEmptyText"][];
             operation_id: components["schemas"]["NonEmptyText"];
+            /**
+             * Temporary Bindings
+             * @default []
+             */
+            temporary_bindings: components["schemas"]["InstrumentBindingSpec"][];
         };
         /**
          * InstrumentSessionOpenReceipt
@@ -1791,6 +1772,11 @@ export interface components {
          * @description Configured instrument with a stable physical access domain.
          *
          *     Default and safe states are sparse patches over freshly observed state.
+         *     After exclusive acquisition, ``run_start`` either preserves that observed
+         *     baseline or applies ``default_state`` to establish the execution baseline.
+         *     A successful run either releases its final authored state or restores that
+         *     baseline before terminal readback. Failure always aborts first and may then
+         *     apply ``safe_state`` while the instrument remains commandable.
          */
         "InstrumentSpec-Input": {
             connection: components["schemas"]["InstrumentConnection-Input"];
@@ -1813,6 +1799,11 @@ export interface components {
          * @description Configured instrument with a stable physical access domain.
          *
          *     Default and safe states are sparse patches over freshly observed state.
+         *     After exclusive acquisition, ``run_start`` either preserves that observed
+         *     baseline or applies ``default_state`` to establish the execution baseline.
+         *     A successful run either releases its final authored state or restores that
+         *     baseline before terminal readback. Failure always aborts first and may then
+         *     apply ``safe_state`` while the instrument remains commandable.
          */
         "InstrumentSpec-Output": {
             connection: components["schemas"]["InstrumentConnection-Output"];
@@ -1863,7 +1854,7 @@ export interface components {
             properties?: components["schemas"]["InstrumentPropertyState"][];
         };
         /** @enum {string} */
-        InstrumentSuccessAction: "release" | "restore_prepared_state";
+        InstrumentSuccessAction: "release" | "restore_baseline";
         /**
          * InstrumentView
          * @description Instrument status without exposing configuration policy or driver options.
@@ -1906,6 +1897,15 @@ export interface components {
             result_ids?: components["schemas"]["_NonEmptyId"][];
         };
         InterfaceId: string;
+        /**
+         * InterfaceMountSpec
+         * @description One physical path where an instrument implements an interface contract.
+         */
+        InterfaceMountSpec: {
+            /** Component Path */
+            component_path: components["schemas"]["_NonEmptyId"][];
+            interface_id: components["schemas"]["InterfaceId"];
+        };
         /**
          * InterfaceSpec
          * @description Versioned behavior contract implemented by an instrument endpoint.
@@ -2410,6 +2410,8 @@ export interface components {
             /** Description */
             description?: string | null;
             id: components["schemas"]["_NonEmptyId"];
+            /** Invalidates */
+            invalidates?: components["schemas"]["StatePropertyRef"][];
             /** Label */
             label?: string | null;
         };
@@ -2602,39 +2604,76 @@ export interface components {
             kind: "replace_parameter";
             value: components["schemas"]["StoredParameterValue-Input"];
         };
-        /** @enum {string} */
-        ResourceKind: "target" | "instrument";
+        /** @constant */
+        ResourceKind: "instrument";
         /** @enum {string} */
         ResourceOwnerKind: "run" | "instrument_session";
         /**
-         * RoutingEndpointBinding
-         * @description Accepted physical ownership fact for one instrument endpoint.
-         *
-         *     A binding is reproducible configuration, not a runtime alternative. Devices
-         *     that change a physical path, such as switches or valves, are modeled as
-         *     explicit desired-state effects or domain programs instead of replacing this
-         *     ownership fact.
+         * ResourceRoleSpec
+         * @description One documented purpose that authors may select explicitly.
          */
-        RoutingEndpointBinding: {
-            /** Channel Id */
-            channel_id?: string | null;
-            /** Entity Id */
-            entity_id?: string | null;
+        ResourceRoleSpec: {
+            /** Description */
+            description?: string | null;
+            /** Id */
+            id: string;
+        };
+        /**
+         * ResourceRoute
+         * @description A selectable physical resource and all endpoints it owns together.
+         *
+         *     The route binds one instrument, optional lab-purpose role, finite set of
+         *     served entities, and the interface endpoints selected as one resource.
+         *     Endpoint component paths preserve shared physical ownership when several
+         *     logical channels meet at the same device property.
+         */
+        ResourceRoute: {
+            /** Endpoints */
+            endpoints: components["schemas"]["RoutingEndpoint"][];
+            /** Entity Ids */
+            entity_ids?: components["schemas"]["_NonEmptyId"][];
+            /** Id */
+            id: string;
             /** Instrument Id */
             instrument_id: string;
+            /** Role Id */
+            role_id?: string | null;
+        };
+        /**
+         * RoutingEndpoint
+         * @description One logical binding onto a physical interface component.
+         *
+         *     ``entity_id`` narrows the endpoint to one entity served by its route; an
+         *     omitted entity applies it to every route entity, or to entityless work when
+         *     the route has none. ``channel_id`` is the logical interface channel and
+         *     ``component_path`` identifies the owning physical subcomponent exposed by
+         *     the instrument driver.
+         */
+        RoutingEndpoint: {
+            /** Channel Id */
+            channel_id?: string | null;
+            /**
+             * Component Path
+             * @default []
+             */
+            component_path: string[];
+            /** Entity Id */
+            entity_id?: string | null;
             interface_id: components["schemas"]["InterfaceId"];
         };
         /**
          * RoutingGraph
-         * @description Finite static endpoint index stored in an accepted system snapshot.
+         * @description Finite static resource-route catalog in an accepted system snapshot.
          *
          *     Planning may project logical interface and entity selections through this
-         *     index, but it never uses it for live availability, load balancing, or
+         *     catalog, but it never uses it for live availability, load balancing, or
          *     implicit failover.
          */
         RoutingGraph: {
-            /** Bindings */
-            bindings?: components["schemas"]["RoutingEndpointBinding"][];
+            /** Roles */
+            roles?: components["schemas"]["ResourceRoleSpec"][];
+            /** Routes */
+            routes?: components["schemas"]["ResourceRoute"][];
         };
         /** RunAdmissionView */
         RunAdmissionView: {
@@ -2746,12 +2785,67 @@ export interface components {
          */
         RunDetail: {
             control: components["schemas"]["RunControlView"];
+            /**
+             * Domain Executions
+             * @default []
+             */
+            domain_executions: components["schemas"]["RunDomainExecutionView"][];
             manifest: components["schemas"]["RunManifest"];
             /**
              * Resources
              * @default []
              */
             resources: components["schemas"]["RunResourceView"][];
+        };
+        /**
+         * RunDomainExecutionView
+         * @description Compact target-authored provenance for one domain execution.
+         */
+        RunDomainExecutionView: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Compiler Id */
+            compiler_id: string;
+            /** Execution Key */
+            execution_key: string;
+            /** Execution Summary */
+            execution_summary: {
+                [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue"];
+            };
+            /** Intent Fingerprint */
+            intent_fingerprint: string;
+            /** Invocation Id */
+            invocation_id: string;
+            /** Logical Compute Node Id */
+            logical_compute_node_id: string;
+            /** Operation Id */
+            operation_id: string;
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+            /** Receipt Status */
+            receipt_status?: ("completed" | "not_executed" | "unknown") | null;
+            /** Result Count */
+            result_count?: number | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "started" | "completed" | "failed" | "unknown";
+            /** Target Id */
+            target_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /**
          * RunManifest
@@ -2965,7 +3059,7 @@ export interface components {
         StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
         /**
          * StatePropertyRef
-         * @description One observable persistent property used by an acquisition contract.
+         * @description One persistent property referenced by an instrument contract.
          */
         StatePropertyRef: {
             /** Component Path */

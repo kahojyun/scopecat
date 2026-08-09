@@ -30,6 +30,7 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateLiteral, StateValue
 from scopecat.records.artifact import CommandPayload
+from scopecat.records.config import InstrumentBindingSpec, InstrumentConnection
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
@@ -100,6 +101,46 @@ def instrument[ClientT](
         instrument_id=instrument_id,
         client_factory=client_factory,
         requires=tuple(requires),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class TemporaryInstrumentRef[ClientT]:
+    """Session-only instrument identity with no config or entity routing entry."""
+
+    binding: InstrumentBindingSpec
+    client_factory: InstrumentClientFactory[ClientT] = field(
+        repr=False,
+        compare=False,
+    )
+    requires: tuple[InterfaceRef, ...] = ()
+
+    def __post_init__(self) -> None:
+        interface_ids = tuple(item.interface_id for item in self.requires)
+        if len(interface_ids) != len(set(interface_ids)):
+            raise ValueError("typed instrument requirements must be unique")
+
+    @property
+    def instrument_id(self) -> str:
+        return self.binding.id
+
+
+def temporary_instrument[ClientT](
+    reference: InstrumentRef[ClientT],
+    *,
+    driver_id: str,
+    connection: InstrumentConnection,
+) -> TemporaryInstrumentRef[ClientT]:
+    """Declare one instrument attached only for the lifetime of a direct session."""
+
+    return TemporaryInstrumentRef(
+        binding=InstrumentBindingSpec(
+            id=reference.instrument_id,
+            driver_id=driver_id,
+            connection=connection,
+        ),
+        client_factory=reference.client_factory,
+        requires=reference.requires,
     )
 
 
@@ -202,10 +243,16 @@ class LabInstrumentOperations:
             _selected_instrument_id(item)
             for item in (instrument, *additional_instruments)
         )
+        temporary_bindings = tuple(
+            item.binding
+            for item in (instrument, *additional_instruments)
+            if isinstance(item, TemporaryInstrumentRef)
+        )
         return InstrumentSessionHandle(
             client=self._client,
             instrument_ids=instrument_ids,
             actor=self._operator,
+            temporary_bindings=temporary_bindings,
         )
 
 
@@ -218,6 +265,7 @@ class InstrumentSessionHandle:
         client: DaemonClient,
         instrument_ids: tuple[str, ...],
         actor: str,
+        temporary_bindings: tuple[InstrumentBindingSpec, ...] = (),
     ) -> None:
         if not instrument_ids or any(not item for item in instrument_ids):
             raise ValueError("direct interaction requires non-empty instrument ids")
@@ -228,6 +276,7 @@ class InstrumentSessionHandle:
         self._client = client
         self._instrument_ids = instrument_ids
         self._actor = actor
+        self._temporary_bindings = temporary_bindings
         self._open_operation_id = _new_command_id("open", instrument_ids[0])
         self._session: InstrumentSessionOpenReceipt | None = None
         self._heartbeat: _InstrumentSessionHeartbeat | None = None
@@ -254,7 +303,10 @@ class InstrumentSessionHandle:
     def instrument_ids(self) -> tuple[str, ...]:
         return self._instrument_ids
 
-    def __getitem__[ClientT](self, target: InstrumentRef[ClientT]) -> ClientT:
+    def __getitem__[ClientT](
+        self,
+        target: InstrumentRef[ClientT] | TemporaryInstrumentRef[ClientT],
+    ) -> ClientT:
         """Bind the target's statically typed client inside this ownership epoch."""
 
         selected = self._selected_instrument_id(target.instrument_id)
@@ -479,6 +531,7 @@ class InstrumentSessionHandle:
                     operation_id=self._open_operation_id,
                     actor=self._actor,
                     instrument_ids=self._instrument_ids,
+                    temporary_bindings=self._temporary_bindings,
                 )
             )
             heartbeat = _InstrumentSessionHeartbeat(self._client, session)
@@ -605,5 +658,7 @@ __all__ = [
     "InstrumentSessionHandle",
     "LabInstrumentOperations",
     "OperationArgumentValue",
+    "TemporaryInstrumentRef",
     "instrument",
+    "temporary_instrument",
 ]

@@ -46,7 +46,6 @@ class InstanceBoundary:
     instance_id: str
     invocation_key: InvocationKey
     inputs: Mapping[str, ValueRef]
-    resource_bindings: Mapping[LogicalResourcePortId, LogicalResourcePortId]
 
     @property
     def scope(self) -> tuple[str, ...]:
@@ -115,18 +114,10 @@ def localize_product_declaration(
 def localize_resource_port(
     port: ResourcePort,
     boundaries: Sequence[InstanceBoundary],
-) -> ResourcePort | None:
+) -> ResourcePort:
     port_id = port.symbol_id
-    bound = False
     for boundary in boundaries:
-        selected = boundary.resource_bindings.get(port_id)
-        if selected is not None:
-            port_id = selected
-            bound = True
-        else:
-            port_id = port_id.prefixed(*boundary.scope)
-    if bound:
-        return None
+        port_id = port_id.prefixed(*boundary.scope)
     entity_inputs = tuple(
         localize_value_ref(source, boundaries) for source in port.selector.entity_inputs
     )
@@ -142,6 +133,7 @@ def localize_resource_port(
         selector=ResourceSelector(
             interfaces=port.selector.interfaces,
             entity_inputs=entity_inputs,
+            role=port.selector.role,
         ),
     )
 
@@ -153,10 +145,7 @@ def localize_effect(
     selected = effect
     for boundary in boundaries:
         resource_ids = {
-            port_id: boundary.resource_bindings.get(
-                port_id,
-                port_id.prefixed(*boundary.scope),
-            )
+            port_id: port_id.prefixed(*boundary.scope)
             for port_id in _effect_resource_ids(selected)
         }
         selected = _scope_effect(

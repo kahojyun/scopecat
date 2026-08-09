@@ -29,6 +29,7 @@ from typing import (
 from scopecat.kernel.instrument_members import (
     AcquisitionRef,
     AcquisitionResultRef,
+    ComponentRef,
     InterfaceRef,
     OperationArgumentRef,
     OperationRef,
@@ -52,6 +53,7 @@ from scopecat.sdk.instruments.contracts import (
     AcquisitionPreconditionSpec,
     AcquisitionResultSpec,
     AcquisitionSpec,
+    ComponentSpec,
     InterfaceSpec,
     OperationArgumentSpec,
     OperationSpec,
@@ -69,6 +71,7 @@ from scopecat.sdk.instruments.contracts import (
 from scopecat.sdk.instruments.contracts import (
     acquisition_result as build_acquisition_result,
 )
+from scopecat.sdk.instruments.contracts import component as build_component
 from scopecat.sdk.instruments.contracts import (
     interface as build_interface,
 )
@@ -83,6 +86,7 @@ type PreconditionValue = bool | int | float | str | Quantity
 _STATE_METADATA = "__scopecat_instrument_state__"
 _RESULT_METADATA = "__scopecat_instrument_result__"
 _INTERFACE_METADATA = "__scopecat_instrument_interface__"
+_COMPONENT_METADATA = "__scopecat_instrument_component__"
 _ACQUISITION_METADATA = "__scopecat_instrument_acquisition__"
 _OPERATION_METADATA = "__scopecat_instrument_operation__"
 _STATE_PROJECTION_METADATA = "__scopecat_instrument_state_projection__"
@@ -185,6 +189,7 @@ class AxisMetadata:
 
 
 type StateMetadata = type[object]
+type ComponentDeclarations = tuple[tuple[str, type[object]], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +198,15 @@ class InterfaceMetadata:
     state: StateMetadata | None
     label: str | None
     description: str | None
+    components: ComponentDeclarations
+
+
+@dataclass(frozen=True, slots=True)
+class ComponentMetadata:
+    state: StateMetadata | None
+    label: str | None
+    description: str | None
+    components: ComponentDeclarations
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,6 +230,7 @@ class OperationMetadata:
     id: str | None
     label: str | None
     description: str | None
+    invalidates: tuple[DeclaredPropertyTarget, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -626,6 +641,7 @@ def instrument_interface[ClassT: type[object]](
     state: StateMetadata | None = None,
     label: str | None = None,
     description: str | None = None,
+    components: Mapping[str, type[object]] | None = None,
 ) -> Callable[[ClassT], ClassT]:
     """Attach instrument identity to an authored ``Protocol`` or ABC.
 
@@ -639,10 +655,38 @@ def instrument_interface[ClassT: type[object]](
         state=state,
         label=label,
         description=description,
+        components=tuple((components or {}).items()),
     )
 
     def decorate(cls: ClassT) -> ClassT:
         setattr(cls, _INTERFACE_METADATA, declaration)
+        return cls
+
+    return decorate
+
+
+def instrument_component[ClassT: type[object]](
+    *,
+    state: StateMetadata | None = None,
+    label: str | None = None,
+    description: str | None = None,
+    components: Mapping[str, type[object]] | None = None,
+) -> Callable[[ClassT], ClassT]:
+    """Declare one reusable component capability mounted by a parent scope.
+
+    Component ids belong to the parent mapping, so the same declaration can be
+    mounted more than once, for example as two identical LO groups.
+    """
+
+    declaration = ComponentMetadata(
+        state=state,
+        label=label,
+        description=description,
+        components=tuple((components or {}).items()),
+    )
+
+    def decorate(cls: ClassT) -> ClassT:
+        setattr(cls, _COMPONENT_METADATA, declaration)
         return cls
 
     return decorate
@@ -653,13 +697,15 @@ def operation[**P, ReturnT](
     id: str | None = None,
     label: str | None = None,
     description: str | None = None,
+    invalidates: Sequence[DeclaredPropertyTarget] = (),
 ) -> Callable[[Callable[P, ReturnT]], Callable[P, ReturnT]]:
-    """Mark a typed method as an atomic instrument operation."""
+    """Mark an atomic operation and any state it makes unknowable."""
 
     declaration = OperationMetadata(
         id=id,
         label=label,
         description=description,
+        invalidates=tuple(invalidates),
     )
 
     def decorate(method: Callable[P, ReturnT]) -> Callable[P, ReturnT]:
@@ -706,9 +752,77 @@ def compile_interface[InterfaceT](
     declaration = _required_interface_metadata(interface_type)
     properties = [] if declaration.state is None else _compile_state(declaration.state)
     scope = InterfaceRef(declaration.id)
+    operations, acquisitions = _compile_scope_members(interface_type, scope=scope)
+    components = [
+        _compile_component(
+            component_id,
+            component_type,
+            scope=scope.component(component_id),
+            ancestors=(interface_type,),
+        )
+        for component_id, component_type in declaration.components
+    ]
+    spec = build_interface(
+        declaration.id,
+        label=declaration.label,
+        description=declaration.description,
+        properties=properties,
+        operations=operations,
+        acquisitions=acquisitions,
+        components=components,
+    )
+    return CompiledInterface(
+        interface_type=interface_type,
+        spec=spec,
+        ref=scope,
+    )
+
+
+type _DeclaredScopeRef = InterfaceRef | ComponentRef
+
+
+def _compile_component(
+    component_id: str,
+    component_type: type[object],
+    *,
+    scope: ComponentRef,
+    ancestors: tuple[type[object], ...],
+) -> ComponentSpec:
+    if component_type in ancestors:
+        chain = " -> ".join(item.__qualname__ for item in (*ancestors, component_type))
+        raise TypeError(f"instrument component declarations form a cycle: {chain}")
+    declaration = _required_component_metadata(component_type)
+    operations, acquisitions = _compile_scope_members(component_type, scope=scope)
+    selected_ancestors = (*ancestors, component_type)
+    return build_component(
+        component_id,
+        label=declaration.label,
+        description=declaration.description,
+        properties=(
+            () if declaration.state is None else _compile_state(declaration.state)
+        ),
+        operations=operations,
+        acquisitions=acquisitions,
+        components=[
+            _compile_component(
+                child_id,
+                child_type,
+                scope=scope.component(child_id),
+                ancestors=selected_ancestors,
+            )
+            for child_id, child_type in declaration.components
+        ],
+    )
+
+
+def _compile_scope_members(
+    scope_type: type[object],
+    *,
+    scope: _DeclaredScopeRef,
+) -> tuple[list[OperationSpec], list[AcquisitionSpec]]:
     operations: list[OperationSpec] = []
     acquisitions: list[AcquisitionSpec] = []
-    for method_name, method in _declared_members(interface_type).items():
+    for method_name, method in _declared_members(scope_type).items():
         operation_declaration = getattr(method, _OPERATION_METADATA, None)
         acquisition_declaration = getattr(method, _ACQUISITION_METADATA, None)
         if isinstance(operation_declaration, OperationMetadata) and isinstance(
@@ -716,7 +830,7 @@ def compile_interface[InterfaceT](
             AcquisitionMetadata,
         ):
             raise TypeError(
-                f"interface method {method_name!r} cannot be both an operation "
+                f"instrument method {method_name!r} cannot be both an operation "
                 "and an acquisition"
             )
         if isinstance(operation_declaration, OperationMetadata):
@@ -725,6 +839,7 @@ def compile_interface[InterfaceT](
                     method_name,
                     cast("Callable[..., object]", method),
                     operation_declaration,
+                    scope=scope,
                 )
             )
         if not isinstance(acquisition_declaration, AcquisitionMetadata):
@@ -737,20 +852,7 @@ def compile_interface[InterfaceT](
                 scope=scope,
             )
         )
-    spec = build_interface(
-        declaration.id,
-        label=declaration.label,
-        description=declaration.description,
-        properties=properties,
-        operations=operations,
-        acquisitions=acquisitions,
-        components=(),
-    )
-    return CompiledInterface(
-        interface_type=interface_type,
-        spec=spec,
-        ref=InterfaceRef(declaration.id),
-    )
+    return operations, acquisitions
 
 
 def declared_interface_ref(interface_type: type[object]) -> InterfaceRef:
@@ -1303,6 +1405,8 @@ def _compile_operation(
     method_name: str,
     method: Callable[..., object],
     declaration: OperationMetadata,
+    *,
+    scope: _DeclaredScopeRef,
 ) -> OperationSpec:
     parameters = tuple(signature(method).parameters.values())
     if (
@@ -1351,6 +1455,10 @@ def _compile_operation(
         label=declaration.label,
         description=declaration.description,
         arguments=arguments,
+        invalidates=[
+            _resolve_property_target(target, scope=scope)
+            for target in declaration.invalidates
+        ],
     )
 
 
@@ -1442,7 +1550,7 @@ def _compile_acquisition(
     method: Callable[..., object],
     declaration: AcquisitionMetadata,
     *,
-    scope: InterfaceRef,
+    scope: _DeclaredScopeRef,
 ) -> AcquisitionSpec:
     parameters = tuple(signature(method).parameters.values())
     if (
@@ -1502,7 +1610,7 @@ def _compile_acquisition(
 def _compile_preconditions(
     declarations: Sequence[PreconditionMetadata],
     *,
-    scope: InterfaceRef,
+    scope: _DeclaredScopeRef,
 ) -> list[AcquisitionPreconditionSpec]:
     return [
         build_acquisition_precondition(
@@ -1517,7 +1625,7 @@ def _compile_preconditions(
 def _resolve_property_target(
     target: DeclaredPropertyTarget,
     *,
-    scope: InterfaceRef,
+    scope: _DeclaredScopeRef,
 ) -> PropertyRef:
     if isinstance(target, PropertyRef):
         return target
@@ -1527,7 +1635,7 @@ def _resolve_property_target(
 def _resolve_state_field_reference(
     target: StateFieldReference,
     *,
-    scope: InterfaceRef,
+    scope: _DeclaredScopeRef,
 ) -> PropertyRef:
     if target.interface_type is not None:
         return declared_property_ref(
@@ -1894,6 +2002,17 @@ def _required_interface_metadata(
     )
 
 
+def _required_component_metadata(
+    component_type: type[object],
+) -> ComponentMetadata:
+    return _required_metadata(
+        component_type,
+        _COMPONENT_METADATA,
+        ComponentMetadata,
+        "instrument component",
+    )
+
+
 def _required_metadata[MetadataT](
     target: object,
     attribute: str,
@@ -1912,6 +2031,7 @@ __all__ = [
     "AxisMetadata",
     "AxisSize",
     "CompiledInterface",
+    "ComponentMetadata",
     "DeclaredAcquisition",
     "DeclaredInterfaceLayout",
     "DeclaredOperation",
@@ -1946,6 +2066,7 @@ __all__ = [
     "declared_operation_ref",
     "declared_property_ref",
     "declared_result_ref",
+    "instrument_component",
     "instrument_interface",
     "instrument_result",
     "instrument_state",

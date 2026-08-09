@@ -21,7 +21,6 @@ from scopecat.adapters.sqlite import (
 )
 from scopecat.adapters.sqlite.run_repository import _PreparedRef
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
-from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.execution.services import ExecutionSession
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
@@ -37,6 +36,7 @@ from scopecat.records.run_request import RunRequest
 from scopecat.runs.admission import RunSkeleton, build_run_admission
 from scopecat.runs.refs import MANIFEST_REF
 from scopecat.runs.repository import RunRepository
+from scopecat.sdk.instruments.execution import RunInstrumentHost
 from tests.testkit.instrument_host import TestRunInstrumentHost
 
 
@@ -90,6 +90,10 @@ class SQLiteTestRunRepository(SQLiteRunRepository):
 
 class SQLiteTestExecutionJournal(SQLiteExecutionJournal):
     """Own test transactions and expose durable entries for assertions."""
+
+    def claim(self, entry: ExecutionTransition) -> ExecutionTransition:
+        with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
+            return self.claim_in_transaction(connection, entry)
 
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:

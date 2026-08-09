@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 from scopecat.compiler.bound_facts import BoundProgramFacts
@@ -45,6 +46,7 @@ from scopecat.compiler.relations.verification import (
     scalar_expression_imports,
 )
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import ValueValidationError
@@ -54,30 +56,18 @@ from scopecat.program.parameters import (
     ParameterValueContract,
 )
 from scopecat.program.recording import LogicalValueRecordSelection
-from scopecat.records.config import (
-    ConfigProfileSnapshot,
-    DomainTargetInstrumentMember,
-    DomainTargetMember,
-)
+from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import ParameterCatalog
 
 
 @dataclass(frozen=True, slots=True)
 class BoundDomainTarget:
-    """The sole domain target selected from the accepted configuration."""
+    """The sole domain target and authority selected from configuration."""
 
     id: str
     kind: str
-    exclusivity_key: str
-    members: tuple[DomainTargetMember, ...]
-
-    @property
-    def instrument_ids(self) -> tuple[str, ...]:
-        return tuple(
-            member.instrument_id
-            for member in self.members
-            if isinstance(member, DomainTargetInstrumentMember)
-        )
+    configuration: Mapping[str, object]
+    instrument_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,8 +320,11 @@ def _bind_domain_target(
     return BoundDomainTarget(
         id=target.id,
         kind=target.kind,
-        exclusivity_key=target.exclusivity_key,
-        members=tuple(member.model_copy(deep=True) for member in target.members),
+        configuration=freeze_json_mapping(
+            target.configuration,
+            path=f"domain target {target.id!r} configuration",
+        ),
+        instrument_ids=tuple(target.instrument_ids),
     )
 
 

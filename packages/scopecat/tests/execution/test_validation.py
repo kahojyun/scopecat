@@ -6,12 +6,17 @@ from pydantic import ValidationError
 from scopecat.execution.local.program import (
     CollectionResultBinding,
     CollectOperation,
+    ResourceProvenance,
 )
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.execution.persistence import validate_run_measurements
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.product_identity import product_id, product_use
-from scopecat.kernel.resource_identity import ResourceRequirement
+from scopecat.kernel.resource_identity import (
+    DEFAULT_RESOURCE_ROLE,
+    ResourceRequirement,
+    logical_resource_port_id,
+)
 from scopecat.measurements.points import RunPoint
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import MeasurementRecord
@@ -151,6 +156,12 @@ def _collect_program(
                 CollectOperation(
                     operation_id=operation_id,
                     instrument_id="source-0",
+                    resource=ResourceProvenance(
+                        logical_port_id=logical_resource_port_id("source-0"),
+                        requested_role=DEFAULT_RESOURCE_ROLE,
+                        route_id="source-0",
+                        route_role_id=None,
+                    ),
                     command=CollectCommand(
                         command_id=operation_id,
                         instrument_id="source-0",

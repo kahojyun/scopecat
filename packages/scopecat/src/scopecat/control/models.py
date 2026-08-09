@@ -22,7 +22,7 @@ type ControlRunState = Literal[
     "attention_required",
     "closed",
 ]
-type ResourceKind = Literal["target", "instrument"]
+type ResourceKind = Literal["instrument"]
 type ResourceClaimStatus = Literal["active", "quarantined"]
 type ResourceOwnerKind = Literal["run", "instrument_session"]
 type InventoryMigrationBlockerState = Literal[
@@ -67,7 +67,7 @@ class RunResourceRequirement(_ControlModel):
 
 
 class RunDomainTargetRequirement(_ControlModel):
-    """Domain target identity and its complete logical instrument footprint."""
+    """Domain target identity and this run's exact logical instrument footprint."""
 
     id: str = Field(min_length=1)
     kind: str = Field(min_length=1)
@@ -126,21 +126,7 @@ class RunPlanSummary(_ControlModel):
 
     @model_validator(mode="after")
     def validate_resource_alignment(self) -> RunPlanSummary:
-        target_ids = tuple(
-            requirement.id
-            for requirement in self.run_resource_requirements
-            if requirement.kind == "target"
-        )
         domain = self.domain_target_requirement
-        if domain is None:
-            if target_ids:
-                raise ValueError(
-                    "target requirements require a domain target requirement"
-                )
-        elif target_ids != (domain.id,):
-            raise ValueError(
-                "domain target requirement must match exactly one target requirement"
-            )
         if domain is not None:
             instrument_ids = {
                 requirement.id

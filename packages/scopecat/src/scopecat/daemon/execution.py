@@ -11,6 +11,7 @@ from pydantic import BaseModel, JsonValue, TypeAdapter
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -26,11 +27,6 @@ from scopecat.daemon.wire import (
     TerminalModelWrite,
     TerminalRunCommitCommand,
 )
-from scopecat.execution.ports.instruments import (
-    RunHardwareBatch,
-    RunHardwareBatchReceipt,
-    RunHardwareFinalizationReceipt,
-)
 from scopecat.execution.services import ExecutionSession
 from scopecat.kernel.problems import Problem
 from scopecat.records.config import config_content_hash
@@ -44,6 +40,11 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.instruments.execution import (
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
+)
 
 _JSON_DOCUMENT = TypeAdapter(dict[str, JsonValue])
 _PROVISION_OPERATION_ID = "lifecycle.provide-instruments"
@@ -213,6 +214,16 @@ class _DaemonExecutionJournal:
             ),
         )
 
+    def claim(self, entry: ExecutionTransition) -> ExecutionTransition:
+        lease_id = self._authority.fence()
+        return self._authority.client.claim_transition(
+            self._authority.run_id,
+            ExecutionTransitionClaim(
+                lease_id=lease_id,
+                transition=entry,
+            ),
+        )
+
 
 class _DaemonMeasurementRepository:
     def __init__(self, authority: _LeaseAuthority) -> None:
@@ -281,8 +292,8 @@ class _DaemonRunInstrumentHost:
         return self._receipt().observed_state
 
     @property
-    def prepared_state(self) -> tuple[InstrumentStateSnapshot, ...]:
-        return self._receipt().prepared_state
+    def baseline_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        return self._receipt().baseline_state
 
     def provision(self) -> RunInstrumentProvisionReceipt:
         with self._lock:

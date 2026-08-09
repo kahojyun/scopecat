@@ -6,15 +6,6 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from scopecat.execution.ports.instruments import (
-    RunHardwareApply,
-    RunHardwareBatch,
-    RunHardwareBatchReceipt,
-    RunHardwareCollect,
-    RunHardwareFinalizationReceipt,
-    RunHardwareInvoke,
-    RunHardwareValue,
-)
 from scopecat.kernel.problems import Problem
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.system import ExperimentSystem
@@ -46,6 +37,15 @@ from scopecat.sdk.instruments.commands import (
     InvokeCommand,
 )
 from scopecat.sdk.instruments.contracts import state_assignment_satisfied
+from scopecat.sdk.instruments.execution import (
+    RunHardwareApply,
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+    RunHardwareCollect,
+    RunHardwareFinalizationReceipt,
+    RunHardwareInvoke,
+    RunHardwareValue,
+)
 from scopecat.sdk.instruments.provider import (
     InstrumentConnectionContext,
     InstrumentDriver,
@@ -115,9 +115,9 @@ class TestRunInstrumentHost:
             project_state(driver.instrument_id, driver.read_state())
             for driver in selected
         )
-        self._prepared_state = self._observed_state
+        self._baseline_state = self._observed_state
         self._assumed_states = {
-            state.instrument_id: state for state in self._prepared_state
+            state.instrument_id: state for state in self._baseline_state
         }
         self._finished: RunHardwareFinalizationReceipt | None = None
 
@@ -134,8 +134,8 @@ class TestRunInstrumentHost:
         return self._observed_state
 
     @property
-    def prepared_state(self) -> tuple[InstrumentStateSnapshot, ...]:
-        return self._prepared_state
+    def baseline_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        return self._baseline_state
 
     def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
         values: list[RunHardwareValue] = []
@@ -239,8 +239,7 @@ class TestRunInstrumentHost:
                 indeterminate = receipt.status == "unknown"
                 break
             bindings = {
-                binding.request_id: binding.product_use_ids
-                for binding in action.bindings
+                binding.request_id: binding.value_ids for binding in action.bindings
             }
             requests = {request.id: request for request in action.requests}
             if set(receipt.readback.values) != set(bindings):
@@ -255,7 +254,7 @@ class TestRunInstrumentHost:
             values.extend(
                 RunHardwareValue(
                     point_index=action.point_index,
-                    product_use_id=product_use_id,
+                    value_id=value_id,
                     value=value,
                     evidence=InstrumentAcquisitionEvidence(
                         command_id=action.effect_id,
@@ -269,7 +268,7 @@ class TestRunInstrumentHost:
                     ),
                 )
                 for request_id, value in receipt.readback.values.items()
-                for product_use_id in bindings[request_id]
+                for value_id in bindings[request_id]
             )
         return RunHardwareBatchReceipt(
             operation_id=batch.operation_id,

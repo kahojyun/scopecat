@@ -26,7 +26,9 @@ from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
+    ResourceRoleInput,
     logical_resource_port_id,
+    normalize_resource_role,
 )
 from scopecat.kernel.value_types import Payload
 from scopecat.program.bindings import (
@@ -147,6 +149,7 @@ class ModuleContext:
         "_captured_input_ports",
         "_captured_values",
         "_declared_input_ids",
+        "_effect_namespaces",
         "_effects",
         "_local_value_ids",
         "_measurement_postprocessors",
@@ -154,6 +157,7 @@ class ModuleContext:
         "_owner",
         "_product_declarations",
         "_python_implementations",
+        "_resource_namespaces",
         "_resources",
     )
 
@@ -171,6 +175,8 @@ class ModuleContext:
         self._captured_values: dict[object, ValueRef] = {}
         self._captured_input_ports: list[ModuleInputPort] = []
         self._captured_input_bindings: dict[str, ValueRef] = {}
+        self._effect_namespaces: set[str] = set()
+        self._resource_namespaces: set[str] = set()
         self._resources: list[ResourcePort] = []
         self._effects: list[ModuleEffect] = []
         self._operations: list[ModuleOperationDecl] = []
@@ -469,6 +475,7 @@ class ModuleContext:
         *,
         requires: Sequence[InterfaceRef] = (),
         for_entities: Sequence[ValueRef] = (),
+        role: ResourceRoleInput = None,
     ) -> DefinitionResource:
         """Declare a generated client's logical resource."""
 
@@ -488,10 +495,46 @@ class ModuleContext:
                 ResourceSelector(
                     interfaces=interfaces,
                     entity_inputs=selected_entities,
+                    role=normalize_resource_role(role),
                 ),
             )
         )
         return DefinitionResource(logical_resource_port_id(id), self._owner)
+
+    def _allocate_resource_id(self, name_hint: str) -> str:
+        """Allocate one stable authoring-local namespace for a typed client."""
+
+        if not name_hint:
+            raise ValueError("resource name hint must be non-empty")
+        used = {
+            *self._resource_namespaces,
+            *(resource.id for resource in self._resources),
+        }
+        resource_id = name_hint
+        suffix = 2
+        while resource_id in used:
+            resource_id = f"{name_hint}.{suffix}"
+            suffix += 1
+        self._resource_namespaces.add(resource_id)
+        return resource_id
+
+    def _allocate_effect_id(self, name_hint: str, *, explicit: bool = False) -> str:
+        """Allocate a data/effect namespace independently of resource ports."""
+
+        if not name_hint:
+            raise ValueError("effect name hint must be non-empty")
+        if explicit:
+            if name_hint in self._effect_namespaces:
+                raise ValueError(f"duplicate explicit effect id: {name_hint}")
+            self._effect_namespaces.add(name_hint)
+            return name_hint
+        effect_id = name_hint
+        suffix = 2
+        while effect_id in self._effect_namespaces:
+            effect_id = f"{name_hint}.{suffix}"
+            suffix += 1
+        self._effect_namespaces.add(effect_id)
+        return effect_id
 
     def _bind_property(
         self,

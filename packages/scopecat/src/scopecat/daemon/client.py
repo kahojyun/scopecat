@@ -46,6 +46,7 @@ from scopecat.daemon.wire import (
     ConfigPublishReceipt,
     ConfigUndoCommand,
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -74,11 +75,6 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
-from scopecat.execution.ports.instruments import (
-    RunHardwareBatchReceipt,
-    RunHardwareFinalizationReceipt,
-    RunHardwareInvoke,
-)
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import (
@@ -106,6 +102,11 @@ from scopecat.sdk.instruments.commands import (
     InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
+)
+from scopecat.sdk.instruments.execution import (
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
+    RunHardwareInvoke,
 )
 
 _API_PREFIX = "/api/v1"
@@ -733,6 +734,17 @@ class DaemonClient:
     ) -> ExecutionTransition:
         return self._post_model(
             f"{_API_PREFIX}/runs/{run_id}/transitions",
+            command,
+            ExecutionTransition,
+        )
+
+    def claim_transition(
+        self,
+        run_id: str,
+        command: ExecutionTransitionClaim,
+    ) -> ExecutionTransition:
+        return self._post_model(
+            f"{_API_PREFIX}/runs/{run_id}/transitions/claim",
             command,
             ExecutionTransition,
         )

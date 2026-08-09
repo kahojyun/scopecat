@@ -23,111 +23,28 @@ def test_valid_example_has_no_problems() -> None:
     assert not bool(problems)
 
 
-def test_domain_target_exclusivity_key_is_required_and_non_empty() -> None:
-    config_data = load_config().model_dump(mode="json")
-    target = config_data["system"]["domain_target"]
-    del target["exclusivity_key"]
-
-    with pytest.raises(ValidationError, match="exclusivity_key"):
-        ConfigProfileSnapshot.model_validate(config_data)
-
-    target["exclusivity_key"] = ""
-    with pytest.raises(ValidationError, match="exclusivity_key"):
-        ConfigProfileSnapshot.model_validate(config_data)
-
-
 def test_domain_target_instruments_must_be_registered() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["domain_target"]["members"] = [
-        {
-            "kind": "instrument",
-            "role": "missing",
-            "instrument_id": "missing",
-        }
-    ]
+    config_data["system"]["domain_target"]["instrument_ids"] = ["missing"]
 
     with pytest.raises(
         ValidationError,
-        match="unknown domain target instrument member",
+        match="unknown domain target instrument",
     ):
         ConfigProfileSnapshot.model_validate(config_data)
 
 
 def test_domain_target_instruments_must_be_unique() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["domain_target"]["members"] = [
-        {
-            "kind": "instrument",
-            "role": "source",
-            "instrument_id": "source-0",
-        },
-        {
-            "kind": "instrument",
-            "role": "source-alias",
-            "instrument_id": "source-0",
-        },
+    config_data["system"]["domain_target"]["instrument_ids"] = [
+        "source-0",
+        "source-0",
     ]
 
     with pytest.raises(
         ValidationError,
-        match="instrument members must be unique",
+        match="instrument ids must be unique",
     ):
-        ConfigProfileSnapshot.model_validate(config_data)
-
-
-def test_domain_target_member_roles_must_be_unique() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["domain_target"]["members"] = [
-        {
-            "kind": "instrument",
-            "role": "drive",
-            "instrument_id": "source-0",
-        },
-        {
-            "kind": "private_endpoint",
-            "role": "drive",
-            "connection": {"kind": "virtual"},
-        },
-    ]
-
-    with pytest.raises(ValidationError, match="member roles must be unique"):
-        ConfigProfileSnapshot.model_validate(config_data)
-
-
-def test_domain_target_private_endpoint_is_not_an_instrument_member() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["domain_target"]["members"] = [
-        {
-            "kind": "private_endpoint",
-            "role": "controller",
-            "connection": {
-                "kind": "tcpip_socket",
-                "host": "controller.test",
-                "port": 9000,
-            },
-        }
-    ]
-
-    config = ConfigProfileSnapshot.model_validate(config_data)
-    target = config.domain_target
-    assert target is not None
-    assert target.instrument_ids == ()
-    assert tuple(endpoint.role for endpoint in target.private_endpoints) == (
-        "controller",
-    )
-
-
-def test_domain_target_members_reject_unknown_kinds() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["domain_target"]["members"] = [
-        {
-            "kind": "address",
-            "role": "controller",
-            "connection": {"kind": "virtual"},
-        }
-    ]
-
-    with pytest.raises(ValidationError):
         ConfigProfileSnapshot.model_validate(config_data)
 
 
@@ -139,37 +56,37 @@ def test_primary_entity_must_be_declared_in_topology() -> None:
     assert "configuration.unknown_primary_entity" in _problem_codes(config)
 
 
-def test_routing_binding_must_reference_registered_instrument() -> None:
+def test_resource_route_must_reference_registered_instrument() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"]["bindings"][0]["instrument_id"] = "missing"
+    config_data["system"]["routing"]["routes"][0]["instrument_id"] = "missing"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    assert "configuration.unknown_routing_binding_instrument" in _problem_codes(config)
+    assert "configuration.unknown_resource_route_instrument" in _problem_codes(config)
 
 
-def test_routing_binding_must_reference_declared_entity() -> None:
+def test_resource_route_endpoint_must_reference_declared_entity() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"]["bindings"][0]["entity_id"] = "missing"
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    assert "configuration.unknown_routing_binding_entity" in _problem_codes(config)
-
-
-def test_routing_channel_binding_requires_an_entity() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"]["bindings"][0]["entity_id"] = None
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    assert "configuration.routing_binding_channel_without_entity" in _problem_codes(
-        config
+    config_data["system"]["routing"]["routes"][0]["endpoints"][0]["entity_id"] = (
+        "missing"
     )
+    config_data["system"]["routing"]["routes"][0]["entity_ids"] = ["q0", "missing"]
+    config = ConfigProfileSnapshot.model_validate(config_data)
+
+    assert "configuration.unknown_resource_route_entity" in _problem_codes(config)
+
+
+def test_resource_route_channel_may_describe_shared_infrastructure() -> None:
+    config_data = load_config().model_dump(mode="json")
+    config_data["system"]["routing"]["routes"][0]["endpoints"][0]["entity_id"] = None
+    config = ConfigProfileSnapshot.model_validate(config_data)
+
+    assert not bool(validate_config_profile(config))
 
 
 def test_one_endpoint_key_can_map_to_multiple_explicit_channels() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"]["bindings"].append(
+    config_data["system"]["routing"]["routes"][0]["endpoints"].append(
         {
-            "instrument_id": "source-0",
             "interface_id": "test.set_frequency/v1",
             "entity_id": "q0",
             "channel_id": "readout-q0",

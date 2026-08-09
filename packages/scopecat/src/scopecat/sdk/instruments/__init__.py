@@ -55,7 +55,9 @@ if TYPE_CHECKING:
         AcquisitionResultSpec,
         AcquisitionSpec,
         ComponentSpec,
+        InstrumentComponentSpec,
         InstrumentDescription,
+        InterfaceMountSpec,
         InterfaceSpec,
         OperationArgumentSpec,
         OperationSpec,
@@ -69,8 +71,10 @@ if TYPE_CHECKING:
         component,
         enum_property,
         float_property,
+        instrument_component,
         int_property,
         interface,
+        interface_mount,
         operation,
         operation_argument,
         quantity_property,
@@ -188,6 +192,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.catalog",
         "InstrumentConnectionKind",
     ),
+    "InstrumentComponentSpec": (
+        "scopecat.sdk.instruments.contracts",
+        "InstrumentComponentSpec",
+    ),
     "InstrumentCollectFailure": (
         "scopecat.sdk.instruments.errors",
         "InstrumentCollectFailure",
@@ -216,6 +224,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "InstrumentStateSnapshot",
     ),
     "InterfaceRef": ("scopecat.sdk.instruments.members", "InterfaceRef"),
+    "InterfaceMountSpec": (
+        "scopecat.sdk.instruments.contracts",
+        "InterfaceMountSpec",
+    ),
     "InterfaceSpec": ("scopecat.sdk.instruments.contracts", "InterfaceSpec"),
     "InvokeReceipt": ("scopecat.sdk.instruments.commands", "InvokeReceipt"),
     "OperationArgumentRef": (
@@ -267,6 +279,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "format_number": ("scopecat.sdk.instruments.scpi", "format_number"),
     "int_property": ("scopecat.sdk.instruments.contracts", "int_property"),
     "interface": ("scopecat.sdk.instruments.contracts", "interface"),
+    "interface_mount": (
+        "scopecat.sdk.instruments.contracts",
+        "interface_mount",
+    ),
+    "instrument_component": (
+        "scopecat.sdk.instruments.contracts",
+        "instrument_component",
+    ),
     "operation": ("scopecat.sdk.instruments.contracts", "operation"),
     "operation_argument": (
         "scopecat.sdk.instruments.contracts",

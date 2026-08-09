@@ -722,10 +722,6 @@ def _commit_config_registry_activation_locked(
                 current=current.config,
                 candidate=loaded.config,
             )
-        _require_stable_domain_target_exclusivity_key(
-            current=current.config,
-            candidate=loaded.config,
-        )
     previous_entry_id = (
         current_activation.entry_id if current_activation is not None else None
     )
@@ -810,10 +806,6 @@ def undo_config_registry(
                 details={"entry_id": entry.id},
             )
         _require_stable_instrument_exclusivity_keys(
-            current=current.config,
-            candidate=loaded.config,
-        )
-        _require_stable_domain_target_exclusivity_key(
             current=current.config,
             candidate=loaded.config,
         )
@@ -1377,39 +1369,6 @@ def _require_stable_instrument_exclusivity_keys(
                 )
             },
         )
-
-
-def _require_stable_domain_target_exclusivity_key(
-    *,
-    current: ConfigProfileSnapshot,
-    candidate: ConfigProfileSnapshot,
-) -> None:
-    """Keep one physical target access domain across ordinary activations."""
-
-    current_target = current.domain_target
-    if current_target is None:
-        return
-    candidate_target = candidate.domain_target
-    if (
-        candidate_target is not None
-        and candidate_target.exclusivity_key == current_target.exclusivity_key
-    ):
-        return
-    raise _registry_failure(
-        Conflict,
-        code="config_registry.domain_target_exclusivity_key_changed",
-        message=(
-            "ordinary configuration activation cannot remove or replace "
-            "the domain target exclusivity key"
-        ),
-        location=_registry_model_location(
-            "config",
-            "system",
-            "domain_target",
-            "exclusivity_key",
-        ),
-        details={"target_id": current_target.id},
-    )
 
 
 def _previous_distinct_activation(

@@ -20,18 +20,26 @@ def test_lab_tour_shows_one_inventory_and_parameter_catalog(
     summary = cast("dict[str, object]", namespace["lab_tour_summary"])
 
     assert set(cast("list[str]", summary["instruments"])) == {
-        "drive-stack",
-        "readout-stack",
         "pump-source",
         "bench-source",
+        "drive-lo-a",
+        "drive-lo-b",
+        "readout-lo",
+        "drive-awg",
+        "readout-awg",
+        "readout-digitizer",
+        "timing-controller",
+        "bench-scope",
         "flux-dac-a",
         "flux-dac-b",
         "mixing-chamber",
         "readout-vna",
-        "event-digitizer",
     }
     assert summary["parameter_rows"] == {
         "qubits": 4,
+        "iq_chains": 5,
+        "awg_output_baselines": 1,
+        "lo_groups": 3,
         "readout_resonators": 4,
         "channel_calibrations": 4,
         "bias_profiles": 8,
@@ -64,22 +72,34 @@ def test_channel_map_exposes_independent_drive_and_demod_routes(
 
     assert summary == {
         "drive": {
-            "q0": "drive.awg0.ch1",
-            "q1": "drive.awg0.ch2",
-            "q2": "drive.awg0.ch3",
-            "q3": "drive.awg0.ch4",
+            "q0": {"i": "drive.awg0.ch1", "q": "drive.awg0.ch2"},
+            "q1": {"i": "drive.awg0.ch3", "q": "drive.awg0.ch4"},
+            "q2": {"i": "drive.awg0.ch5", "q": "drive.awg0.ch6"},
+            "q3": {"i": "drive.awg0.ch7", "q": "drive.awg0.ch8"},
         },
         "readout": {
-            "q0": "readout.mux0",
-            "q1": "readout.mux0",
-            "q2": "readout.mux0",
-            "q3": "readout.mux0",
+            "q0": {"i": "readout.awg0.ch1", "q": "readout.awg0.ch2"},
+            "q1": {"i": "readout.awg0.ch1", "q": "readout.awg0.ch2"},
+            "q2": {"i": "readout.awg0.ch1", "q": "readout.awg0.ch2"},
+            "q3": {"i": "readout.awg0.ch1", "q": "readout.awg0.ch2"},
         },
         "acquisition": {
-            "q0": "digitizer.demod0",
-            "q1": "digitizer.demod1",
-            "q2": "digitizer.demod2",
-            "q3": "digitizer.demod3",
+            "q0": {
+                "adc": ("readout-digitizer", ("inputs", "ch1")),
+                "demodulator": "demod0",
+            },
+            "q1": {
+                "adc": ("readout-digitizer", ("inputs", "ch1")),
+                "demodulator": "demod1",
+            },
+            "q2": {
+                "adc": ("readout-digitizer", ("inputs", "ch1")),
+                "demodulator": "demod2",
+            },
+            "q3": {
+                "adc": ("readout-digitizer", ("inputs", "ch1")),
+                "demodulator": "demod3",
+            },
         },
         "flux": {
             "q0": ("flux-dac-a", "flux.dac_a.ch1"),
@@ -120,6 +140,43 @@ def test_multichannel_dc_bias_spans_two_devices_and_four_routes(
         },
         "settled": {"q0": True, "q1": True, "q2": True, "q3": True},
         "records": 1,
+        "status": "completed",
+    }
+
+
+def test_xy_lo_sweep_records_carriers_from_signed_if(
+    reference_lab_daemon: _ReferenceLabDaemon,
+) -> None:
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "34_xy_lo_sweep.py"))
+    summary = cast("dict[str, object]", namespace["xy_lo_sweep_summary"])
+
+    assert summary == {
+        "requested_lo_ghz": [4.9, 4.91, 4.92],
+        "requested_signed_if_mhz": {"q0": 100.0, "q1": -100.0},
+        "requested_carrier_ghz": {
+            "q0": [5.0, 5.01, 5.02],
+            "q1": [4.8, 4.81, 4.82],
+        },
+        "status": "completed",
+    }
+
+
+def test_awg_output_monitor_records_entityless_bench_capture(
+    reference_lab_daemon: _ReferenceLabDaemon,
+) -> None:
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "35_awg_output_monitor.py"))
+    summary = cast("dict[str, object]", namespace["awg_output_monitor_summary"])
+
+    assert summary == {
+        "name": "AWG CH1 pulse shape after bench recabling",
+        "tags": ["diagnostic", "awg-monitor"],
+        "description_mentions_wiring": True,
+        "samples": 16,
+        "time_end_ns": 15.0,
+        "peak_mv": 250.0,
+        "minimum_mv": -20.0,
         "status": "completed",
     }
 
@@ -179,6 +236,21 @@ def test_parallel_ramsey_uses_two_drive_and_demod_channels(
         "records": 3,
         "q0_samples": 3,
         "q1_samples": 3,
+        "status": "completed",
+    }
+
+
+def test_fixed_if_lo_sweep_keeps_lo_outside_the_quantum_target(
+    reference_lab_daemon: _ReferenceLabDaemon,
+) -> None:
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "36_q0_fixed_if_lo_sweep.py"))
+    summary = cast("dict[str, object]", namespace["q0_fixed_if_lo_sweep_summary"])
+
+    assert summary == {
+        "points": 3,
+        "signed_if_mhz": [-50.0],
+        "carrier_ghz": [4.79, 4.8, 4.81],
         "status": "completed",
     }
 
@@ -278,15 +350,16 @@ def test_measurement_workbench_uses_real_durable_data(
     assert summary["batch_offsets"] == [0, 2]
 
 
-def test_ragged_and_partial_data_survive_daemon_boundaries(
+def test_ragged_scope_data_survives_daemon_boundaries(
     reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:
     assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
-    namespace = run_path(str(NOTEBOOKS / "50_ragged_and_partial_data.py"))
-    summary = cast("dict[str, object]", namespace["ragged_summary"])
+    namespace = run_path(str(NOTEBOOKS / "50_ragged_scope_capture.py"))
+    summary = cast("dict[str, object]", namespace["ragged_scope_summary"])
 
-    assert summary["ragged_shapes"] == [[2], [4], None, [1]]
-    assert summary["window_shapes"] == [[2], [2], [1]]
-    assert summary["partial_status"] == "failed"
-    assert summary["partial_records"] == 1
-    assert summary["expected_records"] == 3
+    assert summary == {
+        "record_lengths": [4, 7, 10],
+        "ragged_shapes": [[4], [7], [10]],
+        "window_shapes": [[2], [2], [2]],
+        "status": "completed",
+    }

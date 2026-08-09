@@ -18,18 +18,18 @@ from scopecat.execution.local.program import (
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
 )
 from scopecat.kernel.value_types import Entity, Float, Scalar
+from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.products import ProductDef
 from scopecat.program.expressions import ScalarExpr, lit
 from scopecat.program.logical import AcquireEffect
 from scopecat.records.config import (
     ConfigProfileSnapshot,
-    RoutingEndpointBinding,
-    RoutingGraph,
 )
 from tests.testkit.authoring import load_config, parameters
 from tests.testkit.bound_program import (
@@ -46,6 +46,7 @@ from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
+from tests.testkit.routing import routing_endpoint, routing_graph
 
 
 def _port(value: str) -> LogicalResourcePortId:
@@ -54,6 +55,14 @@ def _port(value: str) -> LogicalResourcePortId:
 
 def _number(value: float) -> ScalarExpr:
     return verified_scalar_expr(lit(value), expected_type=Scalar(Float()))
+
+
+def _quantity(value: float, unit: str) -> ScalarExpr:
+    value_type = Scalar(QuantityType(dimension="frequency", unit=unit))
+    return verified_scalar_expr(
+        lit(Quantity(value, unit), value_type),
+        expected_type=value_type,
+    )
 
 
 def _entity(value: str) -> ScalarExpr:
@@ -161,19 +170,21 @@ def test_record_products_keep_their_exact_logical_resource_bindings() -> None:
 
 def test_each_effect_uses_only_its_explicit_interface_endpoints() -> None:
     config = load_config()
-    routing = RoutingGraph(
+    routing = routing_graph(
         bindings=[
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="source-0",
                 interface_id="test.a/v1",
                 entity_id="q0",
                 channel_id="drive-q0",
+                component_path=("channels", "drive-q0"),
             ),
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="source-0",
                 interface_id="test.b/v1",
                 entity_id="q0",
                 channel_id="readout-q0",
+                component_path=("channels", "readout-q0"),
             ),
         ],
     )
@@ -225,6 +236,7 @@ def test_each_effect_uses_only_its_explicit_interface_endpoints() -> None:
         (binding.interface_id, binding.channel_id)
         for binding in state.targets[0].channel_bindings
     ] == [("test.a/v1", "drive-q0")]
+    assert state.targets[0].component_path == ("channels", "drive-q0")
 
     requests = {
         request.id: request
@@ -234,6 +246,7 @@ def test_each_effect_uses_only_its_explicit_interface_endpoints() -> None:
     assert {
         key: (
             request.interface_id,
+            tuple(request.component_path),
             tuple(
                 (binding.interface_id, binding.channel_id)
                 for binding in request.channel_bindings
@@ -241,8 +254,16 @@ def test_each_effect_uses_only_its_explicit_interface_endpoints() -> None:
         )
         for key, request in requests.items()
     } == {
-        "A-result": ("test.a/v1", (("test.a/v1", "drive-q0"),)),
-        "B-result": ("test.b/v1", (("test.b/v1", "readout-q0"),)),
+        "A-result": (
+            "test.a/v1",
+            ("channels", "drive-q0"),
+            (("test.a/v1", "drive-q0"),),
+        ),
+        "B-result": (
+            "test.b/v1",
+            ("channels", "readout-q0"),
+            (("test.b/v1", "readout-q0"),),
+        ),
     }
 
 
@@ -312,7 +333,7 @@ def test_logical_state_does_not_broadcast_across_instruments() -> None:
         _bind(program, config=config)
 
     assert [problem.code for problem in failure.value.problems] == [
-        "module_resource_port_ambiguous"
+        "module_resource_route_not_found"
     ]
 
 
@@ -370,8 +391,8 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
     assert (tuple(request.entity_ids), tuple(request.channel_bindings)) == (("q0",), ())
 
 
-def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
-    config = _entity_only_config()
+def test_equal_demands_for_one_physical_state_owner_are_coalesced() -> None:
+    config = _shared_component_config()
     left = _port("left")
     right = _port("right")
     program = _unit_program(
@@ -379,27 +400,77 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=left,
-                interfaces=("test.set_level/v1",),
+                interfaces=("test.set_frequency/v1",),
                 entity_uses=(_entity("q0"),),
             ),
             LogicalResourceRequirement(
                 port_id=right,
-                interfaces=("test.set_level/v1",),
-                entity_uses=(_entity("q0"),),
+                interfaces=("test.set_frequency/v1",),
+                entity_uses=(_entity("q1"),),
             ),
         ),
         state=(
             state_property(
                 left,
-                interface_id="test.set_level/v1",
-                property_id="level",
-                value=_number(1.0),
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=_quantity(5.0, "GHz"),
             ),
             state_property(
                 right,
-                interface_id="test.set_level/v1",
-                property_id="level",
-                value=_number(1.0),
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=_quantity(5000.0, "MHz"),
+            ),
+        ),
+    )
+
+    plan = _bind(program, config=config)
+
+    [operation] = operations_of_type(plan, ApplyStateOperation, point_index=0)
+    assert len(operation.targets) == 1
+    [target] = operation.targets
+    assert target.component_path == ("lo_groups", "lo0")
+    assert target.entity_ids == ("q0", "q1")
+    assert [binding.channel_id for binding in target.channel_bindings] == [
+        "channel-q0",
+        "channel-q1",
+    ]
+    assert [
+        origin.resource.logical_port_id.qualified_name for origin in target.origins
+    ] == ["left", "right"]
+
+
+def test_conflicting_demands_for_one_physical_state_owner_are_rejected() -> None:
+    config = _shared_component_config()
+    left = _port("left")
+    right = _port("right")
+    program = _unit_program(
+        experiment_id="conflicting-physical-state-owner",
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=left,
+                interfaces=("test.set_frequency/v1",),
+                entity_uses=(_entity("q0"),),
+            ),
+            LogicalResourceRequirement(
+                port_id=right,
+                interfaces=("test.set_frequency/v1",),
+                entity_uses=(_entity("q1"),),
+            ),
+        ),
+        state=(
+            state_property(
+                left,
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=_quantity(5.0, "GHz"),
+            ),
+            state_property(
+                right,
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=_quantity(5.1, "GHz"),
             ),
         ),
     )
@@ -407,9 +478,16 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
     with pytest.raises(CheckFailed) as failure:
         _bind(program, config=config)
 
-    assert "experiment_aliased_desired_state_target" in {
+    assert "experiment_conflicting_desired_state" in {
         problem.code for problem in failure.value.problems
     }
+    [problem] = [
+        problem
+        for problem in failure.value.problems
+        if problem.code == "experiment_conflicting_desired_state"
+    ]
+    assert "q0 via left" in problem.message
+    assert "q1 via right" in problem.message
 
 
 def _same_instrument_record_config() -> ConfigProfileSnapshot:
@@ -422,21 +500,21 @@ def _same_instrument_record_config() -> ConfigProfileSnapshot:
             ]
         }
     )
-    routing = RoutingGraph(
+    routing = routing_graph(
         bindings=[
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="source-0",
                 interface_id="test.measure_left/v1",
                 entity_id="q0",
                 channel_id="drive-q0",
             ),
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="source-0",
                 interface_id="test.measure_right/v1",
                 entity_id="q1",
                 channel_id="readout-q0",
             ),
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="source-0",
                 interface_id="test.measure_direct/v1",
             ),
@@ -462,15 +540,15 @@ def _split_instrument_config() -> ConfigProfileSnapshot:
             ],
         }
     )
-    routing = RoutingGraph(
+    routing = routing_graph(
         bindings=[
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="source-0",
                 interface_id="test.set_level/v1",
                 entity_id="q0",
                 channel_id="drive-q0",
             ),
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="source-1",
                 interface_id="test.set_level/v1",
                 entity_id="q1",
@@ -502,9 +580,9 @@ def _split_instrument_config() -> ConfigProfileSnapshot:
 
 def _entity_only_config() -> ConfigProfileSnapshot:
     config = load_config()
-    routing = RoutingGraph(
+    routing = routing_graph(
         bindings=[
-            RoutingEndpointBinding(
+            routing_endpoint(
                 instrument_id="source-0",
                 interface_id=interface_id,
                 entity_id="q0",
@@ -517,4 +595,35 @@ def _entity_only_config() -> ConfigProfileSnapshot:
     )
     return config.model_copy(
         update={"system": config.system.model_copy(update={"routing": routing})}
+    )
+
+
+def _shared_component_config() -> ConfigProfileSnapshot:
+    config = load_config()
+    topology = config.topology.model_copy(
+        update={
+            "entities": [
+                *config.topology.entities,
+                EntityRef(id="q1", kind="logical_device"),
+            ]
+        }
+    )
+    routing = routing_graph(
+        bindings=[
+            routing_endpoint(
+                instrument_id="source-0",
+                interface_id="test.set_frequency/v1",
+                entity_id=entity_id,
+                channel_id=f"channel-{entity_id}",
+                component_path=("lo_groups", "lo0"),
+            )
+            for entity_id in ("q0", "q1")
+        ]
+    )
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={"topology": topology, "routing": routing}
+            )
+        }
     )

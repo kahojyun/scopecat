@@ -361,7 +361,7 @@ function InstrumentConfigEditor({
                   }
                 >
                   <option value="release">Release in terminal state</option>
-                  <option value="restore_prepared_state">Restore prepared state</option>
+                  <option value="restore_baseline">Restore baseline</option>
                 </select>
               </label>
 

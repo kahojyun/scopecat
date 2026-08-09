@@ -10,8 +10,8 @@ reveal a clearer or more scalable way to serve the charter.
 - [Experiment execution semantics](experiment-execution-model.md): current
   compiler, domain-lowering, effect, and logical-result design.
 - [Lab daemon](lab-daemon.md): current durable ownership and client boundary.
-- [Instrument authoring](instrument-control.md): the shared declaration, live
-  control, symbolic-client, entity-mapping, and recording model.
+- [Instrument control and authoring](instrument-control.md): live and symbolic
+  clients, physical routing, shared state, and capability extension.
 - [Measurement data workflows](measurement-data.md): recording intent, product
   grids and point clouds, repeat and traversal policy, invocation edits, ragged
   axes, notebook slicing and ecosystem exports, and schema-driven GUI

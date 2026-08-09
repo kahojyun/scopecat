@@ -10,6 +10,11 @@ from scopecat.authoring._module_context import ModuleContext
 from scopecat.authoring._module_invocation import (
     ModuleInvocation,
 )
+from scopecat.authoring.capability_resources import (
+    CapabilityResource,
+    capability_resource,
+    ensure_state_targets,
+)
 from scopecat.authoring.definitions import (
     Experiment,
     ExperimentContext,
@@ -48,6 +53,13 @@ from scopecat.authoring.scans import Axis, PointRow, axis
 from scopecat.authoring.state_projection import (
     StateProjector,
     StateTarget,
+)
+from scopecat.kernel.resource_identity import (
+    ANY_RESOURCE_ROLE,
+    DEFAULT_RESOURCE_ROLE,
+    ResourceRoleInput,
+    ResourceRoleSelector,
+    resource_role,
 )
 from scopecat.program.products import (
     ProductRef,
@@ -101,8 +113,11 @@ from scopecat.program.values import (
 )
 
 __all__ = [
+    "ANY_RESOURCE_ROLE",
+    "DEFAULT_RESOURCE_ROLE",
     "Axis",
     "BoolType",
+    "CapabilityResource",
     "ComputeInput",
     "ConcreteEntityInput",
     "CoordinateRef",
@@ -137,6 +152,8 @@ __all__ = [
     "ProductValueSpec",
     "QuantityType",
     "RecordRef",
+    "ResourceRoleInput",
+    "ResourceRoleSelector",
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",
@@ -150,8 +167,10 @@ __all__ = [
     "ValueType",
     "ValueValidationError",
     "axis",
+    "capability_resource",
     "coordinate",
     "each",
+    "ensure_state_targets",
     "experiment",
     "input_ref",
     "module",
@@ -161,4 +180,5 @@ __all__ = [
     "parameter_field",
     "parameter_lookup",
     "parameter_schema",
+    "resource_role",
 ]

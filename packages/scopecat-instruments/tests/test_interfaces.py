@@ -150,7 +150,7 @@ def test_declared_rf_output_preserves_the_contract_fingerprint() -> None:
 
 def test_declared_dc_source_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_source_interface()) == (
-        "0bd8e9c89a327e53af4c682b71ff8b4f0867faf53850b9260c6f48034e4d2d5b"
+        "52efb27fbbedfcb1ee65a546eea2234488d304ff598c38c1b96a29459b8b5e28"
     )
 
 

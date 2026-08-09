@@ -23,7 +23,6 @@ from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
 )
 from scopecat.execution.local.program import CollectOperation
-from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.execution.program import RunHostBinding
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.problems import (
@@ -80,6 +79,7 @@ from scopecat.sdk.instruments.contracts import (
     PropertySpec,
     acquisition_axis,
 )
+from scopecat.sdk.instruments.execution import RunInstrumentHost
 from scopecat.sdk.instruments.provider import (
     InstrumentConnectionContext,
     InstrumentProvider,
@@ -255,11 +255,11 @@ def test_run_persists_measurements_and_run_files(
         snapshot.instrument_id
         for snapshot in [
             *state_evidence.observed_state,
-            *state_evidence.prepared_state,
+            *state_evidence.baseline_state,
             *state_evidence.final_state,
         ]
     } == {"source-0"}
-    assert state_evidence.observed_state == state_evidence.prepared_state
+    assert state_evidence.observed_state == state_evidence.baseline_state
     final_state_value = state_evidence.final_state[0].properties[0].value.root
     assert final_state_value == Quantity(value=5.1, unit="GHz")
     persisted_state_evidence = state_evidence.model_dump(mode="json")

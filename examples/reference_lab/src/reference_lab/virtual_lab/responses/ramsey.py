@@ -10,15 +10,15 @@ from typing import override
 
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
-from reference_lab.targets.fake_list_mode.model import (
-    FakeAcquisitionWindow,
+from reference_lab.targets.list_mode.execution_model import (
+    AcquisitionResponse,
+    AwgPlayback,
+    DigitizerValue,
+)
+from reference_lab.targets.list_mode.model import (
+    DigitizerAcquisitionWindow,
     acquisition_slot_identity_payload,
     canonical_fingerprint,
-)
-from reference_lab.targets.fake_list_mode.runtime import (
-    FakeAcquisitionResponse,
-    FakeAwgPlayback,
-    FakeDigitizerValue,
 )
 
 
@@ -31,7 +31,7 @@ class RamseyResponsePoint:
 
 
 @dataclass(frozen=True, slots=True)
-class RamseyAcquisitionResponse(FakeAcquisitionResponse):
+class RamseyAcquisitionResponse(AcquisitionResponse):
     """Return stable binary IQ shots for every point and acquisition channel."""
 
     points: tuple[RamseyResponsePoint, ...]
@@ -92,9 +92,9 @@ class RamseyAcquisitionResponse(FakeAcquisitionResponse):
     def value_for(
         self,
         *,
-        playback: FakeAwgPlayback,
-        window: FakeAcquisitionWindow,
-    ) -> FakeDigitizerValue:
+        playback: AwgPlayback,
+        window: DigitizerAcquisitionWindow,
+    ) -> DigitizerValue:
         address = TargetAcquisitionAddress(
             entry_id=playback.entry_id,
             slot_id=window.slot_id,

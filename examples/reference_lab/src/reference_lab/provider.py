@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import cast
 
 import scopecat as sc
@@ -10,6 +9,7 @@ from pydantic import JsonValue
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.records.measurement import MeasurementScalar, MeasurementValue
 from scopecat.sdk.instruments import (
+    AcquisitionRef,
     AcquisitionResultRef,
     DriverAcquisition,
     DriverCatalog,
@@ -27,6 +27,10 @@ from scopecat.sdk.instruments import (
     InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
+    OperationRef,
+    PropertyRef,
+    instrument_component,
+    interface_mount,
 )
 from scopecat_instruments import ConfiguredInstrumentProvider
 from scopecat_instruments.interfaces import (
@@ -47,15 +51,25 @@ from scopecat_instruments.members import (
 )
 from scopecat_instruments.virtual import VirtualDcSource, VirtualLabWorld
 
-from reference_lab.virtual_lab.provider import QuantumLabVirtualProvider
-from reference_lab.workflows.event_capture import (
-    EVENT_CAPTURE_DRIVER_ID,
-    EVENT_CAPTURE_DRIVER_SPEC,
-    VirtualEventDigitizer,
+from reference_lab.bench_devices import (
+    VIRTUAL_AWG_DRIVER_ID,
+    VIRTUAL_AWG_DRIVER_SPEC,
+    VIRTUAL_DIGITIZER_DRIVER_ID,
+    VIRTUAL_DIGITIZER_DRIVER_SPEC,
+    VIRTUAL_OSCILLOSCOPE_DRIVER_ID,
+    VIRTUAL_OSCILLOSCOPE_DRIVER_SPEC,
+    VIRTUAL_TIMING_CONTROLLER_DRIVER_ID,
+    VIRTUAL_TIMING_CONTROLLER_DRIVER_SPEC,
+    BenchSignalWorld,
+    VirtualAwg,
+    VirtualDigitizer,
+    VirtualOscilloscope,
+    VirtualTimingController,
 )
 
 FLUX_SOURCE_IDS = ("flux-dac-a", "flux-dac-b")
 FLUX_SOURCE_ID = FLUX_SOURCE_IDS[0]
+FLUX_CHANNEL_COMPONENT_IDS = ("ch1", "ch2")
 MULTICHANNEL_DC_DRIVER_ID = "reference_lab.virtual.multichannel_dc_source"
 MULTICHANNEL_DC_DRIVER_SPEC = DriverSpec(
     driver_id=MULTICHANNEL_DC_DRIVER_ID,
@@ -75,20 +89,22 @@ MULTICHANNEL_DC_DRIVER_SPEC = DriverSpec(
 
 
 class ReferenceLabProvider:
-    """Combine stock coupled instruments and the lab's quantum stacks."""
+    """Combine stock instruments and the lab's bare virtual devices."""
 
     provider_id = "reference_lab.virtual_lab.provider"
 
-    def __init__(self, *, profile: str | Path, seed: int = 7) -> None:
+    def __init__(self, *, seed: int = 7) -> None:
         self._instruments = ConfiguredInstrumentProvider(seed=seed)
-        self._quantum = QuantumLabVirtualProvider(profile=profile)
+        self._bench = BenchSignalWorld()
         self.driver_catalog = DriverCatalog(
             provider_id=self.provider_id,
             drivers=(
                 *self._instruments.driver_catalog.drivers,
-                *self._quantum.driver_catalog.drivers,
-                EVENT_CAPTURE_DRIVER_SPEC,
                 MULTICHANNEL_DC_DRIVER_SPEC,
+                VIRTUAL_AWG_DRIVER_SPEC,
+                VIRTUAL_DIGITIZER_DRIVER_SPEC,
+                VIRTUAL_OSCILLOSCOPE_DRIVER_SPEC,
+                VIRTUAL_TIMING_CONTROLLER_DRIVER_SPEC,
             ),
         )
 
@@ -110,25 +126,13 @@ class ReferenceLabProvider:
             for binding in context.bindings
             if binding.driver_id in instrument_driver_ids
         )
-        quantum_bindings = tuple(
-            binding
-            for binding in context.bindings
-            if binding.driver_id not in instrument_driver_ids
-            and binding.driver_id != EVENT_CAPTURE_DRIVER_ID
-            and binding.driver_id != MULTICHANNEL_DC_DRIVER_ID
-        )
-        descriptions = (
-            self._instruments.describe(InstrumentProviderContext(instrument_bindings)),
-            self._quantum.describe(InstrumentProviderContext(quantum_bindings)),
+        stock_description = self._instruments.describe(
+            InstrumentProviderContext(instrument_bindings)
         )
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=(
-                *tuple(
-                    instrument
-                    for description in descriptions
-                    for instrument in description.instruments
-                ),
+                *stock_description.instruments,
                 *tuple(
                     MultiChannelVirtualDcSource(
                         binding.id,
@@ -138,16 +142,51 @@ class ReferenceLabProvider:
                     if binding.driver_id == MULTICHANNEL_DC_DRIVER_ID
                 ),
                 *tuple(
-                    VirtualEventDigitizer(binding.id).describe()
+                    VirtualAwg(
+                        binding.id,
+                        self._bench,
+                        output_count=_channel_count(
+                            binding.connection.options,
+                            "output_count",
+                            default=8,
+                        ),
+                    ).describe()
                     for binding in context.bindings
-                    if binding.driver_id == EVENT_CAPTURE_DRIVER_ID
+                    if binding.driver_id == VIRTUAL_AWG_DRIVER_ID
+                ),
+                *tuple(
+                    VirtualDigitizer(
+                        binding.id,
+                        self._bench,
+                        input_count=_channel_count(
+                            binding.connection.options,
+                            "input_count",
+                            default=2,
+                        ),
+                    ).describe()
+                    for binding in context.bindings
+                    if binding.driver_id == VIRTUAL_DIGITIZER_DRIVER_ID
+                ),
+                *tuple(
+                    VirtualTimingController(binding.id, self._bench).describe()
+                    for binding in context.bindings
+                    if binding.driver_id == VIRTUAL_TIMING_CONTROLLER_DRIVER_ID
+                ),
+                *tuple(
+                    VirtualOscilloscope(
+                        binding.id,
+                        self._bench,
+                        input_count=_channel_count(
+                            binding.connection.options,
+                            "input_count",
+                            default=4,
+                        ),
+                    ).describe()
+                    for binding in context.bindings
+                    if binding.driver_id == VIRTUAL_OSCILLOSCOPE_DRIVER_ID
                 ),
             ),
-            problems=tuple(
-                problem
-                for description in descriptions
-                for problem in description.problems
-            ),
+            problems=stock_description.problems,
         )
 
     def connect(self, context: InstrumentConnectionContext) -> InstrumentDriver:
@@ -161,9 +200,49 @@ class ReferenceLabProvider:
                 context.binding.id,
                 self.world,
             )
-        if context.binding.driver_id == EVENT_CAPTURE_DRIVER_ID:
-            return VirtualEventDigitizer(context.binding.id)
-        return self._quantum.connect(context)
+        if context.binding.driver_id == VIRTUAL_AWG_DRIVER_ID:
+            return VirtualAwg(
+                context.binding.id,
+                self._bench,
+                output_count=_channel_count(
+                    context.binding.connection.options,
+                    "output_count",
+                    default=8,
+                ),
+            )
+        if context.binding.driver_id == VIRTUAL_DIGITIZER_DRIVER_ID:
+            return VirtualDigitizer(
+                context.binding.id,
+                self._bench,
+                input_count=_channel_count(
+                    context.binding.connection.options,
+                    "input_count",
+                    default=2,
+                ),
+            )
+        if context.binding.driver_id == VIRTUAL_OSCILLOSCOPE_DRIVER_ID:
+            return VirtualOscilloscope(
+                context.binding.id,
+                self._bench,
+                input_count=_channel_count(
+                    context.binding.connection.options,
+                    "input_count",
+                    default=4,
+                ),
+            )
+        if context.binding.driver_id == VIRTUAL_TIMING_CONTROLLER_DRIVER_ID:
+            return VirtualTimingController(context.binding.id, self._bench)
+        msg = f"unsupported reference-lab driver {context.binding.driver_id!r}"
+        raise ValueError(msg)
+
+
+def _channel_count(
+    options: dict[str, JsonValue],
+    key: str,
+    *,
+    default: int,
+) -> int:
+    return cast("int", options.get(key, default))
 
 
 class MultiChannelVirtualDcSource:
@@ -181,11 +260,20 @@ class MultiChannelVirtualDcSource:
         self._world = world
         self._unrouted = VirtualDcSource(f"{instrument_id}:unrouted", world)
         self._drivers: dict[str, VirtualDcSource] = {}
-        self._bindings: dict[str, CommandChannelBinding] = {}
+        self._bindings: dict[
+            str,
+            dict[tuple[str, str, str | None], CommandChannelBinding],
+        ] = {}
+        self._route_ids: dict[str, str] = {}
         self._ramp_duration_s: dict[str, float] = {}
         self._settle_tolerance_v: dict[str, float] = {}
 
     def describe(self) -> InstrumentDescription:
+        interfaces = (
+            dc_bias_interface(),
+            dc_source_interface(),
+            dc_monitor_interface(),
+        )
         return InstrumentDescription(
             instrument_id=self.instrument_id,
             implementation_id=self.implementation_id,
@@ -195,69 +283,94 @@ class MultiChannelVirtualDcSource:
                 "Independently routed DC source/monitor channels in one physical "
                 "instrument."
             ),
-            interfaces=[
-                dc_bias_interface(),
-                dc_source_interface(),
-                dc_monitor_interface(),
+            components=[
+                instrument_component(
+                    "channels",
+                    components=[
+                        instrument_component(channel_id)
+                        for channel_id in FLUX_CHANNEL_COMPONENT_IDS
+                    ],
+                )
+            ],
+            interfaces=list(interfaces),
+            interface_mounts=[
+                interface_mount(interface_spec.id, "channels", channel_id)
+                for interface_spec in interfaces
+                for channel_id in FLUX_CHANNEL_COMPONENT_IDS
             ],
         )
 
     def read_state(self) -> DriverState:
-        if not self._drivers:
-            baseline = self._unrouted.read_state()
-            return DriverState(
-                values={
-                    **baseline.values,
-                    DC_BIAS_TARGET_VOLTAGE: sc.Quantity(0.0, "V"),
-                    DC_BIAS_RAMP_DURATION: sc.Quantity(0.0, "s"),
-                    DC_BIAS_SETTLE_TOLERANCE: sc.Quantity(0.0001, "V"),
-                    DC_BIAS_ACTUAL_VOLTAGE: sc.Quantity(0.0, "V"),
-                    DC_BIAS_SETTLED: True,
-                },
-                metadata=baseline.metadata,
-            )
         entries: list[DriverStateEntry] = []
-        for channel_id, binding in self._bindings.items():
-            source = self._world.dc_source(f"{self.instrument_id}:{channel_id}")
+        baseline = self._unrouted.read_state()
+        for component_id in FLUX_CHANNEL_COMPONENT_IDS:
+            component_path = ("channels", component_id)
+            driver = self._drivers.get(component_id)
+            route_id = self._route_ids.get(component_id)
+            bindings = tuple(self._bindings.get(component_id, {}).values())
+            source = (
+                self._world.dc_source(f"{self.instrument_id}:{route_id}")
+                if route_id is not None
+                else None
+            )
             channel_entries = (
-                *self._drivers[channel_id].read_state().entries,
+                *(
+                    driver.read_state().entries
+                    if driver is not None
+                    else baseline.entries
+                ),
                 DriverStateEntry(
                     target=DC_BIAS_TARGET_VOLTAGE,
-                    value=sc.Quantity(source.voltage_level_v, "V"),
+                    value=sc.Quantity(
+                        source.voltage_level_v if source is not None else 0.0,
+                        "V",
+                    ),
                 ),
                 DriverStateEntry(
                     target=DC_BIAS_RAMP_DURATION,
-                    value=sc.Quantity(self._ramp_duration_s.get(channel_id, 0.0), "s"),
+                    value=sc.Quantity(
+                        self._ramp_duration_s.get(component_id, 0.0),
+                        "s",
+                    ),
                 ),
                 DriverStateEntry(
                     target=DC_BIAS_SETTLE_TOLERANCE,
                     value=sc.Quantity(
-                        self._settle_tolerance_v.get(channel_id, 0.0001),
+                        self._settle_tolerance_v.get(component_id, 0.0001),
                         "V",
                     ),
                 ),
                 DriverStateEntry(
                     target=DC_BIAS_ACTUAL_VOLTAGE,
-                    value=sc.Quantity(source.voltage_level_v, "V"),
+                    value=sc.Quantity(
+                        source.voltage_level_v if source is not None else 0.0,
+                        "V",
+                    ),
                 ),
                 DriverStateEntry(target=DC_BIAS_SETTLED, value=True),
             )
             for entry in channel_entries:
                 entries.append(
                     DriverStateEntry(
-                        target=entry.target,
+                        target=_mount_property(entry.target, component_path),
                         value=entry.value,
-                        entity_ids=(binding.entity_id,),
-                        channel_bindings=(
+                        entity_ids=tuple(
+                            dict.fromkeys(binding.entity_id for binding in bindings)
+                        ),
+                        channel_bindings=tuple(
                             binding.model_copy(
                                 update={"interface_id": entry.target.interface_id}
-                            ),
+                            )
+                            for binding in bindings
                         ),
                     )
                 )
         return DriverState(
             scoped_values=tuple(entries),
-            metadata={"mode": "virtual", "channel_count": len(self._drivers)},
+            metadata={
+                **baseline.metadata,
+                "channel_count": len(FLUX_CHANNEL_COMPONENT_IDS),
+            },
         )
 
     def apply_state(
@@ -266,15 +379,15 @@ class MultiChannelVirtualDcSource:
     ) -> DriverOutcome[DriverState | None]:
         grouped: dict[str, list[DriverStateEntry]] = {}
         for entry in request.entries:
-            channel_id = self._channel_id(
-                entry.target.interface_id,
+            component_id = self._component_id(
+                entry.target,
                 entry.channel_bindings,
             )
-            grouped.setdefault(channel_id, []).append(
-                DriverStateEntry(target=entry.target, value=entry.value)
+            grouped.setdefault(component_id, []).append(
+                DriverStateEntry(target=_root_property(entry.target), value=entry.value)
             )
-        channel_results: dict[str, JsonValue] = {}
-        for channel_id, entries in grouped.items():
+        component_results: dict[str, JsonValue] = {}
+        for component_id, entries in grouped.items():
             bias_values = {
                 entry.target: entry.value
                 for entry in entries
@@ -285,18 +398,19 @@ class MultiChannelVirtualDcSource:
                 tolerance = bias_values.get(DC_BIAS_SETTLE_TOLERANCE)
                 target = bias_values.get(DC_BIAS_TARGET_VOLTAGE)
                 if isinstance(duration, sc.Quantity):
-                    self._ramp_duration_s[channel_id] = duration.to("s").value
+                    self._ramp_duration_s[component_id] = duration.to("s").value
                 if isinstance(tolerance, sc.Quantity):
-                    self._settle_tolerance_v[channel_id] = tolerance.to("V").value
+                    self._settle_tolerance_v[component_id] = tolerance.to("V").value
                 if isinstance(target, sc.Quantity):
-                    outcome = self._drivers[channel_id].handle_source_voltage(
+                    outcome = self._drivers[component_id].handle_source_voltage(
                         range=sc.Quantity(1.0, "V"),
                         level=target,
                     )
                     if not isinstance(outcome, DriverSuccess):
                         return outcome
-                source = self._world.dc_source(f"{self.instrument_id}:{channel_id}")
-                channel_results[channel_id] = {
+                route_id = self._route_ids[component_id]
+                source = self._world.dc_source(f"{self.instrument_id}:{route_id}")
+                component_results[f"channels/{component_id}"] = {
                     "status": "settled",
                     "actual_voltage_v": source.voltage_level_v,
                 }
@@ -307,7 +421,7 @@ class MultiChannelVirtualDcSource:
             )
             if not source_entries:
                 continue
-            outcome = self._drivers[channel_id].apply_state(
+            outcome = self._drivers[component_id].apply_state(
                 DriverStatePatch(
                     values={entry.target: entry.value for entry in source_entries}
                 )
@@ -319,7 +433,9 @@ class MultiChannelVirtualDcSource:
             DriverSuccess(
                 self.read_state(),
                 metadata=(
-                    {"channel_results": channel_results} if channel_results else {}
+                    {"component_results": component_results}
+                    if component_results
+                    else {}
                 ),
             ),
         )
@@ -328,44 +444,69 @@ class MultiChannelVirtualDcSource:
         self,
         request: DriverOperation,
     ) -> DriverOutcome[DriverState | None]:
-        channel_id = self._channel_id(
-            request.target.interface_id,
+        component_id = self._component_id(
+            request.target,
             request.channel_bindings,
         )
-        outcome = self._drivers[channel_id].invoke(
-            DriverOperation(target=request.target, arguments=request.arguments)
+        outcome = self._drivers[component_id].invoke(
+            DriverOperation(
+                target=_root_operation(request.target),
+                arguments=request.arguments,
+            )
         )
         if isinstance(outcome, DriverSuccess):
             return DriverSuccess(self.read_state(), metadata=outcome.metadata)
         return outcome
 
     def collect(self, request: DriverAcquisition) -> DriverOutcome[DriverReadback]:
-        channel_id = self._channel_id(
-            request.target.interface_id,
+        component_id = self._component_id(
+            request.target,
             request.channel_bindings,
         )
-        if request.target == DC_BIAS_READBACK:
-            source = self._world.dc_source(f"{self.instrument_id}:{channel_id}")
+        if (
+            request.target.interface_id == DC_BIAS_READBACK.interface_id
+            and request.target.acquisition_id == DC_BIAS_READBACK.acquisition_id
+        ):
+            route_id = self._route_ids[component_id]
+            source = self._world.dc_source(f"{self.instrument_id}:{route_id}")
             values: dict[AcquisitionResultRef, MeasurementValue] = {}
-            if DC_BIAS_ACTUAL_VOLTAGE_RESULT in request.results:
-                values[DC_BIAS_ACTUAL_VOLTAGE_RESULT] = MeasurementScalar.create(
-                    dtype="float64",
-                    unit="V",
-                    value=source.voltage_level_v,
-                )
-            if DC_BIAS_SETTLED_RESULT in request.results:
-                values[DC_BIAS_SETTLED_RESULT] = MeasurementScalar.create(
-                    dtype="bool",
-                    value=True,
-                )
+            for result in request.results:
+                if result.result_id == DC_BIAS_ACTUAL_VOLTAGE_RESULT.result_id:
+                    values[result] = MeasurementScalar.create(
+                        dtype="float64",
+                        unit="V",
+                        value=source.voltage_level_v,
+                    )
+                if result.result_id == DC_BIAS_SETTLED_RESULT.result_id:
+                    values[result] = MeasurementScalar.create(
+                        dtype="bool",
+                        value=True,
+                    )
             return DriverSuccess(
                 DriverReadback(
                     values=values,
-                    metadata={"channel_id": channel_id},
+                    metadata={"component_path": ["channels", component_id]},
                 )
             )
-        return self._drivers[channel_id].collect(
-            DriverAcquisition(target=request.target, results=request.results)
+        root_results = frozenset(_root_result(result) for result in request.results)
+        outcome = self._drivers[component_id].collect(
+            DriverAcquisition(
+                target=_root_acquisition(request.target),
+                results=root_results,
+            )
+        )
+        if not isinstance(outcome, DriverSuccess):
+            return outcome
+        requested_results = {result.result_id: result for result in request.results}
+        return DriverSuccess(
+            DriverReadback(
+                values={
+                    requested_results[result.result_id]: value
+                    for result, value in outcome.value.values.items()
+                },
+                metadata=outcome.value.metadata,
+            ),
+            metadata=outcome.metadata,
         )
 
     def disconnect(self) -> None:
@@ -383,31 +524,72 @@ class MultiChannelVirtualDcSource:
                 )
             driver.abort()
 
-    def _channel_id(
+    def _component_id(
         self,
-        interface_id: str,
+        target: PropertyRef | OperationRef | AcquisitionRef,
         bindings: tuple[CommandChannelBinding, ...],
     ) -> str:
-        matches = tuple(
-            binding.channel_id
-            for binding in bindings
-            if binding.interface_id in {None, interface_id}
-        )
-        if len(matches) == 1:
-            binding = next(
-                binding
-                for binding in bindings
-                if binding.channel_id == matches[0]
-                and binding.interface_id in {None, interface_id}
+        component_path = target.component_path
+        if (
+            len(component_path) != 2
+            or component_path[0] != "channels"
+            or component_path[1] not in FLUX_CHANNEL_COMPONENT_IDS
+        ):
+            raise ValueError(
+                f"{self.instrument_id} requires a concrete channels/<id> target"
             )
-            self._bindings.setdefault(binding.channel_id, binding)
-            if binding.channel_id not in self._drivers:
-                self._drivers[binding.channel_id] = VirtualDcSource(
-                    f"{self.instrument_id}:{binding.channel_id}",
-                    self._world,
-                )
-            return binding.channel_id
-        raise ValueError(f"{self.instrument_id} requires exactly one routed DC channel")
+        component_id = component_path[1]
+        relevant_bindings = tuple(
+            binding
+            for binding in bindings
+            if binding.interface_id in {None, target.interface_id}
+        )
+        known_bindings = self._bindings.setdefault(component_id, {})
+        for binding in relevant_bindings:
+            known_bindings.setdefault(
+                (binding.entity_id, binding.channel_id, binding.interface_id),
+                binding,
+            )
+        if component_id not in self._route_ids:
+            route_id = (
+                relevant_bindings[0].channel_id
+                if relevant_bindings
+                else f"component.{component_id}"
+            )
+            self._route_ids[component_id] = route_id
+            self._drivers[component_id] = VirtualDcSource(
+                f"{self.instrument_id}:{route_id}",
+                self._world,
+            )
+        return component_id
+
+
+def _root_property(target: PropertyRef) -> PropertyRef:
+    return PropertyRef(target.interface_id, (), target.property_id)
+
+
+def _mount_property(
+    target: PropertyRef,
+    component_path: tuple[str, ...],
+) -> PropertyRef:
+    return PropertyRef(target.interface_id, component_path, target.property_id)
+
+
+def _root_operation(target: OperationRef) -> OperationRef:
+    return OperationRef(target.interface_id, (), target.operation_id)
+
+
+def _root_acquisition(target: AcquisitionRef) -> AcquisitionRef:
+    return AcquisitionRef(target.interface_id, (), target.acquisition_id)
+
+
+def _root_result(target: AcquisitionResultRef) -> AcquisitionResultRef:
+    return AcquisitionResultRef(
+        target.interface_id,
+        (),
+        target.acquisition_id,
+        target.result_id,
+    )
 
 
 __all__ = ["FLUX_SOURCE_ID", "FLUX_SOURCE_IDS", "ReferenceLabProvider"]

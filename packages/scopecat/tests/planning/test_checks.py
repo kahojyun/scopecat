@@ -25,7 +25,9 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.sdk.domain.batch import (
+    DomainBatchPartition,
     DomainBatchRequest,
+    DomainCompileRequest,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from tests.testkit.authoring import simple_experiment
@@ -100,9 +102,8 @@ class _RejectingDomainCompiler:
     def target_kind(self) -> str:
         return "tests.domain"
 
-    @property
-    def max_points_per_batch(self) -> int:
-        return 100
+    def partition(self, request: DomainCompileRequest) -> DomainBatchPartition:
+        return DomainBatchPartition((len(request.points),))
 
     def compile_batch(
         self,
@@ -181,7 +182,6 @@ def test_check_and_preview_surface_domain_compilation_errors(
                 update={
                     "domain_target": DomainTargetBinding(
                         id=compiler.target_id,
-                        exclusivity_key=compiler.target_id,
                         kind=compiler.target_kind,
                     )
                 }

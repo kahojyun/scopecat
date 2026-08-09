@@ -97,7 +97,7 @@ class PropertySpec(BaseModel):
 
 
 class StatePropertyRef(BaseModel):
-    """One observable persistent property used by an acquisition contract."""
+    """One persistent property referenced by an instrument contract."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -194,12 +194,21 @@ class OperationSpec(BaseModel):
     label: str | None = None
     description: str | None = None
     arguments: list[OperationArgumentSpec] = Field(default_factory=list)
+    invalidates: list[StatePropertyRef] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_unique_arguments(self) -> OperationSpec:
+    def validate_unique_members(self) -> OperationSpec:
         _require_unique(
             (argument.id for argument in self.arguments),
             "operation argument ids",
+        )
+        _require_unique(
+            (
+                f"{reference.interface_id}:"
+                f"{'/'.join(reference.component_path)}:{reference.property_id}"
+                for reference in self.invalidates
+            ),
+            "operation invalidation references",
         )
         return self
 
@@ -227,6 +236,7 @@ class AcquisitionReadinessIssue:
     kind: Literal["state_unknown", "precondition_not_met"]
     reason: str
     precondition: AcquisitionPreconditionSpec
+    resolved_property: StatePropertyRef | None = None
     observed_value: StateValue | None = None
 
 
@@ -274,6 +284,34 @@ class InterfaceSpec(BaseModel):
         return self
 
 
+class InterfaceMountSpec(BaseModel):
+    """One physical path where an instrument implements an interface contract."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    interface_id: InterfaceId
+    component_path: list[_NonEmptyId] = Field(min_length=1)
+
+
+class InstrumentComponentSpec(BaseModel):
+    """One stable physical component in an instrument-owned topology."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: _NonEmptyId
+    label: str | None = None
+    description: str | None = None
+    components: list[InstrumentComponentSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_components(self) -> InstrumentComponentSpec:
+        _require_unique(
+            (component.id for component in self.components),
+            "instrument component ids",
+        )
+        return self
+
+
 class InstrumentDescription(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -282,7 +320,9 @@ class InstrumentDescription(BaseModel):
     implementation_version: str
     label: str | None = None
     description: str | None = None
+    components: list[InstrumentComponentSpec] = Field(default_factory=list)
     interfaces: list[InterfaceSpec] = Field(default_factory=list)
+    interface_mounts: list[InterfaceMountSpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_unique_interfaces(self) -> InstrumentDescription:
@@ -294,7 +334,45 @@ class InstrumentDescription(BaseModel):
             (interface.id for interface in self.interfaces),
             "instrument interface ids",
         )
-        _validate_acquisition_state_references(self)
+        _require_unique(
+            (component.id for component in self.components),
+            "instrument component ids",
+        )
+        known_interface_ids = {interface.id for interface in self.interfaces}
+        _require_unique(
+            (
+                f"{mount.interface_id}:{'/'.join(mount.component_path)}"
+                for mount in self.interface_mounts
+            ),
+            "instrument interface mounts",
+        )
+        unknown_mounts = sorted(
+            {
+                mount.interface_id
+                for mount in self.interface_mounts
+                if mount.interface_id not in known_interface_ids
+            }
+        )
+        if unknown_mounts:
+            raise ValueError(
+                "instrument interface mounts reference unknown interfaces: "
+                f"{', '.join(unknown_mounts)}"
+            )
+        for mount in self.interface_mounts:
+            if _resolve_instrument_component(self, mount.component_path) is None:
+                raise ValueError(
+                    f"interface {mount.interface_id!r} mount references unknown "
+                    f"instrument component {'/'.join(mount.component_path)!r}"
+                )
+        for interface_id, mounts in _interface_mounts_by_id(self).items():
+            for index, left in enumerate(mounts):
+                for right in mounts[index + 1 :]:
+                    if _path_prefix(left, right) or _path_prefix(right, left):
+                        raise ValueError(
+                            f"interface {interface_id!r} mounts must not overlap: "
+                            f"{'/'.join(left)!r} and {'/'.join(right)!r}"
+                        )
+        _validate_contract_state_references(self)
         return self
 
 
@@ -336,6 +414,33 @@ def component(
         properties=list(properties),
         operations=list(operations),
         acquisitions=list(acquisitions),
+        components=list(components),
+    )
+
+
+def interface_mount(
+    interface_id: InterfaceId,
+    *component_path: str,
+) -> InterfaceMountSpec:
+    return InterfaceMountSpec(
+        interface_id=interface_id,
+        component_path=list(component_path),
+    )
+
+
+def instrument_component(
+    id: str,
+    *,
+    label: str | None = None,
+    description: str | None = None,
+    components: (
+        list[InstrumentComponentSpec] | tuple[InstrumentComponentSpec, ...]
+    ) = (),
+) -> InstrumentComponentSpec:
+    return InstrumentComponentSpec(
+        id=id,
+        label=label,
+        description=description,
         components=list(components),
     )
 
@@ -427,6 +532,8 @@ def resolve_acquisition_dimensions(
     description: InstrumentDescription,
     result: AcquisitionResultSpec,
     state: _InstrumentStateSnapshot | None,
+    interface_id: InterfaceId | None = None,
+    component_path: Sequence[str] = (),
 ) -> tuple[_commands.CollectAxisRequest, ...] | None:
     """Resolve every contract-owned axis size from one synchronized snapshot."""
 
@@ -434,6 +541,8 @@ def resolve_acquisition_dimensions(
         description=description,
         result=result,
         state=state,
+        interface_id=interface_id,
+        component_path=component_path,
     )
 
 
@@ -442,6 +551,8 @@ def _resolve_acquisition_dimensions(
     description: InstrumentDescription,
     result: AcquisitionResultSpec,
     state: _InstrumentStateSnapshot | _ProjectedInstrumentState | None,
+    interface_id: InterfaceId | None = None,
+    component_path: Sequence[str] = (),
 ) -> tuple[_commands.CollectAxisRequest, ...] | None:
     axes = result.axes
     if not axes:
@@ -454,7 +565,14 @@ def _resolve_acquisition_dimensions(
     dimensions: list[_commands.CollectAxisRequest] = []
     for axis in axes:
         if isinstance(axis.size, StatePropertyRef):
-            reference = axis.size
+            reference = _physical_state_reference(
+                description,
+                axis.size,
+                context_interface_id=interface_id,
+                context_component_path=component_path,
+            )
+            if reference is None:
+                return None
             assert state is not None
             value = _state_value_for_reference(state, reference)
             if (
@@ -483,6 +601,8 @@ def evaluate_acquisition_readiness(
     description: InstrumentDescription,
     acquisition: AcquisitionSpec,
     state: _InstrumentStateSnapshot | None,
+    interface_id: InterfaceId | None = None,
+    component_path: Sequence[str] = (),
 ) -> AcquisitionReadiness:
     """Evaluate public acquisition state without touching hardware."""
 
@@ -490,6 +610,8 @@ def evaluate_acquisition_readiness(
         description=description,
         acquisition=acquisition,
         state=state,
+        interface_id=interface_id,
+        component_path=component_path,
     )
 
 
@@ -498,11 +620,15 @@ def _evaluate_acquisition_readiness(
     description: InstrumentDescription,
     acquisition: AcquisitionSpec,
     state: _InstrumentStateSnapshot | _ProjectedInstrumentState | None,
+    interface_id: InterfaceId | None = None,
+    component_path: Sequence[str] = (),
 ) -> AcquisitionReadiness:
     issues = _acquisition_precondition_issues(
         description=description,
         preconditions=acquisition.preconditions,
         state=state,
+        interface_id=interface_id,
+        component_path=component_path,
     )
 
     status: Literal["ready", "blocked", "unknown"]
@@ -523,29 +649,52 @@ def _acquisition_precondition_issues(
     description: InstrumentDescription,
     preconditions: Sequence[AcquisitionPreconditionSpec],
     state: _InstrumentStateSnapshot | _ProjectedInstrumentState | None,
+    interface_id: InterfaceId | None,
+    component_path: Sequence[str],
 ) -> list[AcquisitionReadinessIssue]:
     if not preconditions:
         return []
+    resolved_references = [
+        _physical_state_reference(
+            description,
+            precondition.property,
+            context_interface_id=interface_id,
+            context_component_path=component_path,
+        )
+        for precondition in preconditions
+    ]
     if not _acquisition_state_is_usable(state, description):
         return [
             AcquisitionReadinessIssue(
                 kind="state_unknown",
                 reason=precondition.unavailable_reason,
                 precondition=precondition,
+                resolved_property=reference,
             )
-            for precondition in preconditions
+            for precondition, reference in zip(
+                preconditions,
+                resolved_references,
+                strict=True,
+            )
         ]
 
     assert state is not None
     issues: list[AcquisitionReadinessIssue] = []
-    for precondition in preconditions:
-        observed = _state_value_for_reference(state, precondition.property)
+    for precondition, reference in zip(
+        preconditions,
+        resolved_references,
+        strict=True,
+    ):
+        observed = (
+            None if reference is None else _state_value_for_reference(state, reference)
+        )
         if observed is None:
             issues.append(
                 AcquisitionReadinessIssue(
                     kind="state_unknown",
                     reason=precondition.unavailable_reason,
                     precondition=precondition,
+                    resolved_property=reference,
                 )
             )
             continue
@@ -562,6 +711,7 @@ def _acquisition_precondition_issues(
                     kind="precondition_not_met",
                     reason=precondition.unavailable_reason,
                     precondition=precondition,
+                    resolved_property=reference,
                     observed_value=observed,
                 )
             )
@@ -614,8 +764,6 @@ def state_assignment_satisfied(
         assignment.interface_id,
         assignment.component_path,
         assignment.property_id,
-        assignment.entity_ids,
-        assignment.channel_bindings,
     )
     actual = next(
         (
@@ -625,34 +773,11 @@ def state_assignment_satisfied(
                 item.interface_id,
                 item.component_path,
                 item.property_id,
-                item.entity_ids,
-                item.channel_bindings,
             )
             == identity
         ),
         None,
     )
-    if actual is None and assignment.channel_bindings:
-        unscoped_identity = _property_target_identity(
-            assignment.interface_id,
-            assignment.component_path,
-            assignment.property_id,
-        )
-        actual = next(
-            (
-                item.value
-                for item in state.properties
-                if _property_target_identity(
-                    item.interface_id,
-                    item.component_path,
-                    item.property_id,
-                    item.entity_ids,
-                    item.channel_bindings,
-                )
-                == unscoped_identity
-            ),
-            None,
-        )
     return actual is not None and scalar_values_equal(
         actual.root,
         assignment.value.root,
@@ -691,12 +816,22 @@ def operation(
     label: str | None = None,
     description: str | None = None,
     arguments: (list[OperationArgumentSpec] | tuple[OperationArgumentSpec, ...]) = (),
+    invalidates: Sequence[PropertyRef] = (),
 ) -> OperationSpec:
+    """Declare an imperative operation and the state knowledge it withdraws.
+
+    Each entry in ``invalidates`` names a property whose prior observed or
+    requested value cannot be trusted after the operation. Invalidation does
+    not assert a replacement value; a later readback or write establishes new
+    evidence.
+    """
+
     return OperationSpec(
         id=id,
         label=label,
         description=description,
         arguments=list(arguments),
+        invalidates=[_state_property_ref(property) for property in invalidates],
     )
 
 
@@ -923,7 +1058,8 @@ def _validate_state_assignments(
                 )
             )
             continue
-        component_spec = _resolve_component(
+        component_spec = resolve_implementation_component(
+            description,
             interface_spec,
             assignment.component_path,
         )
@@ -1028,7 +1164,8 @@ def validate_state_snapshot(
                 )
             )
             continue
-        component_spec = _resolve_component(
+        component_spec = resolve_implementation_component(
+            description,
             interface_spec,
             property_state.component_path,
         )
@@ -1169,7 +1306,11 @@ def validate_invoke_command(
                 "interface_id",
             )
         ]
-    component_spec = _resolve_component(interface_spec, command.component_path)
+    component_spec = resolve_implementation_component(
+        description,
+        interface_spec,
+        command.component_path,
+    )
     if component_spec is None:
         return [
             _invoke_problem(
@@ -1273,7 +1414,11 @@ def resolve_interactive_collect(
                 ),
             )
         )
-    component_spec = _resolve_component(interface_spec, intent.component_path)
+    component_spec = resolve_implementation_component(
+        description,
+        interface_spec,
+        intent.component_path,
+    )
     if component_spec is None:
         return _commands.RejectedInteractiveCollect(
             problems=(
@@ -1324,6 +1469,8 @@ def resolve_interactive_collect(
         description=description,
         acquisition=acquisition_spec,
         state=state,
+        interface_id=intent.interface_id,
+        component_path=intent.component_path,
     )
     if readiness.status == "unknown":
         unknown_problems = [
@@ -1362,14 +1509,22 @@ def resolve_interactive_collect(
             description=description,
             result=result,
             state=state,
+            interface_id=intent.interface_id,
+            component_path=intent.component_path,
         )
         if dimensions is None:
             for axis_index, axis in enumerate(result.axes):
                 if not isinstance(axis.size, StatePropertyRef):
                     continue
+                reference = _physical_state_reference(
+                    description,
+                    axis.size,
+                    context_interface_id=intent.interface_id,
+                    context_component_path=intent.component_path,
+                )
                 observed = (
-                    _state_value_for_reference(state, axis.size)
-                    if state_is_usable
+                    _state_value_for_reference(state, reference)
+                    if state_is_usable and reference is not None
                     else None
                 )
                 observed_size = (
@@ -1387,6 +1542,7 @@ def resolve_interactive_collect(
                             result_id=result_id,
                             result_index=(result_index if intent.result_ids else None),
                             axis=axis,
+                            reference=reference or axis.size,
                             axis_index=axis_index,
                             observed_value=observed,
                         )
@@ -1453,7 +1609,8 @@ def validate_collect_command(
                 "interface_id",
             )
         ]
-    component_spec = _resolve_component(
+    component_spec = resolve_implementation_component(
+        description,
         interface_spec,
         request_target.component_path,
     )
@@ -1615,7 +1772,8 @@ def validate_collect_plan(
         for interface in description.interfaces
         if interface.id == request_target.interface_id
     )
-    component_spec = _resolve_component(
+    component_spec = resolve_implementation_component(
+        description,
         interface_spec,
         request_target.component_path,
     )
@@ -1629,6 +1787,8 @@ def validate_collect_plan(
         description=description,
         acquisition=acquisition_spec,
         state=baseline,
+        interface_id=request_target.interface_id,
+        component_path=request_target.component_path,
     )
     if readiness.status == "unknown":
         unknown_problems = [
@@ -1668,10 +1828,15 @@ def validate_collect_plan(
         ):
             if not isinstance(declared_axis.size, StatePropertyRef):
                 continue
-            reference = declared_axis.size
+            reference = _physical_state_reference(
+                description,
+                declared_axis.size,
+                context_interface_id=request.interface_id,
+                context_component_path=request.component_path,
+            )
             observed = (
                 _state_value_for_reference(baseline, reference)
-                if state_is_usable and baseline is not None
+                if state_is_usable and baseline is not None and reference is not None
                 else None
             )
             observed_size = (
@@ -1689,7 +1854,7 @@ def validate_collect_plan(
                         f"{command.instrument_id} acquisition result "
                         f"{request.result_id} axis {declared_axis.id} requires "
                         "synchronized size state",
-                        reference=reference,
+                        reference=reference or declared_axis.size,
                         request_id=request.id,
                         axis_index=axis_index,
                         requested_size=requested_axis.size,
@@ -1704,7 +1869,7 @@ def validate_collect_plan(
                         f"{request.result_id} axis {declared_axis.id} requires "
                         f"size {observed_size} from synchronized state, got "
                         f"{requested_axis.size}",
-                        reference=reference,
+                        reference=reference or declared_axis.size,
                         request_id=request.id,
                         axis_index=axis_index,
                         requested_size=requested_axis.size,
@@ -1787,8 +1952,6 @@ def project_instrument_state(
             item.interface_id,
             item.component_path,
             item.property_id,
-            item.entity_ids,
-            item.channel_bindings,
         ): item.model_copy(deep=True)
         for item in state.properties
     }
@@ -1796,7 +1959,11 @@ def project_instrument_state(
     for assignment in command.assignments:
         interface_spec = interfaces.get(assignment.interface_id)
         component_spec = (
-            _resolve_component(interface_spec, assignment.component_path)
+            resolve_implementation_component(
+                description,
+                interface_spec,
+                assignment.component_path,
+            )
             if interface_spec is not None
             else None
         )
@@ -1819,8 +1986,6 @@ def project_instrument_state(
                 assignment.interface_id,
                 assignment.component_path,
                 assignment.property_id,
-                assignment.entity_ids,
-                assignment.channel_bindings,
             )
         ] = _InstrumentPropertyState(
             interface_id=assignment.interface_id,
@@ -1830,6 +1995,67 @@ def project_instrument_state(
             entity_ids=list(assignment.entity_ids),
             channel_bindings=list(assignment.channel_bindings),
         )
+    return _ProjectedInstrumentState(
+        instrument_id=state.instrument_id,
+        properties=tuple(
+            properties[key] for key in sorted(properties, key=_property_target_sort_key)
+        ),
+    )
+
+
+def project_instrument_invoke_state(
+    state: _InstrumentStateSnapshot | _ProjectedInstrumentState,
+    command: _commands.InvokeCommand,
+    *,
+    description: InstrumentDescription,
+) -> _ProjectedInstrumentState:
+    """Project the state knowledge retained after one declared operation."""
+
+    interface_spec = next(
+        item for item in description.interfaces if item.id == command.interface_id
+    )
+    component_spec = resolve_implementation_component(
+        description,
+        interface_spec,
+        command.component_path,
+    )
+    assert component_spec is not None
+    operation_spec = next(
+        item for item in component_spec.operations if item.id == command.operation_id
+    )
+    resolved_invalidations = tuple(
+        resolve_implementation_state_reference(
+            description,
+            declared,
+            context_interface_id=command.interface_id,
+            context_component_path=command.component_path,
+        )
+        for declared in operation_spec.invalidates
+    )
+    assert all(reference is not None for reference in resolved_invalidations)
+    invalidated = {
+        _property_target_identity(
+            reference.interface_id,
+            reference.component_path,
+            reference.property_id,
+        )
+        for reference in resolved_invalidations
+        if reference is not None
+    }
+    properties = {
+        _property_target_identity(
+            item.interface_id,
+            item.component_path,
+            item.property_id,
+        ): item.model_copy(deep=True)
+        for item in state.properties
+        if _property_target_identity(
+            item.interface_id,
+            item.component_path,
+            item.property_id,
+        )
+        not in invalidated
+    }
     return _ProjectedInstrumentState(
         instrument_id=state.instrument_id,
         properties=tuple(
@@ -1861,8 +2087,14 @@ def _static_observable_state_scopes(
                 child,
             )
 
+    mounts_by_interface = _interface_mounts_by_id(description)
     for interface_spec in description.interfaces:
-        yield from walk(interface_spec.id, (), interface_spec)
+        mounts = mounts_by_interface.get(interface_spec.id)
+        if mounts is None:
+            yield from walk(interface_spec.id, (), interface_spec)
+            continue
+        for mount in mounts:
+            yield from walk(interface_spec.id, mount, interface_spec)
 
 
 def _validate_snapshot_scope(
@@ -2099,7 +2331,7 @@ def validate_instrument_description_collection(
         )
     declared: dict[str, str] = {}
     for instrument in instruments:
-        _validate_acquisition_state_references(instrument)
+        _validate_contract_state_references(instrument)
         for interface_spec in instrument.interfaces:
             fingerprint = model_wire_content_hash(interface_spec)
             previous = declared.setdefault(interface_spec.id, fingerprint)
@@ -2110,11 +2342,18 @@ def validate_instrument_description_collection(
                 )
 
 
-def _validate_acquisition_state_references(
+def _validate_contract_state_references(
     description: InstrumentDescription,
 ) -> None:
     for interface_spec in description.interfaces:
         for component_spec in _component_specs(interface_spec):
+            for operation_spec in component_spec.operations:
+                for reference in operation_spec.invalidates:
+                    if _resolve_state_property(description, reference) is None:
+                        raise ValueError(
+                            f"operation {operation_spec.id!r} invalidation must "
+                            "reference a declared property"
+                        )
             for acquisition_spec in component_spec.acquisitions:
                 for precondition in acquisition_spec.preconditions:
                     _validate_acquisition_precondition(
@@ -2290,6 +2529,130 @@ def _resolve_component(
     return selected
 
 
+def resolve_implementation_component(
+    description: InstrumentDescription,
+    interface_spec: InterfaceSpec,
+    component_path: Sequence[str],
+) -> InterfaceSpec | ComponentSpec | None:
+    """Resolve a physical target through declared mounts into its contract."""
+
+    resolved = _resolve_implementation_target(
+        description,
+        interface_spec,
+        component_path,
+    )
+    return None if resolved is None else resolved[0]
+
+
+def resolve_implementation_state_reference(
+    description: InstrumentDescription,
+    reference: StatePropertyRef,
+    *,
+    context_interface_id: InterfaceId,
+    context_component_path: Sequence[str],
+) -> StatePropertyRef | None:
+    """Mount one contract-relative state reference beside a physical target."""
+
+    context_interface = next(
+        (
+            interface_spec
+            for interface_spec in description.interfaces
+            if interface_spec.id == context_interface_id
+        ),
+        None,
+    )
+    if context_interface is None:
+        return None
+    context_target = _resolve_implementation_target(
+        description,
+        context_interface,
+        context_component_path,
+    )
+    if context_target is None:
+        return None
+    _component_spec, context_mount = context_target
+    reference_mounts = _interface_mounts_by_id(description).get(reference.interface_id)
+    if reference_mounts is None:
+        physical_path = tuple(reference.component_path)
+    elif context_mount in reference_mounts:
+        physical_path = (*context_mount, *reference.component_path)
+    else:
+        return None
+    return reference.model_copy(update={"component_path": list(physical_path)})
+
+
+def _physical_state_reference(
+    description: InstrumentDescription,
+    reference: StatePropertyRef,
+    *,
+    context_interface_id: InterfaceId | None,
+    context_component_path: Sequence[str],
+) -> StatePropertyRef | None:
+    if context_interface_id is None:
+        return reference
+    return resolve_implementation_state_reference(
+        description,
+        reference,
+        context_interface_id=context_interface_id,
+        context_component_path=context_component_path,
+    )
+
+
+def _resolve_implementation_target(
+    description: InstrumentDescription,
+    interface_spec: InterfaceSpec,
+    component_path: Sequence[str],
+) -> tuple[InterfaceSpec | ComponentSpec, tuple[str, ...]] | None:
+    mounts = _interface_mounts_by_id(description).get(interface_spec.id)
+    selected_path = tuple(component_path)
+    if mounts is None:
+        component_spec = _resolve_component(interface_spec, selected_path)
+        return None if component_spec is None else (component_spec, ())
+    for mount in sorted(mounts, key=len, reverse=True):
+        if not _path_prefix(mount, selected_path):
+            continue
+        component_spec = _resolve_component(
+            interface_spec,
+            selected_path[len(mount) :],
+        )
+        if component_spec is not None:
+            return component_spec, mount
+    return None
+
+
+def _resolve_instrument_component(
+    description: InstrumentDescription,
+    component_path: Sequence[str],
+) -> InstrumentDescription | InstrumentComponentSpec | None:
+    selected: InstrumentDescription | InstrumentComponentSpec = description
+    for component_id in component_path:
+        match = next(
+            (
+                component
+                for component in selected.components
+                if component.id == component_id
+            ),
+            None,
+        )
+        if match is None:
+            return None
+        selected = match
+    return selected
+
+
+def _path_prefix(prefix: Sequence[str], path: Sequence[str]) -> bool:
+    return tuple(path[: len(prefix)]) == tuple(prefix)
+
+
+def _interface_mounts_by_id(
+    description: InstrumentDescription,
+) -> dict[InterfaceId, tuple[tuple[str, ...], ...]]:
+    selected: dict[InterfaceId, list[tuple[str, ...]]] = {}
+    for mount in description.interface_mounts:
+        selected.setdefault(mount.interface_id, []).append(tuple(mount.component_path))
+    return {interface_id: tuple(paths) for interface_id, paths in selected.items()}
+
+
 def _problem(code: str, message: str, *path: LocationPathItem) -> Problem:
     return problem(
         code,
@@ -2341,7 +2704,9 @@ def _interactive_collect_precondition_problem(
     }
     if issue.observed_value is not None:
         details["observed_value"] = issue.observed_value.model_dump(mode="json")
-    target = precondition.property
+    target = issue.resolved_property or precondition.property
+    if issue.resolved_property is not None:
+        details["resolved_property"] = issue.resolved_property.model_dump(mode="json")
     return _interactive_collect_problem(
         code,
         message,
@@ -2363,11 +2728,10 @@ def _interactive_collect_axis_state_problem(
     result_id: str,
     result_index: int | None,
     axis: AcquisitionAxisSpec,
+    reference: StatePropertyRef,
     axis_index: int,
     observed_value: StateValue | None,
 ) -> Problem:
-    reference = axis.size
-    assert isinstance(reference, StatePropertyRef)
     details: dict[str, object] = {
         "result_id": result_id,
         "axis_id": axis.id,
@@ -2421,7 +2785,9 @@ def _collect_precondition_problem(
     }
     if issue.observed_value is not None:
         details["observed_value"] = issue.observed_value.model_dump(mode="json")
-    target = precondition.property
+    target = issue.resolved_property or precondition.property
+    if issue.resolved_property is not None:
+        details["resolved_property"] = issue.resolved_property.model_dump(mode="json")
     return problem(
         code,
         message,

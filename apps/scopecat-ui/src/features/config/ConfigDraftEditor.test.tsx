@@ -289,7 +289,7 @@ function snapshot(driveFrequency: number, readoutFrequency: number): ConfigProfi
         ],
       },
       instrument_registry: { instruments: [] },
-      routing: { bindings: [] },
+      routing: { roles: [], routes: [] },
       domain_target: null,
       parameter_catalog: {
         id: "calibration",

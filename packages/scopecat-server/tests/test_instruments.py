@@ -16,6 +16,7 @@ from scopecat.api._instruments import (
     InstrumentRef,
     InstrumentSessionHandle,
     instrument,
+    temporary_instrument,
 )
 from scopecat.api.lab import ExperimentStage, LabClient
 from scopecat.control.models import RunPlanSummary, RunResourceRequirement
@@ -771,6 +772,57 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
             ]
 
 
+def test_notebook_can_attach_a_session_only_instrument(tmp_path: Path) -> None:
+    provider = _TrackingProvider()
+    config = load_config()
+    [configured] = config.instrument_registry.instruments
+    catalog = DriverCatalog(
+        provider_id=provider.provider_id,
+        drivers=(
+            DriverSpec(
+                driver_id=configured.driver_id,
+                implementation_version="v1",
+                label="Temporary signal instrument",
+                connections=(
+                    DriverConnectionSpec(
+                        kind="virtual",
+                        options_schema={
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": True,
+                        },
+                    ),
+                ),
+            ),
+        ),
+    )
+    monitor = temporary_instrument(
+        _raw_instrument("monitor-scope"),
+        driver_id=configured.driver_id,
+        connection=VirtualInstrumentConnection(
+            options={"purpose": "inspect-awg-output"}
+        ),
+    )
+
+    with (
+        _runtime(tmp_path, provider, config=config, driver_catalog=catalog) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        lab = LabClient(_daemon_client(transport), operator="debugger")
+
+        with lab.instruments.open(monitor) as session:
+            assert session[monitor] is session
+            assert session._describe().instrument_id == "monitor-scope"
+            assert session._observed_state().instrument_id == "monitor-scope"
+            assert {item.instrument_id for item in lab.instruments.list().items} == {
+                "source-0"
+            }
+
+    [driver] = provider.drivers
+    assert driver.instrument_id == "monitor-scope"
+    assert driver.disconnect_count == 1
+
+
 def test_staged_run_is_rediscovered_and_resumed_by_a_new_daemon_client(
     tmp_path: Path,
 ) -> None:
@@ -1507,9 +1559,9 @@ def test_exclusivity_key_survives_logical_instrument_rename(tmp_path: Path) -> N
             )
             routing = original_config.routing.model_copy(
                 update={
-                    "bindings": [
-                        binding.model_copy(update={"instrument_id": renamed_id})
-                        for binding in original_config.routing.bindings
+                    "routes": [
+                        route.model_copy(update={"instrument_id": renamed_id})
+                        for route in original_config.routing.routes
                     ]
                 }
             )

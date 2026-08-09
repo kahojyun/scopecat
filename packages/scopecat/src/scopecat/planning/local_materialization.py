@@ -385,6 +385,7 @@ def prepare_local_target(
             requirement.port_id: physical_resources.bind_port(
                 port_id=requirement.port_id,
                 interfaces=requirement.interfaces,
+                role=requirement.role,
             )
             for requirement in bound.bindings.resource_requirements
             if requirement.port_id in active_resource_ports

@@ -37,9 +37,8 @@
     },
     "domain_target": {
       "id": "tests.domain.target",
-      "exclusivity_key": "tests.domain.target",
       "kind": "tests.domain",
-      "members": []
+      "instrument_ids": []
     },
     "parameter_catalog": {
       "id": "example-parameter-definitions-catalog",
@@ -60,18 +59,24 @@
       ]
     },
     "routing": {
-      "bindings": [
+      "roles": [],
+      "routes": [
         {
+          "id": "source-0",
           "instrument_id": "source-0",
-          "interface_id": "test.set_frequency/v1",
-          "entity_id": "q0",
-          "channel_id": "drive-q0"
-        },
-        {
-          "instrument_id": "source-0",
-          "interface_id": "test.scalar_signal/v1",
-          "entity_id": "q0",
-          "channel_id": "readout-q0"
+          "entity_ids": ["q0"],
+          "endpoints": [
+            {
+              "interface_id": "test.set_frequency/v1",
+              "entity_id": "q0",
+              "channel_id": "drive-q0"
+            },
+            {
+              "interface_id": "test.scalar_signal/v1",
+              "entity_id": "q0",
+              "channel_id": "readout-q0"
+            }
+          ]
         }
       ]
     }

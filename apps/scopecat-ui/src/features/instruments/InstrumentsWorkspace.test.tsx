@@ -1118,7 +1118,7 @@ describe("instrument workspace", () => {
       target: { value: "8" },
     });
     fireEvent.change(within(dialog).getByRole("combobox", { name: "After successful run" }), {
-      target: { value: "restore_prepared_state" },
+      target: { value: "restore_baseline" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish default" }));
 
@@ -1136,7 +1136,7 @@ describe("instrument workspace", () => {
               timeout_seconds: 8,
               options: { channel: 1, vendor_extension: { calibration: "external" } },
             },
-            success_action: "restore_prepared_state",
+            success_action: "restore_baseline",
             failure_action: "abort_then_safe_state",
             safe_state: [
               {
@@ -1651,7 +1651,7 @@ function activeConfig(): Awaited<ReturnType<typeof getActiveConfig>> {
         primary_entity_id: "q0",
         topology: { entities: [] },
         instrument_registry: { instruments: [configuredInstrument()] },
-        routing: { bindings: [] },
+        routing: { roles: [], routes: [] },
         domain_target: null,
         parameter_catalog: { id: "parameters", definitions: [] },
       },

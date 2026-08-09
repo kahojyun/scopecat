@@ -13,7 +13,6 @@ from scopecat.compiler.frontend.resolution import (
     compile_invocation,
 )
 from scopecat.execution.interpreter import execute_admitted_run
-from scopecat.execution.ports.instruments import RunHardwareFinalizationReceipt
 from scopecat.kernel.errors import CheckFailed, RunCancelled, RunIndeterminate
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.run_outcome import RunOutcome
@@ -26,6 +25,7 @@ from scopecat.records.config import (
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.runs.service import load_run_request
+from scopecat.sdk.instruments.execution import RunHardwareFinalizationReceipt
 from scopecat.sdk.instruments.provider import InstrumentProviderContext
 from tests.testkit.authoring import simple_experiment
 from tests.testkit.execution import execute_invocation_run

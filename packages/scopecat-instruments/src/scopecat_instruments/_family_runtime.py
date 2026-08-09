@@ -15,6 +15,7 @@ from scopecat.authoring import (
     ExperimentContext,
     ModuleContext,
     OneEntity,
+    ResourceRoleInput,
 )
 from scopecat.sdk.instruments import InterfaceRef
 
@@ -29,7 +30,9 @@ class _SymbolicClientFactory[ClientT](Protocol):
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
     ) -> ClientT: ...
 
 
@@ -39,14 +42,22 @@ class _SymbolicGroupFactory[GroupT](Protocol):
         recorder: _SymbolicInstrumentRecorder,
         resource_id: str,
         *,
+        namespace_hint: str,
         for_: EachEntity,
+        role: ResourceRoleInput = None,
     ) -> GroupT: ...
 
 
 class InstrumentFamily[LiveT, SymbolicT, GroupT]:
     """One typed factory shape shared by live, scalar, and grouped clients."""
 
-    __slots__ = ("_group_factory", "_live_factory", "_requires", "_symbolic_factory")
+    __slots__ = (
+        "_group_factory",
+        "_live_factory",
+        "_name",
+        "_requires",
+        "_symbolic_factory",
+    )
 
     def __init__(
         self,
@@ -54,11 +65,13 @@ class InstrumentFamily[LiveT, SymbolicT, GroupT]:
         symbolic_factory: _SymbolicClientFactory[SymbolicT],
         group_factory: _SymbolicGroupFactory[GroupT],
         *,
+        name: str,
         requires: tuple[InterfaceRef, ...],
     ) -> None:
         self._live_factory = live_factory
         self._symbolic_factory = symbolic_factory
         self._group_factory = group_factory
+        self._name = name
         self._requires = requires
 
     @overload
@@ -68,44 +81,55 @@ class InstrumentFamily[LiveT, SymbolicT, GroupT]:
     def __call__(
         self,
         context_or_id: ExperimentContext | ModuleContext,
-        id: str,
         /,
         *,
         for_: EachEntity,
+        role: ResourceRoleInput = None,
     ) -> GroupT: ...
 
     @overload
     def __call__(
         self,
         context_or_id: ExperimentContext | ModuleContext,
-        id: str,
         /,
         *,
         for_: OneEntity | None = None,
+        role: ResourceRoleInput = None,
     ) -> SymbolicT: ...
 
     def __call__(
         self,
         context_or_id: str | ExperimentContext | ModuleContext,
-        id: str | None = None,
         /,
         *,
         for_: EntitySelection | None = None,
+        role: ResourceRoleInput = None,
     ) -> InstrumentRef[LiveT] | SymbolicT | GroupT:
         if isinstance(context_or_id, str):
-            if id is not None or for_ is not None:
+            if for_ is not None or role is not None:
                 raise TypeError("live instrument clients only accept an instrument id")
             return instrument(
                 context_or_id,
                 self._live_factory,
                 requires=self._requires,
             )
-        if id is None:
-            raise TypeError("symbolic instrument clients require a logical resource id")
         recorder = cast("_SymbolicInstrumentRecorder", context_or_id)
+        resource_id = recorder._allocate_resource_id(self._name)
         if isinstance(for_, EachEntity):
-            return self._group_factory(recorder, id, for_=for_)
-        return self._symbolic_factory(recorder, id, for_=for_)
+            return self._group_factory(
+                recorder,
+                resource_id,
+                namespace_hint=self._name,
+                for_=for_,
+                role=role,
+            )
+        return self._symbolic_factory(
+            recorder,
+            resource_id,
+            namespace_hint=self._name,
+            for_=for_,
+            role=role,
+        )
 
 
 __all__ = ["InstrumentFamily"]

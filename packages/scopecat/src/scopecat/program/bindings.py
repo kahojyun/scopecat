@@ -8,7 +8,9 @@ from dataclasses import dataclass, replace
 from scopecat.kernel.interface_identity import InterfaceId, require_interface_id
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.resource_identity import (
+    DEFAULT_RESOURCE_ROLE,
     LogicalResourcePortId,
+    ResourceRoleSelector,
     logical_resource_port_id,
 )
 from scopecat.kernel.value_types import Payload, Scalar
@@ -24,6 +26,7 @@ type InvocationArgumentValue = StateBinding | None
 class ResourceSelector:
     interfaces: tuple[InterfaceId, ...] = ()
     entity_inputs: tuple[EntitySource, ...] = ()
+    role: ResourceRoleSelector = DEFAULT_RESOURCE_ROLE
 
 
 @dataclass(frozen=True)
@@ -84,10 +87,12 @@ class InvocationIntent:
 def requires(
     *interfaces: InterfaceId,
     for_entities: Sequence[EntitySource] = (),
+    role: ResourceRoleSelector = DEFAULT_RESOURCE_ROLE,
 ) -> ResourceSelector:
     return ResourceSelector(
         interfaces=tuple(require_interface_id(item) for item in interfaces),
         entity_inputs=tuple(for_entities),
+        role=role,
     )
 
 

@@ -10,131 +10,32 @@ The configured connection kinds are:
 - `virtual`, for a deterministic simulated device selected by `driver_id`;
 - `tcpip_socket`, for a configured host, port, and timeout.
 
-## Notebook use
+## Using the package
 
-Use the project connection's `lab.instruments` API. An experiment run is not
-required for direct instrument work:
+The [instrument-control guide](../../docs/instrument-control.md) is the canonical
+user guide for live sessions, symbolic experiments, temporary devices, routing,
+roles, shared physical state, and multi-entity clients. The
+[reference-lab gallery](../../examples/reference_lab/README.md) contains runnable
+examples against coupled virtual devices and bare AWG/scope workflows.
 
-```python
-import scopecat as sc
-from scopecat_instruments import network_sweep
+Generated clients preserve concrete Python names and value types across both
+time models. Live `apply`, operations, and acquisitions act within a
+daemon-owned session; symbolic `ensure`, operations, and acquisitions record
+ordered experiment effects. Runs and interactive sessions compete for the same
+instrument claims.
 
-READOUT_VNA = network_sweep("readout-vna")
-
-with sc.open_project(".").connect(operator="alice") as lab:
-    for item in lab.instruments.list().items:
-        print(item.instrument_id, item.availability)
-
-    with lab.instruments.open(READOUT_VNA) as devices:
-        vna = devices[READOUT_VNA]
-        print(vna.describe())
-        print(vna.observed_state())
-        vna.apply(
-            start_frequency=sc.Quantity(5.9, "GHz"),
-            stop_frequency=sc.Quantity(6.1, "GHz"),
-            points=401,
-        )
-        trace = vna.sweep()
-```
-
-Typed physical references retain project-owned instrument identity and bind a
-statically known client inside the daemon-owned session. Generated keyword
-signatures keep property names, concrete Python value types, and explicit field
-presence correlated; reusable generated patches remain available when a state
-transition should be composed or passed around. Acquisition clients return
-complete named readback fields on success. A rejected collection raises
-`InstrumentCollectFailure` with the original receipt and whether non-execution
-is known or the outcome is indeterminate; the lower-level channel still returns
-the receipt directly. `MeasurementUnavailable` remains a valid field value when
-the acquisition succeeded but a measurement itself was unavailable. The
-lower-level member catalog continues to carry
-interface, component, and member identity for drivers and experiment lowering.
-
-Read-only declarations also return named state instead of forcing callers to
-decode property ids. A temperature client exposes `state()` for the
-session-opening cached `TemperatureReadoutState` and `refresh_state()` for an
-explicit device read; `observed_state()` and `refresh()` remain the raw snapshot
-escape hatch.
-
-Experiment modules use generated symbolic targets from the same concrete
-interface schema. Target fields accept either fixed values or typed Scopecat
-value references:
-
-```python
-from typing import Annotated
-
-import scopecat as sc
-from scopecat_instruments import dc_source
-
-
-@sc.module
-def capture(
-    module: sc.ModuleContext,
-    dc_bias: Annotated[
-        sc.Input[sc.Quantity],
-        sc.QuantityType(unit="V"),
-    ],
-) -> None:
-    flux = dc_source(module, "flux")
-    flux.source_voltage(
-        range=sc.Quantity(1, "V"),
-        level=dc_bias,
-    )
-    flux.ensure(output_enabled=True)
-```
-
-`@module` is an optional extraction boundary for work that is genuinely reused
-or composed. A one-off root experiment can instantiate the same symbolic clients
-directly, as shown in the
-[instrument-control guide](../../docs/instrument-control.md) and the
-[flux-spectroscopy workflow](../../examples/reference_lab/src/reference_lab/workflows/flux_spectroscopy.py).
-
-The verb carries the distinction: `source_voltage(...)` records an ordered
-mode/range/level transition, `apply(...)` updates persistent state now, and
-`ensure(...)` makes persistent fields true at each experiment point.
-Unspecified state fields are preserved, while coordinate- and parameter-backed
-arguments resolve per point.
-
-The context manager opens a durable daemon-owned session and closes it on exit.
-Runs and interactive sessions compete for the same exclusive resource claim.
-Consequential calls retain their replay identity automatically while retrying a
-transient transport failure.
+Successful acquisitions return named typed readback. A rejected collection
+raises `InstrumentCollectFailure` with its receipt and outcome certainty.
+`MeasurementUnavailable` represents a successful acquisition whose individual
+value was unavailable. Raw snapshots and lower-level receipt channels remain
+available for diagnostics.
 
 ## Typed client source generation
 
 Decorated Python interface declarations are the shared source for the wire
 contract and typed Python surfaces. `PACKAGE_MANIFEST` is the authoritative list
-of generated interfaces/composites, public types, provider identity, and lazy driver
-registrations; both the generator and provider derive their catalogs from it.
-The committed output covers complete `TemperatureReadout`, `RFOutput`, and
-`NetworkSweep` families plus source-only and source-with-monitor `DCSource` live,
-symbolic single-entity, and group clients.
-
-One generation pass writes the six public runtime modules—`clients.py`,
-`members.py`, `interfaces.py`, `states.py`, `driver_states.py`, and
-`driver_handlers.py`—plus the typed, lazy package facade. Client acquisition and
-state-schema descriptors, member refs, state projection layouts, and wire specs
-are static generated data, so importing these modules does not compile interface
-declarations. Interface factories parse generated JSON into a fresh
-`InterfaceSpec`.
-
-Writable interfaces receive sparse concrete `TypedDict` patches and exact
-canonical snapshot encoders. Generated adapters own the worker's generic
-request/ref ABI; a composite adapter accepts one validated batch and calls the
-concrete driver once with one typed composite patch. Read-only state generates
-snapshot and acquisition hooks but no artificial writable patch. DC source
-protection, output, and reported source mode form one state schema; the mode is
-`read_only`, while typed `source_voltage(...)` and
-`source_current(...)` operations carry the required range and level.
-
-`scopecat.dc_bias/v1` is an optional capability for devices that can ramp routed
-voltage channels as coherent state batches. It carries target voltage, ramp
-duration, settle tolerance, actual-voltage state, settled state, and a typed
-per-channel readback acquisition. A group `ensure(...)` is recorded as one state
-intent; after routing, targets on the same physical instrument arrive in one
-scoped `DriverStatePatch`. The driver decides whether its hardware can make that
-batch atomic and returns channel-specific status metadata. Ordinary DC sources
-do not advertise this capability.
+of interfaces, composites, public types, provider identity, and lazy driver
+registrations. The generator and provider both derive their catalogs from it.
 
 Run the generator from the repository root after changing a supported
 declaration, and use its check mode in validation or CI:
@@ -144,31 +45,23 @@ uv run --locked python scripts/generate_instrument_clients.py
 uv run --locked python scripts/generate_instrument_clients.py --check
 ```
 
-Do not edit those modules or the package facade directly. Decorated interfaces
-and their generated clients are deliberately root-only. A live operation
-accepts concrete arguments and returns `InvokeReceipt`; the scalar symbolic form
-projects each concrete `T` argument to `Symbolic[T]` and adds an `effect_id`.
-Its group form accepts a symbolic scalar or `PerEntity` value
-independently for every argument, performs exact
-identity joins for all mappings before recording any effect, and then records
-one scalar invocation per entity. Mapping order is therefore irrelevant, while
-missing or extra entity identities fail before partial effects are created.
-Group state differs deliberately: one group `ensure(...)` remains coherent
-across its entity resources, allowing the planner to batch channels that resolve
-to the same device without merging adjacent transitions.
+Generated modules and the package facade are committed build outputs; edit the
+declarations or manifest and regenerate them. Static descriptors make imports
+independent of declaration compilation. Writable interfaces receive sparse
+patches and canonical snapshot encoders; generated adapters own generic worker
+dispatch, wire conversion, and exact `PerEntity` joins.
 
-The optional `DCSource`/`DCMonitor` composition is package presentation metadata
-over two existing wire interfaces. The generator emits the explicit
-`dc_source_monitor(...)` family instead of a boolean facade with union return
-types. Group state and operation arguments still accept broadcasts or
-`PerEntity` mappings with exact identity joins.
+One group `ensure(...)` remains a coherent state intent so routing can batch
+channels that resolve to the same instrument. Group operations expand to scalar
+invocations after validating every entity mapping, preventing partial effects
+from a missing or extra identity. Composite client families are package
+presentation metadata over existing wire interfaces.
 
-Payload-bearing operations are currently rejected only by the client source
-generator, until their schema-specific live and symbolic carriers are defined.
-The declaration compiler and generated driver handlers already support decoded
-payload operations. Nested or repeated component trees remain a low-level
-`InterfaceSpec` shape for explicit contract builders and hand-written clients;
-the decorator DSL does not mirror them as recursive Python classes.
+The generator currently requires schema-specific client carriers before
+exposing payload-bearing operations. The declaration compiler and driver
+handlers already accept decoded payloads. Reusable instrument components compile
+to nested interface members; resource routes mount root client members at their
+physical `component_path`.
 
 ## Driver authoring
 
@@ -243,7 +136,7 @@ Virtual instrument:
     }
   ],
   "run_start": "apply_default_state",
-  "success_action": "restore_prepared_state",
+  "success_action": "restore_baseline",
   "failure_action": "abort_and_release"
 }
 ```
@@ -271,7 +164,7 @@ Every run first synchronizes the device. `preserve` retains that observed
 state; `apply_default_state` then applies the saved partial public state.
 Unspecified and private driver settings remain untouched. After authored
 normal-completion state, `release` leaves the resulting state in place;
-`restore_prepared_state` restores the writable portion of the synchronized,
+`restore_baseline` restores the writable portion of the synchronized,
 run-start-adjusted baseline before terminal readback and release. Failure always
 aborts first; `abort_then_safe_state` may additionally apply the configured
 sparse safe state when the device remains commandable.

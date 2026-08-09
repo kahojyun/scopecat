@@ -7,12 +7,11 @@ import scopecat.sdk.domain as domain
 _DOMAIN_ADAPTER_CONTRACTS = {
     "DomainBatchInputs",
     "DomainBatchRequest",
-    "DomainFetchReceipt",
-    "DomainFetchResult",
+    "DomainExecutionReceipt",
+    "DomainExecutionResult",
     "DomainInvocationSpec",
     "DomainMappedResult",
     "DomainResultValue",
-    "DomainSubmitReceipt",
 }
 
 

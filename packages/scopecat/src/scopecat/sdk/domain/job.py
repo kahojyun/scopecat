@@ -7,9 +7,10 @@ executable invocation.
 
 from __future__ import annotations
 
-from collections.abc import Hashable
+from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
 
+from scopecat.kernel.json_types import JsonValue
 from scopecat.records.measurement import MeasurementValue
 
 
@@ -29,6 +30,7 @@ class DomainInvocationSpec[PayloadT]:
     capability_fingerprint: str
     artifact_id: str
     artifact_fingerprint: str
+    execution_summary: Mapping[str, JsonValue]
     target_intent: object = field(repr=False)
     payload: PayloadT = field(repr=False)
 

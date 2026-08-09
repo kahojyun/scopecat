@@ -11,6 +11,8 @@ from scopecat.execution.local.program import (
     CollectOperation,
     ComputeOperation,
     OutputInput,
+    ResourceProvenance,
+    StateDemandOrigin,
     StateTarget,
 )
 from scopecat.execution.program import RunCoverageCheckpoint
@@ -22,7 +24,11 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import ProductUse, ProductUseId, product_id
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.resource_identity import ResourceRequirement
+from scopecat.kernel.resource_identity import (
+    DEFAULT_RESOURCE_ROLE,
+    ResourceRequirement,
+    logical_resource_port_id,
+)
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
@@ -82,6 +88,19 @@ def _requirements(*instrument_ids: str) -> tuple[ResourceRequirement, ...]:
     return tuple(
         ResourceRequirement(id=instrument_id) for instrument_id in instrument_ids
     )
+
+
+def _provenance(instrument_id: str) -> ResourceProvenance:
+    return ResourceProvenance(
+        logical_port_id=logical_resource_port_id(instrument_id),
+        requested_role=DEFAULT_RESOURCE_ROLE,
+        route_id=instrument_id,
+        route_role_id=None,
+    )
+
+
+def _state_origin(instrument_id: str) -> StateDemandOrigin:
+    return StateDemandOrigin(resource=_provenance(instrument_id))
 
 
 def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
@@ -610,6 +629,7 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
     operation = CollectOperation(
         operation_id=operation_id,
         instrument_id=driver.instrument_id,
+        resource=_provenance(driver.instrument_id),
         command=CollectCommand(
             command_id=operation_id,
             instrument_id=driver.instrument_id,
@@ -726,7 +746,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state == result.prepared_state
+    assert result.final_state == result.baseline_state
 
 
 def test_state_apply_stops_when_readback_does_not_confirm_assignment() -> None:
@@ -754,7 +774,7 @@ def test_state_apply_stops_when_readback_does_not_confirm_assignment() -> None:
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state == result.prepared_state
+    assert result.final_state == result.baseline_state
 
 
 def test_failed_coverage_does_not_apply_normal_completion_success_state() -> None:
@@ -848,6 +868,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
                         interface_id="test.set_gain/v1",
                         property_id="gain",
                         value=StateValue(1.0),
+                        origins=(_state_origin("source-a"),),
                     ),
                 ),
             ),
@@ -859,6 +880,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
                         interface_id="test.set_gain/v1",
                         property_id="gain",
                         value=StateValue(2.0),
+                        origins=(_state_origin("source-b"),),
                     ),
                 ),
             ),
@@ -881,7 +903,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state[0] != result.prepared_state[0]
+    assert result.final_state[0] != result.baseline_state[0]
     assert next(
         item.value
         for item in result.final_state[0].properties
@@ -898,6 +920,7 @@ def _gain_operation(instrument_id: str, value: float) -> ApplyStateOperation:
                 interface_id="test.set_gain/v1",
                 property_id="gain",
                 value=StateValue(value),
+                origins=(_state_origin(instrument_id),),
             ),
         ),
     )
@@ -913,6 +936,7 @@ def _collect_operation(
     return CollectOperation(
         operation_id=operation_id,
         instrument_id=instrument_id,
+        resource=_provenance(instrument_id),
         command=CollectCommand(
             command_id=operation_id,
             instrument_id=instrument_id,

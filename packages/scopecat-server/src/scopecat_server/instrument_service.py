@@ -45,15 +45,10 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
 )
-from scopecat.execution.ports.instruments import (
-    RunHardwareApply,
-    RunHardwareBatchReceipt,
-    RunHardwareCollect,
-    RunHardwareFinalizationReceipt,
-    RunHardwareInvoke,
-    RunHardwareValue,
+from scopecat.kernel.content_identity import (
+    model_wire_content_hash,
+    stable_content_hash,
 )
-from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -102,6 +97,7 @@ from scopecat.sdk.instruments.commands import (
 )
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
+    project_instrument_invoke_state,
     project_instrument_state,
     resolve_interactive_collect,
     state_assignment_satisfied,
@@ -110,6 +106,14 @@ from scopecat.sdk.instruments.contracts import (
     validate_invoke_command,
     validate_reconciled_state_assignments,
     validate_state_command,
+)
+from scopecat.sdk.instruments.execution import (
+    RunHardwareApply,
+    RunHardwareBatchReceipt,
+    RunHardwareCollect,
+    RunHardwareFinalizationReceipt,
+    RunHardwareInvoke,
+    RunHardwareValue,
 )
 from scopecat.sdk.payloads import PayloadCodecCatalog
 from scopecat.sdk.runtime_problems import contextualize_problems
@@ -215,6 +219,7 @@ type _InstrumentOperationReplay = (
 @dataclass(slots=True)
 class _OwnershipRuntime:
     instruments: dict[str, OwnedInstrument]
+    bindings: dict[str, InstrumentBindingSpec]
     specs: dict[str, InstrumentSpec]
     payload_catalog: PayloadCodecCatalog
     ledgers: dict[str, _InstrumentOperationLedger]
@@ -380,19 +385,7 @@ class InstrumentService:
         endpoint = self._endpoint
         if endpoint is None:
             raise BackendConflict("project does not configure an instrument backend")
-        registered = endpoint.driver_catalog.get(command.binding.driver_id)
-        if registered is None:
-            raise BackendNotFound(
-                f"instrument driver was not found: {command.binding.driver_id}"
-            )
-        connection_kind = command.binding.connection.kind
-        if all(
-            connection.kind != connection_kind for connection in registered.connections
-        ):
-            raise BackendConflict(
-                f"{command.binding.driver_id} does not support "
-                f"{connection_kind} connections"
-            )
+        self._require_supported_binding(endpoint, command.binding)
         try:
             description = endpoint.probe(command.binding)
         except InstrumentBackendRejected as error:
@@ -616,9 +609,12 @@ class InstrumentService:
             )
 
         try:
+            bindings = {binding.id: binding for binding in instrument_bindings(config)}
+            specs = {spec.id: spec for spec in config.instrument_registry.instruments}
             runtime, observed_state = self._open_ownership(
                 endpoint=endpoint,
-                config=config,
+                bindings=bindings,
+                specs=specs,
                 owner=InstrumentOwnerKey(
                     kind="run",
                     owner_id=run_id,
@@ -674,8 +670,8 @@ class InstrumentService:
         )
         if isinstance(run_start_state, RunInstrumentProvisionReceipt):
             return run_start_state
-        prepared_state = run_start_state
-        for state in prepared_state:
+        baseline_state = run_start_state
+        for state in baseline_state:
             runtime.instruments[state.instrument_id].adopt_state(state)
 
         try:
@@ -702,7 +698,7 @@ class InstrumentService:
             status="ready",
             instrument_ids=instrument_ids,
             observed_state=observed_state,
-            prepared_state=prepared_state,
+            baseline_state=baseline_state,
         )
         provision = _RunProvision(
             command=command,
@@ -753,14 +749,13 @@ class InstrumentService:
         self,
         *,
         endpoint: InstrumentBackendEndpoint,
-        config: ConfigProfileSnapshot,
+        bindings: Mapping[str, InstrumentBindingSpec],
+        specs: Mapping[str, InstrumentSpec],
         owner: InstrumentOwnerKey,
         instrument_ids: tuple[str, ...],
         expected: Mapping[str, InstrumentDescription],
         payload_catalog: PayloadCodecCatalog,
     ) -> tuple[_OwnershipRuntime, tuple[InstrumentStateSnapshot, ...]]:
-        bindings = {binding.id: binding for binding in instrument_bindings(config)}
-        specs = {spec.id: spec for spec in config.instrument_registry.instruments}
         for attempt in range(2):
             runtime = self._acquire_ownership(
                 endpoint=endpoint,
@@ -839,6 +834,10 @@ class InstrumentService:
             ) from error
         return _OwnershipRuntime(
             instruments=instruments,
+            bindings={
+                instrument_id: bindings[instrument_id].model_copy(deep=True)
+                for instrument_id in instruments
+            },
             specs={
                 instrument_id: specs[instrument_id].model_copy(deep=True)
                 for instrument_id in instruments
@@ -1149,7 +1148,7 @@ class InstrumentService:
             "completed_effect_ids": list(completed_effect_ids),
             "effect_receipts": list(effect_receipts),
             "problem_codes": [item.code for item in receipt.problems],
-            "value_product_use_ids": [value.product_use_id for value in receipt.values],
+            "value_ids": [value.value_id for value in receipt.values],
         }
         try:
             self._record_run_operation_event(
@@ -1273,8 +1272,17 @@ class InstrumentService:
                     )
                 )
                 if not action_problems:
-                    # Operations may mutate state without a projectable effect.
-                    assumed_states[action.instrument_id] = None
+                    baseline = assumed_states[action.instrument_id]
+                    if baseline is not None:
+                        assumed_states[action.instrument_id] = (
+                            project_instrument_invoke_state(
+                                baseline,
+                                command,
+                                description=runtime.instruments[
+                                    action.instrument_id
+                                ].description,
+                            )
+                        )
             else:
                 command = CollectCommand(
                     command_id=action.effect_id,
@@ -1451,7 +1459,7 @@ class InstrumentService:
             raise _HardwareActionRejected(receipt.problems)
         assert receipt.readback is not None
         bindings = {
-            binding.request_id: binding.product_use_ids for binding in action.bindings
+            binding.request_id: binding.value_ids for binding in action.bindings
         }
         requests = {request.id: request for request in action.requests}
         if set(receipt.readback.values) != set(bindings):
@@ -1461,7 +1469,7 @@ class InstrumentService:
         values = tuple(
             RunHardwareValue(
                 point_index=action.point_index,
-                product_use_id=product_use_id,
+                value_id=value_id,
                 value=value,
                 evidence=InstrumentAcquisitionEvidence(
                     command_id=action.effect_id,
@@ -1475,7 +1483,7 @@ class InstrumentService:
                 ),
             )
             for request_id, value in receipt.readback.values.items()
-            for product_use_id in bindings[request_id]
+            for value_id in bindings[request_id]
         )
         return values, {
             "effect_id": action.effect_id,
@@ -1527,7 +1535,7 @@ class InstrumentService:
                     run_id,
                     token=command.lease_id,
                     runtime=runtime,
-                    prepared_state=provision.receipt.prepared_state,
+                    baseline_state=provision.receipt.baseline_state,
                     failed=command.failed,
                     operation_id=command.operation_id,
                 )
@@ -1551,18 +1559,18 @@ class InstrumentService:
         *,
         token: str,
         runtime: _OwnershipRuntime,
-        prepared_state: Sequence[InstrumentStateSnapshot],
+        baseline_state: Sequence[InstrumentStateSnapshot],
         failed: bool,
         operation_id: str,
     ) -> tuple[list[InstrumentStateSnapshot], list[Problem]]:
         problems: list[Problem] = []
         with runtime.lock:
             if not failed:
-                restore_problems = self._restore_prepared_state_or_quarantine(
+                restore_problems = self._restore_baseline_or_quarantine(
                     run_id,
                     token=token,
                     runtime=runtime,
-                    prepared_state=prepared_state,
+                    baseline_state=baseline_state,
                     operation_id=operation_id,
                 )
                 if restore_problems:
@@ -1623,30 +1631,28 @@ class InstrumentService:
         self._pop_run_runtime(run_id, expected=runtime)
         return final_state, problems
 
-    def _restore_prepared_state_or_quarantine(
+    def _restore_baseline_or_quarantine(
         self,
         run_id: str,
         *,
         token: str,
         runtime: _OwnershipRuntime,
-        prepared_state: Sequence[InstrumentStateSnapshot],
+        baseline_state: Sequence[InstrumentStateSnapshot],
         operation_id: str,
     ) -> list[Problem]:
-        prepared_by_instrument = {
-            state.instrument_id: state for state in prepared_state
+        baseline_by_instrument = {
+            state.instrument_id: state for state in baseline_state
         }
         for instrument_id, instrument in runtime.instruments.items():
             spec = runtime.specs[instrument_id]
-            if spec.success_action != "restore_prepared_state":
+            if spec.success_action != "restore_baseline":
                 continue
-            restore_operation_id = (
-                f"{operation_id}.restore_prepared_state.{instrument_id}"
-            )
+            restore_operation_id = f"{operation_id}.restore_baseline.{instrument_id}"
             try:
                 observed_state = observe_instrument(instrument)
                 assignments = _restorable_state_assignments(
                     instrument_id=instrument_id,
-                    prepared_state=prepared_by_instrument[instrument_id],
+                    baseline_state=baseline_by_instrument[instrument_id],
                     instrument=instrument,
                 )
                 command = _pending_configured_state_command(
@@ -1678,20 +1684,20 @@ class InstrumentService:
                     run_id,
                     runtime,
                     token=token,
-                    reason="run_instrument_prepared_state_restore_unknown",
+                    reason="run_instrument_baseline_restore_unknown",
                 )
                 raise BackendConflict(
-                    "instrument prepared-state restore failed with unknown state"
+                    "instrument baseline restore failed with unknown state"
                 ) from error
             if receipt.status == "unknown":
                 self._lose_run_runtime(
                     run_id,
                     runtime,
                     token=token,
-                    reason="run_instrument_prepared_state_restore_unknown",
+                    reason="run_instrument_baseline_restore_unknown",
                 )
                 raise BackendConflict(
-                    "instrument prepared-state restore failed with unknown state"
+                    "instrument baseline restore failed with unknown state"
                 )
             if receipt.status != "applied":
                 return list(
@@ -1839,21 +1845,62 @@ class InstrumentService:
         configured = {
             spec.id: spec for spec in active.config.instrument_registry.instruments
         }
+        temporary = {binding.id: binding for binding in command.temporary_bindings}
+        collisions = tuple(
+            instrument_id for instrument_id in temporary if instrument_id in configured
+        )
+        if collisions:
+            raise BackendConflict(
+                "temporary instrument ids already exist in the active config: "
+                + ", ".join(collisions)
+            )
         missing = tuple(
             instrument_id
             for instrument_id in command.instrument_ids
-            if instrument_id not in configured
+            if instrument_id not in configured and instrument_id not in temporary
         )
         if missing:
             raise BackendNotFound(f"instrument was not found: {', '.join(missing)}")
         endpoint = self._endpoint
         if endpoint is None:
             raise BackendConflict("project does not configure an instrument backend")
-        catalog = self.resolve_instrument_contracts(active.config)
-        descriptions = self._selected_descriptions(
-            catalog,
-            config=active.config,
-            instrument_ids=command.instrument_ids,
+        configured_ids = tuple(
+            instrument_id
+            for instrument_id in command.instrument_ids
+            if instrument_id in configured
+        )
+        descriptions: dict[str, InstrumentDescription] = {}
+        if configured_ids:
+            catalog = self.resolve_instrument_contracts(active.config)
+            descriptions.update(
+                self._selected_descriptions(
+                    catalog,
+                    config=active.config,
+                    instrument_ids=configured_ids,
+                )
+            )
+        if temporary:
+            for binding in temporary.values():
+                self._require_supported_binding(endpoint, binding)
+            descriptions.update(
+                self._describe_temporary_bindings(
+                    endpoint,
+                    bindings=tuple(temporary.values()),
+                )
+            )
+        selected_bindings = {
+            binding.id: binding for binding in instrument_bindings(active.config)
+        }
+        selected_bindings.update(temporary)
+        selected_specs = dict(configured)
+        selected_specs.update(
+            {
+                binding.id: self._temporary_instrument_spec(
+                    binding,
+                    configured=tuple(configured.values()),
+                )
+                for binding in temporary.values()
+            }
         )
         try:
             session = self._control.open_instrument_session(
@@ -1863,7 +1910,7 @@ class InstrumentService:
                 config_content_hash=active.entry.content_hash,
                 instrument_ids=command.instrument_ids,
                 exclusivity_keys=tuple(
-                    configured[instrument_id].exclusivity_key
+                    selected_specs[instrument_id].exclusivity_key
                     for instrument_id in command.instrument_ids
                 ),
                 expected_config_generation=active.activation.generation,
@@ -1875,7 +1922,8 @@ class InstrumentService:
         try:
             runtime, _ = self._open_ownership(
                 endpoint=endpoint,
-                config=active.config,
+                bindings=selected_bindings,
+                specs=selected_specs,
                 owner=InstrumentOwnerKey(
                     kind="instrument_session",
                     owner_id=session.session_id,
@@ -1928,7 +1976,19 @@ class InstrumentService:
             )
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error
-        return self._wire_session(session, self._live_runtime(session.session_id))
+        runtime = self._live_runtime(session.session_id)
+        pinned = self._pinned_session_config(session)
+        configured_ids = {spec.id for spec in pinned.instrument_registry.instruments}
+        runtime_temporary_ids = set(runtime.bindings) - configured_ids
+        requested_temporary_ids = {binding.id for binding in command.temporary_bindings}
+        if runtime_temporary_ids != requested_temporary_ids or any(
+            runtime.bindings.get(binding.id) != binding
+            for binding in command.temporary_bindings
+        ):
+            raise BackendConflict(
+                "instrument session open operation has different temporary bindings"
+            )
+        return self._wire_session(session, runtime)
 
     def _renew_open_session(self, session: InstrumentSession) -> InstrumentSession:
         try:
@@ -2122,19 +2182,7 @@ class InstrumentService:
                     )
                 return replay.receipt
 
-            pinned_config = self._pinned_session_config(session)
-            spec = next(
-                (
-                    candidate
-                    for candidate in pinned_config.instrument_registry.instruments
-                    if candidate.id == instrument_id
-                ),
-                None,
-            )
-            if spec is None:
-                raise BackendConflict(
-                    "instrument is absent from the session pinned config"
-                )
+            spec = runtime.specs[instrument_id]
             if not spec.default_state:
                 return self._reject_configured_defaults(
                     session=session,
@@ -2786,7 +2834,7 @@ class InstrumentService:
                     run_id,
                     token=token,
                     runtime=runtime,
-                    prepared_state=(),
+                    baseline_state=(),
                     failed=True,
                     operation_id="hardware.terminal-fallback",
                 )
@@ -3249,18 +3297,93 @@ class InstrumentService:
             )
         return descriptions
 
+    @staticmethod
+    def _require_supported_binding(
+        endpoint: InstrumentBackendEndpoint,
+        binding: InstrumentBindingSpec,
+    ) -> None:
+        registered = endpoint.driver_catalog.get(binding.driver_id)
+        if registered is None:
+            raise BackendNotFound(
+                f"instrument driver was not found: {binding.driver_id}"
+            )
+        connection_kind = binding.connection.kind
+        if all(
+            connection.kind != connection_kind for connection in registered.connections
+        ):
+            raise BackendConflict(
+                f"{binding.driver_id} does not support {connection_kind} connections"
+            )
+
+    @staticmethod
+    def _describe_temporary_bindings(
+        endpoint: InstrumentBackendEndpoint,
+        *,
+        bindings: tuple[InstrumentBindingSpec, ...],
+    ) -> dict[str, InstrumentDescription]:
+        try:
+            advertised = endpoint.describe(bindings)
+        except InstrumentBackendUnavailable as error:
+            raise BackendConflict(
+                "instrument provider cannot describe temporary bindings"
+            ) from error
+        if advertised.provider_id != endpoint.provider_id or advertised.problems:
+            raise BackendConflict(
+                "instrument provider cannot describe temporary bindings"
+            )
+        descriptions = {
+            description.instrument_id: description
+            for description in advertised.instruments
+        }
+        requested_ids = tuple(binding.id for binding in bindings)
+        if set(descriptions) != set(requested_ids):
+            raise BackendConflict(
+                "instrument provider description does not match temporary bindings"
+            )
+        return descriptions
+
+    @staticmethod
+    def _temporary_instrument_spec(
+        binding: InstrumentBindingSpec,
+        *,
+        configured: tuple[InstrumentSpec, ...],
+    ) -> InstrumentSpec:
+        matching = next(
+            (
+                spec
+                for spec in configured
+                if spec.driver_id == binding.driver_id
+                and spec.connection == binding.connection
+            ),
+            None,
+        )
+        access_key = (
+            matching.exclusivity_key
+            if matching is not None
+            else "temporary:"
+            + stable_content_hash(
+                {
+                    "driver_id": binding.driver_id,
+                    "connection": binding.connection.model_dump(mode="json"),
+                }
+            )
+        )
+        return InstrumentSpec(
+            id=binding.id,
+            exclusivity_key=access_key,
+            driver_id=binding.driver_id,
+            connection=binding.connection.model_copy(deep=True),
+            run_start="preserve",
+            success_action="release",
+            failure_action="abort_and_release",
+        )
+
     def _wire_session(
         self,
         session: InstrumentSession,
         runtime: _OwnershipRuntime,
     ) -> InstrumentSessionOpenReceipt:
-        configured = {
-            spec.id
-            for spec in self._pinned_session_config(
-                session
-            ).instrument_registry.instruments
-            if spec.default_state
-        }
+        configured = {spec.id for spec in runtime.specs.values() if spec.default_state}
         return InstrumentSessionOpenReceipt(
             session_id=session.session_id,
             actor=session.actor,
@@ -3495,7 +3618,7 @@ def _payload_codec_problems(
     run_id: str,
     operation_id: str,
     instrument_id: str,
-    point_index: int,
+    point_index: int | None,
 ) -> tuple[Problem, ...]:
     return tuple(
         _hardware_problem(
@@ -3541,11 +3664,11 @@ def _configured_state_assignments(
 def _restorable_state_assignments(
     *,
     instrument_id: str,
-    prepared_state: InstrumentStateSnapshot,
+    baseline_state: InstrumentStateSnapshot,
     instrument: OwnedInstrument,
 ) -> tuple[InstrumentStateAssignment, ...]:
     assignments: list[InstrumentStateAssignment] = []
-    for item in prepared_state.properties:
+    for item in baseline_state.properties:
         assignment = InstrumentStateAssignment(
             resource_id=instrument_id,
             interface_id=item.interface_id,

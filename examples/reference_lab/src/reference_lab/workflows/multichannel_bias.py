@@ -26,7 +26,7 @@ from reference_lab.parameters import (
     FLUX_POLARITY,
     LOGICAL_BIAS,
 )
-from reference_lab.workflows.flux_spectroscopy import CRYOSTAT, TEMPERATURE_RESOURCE
+from reference_lab.workflows.flux_spectroscopy import CRYOSTAT
 
 Q0 = EntityRef(id="q0", kind="logical_qubit")
 Q1 = EntityRef(id="q1", kind="logical_qubit")
@@ -79,8 +79,8 @@ def multichannel_dc_bias(
 
     parked = _physical_bias_profile(PARKED_PROFILE)
     operate = _physical_bias_profile(OPERATE_PROFILE)
-    biases = dc_source(experiment, "flux-bias", for_=QUBIT_SELECTION)
-    bias_ramps = dc_bias(experiment, "flux-ramp", for_=QUBIT_SELECTION)
+    biases = dc_source(experiment, for_=QUBIT_SELECTION)
+    bias_ramps = dc_bias(experiment, for_=QUBIT_SELECTION)
     biases.ensure(
         current_protection=sc.Quantity(100.0, "uA"),
         output_enabled=False,
@@ -98,7 +98,6 @@ def multichannel_dc_bias(
     )
     thermometer = temperature_readout(
         experiment,
-        TEMPERATURE_RESOURCE,
         for_=sc.one(CRYOSTAT),
     )
     sample = thermometer.sample()

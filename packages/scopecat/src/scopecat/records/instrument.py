@@ -21,8 +21,6 @@ type PropertyTargetIdentity = tuple[
     str,
     tuple[str, ...],
     str,
-    tuple[str, ...],
-    tuple[tuple[str, str, str | None], ...],
 ]
 
 
@@ -74,9 +72,14 @@ def property_target_identity(
     interface_id: str,
     component_path: Sequence[str],
     property_id: str,
-    entity_ids: Sequence[str] = (),
-    channel_bindings: Sequence[CommandChannelBinding] = (),
 ) -> PropertyTargetIdentity:
+    """Identify one property by its canonical physical component path.
+
+    Channel bindings describe how a driver reaches the component and which
+    logical entities demanded it. They do not manufacture additional state
+    slots; channel-local state must use a distinct component path.
+    """
+
     scope = state_target_scope_identity(
         interface_id,
         component_path,
@@ -85,11 +88,6 @@ def property_target_identity(
         scope[0],
         scope[1],
         property_id,
-        tuple(entity_ids) if channel_bindings else (),
-        tuple(
-            (binding.entity_id, binding.channel_id, binding.interface_id)
-            for binding in channel_bindings
-        ),
     )
 
 
@@ -131,8 +129,6 @@ class InstrumentStateSnapshot(BaseModel):
                 item.interface_id,
                 item.component_path,
                 item.property_id,
-                item.entity_ids,
-                item.channel_bindings,
             )
             for item in self.properties
         ]

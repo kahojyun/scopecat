@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from scopecat.sdk.domain import (
     DomainBatchInputs,
+    DomainBatchPartition,
     DomainBatchRequest,
     DomainCallView,
-    DomainFetchResult,
+    DomainCompileRequest,
+    DomainExecutionResult,
     DomainPreparationBuilder,
     PreparedDomainExecution,
 )
@@ -38,26 +41,28 @@ from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.parameters import QUBITS
 from reference_lab.point_values import QuantumLabPointValues
+from reference_lab.quantum_compilation.compiler_parameters import (
+    QuantumCompilerParameters,
+)
+from reference_lab.quantum_compilation.pulse_profile import QUANTUM_PULSE_PROFILE
 from reference_lab.targets.configuration import (
-    FAKE_LIST_TARGET_KIND,
+    LIST_MODE_TARGET_KIND,
 )
-from reference_lab.targets.fake_list_mode import (
-    FakeAcquisitionResponse,
-    FakeListArtifact,
-    FakeListDomainRuntime,
-    FakeListRun,
-    FakeListRuntime,
-    FakeListTarget,
-    FakeListTargetCompiler,
-    MappedFakeListTarget,
-    fake_measurement_invocation_spec,
-    realize_fetched_fake_measurements,
+from reference_lab.targets.list_mode import (
+    ListModeArtifact,
+    ListModeDomainRuntime,
+    ListModeRun,
+    ListModeTarget,
+    ListModeTargetCompiler,
+    MappedListModeTarget,
+    list_mode_measurement_invocation_spec,
+    list_mode_realtime_write_footprint,
+    list_mode_setup_state_invalidations,
+    list_mode_state_requirements,
+    realize_executed_measurements,
 )
-from reference_lab.virtual_lab.compiler_parameters import QuantumCompilerParameters
-from reference_lab.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
-from reference_lab.virtual_lab.quantum_responses import quantum_lab_response
 
-_QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.fake-list-target.v1")
+_QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.list-mode-target.v1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +75,7 @@ class _QuantumLabArtifact:
 class _ListQuantumLabArtifact(_QuantumLabArtifact):
     entries: tuple[PreparedQuantumTargetEntry, ...]
     batch: PreparedQuantumTargetBatch
-    target_artifact: FakeListArtifact = field(repr=False)
+    target_artifact: ListModeArtifact = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +83,30 @@ class _CompiledQuantumPoint:
     values: QuantumLabPointValues
     bound: quantum.BoundProgram = field(repr=False)
     implementations: ResolvedPulseImplementations = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class QuantumRuntimeContext:
+    """Compiled logical context available to an optional execution adapter."""
+
+    program: quantum.Program = field(repr=False)
+    points: tuple[QuantumLabPointValues, ...]
+    entries: tuple[PreparedQuantumTargetEntry, ...]
+    repetitions: int
+
+
+@dataclass(frozen=True, slots=True)
+class QuantumRuntimeSelection:
+    """Runtime plus stable response intent selected by a lab composition."""
+
+    runtime: ListModeDomainRuntime
+    response_intent: object | None = None
+
+
+class QuantumRuntimeSelector(Protocol):
+    """Select execution behavior without changing target compilation."""
+
+    def __call__(self, context: QuantumRuntimeContext) -> QuantumRuntimeSelection: ...
 
 
 class QuantumLabCompiler:
@@ -91,11 +120,13 @@ class QuantumLabCompiler:
     def __init__(
         self,
         *,
-        target: FakeListTarget,
+        target: ListModeTarget,
+        runtime_selector: QuantumRuntimeSelector | None = None,
     ) -> None:
         self._target = target
-        self._runtime = FakeListDomainRuntime()
-        self._target_compiler = FakeListTargetCompiler(
+        self._runtime = ListModeDomainRuntime()
+        self._runtime_selector = runtime_selector
+        self._target_compiler = ListModeTargetCompiler(
             _QUANTUM_LAB_TARGET_COMPILER_ID,
             self._target,
         )
@@ -106,11 +137,15 @@ class QuantumLabCompiler:
 
     @property
     def target_kind(self) -> str:
-        return FAKE_LIST_TARGET_KIND
+        return LIST_MODE_TARGET_KIND
 
-    @property
-    def max_points_per_batch(self) -> int:
-        return self._target.max_list_entries
+    def partition(self, request: DomainCompileRequest) -> DomainBatchPartition:
+        """Partition without making ordinary scan semantics boundary-dependent."""
+
+        return DomainBatchPartition.with_maximum_size(
+            len(request.points),
+            self._target.max_list_entries,
+        )
 
     def _compile_target_artifact(
         self,
@@ -182,34 +217,47 @@ class QuantumLabCompiler:
             artifact.target_artifact,
             mapping,
         )
-        response = quantum_lab_response(
-            artifact.program,
-            artifact.points,
-            entries,
-            batch.request.repetitions,
+        selection = self._select_runtime(
+            QuantumRuntimeContext(
+                program=artifact.program,
+                points=artifact.points,
+                entries=entries,
+                repetitions=batch.request.repetitions,
+            )
         )
-        runtime = self._runtime if response is None else _response_runtime(response)
-        invocation = fake_measurement_invocation_spec(
+        runtime = selection.runtime
+        invocation = list_mode_measurement_invocation_spec(
             mapped_target,
             invocation_id=(
                 f"{artifact.program.id}.batch-{request.batch_ordinal}."
                 f"point-{artifact.points[0].ordinal}"
             ),
-            response_intent=(
-                None
-                if response is None
-                else {
-                    "schema": "reference_lab.response.v1",
-                    "response_fingerprint": response.fingerprint,
-                }
-            ),
+            response_intent=selection.response_intent,
         )
         return preparation.build(
+            instrument_ids=artifact.target_artifact.instrument_ids,
+            setup=runtime,
+            setup_state_invalidations=list_mode_setup_state_invalidations(
+                artifact.target_artifact
+            ),
+            state_requirements=list_mode_state_requirements(artifact.target_artifact),
+            realtime_write_footprint=list_mode_realtime_write_footprint(
+                artifact.target_artifact
+            ),
+            realtime_state_invalidations=(),
             mapping=mapping,
             invocation=invocation,
             runtime=runtime,
             realize=lambda fetched: _realize(mapped_target, fetched),
         )
+
+    def _select_runtime(
+        self,
+        context: QuantumRuntimeContext,
+    ) -> QuantumRuntimeSelection:
+        if self._runtime_selector is None:
+            return QuantumRuntimeSelection(self._runtime)
+        return self._runtime_selector(context)
 
 
 def _quantum_program(call: DomainCallView) -> quantum.Program:
@@ -317,17 +365,16 @@ def _measurement_results(
     return tuple(program.results)
 
 
-def _response_runtime(response: FakeAcquisitionResponse) -> FakeListDomainRuntime:
-    return FakeListDomainRuntime(FakeListRuntime(response=response))
-
-
 def _realize(
-    mapped_target: MappedFakeListTarget,
-    fetched: DomainFetchResult[FakeListRun],
+    mapped_target: MappedListModeTarget,
+    executed: DomainExecutionResult[ListModeRun],
 ):
-    return realize_fetched_fake_measurements(mapped_target, fetched)
+    return realize_executed_measurements(mapped_target, executed)
 
 
 __all__ = [
     "QuantumLabCompiler",
+    "QuantumRuntimeContext",
+    "QuantumRuntimeSelection",
+    "QuantumRuntimeSelector",
 ]

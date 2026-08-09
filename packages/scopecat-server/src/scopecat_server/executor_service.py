@@ -28,6 +28,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -179,6 +180,21 @@ class ExecutorService:
                 command.transition,
             )
         return transition
+
+    def claim_transition(
+        self,
+        run_id: str,
+        command: ExecutionTransitionClaim,
+    ) -> ExecutionTransition:
+        journal = SQLiteExecutionJournal(self._runs, run_id=run_id)
+        try:
+            with self.fenced_write(
+                run_id,
+                token=command.lease_id,
+            ) as connection:
+                return journal.claim_in_transaction(connection, command.transition)
+        except ExecutionJournalConflict as error:
+            raise BackendConflict(str(error)) from error
 
     def append_measurements(
         self,

@@ -101,10 +101,6 @@ class _LogicalProgramComposer:
                     binding.import_id: resolver.resolve(binding.source)
                     for binding in instance.input_bindings
                 },
-                resource_bindings={
-                    binding.import_id: binding.source_id
-                    for binding in instance.resource_bindings
-                },
             )
             child_effects[instance.invocation_key] = self._add_module(
                 instance.module,
@@ -145,8 +141,7 @@ class _LogicalProgramComposer:
                 resolve_resource_port(port, resolver=resolver),
                 boundaries,
             )
-            if localized is not None:
-                self.resource_ports.append(localized)
+            self.resource_ports.append(localized)
         for operation in module.body.operations:
             localized = localize_operation(
                 resolve_operation(operation, resolver=resolver),

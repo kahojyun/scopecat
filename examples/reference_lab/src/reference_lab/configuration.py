@@ -19,8 +19,6 @@ from reference_lab.parameters import (
 
 EXAMPLE_ROOT = Path(__file__).resolve().parents[2]
 DEMO_CONFIG_DIR = EXAMPLE_ROOT / "config"
-DEMO_VIRTUAL_LAB_PROFILE = DEMO_CONFIG_DIR / "virtual-lab.json"
-
 DAEMON_URL_ENV = "SCOPECAT_DAEMON_URL"
 
 
@@ -46,7 +44,6 @@ def bootstrap_config(
 __all__ = [
     "DAEMON_URL_ENV",
     "DEMO_CONFIG_DIR",
-    "DEMO_VIRTUAL_LAB_PROFILE",
     "EXAMPLE_ROOT",
     "bootstrap_config",
 ]

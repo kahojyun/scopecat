@@ -382,7 +382,7 @@ def _execute_or_cancel_effects(
                 ),
             ),
             observed_state=(),
-            prepared_state=(),
+            baseline_state=(),
             final_state=(),
             cancelled=True,
         )
@@ -390,7 +390,7 @@ def _execute_or_cancel_effects(
         return RunEffectResult(
             problems=(),
             observed_state=(),
-            prepared_state=(),
+            baseline_state=(),
             final_state=(),
         )
     return _execute_instrument_effects(
@@ -432,7 +432,7 @@ def _execute_instrument_effects(
         return RunEffectResult(
             problems=tuple(setup_problems),
             observed_state=(),
-            prepared_state=(),
+            baseline_state=(),
             final_state=(),
         )
 
@@ -458,7 +458,7 @@ def _execute_instrument_effects(
         return RunEffectResult(
             problems=(*setup_problems, *release_problems),
             observed_state=(),
-            prepared_state=(),
+            baseline_state=(),
             final_state=(),
             indeterminate=release_unknown,
         )

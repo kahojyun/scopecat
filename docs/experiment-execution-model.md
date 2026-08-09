@@ -1,328 +1,220 @@
 # Experiment Execution Semantics
 
-This document describes the current contract between experiment authoring,
-system planning, domain compilers, and execution. It is an implementation
-design, not a product requirement or roadmap. The design may be simplified
-when doing so improves the current-stage workflows in the
-[project charter](project-charter.md). Local rationale belongs with the types
-and functions that enforce it.
+This document defines the cross-cutting contract between experiment authoring,
+planning, domain compilation, and execution. Exact field and method behavior
+belongs to the types that implement it; this document explains how those types
+fit together.
 
-## Program Boundaries
+## Program lifecycle
 
 ```text
-@module / @experiment contexts
-    | close definitions
+@module / @experiment
+    | close symbolic definitions
     v
-program model           shared symbolic modules, values, products, point plans
-    | elaborate and verify
+program model           reusable graph, effects, products, and point plan
+    | elaborate and verify without lab configuration
     v
-VerifiedLogicalProgram  config-free experiment proof
-    | lower, specialize, verify, and bind one accepted environment
+VerifiedLogicalProgram
+    | specialize against one accepted configuration snapshot
     v
-BoundPlan               verified logical program + config-bound facts
-    | materialize for one experiment system
+BoundPlan               logical proof plus transient bound facts
+    | materialize host effects and prepared target executions
     v
 RunProgram              closed residual effect program
-    | interpret with effect evidence
+    | execute once with durable effect evidence
     v
 logical measurements and durable run records
 ```
 
-The authoring package owns Python UX; `scopecat.program` owns definitions,
-invocations, and the symbolic model consumed by compilation. The compiler does
-not import authoring modules. `BoundProgramFacts` is transient compiler data,
-not a versioned interchange format.
-`RunProgram` is the executable representation for one accepted run; physical
-batching does not change its logical points, product identities, or results.
+The authoring package owns Python UX. `scopecat.program` owns the reusable
+symbolic model consumed by compilation. `BoundProgramFacts` belongs to one
+specialization pass, and `RunProgram` is the executable form for one accepted
+run. Physical batching preserves logical point, product, and result identity.
 
-## Authoring and Ownership
+Check, preview, and run specialize the same accepted semantics. Check and
+preview stop before provider effects; run interprets the closed effect program.
 
-A reusable module combines a pure typed graph with an ordered sequence of
-consequential effects. The sequence may contain desired state, acquisitions,
-domain executions, and child-module occurrences.
-Composing a child scopes its resource, value, product, and effect identities to
-that instance and places its effects exactly once.
-Domain-program calls are distinct occurrences: each call owns its result
-products and is placed directly in the ordered effects. A child module is
-needed only when those effects are deliberately composed into a larger reusable
-workflow.
+## Authoring ownership
 
-The public authoring model follows four rules:
+A reusable module combines a pure typed graph with an ordered effect sequence.
+Composing it scopes all resource, value, product, and effect identities to that
+occurrence and places the effects once.
 
-1. `@module` defines a reusable graph fragment. Its Python return value is its
-   sole composition result. `context.use(module(...))` places the invocation's
-   effects and returns that typed result directly at either authoring boundary.
-   Domain calls likewise return their owned result products from `use(...)`.
-   There is no second user-authored output or product-export declaration.
-2. `@experiment` authors a complete experiment. Parameters annotated as
-   `Input[T]` are typed runtime inputs and may have definition defaults; plain
-   Python parameters are structural values that rebuild the graph for that
-   invocation. An experiment may coordinate any number of local devices,
-   reusable modules, and domain calls.
-3. A domain call is one effect in that experiment, not the experiment boundary.
-   A lab-owned runner may add compiler inputs, auxiliary-device work,
-   postprocessing, and recording without requiring a wrapper module. Hardware
-   that must vary synchronously inside each domain point belongs to that
-   target/compiler contract.
-4. `record(...)` is the single dataset projection. It accepts symbolic scalar
-   values, product references, typed product bundles, and per-entity mappings.
-   Values remain dataflow nodes and products remain measurement/evidence nodes;
-   demanded record roots determine the live compute and postprocessor DAG, whose
-   dependencies determine execution order.
+The public model has four boundaries:
 
-A bare `@experiment` uses the Python function name as its project-scoped
-technical identity, so running the same definition as a script or importing it
-does not change its run history. Pass an explicit `id=` only when a project needs
-to distinguish same-named definitions. `lab.run(..., name=...)` is the durable
-presentation name shown to operators; it does not replace the technical
-experiment identity.
+1. `@module` defines a reusable fragment. Its Python return value is its
+   composition result. `context.use(...)` places the occurrence and returns
+   that typed result.
+2. `@experiment` defines a complete invocation. `Input[T]` parameters become
+   typed runtime values; ordinary Python parameters rebuild the structure.
+3. A domain call is an ordered experiment effect. It returns products owned by
+   that occurrence and may coexist with host-device work and postprocessing.
+4. `record(...)` selects the values and products projected into the dataset.
+   Demanded record roots determine the live compute and postprocessor graph.
 
-### Point plans and invocation edits
+A bare experiment uses its Python function name as its project-scoped technical
+identity. An explicit `id=` distinguishes definitions when needed, while
+`lab.run(..., name=...)` supplies the durable operator-facing name.
 
-Every experiment resolves to one `PointPlan`: one domain, one repeat policy,
-and one traversal policy. The authoring rules are deliberately small:
+Every invocation resolves to one `PointPlan`: a grid or ordered point cloud,
+plus repeat and traversal policy. Invocation edits replace or adjust that plan
+without changing the experiment definition. The
+[measurement data guide](measurement-data.md#repeat-traverse-and-edit-a-point-plan)
+is the canonical task guide; the `PointPlan` docstring defines its exact local
+contract. Adaptive selection uses bounded stages whose next invocation depends
+on earlier results.
 
-1. Repeated `experiment.scan(...)` calls infer typed coordinates and accumulate
-   one Cartesian product. `experiment.grid(...)` declares that product
-   explicitly; `experiment.points(...)` declares explicit ordered rows. The
-   inferred and explicit forms cannot be mixed. No declaration means the unit
-   grid with one point; an empty point cloud has zero points.
-2. Calling the decorated experiment with plain Python arguments rebuilds its
-   structural graph. `Input[T]` arguments are runtime values; invocation
-   `.bind(...)` and `.unbind(...)` only edit those values.
-3. Invocation `.grid(...)` and `.points(...)` replace the domain.
-   `.with_axis(...)` and `.without_axis(...)` edit only a grid;
-   `.with_repeat(count, mode=...)` and `.with_traversal(...)` edit their
-   independent policies. `.reset_points()` discards the whole invocation
-   point-plan override. Explicit points always use their row order, so replacing
-   a snake grid with `.points(...)` restores forward traversal.
-4. A repeat count greater than one adds the canonical `repeat` coordinate.
-   `mode="point"` keeps repeats of one base point adjacent; `mode="sweep"`
-   keeps complete sweeps adjacent. `traversal="snake"` changes only physical
-   product-grid execution order. Logical point ids, dataset point indices, and
-   durable measurement rows stay in canonical order.
+Logical resource ports describe the interfaces and entities required by a
+reusable definition. The accepted configuration maps those requirements onto a
+finite catalog of physical endpoints. This keeps experiment definitions
+independent of instrument names and channels while making every physical
+selection deterministic and reviewable.
 
-Use explicit point rows for correlated, sparse, filtered, duplicated, or
-deterministically shuffled work. Use a staged experiment when the next point
-depends on an earlier measurement. There is no second filtering, randomization,
-or adaptive-loop DSL hidden inside a point plan.
+Product declaration, production, and recording remain distinct:
 
-Logical resource ports and interface requirements form the reusable boundary
-between a module and the physical configuration selected for a run. Authoring
-never names an instrument or channel. It may select logical entities from
-accepted inputs, parameters, or point coordinates; the accepted configuration
-alone owns their finite physical endpoint mapping.
+1. A module or domain call declares product identity, type, and shape.
+2. An acquisition or domain execution produces those products at an exact
+   effect position.
+3. The experiment chooses which products and values become dataset records.
 
-### Completion and failure state
+## Specialization and lowering
 
-`experiment.on_success(client, state)` declares a fixed state applied after
-the experiment's effects and point coverage complete without failure,
-indeterminate outcome, or interruption. It is a normal-completion operation,
-not an unconditional cleanup hook; final dataset sealing and the durable
-terminal commit may still occur afterward.
+Point composition remains symbolic through verification. Specialization binds
+accepted inputs and configuration values, applies point-plan edits and parameter
+overlays, folds pure computation, removes undemanded work, and leaves a residual
+host/domain program. External reads, writes, acquisitions, and invocations occur
+only while interpreting `RunProgram`.
 
-The runtime state names describe different facts. `observed_state` is the
-initial readback after exclusive acquisition; `prepared_state` is the baseline
-after run-start policy. Authored `on_success` state is then applied only after
-coverage succeeds. Each accepted instrument then applies its configured
-`success_action`: `release` leaves that successful state in place, while
-`restore_prepared_state` restores the writable portion of its prepared baseline.
-Runtime `final_state` is terminal readback evidence gathered after that action
-and before release. It is not an authored target, does not prove the run
-succeeded, and may be empty or incomplete when restoration or terminal readback
-fails.
+Linking materializes one canonical ordered point sequence. Host lowering,
+parameter overlays, entity selection, and domain projection all consume those
+same rows. The current eager representation is tracked by the
+[scalability benchmarks](scalability-benchmarks.md); its stable semantic promise
+is that physical partitioning does not change logical point identity or results.
 
-The successful order is therefore authored `on_success`, configured success
-action, terminal readback, and release. A rejected prepared-state restoration
-turns the run into a failure and enters the configured abort/safe-state path. An
-unknown restoration outcome is indeterminate and quarantines the affected
-hardware just like any other unknown hardware effect.
+One `ExperimentSystem` owns one domain compiler. The compiler may internally
+route supported dialects or invoke a lower-level target compiler after resolving
+inputs. Planning interacts with it through one `compile_batch` boundary and
+receives prepared executions containing the closed target artifact, exact
+point/product mapping, physical authority, and runtime invocation.
 
-Failure cleanup belongs at the layer that can still command the hardware:
+Planning forms stable regions from adjacent points with equal, statically known
+host desired state. It reconciles that state at the region anchor and presents
+the region to the compiler for partitioning. A physical state change,
+invocation, acquisition, or payload-backed write creates a point boundary.
+Pure host computation creates no hardware boundary.
 
-- the instrument driver owns `abort()` and is the only cleanup attempted after
-  an unknown hardware outcome;
-- accepted instrument configuration may select `abort_then_safe_state` to add
-  a sparse safe state after abort while the device remains commandable;
-- the current domain runtime ABI exposes only `submit` and `fetch`, not a
-  core-driven terminate hook. An operator cancellation can stop before or after
-  a domain job, but it cannot interrupt that job in the middle. A target that
-  requires active termination must contain it inside its runtime contract;
-  otherwise Scopecat cannot promise domain cleanup. A generic domain
-  terminate/progress ABI remains deferred until a concrete asynchronous target
-  demonstrates the contract it needs.
+Consequential stages retain author order. All batches created for one domain
+stage remain contiguous, so target capacity may split a batch without allowing
+a later host state change to move between its pieces. Hardware that must vary
+synchronously inside each target point belongs to the compiler/runtime
+contract; stable peripheral state may remain a host effect around the region.
 
-Operator cancellation is a durable control-plane request, not an authored
-cleanup callback. Queued runs close immediately; leased runs observe the request
-through executor heartbeats and stop at the next operation, hardware-batch,
-coverage, or normal-completion boundary. Known cancellation still enters the
-configured abort/safe-state path. If that finalization is unknown, the run is
-cancelled with indeterminate certainty and its resources remain quarantined.
-The durable request and terminal commit are serialized: a request that wins the
-race converts only a pending successful intent to cancelled, while an actual
-failed or indeterminate intent keeps its stronger evidence.
+Program inputs configure runtime semantics. Compiler inputs configure lowering.
+Both resolve from the same accepted snapshot and point overlays before the
+compiler is called.
 
-Authoring deliberately exposes no arbitrary Python `finally` callback or
-promised-always state. Workflows that require stronger cleanup must first move
-that intent to daemon ownership before the first hardware effect.
+## Physical authority and shared state
 
-Product declaration, acquisition, and recording are distinct:
+Admission claims the exact registered instruments named by residual host
+effects and prepared domain executions. Each instrument is leased once for the
+run and provisioned through one worker-owned driver session. Host and domain
+stages may therefore use different properties of the same instrument in their
+declared order.
 
-1. A module or native domain call declares the identity and shape of products
-   it can make.
-2. An acquisition places instrument realization at an exact effect position
-   and names one logical port, one versioned interface, one acquisition, and
-   its result ids.
-3. An experiment selects products and values that become records.
+The scheduler owns instrument-level exclusion. Routing retains more precise
+interface, entity, channel, component, and property addresses as command and
+provenance data. It does not turn those addresses into a hierarchical lease
+system.
 
-Products created by domain execution or pure transforms retain those explicit
-producers and do not create instrument acquisitions. Provider acquisition
-result resolution never searches globally for a coincidentally unique result
-id.
+Each prepared domain execution declares:
 
-A domain program owns opaque dialect data with typed inputs and result products.
-Scopecat owns the surrounding identities, typed bindings, effect order, and
-result correlation; the accepted system configuration owns the domain target's
-physical footprint. Experiments own invocation policy: input defaults, point
-plans, durable record selection, labels, and metadata.
+- the instruments it may execute against;
+- exact setup and realtime property write footprints;
+- exact host-provided property values required before realtime execution; and
+- properties whose previous state evidence it invalidates.
 
-After a target acknowledges submission, an exception while fetching does not
-establish whether the asynchronous job is still active, completed, or otherwise
-changed; the run is therefore indeterminate. A structured provider `not_found`
-receipt is known evidence, while a provider `unknown` receipt remains
-indeterminate.
+Planning rejects host and domain writers that claim the same property address.
+Disjoint properties on one instrument are ordinary. Requirements are checked
+against preceding host coverage and reconciled after setup immediately before
+realtime execution. Invalidation removes knowledge without granting write
+authority or asserting a replacement value.
 
-## Semantic Invariants
+Physical coupling is expressed where it is known. A device or lab adapter may
+expand a named policy into concrete requirements and invalidations for coupled
+properties. This lets a target invalidate a guard offset or crosstalk-sensitive
+neighbor without claiming permission to choose its value. The core operates on
+the resulting property addresses rather than a generic crosstalk graph.
 
-- A run uses an accepted request and an identifiable configuration snapshot.
-- One `ExperimentSystem` owns one domain compiler; routing among supported
-  domain programs and physical targets is internal to that compiler.
-- Logical entity selection may vary by point; physical endpoint ownership may
-  vary only through the finite mapping in that snapshot.
-- Every physical selection is deterministic and retained in execution
-  provenance; provider failure never triggers implicit failover.
+A target authority is the realtime execution island. External signal-chain
+devices such as LOs may remain ordinary host-controlled instruments. Lab
+lowering can read their reviewed setpoints to derive signed IF values without
+granting the target runtime permission to program them. Common experiments
+reconcile stable LO state around a domain segment; specialized LO-sweep
+experiments author the explicit host schedule.
+
+Physical routing is a pure projection of the accepted snapshot. Point-local
+entity selection may choose among its configured routes, while live
+availability and provider failure never select a replacement route. Path-changing
+devices such as switches and probers are explicit effects, so their state is
+part of the reproducible plan.
+
+## Completion, failure, and evidence
+
+Execution records intent before each consequential external invocation.
+Effects have three semantic outcomes:
+
+- **completed**: validated evidence proves the effect completed;
+- **rejected**: evidence proves the effect did not occur; and
+- **unknown**: hardware may have changed without correlated completion.
+
+Unknown effects stop dependent execution and are never silently retried. Stable
+operation identities provide correlation and duplicate detection; they do not
+authorize retrying an unknown write. A synchronous domain receipt refines this
+boundary with `completed`, `not_executed`, and `unknown`; its exact evidence
+requirements live on `DomainExecutionReceipt`.
+
+`experiment.on_success(...)` is an authored state transition after complete
+point coverage. Instrument configuration then applies its success action and
+collects terminal readback before release. Failure and known cancellation abort
+the instrument and may apply its configured safe-state patch while it remains
+commandable. The `InstrumentSpec` docstring owns the precise lifecycle order.
+
+Operator cancellation is durable daemon control. Queued work can stop
+immediately; executing work observes cancellation at effect and coverage
+boundaries. The current synchronous domain ABI can stop before or after a target
+call but cannot interrupt it in the middle. Cancellation, terminal commit, and
+resource quarantine are described in the [lab daemon model](lab-daemon.md).
+
+Instrument state snapshots, command intents, and receipts are durable run
+evidence. They become dataset columns only when the experiment explicitly
+records a scientifically meaningful value. Output enable, for example, is
+ordinary requested state and may itself be varied by an experiment.
+
+Host acquisitions and domain executions feed one logical measurement stream.
+Every physical result maps completely to logical points and product-use
+identities before entering that stream. Durable evidence is the source of truth
+for final run status and operator reconciliation.
+
+## Semantic invariants
+
+- A run uses one accepted request and identifiable configuration snapshot.
 - Logical point identity and coordinates are independent of physical batching.
-- Point parameter overrides agree across host and domain placement.
-- Pure computation may be folded, shared, hoisted, or placed on a domain target
-  without changing its value.
-- Consequential effects retain declared order. State, acquisitions, and domain
-  jobs cannot be moved across an observable ordering boundary.
-- Domain jobs remain inside barriers created by varying inputs, conflicting
-  resources, and observable effects.
-- Legal host/domain lowering and legal physical partitioning produce the same
-  demanded logical products.
-- Every physical result maps completely and unambiguously to logical points and
-  product-use identities.
-- Intent is recorded before consequential external invocation.
-- An unknown effect outcome is never silently retried.
-- Check, preview, and run specialize the same accepted semantics; check and
-  preview perform no provider effects.
-- Abort, disconnect, and terminal outcome derivation remain explicit.
+- Host and domain placement observe the same inputs and parameter overlays.
+- Pure computation may be folded, shared, hoisted, or placed on a target without
+  changing its value.
+- Consequential effect stages retain their declared order.
+- Stable state may reconcile once per region; observable or varying effects
+  remain boundaries.
+- Legal lowering and physical partitioning produce the same demanded products.
+- Every physical selection is deterministic and retained in provenance.
+- Every physical result maps unambiguously to logical point and product-use
+  identities.
+- Prepared target write authority is exact and does not expand from read-only
+  dependencies or invalidations.
+- Intent is durable before consequential invocation.
+- Unknown hardware effects are never silently retried.
+- Provider failure never triggers implicit route failover.
+- Abort, disconnection, quarantine, and terminal outcome remain explicit.
 
-Tests should assert these laws instead of transient compiler fields, cache
+Tests should assert these laws rather than transient compiler fields, cache
 behavior, or incidental batch counts.
-
-## Symbolic Specialization
-
-Point composition remains symbolic through verification and specialization.
-Linking materializes one ordered point sequence; host lowering, parameter
-overlays, entity selection, and domain projection consume those same point rows.
-This eager representation is the current implementation. The stable contract is
-one canonical, ordered logical domain whose point identities and results remain
-independent of physical partitioning. The
-[scalability benchmarks](scalability-benchmarks.md) track its operating envelope.
-
-Partial evaluation binds accepted inputs and configuration values, applies the
-invocation's point-plan override, folds pure subgraphs, removes undemanded work,
-and leaves residual host and domain computation. It is pure: reads, state
-mutation, acquisitions, low-level driver actions, and other external effects
-execute only from a `RunProgram`. Any concrete fallback is bounded by an
-explicit materialization limit.
-
-A parameter overlay is one specialization path: `parameter_lookup` selects a
-cell from the accepted snapshot, and `axis(..., overlay=lookup)` supplies its
-point-local value. Host and domain placement observe the same overlaid value.
-
-Activating an approved proposal selects a new immutable snapshot for later
-specialization; it does not introduce another compiler or configuration path.
-
-## Domain Lowering
-
-An experiment definition is independent of the `ExperimentSystem` that runs
-it. The accepted system configuration statically selects one domain target and
-its complete physical footprint. Planning verifies the configured compiler's
-target identity once, and the run claims that footprint once. The compiler
-participates through one `compile_batch` boundary. Planning first partitions
-the logical point space by the compiler's declared capacity, then resolves all
-program and compiler inputs for each execution-ordered bounded batch.
-`compile_batch` closes
-the target artifact, exact point/product mapping, runtime invocation, and
-result realization into one prepared execution.
-
-A domain program has two typed input namespaces. Program inputs are part of
-its runtime semantics. Compiler inputs configure lowering itself. Both are
-resolved from the same snapshot-plus-overlay parameter model before the domain
-compiler is called. This lets experiments vary compiler parameter collections
-by point without disguising them as a small set of program arguments or
-injecting mutable compiler state.
-
-A domain compiler may call a lower-level target compiler after inputs have been
-resolved and a program has been lowered to target IR. That is an internal
-lowering stage, not another compiler selected on the `ExperimentSystem`.
-
-## Effects and Physical Resources
-
-Provider instruments are provisioned for the run. Physical binding is a pure
-projection of the accepted snapshot: it does not inspect live availability,
-choose by load or cost, or fail over after execution starts. A point-local
-entity coordinate may select different configured endpoints, but it cannot
-construct a new physical route.
-
-Desired state may be split by static entity ownership so different instruments
-maintain explicit values for their devices. A single low-level action or
-acquisition is one driver invocation and is never implicitly broadcast across
-instruments. Each concrete effect carries only the endpoint bindings for its
-own explicit interface.
-
-Switch matrices, patch panels, valves, probers, and similar path-changing
-devices are explicit desired-state or domain effects. Selecting replacement
-hardware requires another accepted configuration and plan so the physical
-choice stays reproducible.
-
-The current planner materializes every coverage block before admission, then
-derives one flat run-level claim set from the concrete effects. The claim set
-contains the configured domain target and its independently addressable
-instrument members, plus each instrument actually used by residual host
-operations. Target-private endpoints are
-connections owned exclusively by the target backend; they are not advertised as
-instruments and are covered by the target claim. The target claim uses a stable
-configuration-owned exclusivity key rather than the logical target id, and
-admission authorizes the complete member binding before resolving that key.
-This lets a composite target mix shared lab instruments with hardware that has
-no meaningful standalone contract without inventing an operator-facing device
-API. The flat claim set is leased once across provider provisioning and the
-whole effect program. Channel and topology-group bindings remain exact command
-data; the scheduler does not pretend they form a hierarchical lease model.
-Compatibility that depends on values or simultaneous hardware operation
-belongs to the provider or domain compiler.
-
-## Execution, Outcomes, and Measurements
-
-Execution consumes bounded coverage once, records intent before invoking an
-external effect, and may commit completed measurement prefixes at checkpoints.
-Consequential effects distinguish:
-
-- **completed**: the effect occurred and returned validated evidence;
-- **rejected**: it is known not to have occurred; and
-- **unknown**: it may have occurred.
-
-Unknown outcomes stop dependent execution because automatic retry could repeat
-an external effect. Abort and actor connection retirement remain explicit
-lifecycle steps.
-
-Host collection and domain execution produce one logical measurement stream.
-Physical chunks and target locations do not alter result identity. One physical
-result may feed multiple uses of the same product, conflicting values for one
-use are rejected, and exact demanded coverage is verified before results enter
-the canonical stream. Durable evidence, rather than UI events or metrics, is
-the source of truth for operator reconciliation and final run status.

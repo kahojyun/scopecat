@@ -5,13 +5,13 @@ from collections.abc import Callable
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from scopecat.execution.ports.instruments import RunHardwareInvoke
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.sdk.instruments.commands import (
     InstrumentOperationArgument,
     InvokeCommand,
 )
+from scopecat.sdk.instruments.execution import RunHardwareInvoke
 
 type _ConcretePayloadFactory = Callable[
     [tuple[InstrumentOperationArgument, ...], dict[str, CommandPayload]],

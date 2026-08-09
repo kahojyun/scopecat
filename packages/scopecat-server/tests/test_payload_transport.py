@@ -22,12 +22,6 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionCommand,
     RunSubmission,
 )
-from scopecat.execution.ports.instruments import (
-    RunHardwareBatch,
-    RunHardwareCollect,
-    RunHardwareCollectBinding,
-    RunHardwareInvoke,
-)
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
@@ -48,6 +42,12 @@ from scopecat.sdk.instruments.commands import (
     CollectResultRequest,
     InstrumentOperationArgument,
     InvokeCommand,
+)
+from scopecat.sdk.instruments.execution import (
+    RunHardwareBatch,
+    RunHardwareCollect,
+    RunHardwareCollectBinding,
+    RunHardwareInvoke,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
@@ -1007,7 +1007,7 @@ def _invalid_contract_action(
             bindings=(
                 RunHardwareCollectBinding(
                     request_id="signal",
-                    product_use_ids=("preflight-invalid-collect.signal",),
+                    value_ids=("preflight-invalid-collect.signal",),
                 ),
             ),
         )

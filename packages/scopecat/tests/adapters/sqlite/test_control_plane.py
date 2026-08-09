@@ -26,7 +26,6 @@ from scopecat.control.models import (
     ResourceClaim,
     ResourceKey,
     RunAdmissionRecord,
-    RunDomainTargetRequirement,
     RunPlanSummary,
     RunResourceRequirement,
 )
@@ -68,20 +67,6 @@ def _admission(
     *resources: ResourceKey,
     admitted_at: datetime = NOW,
 ) -> RunAdmissionRecord:
-    target_ids = tuple(
-        resource.id for resource in resources if resource.kind == "target"
-    )
-    domain_target_requirement = (
-        None
-        if not target_ids
-        else RunDomainTargetRequirement(
-            id=target_ids[0],
-            kind="tests.target",
-            instrument_ids=tuple(
-                resource.id for resource in resources if resource.kind == "instrument"
-            ),
-        )
-    )
     return RunAdmissionRecord(
         submission_id=f"submission:{run_id}",
         submission_content_hash=SUBMISSION_HASH,
@@ -90,7 +75,6 @@ def _admission(
             experiment_id=f"scratch:{run_id}",
             experiment_kind="scratch",
             point_count=3,
-            domain_target_requirement=domain_target_requirement,
             run_resource_requirements=tuple(
                 RunResourceRequirement(kind=resource.kind, id=resource.id)
                 for resource in resources
@@ -295,7 +279,7 @@ def test_executor_resources_and_scheduler_close_commit_together(
         _admission(
             "run-1",
             ResourceKey(kind="instrument", id="scope"),
-            ResourceKey(kind="target", id="controller"),
+            ResourceKey(kind="instrument", id="controller"),
         ),
     )
     executor = _start(
@@ -372,11 +356,11 @@ def test_resource_claims_are_all_or_none(tmp_path: Path) -> None:
     shared = ResourceKey(kind="instrument", id="scope")
     _admit(
         store,
-        _admission("run-a", shared, ResourceKey(kind="target", id="a")),
+        _admission("run-a", shared, ResourceKey(kind="instrument", id="a")),
     )
     _admit(
         store,
-        _admission("run-b", shared, ResourceKey(kind="target", id="b")),
+        _admission("run-b", shared, ResourceKey(kind="instrument", id="b")),
     )
     _start(
         store,

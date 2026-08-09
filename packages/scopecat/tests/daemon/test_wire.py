@@ -37,6 +37,7 @@ from scopecat.daemon.wire import (
     ConfigUndoCommand,
     DirectConfigRevisionSource,
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorLease,
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentConfiguredDefaultsApplyReceipt,
@@ -50,7 +51,6 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionReceipt,
     RunSubmission,
 )
-from scopecat.execution.ports.instruments import RunHardwareApply, RunHardwareBatch
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
@@ -72,6 +72,7 @@ from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import InstrumentDescription
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
+from scopecat.sdk.instruments.execution import RunHardwareApply, RunHardwareBatch
 from tests.testkit.workflow_fixtures import load_config
 
 
@@ -91,7 +92,7 @@ def _transition(
         sequence=sequence,
         run_id=run_id,
         operation_id="op-1",
-        stage="domain_fetch",
+        stage="domain_execute",
         effect="read",
         state="completed",
     )
@@ -362,10 +363,7 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
                 kind="tests.controller",
                 instrument_ids=(),
             ),
-            run_resource_requirements=(
-                RunResourceRequirement(id="scope-1"),
-                RunResourceRequirement(id="controller-1", kind="target"),
-            ),
+            run_resource_requirements=(RunResourceRequirement(id="scope-1"),),
         ),
     )
     restored = RunSubmission.model_validate_json(submission.model_dump_json())
@@ -399,40 +397,20 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    "requirements",
-    [
-        (),
-        (RunResourceRequirement(id="source-0"),),
-    ],
-)
-def test_domain_target_summary_requires_its_target_claim(
-    requirements: tuple[RunResourceRequirement, ...],
-) -> None:
-    with pytest.raises(ValidationError, match="exactly one target"):
-        RunPlanSummary(
-            experiment_id="domain",
-            experiment_kind="domain",
-            point_count=1,
-            domain_target_requirement=RunDomainTargetRequirement(
-                id="tests.domain.target",
-                kind="tests.domain",
-                instrument_ids=("source-0",),
-            ),
-            run_resource_requirements=requirements,
-        )
+def test_domain_target_summary_uses_only_its_instrument_footprint() -> None:
+    summary = RunPlanSummary(
+        experiment_id="domain",
+        experiment_kind="domain",
+        point_count=1,
+        domain_target_requirement=RunDomainTargetRequirement(
+            id="tests.domain.target",
+            kind="tests.domain",
+            instrument_ids=("source-0",),
+        ),
+        run_resource_requirements=(RunResourceRequirement(id="source-0"),),
+    )
 
-
-def test_target_claim_requires_structured_domain_requirement() -> None:
-    with pytest.raises(ValidationError, match="require a domain target"):
-        RunPlanSummary(
-            experiment_id="domain",
-            experiment_kind="domain",
-            point_count=1,
-            run_resource_requirements=(
-                RunResourceRequirement(id="tests.domain.target", kind="target"),
-            ),
-        )
+    assert summary.run_resource_requirements == (RunResourceRequirement(id="source-0"),)
 
 
 def test_domain_target_summary_requires_its_complete_instrument_footprint() -> None:
@@ -446,9 +424,7 @@ def test_domain_target_summary_requires_its_complete_instrument_footprint() -> N
                 kind="tests.domain",
                 instrument_ids=("source-0",),
             ),
-            run_resource_requirements=(
-                RunResourceRequirement(id="tests.domain.target", kind="target"),
-            ),
+            run_resource_requirements=(),
         )
 
 
@@ -476,18 +452,18 @@ def test_executor_lease_is_expiring_and_fenced() -> None:
         )
 
 
-def test_transition_append_keeps_sequence_daemon_owned() -> None:
-    command = ExecutionTransitionAppend(
-        lease_id="lease-1",
-        transition=_transition(),
-    )
+@pytest.mark.parametrize(
+    "command_type",
+    [ExecutionTransitionAppend, ExecutionTransitionClaim],
+)
+def test_transition_commands_keep_sequence_daemon_owned(
+    command_type: type[ExecutionTransitionAppend | ExecutionTransitionClaim],
+) -> None:
+    command = command_type(lease_id="lease-1", transition=_transition())
 
-    assert (
-        ExecutionTransitionAppend.model_validate_json(command.model_dump_json())
-        == command
-    )
+    assert command_type.model_validate_json(command.model_dump_json()) == command
     with pytest.raises(ValidationError, match="daemon-assigned"):
-        ExecutionTransitionAppend(
+        command_type(
             lease_id="lease-1",
             transition=_transition(sequence=1),
         )
@@ -584,7 +560,7 @@ def test_run_instrument_provision_state_evidence_matches_instrument_order() -> N
         status="ready",
         instrument_ids=("source-a", "source-b"),
         observed_state=(source_a, source_b),
-        prepared_state=(source_a, source_b),
+        baseline_state=(source_a, source_b),
     )
 
     assert (
@@ -598,16 +574,16 @@ def test_run_instrument_provision_state_evidence_matches_instrument_order() -> N
             status="ready",
             instrument_ids=("source-a", "source-b"),
             observed_state=(source_b, source_a),
-            prepared_state=(source_a, source_b),
+            baseline_state=(source_a, source_b),
         )
-    with pytest.raises(ValidationError, match="prepared state must match"):
+    with pytest.raises(ValidationError, match="baseline state must match"):
         RunInstrumentProvisionReceipt(
             run_id="run-1",
             operation_id="lifecycle.provide-instruments",
             status="ready",
             instrument_ids=("source-a", "source-b"),
             observed_state=(source_a, source_b),
-            prepared_state=(source_b, source_a),
+            baseline_state=(source_b, source_a),
         )
 
 
@@ -628,7 +604,7 @@ def test_rejected_run_instrument_provision_has_no_state_evidence() -> None:
     )
 
     assert receipt.observed_state == ()
-    assert receipt.prepared_state == ()
+    assert receipt.baseline_state == ()
     with pytest.raises(ValidationError, match="cannot expose state evidence"):
         RunInstrumentProvisionReceipt(
             run_id="run-1",

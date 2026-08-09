@@ -13,6 +13,7 @@ from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.execution import daemon_execution_session
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementAppendCommand,
@@ -25,12 +26,6 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionReceipt,
     RunSubmission,
     TerminalRunCommitCommand,
-)
-from scopecat.execution.ports.instruments import (
-    RunHardwareApply,
-    RunHardwareBatch,
-    RunHardwareBatchReceipt,
-    RunHardwareFinalizationReceipt,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
@@ -59,6 +54,12 @@ from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
+from scopecat.sdk.instruments.execution import (
+    RunHardwareApply,
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
+)
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
@@ -93,7 +94,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     )
     started_manifest = admission.manifest
     fences: list[tuple[str, str]] = []
-    transition_commands: list[ExecutionTransitionAppend] = []
+    transition_commands: list[ExecutionTransitionAppend | ExecutionTransitionClaim] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
     hardware_operation_ids: list[str] = []
 
@@ -113,7 +114,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
                     status="ready",
                     instrument_ids=("source-0",),
                     observed_state=(InstrumentStateSnapshot(instrument_id="source-0"),),
-                    prepared_state=(InstrumentStateSnapshot(instrument_id="source-0"),),
+                    baseline_state=(InstrumentStateSnapshot(instrument_id="source-0"),),
                 )
             )
         if path.endswith("/hardware/execute"):
@@ -132,6 +133,11 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
                     operation_id=command.operation_id,
                 )
             )
+        if path.endswith("/transitions/claim"):
+            command = ExecutionTransitionClaim.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            transition_commands.append(command)
+            return _model(committed_transition)
         if path.endswith("/transitions"):
             command = ExecutionTransitionAppend.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
@@ -179,7 +185,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     assert instruments.observed_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
-    assert instruments.prepared_state == (
+    assert instruments.baseline_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
 
@@ -207,6 +213,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
         == "hardware.finish"
     )
 
+    assert journal.claim(transition) == committed_transition
     assert journal.append(transition) == committed_transition
     assert (
         journal.append(
@@ -216,7 +223,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
         )
         == committed_transition
     )
-    assert len(transition_commands) == 2
+    assert len(transition_commands) == 3
     assert {
         execution_transition_content_hash(command.transition)
         for command in transition_commands
@@ -388,7 +395,7 @@ def _transition() -> ExecutionTransition:
     return ExecutionTransition(
         run_id="run-1",
         operation_id="operation-1",
-        stage="domain_fetch",
+        stage="domain_execute",
         effect="read",
         state="completed",
     )

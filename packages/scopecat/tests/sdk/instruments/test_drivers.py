@@ -49,8 +49,10 @@ from scopecat.sdk.instruments import (
     component,
     enum_property,
     float_property,
+    instrument_component,
     int_property,
     interface,
+    interface_mount,
     operation,
     operation_argument,
     quantity_property,
@@ -76,6 +78,7 @@ from scopecat.sdk.instruments.commands import (
 )
 from scopecat.sdk.instruments.contracts import (
     evaluate_acquisition_readiness,
+    project_instrument_invoke_state,
     project_instrument_state,
     resolve_acquisition_dimensions,
     resolve_interactive_collect,
@@ -183,6 +186,107 @@ def test_property_spec_has_stable_scalar_wire_format(
     assert compact == expected
     assert restored == property_spec
     assert restored_from_json == property_spec
+
+
+def test_operation_contract_declares_state_knowledge_invalidations() -> None:
+    output = InterfaceRef("test.output/v1")
+    offset = output.property("offset")
+    reset = operation("reset", invalidates=(offset,))
+
+    assert reset.invalidates == [
+        StatePropertyRef(
+            interface_id=output.interface_id,
+            property_id=offset.property_id,
+        )
+    ]
+    description = InstrumentDescription(
+        instrument_id="source",
+        implementation_id="test.source",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                output.interface_id,
+                properties=(quantity_property(offset.property_id, unit="V"),),
+                operations=(reset,),
+            )
+        ],
+    )
+    assert description.interfaces[0].operations[0].invalidates == reset.invalidates
+
+
+def test_invoke_state_projection_forgets_only_declared_invalidations() -> None:
+    output = InterfaceRef("test.output/v1")
+    offset = output.property("offset")
+    enabled = output.property("enabled")
+    description = InstrumentDescription(
+        instrument_id="source",
+        implementation_id="test.source",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                output.interface_id,
+                properties=(
+                    quantity_property(offset.property_id, unit="V"),
+                    bool_property(enabled.property_id),
+                ),
+                operations=(operation("reset", invalidates=(offset,)),),
+            )
+        ],
+    )
+    baseline = InstrumentStateSnapshot(
+        instrument_id="source",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id=output.interface_id,
+                property_id=offset.property_id,
+                value=StateValue(Quantity(0.1, "V")),
+            ),
+            RecordInstrumentPropertyState(
+                interface_id=output.interface_id,
+                property_id=enabled.property_id,
+                value=StateValue(True),
+            ),
+        ],
+    )
+
+    projected = project_instrument_invoke_state(
+        baseline,
+        InvokeCommand(
+            command_id="reset-output",
+            instrument_id="source",
+            resource_id="source",
+            interface_id=output.interface_id,
+            operation_id="reset",
+        ),
+        description=description,
+    )
+
+    assert [item.property_id for item in projected.properties] == ["enabled"]
+
+
+def test_operation_invalidation_must_reference_declared_state() -> None:
+    output = InterfaceRef("test.output/v1")
+
+    with pytest.raises(
+        ValidationError,
+        match="invalidation must reference a declared property",
+    ):
+        InstrumentDescription(
+            instrument_id="source",
+            implementation_id="test.source",
+            implementation_version="v1",
+            interfaces=[
+                interface(
+                    output.interface_id,
+                    operations=(
+                        operation(
+                            "reset",
+                            invalidates=(output.property("missing"),),
+                        ),
+                    ),
+                )
+            ],
+        )
 
 
 def test_property_spec_wire_schema_matches_supported_state_values() -> None:
@@ -1359,6 +1463,7 @@ def test_state_command_accepts_same_property_on_distinct_routed_channels() -> No
                 {
                     "resource_id": "source-0",
                     "interface_id": "test.dc/v1",
+                    "component_path": ["channels", channel_id],
                     "property_id": "output_enabled",
                     "value": False,
                     "entity_ids": [entity_id],
@@ -1488,6 +1593,234 @@ def test_state_snapshot_requires_every_static_observable_scope() -> None:
             description=description,
         )
     ] == ["instrument_driver_snapshot_write_only_property"]
+
+
+def test_interface_mounts_separate_capability_contract_from_physical_paths() -> None:
+    description = InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.mounted_state",
+        implementation_version="v1",
+        components=[
+            instrument_component(
+                "channels",
+                components=[
+                    instrument_component("ch1"),
+                    instrument_component("ch2"),
+                ],
+            )
+        ],
+        interfaces=[
+            interface(
+                "test.control/v1",
+                properties=[float_property("gain")],
+            )
+        ],
+        interface_mounts=[
+            interface_mount("test.control/v1", "channels", "ch1"),
+            interface_mount("test.control/v1", "channels", "ch2"),
+        ],
+    )
+    command = InstrumentStateCommand(
+        command_id="mounted-state",
+        instrument_id="source-0",
+        assignments=[
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id="test.control/v1",
+                component_path=["channels", "ch1"],
+                property_id="gain",
+                value=StateValue(1.0),
+            )
+        ],
+    )
+
+    assert validate_state_command(command=command, description=description) == []
+    root_command = command.model_copy(deep=True)
+    root_command.assignments[0].component_path = []
+    assert [
+        problem.code
+        for problem in validate_state_command(
+            command=root_command,
+            description=description,
+        )
+    ] == ["instrument_driver_unsupported_component"]
+
+    complete = InstrumentStateSnapshot(
+        instrument_id="source-0",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id="test.control/v1",
+                component_path=["channels", channel_id],
+                property_id="gain",
+                value=StateValue(1.0),
+            )
+            for channel_id in ("ch1", "ch2")
+        ],
+    )
+    assert validate_state_snapshot(snapshot=complete, description=description) == []
+
+
+def test_interface_mounts_require_distinct_declared_physical_components() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="mount references unknown instrument component 'channels/ch2'",
+    ):
+        InstrumentDescription(
+            instrument_id="source-0",
+            implementation_id="tests.missing_mount_component",
+            implementation_version="v1",
+            components=[
+                instrument_component(
+                    "channels",
+                    components=[instrument_component("ch1")],
+                )
+            ],
+            interfaces=[interface("test.control/v1")],
+            interface_mounts=[interface_mount("test.control/v1", "channels", "ch2")],
+        )
+
+    with pytest.raises(ValidationError, match="mounts must not overlap"):
+        InstrumentDescription(
+            instrument_id="source-0",
+            implementation_id="tests.overlapping_mounts",
+            implementation_version="v1",
+            components=[
+                instrument_component(
+                    "channels",
+                    components=[
+                        instrument_component(
+                            "ch1",
+                            components=[instrument_component("nested")],
+                        )
+                    ],
+                )
+            ],
+            interfaces=[interface("test.control/v1")],
+            interface_mounts=[
+                interface_mount("test.control/v1", "channels", "ch1"),
+                interface_mount(
+                    "test.control/v1",
+                    "channels",
+                    "ch1",
+                    "nested",
+                ),
+            ],
+        )
+
+
+def test_mounted_acquisition_references_state_on_the_same_physical_component() -> None:
+    control = InterfaceRef("test.control/v1")
+    description = InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.mounted_acquisition",
+        implementation_version="v1",
+        components=[
+            instrument_component(
+                "channels",
+                components=[
+                    instrument_component("ch1"),
+                    instrument_component("ch2"),
+                ],
+            )
+        ],
+        interfaces=[
+            interface(
+                control.interface_id,
+                properties=[
+                    bool_property("enabled"),
+                    int_property("points", minimum=1),
+                ],
+            ),
+            interface(
+                "test.monitor/v1",
+                acquisitions=[
+                    acquisition(
+                        "sample",
+                        preconditions=[
+                            acquisition_precondition(
+                                control.property("enabled"),
+                                value=True,
+                                unavailable_reason="Channel is disabled.",
+                            )
+                        ],
+                        results=[
+                            acquisition_result(
+                                "trace",
+                                axes=[
+                                    acquisition_axis(
+                                        "sample",
+                                        size=control.property("points"),
+                                    )
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            ),
+        ],
+        interface_mounts=[
+            interface_mount(interface_id, "channels", channel_id)
+            for interface_id in ("test.control/v1", "test.monitor/v1")
+            for channel_id in ("ch1", "ch2")
+        ],
+    )
+    state = InstrumentStateSnapshot(
+        instrument_id="source-0",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id="test.control/v1",
+                component_path=["channels", channel_id],
+                property_id=property_id,
+                value=StateValue(value),
+            )
+            for channel_id, enabled, points in (
+                ("ch1", False, 2),
+                ("ch2", True, 5),
+            )
+            for property_id, value in (
+                ("enabled", enabled),
+                ("points", points),
+            )
+        ],
+    )
+
+    selected = resolve_interactive_collect(
+        intent=InteractiveCollectIntent(
+            command_id="mounted-collect",
+            instrument_id="source-0",
+            interface_id="test.monitor/v1",
+            component_path=["channels", "ch2"],
+            acquisition_id="sample",
+        ),
+        description=description,
+        state=state,
+    )
+    blocked = resolve_interactive_collect(
+        intent=InteractiveCollectIntent(
+            command_id="mounted-collect-blocked",
+            instrument_id="source-0",
+            interface_id="test.monitor/v1",
+            component_path=["channels", "ch1"],
+            acquisition_id="sample",
+        ),
+        description=description,
+        state=state,
+    )
+
+    assert isinstance(selected, ResolvedInteractiveCollect)
+    assert selected.command.requests[0].dimensions[0].size == 5
+    assert isinstance(blocked, RejectedInteractiveCollect)
+    assert [problem.code for problem in blocked.problems] == [
+        "instrument_driver_acquisition_precondition_not_met"
+    ]
+    [related] = blocked.problems[0].related_locations
+    assert isinstance(related, ModelLocation)
+    assert related.path == (
+        "test.control/v1",
+        "channels",
+        "ch1",
+        "enabled",
+    )
 
 
 def test_state_snapshot_requires_declared_quantity_units() -> None:

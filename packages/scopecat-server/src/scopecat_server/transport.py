@@ -50,6 +50,7 @@ from scopecat.daemon.wire import (
     ConfigPublishReceipt,
     ConfigUndoCommand,
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -78,10 +79,6 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
-from scopecat.execution.ports.instruments import (
-    RunHardwareBatchReceipt,
-    RunHardwareFinalizationReceipt,
-)
 from scopecat.measurements.datasets import MAX_MEASUREMENT_PAGE_SIZE
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import RunContentEntry
@@ -103,6 +100,10 @@ from scopecat.sdk.instruments.commands import (
     InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
+)
+from scopecat.sdk.instruments.execution import (
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
 )
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -597,6 +598,14 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ExecutionTransition:
         _require_run_id(run_id, command.transition.run_id)
         return application.executor.append_transition(run_id, command)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/transitions/claim")
+    def claim_transition(
+        run_id: str,
+        command: ExecutionTransitionClaim,
+    ) -> ExecutionTransition:
+        _require_run_id(run_id, command.transition.run_id)
+        return application.executor.claim_transition(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/header")
     def initialize_measurements(
