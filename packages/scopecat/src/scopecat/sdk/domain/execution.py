@@ -32,9 +32,16 @@ class PreparedDomainExecution:
 
     The type-erased runtime fields form an existential adapter boundary: an
     adapter constructs all three from one concrete address/payload/result type
-    family, while core never inspects those domain-owned values.
+    family, while core only inspects the exact physical instrument footprint.
     """
 
+    instrument_ids: tuple[str, ...]
     invocation: ErasedDomainInvocation = field(repr=False)
     runtime: ErasedDomainRuntime = field(repr=False, compare=False)
     realize: ErasedDomainRealizer = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if any(not instrument_id for instrument_id in self.instrument_ids):
+            raise ValueError("prepared domain instrument ids must be non-empty")
+        if len(self.instrument_ids) != len(set(self.instrument_ids)):
+            raise ValueError("prepared domain instrument ids must be unique")

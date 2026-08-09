@@ -43,8 +43,11 @@ channel_map_summary = {
         for entity_id in ("q0", "q1", "q2", "q3")
     },
     "acquisition": {
-        endpoint.entity_id: endpoint.channel_id
-        for role_id, _instrument_id, endpoint in quantum_routes
+        endpoint.entity_id: {
+            "adc": (instrument_id, tuple(endpoint.component_path)),
+            "demodulator": endpoint.channel_id,
+        }
+        for role_id, instrument_id, endpoint in quantum_routes
         if role_id == "readout-acquisition"
         and endpoint.interface_id == "reference_lab.digitizer_input/v1"
     },

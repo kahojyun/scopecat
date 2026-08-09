@@ -16,6 +16,7 @@ from scopecat.measurements.values import (
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.runtime import (
+    DomainInstrumentExecutor,
     fetch_domain_invocation,
     plan_domain_submission,
     submit_domain_invocation,
@@ -31,6 +32,7 @@ def execute_domain_job_values(
     *,
     logical_compute_node_id: str,
     run_id: str,
+    instruments: DomainInstrumentExecutor,
     journal: ExecutionJournal,
 ) -> tuple[MeasurementValueCandidate, ...]:
     """Execute one closed domain job and return canonical logical candidates."""
@@ -46,6 +48,7 @@ def execute_domain_job_values(
         runtime,
         invocation,
         submission_id,
+        instruments=instruments,
         journal=journal,
     )
     fetched = fetch_domain_invocation(

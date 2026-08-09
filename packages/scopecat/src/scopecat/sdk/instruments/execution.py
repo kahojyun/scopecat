@@ -1,4 +1,4 @@
-"""Daemon-owned hardware batches available to one admitted run."""
+"""Run-scoped instrument programs available to admitted execution adapters."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class RunHardwareApply(_HardwareModel):
 class RunHardwareInvoke(_HardwareModel):
     kind: Literal["invoke"] = "invoke"
     effect_id: str = Field(min_length=1)
-    point_index: int = Field(ge=0)
+    point_index: int | None = Field(default=None, ge=0)
     instrument_id: str = Field(min_length=1)
     resource_id: str = Field(min_length=1)
     interface_id: InterfaceId
@@ -78,13 +78,13 @@ class RunHardwareInvoke(_HardwareModel):
 
 class RunHardwareCollectBinding(_HardwareModel):
     request_id: str = Field(min_length=1)
-    product_use_ids: tuple[str, ...] = Field(min_length=1)
+    value_ids: tuple[str, ...] = Field(min_length=1)
 
 
 class RunHardwareCollect(_HardwareModel):
     kind: Literal["collect"] = "collect"
     effect_id: str = Field(min_length=1)
-    point_index: int = Field(ge=0)
+    point_index: int | None = Field(default=None, ge=0)
     instrument_id: str = Field(min_length=1)
     point_count: int = Field(ge=1)
     requests: tuple[CollectResultRequest, ...] = Field(min_length=1)
@@ -125,8 +125,8 @@ class RunHardwareBatch(_HardwareModel):
 
 
 class RunHardwareValue(_HardwareModel):
-    point_index: int = Field(ge=0)
-    product_use_id: str = Field(min_length=1)
+    point_index: int | None = Field(default=None, ge=0)
+    value_id: str = Field(min_length=1)
     value: MeasurementValue
     evidence: InstrumentAcquisitionEvidence
 

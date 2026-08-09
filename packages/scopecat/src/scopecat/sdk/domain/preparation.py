@@ -89,6 +89,7 @@ class DomainPreparationBuilder:
     ](
         self,
         *,
+        instrument_ids: Sequence[str],
         mapping: DomainResultMapping[ResultAddressT],
         invocation: DomainInvocationSpec[PayloadT],
         runtime: DomainRuntime[PayloadT, ResultT],
@@ -110,6 +111,7 @@ class DomainPreparationBuilder:
             capability_fingerprint=invocation.capability_fingerprint,
             artifact_id=invocation.artifact_id,
             artifact_fingerprint=invocation.artifact_fingerprint,
+            execution_summary=invocation.execution_summary,
             target_intent=invocation.target_intent,
             payload=invocation.payload,
         )
@@ -127,6 +129,7 @@ class DomainPreparationBuilder:
             )
 
         return PreparedDomainExecution(
+            instrument_ids=tuple(sorted(instrument_ids)),
             invocation=cast("ErasedDomainInvocation", native_invocation),
             runtime=cast("ErasedDomainRuntime", runtime),
             realize=cast("ErasedDomainRealizer", close_realized_values),

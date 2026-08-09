@@ -1342,76 +1342,35 @@ export interface components {
         };
         /**
          * DomainTargetBinding
-         * @description One composite target instance and its complete physical membership.
+         * @description One composite target and the instruments it is authorized to coordinate.
          */
         "DomainTargetBinding-Input": {
-            /** Exclusivity Key */
-            exclusivity_key: string;
+            /** Configuration */
+            configuration?: {
+                [key: string]: components["schemas"]["JsonValue-Input"];
+            };
             /** Id */
             id: string;
+            /** Instrument Ids */
+            instrument_ids?: string[];
             /** Kind */
             kind: string;
-            /** Members */
-            members?: components["schemas"]["DomainTargetMember-Input"][];
         };
         /**
          * DomainTargetBinding
-         * @description One composite target instance and its complete physical membership.
+         * @description One composite target and the instruments it is authorized to coordinate.
          */
         "DomainTargetBinding-Output": {
-            /** Exclusivity Key */
-            exclusivity_key: string;
+            /** Configuration */
+            configuration?: {
+                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+            };
             /** Id */
             id: string;
+            /** Instrument Ids */
+            instrument_ids?: string[];
             /** Kind */
             kind: string;
-            /** Members */
-            members?: components["schemas"]["DomainTargetMember-Output"][];
-        };
-        /**
-         * DomainTargetInstrumentMember
-         * @description One independently addressable instrument coordinated by a domain target.
-         */
-        DomainTargetInstrumentMember: {
-            /** Instrument Id */
-            instrument_id: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "instrument";
-            /** Role */
-            role: string;
-        };
-        "DomainTargetMember-Input": components["schemas"]["DomainTargetInstrumentMember"] | components["schemas"]["DomainTargetPrivateEndpoint-Input"];
-        "DomainTargetMember-Output": components["schemas"]["DomainTargetInstrumentMember"] | components["schemas"]["DomainTargetPrivateEndpoint-Output"];
-        /**
-         * DomainTargetPrivateEndpoint
-         * @description One target-owned connection with no standalone instrument contract.
-         */
-        "DomainTargetPrivateEndpoint-Input": {
-            connection: components["schemas"]["InstrumentConnection-Input"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "private_endpoint";
-            /** Role */
-            role: string;
-        };
-        /**
-         * DomainTargetPrivateEndpoint
-         * @description One target-owned connection with no standalone instrument contract.
-         */
-        "DomainTargetPrivateEndpoint-Output": {
-            connection: components["schemas"]["InstrumentConnection-Output"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "private_endpoint";
-            /** Role */
-            role: string;
         };
         /** DriverCatalog */
         DriverCatalog: {
@@ -1590,6 +1549,19 @@ export interface components {
             id: string;
         };
         /**
+         * InstrumentComponentSpec
+         * @description One stable physical component in an instrument-owned topology.
+         */
+        InstrumentComponentSpec: {
+            /** Components */
+            components?: components["schemas"]["InstrumentComponentSpec"][];
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+        };
+        /**
          * InstrumentConfiguredDefaultsApplyCommand
          * @description Reconcile one session instrument with its pinned configured defaults.
          */
@@ -1621,6 +1593,8 @@ export interface components {
         InstrumentConnectionSummary: components["schemas"]["VirtualInstrumentConnectionSummary"] | components["schemas"]["TcpipSocketInstrumentConnectionSummary"];
         /** InstrumentDescription */
         InstrumentDescription: {
+            /** Components */
+            components?: components["schemas"]["InstrumentComponentSpec"][];
             /** Description */
             description?: string | null;
             /** Implementation Id */
@@ -1629,6 +1603,8 @@ export interface components {
             implementation_version: string;
             /** Instrument Id */
             instrument_id: string;
+            /** Interface Mounts */
+            interface_mounts?: components["schemas"]["InterfaceMountSpec"][];
             /** Interfaces */
             interfaces?: components["schemas"]["InterfaceSpec"][];
             /** Label */
@@ -1745,13 +1721,18 @@ export interface components {
         };
         /**
          * InstrumentSessionOpenCommand
-         * @description Acquire and synchronize instruments against the active config.
+         * @description Acquire configured instruments plus optional session-only bindings.
          */
         InstrumentSessionOpenCommand: {
             actor: components["schemas"]["NonEmptyText"];
             /** Instrument Ids */
             instrument_ids: components["schemas"]["NonEmptyText"][];
             operation_id: components["schemas"]["NonEmptyText"];
+            /**
+             * Temporary Bindings
+             * @default []
+             */
+            temporary_bindings: components["schemas"]["InstrumentBindingSpec"][];
         };
         /**
          * InstrumentSessionOpenReceipt
@@ -1906,6 +1887,15 @@ export interface components {
             result_ids?: components["schemas"]["_NonEmptyId"][];
         };
         InterfaceId: string;
+        /**
+         * InterfaceMountSpec
+         * @description One physical path where an instrument implements an interface contract.
+         */
+        InterfaceMountSpec: {
+            /** Component Path */
+            component_path: components["schemas"]["_NonEmptyId"][];
+            interface_id: components["schemas"]["InterfaceId"];
+        };
         /**
          * InterfaceSpec
          * @description Versioned behavior contract implemented by an instrument endpoint.
@@ -2602,8 +2592,8 @@ export interface components {
             kind: "replace_parameter";
             value: components["schemas"]["StoredParameterValue-Input"];
         };
-        /** @enum {string} */
-        ResourceKind: "target" | "instrument";
+        /** @constant */
+        ResourceKind: "instrument";
         /** @enum {string} */
         ResourceOwnerKind: "run" | "instrument_session";
         /**

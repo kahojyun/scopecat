@@ -71,7 +71,7 @@ def test_xy_drive_composes_shared_awg_state_and_real_dac_operations() -> None:
         and isinstance(effect.operation, ApplyStateOperation)
     }
 
-    lo = operations["xy-lo"]
+    lo = operations["drive-lo-a"]
     assert {target.property_id for target in lo.targets} == {
         "frequency",
         "power",

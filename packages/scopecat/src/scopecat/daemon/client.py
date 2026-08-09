@@ -74,11 +74,6 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
-from scopecat.execution.ports.instruments import (
-    RunHardwareBatchReceipt,
-    RunHardwareFinalizationReceipt,
-    RunHardwareInvoke,
-)
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import (
@@ -106,6 +101,11 @@ from scopecat.sdk.instruments.commands import (
     InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
+)
+from scopecat.sdk.instruments.execution import (
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
+    RunHardwareInvoke,
 )
 
 _API_PREFIX = "/api/v1"

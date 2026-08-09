@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import ProviderContractError
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductUse,
@@ -69,6 +70,7 @@ class DomainInvocationIntent(BaseModel):
     artifact_fingerprint: str
     result_contract_fingerprint: str
     target_intent_fingerprint: str
+    execution_summary: dict[str, JsonValue]
     intent_fingerprint: str
 
     @field_validator(
@@ -100,6 +102,7 @@ class DomainInvocationIntent(BaseModel):
             artifact_fingerprint=self.artifact_fingerprint,
             result_contract_fingerprint=self.result_contract_fingerprint,
             target_intent_fingerprint=self.target_intent_fingerprint,
+            execution_summary=self.execution_summary,
         )
         if self.intent_fingerprint != expected:
             msg = "domain invocation fingerprint does not cover its complete intent"
@@ -144,6 +147,7 @@ def close_domain_invocation[
     capability_fingerprint: str,
     artifact_id: str,
     artifact_fingerprint: str,
+    execution_summary: Mapping[str, JsonValue],
     target_intent: object,
     payload: PayloadT,
 ) -> ClosedDomainInvocation[ResultAddressT, PayloadT]:
@@ -167,6 +171,7 @@ def close_domain_invocation[
         artifact_fingerprint=artifact_fingerprint,
         result_contract_fingerprint=result_contract_fingerprint,
         target_intent_fingerprint=target_intent_fingerprint,
+        execution_summary=execution_summary,
     )
     intent = DomainInvocationIntent(
         invocation_id=invocation_id,
@@ -177,6 +182,7 @@ def close_domain_invocation[
         artifact_fingerprint=artifact_fingerprint,
         result_contract_fingerprint=result_contract_fingerprint,
         target_intent_fingerprint=target_intent_fingerprint,
+        execution_summary=dict(execution_summary),
         intent_fingerprint=intent_fingerprint,
     )
     return ClosedDomainInvocation(
@@ -315,10 +321,11 @@ def _domain_invocation_intent_fingerprint(
     artifact_fingerprint: str,
     result_contract_fingerprint: str,
     target_intent_fingerprint: str,
+    execution_summary: Mapping[str, JsonValue],
 ) -> str:
     return stable_content_hash(
         {
-            "schema": "scopecat.sdk.domain.invocation_intent_identity.v1",
+            "schema": "scopecat.sdk.domain.invocation_intent_identity.v2",
             "invocation_id": invocation_id,
             "target_id": target_id,
             "compiler_id": compiler_id,
@@ -327,6 +334,7 @@ def _domain_invocation_intent_fingerprint(
             "artifact_fingerprint": artifact_fingerprint,
             "result_contract_fingerprint": result_contract_fingerprint,
             "target_intent_fingerprint": target_intent_fingerprint,
+            "execution_summary": execution_summary,
         }
     )
 

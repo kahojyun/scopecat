@@ -183,6 +183,7 @@ id.
 A domain program owns opaque dialect data with typed inputs and result products.
 Scopecat owns the surrounding identities, typed bindings, effect order, and
 result correlation; the accepted system configuration owns the domain target's
+physical authority boundary. The prepared target execution owns its exact
 physical footprint. Experiments own invocation policy: input defaults, point
 plans, durable record selection, labels, and metadata.
 
@@ -250,14 +251,23 @@ specialization; it does not introduce another compiler or configuration path.
 
 An experiment definition is independent of the `ExperimentSystem` that runs
 it. The accepted system configuration statically selects one domain target and
-its complete physical footprint. Planning verifies the configured compiler's
-target identity once, and the run claims that footprint once. The compiler
+the instruments it is authorized to coordinate. Planning verifies the
+configured compiler's target identity once, unions the exact footprints
+declared by its prepared batches, and claims that run footprint once. The compiler
 participates through one `compile_batch` boundary. Planning first partitions
 the logical point space by the compiler's declared capacity, then resolves all
 program and compiler inputs for each execution-ordered bounded batch.
 `compile_batch` closes
 the target artifact, exact point/product mapping, runtime invocation, and
 result realization into one prepared execution.
+
+After admission, independently addressable target members are provisioned on
+the same run host as ordinary instrument effects. `submit` receives a narrow
+run-scoped instrument executor: a target runtime can lower its opaque artifact
+to typed hardware batches, but it never receives drivers, connection handles,
+or authority over instruments outside the accepted footprint. This is the
+device-program boundary for composite targets; a process-local simulator is a
+test adapter, not a second hardware path.
 
 A domain program has two typed input namespaces. Program inputs are part of
 its runtime semantics. Compiler inputs configure lowering itself. Both are
@@ -272,7 +282,8 @@ lowering stage, not another compiler selected on the `ExperimentSystem`.
 
 ## Effects and Physical Resources
 
-Provider instruments are provisioned for the run. Physical binding is a pure
+Provider instruments used by host effects or domain targets are provisioned for
+the run. Physical binding is a pure
 projection of the accepted snapshot: it does not inspect live availability,
 choose by load or cost, or fail over after execution starts. A point-local
 entity coordinate may select different configured endpoints, but it cannot
@@ -291,18 +302,16 @@ choice stays reproducible.
 
 The current planner materializes every coverage block before admission, then
 derives one flat run-level claim set from the concrete effects. The claim set
-contains the configured domain target and its independently addressable
-instrument members, plus each instrument actually used by residual host
-operations. Target-private endpoints are
-connections owned exclusively by the target backend; they are not advertised as
-instruments and are covered by the target claim. The target claim uses a stable
-configuration-owned exclusivity key rather than the logical target id, and
-admission authorizes the complete member binding before resolving that key.
-This lets a composite target mix shared lab instruments with hardware that has
-no meaningful standalone contract without inventing an operator-facing device
-API. The flat claim set is leased once across provider provisioning and the
-whole effect program. Channel and topology-group bindings remain exact command
-data; the scheduler does not pretend they form a hierarchical lease model.
+contains every instrument named by a prepared domain execution, plus each
+instrument actually used by residual host operations.
+Every target member is a registered instrument with the same typed driver
+boundary available to direct control. The target identity authorizes and
+matches the configured authority, but it is not a second schedulable resource:
+claiming the exact run footprint already provides the required exclusion. The
+flat instrument claim set is leased once across provider
+provisioning and the whole effect program. Channel and topology-group bindings
+remain exact command data; the scheduler does not pretend they form a
+hierarchical lease model.
 Compatibility that depends on values or simultaneous hardware operation
 belongs to the provider or domain compiler.
 
@@ -319,6 +328,14 @@ Consequential effects distinguish:
 Unknown outcomes stop dependent execution because automatic retry could repeat
 an external effect. Abort and actor connection retirement remain explicit
 lifecycle steps.
+
+Instrument state snapshots, command intent, and receipts are durable run
+evidence, not implicit dataset columns. The dataset contains only values chosen
+by the experiment's explicit `record(...)` projection. This distinction keeps
+routine setup and readback available for diagnosis without flooding the
+scientific table. A scientifically meaningful device state can still be
+acquired and recorded explicitly. In particular, output-enabled state is not a
+universal contract: an experiment may deliberately vary it as a control.
 
 Host collection and domain execution produce one logical measurement stream.
 Physical chunks and target locations do not alter result identity. One physical

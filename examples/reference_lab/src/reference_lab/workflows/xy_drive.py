@@ -89,6 +89,7 @@ class XYDriveGroup:
             context,
             "xy_drive.lo",
             (RF_OUTPUT,),
+            role="drive-lo",
         )
         awg_interfaces = (
             AWG_SEQUENCER,

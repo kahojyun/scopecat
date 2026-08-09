@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Hashable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import Literal, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 from pydantic import (
     BaseModel,
@@ -44,6 +44,12 @@ from scopecat.sdk.runtime_problems import (
     problem_from_exception,
     runtime_problem,
 )
+
+if TYPE_CHECKING:
+    from scopecat.sdk.instruments.execution import (
+        RunHardwareBatch,
+        RunHardwareBatchReceipt,
+    )
 
 
 class DomainSubmissionId(BaseModel):
@@ -176,6 +182,18 @@ class DomainFetchResult[ResultT]:
             raise ValueError("domain results require fetched receipt evidence")
 
 
+class DomainInstrumentExecutor(Protocol):
+    """Run-scoped access to the instruments already reserved for a target.
+
+    Domain runtimes receive this narrow port only while executing an admitted
+    invocation. It keeps drivers and ownership handles inside the daemon while
+    allowing a target adapter to submit typed, process-safe device programs to
+    the same instrument worker used by ordinary experiment operations.
+    """
+
+    def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt: ...
+
+
 class DomainRuntime[PayloadT, ResultT](Protocol):
     """Synchronous target ABI with receipt-only negative fetch outcomes."""
 
@@ -184,6 +202,8 @@ class DomainRuntime[PayloadT, ResultT](Protocol):
         submission_key: str,
         payload: PayloadT,
         /,
+        *,
+        instruments: DomainInstrumentExecutor,
     ) -> DomainSubmitReceipt: ...
 
     def fetch(
@@ -221,6 +241,7 @@ def submit_domain_invocation[
     invocation: ClosedDomainInvocation[ResultAddressT, PayloadT],
     submission_id: DomainSubmissionId,
     *,
+    instruments: DomainInstrumentExecutor,
     journal: ExecutionJournal,
 ) -> str:
     intent = invocation.intent
@@ -239,6 +260,7 @@ def submit_domain_invocation[
         receipt = runtime.submit(
             submission_id.submission_key,
             invocation.payload,
+            instruments=instruments,
         )
     except Exception as error:
         problem = problem_from_exception(
@@ -645,6 +667,7 @@ def _provider_problem(
 __all__ = [
     "DomainFetchReceipt",
     "DomainFetchResult",
+    "DomainInstrumentExecutor",
     "DomainRuntime",
     "DomainSubmissionId",
     "DomainSubmitReceipt",

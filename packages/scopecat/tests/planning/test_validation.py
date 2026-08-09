@@ -23,59 +23,32 @@ def test_valid_example_has_no_problems() -> None:
     assert not bool(problems)
 
 
-def test_domain_target_exclusivity_key_is_required_and_non_empty() -> None:
-    config_data = load_config().model_dump(mode="json")
-    target = config_data["system"]["domain_target"]
-    del target["exclusivity_key"]
-
-    with pytest.raises(ValidationError, match="exclusivity_key"):
-        ConfigProfileSnapshot.model_validate(config_data)
-
-    target["exclusivity_key"] = ""
-    with pytest.raises(ValidationError, match="exclusivity_key"):
-        ConfigProfileSnapshot.model_validate(config_data)
-
-
 def test_domain_target_instruments_must_be_registered() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["domain_target"]["members"] = [
-        {
-            "kind": "instrument",
-            "role": "missing",
-            "instrument_id": "missing",
-        }
-    ]
+    config_data["system"]["domain_target"]["instrument_ids"] = ["missing"]
 
     with pytest.raises(
         ValidationError,
-        match="unknown domain target instrument member",
+        match="unknown domain target instrument",
     ):
         ConfigProfileSnapshot.model_validate(config_data)
 
 
 def test_domain_target_instruments_must_be_unique() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["domain_target"]["members"] = [
-        {
-            "kind": "instrument",
-            "role": "source",
-            "instrument_id": "source-0",
-        },
-        {
-            "kind": "instrument",
-            "role": "source-alias",
-            "instrument_id": "source-0",
-        },
+    config_data["system"]["domain_target"]["instrument_ids"] = [
+        "source-0",
+        "source-0",
     ]
 
     with pytest.raises(
         ValidationError,
-        match="instrument members must be unique",
+        match="instrument ids must be unique",
     ):
         ConfigProfileSnapshot.model_validate(config_data)
 
 
-def test_domain_target_member_roles_must_be_unique() -> None:
+def test_domain_target_rejects_legacy_member_roles() -> None:
     config_data = load_config().model_dump(mode="json")
     config_data["system"]["domain_target"]["members"] = [
         {
@@ -84,47 +57,10 @@ def test_domain_target_member_roles_must_be_unique() -> None:
             "instrument_id": "source-0",
         },
         {
-            "kind": "private_endpoint",
+            "kind": "instrument",
             "role": "drive",
-            "connection": {"kind": "virtual"},
+            "instrument_id": "source-0",
         },
-    ]
-
-    with pytest.raises(ValidationError, match="member roles must be unique"):
-        ConfigProfileSnapshot.model_validate(config_data)
-
-
-def test_domain_target_private_endpoint_is_not_an_instrument_member() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["domain_target"]["members"] = [
-        {
-            "kind": "private_endpoint",
-            "role": "controller",
-            "connection": {
-                "kind": "tcpip_socket",
-                "host": "controller.test",
-                "port": 9000,
-            },
-        }
-    ]
-
-    config = ConfigProfileSnapshot.model_validate(config_data)
-    target = config.domain_target
-    assert target is not None
-    assert target.instrument_ids == ()
-    assert tuple(endpoint.role for endpoint in target.private_endpoints) == (
-        "controller",
-    )
-
-
-def test_domain_target_members_reject_unknown_kinds() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["domain_target"]["members"] = [
-        {
-            "kind": "address",
-            "role": "controller",
-            "connection": {"kind": "virtual"},
-        }
     ]
 
     with pytest.raises(ValidationError):

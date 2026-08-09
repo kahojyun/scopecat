@@ -26,12 +26,6 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
-from scopecat.execution.ports.instruments import (
-    RunHardwareApply,
-    RunHardwareBatch,
-    RunHardwareBatchReceipt,
-    RunHardwareFinalizationReceipt,
-)
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
@@ -59,6 +53,12 @@ from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
+from scopecat.sdk.instruments.execution import (
+    RunHardwareApply,
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
+)
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)

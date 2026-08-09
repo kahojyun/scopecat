@@ -35,6 +35,7 @@ class ConfiguredQuantumRoute:
     entity_id: str
     entity_kind: str
     channel_id: str
+    component_path: tuple[str, ...]
 
     @property
     def endpoint_id(self) -> str:
@@ -76,6 +77,7 @@ def configured_quantum_routes(
                     entity_id=endpoint.entity_id,
                     entity_kind=entity.kind,
                     channel_id=endpoint.channel_id,
+                    component_path=tuple(endpoint.component_path),
                 )
             )
     if not routes:

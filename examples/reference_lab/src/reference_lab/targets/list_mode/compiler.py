@@ -40,18 +40,26 @@ from scopecat_quantum.targets import (
     TargetCompileRequest,
 )
 
-from reference_lab.targets.fake_list_mode.model import (
-    FakeAcquisitionWindow,
-    FakeAwgChannelId,
-    FakeChannelWaveform,
-    FakeDigitizerChannelId,
-    FakeListArtifact,
-    FakeListEntry,
-    FakeListTarget,
-    FakeOutputBinding,
-    FakeOutputSignal,
+from reference_lab.targets.list_mode.iq_semantics import (
+    INTEGRATED_IQ_SEMANTICS_ID,
+)
+from reference_lab.targets.list_mode.model import (
+    AcquisitionIntent,
+    AwgChannelId,
+    AwgChannelWaveform,
+    DemodulatorSlotId,
+    DeviceAcquisitionLowering,
+    DigitizerAcquisitionWindow,
+    IqOutputBinding,
+    ListModeArtifact,
+    ListModeEntry,
+    ListModePreparation,
+    ListModeTarget,
+    OutputSignal,
+    TargetAcquisitionLowering,
     acquisition_slot_identity_payload,
     canonical_fingerprint,
+    preparation_payload,
     pulse_event_identity_payload,
     signal_key,
 )
@@ -59,7 +67,7 @@ from reference_lab.targets.fake_list_mode.model import (
 
 @dataclass(frozen=True, slots=True)
 class _PlaySpan:
-    binding: FakeOutputBinding
+    binding: IqOutputBinding
     start_sample: int
     samples: tuple[complex, ...]
 
@@ -74,10 +82,10 @@ class _EntryPlan:
     source: TargetCompileEntry
     sample_count: int
     plays: tuple[_PlaySpan, ...]
-    acquisitions: tuple[FakeAcquisitionWindow, ...]
+    acquisitions: tuple[DigitizerAcquisitionWindow, ...]
 
     @property
-    def waveform_channels(self) -> tuple[FakeAwgChannelId, ...]:
+    def waveform_channels(self) -> tuple[AwgChannelId, ...]:
         return tuple(
             sorted(
                 {
@@ -90,13 +98,13 @@ class _EntryPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class FakeListTargetCompiler:
-    """Compile canonical pulse schedules into finite fake-hardware list payloads."""
+class ListModeTargetCompiler:
+    """Compile canonical pulse schedules into finite physical list payloads."""
 
     id: TargetCompilerId
-    target: FakeListTarget
+    target: ListModeTarget
 
-    def compile(self, request: TargetCompileRequest) -> FakeListArtifact:
+    def compile(self, request: TargetCompileRequest) -> ListModeArtifact:
         """Compile one checked finite request without performing hardware effects."""
 
         issues: list[TargetCompilationIssue] = []
@@ -104,7 +112,7 @@ class FakeListTargetCompiler:
             _issue(
                 issues,
                 dimension=TargetCompilationIssueDimension.CAPABILITY,
-                code="fake_list_entry_limit_exceeded",
+                code="list_mode_entry_limit_exceeded",
                 message=(
                     f"request has {len(request.entries)} list entries; target limit is "
                     f"{self.target.max_list_entries}"
@@ -114,7 +122,7 @@ class FakeListTargetCompiler:
             _issue(
                 issues,
                 dimension=TargetCompilationIssueDimension.CAPABILITY,
-                code="fake_list_repetition_limit_exceeded",
+                code="list_mode_repetition_limit_exceeded",
                 message=(
                     f"request has {request.repetitions} repetitions; target limit is "
                     f"{self.target.max_repetitions}"
@@ -137,24 +145,28 @@ class FakeListTargetCompiler:
             raise TargetCompilationError(tuple(issues))
 
         entries = tuple(self._render_entry(plan) for plan in plans)
+        preparation = _project_preparation(self.target, entries)
         artifact_fingerprint = canonical_fingerprint(
             _artifact_payload(
                 compiler_id=self.id,
                 target=self.target,
                 request=request,
+                preparation=preparation,
                 entries=entries,
             )
         )
         digest = artifact_fingerprint.removeprefix("sha256:")
-        return FakeListArtifact(
-            id=TargetArtifactId(f"fake-list-artifact-{digest}"),
+        return ListModeArtifact(
+            id=TargetArtifactId(f"list-mode-artifact-{digest}"),
             target_id=self.target.id,
             compiler_id=self.id,
             capability_fingerprint=self.target.capability_fingerprint,
+            configuration_fingerprint=self.target.configuration_fingerprint,
             artifact_fingerprint=artifact_fingerprint,
             source_entry_ids=tuple(entry.id for entry in request.entries),
             repetitions=request.repetitions,
             sample_rate_hz=self.target.sample_rate_hz,
+            preparation=preparation,
             entries=entries,
         )
 
@@ -171,7 +183,7 @@ class FakeListTargetCompiler:
             _entry_issue(
                 issues,
                 entry.id,
-                code="fake_list_program_duration_off_grid",
+                code="list_mode_program_duration_off_grid",
                 message=(
                     f"program {program.id.value!r} duration is not on the exact "
                     "target sample grid"
@@ -181,14 +193,14 @@ class FakeListTargetCompiler:
             _entry_issue(
                 issues,
                 entry.id,
-                code="fake_list_program_duration_nonpositive",
+                code="list_mode_program_duration_nonpositive",
                 message=f"program {program.id.value!r} has no positive sample span",
             )
         elif duration_samples > self.target.max_samples_per_entry:
             _entry_issue(
                 issues,
                 entry.id,
-                code="fake_list_samples_per_entry_limit_exceeded",
+                code="list_mode_samples_per_entry_limit_exceeded",
                 message=(
                     f"program {program.id.value!r} requires {duration_samples} "
                     f"samples; target entry limit is "
@@ -197,11 +209,9 @@ class FakeListTargetCompiler:
             )
 
         plays: list[_PlaySpan] = []
-        acquisitions: list[FakeAcquisitionWindow] = []
-        output_intervals: dict[FakeAwgChannelId, list[tuple[int, int, str]]] = {}
-        acquisition_intervals: dict[
-            FakeDigitizerChannelId, list[tuple[int, int, str]]
-        ] = {}
+        acquisitions: list[DigitizerAcquisitionWindow] = []
+        output_intervals: dict[AwgChannelId, list[tuple[int, int, str]]] = {}
+        acquisition_intervals: dict[DemodulatorSlotId, list[tuple[int, int, str]]] = {}
         for event in program.events:
             start_sample = _sample_index(event.start_seconds, self.target)
             duration_sample_count = _sample_index(
@@ -212,7 +222,7 @@ class FakeListTargetCompiler:
                 _entry_issue(
                     issues,
                     entry.id,
-                    code="fake_list_event_start_off_grid",
+                    code="list_mode_event_start_off_grid",
                     message=(
                         f"event {event.id.value!r} start is not on the exact target "
                         "sample grid"
@@ -222,7 +232,7 @@ class FakeListTargetCompiler:
                 _entry_issue(
                     issues,
                     entry.id,
-                    code="fake_list_event_duration_off_grid",
+                    code="list_mode_event_duration_off_grid",
                     message=(
                         f"event {event.id.value!r} duration is not on the exact "
                         "target sample grid"
@@ -242,12 +252,12 @@ class FakeListTargetCompiler:
                         issues=issues,
                     )
                 case Acquire():
-                    channel_id = self.target.acquisition_channel(instruction.signal)
-                    if channel_id is None:
+                    binding = self.target.acquisition_binding(instruction.signal)
+                    if binding is None:
                         _entry_issue(
                             issues,
                             entry.id,
-                            code="fake_list_acquisition_signal_unbound",
+                            code="list_mode_acquisition_signal_unbound",
                             message=(
                                 "acquisition signal "
                                 f"{_signal_label(instruction.signal)} "
@@ -255,28 +265,44 @@ class FakeListTargetCompiler:
                             ),
                         )
                     if (
-                        channel_id is not None
+                        binding is not None
                         and start_sample is not None
                         and duration_sample_count is not None
                         and duration_sample_count > 0
                     ):
                         _claim_interval(
                             intervals=acquisition_intervals,
-                            channel_id=channel_id,
+                            channel_id=binding.demodulator_slot_id,
                             start_sample=start_sample,
                             sample_count=duration_sample_count,
                             event_id=event.id.value,
                             entry_id=entry.id,
-                            overlap_code="fake_list_physical_acquisition_overlap",
-                            resource_label="digitizer channel",
+                            overlap_code="list_mode_physical_acquisition_overlap",
+                            resource_label="demodulator slot",
                             issues=issues,
                         )
                         acquisitions.append(
-                            FakeAcquisitionWindow(
+                            DigitizerAcquisitionWindow(
                                 event_id=event.id,
                                 slot_id=instruction.slot_id,
                                 signal=instruction.signal,
-                                channel_id=channel_id,
+                                input_id=binding.input_id,
+                                demodulator_slot_id=binding.demodulator_slot_id,
+                                intent=AcquisitionIntent(
+                                    semantics_id=INTEGRATED_IQ_SEMANTICS_ID,
+                                    output_representation="integrated_iq",
+                                    demodulation_frequency_hz=(
+                                        binding.demodulation_frequency_hz
+                                    ),
+                                    integration_weight="rectangular",
+                                    normalization="single_sideband_amplitude",
+                                ),
+                                lowering=(
+                                    TargetAcquisitionLowering()
+                                    if self.target.digitizer_result_representation
+                                    == "raw_trace"
+                                    else DeviceAcquisitionLowering()
+                                ),
                                 start_sample=start_sample,
                                 sample_count=duration_sample_count,
                             )
@@ -303,7 +329,7 @@ class FakeListTargetCompiler:
         instruction: Play,
         start_sample: int | None,
         sample_count: int | None,
-        intervals: dict[FakeAwgChannelId, list[tuple[int, int, str]]],
+        intervals: dict[AwgChannelId, list[tuple[int, int, str]]],
         plays: list[_PlaySpan],
         issues: list[TargetCompilationIssue],
     ) -> None:
@@ -319,7 +345,7 @@ class FakeListTargetCompiler:
             _entry_issue(
                 issues,
                 entry_id,
-                code="fake_list_output_signal_unbound",
+                code="list_mode_output_signal_unbound",
                 message=(f"output signal {_signal_label(signal)} has no AWG binding"),
             )
         if (
@@ -337,7 +363,7 @@ class FakeListTargetCompiler:
                     sample_count=sample_count,
                     event_id=event_id,
                     entry_id=entry_id,
-                    overlap_code="fake_list_physical_output_overlap",
+                    overlap_code="list_mode_physical_output_overlap",
                     resource_label="AWG channel",
                     issues=issues,
                 )
@@ -345,10 +371,10 @@ class FakeListTargetCompiler:
             _entry_capability_issue(
                 issues,
                 entry_id,
-                code="fake_list_amplitude_unit_unsupported",
+                code="list_mode_amplitude_unit_unsupported",
                 message=(
                     f"event {event_id!r} uses unsupported amplitude unit "
-                    f"{envelope.amplitude.unit!r}; fake list mode supports 'arb' "
+                    f"{envelope.amplitude.unit!r}; list-mode mode supports 'arb' "
                     "and 'ratio'"
                 ),
             )
@@ -360,13 +386,25 @@ class FakeListTargetCompiler:
             envelope,
             sample_count=sample_count,
             sample_rate_hz=self.target.sample_rate_hz,
+            start_sample=0 if start_sample is None else start_sample,
+            intermediate_frequency_hz=(
+                0.0 if binding is None else binding.intermediate_frequency_hz
+            ),
         )
-        peak_magnitude = max(abs(sample) for sample in samples)
+        peak_magnitude = max(
+            max(abs(i_sample), abs(q_sample))
+            for i_sample, q_sample in (
+                _physical_iq(binding, sample)
+                if binding is not None
+                else (sample.real, sample.imag)
+                for sample in samples
+            )
+        )
         if peak_magnitude > self.target.max_abs_amplitude:
             _entry_issue(
                 issues,
                 entry_id,
-                code="fake_list_amplitude_limit_exceeded",
+                code="list_mode_amplitude_limit_exceeded",
                 message=(
                     f"event {event_id!r} has sample magnitude "
                     f"{peak_magnitude!r}; target limit is "
@@ -384,7 +422,7 @@ class FakeListTargetCompiler:
         )
 
     @staticmethod
-    def _render_entry(plan: _EntryPlan) -> FakeListEntry:
+    def _render_entry(plan: _EntryPlan) -> ListModeEntry:
         buffers = {
             channel_id: [0.0] * plan.sample_count
             for channel_id in plan.waveform_channels
@@ -392,8 +430,14 @@ class FakeListTargetCompiler:
         for play in plan.plays:
             end_sample = play.start_sample + play.sample_count
             for channel_id, incoming_samples in (
-                (play.binding.i_channel_id, (sample.real for sample in play.samples)),
-                (play.binding.q_channel_id, (sample.imag for sample in play.samples)),
+                (
+                    play.binding.i_channel_id,
+                    (_physical_iq(play.binding, sample)[0] for sample in play.samples),
+                ),
+                (
+                    play.binding.q_channel_id,
+                    (_physical_iq(play.binding, sample)[1] for sample in play.samples),
+                ),
             ):
                 channel = buffers[channel_id]
                 channel[play.start_sample : end_sample] = (
@@ -404,13 +448,13 @@ class FakeListTargetCompiler:
                         strict=True,
                     )
                 )
-        return FakeListEntry(
+        return ListModeEntry(
             list_index=plan.list_index,
             entry_id=plan.source.id,
             program_id=plan.source.program.id,
             sample_count=plan.sample_count,
             waveforms=tuple(
-                FakeChannelWaveform(
+                AwgChannelWaveform(
                     channel_id=channel_id,
                     samples=tuple(samples),
                 )
@@ -420,7 +464,15 @@ class FakeListTargetCompiler:
         )
 
 
-def _sample_index(seconds: Decimal, target: FakeListTarget) -> int | None:
+def _physical_iq(binding: IqOutputBinding, sample: complex) -> tuple[float, float]:
+    mixer = binding.mixer
+    return (
+        mixer.ii * sample.real + mixer.iq * sample.imag,
+        mixer.qi * sample.real + mixer.qq * sample.imag,
+    )
+
+
+def _sample_index(seconds: Decimal, target: ListModeTarget) -> int | None:
     scaled = seconds * Decimal(target.sample_rate_hz)
     integral = scaled.to_integral_value()
     return int(integral) if scaled == integral else None
@@ -431,11 +483,25 @@ def _render_envelope_samples(
     *,
     sample_count: int,
     sample_rate_hz: int,
+    start_sample: int,
+    intermediate_frequency_hz: float,
 ) -> tuple[complex, ...]:
     amplitude = float(envelope.amplitude.value)
     phase_rotation = cmath.rect(1.0, float(envelope.phase.value))
+    carrier_samples = tuple(
+        cmath.rect(
+            1.0,
+            math.tau
+            * intermediate_frequency_hz
+            * (start_sample + sample_index + 0.5)
+            / sample_rate_hz,
+        )
+        for sample_index in range(sample_count)
+    )
     if isinstance(envelope, Constant):
-        return (phase_rotation * amplitude,) * sample_count
+        return tuple(
+            phase_rotation * amplitude * carrier for carrier in carrier_samples
+        )
 
     duration_seconds = float(envelope.duration.value)
     sigma_seconds = float(envelope.sigma.value)
@@ -443,6 +509,7 @@ def _render_envelope_samples(
     center_seconds = duration_seconds / 2.0
     return tuple(
         phase_rotation
+        * carrier_samples[sample_index]
         * _drag_sample(
             time_seconds=(sample_index + 0.5) / sample_rate_hz,
             center_seconds=center_seconds,
@@ -470,7 +537,7 @@ def _drag_sample(
     return complex(gaussian, beta_seconds * derivative)
 
 
-def _claim_interval[ChannelIdT: FakeAwgChannelId | FakeDigitizerChannelId](
+def _claim_interval[ChannelIdT: AwgChannelId | DemodulatorSlotId](
     *,
     intervals: dict[ChannelIdT, list[tuple[int, int, str]]],
     channel_id: ChannelIdT,
@@ -498,7 +565,7 @@ def _claim_interval[ChannelIdT: FakeAwgChannelId | FakeDigitizerChannelId](
     selected.append((start_sample, end_sample, event_id))
 
 
-def _signal_label(signal: FakeOutputSignal | AcquireSignal) -> str:
+def _signal_label(signal: OutputSignal | AcquireSignal) -> str:
     return "/".join(signal_key(signal))
 
 
@@ -542,8 +609,8 @@ def _unsupported_issue(
     _entry_capability_issue(
         issues,
         entry_id,
-        code="fake_list_operation_unsupported",
-        message=f"event {event_id!r} is unsupported by fake list mode",
+        code="list_mode_operation_unsupported",
+        message=f"event {event_id!r} is unsupported by list mode",
     )
 
 
@@ -565,22 +632,60 @@ def _issue(
     )
 
 
+def _project_preparation(
+    target: ListModeTarget,
+    entries: tuple[ListModeEntry, ...],
+) -> ListModePreparation:
+    """Select only shared device state needed by the rendered entries."""
+
+    channel_ids = {
+        waveform.channel_id for entry in entries for waveform in entry.waveforms
+    }
+    awg_instrument_ids = {channel_id.instrument_id for channel_id in channel_ids}
+    lo_group_ids = {
+        binding.lo_group_id
+        for binding in target.output_bindings
+        if channel_ids.intersection(binding.channel_ids)
+    }
+    return ListModePreparation(
+        clocks=tuple(
+            clock
+            for clock in target.preparation.clocks
+            if clock.instrument_id in awg_instrument_ids
+        ),
+        outputs=tuple(
+            output
+            for output in target.preparation.outputs
+            if output.channel_id in channel_ids
+        ),
+        local_oscillators=tuple(
+            oscillator
+            for oscillator in target.preparation.local_oscillators
+            if oscillator.group_id in lo_group_ids
+        ),
+        timing=target.preparation.timing,
+    )
+
+
 def _artifact_payload(
     *,
     compiler_id: TargetCompilerId,
-    target: FakeListTarget,
+    target: ListModeTarget,
     request: TargetCompileRequest,
-    entries: tuple[FakeListEntry, ...],
+    preparation: ListModePreparation,
+    entries: tuple[ListModeEntry, ...],
 ) -> dict[str, object]:
     return {
-        "schema": "reference_lab.fake_list_artifact.v2",
+        "schema": "reference_lab.list_mode_artifact.v4",
         "target": {
             "id": target.id.value,
             "capability_fingerprint": target.capability_fingerprint,
+            "configuration_fingerprint": target.configuration_fingerprint,
         },
         "compiler_id": compiler_id.value,
         "repetitions": request.repetitions,
         "source_entry_ids": [entry.id.value for entry in request.entries],
+        "preparation": preparation_payload(preparation),
         "entries": [
             {
                 "list_index": entry.list_index,
@@ -590,6 +695,8 @@ def _artifact_payload(
                 "waveforms": [
                     {
                         "channel_id": waveform.channel_id.value,
+                        "instrument_id": waveform.channel_id.instrument_id,
+                        "component_path": list(waveform.channel_id.component_path),
                         "samples": [float(sample).hex() for sample in waveform.samples],
                     }
                     for waveform in entry.waveforms
@@ -599,7 +706,27 @@ def _artifact_payload(
                         "event_id": pulse_event_identity_payload(window.event_id),
                         "slot_id": acquisition_slot_identity_payload(window.slot_id),
                         "signal": signal_key(window.signal),
-                        "channel_id": window.channel_id.value,
+                        "input_id": window.input_id.value,
+                        "instrument_id": window.input_id.instrument_id,
+                        "component_path": list(window.input_id.component_path),
+                        "demodulator_slot_id": window.demodulator_slot_id.value,
+                        "intent": {
+                            "semantics_id": window.intent.semantics_id,
+                            "output_representation": (
+                                window.intent.output_representation
+                            ),
+                            "demodulation_frequency_hz": float(
+                                window.intent.demodulation_frequency_hz
+                            ).hex(),
+                            "integration_weight": window.intent.integration_weight,
+                            "normalization": window.intent.normalization,
+                        },
+                        "lowering": {
+                            "execution": window.lowering.execution,
+                            "device_result_representation": (
+                                window.lowering.device_result_representation
+                            ),
+                        },
                         "start_sample": window.start_sample,
                         "sample_count": window.sample_count,
                     }
@@ -611,4 +738,4 @@ def _artifact_payload(
     }
 
 
-__all__ = ["FakeListTargetCompiler"]
+__all__ = ["ListModeTargetCompiler"]

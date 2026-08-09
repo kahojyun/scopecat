@@ -295,7 +295,7 @@ def test_executor_resources_and_scheduler_close_commit_together(
         _admission(
             "run-1",
             ResourceKey(kind="instrument", id="scope"),
-            ResourceKey(kind="target", id="controller"),
+            ResourceKey(kind="instrument", id="controller"),
         ),
     )
     executor = _start(
@@ -372,11 +372,11 @@ def test_resource_claims_are_all_or_none(tmp_path: Path) -> None:
     shared = ResourceKey(kind="instrument", id="scope")
     _admit(
         store,
-        _admission("run-a", shared, ResourceKey(kind="target", id="a")),
+        _admission("run-a", shared, ResourceKey(kind="instrument", id="a")),
     )
     _admit(
         store,
-        _admission("run-b", shared, ResourceKey(kind="target", id="b")),
+        _admission("run-b", shared, ResourceKey(kind="instrument", id="b")),
     )
     _start(
         store,

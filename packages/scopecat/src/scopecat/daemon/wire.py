@@ -27,7 +27,6 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
 )
 from scopecat.control.models import RunPlanSummary
-from scopecat.execution.ports.instruments import RunHardwareBatch
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
@@ -60,6 +59,7 @@ from scopecat.records.run import (
 )
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import InstrumentDescription
+from scopecat.sdk.instruments.execution import RunHardwareBatch
 
 type NonEmptyText = Annotated[str, Field(min_length=1)]
 
@@ -534,11 +534,12 @@ class InstrumentDriverProbeReceipt(_WireModel):
 
 
 class InstrumentSessionOpenCommand(_WireModel):
-    """Acquire and synchronize instruments against the active config."""
+    """Acquire configured instruments plus optional session-only bindings."""
 
     operation_id: NonEmptyText
     actor: NonEmptyText
     instrument_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
+    temporary_bindings: tuple[InstrumentBindingSpec, ...] = ()
 
     @field_validator("instrument_ids")
     @classmethod
@@ -546,6 +547,23 @@ class InstrumentSessionOpenCommand(_WireModel):
         if len(value) != len(set(value)):
             raise ValueError("instrument session ids must be unique")
         return value
+
+    @model_validator(mode="after")
+    def validate_temporary_bindings(self) -> InstrumentSessionOpenCommand:
+        binding_ids = tuple(binding.id for binding in self.temporary_bindings)
+        if len(binding_ids) != len(set(binding_ids)):
+            raise ValueError("temporary instrument binding ids must be unique")
+        unknown = tuple(
+            instrument_id
+            for instrument_id in binding_ids
+            if instrument_id not in self.instrument_ids
+        )
+        if unknown:
+            raise ValueError(
+                "temporary bindings must belong to the opened session: "
+                + ", ".join(unknown)
+            )
+        return self
 
 
 class InstrumentSessionLeaseReceipt(_WireModel):

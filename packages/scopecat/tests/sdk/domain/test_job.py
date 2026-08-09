@@ -16,12 +16,14 @@ def test_domain_invocation_spec_retains_only_lab_owned_declarations() -> None:
         capability_fingerprint="interfaces-v1",
         artifact_id="artifact-1",
         artifact_fingerprint="artifact-v1",
+        execution_summary={"instruments": ["awg-1"]},
         target_intent={"mode": "list"},
         payload=payload,
     )
 
     assert spec.target_id == "test.target"
     assert spec.artifact_id == "artifact-1"
+    assert spec.execution_summary == {"instruments": ["awg-1"]}
     assert spec.payload is payload
 
 

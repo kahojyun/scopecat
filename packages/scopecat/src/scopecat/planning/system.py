@@ -168,8 +168,6 @@ def _compile_system_program(
         system.domain_compiler,
         target=bound.domain_target,
     )
-    domain_target_requirement = _domain_target_requirement(bound.domain_target)
-    domain_footprint = _domain_target_footprint(domain_target_requirement)
     domain_owned_product_use_ids = frozenset(
         use_id
         for product_use_ids in domain_use_ids_by_execution.values()
@@ -200,6 +198,7 @@ def _compile_system_program(
             has_domain_call=bool(bound.program.program.domain_executions),
             has_domain_compiler=system.domain_compiler is not None,
             local_instrument_required=local_instrument_required,
+            domain_instrument_required=False,
             has_local_instrument_catalog=catalog.provider_id is not None,
         )
     )
@@ -253,10 +252,6 @@ def _compile_system_program(
         local_effects,
         success_state=local_success_state,
     )
-    _reject_local_domain_overlap(
-        local_requirements=local_requirements,
-        domain_footprint=domain_footprint,
-    )
     coverage = _compile_coverage(
         system=system,
         bound=bound,
@@ -264,6 +259,28 @@ def _compile_system_program(
         point_ordinals=execution_ordinals,
         domain_calls=domain_calls,
         local_effects=local_effects,
+    )
+    domain_instrument_ids = _domain_execution_instrument_ids(coverage)
+    domain_target_requirement = _domain_target_requirement(
+        bound.domain_target,
+        instrument_ids=domain_instrument_ids,
+    )
+    domain_footprint = _domain_target_footprint(domain_target_requirement)
+    domain_instrument_required = bool(domain_instrument_ids)
+    domain_implementation_problems = _implementation_problems(
+        has_domain_call=False,
+        has_domain_compiler=True,
+        local_instrument_required=False,
+        domain_instrument_required=domain_instrument_required,
+        has_local_instrument_catalog=catalog.provider_id is not None,
+    )
+    if domain_implementation_problems:
+        raise CheckFailed(domain_implementation_problems)
+    if domain_instrument_required and catalog.problems:
+        raise ProviderContractError(catalog.problems)
+    _reject_local_domain_overlap(
+        local_requirements=local_requirements,
+        domain_footprint=domain_footprint,
     )
     resource_requirements = _sorted_requirements(
         (*local_requirements, *domain_footprint)
@@ -273,7 +290,7 @@ def _compile_system_program(
     )
     host = _host_binding(
         catalog,
-        instrument_ids=local_instrument_ids,
+        instrument_ids=local_instrument_ids | frozenset(domain_instrument_ids),
         payload_codecs=system.payload_codecs,
     )
     if host is not None:
@@ -371,13 +388,42 @@ def _validate_domain_compiler(
 
 def _domain_target_requirement(
     target: BoundDomainTarget | None,
+    *,
+    instrument_ids: tuple[str, ...],
 ) -> DomainTargetRequirement | None:
     if target is None:
         return None
+    unauthorized = sorted(set(instrument_ids) - set(target.instrument_ids))
+    if unauthorized:
+        raise CheckFailed(
+            [
+                _planning_problem(
+                    "domain_target_instrument_unauthorized",
+                    "the compiled domain execution requires instruments outside "
+                    "the configured target authority",
+                    details={"instrument_ids": unauthorized},
+                )
+            ]
+        )
     return DomainTargetRequirement(
         id=target.id,
         kind=target.kind,
-        instrument_ids=tuple(sorted(target.instrument_ids)),
+        instrument_ids=instrument_ids,
+    )
+
+
+def _domain_execution_instrument_ids(
+    coverage: tuple[RunCoveredOperation, ...],
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            {
+                instrument_id
+                for operation in coverage
+                if isinstance(operation, RunDomainJob)
+                for instrument_id in operation.execution.instrument_ids
+            }
+        )
     )
 
 
@@ -387,12 +433,9 @@ def _domain_target_footprint(
     if target is None:
         return ()
     return _sorted_requirements(
-        (
-            ResourceRequirement(target.id, "target"),
-            *(
-                ResourceRequirement(instrument_id, "instrument")
-                for instrument_id in target.instrument_ids
-            ),
+        tuple(
+            ResourceRequirement(instrument_id, "instrument")
+            for instrument_id in target.instrument_ids
         )
     )
 
@@ -602,6 +645,7 @@ def _implementation_problems(
     has_domain_call: bool,
     has_domain_compiler: bool,
     local_instrument_required: bool,
+    domain_instrument_required: bool,
     has_local_instrument_catalog: bool,
 ) -> tuple[Problem, ...]:
     """Report missing effect/dataflow implementations directly from typed edges."""
@@ -619,6 +663,13 @@ def _implementation_problems(
             _planning_problem(
                 "local_instrument_catalog_missing",
                 "local effects or products require an instrument contract catalog",
+            )
+        )
+    if domain_instrument_required and not has_local_instrument_catalog:
+        problems.append(
+            _planning_problem(
+                "domain_instrument_catalog_missing",
+                "domain execution instruments require an instrument contract catalog",
             )
         )
     return tuple(problems)

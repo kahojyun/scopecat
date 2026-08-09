@@ -273,79 +273,27 @@ class RoutingGraph(BaseModel):
         return self
 
 
-class DomainTargetInstrumentMember(BaseModel):
-    """One independently addressable instrument coordinated by a domain target."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["instrument"] = "instrument"
-    role: str = Field(min_length=1)
-    instrument_id: str = Field(min_length=1)
-
-
-class DomainTargetPrivateEndpoint(BaseModel):
-    """One target-owned connection with no standalone instrument contract."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["private_endpoint"] = "private_endpoint"
-    role: str = Field(min_length=1)
-    connection: InstrumentConnection
-
-
-type DomainTargetMember = Annotated[
-    DomainTargetInstrumentMember | DomainTargetPrivateEndpoint,
-    Field(discriminator="kind"),
-]
-
-
 class DomainTargetBinding(BaseModel):
-    """One composite target instance and its complete physical membership."""
+    """One composite target and the instruments it is authorized to coordinate."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1)
-    exclusivity_key: str = Field(min_length=1)
     kind: str = Field(min_length=1)
-    members: list[DomainTargetMember] = Field(default_factory=list)
+    configuration: dict[str, JsonValue] = Field(default_factory=dict)
+    instrument_ids: list[str] = Field(default_factory=list)
 
-    @field_validator("members")
+    @field_validator("instrument_ids")
     @classmethod
-    def validate_members(
+    def validate_instrument_ids(
         cls,
-        value: list[DomainTargetMember],
-    ) -> list[DomainTargetMember]:
-        roles = [member.role for member in value]
-        if len(roles) != len(set(roles)):
-            raise ValueError("domain target member roles must be unique")
-        instrument_ids = [
-            member.instrument_id
-            for member in value
-            if isinstance(member, DomainTargetInstrumentMember)
-        ]
-        if len(instrument_ids) != len(set(instrument_ids)):
-            raise ValueError("domain target instrument members must be unique")
+        value: list[str],
+    ) -> list[str]:
+        if any(not instrument_id for instrument_id in value):
+            raise ValueError("domain target instrument ids must be non-empty")
+        if len(value) != len(set(value)):
+            raise ValueError("domain target instrument ids must be unique")
         return value
-
-    @property
-    def instrument_ids(self) -> tuple[str, ...]:
-        """Return only independently registered members used for resource claims."""
-
-        return tuple(
-            member.instrument_id
-            for member in self.members
-            if isinstance(member, DomainTargetInstrumentMember)
-        )
-
-    @property
-    def private_endpoints(self) -> tuple[DomainTargetPrivateEndpoint, ...]:
-        """Return connections visible only to the selected target backend."""
-
-        return tuple(
-            member
-            for member in self.members
-            if isinstance(member, DomainTargetPrivateEndpoint)
-        )
 
 
 class SystemSpec(BaseModel):
@@ -371,9 +319,7 @@ class SystemSpec(BaseModel):
         }
         for instrument_id in target.instrument_ids:
             if instrument_id not in known_instrument_ids:
-                raise ValueError(
-                    f"unknown domain target instrument member: {instrument_id}"
-                )
+                raise ValueError(f"unknown domain target instrument: {instrument_id}")
         return self
 
 

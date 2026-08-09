@@ -10,8 +10,13 @@ from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
 )
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.kernel.state import StateValue
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.execution import InstrumentStateEvidence
+from scopecat.records.execution import (
+    InstrumentStateEvidence,
+    summarize_instrument_state_evidence,
+)
+from scopecat.records.instrument import InstrumentPropertyState, InstrumentStateSnapshot
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
@@ -146,7 +151,15 @@ def test_terminal_manifest_preserves_existing_attachments(tmp_path: Path) -> Non
 
 def test_terminal_contents_index_supplied_instrument_state() -> None:
     outcome = _successful_outcome("run-instrument")
-    instrument_state = InstrumentStateEvidence(run_id=outcome.run_id)
+    observed = _instrument_state("scope", output=False, scale=1.0)
+    prepared = _instrument_state("scope", output=True, scale=1.0)
+    final = _instrument_state("scope", output=True, scale=2.0)
+    instrument_state = InstrumentStateEvidence(
+        run_id=outcome.run_id,
+        observed_state=[observed],
+        prepared_state=[prepared],
+        final_state=[final],
+    )
 
     contents = build_terminal_contents(
         outcome=outcome,
@@ -157,6 +170,54 @@ def test_terminal_contents_index_supplied_instrument_state() -> None:
         instrument_state=instrument_state,
     )
 
-    assert "instrument-state-evidence" in {
-        entry.id for entry in contents if entry.role == "record"
+    [evidence_entry] = [entry for entry in contents if entry.role == "record"]
+    assert evidence_entry.id == "instrument-state-evidence"
+    assert evidence_entry.metadata == {
+        "summary": {
+            "instrument_ids": ["scope"],
+            "prepared_change_count": 1,
+            "final_change_count": 1,
+            "prepared_changed_instrument_ids": ["scope"],
+            "final_changed_instrument_ids": ["scope"],
+            "missing_final_instrument_ids": [],
+        }
     }
+
+
+def test_state_evidence_summary_keeps_missing_final_readback_neutral() -> None:
+    observed = _instrument_state("scope", output=False, scale=1.0)
+    evidence = InstrumentStateEvidence(
+        run_id="run-incomplete-readback",
+        observed_state=[observed],
+        prepared_state=[observed],
+    )
+
+    summary = summarize_instrument_state_evidence(evidence)
+
+    assert summary.final_change_count == 0
+    assert summary.final_changed_instrument_ids == ()
+    assert summary.missing_final_instrument_ids == ("scope",)
+
+
+def _instrument_state(
+    instrument_id: str,
+    *,
+    output: bool,
+    scale: float,
+) -> InstrumentStateSnapshot:
+    return InstrumentStateSnapshot(
+        instrument_id=instrument_id,
+        properties=[
+            InstrumentPropertyState(
+                interface_id="test.output/v1",
+                property_id="enabled",
+                value=StateValue(output),
+            ),
+            InstrumentPropertyState(
+                interface_id="test.vertical/v1",
+                component_path=["channel-1"],
+                property_id="scale",
+                value=StateValue(scale),
+            ),
+        ],
+    )

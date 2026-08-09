@@ -70,10 +70,54 @@ Run and event views refresh from replayable project SSE; each initial
 connection or reconnection refreshes canonical queries to recover missed
 changes. The separate health poll is only a reachability signal.
 
-Each admission carries one flat set of target and instrument claims closed by
-planning from the complete run program. The executor validates or acquires that
-set once and holds it across provider provisioning and all coverage blocks;
-there are no nested block leases or channel/group scheduler claims.
+Each admission carries one flat set of instrument claims closed by planning
+from the complete run program. A domain target remains an authorized composite
+configuration identity. Each prepared target batch declares its exact physical
+instrument footprint; planning unions those footprints, checks that they stay
+inside the configured target authority, and gives only that set to the
+scheduler. The executor validates or acquires it once
+and holds it across provider provisioning and all coverage blocks; there are no
+nested block leases or channel/group scheduler claims.
+Domain runtimes submit device programs through that provisioned run host, so a
+target and an ad hoc operation aimed at the same AWG share the same exclusivity
+key and worker-owned driver instance.
+
+The run host accepts generic device-scoped value ids rather than dataset product
+ids. A target therefore receives raw worker acquisitions and owns the mapping,
+DSP placement, and result realization needed by its domain artifact. Semantic
+acquisition intent remains target IR; the target may lower it to raw capture
+with target-side processing or a typed onboard-DSP acquisition when the
+daemon-resolved driver contract supports that representation. Lab policy—not
+the driver contract—chooses whether to require, prefer, or avoid onboard DSP;
+the selected physical representation and versioned semantic convention are
+retained in the immutable artifact. A device lowering is valid only when its
+driver implements that convention; the reference lab runs the target and
+device placements against identical traces as a conformance test.
+Multi-device target
+execution uses explicit `prepare`, `load`, `arm`, one timing-domain `trigger`,
+and `fetch` batches; ordering is visible and auditable even though the current
+host executes each batch's device actions sequentially rather than promising
+cross-device atomicity. Targets that require a shared edge may add a scoped
+trigger epoch: the reference target names the execution position and expected
+armed participants, then resolves either `fire_only` or `session_idempotent`
+from lab policy and the timing-driver contract. Session idempotence permits
+deduplication only while the same device/driver session retains its epoch
+cache; it is not a durable recovery promise. An unknown receipt after reconnect
+or process restart remains indeterminate instead of firing again.
+
+Each closed domain invocation also retains a target-authored execution summary
+as journal evidence. This is a compact physical projection—instrument roles,
+DSP placement, timing guarantee, and preparation scope in the reference
+target—not an automatic dump of driver state and not a dataset variable. The
+complete opaque target intent remains fingerprinted rather than copied into the
+journal.
+
+Observed, prepared, and final instrument snapshots are durable run evidence,
+not measurement variables. Their manifest entry exposes only a neutral summary:
+property-change counts, changed instrument ids, and missing final readbacks.
+Intentional transitions such as scanning output enable are therefore visible
+without being mislabeled as validation failures; full snapshots are read only
+when diagnosis or provenance needs them.
 
 `sc.open_project(...).connect()` returns the normal notebook `LabClient`. It
 loads only the application's planning composition, resolves the accepted

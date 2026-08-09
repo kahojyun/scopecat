@@ -24,13 +24,6 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
-from scopecat.execution.ports.instruments import (
-    RunHardwareApply,
-    RunHardwareBatch,
-    RunHardwareCollect,
-    RunHardwareCollectBinding,
-    RunHardwareInvoke,
-)
 from scopecat.kernel.problems import (
     ModelLocation,
     ProblemPhase,
@@ -96,6 +89,13 @@ from scopecat.sdk.instruments.commands import (
     CollectResultRequest,
     InstrumentOperationArgument,
     InstrumentStateAssignment,
+)
+from scopecat.sdk.instruments.execution import (
+    RunHardwareApply,
+    RunHardwareBatch,
+    RunHardwareCollect,
+    RunHardwareCollectBinding,
+    RunHardwareInvoke,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
@@ -582,7 +582,7 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
         receipt = instruments.execute_run_hardware(run_id, command)
         after_collect = datetime.now(UTC)
         assert instruments.execute_run_hardware(run_id, command) == receipt
-        assert [(value.product_use_id, value.value) for value in receipt.values] == [
+        assert [(value.value_id, value.value) for value in receipt.values] == [
             (
                 "signal-use",
                 MeasurementScalar.create(dtype="float64", value=1.0, unit="ratio"),
@@ -2358,7 +2358,7 @@ def _state_sized_axis_collect_action(
         bindings=(
             RunHardwareCollectBinding(
                 request_id="trace",
-                product_use_ids=(f"{effect_id}-use",),
+                value_ids=(f"{effect_id}-use",),
             ),
         ),
     )
@@ -2409,7 +2409,7 @@ def _collect_action(
         bindings=(
             RunHardwareCollectBinding(
                 request_id="signal",
-                product_use_ids=("signal-use",),
+                value_ids=("signal-use",),
             ),
         ),
     )
@@ -2438,7 +2438,7 @@ def _variant_collect_action(
         bindings=(
             RunHardwareCollectBinding(
                 request_id="reading",
-                product_use_ids=("reading-use",),
+                value_ids=("reading-use",),
             ),
         ),
     )

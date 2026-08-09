@@ -1,6 +1,6 @@
 """Deterministic device-response plan for the DRAG-beta workflow.
 
-The fake target compiler remains a waveform compiler.  This lab-owned model is
+The list-mode target compiler remains a waveform compiler. This lab-owned model is
 bound later, at the acquisition effect boundary, where one exact target result
 address is already correlated with its authored beta and amplification count.
 Its fingerprint is included in both invocation intent and raw-run identity.
@@ -17,15 +17,15 @@ from typing import override
 from scopecat import Quantity
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
-from reference_lab.targets.fake_list_mode.model import (
-    FakeAcquisitionWindow,
+from reference_lab.targets.list_mode.model import (
+    DigitizerAcquisitionWindow,
     acquisition_slot_identity_payload,
     canonical_fingerprint,
 )
-from reference_lab.targets.fake_list_mode.runtime import (
-    FakeAcquisitionResponse,
-    FakeAwgPlayback,
-    FakeDigitizerValue,
+from reference_lab.targets.list_mode.runtime import (
+    AcquisitionResponse,
+    AwgPlayback,
+    DigitizerValue,
 )
 
 _OPTIMUM_BETA_NS = 0.75
@@ -51,7 +51,7 @@ class DragBetaResponsePoint:
 
 
 @dataclass(frozen=True, slots=True)
-class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
+class DragBetaAcquisitionResponse(AcquisitionResponse):
     """Address-keyed deterministic IQ response for one prepared target batch.
 
     Exactly ``round(shots * p1)`` shots at each point are assigned to state 1.
@@ -123,9 +123,9 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
     def value_for(
         self,
         *,
-        playback: FakeAwgPlayback,
-        window: FakeAcquisitionWindow,
-    ) -> FakeDigitizerValue:
+        playback: AwgPlayback,
+        window: DigitizerAcquisitionWindow,
+    ) -> DigitizerValue:
         """Generate one deterministic integrated-IQ frame."""
 
         address = TargetAcquisitionAddress(

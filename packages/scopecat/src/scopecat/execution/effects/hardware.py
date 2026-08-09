@@ -11,7 +11,12 @@ from scopecat.execution.local.program import (
     CollectOperation,
     InvokeOperation,
 )
-from scopecat.execution.ports.instruments import (
+from scopecat.execution.program import RunCoverageEffect
+from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.product_identity import ProductUseId
+from scopecat.kernel.state import PayloadRef
+from scopecat.measurements.values import MeasurementValueCandidate
+from scopecat.sdk.instruments.execution import (
     RunHardwareAction,
     RunHardwareApply,
     RunHardwareBatch,
@@ -20,11 +25,6 @@ from scopecat.execution.ports.instruments import (
     RunHardwareInvoke,
     RunInstrumentHost,
 )
-from scopecat.execution.program import RunCoverageEffect
-from scopecat.kernel.content_identity import stable_content_hash
-from scopecat.kernel.product_identity import ProductUseId
-from scopecat.kernel.state import PayloadRef
-from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.runtime_problems import contextualize_problems
 
 
@@ -132,8 +132,17 @@ class HardwareEffectExecutor:
                     )
                 )
                 continue
+            if value.point_index is None:
+                self.problems.problems.append(
+                    self.problems.problem(
+                        "instrument_measurement_missing_point",
+                        "experiment hardware result has no logical point index",
+                        operation_id=batch.operation_id,
+                    )
+                )
+                continue
             frame = frame_for(value.point_index)
-            product_use_id = ProductUseId(value.product_use_id)
+            product_use_id = ProductUseId(value.value_id)
             if product_use_id in frame.product_use_ids:
                 self.problems.problems.append(
                     self.problems.problem(
@@ -207,7 +216,7 @@ def _action(
             bindings=tuple(
                 RunHardwareCollectBinding(
                     request_id=binding.request_id,
-                    product_use_ids=tuple(
+                    value_ids=tuple(
                         product_use_id.value
                         for product_use_id in binding.product_use_ids
                     ),

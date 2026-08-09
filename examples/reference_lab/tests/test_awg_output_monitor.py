@@ -9,7 +9,9 @@ from scopecat.execution.local.program import (
     InvokeOperation,
 )
 from scopecat.execution.program import RunCoverageEffect
+from scopecat.kernel.resource_identity import ResourceRequirement
 from scopecat.planning.compilation import compile_run_program
+from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from tests.testkit.instrument_host import compose_test_instruments
 
 from reference_lab.bench_interfaces import (
@@ -18,10 +20,13 @@ from reference_lab.bench_interfaces import (
     OSCILLOSCOPE_CONTROL,
     OSCILLOSCOPE_INPUT,
 )
+from reference_lab.compiler import QuantumLabCompiler
 from reference_lab.configuration import bootstrap_config
 from reference_lab.payloads import reference_lab_payload_codecs
 from reference_lab.provider import ReferenceLabProvider
+from reference_lab.targets.list_mode import configured_list_mode_target
 from reference_lab.workflows.awg_output_monitor import AWG_OUTPUT_MONITOR
+from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
 
 
 def test_awg_output_monitor_uses_entityless_bench_resources() -> None:
@@ -114,3 +119,44 @@ def test_awg_output_monitor_arms_plays_and_fetches_in_order() -> None:
     assert arm.entity_ids == ()
     assert play.entity_ids == ()
     assert all(not request.entity_ids for request in fetch.command.requests)
+
+
+def test_monitor_and_quantum_target_claim_the_same_physical_awg() -> None:
+    config = bootstrap_config()
+    provider = ReferenceLabProvider()
+    catalog = resolve_instrument_contract_catalog(
+        config=config,
+        provider_id=provider.provider_id,
+        describe=provider.describe,
+    )
+    composition = compose_test_instruments(
+        config=config,
+        provider=provider,
+        domain_compiler=QuantumLabCompiler(
+            target=configured_list_mode_target(config, catalog)
+        ),
+        payload_codecs=reference_lab_payload_codecs(),
+    )
+
+    monitor_compiled = compile_invocation(AWG_OUTPUT_MONITOR)
+    monitor_plan = compile_run_program(
+        composition.system,
+        bound=bind_program(
+            monitor_compiled.program,
+            build_config_environment(config),
+        ),
+    )
+    quantum_compiled = compile_invocation(drag_beta_experiment())
+    quantum_plan = compile_run_program(
+        composition.system,
+        bound=bind_program(
+            quantum_compiled.program,
+            build_config_environment(config),
+        ),
+    )
+    drive_awg = ResourceRequirement("drive-awg")
+
+    assert drive_awg in monitor_plan.resource_requirements
+    assert drive_awg in quantum_plan.resource_requirements
+    assert quantum_plan.host is not None
+    assert "drive-awg" in quantum_plan.host.resource_order

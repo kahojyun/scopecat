@@ -17,7 +17,6 @@ from scopecat.execution.local.program import (
     InvokeOperation,
 )
 from scopecat.execution.points import AdmittedPointLedger
-from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -31,6 +30,7 @@ from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.sdk.instruments.execution import RunInstrumentHost
 from scopecat.sdk.journal import ExecutionJournal, ExecutionJournalError
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 
@@ -313,6 +313,7 @@ class RunEffectInterpreter:
                 job.execution,
                 logical_compute_node_id=job.id,
                 run_id=self.run_id,
+                instruments=self._instruments,
                 journal=self._journal.execution_journal,
             )
         except BaseException as error:

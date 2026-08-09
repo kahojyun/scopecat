@@ -82,7 +82,7 @@ class ResourceRequirement:
     """Logical resource identity required by one complete run."""
 
     id: str
-    kind: Literal["target", "instrument"] = "instrument"
+    kind: Literal["instrument"] = "instrument"
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -92,7 +92,7 @@ class ResourceRequirement:
 
 @dataclass(frozen=True, slots=True)
 class DomainTargetRequirement:
-    """One domain target and the complete instrument footprint it owns."""
+    """One domain target and the exact instrument footprint this run requires."""
 
     id: str
     kind: str

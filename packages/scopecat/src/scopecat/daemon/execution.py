@@ -26,11 +26,6 @@ from scopecat.daemon.wire import (
     TerminalModelWrite,
     TerminalRunCommitCommand,
 )
-from scopecat.execution.ports.instruments import (
-    RunHardwareBatch,
-    RunHardwareBatchReceipt,
-    RunHardwareFinalizationReceipt,
-)
 from scopecat.execution.services import ExecutionSession
 from scopecat.kernel.problems import Problem
 from scopecat.records.config import config_content_hash
@@ -44,6 +39,11 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.instruments.execution import (
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
+)
 
 _JSON_DOCUMENT = TypeAdapter(dict[str, JsonValue])
 _PROVISION_OPERATION_ID = "lifecycle.provide-instruments"

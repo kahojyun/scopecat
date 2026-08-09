@@ -41,23 +41,23 @@ from reference_lab.point_values import QuantumLabPointValues
 from reference_lab.targets.configuration import (
     LIST_MODE_TARGET_KIND,
 )
-from reference_lab.targets.fake_list_mode import (
-    FakeAcquisitionResponse,
-    FakeListArtifact,
-    FakeListDomainRuntime,
-    FakeListRun,
-    FakeListRuntime,
-    FakeListTarget,
-    FakeListTargetCompiler,
-    MappedFakeListTarget,
-    fake_measurement_invocation_spec,
-    realize_fetched_fake_measurements,
+from reference_lab.targets.list_mode import (
+    AcquisitionResponse,
+    ListModeArtifact,
+    ListModeDomainRuntime,
+    ListModeRun,
+    ListModeTarget,
+    ListModeTargetCompiler,
+    MappedListModeTarget,
+    VirtualListModeDomainRuntime,
+    list_mode_measurement_invocation_spec,
+    realize_fetched_measurements,
 )
 from reference_lab.virtual_lab.compiler_parameters import QuantumCompilerParameters
 from reference_lab.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
 from reference_lab.virtual_lab.quantum_responses import quantum_lab_response
 
-_QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.fake-list-target.v1")
+_QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.list-mode-target.v1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +70,7 @@ class _QuantumLabArtifact:
 class _ListQuantumLabArtifact(_QuantumLabArtifact):
     entries: tuple[PreparedQuantumTargetEntry, ...]
     batch: PreparedQuantumTargetBatch
-    target_artifact: FakeListArtifact = field(repr=False)
+    target_artifact: ListModeArtifact = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,11 +91,11 @@ class QuantumLabCompiler:
     def __init__(
         self,
         *,
-        target: FakeListTarget,
+        target: ListModeTarget,
     ) -> None:
         self._target = target
-        self._runtime = FakeListDomainRuntime()
-        self._target_compiler = FakeListTargetCompiler(
+        self._runtime = ListModeDomainRuntime()
+        self._target_compiler = ListModeTargetCompiler(
             _QUANTUM_LAB_TARGET_COMPILER_ID,
             self._target,
         )
@@ -189,7 +189,7 @@ class QuantumLabCompiler:
             batch.request.repetitions,
         )
         runtime = self._runtime if response is None else _response_runtime(response)
-        invocation = fake_measurement_invocation_spec(
+        invocation = list_mode_measurement_invocation_spec(
             mapped_target,
             invocation_id=(
                 f"{artifact.program.id}.batch-{request.batch_ordinal}."
@@ -205,6 +205,7 @@ class QuantumLabCompiler:
             ),
         )
         return preparation.build(
+            instrument_ids=artifact.target_artifact.instrument_ids,
             mapping=mapping,
             invocation=invocation,
             runtime=runtime,
@@ -317,15 +318,15 @@ def _measurement_results(
     return tuple(program.results)
 
 
-def _response_runtime(response: FakeAcquisitionResponse) -> FakeListDomainRuntime:
-    return FakeListDomainRuntime(FakeListRuntime(response=response))
+def _response_runtime(response: AcquisitionResponse) -> VirtualListModeDomainRuntime:
+    return VirtualListModeDomainRuntime(response)
 
 
 def _realize(
-    mapped_target: MappedFakeListTarget,
-    fetched: DomainFetchResult[FakeListRun],
+    mapped_target: MappedListModeTarget,
+    fetched: DomainFetchResult[ListModeRun],
 ):
-    return realize_fetched_fake_measurements(mapped_target, fetched)
+    return realize_fetched_measurements(mapped_target, fetched)
 
 
 __all__ = [

@@ -22,8 +22,26 @@
         "failure_action": "abort_and_release"
       },
       {
-        "id": "xy-lo",
-        "exclusivity_key": "xy-lo",
+        "id": "drive-lo-a",
+        "exclusivity_key": "drive-lo-a",
+        "driver_id": "scopecat.virtual.rf_source",
+        "connection": {"kind": "virtual"},
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "drive-lo-b",
+        "exclusivity_key": "drive-lo-b",
+        "driver_id": "scopecat.virtual.rf_source",
+        "connection": {"kind": "virtual"},
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "readout-lo",
+        "exclusivity_key": "readout-lo",
         "driver_id": "scopecat.virtual.rf_source",
         "connection": {"kind": "virtual"},
         "run_start": "preserve",
@@ -34,7 +52,7 @@
         "id": "drive-awg",
         "exclusivity_key": "drive-awg",
         "driver_id": "reference_lab.virtual.awg",
-        "connection": {"kind": "virtual"},
+        "connection": {"kind": "virtual", "options": {"output_count": 8}},
         "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
@@ -43,7 +61,7 @@
         "id": "readout-awg",
         "exclusivity_key": "readout-awg",
         "driver_id": "reference_lab.virtual.awg",
-        "connection": {"kind": "virtual"},
+        "connection": {"kind": "virtual", "options": {"output_count": 2}},
         "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
@@ -52,6 +70,15 @@
         "id": "readout-digitizer",
         "exclusivity_key": "readout-digitizer",
         "driver_id": "reference_lab.virtual.digitizer",
+        "connection": {"kind": "virtual", "options": {"input_count": 2}},
+        "run_start": "preserve",
+        "success_action": "release",
+        "failure_action": "abort_and_release"
+      },
+      {
+        "id": "timing-controller",
+        "exclusivity_key": "timing-controller",
+        "driver_id": "reference_lab.virtual.timing_controller",
         "connection": {"kind": "virtual"},
         "run_start": "preserve",
         "success_action": "release",
@@ -61,7 +88,7 @@
         "id": "bench-scope",
         "exclusivity_key": "bench-scope",
         "driver_id": "reference_lab.virtual.oscilloscope",
-        "connection": {"kind": "virtual"},
+        "connection": {"kind": "virtual", "options": {"input_count": 4}},
         "run_start": "preserve",
         "success_action": "release",
         "failure_action": "abort_and_release"
@@ -106,6 +133,14 @@
   },
   "routing": {
     "roles": [
+      {
+        "id": "drive-lo",
+        "description": "Shared qubit-drive LO group"
+      },
+      {
+        "id": "readout-lo",
+        "description": "Shared multiplexed-readout LO group"
+      },
       {
         "id": "drive-i",
         "description": "In-phase DAC output of a qubit-drive IQ pair"
@@ -194,13 +229,13 @@
         "role_id": "readout-acquisition",
         "endpoints": [
           {"interface_id": "reference_lab.digitizer_control/v1", "entity_id": "q0"},
-          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q0", "channel_id": "digitizer.adc0.demod0", "component_path": ["inputs", "ch1"]},
+          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q0", "channel_id": "demod0", "component_path": ["inputs", "ch1"]},
           {"interface_id": "reference_lab.digitizer_control/v1", "entity_id": "q1"},
-          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q1", "channel_id": "digitizer.adc0.demod1", "component_path": ["inputs", "ch1"]},
+          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q1", "channel_id": "demod1", "component_path": ["inputs", "ch1"]},
           {"interface_id": "reference_lab.digitizer_control/v1", "entity_id": "q2"},
-          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q2", "channel_id": "digitizer.adc0.demod2", "component_path": ["inputs", "ch1"]},
+          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q2", "channel_id": "demod2", "component_path": ["inputs", "ch1"]},
           {"interface_id": "reference_lab.digitizer_control/v1", "entity_id": "q3"},
-          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q3", "channel_id": "digitizer.adc0.demod3", "component_path": ["inputs", "ch1"]}
+          {"interface_id": "reference_lab.digitizer_input/v1", "entity_id": "q3", "channel_id": "demod3", "component_path": ["inputs", "ch1"]}
         ]
       },
       {
@@ -220,11 +255,32 @@
         ]
       },
       {
-        "id": "xy-lo",
-        "instrument_id": "xy-lo",
+        "id": "drive-lo-a",
+        "instrument_id": "drive-lo-a",
+        "role_id": "drive-lo",
         "endpoints": [
           {"interface_id": "scopecat.rf_output/v1", "entity_id": "q0"},
           {"interface_id": "scopecat.rf_output/v1", "entity_id": "q1"}
+        ]
+      },
+      {
+        "id": "drive-lo-b",
+        "instrument_id": "drive-lo-b",
+        "role_id": "drive-lo",
+        "endpoints": [
+          {"interface_id": "scopecat.rf_output/v1", "entity_id": "q2"},
+          {"interface_id": "scopecat.rf_output/v1", "entity_id": "q3"}
+        ]
+      },
+      {
+        "id": "readout-lo",
+        "instrument_id": "readout-lo",
+        "role_id": "readout-lo",
+        "endpoints": [
+          {"interface_id": "scopecat.rf_output/v1", "entity_id": "q0"},
+          {"interface_id": "scopecat.rf_output/v1", "entity_id": "q1"},
+          {"interface_id": "scopecat.rf_output/v1", "entity_id": "q2"},
+          {"interface_id": "scopecat.rf_output/v1", "entity_id": "q3"}
         ]
       },
       {
@@ -285,12 +341,39 @@
   },
   "domain_target": {
     "id": "reference-lab.list-mode.v1",
-    "exclusivity_key": "reference-lab.list-mode.v1",
     "kind": "reference_lab.list-mode",
-    "members": [
-      {"kind": "instrument", "role": "drive-awg", "instrument_id": "drive-awg"},
-      {"kind": "instrument", "role": "readout-awg", "instrument_id": "readout-awg"},
-      {"kind": "instrument", "role": "readout-digitizer", "instrument_id": "readout-digitizer"}
+    "configuration": {
+      "sample_rate_hz": 1000000000,
+      "capabilities": {"max_list_entries": 256, "max_samples_per_entry": 1000000, "max_repetitions": 100000, "max_abs_amplitude": 1.0, "acquisition_dsp_policy": "target"},
+      "reference_clock": {"source": "external", "frequency_hz": 10000000},
+      "timing": {
+        "domain_id": "control",
+        "trigger_instrument_id": "timing-controller",
+        "trigger_policy": "require_session_idempotent",
+        "digitizer_trigger_source": "external",
+        "phase_reference": "entry_trigger_reset"
+      },
+      "iq_chains": [
+        {"chain_id": "drive-q0", "signal": "drive", "entity_ids": ["q0"]},
+        {"chain_id": "drive-q1", "signal": "drive", "entity_ids": ["q1"]},
+        {"chain_id": "drive-q2", "signal": "drive", "entity_ids": ["q2"]},
+        {"chain_id": "drive-q3", "signal": "drive", "entity_ids": ["q3"]},
+        {"chain_id": "readout", "signal": "readout", "entity_ids": ["q0", "q1", "q2", "q3"]}
+      ],
+      "local_oscillators": [
+        {"group_id": "drive-a", "signal": "drive", "instrument_id": "drive-lo-a", "entity_ids": ["q0", "q1"]},
+        {"group_id": "drive-b", "signal": "drive", "instrument_id": "drive-lo-b", "entity_ids": ["q2", "q3"]},
+        {"group_id": "readout", "signal": "readout", "instrument_id": "readout-lo", "entity_ids": ["q0", "q1", "q2", "q3"]}
+      ]
+    },
+    "instrument_ids": [
+      "drive-awg",
+      "readout-awg",
+      "readout-digitizer",
+      "timing-controller",
+      "drive-lo-a",
+      "drive-lo-b",
+      "readout-lo"
     ]
   }
 }

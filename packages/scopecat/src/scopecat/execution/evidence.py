@@ -11,7 +11,10 @@ from scopecat.measurements.datasets import (
 )
 from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.execution import InstrumentStateEvidence
+from scopecat.records.execution import (
+    InstrumentStateEvidence,
+    summarize_instrument_state_evidence,
+)
 from scopecat.runs.refs import record_content_ref
 
 INSTRUMENT_STATE_EVIDENCE_ID = "instrument-state-evidence"
@@ -78,6 +81,11 @@ def build_terminal_contents(
                 kind=INSTRUMENT_STATE_EVIDENCE_KIND,
                 media_type="application/json",
                 content_hash=model_wire_content_hash(instrument_state),
+                metadata={
+                    "summary": summarize_instrument_state_evidence(
+                        instrument_state
+                    ).model_dump(mode="json")
+                },
             ),
         )
     )

@@ -58,10 +58,13 @@ from reference_lab.bench_devices import (
     VIRTUAL_DIGITIZER_DRIVER_SPEC,
     VIRTUAL_OSCILLOSCOPE_DRIVER_ID,
     VIRTUAL_OSCILLOSCOPE_DRIVER_SPEC,
+    VIRTUAL_TIMING_CONTROLLER_DRIVER_ID,
+    VIRTUAL_TIMING_CONTROLLER_DRIVER_SPEC,
     BenchSignalWorld,
     VirtualAwg,
     VirtualDigitizer,
     VirtualOscilloscope,
+    VirtualTimingController,
 )
 
 FLUX_SOURCE_IDS = ("flux-dac-a", "flux-dac-b")
@@ -101,6 +104,7 @@ class ReferenceLabProvider:
                 VIRTUAL_AWG_DRIVER_SPEC,
                 VIRTUAL_DIGITIZER_DRIVER_SPEC,
                 VIRTUAL_OSCILLOSCOPE_DRIVER_SPEC,
+                VIRTUAL_TIMING_CONTROLLER_DRIVER_SPEC,
             ),
         )
 
@@ -138,17 +142,46 @@ class ReferenceLabProvider:
                     if binding.driver_id == MULTICHANNEL_DC_DRIVER_ID
                 ),
                 *tuple(
-                    VirtualAwg(binding.id, self._bench).describe()
+                    VirtualAwg(
+                        binding.id,
+                        self._bench,
+                        output_count=_channel_count(
+                            binding.connection.options,
+                            "output_count",
+                            default=8,
+                        ),
+                    ).describe()
                     for binding in context.bindings
                     if binding.driver_id == VIRTUAL_AWG_DRIVER_ID
                 ),
                 *tuple(
-                    VirtualDigitizer(binding.id).describe()
+                    VirtualDigitizer(
+                        binding.id,
+                        self._bench,
+                        input_count=_channel_count(
+                            binding.connection.options,
+                            "input_count",
+                            default=2,
+                        ),
+                    ).describe()
                     for binding in context.bindings
                     if binding.driver_id == VIRTUAL_DIGITIZER_DRIVER_ID
                 ),
                 *tuple(
-                    VirtualOscilloscope(binding.id, self._bench).describe()
+                    VirtualTimingController(binding.id, self._bench).describe()
+                    for binding in context.bindings
+                    if binding.driver_id == VIRTUAL_TIMING_CONTROLLER_DRIVER_ID
+                ),
+                *tuple(
+                    VirtualOscilloscope(
+                        binding.id,
+                        self._bench,
+                        input_count=_channel_count(
+                            binding.connection.options,
+                            "input_count",
+                            default=4,
+                        ),
+                    ).describe()
                     for binding in context.bindings
                     if binding.driver_id == VIRTUAL_OSCILLOSCOPE_DRIVER_ID
                 ),
@@ -168,13 +201,48 @@ class ReferenceLabProvider:
                 self.world,
             )
         if context.binding.driver_id == VIRTUAL_AWG_DRIVER_ID:
-            return VirtualAwg(context.binding.id, self._bench)
+            return VirtualAwg(
+                context.binding.id,
+                self._bench,
+                output_count=_channel_count(
+                    context.binding.connection.options,
+                    "output_count",
+                    default=8,
+                ),
+            )
         if context.binding.driver_id == VIRTUAL_DIGITIZER_DRIVER_ID:
-            return VirtualDigitizer(context.binding.id)
+            return VirtualDigitizer(
+                context.binding.id,
+                self._bench,
+                input_count=_channel_count(
+                    context.binding.connection.options,
+                    "input_count",
+                    default=2,
+                ),
+            )
         if context.binding.driver_id == VIRTUAL_OSCILLOSCOPE_DRIVER_ID:
-            return VirtualOscilloscope(context.binding.id, self._bench)
+            return VirtualOscilloscope(
+                context.binding.id,
+                self._bench,
+                input_count=_channel_count(
+                    context.binding.connection.options,
+                    "input_count",
+                    default=4,
+                ),
+            )
+        if context.binding.driver_id == VIRTUAL_TIMING_CONTROLLER_DRIVER_ID:
+            return VirtualTimingController(context.binding.id, self._bench)
         msg = f"unsupported reference-lab driver {context.binding.driver_id!r}"
         raise ValueError(msg)
+
+
+def _channel_count(
+    options: dict[str, JsonValue],
+    key: str,
+    *,
+    default: int,
+) -> int:
+    return cast("int", options.get(key, default))
 
 
 class MultiChannelVirtualDcSource:

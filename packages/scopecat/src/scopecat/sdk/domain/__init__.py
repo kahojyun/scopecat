@@ -19,6 +19,7 @@ from scopecat.sdk.domain.result_mapping import (
 from scopecat.sdk.domain.runtime import (
     DomainFetchReceipt,
     DomainFetchResult,
+    DomainInstrumentExecutor,
     DomainRuntime,
     DomainSubmissionId,
     DomainSubmitReceipt,
@@ -43,6 +44,7 @@ __all__ = [
     "DomainFetchReceipt",
     "DomainFetchResult",
     "DomainInputPortView",
+    "DomainInstrumentExecutor",
     "DomainInvocationSpec",
     "DomainMappedResult",
     "DomainPointRef",

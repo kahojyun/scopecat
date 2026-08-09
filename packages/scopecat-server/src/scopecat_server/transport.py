@@ -78,10 +78,6 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
-from scopecat.execution.ports.instruments import (
-    RunHardwareBatchReceipt,
-    RunHardwareFinalizationReceipt,
-)
 from scopecat.measurements.datasets import MAX_MEASUREMENT_PAGE_SIZE
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import RunContentEntry
@@ -103,6 +99,10 @@ from scopecat.sdk.instruments.commands import (
     InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
+)
+from scopecat.sdk.instruments.execution import (
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
 )
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException

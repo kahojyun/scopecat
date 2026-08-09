@@ -1,0 +1,481 @@
+from __future__ import annotations
+
+import math
+from collections.abc import Callable, Sequence
+from dataclasses import replace
+from datetime import UTC, datetime
+from decimal import Decimal
+
+import pytest
+from scopecat import Quantity
+from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
+from scopecat.records.measurement import (
+    InstrumentAcquisitionEvidence,
+    MeasurementArray,
+)
+from scopecat.sdk.instruments.execution import (
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+    RunHardwareCollect,
+    RunHardwareValue,
+)
+from scopecat_quantum._ids import (
+    AcquisitionSlotId,
+    PulseEventId,
+    PulseProgramId,
+    QubitId,
+    TargetCompileEntryId,
+    TargetCompilerId,
+)
+from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.pulses import (
+    DRAG,
+    Acquire,
+    AcquireSignal,
+    AcquisitionSlot,
+    Constant,
+    DriveSignal,
+    Play,
+    PulseProgram,
+    ReadoutSignal,
+    ScheduledPulseProgram,
+    schedule,
+)
+from scopecat_quantum.pulses import Parallel as PulseParallel
+from scopecat_quantum.pulses import Sequence as PulseSequence
+from scopecat_quantum.targets import TargetCompileEntry, TargetCompileRequest
+
+from reference_lab.configuration import bootstrap_config
+from reference_lab.provider import ReferenceLabProvider
+from reference_lab.targets.list_mode import (
+    InstrumentListModeRuntime,
+    IqMixerCalibration,
+    ListModeTarget,
+    ListModeTargetCompiler,
+    VirtualListModeRuntime,
+    configured_list_mode_target,
+)
+
+Q0 = QubitId("q0")
+DRIVE_Q0 = DriveSignal(Q0)
+ACQUIRE_Q0 = AcquireSignal(Q0)
+READOUT_Q0 = ReadoutSignal(Q0)
+
+
+class _RecordingInstrumentExecutor:
+    def __init__(
+        self,
+        trace: Callable[[int], tuple[float, ...]] | None = None,
+    ) -> None:
+        self.batches: list[RunHardwareBatch] = []
+        self._trace: Callable[[int], tuple[float, ...]] = (
+            (lambda size: (0.0,) * size) if trace is None else trace
+        )
+
+    def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
+        self.batches.append(batch)
+        now = datetime.now(UTC)
+        values: list[RunHardwareValue] = []
+        for action in batch.actions:
+            if not isinstance(action, RunHardwareCollect):
+                continue
+            requests = {request.id: request for request in action.requests}
+            for binding in action.bindings:
+                request = requests[binding.request_id]
+                [dimension] = request.dimensions
+                assert dimension.size is not None
+                for value_id in binding.value_ids:
+                    values.append(
+                        RunHardwareValue(
+                            point_index=action.point_index,
+                            value_id=value_id,
+                            value=MeasurementArray.create(
+                                dtype="float64",
+                                unit="V",
+                                values=self._trace(dimension.size),
+                            ),
+                            evidence=InstrumentAcquisitionEvidence(
+                                command_id=action.effect_id,
+                                instrument_id=action.instrument_id,
+                                interface_id=request.interface_id,
+                                component_path=tuple(request.component_path),
+                                acquisition_id=request.acquisition_id,
+                                result_id=request.result_id,
+                                started_at=now,
+                                completed_at=now,
+                            ),
+                        )
+                    )
+        return RunHardwareBatchReceipt(
+            operation_id=batch.operation_id,
+            values=tuple(values),
+        )
+
+
+def _modulated_samples(
+    amplitude: float,
+    *,
+    start_sample: int,
+    sample_count: int,
+    intermediate_frequency_hz: float,
+    sample_rate_hz: int,
+) -> tuple[complex, ...]:
+    return tuple(
+        amplitude
+        * complex(
+            math.cos(
+                math.tau
+                * intermediate_frequency_hz
+                * (start_sample + index + 0.5)
+                / sample_rate_hz
+            ),
+            math.sin(
+                math.tau
+                * intermediate_frequency_hz
+                * (start_sample + index + 0.5)
+                / sample_rate_hz
+            ),
+        )
+        for index in range(sample_count)
+    )
+
+
+def _target() -> ListModeTarget:
+    config = bootstrap_config()
+    provider = ReferenceLabProvider()
+    catalog = resolve_instrument_contract_catalog(
+        config=config,
+        provider_id=provider.provider_id,
+        describe=provider.describe,
+    )
+    return configured_list_mode_target(config, catalog)
+
+
+def _request(
+    target: ListModeTarget,
+    programs: Sequence[ScheduledPulseProgram],
+    *,
+    repetitions: int,
+) -> tuple[ListModeTargetCompiler, TargetCompileRequest]:
+    compiler = ListModeTargetCompiler(
+        TargetCompilerId("list-mode-compiler.v1"),
+        target,
+    )
+    request = TargetCompileRequest(
+        entries=tuple(
+            TargetCompileEntry(
+                TargetCompileEntryId(f"entry-{index}"),
+                program,
+            )
+            for index, program in enumerate(programs)
+        ),
+        repetitions=repetitions,
+    )
+    return compiler, request
+
+
+def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
+    slot = AcquisitionSlot(
+        AcquisitionSlotId("result"),
+        AcquisitionKind.INTEGRATED_IQ,
+        ACQUIRE_Q0,
+    )
+    scheduled = schedule(
+        PulseProgram(
+            PulseProgramId("x-then-readout"),
+            PulseSequence(
+                (
+                    Play(
+                        PulseEventId("drive"),
+                        DRIVE_Q0,
+                        Constant(Quantity(4, "ns"), Quantity(0.25, "arb")),
+                    ),
+                    PulseParallel(
+                        (
+                            Play(
+                                PulseEventId("stimulus"),
+                                READOUT_Q0,
+                                Constant(
+                                    Quantity(8, "ns"),
+                                    Quantity(0.4, "arb"),
+                                ),
+                            ),
+                            Acquire(
+                                PulseEventId("capture"),
+                                ACQUIRE_Q0,
+                                slot.id,
+                                Quantity(8, "ns"),
+                            ),
+                        )
+                    ),
+                )
+            ),
+            acquisition_slots=(slot,),
+        )
+    )
+    target = _target()
+    compiler, request = _request(target, (scheduled,), repetitions=2)
+
+    artifact = compiler.compile(request)
+    [entry] = artifact.entries
+    drive_binding = target.output_binding(DRIVE_Q0)
+    readout_binding = target.output_binding(READOUT_Q0)
+    assert drive_binding is not None
+    assert readout_binding is not None
+    waveforms = {waveform.channel_id: waveform.samples for waveform in entry.waveforms}
+
+    assert scheduled.duration_seconds == Decimal("12e-9")
+    drive_samples = _modulated_samples(
+        0.25,
+        start_sample=0,
+        sample_count=4,
+        intermediate_frequency_hz=drive_binding.intermediate_frequency_hz,
+        sample_rate_hz=target.sample_rate_hz,
+    )
+    readout_samples = _modulated_samples(
+        0.4,
+        start_sample=4,
+        sample_count=8,
+        intermediate_frequency_hz=readout_binding.intermediate_frequency_hz,
+        sample_rate_hz=target.sample_rate_hz,
+    )
+    assert waveforms[drive_binding.i_channel_id] == pytest.approx(
+        tuple(sample.real for sample in drive_samples) + (0.0,) * 8
+    )
+    assert waveforms[drive_binding.q_channel_id] == pytest.approx(
+        tuple(sample.imag for sample in drive_samples) + (0.0,) * 8
+    )
+    assert waveforms[readout_binding.i_channel_id] == pytest.approx(
+        (0.0,) * 4 + tuple(sample.real for sample in readout_samples)
+    )
+    assert waveforms[readout_binding.q_channel_id] == pytest.approx(
+        (0.0,) * 4 + tuple(sample.imag for sample in readout_samples)
+    )
+    [window] = entry.acquisitions
+    assert window.slot_id == slot.id
+    assert (window.start_sample, window.sample_count) == (4, 8)
+    assert window.input_id.component_path == ("inputs", "ch1")
+    assert window.demodulator_slot_id.value == "demod0"
+    assert window.intent.demodulation_frequency_hz == -300.0e6
+    assert window.intent.output_representation == "integrated_iq"
+    assert window.lowering.execution == "target"
+    assert window.lowering.device_result_representation == "raw_trace"
+    assert len(artifact.awg_programs) == 2
+    assert len(artifact.digitizer_programs) == 1
+    assert tuple(
+        oscillator.group_id for oscillator in artifact.preparation.local_oscillators
+    ) == ("drive-a", "readout")
+
+    run = VirtualListModeRuntime().execute(artifact)
+    assert [
+        (frame.shot_index, frame.entry_id, frame.slot_id) for frame in run.frames
+    ] == [(shot, TargetCompileEntryId("entry-0"), slot.id) for shot in range(2)]
+    assert all(isinstance(frame.value, complex) for frame in run.frames)
+
+    instruments = _RecordingInstrumentExecutor()
+    instrument_run = InstrumentListModeRuntime().execute(
+        artifact,
+        execution_id="test.calibrated-acquisition",
+        instruments=instruments,
+    )
+    assert [frame.value for frame in instrument_run.frames] == [0j, 0j]
+
+    tone_amplitude = 0.3
+    tone_frequency_hz = window.intent.demodulation_frequency_hz
+
+    def tone_trace(size: int) -> tuple[float, ...]:
+        return tuple(
+            tone_amplitude
+            * math.cos(
+                math.tau
+                * tone_frequency_hz
+                * (sample_index + 0.5)
+                / artifact.sample_rate_hz
+            )
+            for sample_index in range(size)
+        )
+
+    trace_values = tone_trace(entry.sample_count)
+    expected_iq = (
+        2.0
+        * sum(
+            trace_values[window.start_sample + sample_index]
+            * complex(
+                math.cos(
+                    -math.tau
+                    * tone_frequency_hz
+                    * (window.start_sample + sample_index + 0.5)
+                    / artifact.sample_rate_hz
+                ),
+                math.sin(
+                    -math.tau
+                    * tone_frequency_hz
+                    * (window.start_sample + sample_index + 0.5)
+                    / artifact.sample_rate_hz
+                ),
+            )
+            for sample_index in range(window.sample_count)
+        )
+        / window.sample_count
+    )
+    measured = InstrumentListModeRuntime().execute(
+        artifact,
+        execution_id="test.worker-dsp",
+        instruments=_RecordingInstrumentExecutor(tone_trace),
+    )
+    assert [frame.value for frame in measured.frames] == pytest.approx(
+        [expected_iq, expected_iq]
+    )
+
+    assert instruments.batches[0].operation_id.startswith("target.prepare:")
+    assert instruments.batches[1].operation_id.startswith("target.load:")
+    assert [action.kind for action in instruments.batches[1].actions] == [
+        "invoke",
+        "invoke",
+    ]
+    assert [
+        batch.operation_id.rsplit(":", 1)[-1] for batch in instruments.batches[2:5]
+    ] == [
+        "arm",
+        "trigger",
+        "fetch",
+    ]
+    assert [action.kind for action in instruments.batches[2].actions] == [
+        "apply",
+        "invoke",
+        "invoke",
+        "invoke",
+    ]
+    assert [action.kind for action in instruments.batches[3].actions] == [
+        "invoke",
+    ]
+    assert [action.kind for action in instruments.batches[4].actions] == ["collect"]
+
+    device_target = replace(
+        target,
+        digitizer_result_representation="integrated_iq",
+    )
+    device_compiler, device_request = _request(
+        device_target,
+        (scheduled,),
+        repetitions=2,
+    )
+    device_artifact = device_compiler.compile(device_request)
+    [device_window] = device_artifact.entries[0].acquisitions
+    assert device_window.intent == window.intent
+    assert device_window.lowering.execution == "device"
+    assert device_window.lowering.device_result_representation == "integrated_iq"
+    assert device_artifact.digitizer_programs[0].result_representation == (
+        "integrated_iq"
+    )
+
+
+def test_list_mode_samples_drag_and_tracks_beta_in_artifact_identity() -> None:
+    def compile_drag(beta_ns: float):
+        target = _target()
+        scheduled = schedule(
+            PulseProgram(
+                id=PulseProgramId("drag"),
+                body=Play(
+                    PulseEventId("drag-play"),
+                    DRIVE_Q0,
+                    DRAG(
+                        duration=Quantity(4, "ns"),
+                        amplitude=Quantity(0.2, "arb"),
+                        sigma=Quantity(1, "ns"),
+                        beta=Quantity(beta_ns, "ns"),
+                    ),
+                ),
+            )
+        )
+        compiler, request = _request(target, (scheduled,), repetitions=1)
+        return target, compiler.compile(request)
+
+    target, baseline = compile_drag(0.5)
+    _, changed = compile_drag(0.75)
+    binding = target.output_binding(DRIVE_Q0)
+    assert binding is not None
+    waveforms = {
+        waveform.channel_id: waveform.samples
+        for waveform in baseline.entries[0].waveforms
+    }
+    offsets_ns = (-1.5, -0.5, 0.5, 1.5)
+    gaussians = tuple(0.2 * math.exp(-(offset**2) / 2.0) for offset in offsets_ns)
+    baseband = tuple(
+        complex(gaussian, -0.5 * offset * gaussian)
+        for offset, gaussian in zip(offsets_ns, gaussians, strict=True)
+    )
+    carrier = _modulated_samples(
+        1.0,
+        start_sample=0,
+        sample_count=4,
+        intermediate_frequency_hz=binding.intermediate_frequency_hz,
+        sample_rate_hz=target.sample_rate_hz,
+    )
+    expected = tuple(
+        envelope * rotation
+        for envelope, rotation in zip(baseband, carrier, strict=True)
+    )
+
+    assert target.supported_envelopes == ("constant", "drag")
+    assert waveforms[binding.i_channel_id] == pytest.approx(
+        tuple(sample.real for sample in expected)
+    )
+    assert waveforms[binding.q_channel_id] == pytest.approx(
+        tuple(sample.imag for sample in expected)
+    )
+    assert changed.artifact_fingerprint != baseline.artifact_fingerprint
+
+
+def test_list_mode_applies_full_iq_mixer_matrix_to_physical_waveforms() -> None:
+    target = _target()
+    binding = target.output_binding(DRIVE_Q0)
+    assert binding is not None
+    calibrated_binding = replace(
+        binding,
+        mixer=IqMixerCalibration(
+            ii=0.8,
+            iq=0.1,
+            qi=-0.2,
+            qq=0.9,
+            i_offset_v=0.01,
+            q_offset_v=-0.02,
+        ),
+    )
+    target = replace(
+        target,
+        output_bindings=tuple(
+            calibrated_binding if candidate == binding else candidate
+            for candidate in target.output_bindings
+        ),
+    )
+    scheduled = schedule(
+        PulseProgram(
+            PulseProgramId("mixer-calibration"),
+            Play(
+                PulseEventId("drive"),
+                DRIVE_Q0,
+                Constant(Quantity(4, "ns"), Quantity(0.25, "arb")),
+            ),
+        )
+    )
+    compiler, request = _request(target, (scheduled,), repetitions=1)
+
+    artifact = compiler.compile(request)
+    waveforms = {
+        waveform.channel_id: waveform.samples
+        for waveform in artifact.entries[0].waveforms
+    }
+    ideal = _modulated_samples(
+        0.25,
+        start_sample=0,
+        sample_count=4,
+        intermediate_frequency_hz=calibrated_binding.intermediate_frequency_hz,
+        sample_rate_hz=target.sample_rate_hz,
+    )
+    assert waveforms[calibrated_binding.i_channel_id] == pytest.approx(
+        tuple(0.8 * sample.real + 0.1 * sample.imag for sample in ideal)
+    )
+    assert waveforms[calibrated_binding.q_channel_id] == pytest.approx(
+        tuple(-0.2 * sample.real + 0.9 * sample.imag for sample in ideal)
+    )

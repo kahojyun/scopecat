@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 from scopecat.adapters.sqlite import (
     ControlPlaneConflict,
@@ -24,7 +23,6 @@ from scopecat.control.models import (
     ControlRun,
     ResourceKey,
     RunAdmissionRecord,
-    RunDomainTargetRequirement,
     RunPlanSummary,
 )
 from scopecat.daemon.wire import (
@@ -433,30 +431,24 @@ def _canonical_resource_claims(
         )
 
     target = plan.domain_target_requirement
-    if target is not None and (
-        domain_target is None
-        or target
-        != RunDomainTargetRequirement(
-            id=domain_target.id,
-            kind=domain_target.kind,
-            instrument_ids=tuple(sorted(domain_target.instrument_ids)),
-        )
-    ):
-        raise BackendConflict(
-            "run domain target requirement differs from the active configuration"
-        )
-    target_exclusivity_key = (
-        None if domain_target is None else domain_target.exclusivity_key
-    )
-
+    if target is not None:
+        if (
+            domain_target is None
+            or target.id != domain_target.id
+            or target.kind != domain_target.kind
+        ):
+            raise BackendConflict(
+                "run domain target requirement differs from the active configuration"
+            )
+        unauthorized = set(target.instrument_ids) - set(domain_target.instrument_ids)
+        if unauthorized:
+            raise BackendConflict(
+                "run domain target requirement exceeds the active target authority"
+            )
     claims = tuple(
         ResourceKey(
             kind=requirement.kind,
-            id=(
-                instrument_keys[requirement.id]
-                if requirement.kind == "instrument"
-                else cast("str", target_exclusivity_key)
-            ),
+            id=instrument_keys[requirement.id],
         )
         for requirement in plan.run_resource_requirements
     )

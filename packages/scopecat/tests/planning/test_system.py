@@ -69,9 +69,6 @@ from scopecat.program.point_domain import point_axis_values
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
-    DomainTargetInstrumentMember,
-    DomainTargetPrivateEndpoint,
-    VirtualInstrumentConnection,
     config_content_hash,
 )
 from scopecat.sdk.domain import (
@@ -128,8 +125,10 @@ class _EffectProbeRuntime:
         self,
         submission_key: str,
         payload: dict[str, str],
+        *,
+        instruments: object,
     ) -> DomainSubmitReceipt:
-        del submission_key, payload
+        del submission_key, payload, instruments
         self.submit_calls += 1
         raise AssertionError("planning must not submit a domain invocation")
 
@@ -146,6 +145,7 @@ class _EffectProbeRuntime:
 @dataclass
 class _DomainCompiler:
     compiler_id: str
+    instrument_ids: tuple[str, ...] = ()
     max_points_per_batch: int = 100
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
     compile_calls: int = 0
@@ -201,6 +201,7 @@ class _DomainCompiler:
             capability_fingerprint=f"{self.compiler_id}.interfaces",
             artifact_id=(f"{self.compiler_id}.artifact.batch-{request.batch_ordinal}"),
             artifact_fingerprint=f"{self.compiler_id}.artifact-fingerprint",
+            execution_summary={"instruments": list(self.instrument_ids)},
             target_intent={
                 "compiler_id": self.compiler_id,
                 "batch_ordinal": str(request.batch_ordinal),
@@ -211,6 +212,7 @@ class _DomainCompiler:
             },
         )
         return preparation.build(
+            instrument_ids=self.instrument_ids,
             mapping=mapping,
             invocation=invocation,
             runtime=self.runtime,
@@ -563,21 +565,8 @@ def _config_with_domain_resources(
             "instrument_registry": registry,
             "domain_target": DomainTargetBinding(
                 id="tests.domain.target",
-                exclusivity_key="physical:tests.domain.target",
                 kind="tests.domain",
-                members=[
-                    *(
-                        DomainTargetInstrumentMember(
-                            role=instrument_id,
-                            instrument_id=instrument_id,
-                        )
-                        for instrument_id in instrument_ids
-                    ),
-                    DomainTargetPrivateEndpoint(
-                        role="controller",
-                        connection=VirtualInstrumentConnection(),
-                    ),
-                ],
+                instrument_ids=list(instrument_ids),
             ),
         }
     )
@@ -907,26 +896,44 @@ def test_run_requirements_and_host_order_include_only_used_local_instruments() -
     assert set(plan.host.advertised_descriptions) == {"source-0", "unused-0"}
 
 
-def test_domain_target_footprint_contains_every_instrument_member() -> None:
+def test_domain_target_footprint_contains_only_compiled_instruments() -> None:
     bound = _bound_program(
         config=_config_with_domain_resources("source-0", "target-member-1")
     )
+    provider = _TrackingProvider()
 
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(bound),
-        domain_compiler=_DomainCompiler("tests.complete-target-footprint"),
+        instrument_catalog=_catalog(bound, provider),
+        domain_compiler=_DomainCompiler(
+            "tests.complete-target-footprint",
+            instrument_ids=("source-0",),
+        ),
     ).compile(bound)
 
     assert plan.domain_target_requirement == DomainTargetRequirement(
         id="tests.domain.target",
         kind="tests.domain",
-        instrument_ids=("source-0", "target-member-1"),
+        instrument_ids=("source-0",),
     )
-    assert set(plan.resource_requirements) == {
-        ResourceRequirement("source-0"),
-        ResourceRequirement("target-member-1"),
-        ResourceRequirement("tests.domain.target", "target"),
-    }
+    assert plan.resource_requirements == (ResourceRequirement("source-0"),)
+    assert plan.host is not None
+    assert plan.host.resource_order == ("source-0",)
+
+
+def test_domain_compiler_cannot_exceed_configured_target_authority() -> None:
+    bound = _bound_program(config=_config_with_domain_resources("source-0"))
+
+    with pytest.raises(CheckFailed) as captured:
+        ExperimentSystem(
+            instrument_catalog=_catalog(bound, _TrackingProvider()),
+            domain_compiler=_DomainCompiler(
+                "tests.target-authority",
+                instrument_ids=("outside-target",),
+            ),
+        ).compile(bound)
+
+    assert _problem_codes(captured.value) == {"domain_target_instrument_unauthorized"}
+    assert captured.value.problems[0].details == {"instrument_ids": ("outside-target",)}
 
 
 def test_parameter_overlay_binding_is_shared_with_domain_inputs() -> None:
@@ -1042,7 +1049,10 @@ def test_planning_rejects_local_and_domain_target_instrument_overlap() -> None:
         domain_product_count=1,
         config=config,
     )
-    compiler = _DomainCompiler("tests.instrument-overlap")
+    compiler = _DomainCompiler(
+        "tests.instrument-overlap",
+        instrument_ids=("source-0",),
+    )
 
     with pytest.raises(CheckFailed) as captured:
         provider = _TrackingProvider()
@@ -1053,7 +1063,7 @@ def test_planning_rejects_local_and_domain_target_instrument_overlap() -> None:
 
     assert _problem_codes(captured.value) == {"domain_target_local_instrument_overlap"}
     assert captured.value.problems[0].details == {"instrument_ids": ("source-0",)}
-    assert compiler.compile_calls == 0
+    assert compiler.compile_calls == 1
 
 
 def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
@@ -1128,9 +1138,7 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
         operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
     )
     assert len({job.id for job in jobs}) == 2
-    assert plan.resource_requirements == (
-        ResourceRequirement("tests.domain.target", "target"),
-    )
+    assert plan.resource_requirements == ()
     assert compiler.compile_calls == 2
     _assert_no_domain_effects(compiler)
 
@@ -1140,7 +1148,6 @@ def test_system_rejects_a_compiler_for_a_different_target() -> None:
     config = _config_with_domain_resources()
     mismatched = DomainTargetBinding(
         id="other.target",
-        exclusivity_key="other.target",
         kind="tests.domain",
     )
     mismatched_config = config.model_copy(
@@ -1169,7 +1176,6 @@ def test_system_rejects_a_compiler_for_a_different_target_kind() -> None:
     config = _config_with_domain_resources()
     mismatched = DomainTargetBinding(
         id="tests.domain.target",
-        exclusivity_key="tests.domain.target",
         kind="tests.other-domain",
     )
     mismatched_config = config.model_copy(

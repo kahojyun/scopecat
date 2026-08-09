@@ -135,6 +135,38 @@ with sc.open_project(".").connect(operator="alice") as lab:
 session owns synchronization and exclusive access; opening a client is not an
 experiment with one point.
 
+This is also the low-friction path for a genuinely temporary diagnostic device.
+Wrap the normal typed reference with a session-only driver binding; no config
+publication or entity mapping is required:
+
+```python
+import scopecat as sc
+from scopecat.records.config import TcpipSocketInstrumentConnection
+from scopecat_instruments import network_sweep
+
+
+BENCH_VNA = sc.temporary_instrument(
+    network_sweep("temporary-bench-vna"),
+    driver_id="scopecat.e5080b",
+    connection=TcpipSocketInstrumentConnection(
+        host="192.0.2.40",
+        port=5025,
+    ),
+)
+
+with sc.open_project(".").connect(operator="alice") as lab:
+    with lab.instruments.open(BENCH_VNA) as devices:
+        trace = devices[BENCH_VNA].sweep()
+```
+
+The daemon still probes the installed driver, owns the connection, and claims a
+stable access identity for the session. The attachment disappears when the
+session ends and is not offered to experiment routing. Put transient cabling or
+operator intent in the notebook cell. If the diagnostic must be retained with
+other measurements, promote the device to inventory, write a small named
+experiment, and record only its meaningful result. Routine device state remains
+receipt and run evidence rather than becoming dataset columns automatically.
+
 ## Declare the same work for later
 
 Passing an experiment context to the same factory creates the symbolic client.

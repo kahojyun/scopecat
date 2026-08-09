@@ -18,7 +18,9 @@ if TYPE_CHECKING:
     from scopecat.api._instruments import (
         InstrumentClientFactory,
         InstrumentRef,
+        TemporaryInstrumentRef,
         instrument,
+        temporary_instrument,
     )
     from scopecat.api.analysis import (
         Analysis,
@@ -199,10 +201,18 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "InstrumentClientFactory",
     ),
     "InstrumentRef": ("scopecat.api._instruments", "InstrumentRef"),
+    "TemporaryInstrumentRef": (
+        "scopecat.api._instruments",
+        "TemporaryInstrumentRef",
+    ),
     "Quantity": ("scopecat.kernel.quantity", "Quantity"),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
     "instrument": ("scopecat.api._instruments", "instrument"),
+    "temporary_instrument": (
+        "scopecat.api._instruments",
+        "temporary_instrument",
+    ),
 }
 
 

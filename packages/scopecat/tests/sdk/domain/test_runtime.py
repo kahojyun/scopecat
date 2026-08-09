@@ -34,9 +34,19 @@ from scopecat.sdk.domain.runtime import (
     plan_domain_submission,
     submit_domain_invocation,
 )
+from scopecat.sdk.instruments.execution import (
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+)
 from tests.testkit.runtime import FakeExecutionJournal
 
 type _Invocation = ClosedDomainInvocation[str, dict[str, str]]
+
+
+class _NoopInstrumentExecutor:
+    def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
+        del batch
+        raise AssertionError("runtime test must not execute instrument work")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +79,7 @@ def _closed_invocation(*, target_intent: object | None = None) -> _Invocation:
         capability_fingerprint="interface-fingerprint",
         artifact_id="artifact",
         artifact_fingerprint="artifact-fingerprint",
+        execution_summary={"instruments": ["instrument-a"]},
         target_intent={"realization": "iq"} if target_intent is None else target_intent,
         payload={"compiled": "payload"},
     )
@@ -168,6 +179,18 @@ def test_submission_identity_is_deterministic_and_covers_intent() -> None:
     assert "submission_key" not in first.model_dump(mode="json")
 
 
+def test_execution_summary_is_durable_journal_evidence() -> None:
+    invocation = _closed_invocation()
+    runtime = _Runtime()
+    journal = FakeExecutionJournal()
+
+    _submit(runtime, invocation, journal)
+
+    evidence = journal.entries[0].evidence["invocation_intent"]
+    assert isinstance(evidence, dict)
+    assert evidence["execution_summary"] == {"instruments": ["instrument-a"]}
+
+
 @dataclass
 class _Runtime:
     submit_status: Literal["submitted", "not_submitted", "unknown"] = "submitted"
@@ -185,8 +208,10 @@ class _Runtime:
         self,
         submission_key: str,
         payload: dict[str, str],
+        *,
+        instruments: object,
     ) -> DomainSubmitReceipt:
-        del payload
+        del payload, instruments
         self.submit_calls += 1
         self.submit_keys.append(submission_key)
         if self.submit_error is not None:
@@ -239,6 +264,7 @@ def _submit(
         runtime,
         invocation,
         submission_id,
+        instruments=_NoopInstrumentExecutor(),
         journal=journal,
     )
     return submission_id, job_id
@@ -387,6 +413,7 @@ def test_submit_intent_must_be_durable_before_provider_call() -> None:
             runtime,
             invocation,
             _submission_id(invocation),
+            instruments=_NoopInstrumentExecutor(),
             journal=_NoSequenceJournal(),
         )
 

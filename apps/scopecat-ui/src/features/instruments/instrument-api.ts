@@ -80,6 +80,7 @@ export async function openInstrumentSession(
         operation_id: operationId,
         actor,
         instrument_ids: [instrumentId],
+        temporary_bindings: [],
       },
     }),
   );

@@ -55,12 +55,7 @@ from scopecat.program.point_domain import (
     point_axis_linear,
     point_axis_values,
 )
-from scopecat.records.config import (
-    DomainTargetBinding,
-    DomainTargetInstrumentMember,
-    DomainTargetPrivateEndpoint,
-    VirtualInstrumentConnection,
-)
+from scopecat.records.config import DomainTargetBinding
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_program import (
     DomainExecutionFixture,
@@ -255,20 +250,8 @@ def test_bind_selects_and_snapshots_the_complete_domain_target() -> None:
     config = load_config()
     configured_target = DomainTargetBinding(
         id="tests.selected-target",
-        exclusivity_key="physical:selected-target",
         kind="tests.selected-kind",
-        members=[
-            DomainTargetInstrumentMember(
-                role="readout",
-                instrument_id="source-0",
-            ),
-            DomainTargetPrivateEndpoint(
-                role="controller",
-                connection=VirtualInstrumentConnection(
-                    options={"address": "private-controller"}
-                ),
-            ),
-        ],
+        instrument_ids=["source-0"],
     )
     config = config.model_copy(
         update={
@@ -296,21 +279,11 @@ def test_bind_selects_and_snapshots_the_complete_domain_target() -> None:
 
     target = bound.domain_target
     assert target is not None
-    assert (target.id, target.kind, target.exclusivity_key) == (
+    assert (target.id, target.kind) == (
         "tests.selected-target",
         "tests.selected-kind",
-        "physical:selected-target",
     )
     assert target.instrument_ids == ("source-0",)
-    assert target.members == tuple(configured_target.members)
-    assert all(
-        selected is not configured
-        for selected, configured in zip(
-            target.members,
-            configured_target.members,
-            strict=True,
-        )
-    )
 
 
 def test_bind_rejects_a_domain_program_without_a_configured_target() -> None:

@@ -46,8 +46,10 @@ class _NoEffectsRuntime:
         self,
         submission_key: str,
         payload: dict[str, str],
+        *,
+        instruments: object,
     ) -> DomainSubmitReceipt:
-        del submission_key, payload
+        del submission_key, payload, instruments
         raise AssertionError("preparation must not submit")
 
     def fetch(
@@ -348,6 +350,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
         capability_fingerprint="test.interfaces.v1",
         artifact_id="test.artifact",
         artifact_fingerprint="test.artifact.v1",
+        execution_summary={"instruments": ["instrument-a", "instrument-b"]},
         target_intent={"mode": "test"},
         payload={"job": "test"},
     )
@@ -359,6 +362,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
         raise AssertionError("preparation must not realize")
 
     prepared = preparation.build(
+        instrument_ids=("instrument-b", "instrument-a"),
         mapping=mapping,
         invocation=invocation,
         runtime=_NoEffectsRuntime(),
@@ -366,3 +370,4 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
     )
 
     assert isinstance(prepared, PreparedDomainExecution)
+    assert prepared.instrument_ids == ("instrument-a", "instrument-b")

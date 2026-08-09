@@ -181,7 +181,6 @@ def test_check_and_preview_surface_domain_compilation_errors(
                 update={
                     "domain_target": DomainTargetBinding(
                         id=compiler.target_id,
-                        exclusivity_key=compiler.target_id,
                         kind=compiler.target_kind,
                     )
                 }

@@ -23,7 +23,6 @@ from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
 )
 from scopecat.execution.local.program import CollectOperation
-from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.execution.program import RunHostBinding
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.problems import (
@@ -80,6 +79,7 @@ from scopecat.sdk.instruments.contracts import (
     PropertySpec,
     acquisition_axis,
 )
+from scopecat.sdk.instruments.execution import RunInstrumentHost
 from scopecat.sdk.instruments.provider import (
     InstrumentConnectionContext,
     InstrumentProvider,

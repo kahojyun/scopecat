@@ -22,10 +22,13 @@ def test_lab_tour_shows_one_inventory_and_parameter_catalog(
     assert set(cast("list[str]", summary["instruments"])) == {
         "pump-source",
         "bench-source",
-        "xy-lo",
+        "drive-lo-a",
+        "drive-lo-b",
+        "readout-lo",
         "drive-awg",
         "readout-awg",
         "readout-digitizer",
+        "timing-controller",
         "bench-scope",
         "flux-dac-a",
         "flux-dac-b",
@@ -34,6 +37,8 @@ def test_lab_tour_shows_one_inventory_and_parameter_catalog(
     }
     assert summary["parameter_rows"] == {
         "qubits": 4,
+        "iq_chains": 5,
+        "lo_groups": 3,
         "readout_resonators": 4,
         "channel_calibrations": 4,
         "bias_profiles": 8,
@@ -78,10 +83,22 @@ def test_channel_map_exposes_independent_drive_and_demod_routes(
             "q3": {"i": "readout.awg0.ch1", "q": "readout.awg0.ch2"},
         },
         "acquisition": {
-            "q0": "digitizer.adc0.demod0",
-            "q1": "digitizer.adc0.demod1",
-            "q2": "digitizer.adc0.demod2",
-            "q3": "digitizer.adc0.demod3",
+            "q0": {
+                "adc": ("readout-digitizer", ("inputs", "ch1")),
+                "demodulator": "demod0",
+            },
+            "q1": {
+                "adc": ("readout-digitizer", ("inputs", "ch1")),
+                "demodulator": "demod1",
+            },
+            "q2": {
+                "adc": ("readout-digitizer", ("inputs", "ch1")),
+                "demodulator": "demod2",
+            },
+            "q3": {
+                "adc": ("readout-digitizer", ("inputs", "ch1")),
+                "demodulator": "demod3",
+            },
         },
         "flux": {
             "q0": ("flux-dac-a", "flux.dac_a.ch1"),

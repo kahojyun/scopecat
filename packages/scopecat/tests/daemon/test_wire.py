@@ -50,7 +50,6 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionReceipt,
     RunSubmission,
 )
-from scopecat.execution.ports.instruments import RunHardwareApply, RunHardwareBatch
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
@@ -72,6 +71,7 @@ from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import InstrumentDescription
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
+from scopecat.sdk.instruments.execution import RunHardwareApply, RunHardwareBatch
 from tests.testkit.workflow_fixtures import load_config
 
 
@@ -362,10 +362,7 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
                 kind="tests.controller",
                 instrument_ids=(),
             ),
-            run_resource_requirements=(
-                RunResourceRequirement(id="scope-1"),
-                RunResourceRequirement(id="controller-1", kind="target"),
-            ),
+            run_resource_requirements=(RunResourceRequirement(id="scope-1"),),
         ),
     )
     restored = RunSubmission.model_validate_json(submission.model_dump_json())
@@ -399,40 +396,20 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    "requirements",
-    [
-        (),
-        (RunResourceRequirement(id="source-0"),),
-    ],
-)
-def test_domain_target_summary_requires_its_target_claim(
-    requirements: tuple[RunResourceRequirement, ...],
-) -> None:
-    with pytest.raises(ValidationError, match="exactly one target"):
-        RunPlanSummary(
-            experiment_id="domain",
-            experiment_kind="domain",
-            point_count=1,
-            domain_target_requirement=RunDomainTargetRequirement(
-                id="tests.domain.target",
-                kind="tests.domain",
-                instrument_ids=("source-0",),
-            ),
-            run_resource_requirements=requirements,
-        )
+def test_domain_target_summary_uses_only_its_instrument_footprint() -> None:
+    summary = RunPlanSummary(
+        experiment_id="domain",
+        experiment_kind="domain",
+        point_count=1,
+        domain_target_requirement=RunDomainTargetRequirement(
+            id="tests.domain.target",
+            kind="tests.domain",
+            instrument_ids=("source-0",),
+        ),
+        run_resource_requirements=(RunResourceRequirement(id="source-0"),),
+    )
 
-
-def test_target_claim_requires_structured_domain_requirement() -> None:
-    with pytest.raises(ValidationError, match="require a domain target"):
-        RunPlanSummary(
-            experiment_id="domain",
-            experiment_kind="domain",
-            point_count=1,
-            run_resource_requirements=(
-                RunResourceRequirement(id="tests.domain.target", kind="target"),
-            ),
-        )
+    assert summary.run_resource_requirements == (RunResourceRequirement(id="source-0"),)
 
 
 def test_domain_target_summary_requires_its_complete_instrument_footprint() -> None:
@@ -446,9 +423,7 @@ def test_domain_target_summary_requires_its_complete_instrument_footprint() -> N
                 kind="tests.domain",
                 instrument_ids=("source-0",),
             ),
-            run_resource_requirements=(
-                RunResourceRequirement(id="tests.domain.target", kind="target"),
-            ),
+            run_resource_requirements=(),
         )
 
 
