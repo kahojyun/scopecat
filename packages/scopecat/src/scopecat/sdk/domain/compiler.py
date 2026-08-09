@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from scopecat.sdk.domain.batch import DomainBatchRequest
+from scopecat.sdk.domain.batch import (
+    DomainBatchPartition,
+    DomainBatchRequest,
+    DomainCompileRequest,
+)
 
 if TYPE_CHECKING:
     from scopecat.sdk.domain.execution import PreparedDomainExecution
@@ -19,8 +23,9 @@ class DomainCompiler(Protocol):
     @property
     def target_kind(self) -> str: ...
 
-    @property
-    def max_points_per_batch(self) -> int: ...
+    def partition(self, request: DomainCompileRequest) -> DomainBatchPartition:
+        """Choose contiguous batches whose boundaries do not change semantics."""
+        ...
 
     def compile_batch(
         self,

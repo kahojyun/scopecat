@@ -34,7 +34,6 @@ from reference_lab.parameters import (
     LO_FREQUENCY,
     LO_GROUP,
     LO_GROUPS,
-    LO_POWER,
     MIXER_I_OFFSET,
     MIXER_II,
     MIXER_IQ,
@@ -54,9 +53,11 @@ from reference_lab.targets.configuration import (
     READOUT_I_ROLE,
     READOUT_Q_ROLE,
     ConfiguredQuantumRoute,
+    ConfiguredRfOutput,
     configured_acquisition_signal,
     configured_output_signal,
     configured_quantum_routes,
+    configured_rf_outputs,
 )
 from reference_lab.targets.list_mode.model import (
     AcquisitionBinding,
@@ -68,7 +69,6 @@ from reference_lab.targets.list_mode.model import (
     IqOutputBinding,
     ListModePreparation,
     ListModeTarget,
-    LocalOscillatorPreparation,
     OutputChannelPreparation,
     OutputSignal,
     TimingDomainPreparation,
@@ -93,21 +93,12 @@ class _ReferenceClockModel(BaseModel):
     frequency_hz: float = Field(gt=0.0)
 
 
-class _LocalOscillatorModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    group_id: str = Field(min_length=1)
-    signal: Literal["drive", "readout"]
-    instrument_id: str = Field(min_length=1)
-    entity_ids: tuple[str, ...] = Field(min_length=1)
-
-
 class _IqChainModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     chain_id: str = Field(min_length=1)
-    signal: Literal["drive", "readout"]
-    entity_ids: tuple[str, ...] = Field(min_length=1)
+    i_channel_id: str = Field(min_length=1)
+    q_channel_id: str = Field(min_length=1)
 
 
 class _TimingDomainModel(BaseModel):
@@ -128,7 +119,6 @@ class _ConfigurationModel(BaseModel):
     reference_clock: _ReferenceClockModel
     timing: _TimingDomainModel
     iq_chains: tuple[_IqChainModel, ...]
-    local_oscillators: tuple[_LocalOscillatorModel, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +134,6 @@ class _IqChainCalibration:
 @dataclass(frozen=True, slots=True)
 class _LoCalibration:
     frequency_hz: float
-    power_dbm: float
 
 
 def configured_list_mode_target(
@@ -162,12 +151,15 @@ def configured_list_mode_target(
         config,
         target_kind=LIST_MODE_TARGET_KIND,
     )
+    rf_outputs = configured_rf_outputs(
+        config,
+        target_kind=LIST_MODE_TARGET_KIND,
+    )
     target_binding = config.domain_target
     assert target_binding is not None
     settings = _ConfigurationModel.model_validate(target_binding.configuration)
     referenced_instrument_ids = {
         *(route.instrument_id for route in routes),
-        *(oscillator.instrument_id for oscillator in settings.local_oscillators),
         settings.timing.trigger_instrument_id,
     }
     unauthorized = sorted(
@@ -183,6 +175,7 @@ def configured_list_mode_target(
     lo_calibrations = _lo_calibrations(config)
     output_bindings = _configured_output_bindings(
         routes,
+        rf_outputs=rf_outputs,
         settings=settings,
         signal_calibrations=signal_calibrations,
         iq_chain_calibrations=iq_chain_calibrations,
@@ -218,16 +211,6 @@ def configured_list_mode_target(
             for instrument_id in output_instrument_ids
         ),
         outputs=_output_preparations(output_bindings),
-        local_oscillators=tuple(
-            LocalOscillatorPreparation(
-                group_id=oscillator.group_id,
-                instrument_id=oscillator.instrument_id,
-                entity_ids=oscillator.entity_ids,
-                frequency_hz=lo_calibrations[oscillator.group_id].frequency_hz,
-                power_dbm=lo_calibrations[oscillator.group_id].power_dbm,
-            )
-            for oscillator in settings.local_oscillators
-        ),
         timing=TimingDomainPreparation(
             domain_id=settings.timing.domain_id,
             trigger_instrument_id=settings.timing.trigger_instrument_id,
@@ -384,6 +367,7 @@ def _has_acquisition_result(
 def _configured_output_bindings(
     routes: tuple[ConfiguredQuantumRoute, ...],
     *,
+    rf_outputs: tuple[ConfiguredRfOutput, ...],
     settings: _ConfigurationModel,
     signal_calibrations: dict[tuple[str, str], _SignalCalibration],
     iq_chain_calibrations: dict[str, _IqChainCalibration],
@@ -432,11 +416,11 @@ def _configured_output_bindings(
         )
         chain_id = _iq_chain_id(
             settings,
-            kind=output_kind,
-            entity_id=entity_id,
+            i_channel_id=i_channel,
+            q_channel_id=q_channel,
         )
         oscillator = _local_oscillator(
-            settings,
+            rf_outputs,
             kind=output_kind,
             entity_id=entity_id,
         )
@@ -548,15 +532,15 @@ def _signal_calibration(
 
 
 def _local_oscillator(
-    settings: _ConfigurationModel,
+    outputs: tuple[ConfiguredRfOutput, ...],
     *,
     kind: Literal["drive", "readout"],
     entity_id: str,
-) -> _LocalOscillatorModel:
+) -> ConfiguredRfOutput:
     selected = [
-        oscillator
-        for oscillator in settings.local_oscillators
-        if oscillator.signal == kind and entity_id in oscillator.entity_ids
+        output
+        for output in outputs
+        if output.signal == kind and entity_id in output.entity_ids
     ]
     if len(selected) != 1:
         raise ValueError(
@@ -569,18 +553,19 @@ def _local_oscillator(
 def _iq_chain_id(
     settings: _ConfigurationModel,
     *,
-    kind: Literal["drive", "readout"],
-    entity_id: str,
+    i_channel_id: AwgChannelId,
+    q_channel_id: AwgChannelId,
 ) -> str:
     selected = [
         chain
         for chain in settings.iq_chains
-        if chain.signal == kind and entity_id in chain.entity_ids
+        if chain.i_channel_id == i_channel_id.value
+        and chain.q_channel_id == q_channel_id.value
     ]
     if len(selected) != 1:
         raise ValueError(
-            f"{kind} signal for entity {entity_id!r} requires exactly one IQ "
-            f"chain; found {len(selected)}"
+            f"physical IQ pair {i_channel_id.value!r}, {q_channel_id.value!r} "
+            f"requires exactly one calibration chain; found {len(selected)}"
         )
     return selected[0].chain_id
 
@@ -677,7 +662,6 @@ def _lo_calibrations(
     return {
         cast("str", row[LO_GROUP.id]): _LoCalibration(
             frequency_hz=_quantity_value(row[LO_FREQUENCY.id], "Hz"),
-            power_dbm=_quantity_value(row[LO_POWER.id], "dBm"),
         )
         for row in table.rows
     }

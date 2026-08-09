@@ -33,7 +33,7 @@ from scopecat.sdk.domain.result_mapping import (
     DomainResultBinding,
     DomainResultMapping,
 )
-from scopecat.sdk.domain.runtime import DomainFetchResult, DomainRuntime
+from scopecat.sdk.domain.runtime import DomainExecutionResult, DomainRuntime
 
 
 class DomainPreparationBuilder:
@@ -94,7 +94,7 @@ class DomainPreparationBuilder:
         invocation: DomainInvocationSpec[PayloadT],
         runtime: DomainRuntime[PayloadT, ResultT],
         realize: Callable[
-            [DomainFetchResult[ResultT]],
+            [DomainExecutionResult[ResultT]],
             Sequence[DomainResultValue[ResultAddressT]],
         ],
     ) -> PreparedDomainExecution:
@@ -117,7 +117,7 @@ class DomainPreparationBuilder:
         )
 
         def close_realized_values(
-            fetched: DomainFetchResult[ResultT],
+            fetched: DomainExecutionResult[ResultT],
         ) -> tuple[MeasurementValueCandidate, ...]:
             candidates = tuple(realize(fetched))
             return seal_domain_output_values(

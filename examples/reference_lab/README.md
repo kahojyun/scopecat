@@ -124,7 +124,7 @@ so the same workflows can be routed to compatible real devices.
 
 | Path | Responsibility |
 |---|---|
-| `config/system-infrastructure.json` | One fourteen-device inventory, static target capabilities, one timing-domain trigger controller, LO-group membership, physical drive/readout I/Q routes, one ADC with four demod slots, configurable bare-device channel counts, two two-channel DC sources, and an entityless AWG/scope bench route. |
+| `config/system-infrastructure.json` | One fourteen-device inventory, static target capabilities, one timing-domain trigger controller, component-scoped LO distribution routes, physical drive/readout I/Q routes, one ADC with four demod slots, configurable bare-device channel counts, two two-channel DC sources, and an entityless AWG/scope bench route. |
 | `src/reference_lab/parameters.py` | Six reviewed calibration/profile schemas, including carrier, shared-LO, and affine IQ-mixer values; physical channel IDs and LO membership are not duplicated here. |
 | `src/reference_lab/provider.py` | Deterministic bare-device provider, including shared AWGs, digitizer, the coupled AWG/scope world, and coherent two-channel bias ramps/readback. |
 | `src/reference_lab/targets/list_mode/` | Compiler-owned AWG and digitizer programs, target preparation, signed-IF lowering, and the worker command adapter; the virtual-plant adapter feeds the same triggered worker/device path. |
@@ -177,9 +177,10 @@ The facade renders the signed IF into separate real I/Q waveforms, coalesces
 shared LO and AWG clock demands, and leaves each mounted DAC output independently
 addressable.
 
-The quantum target keeps static LO membership, timing-domain policy, and the
-mapping from logical signals to physical IQ chains in its opaque target
-configuration. Reviewed carrier frequencies, LO setpoints, and one affine
+The quantum target derives static LO membership and physical RF-output
+components from routing. Its opaque target configuration keeps timing policy
+and maps each physical I/Q channel pair to a calibration key, without repeating
+entity membership. Reviewed carrier frequencies, LO setpoints, and one affine
 matrix/offset calibration per physical IQ mixer come from the accepted
 parameter snapshot. Shared readout tones therefore do not duplicate one mixer
 calibration per qubit. Each carrier resolves against exactly one LO group, and
@@ -227,7 +228,7 @@ run evidence rather than automatic dataset variables. The monitor notebooks
 record only the trace and coordinates that matter scientifically. Output enable
 is deliberately ordinary requested state, not a global validation rule, because
 on/off comparison can itself be the experiment. The run manifest carries a
-neutral count/list summary of prepared changes, final changes, and missing final
+neutral count/list summary of baseline changes, final changes, and missing final
 readbacks; complete snapshots remain an opt-in evidence record.
 
 Ragged waveform data comes from point-varying oscilloscope record length. The

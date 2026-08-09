@@ -1844,7 +1844,7 @@ export interface components {
             properties?: components["schemas"]["InstrumentPropertyState"][];
         };
         /** @enum {string} */
-        InstrumentSuccessAction: "release" | "restore_prepared_state";
+        InstrumentSuccessAction: "release" | "restore_baseline";
         /**
          * InstrumentView
          * @description Instrument status without exposing configuration policy or driver options.
@@ -2760,12 +2760,67 @@ export interface components {
          */
         RunDetail: {
             control: components["schemas"]["RunControlView"];
+            /**
+             * Domain Executions
+             * @default []
+             */
+            domain_executions: components["schemas"]["RunDomainExecutionView"][];
             manifest: components["schemas"]["RunManifest"];
             /**
              * Resources
              * @default []
              */
             resources: components["schemas"]["RunResourceView"][];
+        };
+        /**
+         * RunDomainExecutionView
+         * @description Compact target-authored provenance for one domain execution.
+         */
+        RunDomainExecutionView: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Compiler Id */
+            compiler_id: string;
+            /** Execution Key */
+            execution_key: string;
+            /** Execution Summary */
+            execution_summary: {
+                [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue"];
+            };
+            /** Intent Fingerprint */
+            intent_fingerprint: string;
+            /** Invocation Id */
+            invocation_id: string;
+            /** Logical Compute Node Id */
+            logical_compute_node_id: string;
+            /** Operation Id */
+            operation_id: string;
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+            /** Receipt Status */
+            receipt_status?: ("completed" | "not_executed" | "unknown") | null;
+            /** Result Count */
+            result_count?: number | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "started" | "completed" | "failed" | "unknown";
+            /** Target Id */
+            target_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /**
          * RunManifest

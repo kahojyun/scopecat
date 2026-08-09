@@ -3,7 +3,7 @@
 This public module is the narrow target-integration seam between Scopecat's
 transient compiler and a domain package. It closes logical identity mappings
 and target-owned realization policy before effects, then accepts exact
-correlated measurement values afterward. Runtime submission and fetch are
+correlated measurement values afterward. Synchronous runtime execution is
 defined separately in :mod:`scopecat.sdk.domain.runtime`.
 """
 

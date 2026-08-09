@@ -113,6 +113,25 @@ class SQLiteExecutionJournal:
                 f"failed to commit execution journal entry: {error}"
             ) from error
 
+    def list_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+    ) -> tuple[ExecutionTransition, ...]:
+        """Read this run's committed transitions in journal order."""
+
+        rows = _all(
+            connection.execute(
+                """
+                SELECT run_sequence, payload_json, occurred_at
+                FROM durable_events
+                WHERE run_id = ? AND kind = ?
+                ORDER BY run_sequence
+                """,
+                (self._run_id, self._EVENT_KIND),
+            )
+        )
+        return tuple(_execution_transition(self._run_id, row) for row in rows)
+
     def _commit_transition(
         self,
         connection: sqlite3.Connection,

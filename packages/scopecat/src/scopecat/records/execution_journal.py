@@ -35,8 +35,7 @@ type ExecutionStage = Literal[
     "initialize_measurement",
     "append_measurement",
     "seal_measurement",
-    "domain_submit",
-    "domain_fetch",
+    "domain_execute",
 ]
 
 

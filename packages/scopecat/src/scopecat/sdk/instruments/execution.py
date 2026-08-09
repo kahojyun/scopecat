@@ -162,7 +162,7 @@ class RunInstrumentHost(Protocol):
         ...
 
     @property
-    def prepared_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+    def baseline_state(self) -> tuple[InstrumentStateSnapshot, ...]:
         """Return the execution baseline after applying the run policy."""
         ...
 

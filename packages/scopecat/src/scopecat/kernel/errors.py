@@ -170,29 +170,23 @@ class DomainRuntimeFailure(OperationFailure):
         run_id: str,
         operation_id: str,
         invocation_id: str,
-        submission_key: str,
-        phase: Literal["submit", "fetch"],
+        execution_key: str,
         certainty: RunCertainty,
-        job_id: str | None = None,
     ) -> None:
-        if not run_id or not operation_id or not invocation_id or not submission_key:
+        if not run_id or not operation_id or not invocation_id or not execution_key:
             msg = "domain runtime failure identity fields must be non-empty"
-            raise ValueError(msg)
-        if job_id is not None and not job_id:
-            msg = "domain runtime failure job_id must be non-empty when present"
             raise ValueError(msg)
         self.run_id = run_id
         self.operation_id = operation_id
         self.invocation_id = invocation_id
-        self.submission_key = submission_key
-        self.phase = phase
+        self.execution_key = execution_key
+        self.phase: Literal["execute"] = "execute"
         self.certainty = certainty
-        self.job_id = job_id
         super().__init__(problems)
 
 
-class DomainSubmissionIndeterminate(DomainRuntimeFailure):
-    """Submission may have reached the target, so its outcome is indeterminate."""
+class DomainExecutionFailed(DomainRuntimeFailure):
+    """One synchronous domain execution failed or has an unknown outcome."""
 
     def __init__(
         self,
@@ -201,56 +195,7 @@ class DomainSubmissionIndeterminate(DomainRuntimeFailure):
         run_id: str,
         operation_id: str,
         invocation_id: str,
-        submission_key: str,
-        job_id: str | None = None,
-    ) -> None:
-        super().__init__(
-            problems,
-            run_id=run_id,
-            operation_id=operation_id,
-            invocation_id=invocation_id,
-            submission_key=submission_key,
-            phase="submit",
-            certainty="indeterminate",
-            job_id=job_id,
-        )
-
-
-class DomainSubmissionFailed(DomainRuntimeFailure):
-    """The target established that the invocation was not submitted."""
-
-    def __init__(
-        self,
-        problems: Sequence[Problem],
-        *,
-        run_id: str,
-        operation_id: str,
-        invocation_id: str,
-        submission_key: str,
-    ) -> None:
-        super().__init__(
-            problems,
-            run_id=run_id,
-            operation_id=operation_id,
-            invocation_id=invocation_id,
-            submission_key=submission_key,
-            phase="submit",
-            certainty="known",
-        )
-
-
-class DomainFetchFailed(DomainRuntimeFailure):
-    """Fetching a known submitted job did not produce usable result evidence."""
-
-    def __init__(
-        self,
-        problems: Sequence[Problem],
-        *,
-        run_id: str,
-        operation_id: str,
-        invocation_id: str,
-        submission_key: str,
-        job_id: str,
+        execution_key: str,
         certainty: RunCertainty,
     ) -> None:
         super().__init__(
@@ -258,10 +203,8 @@ class DomainFetchFailed(DomainRuntimeFailure):
             run_id=run_id,
             operation_id=operation_id,
             invocation_id=invocation_id,
-            submission_key=submission_key,
-            phase="fetch",
+            execution_key=execution_key,
             certainty=certainty,
-            job_id=job_id,
         )
 
 
@@ -275,28 +218,23 @@ class DomainRuntimePersistenceError(StorageError):
         run_id: str,
         operation_id: str,
         invocation_id: str,
-        submission_key: str,
+        execution_key: str,
         phase: str,
         certainty: RunCertainty,
-        job_id: str | None = None,
     ) -> None:
         if (
             not run_id
             or not operation_id
             or not invocation_id
-            or not submission_key
+            or not execution_key
             or not phase
         ):
             msg = "domain persistence context fields must be non-empty"
             raise ValueError(msg)
-        if job_id is not None and not job_id:
-            msg = "domain persistence job_id must be non-empty when present"
-            raise ValueError(msg)
         self.run_id = run_id
         self.operation_id = operation_id
         self.invocation_id = invocation_id
-        self.submission_key = submission_key
+        self.execution_key = execution_key
         self.phase = phase
         self.certainty = certainty
-        self.job_id = job_id
         super().__init__(problems)

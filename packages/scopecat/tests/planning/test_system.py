@@ -72,7 +72,9 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.sdk.domain import (
+    DomainBatchPartition,
     DomainBatchRequest,
+    DomainCompileRequest,
     DomainPreparationBuilder,
 )
 from scopecat.sdk.domain.execution import (
@@ -86,9 +88,8 @@ from scopecat.sdk.domain.result_mapping import (
     DomainResultBinding,
 )
 from scopecat.sdk.domain.runtime import (
-    DomainFetchReceipt,
-    DomainFetchResult,
-    DomainSubmitReceipt,
+    DomainExecutionReceipt,
+    DomainExecutionResult,
 )
 from scopecat.sdk.instruments import (
     InstrumentConnectionContext,
@@ -118,36 +119,28 @@ from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
 class _EffectProbeRuntime:
     def __init__(self) -> None:
-        self.submit_calls = 0
-        self.fetch_calls = 0
+        self.execute_calls = 0
 
-    def submit(
+    def execute(
         self,
-        submission_key: str,
+        execution_key: str,
         payload: dict[str, str],
         *,
         instruments: object,
-    ) -> DomainSubmitReceipt:
-        del submission_key, payload, instruments
-        self.submit_calls += 1
-        raise AssertionError("planning must not submit a domain invocation")
-
-    def fetch(
-        self,
-        submission_key: str,
-        job_id: str,
-    ) -> DomainFetchReceipt | DomainFetchResult[dict[str, str]]:
-        del submission_key, job_id
-        self.fetch_calls += 1
-        raise AssertionError("planning must not fetch a domain invocation")
+    ) -> DomainExecutionReceipt | DomainExecutionResult[dict[str, str]]:
+        del execution_key, payload, instruments
+        self.execute_calls += 1
+        raise AssertionError("planning must not execute a domain invocation")
 
 
 @dataclass
 class _DomainCompiler:
     compiler_id: str
     instrument_ids: tuple[str, ...] = ()
-    max_points_per_batch: int = 100
+    batch_size: int = 100
+    partition_sizes: tuple[int, ...] | None = None
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
+    partition_requests: list[DomainCompileRequest] = field(default_factory=list)
     compile_calls: int = 0
     compile_requests: list[DomainBatchRequest] = field(default_factory=list)
     prepared_inputs: list[tuple[object, ...]] = field(default_factory=list)
@@ -159,6 +152,15 @@ class _DomainCompiler:
     @property
     def target_kind(self) -> str:
         return "tests.domain"
+
+    def partition(self, request: DomainCompileRequest) -> DomainBatchPartition:
+        self.partition_requests.append(request)
+        if self.partition_sizes is not None:
+            return DomainBatchPartition(self.partition_sizes)
+        return DomainBatchPartition.with_maximum_size(
+            len(request.points),
+            self.batch_size,
+        )
 
     def compile_batch(
         self,
@@ -249,7 +251,7 @@ class _TrackingProvider:
 
 
 def _reject_realization(
-    _fetched: DomainFetchResult[dict[str, str]],
+    _executed: DomainExecutionResult[dict[str, str]],
 ) -> Sequence[DomainResultValue[str]]:
     raise AssertionError("planning must not realize domain results")
 
@@ -574,8 +576,7 @@ def _config_with_domain_resources(
 
 
 def _assert_no_domain_effects(*compilers: _DomainCompiler) -> None:
-    assert all(compiler.runtime.submit_calls == 0 for compiler in compilers)
-    assert all(compiler.runtime.fetch_calls == 0 for compiler in compilers)
+    assert all(compiler.runtime.execute_calls == 0 for compiler in compilers)
 
 
 def _catalog(
@@ -837,7 +838,7 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
     bound = _bound_program(point_count=2)
     compiler = _DomainCompiler(
         "tests.target-capacity",
-        max_points_per_batch=1,
+        batch_size=1,
     )
 
     plan = ExperimentSystem(
@@ -853,10 +854,27 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
         if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
     assert compiler.compile_calls == 2
+    assert [request.point_ordinals for request in compiler.partition_requests] == [
+        (0, 1)
+    ]
     assert [request.point_ordinals for request in compiler.compile_requests] == [
         (0,),
         (1,),
     ]
+
+
+def test_domain_target_partition_must_cover_the_complete_point_space() -> None:
+    bound = _bound_program(point_count=2)
+    compiler = _DomainCompiler(
+        "tests.invalid-partition",
+        partition_sizes=(1,),
+    )
+
+    with pytest.raises(ValueError, match="cover every bounded point"):
+        ExperimentSystem(
+            instrument_catalog=_catalog(bound),
+            domain_compiler=compiler,
+        ).compile(bound)
 
 
 def test_run_requirements_and_host_order_include_only_used_local_instruments() -> None:
@@ -987,7 +1005,7 @@ def test_parameter_overlay_binding_is_shared_with_domain_inputs() -> None:
     ]
 
 
-def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
+def test_host_state_bounds_domain_compilation_regions() -> None:
     bound = _bound_program(state_mode="varying")
     compiler = _DomainCompiler("tests.effect-regions")
     provider = _TrackingProvider()
@@ -1003,7 +1021,11 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
         operation.point_ordinals
         for operation in plan.coverage
         if isinstance(operation, RunDomainJob)
-    ] == [(0, 1)]
+    ] == [(0,), (1,)]
+    assert [request.point_ordinals for request in compiler.partition_requests] == [
+        (0,),
+        (1,),
+    ]
     assert [
         operation.point_index
         for operation in plan.coverage
@@ -1016,7 +1038,7 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
     ] == [0, 1]
     assert provider.describe_calls == 1
     assert provider.connect_calls == 0
-    assert compiler.compile_calls == 1
+    assert compiler.compile_calls == 2
     _assert_no_domain_effects(compiler)
 
 
@@ -1063,7 +1085,7 @@ def test_planning_rejects_local_and_domain_target_instrument_overlap() -> None:
 
     assert _problem_codes(captured.value) == {"domain_target_local_instrument_overlap"}
     assert captured.value.problems[0].details == {"instrument_ids": ("source-0",)}
-    assert compiler.compile_calls == 1
+    assert compiler.compile_calls == 2
 
 
 def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
@@ -1087,7 +1109,7 @@ def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
     assert [request.point_ordinals for request in compiler.compile_requests] == [(0, 1)]
 
 
-def test_domain_compiler_batches_complete_point_domain() -> None:
+def test_domain_compiler_batches_only_within_host_effect_regions() -> None:
     bound = _bound_program(state_mode="constant")
     compiler = _DomainCompiler("tests.constant-peripheral")
     provider = _TrackingProvider()
@@ -1111,13 +1133,22 @@ def test_domain_compiler_batches_complete_point_domain() -> None:
     domain_jobs = tuple(
         operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
     )
-    assert tuple(job.point_ordinals for job in domain_jobs) == ((0, 1),)
-    [domain_job] = domain_jobs
-    assert isinstance(domain_job.execution, PreparedDomainExecution)
+    assert tuple(job.point_ordinals for job in domain_jobs) == ((0,), (1,))
+    assert all(
+        isinstance(domain_job.execution, PreparedDomainExecution)
+        for domain_job in domain_jobs
+    )
     assert provider.describe_calls == 1
     assert provider.connect_calls == 0
-    assert compiler.compile_calls == 1
-    assert [job.id for job in domain_jobs] == ["domain:batch-0"]
+    assert compiler.compile_calls == 2
+    assert [request.point_ordinals for request in compiler.partition_requests] == [
+        (0,),
+        (1,),
+    ]
+    assert [job.id for job in domain_jobs] == [
+        "domain:batch-0",
+        "domain:batch-1",
+    ]
     _assert_no_domain_effects(compiler)
 
 

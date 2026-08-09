@@ -49,12 +49,12 @@ class _CountingProvider:
         return self.delegate.connect(context)
 
 
-def test_state_evidence_requires_matching_observed_and_prepared_order() -> None:
+def test_state_evidence_requires_matching_observed_and_baseline_order() -> None:
     with pytest.raises(ValueError, match="same order"):
         InstrumentStateEvidence(
             run_id="run-1",
             observed_state=[InstrumentStateSnapshot(instrument_id="source-a")],
-            prepared_state=[InstrumentStateSnapshot(instrument_id="source-b")],
+            baseline_state=[InstrumentStateSnapshot(instrument_id="source-b")],
         )
 
 
@@ -83,7 +83,7 @@ def test_execution_uses_provider_selected_config_instrument(
 
     assert manifest.status == "completed"
     assert [state.instrument_id for state in evidence.observed_state] == ["source-a"]
-    assert evidence.prepared_state == evidence.observed_state
+    assert evidence.baseline_state == evidence.observed_state
 
 
 def test_execution_uses_resolved_catalog_without_redescribing_provider(

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat_instruments.members import RF_OUTPUT
 from scopecat_quantum._ids import QubitId
 from scopecat_quantum.pulses import (
     AcquireSignal,
@@ -23,6 +25,8 @@ DRIVE_Q_ROLE = "drive-q"
 READOUT_I_ROLE = "readout-i"
 READOUT_Q_ROLE = "readout-q"
 READOUT_ACQUISITION_ROLE = "readout-acquisition"
+DRIVE_LO_ROLE = "drive-lo"
+READOUT_LO_ROLE = "readout-lo"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +44,17 @@ class ConfiguredQuantumRoute:
     @property
     def endpoint_id(self) -> str:
         return f"{self.instrument_id}:{self.channel_id}"
+
+
+@dataclass(frozen=True, slots=True)
+class ConfiguredRfOutput:
+    """One statically distributed RF output selected by its routing route."""
+
+    group_id: str
+    instrument_id: str
+    signal: Literal["drive", "readout"]
+    entity_ids: tuple[str, ...]
+    component_path: tuple[str, ...]
 
 
 def configured_quantum_routes(
@@ -85,6 +100,57 @@ def configured_quantum_routes(
     return target.id, tuple(routes)
 
 
+def configured_rf_outputs(
+    config: ConfigProfileSnapshot,
+    *,
+    target_kind: str,
+) -> tuple[ConfiguredRfOutput, ...]:
+    """Resolve LO distribution groups from RF-output routing routes."""
+
+    target = config.domain_target
+    if target is None or target.kind != target_kind:
+        raise ValueError(f"configured target kind is not {target_kind!r}")
+    outputs: list[ConfiguredRfOutput] = []
+    for route in config.routing.routes:
+        signal = (
+            "drive"
+            if route.role_id == DRIVE_LO_ROLE
+            else "readout"
+            if route.role_id == READOUT_LO_ROLE
+            else None
+        )
+        if signal is None:
+            continue
+        endpoints = tuple(
+            endpoint
+            for endpoint in route.endpoints
+            if endpoint.interface_id == RF_OUTPUT.interface_id
+            and endpoint.entity_id is not None
+        )
+        entity_ids = tuple(
+            sorted({endpoint.entity_id for endpoint in endpoints if endpoint.entity_id})
+        )
+        component_paths = {endpoint.component_path for endpoint in endpoints}
+        if not entity_ids or len(component_paths) != 1:
+            raise ValueError(
+                f"RF output route {route.id!r} requires one physical component "
+                "shared by at least one entity"
+            )
+        [component_path] = component_paths
+        outputs.append(
+            ConfiguredRfOutput(
+                group_id=route.id,
+                instrument_id=route.instrument_id,
+                signal=signal,
+                entity_ids=entity_ids,
+                component_path=component_path,
+            )
+        )
+    if not outputs:
+        raise ValueError("configured quantum target has no routed RF outputs")
+    return tuple(outputs)
+
+
 def configured_output_signal(
     route: ConfiguredQuantumRoute,
 ) -> DriveSignal | ReadoutSignal | None:
@@ -121,13 +187,17 @@ def configured_acquisition_signal(
 
 __all__ = [
     "DRIVE_I_ROLE",
+    "DRIVE_LO_ROLE",
     "DRIVE_Q_ROLE",
     "LIST_MODE_TARGET_KIND",
     "READOUT_ACQUISITION_ROLE",
     "READOUT_I_ROLE",
+    "READOUT_LO_ROLE",
     "READOUT_Q_ROLE",
     "ConfiguredQuantumRoute",
+    "ConfiguredRfOutput",
     "configured_acquisition_signal",
     "configured_output_signal",
     "configured_quantum_routes",
+    "configured_rf_outputs",
 ]

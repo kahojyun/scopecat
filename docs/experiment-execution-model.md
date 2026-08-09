@@ -122,18 +122,18 @@ not an unconditional cleanup hook; final dataset sealing and the durable
 terminal commit may still occur afterward.
 
 The runtime state names describe different facts. `observed_state` is the
-initial readback after exclusive acquisition; `prepared_state` is the baseline
+initial readback after exclusive acquisition; `baseline_state` is the baseline
 after run-start policy. Authored `on_success` state is then applied only after
 coverage succeeds. Each accepted instrument then applies its configured
 `success_action`: `release` leaves that successful state in place, while
-`restore_prepared_state` restores the writable portion of its prepared baseline.
+`restore_baseline` restores the writable portion of its execution baseline.
 Runtime `final_state` is terminal readback evidence gathered after that action
 and before release. It is not an authored target, does not prove the run
 succeeded, and may be empty or incomplete when restoration or terminal readback
 fails.
 
 The successful order is therefore authored `on_success`, configured success
-action, terminal readback, and release. A rejected prepared-state restoration
+action, terminal readback, and release. A rejected baseline restoration
 turns the run into a failure and enters the configured abort/safe-state path. An
 unknown restoration outcome is indeterminate and quarantines the affected
 hardware just like any other unknown hardware effect.
@@ -144,13 +144,11 @@ Failure cleanup belongs at the layer that can still command the hardware:
   an unknown hardware outcome;
 - accepted instrument configuration may select `abort_then_safe_state` to add
   a sparse safe state after abort while the device remains commandable;
-- the current domain runtime ABI exposes only `submit` and `fetch`, not a
-  core-driven terminate hook. An operator cancellation can stop before or after
-  a domain job, but it cannot interrupt that job in the middle. A target that
-  requires active termination must contain it inside its runtime contract;
-  otherwise Scopecat cannot promise domain cleanup. A generic domain
-  terminate/progress ABI remains deferred until a concrete asynchronous target
-  demonstrates the contract it needs.
+- the current domain runtime ABI exposes one honest synchronous `execute`, not
+  a recoverable provider job or a core-driven terminate hook. An operator
+  cancellation can stop before or after a domain execution, but cannot interrupt
+  it in the middle. A future asynchronous ABI must require a durable
+  provider-owned job identity and concrete terminate/recovery semantics.
 
 Operator cancellation is a durable control-plane request, not an authored
 cleanup callback. Queued runs close immediately; leased runs observe the request
@@ -187,11 +185,14 @@ physical authority boundary. The prepared target execution owns its exact
 physical footprint. Experiments own invocation policy: input defaults, point
 plans, durable record selection, labels, and metadata.
 
-After a target acknowledges submission, an exception while fetching does not
-establish whether the asynchronous job is still active, completed, or otherwise
-changed; the run is therefore indeterminate. A structured provider `not_found`
-receipt is known evidence, while a provider `unknown` receipt remains
-indeterminate.
+The synchronous domain boundary still distinguishes a known execution failure
+from an unknown outcome. A provider exception after hardware may have changed is
+indeterminate unless the returned execution receipt says that no execution
+occurred. There is no core-owned retry or invented asynchronous job lifecycle.
+The journal retains the closed invocation intent once at the started boundary;
+the terminal boundary links it by execution key and intent fingerprint instead
+of copying the target summary again. Run-detail reads assemble the two into a
+compact domain-execution provenance view.
 
 ## Semantic Invariants
 
@@ -262,7 +263,7 @@ the target artifact, exact point/product mapping, runtime invocation, and
 result realization into one prepared execution.
 
 After admission, independently addressable target members are provisioned on
-the same run host as ordinary instrument effects. `submit` receives a narrow
+the same run host as ordinary instrument effects. `execute` receives a narrow
 run-scoped instrument executor: a target runtime can lower its opaque artifact
 to typed hardware batches, but it never receives drivers, connection handles,
 or authority over instruments outside the accepted footprint. This is the

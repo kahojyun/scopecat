@@ -1587,7 +1587,7 @@ def _provisioning_receipt(
             InstrumentStateSnapshot(instrument_id=instrument_id)
             for instrument_id in instrument_ids
         ),
-        prepared_state=tuple(
+        baseline_state=tuple(
             InstrumentStateSnapshot(instrument_id=instrument_id)
             for instrument_id in instrument_ids
         ),

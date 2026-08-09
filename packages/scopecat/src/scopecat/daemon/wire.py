@@ -374,10 +374,10 @@ class RunInstrumentProvisionCommand(_FencedOperationCommand):
 
 
 class RunInstrumentProvisionReceipt(_WireModel):
-    """State evidence around run preparation for daemon-owned instruments.
+    """State evidence around provisioning daemon-owned run instruments.
 
     ``observed_state`` is read after exclusive ownership is acquired.
-    ``prepared_state`` is the execution baseline after the run policy is applied.
+    ``baseline_state`` is the execution baseline after the run policy is applied.
     """
 
     run_id: NonEmptyText
@@ -386,7 +386,7 @@ class RunInstrumentProvisionReceipt(_WireModel):
     instrument_ids: tuple[NonEmptyText, ...] = ()
     problems: tuple[Problem, ...] = ()
     observed_state: tuple[InstrumentStateSnapshot, ...] = ()
-    prepared_state: tuple[InstrumentStateSnapshot, ...] = ()
+    baseline_state: tuple[InstrumentStateSnapshot, ...] = ()
 
     @model_validator(mode="after")
     def validate_result(self) -> RunInstrumentProvisionReceipt:
@@ -399,11 +399,11 @@ class RunInstrumentProvisionReceipt(_WireModel):
                 raise ValueError(
                     "ready run observed state must match instrument ids in order"
                 )
-            if tuple(state.instrument_id for state in self.prepared_state) != (
+            if tuple(state.instrument_id for state in self.baseline_state) != (
                 self.instrument_ids
             ):
                 raise ValueError(
-                    "ready run prepared state must match instrument ids in order"
+                    "ready run baseline state must match instrument ids in order"
                 )
             if self.problems:
                 raise ValueError(
@@ -411,7 +411,7 @@ class RunInstrumentProvisionReceipt(_WireModel):
                 )
         elif not self.problems:
             raise ValueError("rejected run instrument provisioning requires a problem")
-        elif self.observed_state or self.prepared_state:
+        elif self.observed_state or self.baseline_state:
             raise ValueError(
                 "rejected run instrument provisioning cannot expose state evidence"
             )

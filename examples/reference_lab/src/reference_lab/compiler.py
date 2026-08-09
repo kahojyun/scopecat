@@ -6,9 +6,11 @@ from dataclasses import dataclass, field
 
 from scopecat.sdk.domain import (
     DomainBatchInputs,
+    DomainBatchPartition,
     DomainBatchRequest,
     DomainCallView,
-    DomainFetchResult,
+    DomainCompileRequest,
+    DomainExecutionResult,
     DomainPreparationBuilder,
     PreparedDomainExecution,
 )
@@ -51,7 +53,7 @@ from reference_lab.targets.list_mode import (
     MappedListModeTarget,
     VirtualListModeDomainRuntime,
     list_mode_measurement_invocation_spec,
-    realize_fetched_measurements,
+    realize_executed_measurements,
 )
 from reference_lab.virtual_lab.compiler_parameters import QuantumCompilerParameters
 from reference_lab.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
@@ -108,9 +110,13 @@ class QuantumLabCompiler:
     def target_kind(self) -> str:
         return LIST_MODE_TARGET_KIND
 
-    @property
-    def max_points_per_batch(self) -> int:
-        return self._target.max_list_entries
+    def partition(self, request: DomainCompileRequest) -> DomainBatchPartition:
+        """Partition without making ordinary scan semantics boundary-dependent."""
+
+        return DomainBatchPartition.with_maximum_size(
+            len(request.points),
+            self._target.max_list_entries,
+        )
 
     def _compile_target_artifact(
         self,
@@ -324,9 +330,9 @@ def _response_runtime(response: AcquisitionResponse) -> VirtualListModeDomainRun
 
 def _realize(
     mapped_target: MappedListModeTarget,
-    fetched: DomainFetchResult[ListModeRun],
+    executed: DomainExecutionResult[ListModeRun],
 ):
-    return realize_fetched_measurements(mapped_target, fetched)
+    return realize_executed_measurements(mapped_target, executed)
 
 
 __all__ = [

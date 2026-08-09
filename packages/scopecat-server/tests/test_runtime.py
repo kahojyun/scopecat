@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Event, Thread
-from typing import Literal, Never
+from typing import Literal, Never, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -110,6 +110,12 @@ from scopecat.records.parameter_change import (
 from scopecat.records.run import ConfigRegistryRunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.refs import record_content_ref
+from scopecat.sdk.domain.invocation import close_domain_invocation
+from scopecat.sdk.domain.result_mapping import DomainResultMapping
+from scopecat.sdk.domain.runtime import (
+    DomainExecutionReceipt,
+    plan_domain_execution,
+)
 from tests.testkit.runtime import list_test_runs
 
 import scopecat_server.lease_supervisor as lease_supervisor_services
@@ -2115,6 +2121,90 @@ def test_leased_run_cancellation_reaches_heartbeat_and_preserves_terminal_histor
         assert not_accepted.outcome == succeeded_outcome
 
 
+def test_run_detail_projects_compact_domain_execution_evidence(tmp_path: Path) -> None:
+    class _ResultContract:
+        contract_fingerprint = "result-contract"
+
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(_submission("domain-summary"))
+        lease = runtime.application.executor.start_executor(
+            admission.run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        mapping = cast(
+            "DomainResultMapping[str]",
+            cast("object", _ResultContract()),
+        )
+        invocation = close_domain_invocation(
+            mapping,
+            invocation_id="invocation-0",
+            target_id="target-0",
+            compiler_id="compiler-0",
+            capability_fingerprint="capability-fingerprint",
+            artifact_id="artifact-0",
+            artifact_fingerprint="artifact-fingerprint",
+            execution_summary={"local_oscillators": {"drive": {"frequency_hz": 5e9}}},
+            target_intent={"dialect": "test"},
+            payload={"program": "opaque"},
+        )
+        execution_id = plan_domain_execution(
+            invocation,
+            run_id=admission.run_id,
+            logical_compute_node_id="domain.batch.0",
+        )
+        receipt = DomainExecutionReceipt(
+            execution_key=execution_id.execution_key,
+            status="completed",
+            result_fingerprint="result-fingerprint",
+            result_count=2,
+        )
+        transitions = (
+            ExecutionTransition(
+                run_id=admission.run_id,
+                operation_id=execution_id.operation_id,
+                stage="domain_execute",
+                effect="acquisition",
+                state="started",
+                evidence={
+                    "invocation_intent": invocation.intent.model_dump(mode="json"),
+                    "logical_compute_node_id": execution_id.logical_compute_node_id,
+                    "execution_key": execution_id.execution_key,
+                },
+            ),
+            ExecutionTransition(
+                run_id=admission.run_id,
+                operation_id=execution_id.operation_id,
+                stage="domain_execute",
+                effect="acquisition",
+                state="completed",
+                evidence={
+                    "execution_key": execution_id.execution_key,
+                    "intent_fingerprint": execution_id.intent_fingerprint,
+                    "receipt": receipt.model_dump(mode="json"),
+                },
+            ),
+        )
+        for transition in transitions:
+            runtime.application.executor.append_transition(
+                admission.run_id,
+                ExecutionTransitionAppend(
+                    lease_id=lease.lease_id,
+                    transition=transition,
+                ),
+            )
+
+        [execution] = runtime.application.runs.get_run(
+            admission.run_id
+        ).domain_executions
+
+        assert execution.state == "completed"
+        assert execution.receipt_status == "completed"
+        assert execution.result_count == 2
+        assert execution.execution_summary == {
+            "local_oscillators": {"drive": {"frequency_hz": 5e9}}
+        }
+
+
 def test_effect_is_fenced_and_terminal_updates_control(
     tmp_path: Path,
 ) -> None:
@@ -2313,7 +2403,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
         transition = ExecutionTransition(
             run_id=run_id,
             operation_id="fetch-1",
-            stage="domain_fetch",
+            stage="domain_execute",
             effect="read",
             state="completed",
             timestamp=datetime(2026, 7, 23, 9, 0, 1, tzinfo=UTC),
@@ -2419,7 +2509,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert transition_event.payload == {
             "sequence": 0,
             "operation_id": "fetch-1",
-            "stage": "domain_fetch",
+            "stage": "domain_execute",
             "effect": "read",
             "state": "completed",
             "point_index": 0,

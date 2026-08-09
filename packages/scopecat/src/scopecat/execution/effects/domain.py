@@ -17,9 +17,8 @@ from scopecat.measurements.values import (
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.runtime import (
     DomainInstrumentExecutor,
-    fetch_domain_invocation,
-    plan_domain_submission,
-    submit_domain_invocation,
+    execute_domain_invocation,
+    plan_domain_execution,
 )
 from scopecat.sdk.journal import ExecutionJournal
 from scopecat.sdk.runtime_problems import (
@@ -39,26 +38,19 @@ def execute_domain_job_values(
 
     invocation = prepared.invocation
     runtime = prepared.runtime
-    submission_id = plan_domain_submission(
+    execution_id = plan_domain_execution(
         invocation,
         run_id=run_id,
         logical_compute_node_id=logical_compute_node_id,
     )
-    job_id = submit_domain_invocation(
+    result = execute_domain_invocation(
         runtime,
         invocation,
-        submission_id,
+        execution_id,
         instruments=instruments,
         journal=journal,
     )
-    fetched = fetch_domain_invocation(
-        runtime,
-        invocation.intent,
-        submission_id,
-        job_id,
-        journal=journal,
-    )
-    return prepared.realize(fetched)
+    return prepared.realize(result)
 
 
 def domain_runtime_terminal_problem(
@@ -72,10 +64,8 @@ def domain_runtime_terminal_problem(
         "phase": error.phase,
         "certainty": error.certainty,
         "invocation_id": error.invocation_id,
-        "submission_key": error.submission_key,
+        "execution_key": error.execution_key,
     }
-    if error.job_id is not None:
-        details["job_id"] = error.job_id
     return runtime_problem(
         "domain_runtime_terminalized",
         "the unified run was terminalized with domain target correlation retained",

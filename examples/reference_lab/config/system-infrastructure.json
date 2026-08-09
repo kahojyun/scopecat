@@ -255,7 +255,7 @@
         ]
       },
       {
-        "id": "drive-lo-a",
+        "id": "drive-a",
         "instrument_id": "drive-lo-a",
         "role_id": "drive-lo",
         "endpoints": [
@@ -264,7 +264,7 @@
         ]
       },
       {
-        "id": "drive-lo-b",
+        "id": "drive-b",
         "instrument_id": "drive-lo-b",
         "role_id": "drive-lo",
         "endpoints": [
@@ -273,7 +273,7 @@
         ]
       },
       {
-        "id": "readout-lo",
+        "id": "readout",
         "instrument_id": "readout-lo",
         "role_id": "readout-lo",
         "endpoints": [
@@ -354,26 +354,18 @@
         "phase_reference": "entry_trigger_reset"
       },
       "iq_chains": [
-        {"chain_id": "drive-q0", "signal": "drive", "entity_ids": ["q0"]},
-        {"chain_id": "drive-q1", "signal": "drive", "entity_ids": ["q1"]},
-        {"chain_id": "drive-q2", "signal": "drive", "entity_ids": ["q2"]},
-        {"chain_id": "drive-q3", "signal": "drive", "entity_ids": ["q3"]},
-        {"chain_id": "readout", "signal": "readout", "entity_ids": ["q0", "q1", "q2", "q3"]}
-      ],
-      "local_oscillators": [
-        {"group_id": "drive-a", "signal": "drive", "instrument_id": "drive-lo-a", "entity_ids": ["q0", "q1"]},
-        {"group_id": "drive-b", "signal": "drive", "instrument_id": "drive-lo-b", "entity_ids": ["q2", "q3"]},
-        {"group_id": "readout", "signal": "readout", "instrument_id": "readout-lo", "entity_ids": ["q0", "q1", "q2", "q3"]}
+        {"chain_id": "drive-q0", "i_channel_id": "drive-awg:drive.awg0.ch1", "q_channel_id": "drive-awg:drive.awg0.ch2"},
+        {"chain_id": "drive-q1", "i_channel_id": "drive-awg:drive.awg0.ch3", "q_channel_id": "drive-awg:drive.awg0.ch4"},
+        {"chain_id": "drive-q2", "i_channel_id": "drive-awg:drive.awg0.ch5", "q_channel_id": "drive-awg:drive.awg0.ch6"},
+        {"chain_id": "drive-q3", "i_channel_id": "drive-awg:drive.awg0.ch7", "q_channel_id": "drive-awg:drive.awg0.ch8"},
+        {"chain_id": "readout", "i_channel_id": "readout-awg:readout.awg0.ch1", "q_channel_id": "readout-awg:readout.awg0.ch2"}
       ]
     },
     "instrument_ids": [
       "drive-awg",
       "readout-awg",
       "readout-digitizer",
-      "timing-controller",
-      "drive-lo-a",
-      "drive-lo-b",
-      "readout-lo"
+      "timing-controller"
     ]
   }
 }

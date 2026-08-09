@@ -113,7 +113,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
                     status="ready",
                     instrument_ids=("source-0",),
                     observed_state=(InstrumentStateSnapshot(instrument_id="source-0"),),
-                    prepared_state=(InstrumentStateSnapshot(instrument_id="source-0"),),
+                    baseline_state=(InstrumentStateSnapshot(instrument_id="source-0"),),
                 )
             )
         if path.endswith("/hardware/execute"):
@@ -179,7 +179,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     assert instruments.observed_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
-    assert instruments.prepared_state == (
+    assert instruments.baseline_state == (
         InstrumentStateSnapshot(instrument_id="source-0"),
     )
 
@@ -388,7 +388,7 @@ def _transition() -> ExecutionTransition:
     return ExecutionTransition(
         run_id="run-1",
         operation_id="operation-1",
-        stage="domain_fetch",
+        stage="domain_execute",
         effect="read",
         state="completed",
     )

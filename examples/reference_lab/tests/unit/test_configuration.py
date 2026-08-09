@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from copy import deepcopy
-from typing import cast
-
 import pytest
-from pydantic import JsonValue
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
@@ -38,7 +34,12 @@ from reference_lab.parameters import (
     MIXER_QQ,
 )
 from reference_lab.provider import ReferenceLabProvider
-from reference_lab.targets.configuration import DRIVE_Q_ROLE
+from reference_lab.targets.configuration import (
+    DRIVE_LO_ROLE,
+    DRIVE_Q_ROLE,
+    LIST_MODE_TARGET_KIND,
+    configured_rf_outputs,
+)
 from reference_lab.targets.list_mode import configured_list_mode_target
 
 
@@ -189,14 +190,14 @@ def test_target_configuration_keeps_topology_separate_from_calibration() -> None
     config = bootstrap_config()
     domain_target = config.domain_target
     assert domain_target is not None
-    oscillators = cast(
-        "list[dict[str, JsonValue]]",
-        domain_target.configuration["local_oscillators"],
-    )
+    chains = domain_target.configuration["iq_chains"]
 
+    assert "local_oscillators" not in domain_target.configuration
+    assert isinstance(chains, list)
     assert all(
-        set(oscillator) == {"group_id", "signal", "instrument_id", "entity_ids"}
-        for oscillator in oscillators
+        isinstance(chain, dict)
+        and set(chain) == {"chain_id", "i_channel_id", "q_channel_id"}
+        for chain in chains
     )
     assert isinstance(
         config.parameter_snapshot.get(IQ_CHAINS.id),
@@ -205,7 +206,7 @@ def test_target_configuration_keeps_topology_separate_from_calibration() -> None
     assert isinstance(config.parameter_snapshot.get(LO_GROUPS.id), TableParameterValue)
 
 
-def test_list_mode_target_owns_bare_awg_and_digitizer_members() -> None:
+def test_list_mode_target_owns_only_real_time_members() -> None:
     config = bootstrap_config()
     domain_target = config.domain_target
     assert domain_target is not None
@@ -214,9 +215,6 @@ def test_list_mode_target_owns_bare_awg_and_digitizer_members() -> None:
         "readout-awg",
         "readout-digitizer",
         "timing-controller",
-        "drive-lo-a",
-        "drive-lo-b",
-        "readout-lo",
     ]
 
     target = _configured_target(config)
@@ -279,7 +277,7 @@ def test_target_configuration_cannot_exceed_its_instrument_authority() -> None:
             "instrument_ids": [
                 instrument_id
                 for instrument_id in target.instrument_ids
-                if instrument_id != "readout-lo"
+                if instrument_id != "timing-controller"
             ]
         }
     )
@@ -289,7 +287,7 @@ def test_target_configuration_cannot_exceed_its_instrument_authority() -> None:
         }
     )
 
-    with pytest.raises(ValueError, match="outside its authority: readout-lo"):
+    with pytest.raises(ValueError, match="outside its authority: timing-controller"):
         _configured_target(changed)
 
 
@@ -349,19 +347,25 @@ def test_list_mode_target_reports_incomplete_iq_pair_by_signal() -> None:
 
 def test_list_mode_target_reports_missing_lo_group() -> None:
     config = bootstrap_config()
-    domain_target = config.domain_target
-    assert domain_target is not None
-    configuration = dict(domain_target.configuration)
-    oscillators = cast(
-        "list[dict[str, JsonValue]]",
-        deepcopy(configuration["local_oscillators"]),
-    )
-    oscillators[0]["entity_ids"] = ["q1"]
-    configuration["local_oscillators"] = cast("JsonValue", oscillators)
-    changed_target = domain_target.model_copy(update={"configuration": configuration})
+    routes = [
+        route.model_copy(
+            update={
+                "endpoints": [
+                    endpoint
+                    for endpoint in route.endpoints
+                    if endpoint.entity_id != "q0"
+                ]
+            }
+        )
+        if route.role_id == DRIVE_LO_ROLE and route.id == "drive-a"
+        else route
+        for route in config.routing.routes
+    ]
     changed = config.model_copy(
         update={
-            "system": config.system.model_copy(update={"domain_target": changed_target})
+            "system": config.system.model_copy(
+                update={"routing": config.routing.model_copy(update={"routes": routes})}
+            )
         }
     )
 
@@ -370,6 +374,42 @@ def test_list_mode_target_reports_missing_lo_group() -> None:
         match=r"drive signal for entity 'q0' requires exactly one LO group; found 0",
     ):
         _configured_target(changed)
+
+
+def test_lab_rf_routing_retains_component_scope_outside_domain_target() -> None:
+    config = bootstrap_config()
+    routes = [
+        route.model_copy(
+            update={
+                "endpoints": [
+                    endpoint.model_copy(
+                        update={"component_path": ("outputs", "source1")}
+                    )
+                    for endpoint in route.endpoints
+                ]
+            }
+        )
+        if route.id == "drive-a"
+        else route
+        for route in config.routing.routes
+    ]
+    changed = config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={"routing": config.routing.model_copy(update={"routes": routes})}
+            )
+        }
+    )
+
+    outputs = configured_rf_outputs(changed, target_kind=LIST_MODE_TARGET_KIND)
+    drive_a = next(output for output in outputs if output.group_id == "drive-a")
+
+    assert drive_a.instrument_id == "drive-lo-a"
+    assert drive_a.component_path == ("outputs", "source1")
+    domain_target = changed.domain_target
+    assert domain_target is not None
+    assert "drive-lo-a" not in domain_target.instrument_ids
+    _configured_target(changed)
 
 
 def test_list_mode_target_resolves_lo_and_mixer_from_reviewed_parameters() -> None:
@@ -428,11 +468,6 @@ def test_list_mode_target_resolves_lo_and_mixer_from_reviewed_parameters() -> No
     outputs = {output.channel_id: output for output in target.preparation.outputs}
     assert outputs[binding.i_channel_id].offset_v == 0.01
     assert outputs[binding.q_channel_id].offset_v == -0.02
-    drive_lo = next(
-        oscillator
-        for oscillator in target.preparation.local_oscillators
-        if oscillator.group_id == "drive-a"
-    )
-    assert drive_lo.frequency_hz == 4.80e9
+    assert binding.lo_group_id == "drive-a"
     assert target.capability_fingerprint == baseline.capability_fingerprint
     assert target.configuration_fingerprint != baseline.configuration_fingerprint

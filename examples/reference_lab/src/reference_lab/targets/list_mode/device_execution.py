@@ -27,12 +27,6 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareCollectBinding,
     RunHardwareInvoke,
 )
-from scopecat_instruments.members import (
-    RF_OUTPUT_ENABLED,
-    RF_OUTPUT_FREQUENCY,
-    RF_OUTPUT_POWER,
-    RF_OUTPUT_REFERENCE_SOURCE,
-)
 
 from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT_AMPLITUDE,
@@ -101,15 +95,26 @@ class InstrumentListModeRuntime:
         execution_id: str,
         instruments: DomainInstrumentExecutor,
     ) -> ListModeRun:
-        _execute_batch(instruments, _preparation_batch(artifact))
-        _execute_batch(instruments, _load_batch(artifact))
+        _execute_batch(
+            instruments,
+            _preparation_batch(artifact, execution_id=execution_id),
+        )
+        _execute_batch(
+            instruments,
+            _load_batch(artifact, execution_id=execution_id),
+        )
         playbacks: list[AwgPlayback] = []
         frames: list[DigitizerFrame] = []
         for shot_index in range(artifact.repetitions):
             for entry in artifact.entries:
                 _execute_batch(
                     instruments,
-                    _arm_batch(artifact, entry, shot_index=shot_index),
+                    _arm_batch(
+                        artifact,
+                        entry,
+                        execution_id=execution_id,
+                        shot_index=shot_index,
+                    ),
                 )
                 _execute_batch(
                     instruments,
@@ -122,7 +127,12 @@ class InstrumentListModeRuntime:
                 )
                 receipt = _execute_batch(
                     instruments,
-                    _fetch_batch(artifact, entry, shot_index=shot_index),
+                    _fetch_batch(
+                        artifact,
+                        entry,
+                        execution_id=execution_id,
+                        shot_index=shot_index,
+                    ),
                 )
                 playback = AwgPlayback(
                     shot_index=shot_index,
@@ -155,7 +165,12 @@ class InstrumentListModeRuntime:
 WORKER_ADC_DSP_FINGERPRINT = "reference_lab.rectangular_adc_dsp.v2"
 
 
-def _preparation_batch(artifact: ListModeArtifact) -> RunHardwareBatch:
+def _preparation_batch(
+    artifact: ListModeArtifact,
+    *,
+    execution_id: str,
+) -> RunHardwareBatch:
+    prefix = _execution_prefix(artifact, execution_id=execution_id)
     actions: list[RunHardwareApply] = []
     clocks = {
         preparation.instrument_id: preparation
@@ -218,7 +233,7 @@ def _preparation_batch(artifact: ListModeArtifact) -> RunHardwareBatch:
             )
         actions.append(
             RunHardwareApply(
-                effect_id=f"prepare:{awg_program.instrument_id}",
+                effect_id=f"{prefix}:prepare:{awg_program.instrument_id}",
                 instrument_id=awg_program.instrument_id,
                 assignments=tuple(assignments),
             )
@@ -274,48 +289,24 @@ def _preparation_batch(artifact: ListModeArtifact) -> RunHardwareBatch:
             )
         actions.append(
             RunHardwareApply(
-                effect_id=f"prepare:{digitizer_program.instrument_id}",
+                effect_id=f"{prefix}:prepare:{digitizer_program.instrument_id}",
                 instrument_id=digitizer_program.instrument_id,
                 assignments=tuple(assignments),
             )
         )
 
-    for oscillator in artifact.preparation.local_oscillators:
-        actions.append(
-            RunHardwareApply(
-                effect_id=f"prepare:{oscillator.instrument_id}",
-                instrument_id=oscillator.instrument_id,
-                assignments=(
-                    _assignment(
-                        oscillator.instrument_id,
-                        RF_OUTPUT_FREQUENCY,
-                        Quantity(oscillator.frequency_hz, "Hz"),
-                    ),
-                    _assignment(
-                        oscillator.instrument_id,
-                        RF_OUTPUT_POWER,
-                        Quantity(oscillator.power_dbm, "dBm"),
-                    ),
-                    _assignment(
-                        oscillator.instrument_id,
-                        RF_OUTPUT_REFERENCE_SOURCE,
-                        "external",
-                    ),
-                    _assignment(
-                        oscillator.instrument_id,
-                        RF_OUTPUT_ENABLED,
-                        oscillator.output_enabled,
-                    ),
-                ),
-            )
-        )
     return RunHardwareBatch(
-        operation_id=f"target.prepare:{artifact.id.value}",
+        operation_id=f"{prefix}:prepare",
         actions=tuple(actions),
     )
 
 
-def _load_batch(artifact: ListModeArtifact) -> RunHardwareBatch:
+def _load_batch(
+    artifact: ListModeArtifact,
+    *,
+    execution_id: str,
+) -> RunHardwareBatch:
+    prefix = _execution_prefix(artifact, execution_id=execution_id)
     actions: list[RunHardwareInvoke] = []
     codecs = reference_lab_payload_codecs()
     for awg_program in artifact.awg_programs:
@@ -349,7 +340,7 @@ def _load_batch(artifact: ListModeArtifact) -> RunHardwareBatch:
         )
         actions.append(
             RunHardwareInvoke(
-                effect_id=f"load:{awg_program.instrument_id}",
+                effect_id=f"{prefix}:load:{awg_program.instrument_id}",
                 instrument_id=awg_program.instrument_id,
                 resource_id=awg_program.instrument_id,
                 interface_id=AWG_LOAD_PROGRAM.interface_id,
@@ -364,7 +355,7 @@ def _load_batch(artifact: ListModeArtifact) -> RunHardwareBatch:
             )
         )
     return RunHardwareBatch(
-        operation_id=f"target.load:{artifact.id.value}",
+        operation_id=f"{prefix}:load",
         actions=tuple(actions),
     )
 
@@ -373,9 +364,15 @@ def _arm_batch(
     artifact: ListModeArtifact,
     entry: ListModeEntry,
     *,
+    execution_id: str,
     shot_index: int,
 ) -> RunHardwareBatch:
-    prefix = f"target:{artifact.id.value}:shot-{shot_index}:entry-{entry.list_index}"
+    prefix = _entry_prefix(
+        artifact,
+        entry,
+        execution_id=execution_id,
+        shot_index=shot_index,
+    )
     actions: list[RunHardwareApply | RunHardwareInvoke] = []
     for digitizer_program in artifact.digitizer_programs:
         program_entry = next(
@@ -498,7 +495,12 @@ def _trigger_batch(
     execution_id: str,
     shot_index: int,
 ) -> RunHardwareBatch:
-    prefix = f"target:{artifact.id.value}:shot-{shot_index}:entry-{entry.list_index}"
+    prefix = _entry_prefix(
+        artifact,
+        entry,
+        execution_id=execution_id,
+        shot_index=shot_index,
+    )
     timing = artifact.preparation.timing
     trigger_operation = (
         TRIGGER_FIRE_EPOCH
@@ -556,9 +558,15 @@ def _fetch_batch(
     artifact: ListModeArtifact,
     entry: ListModeEntry,
     *,
+    execution_id: str,
     shot_index: int,
 ) -> RunHardwareBatch:
-    prefix = f"target:{artifact.id.value}:shot-{shot_index}:entry-{entry.list_index}"
+    prefix = _entry_prefix(
+        artifact,
+        entry,
+        execution_id=execution_id,
+        shot_index=shot_index,
+    )
     actions: list[RunHardwareCollect] = []
     digitizer_inputs = {window.input_id for window in entry.acquisitions}
 
@@ -625,6 +633,23 @@ def _fetch_batch(
             )
         )
     return RunHardwareBatch(operation_id=f"{prefix}:fetch", actions=tuple(actions))
+
+
+def _execution_prefix(artifact: ListModeArtifact, *, execution_id: str) -> str:
+    return f"target:{execution_id}:{artifact.id.value}"
+
+
+def _entry_prefix(
+    artifact: ListModeArtifact,
+    entry: ListModeEntry,
+    *,
+    execution_id: str,
+    shot_index: int,
+) -> str:
+    return (
+        f"{_execution_prefix(artifact, execution_id=execution_id)}:"
+        f"shot-{shot_index}:entry-{entry.list_index}"
+    )
 
 
 def _assignment(

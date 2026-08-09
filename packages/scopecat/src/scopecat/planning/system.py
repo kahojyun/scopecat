@@ -37,6 +37,7 @@ from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
+    make_domain_compile_request,
 )
 from scopecat.planning.domain_results import (
     domain_result_product_use_ids,
@@ -523,18 +524,28 @@ def _compile_coverage(
     if not region:
         return ()
     compiler = cast("DomainCompiler", system.domain_compiler)
+    host_effects = (
+        ()
+        if local_effects is None
+        else tuple(item for group in local_effects.effect_operations for item in group)
+    )
+    compile_regions = _local_schedule_regions(region, host_effects, ())
     jobs_by_execution: dict[str, list[RunDomainJob]] = {}
     for execution in bound.program.program.effects:
         if not isinstance(execution, LogicalDomainExecution):
             continue
-        jobs_by_execution[execution.id] = list(
-            _compile_domain_batches(
-                compiler,
-                domain_calls[execution.id],
-                bound_points,
-                region,
+        jobs: list[RunDomainJob] = []
+        for compile_region in compile_regions:
+            jobs.extend(
+                _compile_domain_batches(
+                    compiler,
+                    domain_calls[execution.id],
+                    bound_points,
+                    compile_region,
+                    first_batch_ordinal=len(jobs),
+                )
             )
-        )
+        jobs_by_execution[execution.id] = jobs
     return _coverage_operations(
         effects=bound.program.program.effects,
         local_effects=local_effects,
@@ -553,12 +564,10 @@ def _coverage_operations(
     jobs = tuple(job for selected in jobs_by_execution.values() for job in selected)
     selected_compute = () if local_effects is None else local_effects.compute_operations
     selected_effects = () if local_effects is None else local_effects.effect_operations
+    host_effects = tuple(item for group in selected_effects for item in group)
     local_regions = _local_schedule_regions(
         region,
-        (
-            *selected_compute,
-            *(item for group in selected_effects for item in group),
-        ),
+        host_effects,
         jobs,
     )
     operations: list[RunCoveredOperation] = []
@@ -589,6 +598,14 @@ def _local_schedule_regions(
     effects: Sequence[RunCoverageEffect],
     domain_jobs: Sequence[RunDomainJob],
 ) -> tuple[tuple[int, ...], ...]:
+    """Split ordered points at host effects and prepared domain batch starts.
+
+    Pure host computation is deliberately absent: it can be evaluated for every
+    point before a batch runs. Instrument effects instead delimit the bounded
+    regions presented to a domain compiler, so a prepared real-time program can
+    never cross an externally controlled hardware operation.
+    """
+
     boundaries = {
         *(effect.point_index for effect in effects),
         *(job.point_ordinals[0] for job in domain_jobs),
@@ -608,13 +625,25 @@ def _compile_domain_batches(
     call: DomainCallView,
     bound_points: MaterializedBoundPoints,
     point_ordinals: tuple[int, ...],
+    *,
+    first_batch_ordinal: int = 0,
 ) -> tuple[RunDomainJob, ...]:
-    max_points = compiler.max_points_per_batch
-    if type(max_points) is not int or max_points <= 0:
-        raise ValueError("domain batch capacity must be a positive integer")
+    complete_request = make_domain_compile_request(
+        call,
+        bound_points,
+        point_ordinals,
+    )
+    partition = compiler.partition(complete_request)
+    if sum(partition.batch_sizes) != len(point_ordinals):
+        raise ValueError(
+            "domain compiler partition must cover every bounded point exactly once"
+        )
     jobs: list[RunDomainJob] = []
-    for batch_ordinal, offset in enumerate(range(0, len(point_ordinals), max_points)):
-        batch_points = point_ordinals[offset : offset + max_points]
+    offset = 0
+    for local_batch_ordinal, batch_size in enumerate(partition.batch_sizes):
+        batch_ordinal = first_batch_ordinal + local_batch_ordinal
+        batch_points = point_ordinals[offset : offset + batch_size]
+        offset += batch_size
         request = make_domain_batch_request(
             call,
             bound_points,

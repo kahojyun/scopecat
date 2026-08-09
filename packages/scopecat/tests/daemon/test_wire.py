@@ -91,7 +91,7 @@ def _transition(
         sequence=sequence,
         run_id=run_id,
         operation_id="op-1",
-        stage="domain_fetch",
+        stage="domain_execute",
         effect="read",
         state="completed",
     )
@@ -559,7 +559,7 @@ def test_run_instrument_provision_state_evidence_matches_instrument_order() -> N
         status="ready",
         instrument_ids=("source-a", "source-b"),
         observed_state=(source_a, source_b),
-        prepared_state=(source_a, source_b),
+        baseline_state=(source_a, source_b),
     )
 
     assert (
@@ -573,16 +573,16 @@ def test_run_instrument_provision_state_evidence_matches_instrument_order() -> N
             status="ready",
             instrument_ids=("source-a", "source-b"),
             observed_state=(source_b, source_a),
-            prepared_state=(source_a, source_b),
+            baseline_state=(source_a, source_b),
         )
-    with pytest.raises(ValidationError, match="prepared state must match"):
+    with pytest.raises(ValidationError, match="baseline state must match"):
         RunInstrumentProvisionReceipt(
             run_id="run-1",
             operation_id="lifecycle.provide-instruments",
             status="ready",
             instrument_ids=("source-a", "source-b"),
             observed_state=(source_a, source_b),
-            prepared_state=(source_b, source_a),
+            baseline_state=(source_b, source_a),
         )
 
 
@@ -603,7 +603,7 @@ def test_rejected_run_instrument_provision_has_no_state_evidence() -> None:
     )
 
     assert receipt.observed_state == ()
-    assert receipt.prepared_state == ()
+    assert receipt.baseline_state == ()
     with pytest.raises(ValidationError, match="cannot expose state evidence"):
         RunInstrumentProvisionReceipt(
             run_id="run-1",

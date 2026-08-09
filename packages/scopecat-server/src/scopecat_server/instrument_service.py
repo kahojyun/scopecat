@@ -669,8 +669,8 @@ class InstrumentService:
         )
         if isinstance(run_start_state, RunInstrumentProvisionReceipt):
             return run_start_state
-        prepared_state = run_start_state
-        for state in prepared_state:
+        baseline_state = run_start_state
+        for state in baseline_state:
             runtime.instruments[state.instrument_id].adopt_state(state)
 
         try:
@@ -697,7 +697,7 @@ class InstrumentService:
             status="ready",
             instrument_ids=instrument_ids,
             observed_state=observed_state,
-            prepared_state=prepared_state,
+            baseline_state=baseline_state,
         )
         provision = _RunProvision(
             command=command,
@@ -1525,7 +1525,7 @@ class InstrumentService:
                     run_id,
                     token=command.lease_id,
                     runtime=runtime,
-                    prepared_state=provision.receipt.prepared_state,
+                    baseline_state=provision.receipt.baseline_state,
                     failed=command.failed,
                     operation_id=command.operation_id,
                 )
@@ -1549,18 +1549,18 @@ class InstrumentService:
         *,
         token: str,
         runtime: _OwnershipRuntime,
-        prepared_state: Sequence[InstrumentStateSnapshot],
+        baseline_state: Sequence[InstrumentStateSnapshot],
         failed: bool,
         operation_id: str,
     ) -> tuple[list[InstrumentStateSnapshot], list[Problem]]:
         problems: list[Problem] = []
         with runtime.lock:
             if not failed:
-                restore_problems = self._restore_prepared_state_or_quarantine(
+                restore_problems = self._restore_baseline_or_quarantine(
                     run_id,
                     token=token,
                     runtime=runtime,
-                    prepared_state=prepared_state,
+                    baseline_state=baseline_state,
                     operation_id=operation_id,
                 )
                 if restore_problems:
@@ -1621,30 +1621,28 @@ class InstrumentService:
         self._pop_run_runtime(run_id, expected=runtime)
         return final_state, problems
 
-    def _restore_prepared_state_or_quarantine(
+    def _restore_baseline_or_quarantine(
         self,
         run_id: str,
         *,
         token: str,
         runtime: _OwnershipRuntime,
-        prepared_state: Sequence[InstrumentStateSnapshot],
+        baseline_state: Sequence[InstrumentStateSnapshot],
         operation_id: str,
     ) -> list[Problem]:
-        prepared_by_instrument = {
-            state.instrument_id: state for state in prepared_state
+        baseline_by_instrument = {
+            state.instrument_id: state for state in baseline_state
         }
         for instrument_id, instrument in runtime.instruments.items():
             spec = runtime.specs[instrument_id]
-            if spec.success_action != "restore_prepared_state":
+            if spec.success_action != "restore_baseline":
                 continue
-            restore_operation_id = (
-                f"{operation_id}.restore_prepared_state.{instrument_id}"
-            )
+            restore_operation_id = f"{operation_id}.restore_baseline.{instrument_id}"
             try:
                 observed_state = observe_instrument(instrument)
                 assignments = _restorable_state_assignments(
                     instrument_id=instrument_id,
-                    prepared_state=prepared_by_instrument[instrument_id],
+                    baseline_state=baseline_by_instrument[instrument_id],
                     instrument=instrument,
                 )
                 command = _pending_configured_state_command(
@@ -1676,20 +1674,20 @@ class InstrumentService:
                     run_id,
                     runtime,
                     token=token,
-                    reason="run_instrument_prepared_state_restore_unknown",
+                    reason="run_instrument_baseline_restore_unknown",
                 )
                 raise BackendConflict(
-                    "instrument prepared-state restore failed with unknown state"
+                    "instrument baseline restore failed with unknown state"
                 ) from error
             if receipt.status == "unknown":
                 self._lose_run_runtime(
                     run_id,
                     runtime,
                     token=token,
-                    reason="run_instrument_prepared_state_restore_unknown",
+                    reason="run_instrument_baseline_restore_unknown",
                 )
                 raise BackendConflict(
-                    "instrument prepared-state restore failed with unknown state"
+                    "instrument baseline restore failed with unknown state"
                 )
             if receipt.status != "applied":
                 return list(
@@ -2826,7 +2824,7 @@ class InstrumentService:
                     run_id,
                     token=token,
                     runtime=runtime,
-                    prepared_state=(),
+                    baseline_state=(),
                     failed=True,
                     operation_id="hardware.terminal-fallback",
                 )
@@ -3656,11 +3654,11 @@ def _configured_state_assignments(
 def _restorable_state_assignments(
     *,
     instrument_id: str,
-    prepared_state: InstrumentStateSnapshot,
+    baseline_state: InstrumentStateSnapshot,
     instrument: OwnedInstrument,
 ) -> tuple[InstrumentStateAssignment, ...]:
     assignments: list[InstrumentStateAssignment] = []
-    for item in prepared_state.properties:
+    for item in baseline_state.properties:
         assignment = InstrumentStateAssignment(
             resource_id=instrument_id,
             interface_id=item.interface_id,

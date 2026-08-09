@@ -568,8 +568,8 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
         instruments = runtime.application.instruments
         provision = instruments.provision_run(run_id, _provision(lease_id))
         assert provision.observed_state[0].instrument_id == "source-0"
-        assert provision.prepared_state[0].instrument_id == "source-0"
-        assert provision.prepared_state == provision.observed_state
+        assert provision.baseline_state[0].instrument_id == "source-0"
+        assert provision.baseline_state == provision.observed_state
         [driver] = provider.drivers
 
         command = _batch_command(
@@ -665,7 +665,7 @@ def test_run_start_applies_default_state_after_fresh_observation(
 
         assert replay == provision
         [observed] = provision.observed_state
-        [reconciled] = provision.prepared_state
+        [reconciled] = provision.baseline_state
         assert {
             (item.interface_id, item.property_id): item.value.root
             for item in observed.properties
@@ -712,7 +712,7 @@ def test_run_start_preserves_observed_state_when_default_state_exists(
             _provision(lease_id),
         )
 
-        assert provision.prepared_state == provision.observed_state
+        assert provision.baseline_state == provision.observed_state
         [driver] = provider.drivers
         assert driver.applied == []
 
@@ -919,7 +919,7 @@ def test_run_start_skips_default_state_matching_observed_state(
         )
 
         assert receipt.status == "ready"
-        assert receipt.prepared_state == receipt.observed_state
+        assert receipt.baseline_state == receipt.observed_state
         [driver] = provider.drivers
         assert driver.applied == []
 
@@ -945,7 +945,7 @@ def test_run_start_skips_unit_equivalent_default_state(tmp_path: Path) -> None:
             _provision(lease_id),
         )
 
-        assert receipt.prepared_state == receipt.observed_state
+        assert receipt.baseline_state == receipt.observed_state
         [driver] = provider.drivers
         assert driver.applied == []
 
@@ -1564,13 +1564,13 @@ def test_successful_finish_does_not_apply_failure_safe_state(tmp_path: Path) -> 
         assert driver.applied == []
 
 
-def test_successful_finish_restores_the_preserved_prepared_state(
+def test_successful_finish_restores_the_preserved_baseline(
     tmp_path: Path,
 ) -> None:
     provider = _Provider(driver_type=_ReadOnlyStateDriver)
     config = _config_with_success_action(
         load_config(),
-        success_action="restore_prepared_state",
+        success_action="restore_baseline",
     )
     with _runtime(tmp_path, provider, config=config) as runtime:
         run_id, lease_id = _start_run(
@@ -1598,9 +1598,9 @@ def test_successful_finish_restores_the_preserved_prepared_state(
             ),
         )
 
-        [prepared] = provision.prepared_state
+        [baseline] = provision.baseline_state
         [final] = receipt.final_state
-        assert final.properties == prepared.properties
+        assert final.properties == baseline.properties
         [driver] = provider.drivers
         assert driver.abort_count == 0
         assert len(driver.applied) == 2
@@ -1616,7 +1616,7 @@ def test_successful_finish_restores_the_preserved_prepared_state(
         }
 
 
-def test_successful_finish_restores_the_default_prepared_state(tmp_path: Path) -> None:
+def test_successful_finish_restores_the_default_baseline(tmp_path: Path) -> None:
     provider = _Provider()
     config = _config_with_success_action(
         _config_with_default_state(
@@ -1626,7 +1626,7 @@ def test_successful_finish_restores_the_default_prepared_state(tmp_path: Path) -
                 value=StateValue(Quantity(value=5.1, unit="GHz")),
             )
         ),
-        success_action="restore_prepared_state",
+        success_action="restore_baseline",
     )
     with _runtime(tmp_path, provider, config=config) as runtime:
         run_id, lease_id = _start_run(runtime, config)
@@ -1661,11 +1661,11 @@ def test_successful_finish_restores_the_default_prepared_state(tmp_path: Path) -
         assert len(driver.applied) == 3
 
 
-def test_rejected_prepared_state_restore_fails_and_aborts(tmp_path: Path) -> None:
+def test_rejected_baseline_restore_fails_and_aborts(tmp_path: Path) -> None:
     provider = _Provider()
     config = _config_with_success_action(
         load_config(),
-        success_action="restore_prepared_state",
+        success_action="restore_baseline",
     )
     with _runtime(tmp_path, provider, config=config) as runtime:
         run_id, lease_id = _start_run(runtime, config)
@@ -1695,7 +1695,7 @@ def test_rejected_prepared_state_restore_fails_and_aborts(tmp_path: Path) -> Non
         )
 
 
-def test_rejected_prepared_state_restore_enters_configured_safe_state(
+def test_rejected_baseline_restore_enters_configured_safe_state(
     tmp_path: Path,
 ) -> None:
     provider = _Provider(driver_type=_RejectNextApplyDriver)
@@ -1707,7 +1707,7 @@ def test_rejected_prepared_state_restore_enters_configured_safe_state(
                 value=StateValue(Quantity(value=4.25, unit="GHz")),
             )
         ),
-        success_action="restore_prepared_state",
+        success_action="restore_baseline",
     )
     with _runtime(tmp_path, provider, config=config) as runtime:
         run_id, lease_id = _start_run(
@@ -1748,11 +1748,11 @@ def test_rejected_prepared_state_restore_enters_configured_safe_state(
         assert frequency == Quantity(value=4.25, unit="GHz")
 
 
-def test_unknown_prepared_state_restore_quarantines_the_run(tmp_path: Path) -> None:
+def test_unknown_baseline_restore_quarantines_the_run(tmp_path: Path) -> None:
     provider = _Provider()
     config = _config_with_success_action(
         load_config(),
-        success_action="restore_prepared_state",
+        success_action="restore_baseline",
     )
     with _runtime(tmp_path, provider, config=config) as runtime:
         run_id, lease_id = _start_run(runtime, config)
@@ -1767,7 +1767,7 @@ def test_unknown_prepared_state_restore_quarantines_the_run(tmp_path: Path) -> N
 
         with pytest.raises(
             BackendConflict,
-            match="prepared-state restore failed with unknown state",
+            match="baseline restore failed with unknown state",
         ):
             instruments.finish_run_hardware(
                 run_id,
@@ -1782,9 +1782,7 @@ def test_unknown_prepared_state_restore_quarantines_the_run(tmp_path: Path) -> N
         assert driver.disconnect_count == 1
         durable = runtime.application.executor._control.get_run(run_id)
         assert durable.state == "attention_required"
-        assert (
-            durable.attention_reason == "run_instrument_prepared_state_restore_unknown"
-        )
+        assert durable.attention_reason == "run_instrument_baseline_restore_unknown"
         _assert_run_state_discarded(instruments, run_id)
 
 
@@ -2060,7 +2058,7 @@ def test_run_without_claims_does_not_build_provider(tmp_path: Path) -> None:
         )
         assert receipt.status == "ready"
         assert receipt.observed_state == ()
-        assert receipt.prepared_state == ()
+        assert receipt.baseline_state == ()
         assert provider.connect_count == 0
 
 

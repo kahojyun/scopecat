@@ -642,11 +642,6 @@ def _project_preparation(
         waveform.channel_id for entry in entries for waveform in entry.waveforms
     }
     awg_instrument_ids = {channel_id.instrument_id for channel_id in channel_ids}
-    lo_group_ids = {
-        binding.lo_group_id
-        for binding in target.output_bindings
-        if channel_ids.intersection(binding.channel_ids)
-    }
     return ListModePreparation(
         clocks=tuple(
             clock
@@ -657,11 +652,6 @@ def _project_preparation(
             output
             for output in target.preparation.outputs
             if output.channel_id in channel_ids
-        ),
-        local_oscillators=tuple(
-            oscillator
-            for oscillator in target.preparation.local_oscillators
-            if oscillator.group_id in lo_group_ids
         ),
         timing=target.preparation.timing,
     )
@@ -676,7 +666,7 @@ def _artifact_payload(
     entries: tuple[ListModeEntry, ...],
 ) -> dict[str, object]:
     return {
-        "schema": "reference_lab.list_mode_artifact.v4",
+        "schema": "reference_lab.list_mode_artifact.v5",
         "target": {
             "id": target.id.value,
             "capability_fingerprint": target.capability_fingerprint,

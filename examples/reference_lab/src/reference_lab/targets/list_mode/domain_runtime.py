@@ -1,17 +1,8 @@
-"""Host-visible invocation adapter for the list-mode target.
-
-Submission assigns and stores one job before calling the synchronous device
-primitive, making a repeated idempotency key incapable of replaying physical
-work. Fetch is read-only. A device exception that yields
-no captured run remains unknown evidence rather than being reported as pending
-or definitive absence. Core, not this adapter, owns submission states,
-journaling, retry authority, and receipt correlation.
-"""
+"""Host-visible synchronous invocation adapter for the list-mode target."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from threading import Lock
 from typing import cast, override
 
 import numpy as np
@@ -20,21 +11,14 @@ from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.sdk.domain import (
-    DomainFetchReceipt,
-    DomainFetchResult,
+    DomainExecutionReceipt,
+    DomainExecutionResult,
     DomainInstrumentExecutor,
     DomainInvocationSpec,
     DomainResultValue,
-    DomainSubmitReceipt,
 )
 from scopecat.sdk.instruments.commands import InstrumentOperationArgument
 from scopecat.sdk.instruments.execution import RunHardwareBatch, RunHardwareInvoke
-from scopecat.sdk.problems import (
-    Problem,
-    ProblemPhase,
-    model_location,
-    problem,
-)
 from scopecat_quantum._ids import AcquisitionSlotId, TargetCompileEntryId
 from scopecat_quantum.program_results import MappedQuantumTarget
 from scopecat_quantum.targets import (
@@ -74,13 +58,6 @@ from reference_lab.targets.list_mode.runtime import (
 
 type MappedListModeTarget = MappedQuantumTarget[ListModeArtifact]
 type ListModeMeasurementInvocationSpec = DomainInvocationSpec[MappedListModeTarget]
-
-
-@dataclass(frozen=True, slots=True)
-class _ListModeDomainJob:
-    job_id: str
-    target_run: ListModeRun | None = None
-    result_problem: Problem | None = None
 
 
 def list_mode_measurement_invocation_spec(
@@ -131,7 +108,7 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     return cast(
         "dict[str, JsonValue]",
         {
-            "schema": "reference_lab.list_mode_execution_summary.v1",
+            "schema": "reference_lab.list_mode_execution_summary.v2",
             "waveform_outputs": {
                 program.instrument_id: sorted(
                     {
@@ -154,10 +131,6 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
                     "result_representation": program.result_representation,
                 }
                 for program in artifact.digitizer_programs
-            },
-            "local_oscillators": {
-                oscillator.group_id: oscillator.instrument_id
-                for oscillator in artifact.preparation.local_oscillators
             },
             "acquisition_semantics": sorted(
                 {
@@ -189,72 +162,32 @@ def _result_address_intent(address: TargetAcquisitionAddress) -> object:
 
 
 class ListModeDomainRuntime:
-    """Idempotent job facade over synchronous worker device programs.
-
-    AWG playback and digitizer capture occur exactly once at first
-    submit for a submission key. Fetch only reads the retained in-memory job.
-    """
+    """Execute one list-mode invocation completely through its worker devices."""
 
     def __init__(self) -> None:
         self._device = InstrumentListModeRuntime()
-        self._jobs: dict[str, _ListModeDomainJob] = {}
-        self._lock = Lock()
 
-    def submit(
+    def execute(
         self,
-        submission_key: str,
+        execution_key: str,
         mapped_target: MappedListModeTarget,
         *,
         instruments: DomainInstrumentExecutor,
-    ) -> DomainSubmitReceipt:
-        with self._lock:
-            existing = self._jobs.get(submission_key)
-            if existing is not None:
-                if existing.result_problem is not None:
-                    return DomainSubmitReceipt(
-                        submission_key=submission_key,
-                        status="unknown",
-                        job_id=existing.job_id,
-                        problems=(existing.result_problem,),
-                    )
-                return DomainSubmitReceipt(
-                    submission_key=submission_key,
-                    status="submitted",
-                    job_id=existing.job_id,
-                )
-
-            job = _ListModeDomainJob(
-                job_id=f"list-mode-job:{submission_key}",
-            )
-            self._jobs[submission_key] = job
-            try:
-                target_run = self._execute_target(
-                    mapped_target.artifact,
-                    execution_id=submission_key,
-                    instruments=instruments,
-                )
-            except Exception:
-                self._jobs[submission_key] = _ListModeDomainJob(
-                    job_id=job.job_id,
-                    result_problem=_domain_runtime_problem(
-                        "list_mode_domain_result_unavailable",
-                        (
-                            "the virtual device call failed after reserving the "
-                            "submission key; result availability is unknown"
-                        ),
-                    ),
-                )
-                raise
-            job = _ListModeDomainJob(
-                job_id=job.job_id,
-                target_run=target_run,
-            )
-            self._jobs[submission_key] = job
-            return DomainSubmitReceipt(
-                submission_key=submission_key,
-                status="submitted",
-                job_id=job.job_id,
-            )
+    ) -> DomainExecutionResult[ListModeRun]:
+        target_run = self._execute_target(
+            mapped_target.artifact,
+            execution_id=execution_key,
+            instruments=instruments,
+        )
+        return DomainExecutionResult(
+            receipt=DomainExecutionReceipt(
+                execution_key=execution_key,
+                status="completed",
+                result_fingerprint=target_run.fingerprint,
+                result_count=len(target_run.frames),
+            ),
+            result=target_run,
+        )
 
     def _execute_target(
         self,
@@ -268,44 +201,6 @@ class ListModeDomainRuntime:
             execution_id=execution_id,
             instruments=instruments,
         )
-
-    def fetch(
-        self,
-        submission_key: str,
-        job_id: str,
-    ) -> DomainFetchReceipt | DomainFetchResult[ListModeRun]:
-        with self._lock:
-            job = self._jobs.get(submission_key)
-            if job is None or job.job_id != job_id:
-                return DomainFetchReceipt(
-                    submission_key=submission_key,
-                    job_id=job_id,
-                    status="not_found",
-                    problems=(
-                        _domain_runtime_problem(
-                            "list_mode_domain_job_not_found",
-                            "list-mode job does not exist for this submission",
-                        ),
-                    ),
-                )
-            if job.result_problem is not None:
-                return DomainFetchReceipt(
-                    submission_key=submission_key,
-                    job_id=job.job_id,
-                    status="unknown",
-                    problems=(job.result_problem,),
-                )
-            assert job.target_run is not None
-            return DomainFetchResult(
-                receipt=DomainFetchReceipt(
-                    submission_key=submission_key,
-                    job_id=job.job_id,
-                    status="fetched",
-                    result_fingerprint=job.target_run.fingerprint,
-                    result_count=len(job.target_run.frames),
-                ),
-                result=job.target_run,
-            )
 
 
 class VirtualListModeDomainRuntime(ListModeDomainRuntime):
@@ -323,7 +218,11 @@ class VirtualListModeDomainRuntime(ListModeDomainRuntime):
         execution_id: str,
         instruments: DomainInstrumentExecutor,
     ) -> ListModeRun:
-        plant = _virtual_plant_preparation(artifact, self._response)
+        plant = _virtual_plant_preparation(
+            artifact,
+            self._response,
+            execution_id=execution_id,
+        )
         receipt = instruments.execute(plant.batch)
         if receipt.indeterminate or receipt.problems:
             raise RuntimeError("virtual capture plant could not be prepared")
@@ -367,6 +266,8 @@ class _VirtualPlantPreparation:
 def _virtual_plant_preparation(
     artifact: ListModeArtifact,
     response: AcquisitionResponse,
+    *,
+    execution_id: str,
 ) -> _VirtualPlantPreparation:
     captures: list[dict[str, object]] = []
     playbacks: list[AwgPlayback] = []
@@ -425,12 +326,13 @@ def _virtual_plant_preparation(
         content=encoded.content,
     )
     timing_id = artifact.preparation.timing.trigger_instrument_id
+    prefix = f"target:{execution_id}:{artifact.id.value}"
     return _VirtualPlantPreparation(
         batch=RunHardwareBatch(
-            operation_id=f"target.virtual-plant:{artifact.id.value}",
+            operation_id=f"{prefix}:virtual-plant",
             actions=(
                 RunHardwareInvoke(
-                    effect_id=f"virtual-plant:{timing_id}",
+                    effect_id=f"{prefix}:virtual-plant:{timing_id}",
                     instrument_id=timing_id,
                     resource_id=timing_id,
                     interface_id=VIRTUAL_CAPTURE_LOAD.interface_id,
@@ -488,35 +390,23 @@ def _synthesize_trace(
     return tuple(float(sample) for sample in solution)
 
 
-def realize_fetched_measurements(
+def realize_executed_measurements(
     mapped_target: MappedListModeTarget,
-    fetched: DomainFetchResult[ListModeRun],
+    executed: DomainExecutionResult[ListModeRun],
 ) -> tuple[DomainResultValue[TargetAcquisitionAddress], ...]:
-    """Correlate and decode one fetched raw run under selected policies."""
+    """Correlate and decode one complete raw run under selected policies."""
 
-    if fetched.receipt.result_fingerprint != fetched.result.fingerprint:
-        msg = "fetched list-mode target receipt does not cover its raw run"
+    if executed.receipt.result_fingerprint != executed.result.fingerprint:
+        msg = "list-mode target receipt does not cover its raw run"
         raise ValueError(msg)
-    if fetched.receipt.result_count != len(fetched.result.frames):
-        msg = "fetched list-mode target receipt has the wrong raw frame count"
+    if executed.receipt.result_count != len(executed.result.frames):
+        msg = "list-mode target receipt has the wrong raw frame count"
         raise ValueError(msg)
     correlated = correlate_list_mode_run(
         mapped_target,
-        fetched.result,
+        executed.result,
     )
     return realize_measurements(correlated)
-
-
-def _domain_runtime_problem(
-    code: str,
-    message: str,
-) -> Problem:
-    return problem(
-        code,
-        message,
-        phase=ProblemPhase.EXECUTION,
-        location=model_location("list_mode_domain_runtime"),
-    )
 
 
 __all__ = [
@@ -525,5 +415,5 @@ __all__ = [
     "MappedListModeTarget",
     "VirtualListModeDomainRuntime",
     "list_mode_measurement_invocation_spec",
-    "realize_fetched_measurements",
+    "realize_executed_measurements",
 ]

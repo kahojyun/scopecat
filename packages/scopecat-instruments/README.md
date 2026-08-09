@@ -246,7 +246,7 @@ Virtual instrument:
     }
   ],
   "run_start": "apply_default_state",
-  "success_action": "restore_prepared_state",
+  "success_action": "restore_baseline",
   "failure_action": "abort_and_release"
 }
 ```
@@ -274,7 +274,7 @@ Every run first synchronizes the device. `preserve` retains that observed
 state; `apply_default_state` then applies the saved partial public state.
 Unspecified and private driver settings remain untouched. After authored
 normal-completion state, `release` leaves the resulting state in place;
-`restore_prepared_state` restores the writable portion of the synchronized,
+`restore_baseline` restores the writable portion of the synchronized,
 run-start-adjusted baseline before terminal readback and release. Failure always
 aborts first; `abort_then_safe_state` may additionally apply the configured
 sparse safe state when the device remains commandable.

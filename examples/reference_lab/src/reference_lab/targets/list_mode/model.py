@@ -112,18 +112,6 @@ class ClockPreparation:
 
 
 @dataclass(frozen=True, slots=True, order=True)
-class LocalOscillatorPreparation:
-    """One shared LO group resolved by the laboratory target adapter."""
-
-    group_id: str
-    instrument_id: str
-    entity_ids: tuple[str, ...]
-    frequency_hz: float
-    power_dbm: float
-    output_enabled: bool = True
-
-
-@dataclass(frozen=True, slots=True, order=True)
 class OutputChannelPreparation:
     """Run-wide analog state for one physical AWG output."""
 
@@ -150,7 +138,6 @@ class ListModePreparation:
 
     clocks: tuple[ClockPreparation, ...]
     outputs: tuple[OutputChannelPreparation, ...]
-    local_oscillators: tuple[LocalOscillatorPreparation, ...]
     timing: TimingDomainPreparation
 
 
@@ -209,17 +196,6 @@ def preparation_payload(preparation: ListModePreparation) -> dict[str, object]:
                 "output_enabled": output.output_enabled,
             }
             for output in preparation.outputs
-        ],
-        "local_oscillators": [
-            {
-                "group_id": oscillator.group_id,
-                "instrument_id": oscillator.instrument_id,
-                "entity_ids": list(oscillator.entity_ids),
-                "frequency_hz": float(oscillator.frequency_hz).hex(),
-                "power_dbm": float(oscillator.power_dbm).hex(),
-                "output_enabled": oscillator.output_enabled,
-            }
-            for oscillator in preparation.local_oscillators
         ],
         "timing": {
             "domain_id": preparation.timing.domain_id,
@@ -324,7 +300,7 @@ class ListModeTarget:
 
     def _configuration_payload(self) -> dict[str, object]:
         return {
-            "schema": "reference_lab.list_mode_target.configuration.v1",
+            "schema": "reference_lab.list_mode_target.configuration.v2",
             "target_id": self.id.value,
             "capability_fingerprint": self.capability_fingerprint,
             "acquisition_dsp_policy": self.acquisition_dsp_policy,
@@ -505,10 +481,6 @@ class ListModeArtifact:
                 {
                     *(program.instrument_id for program in self.awg_programs),
                     *(program.instrument_id for program in self.digitizer_programs),
-                    *(
-                        oscillator.instrument_id
-                        for oscillator in self.preparation.local_oscillators
-                    ),
                     self.preparation.timing.trigger_instrument_id,
                 }
             )
@@ -642,7 +614,6 @@ __all__ = [
     "ListModeEntry",
     "ListModePreparation",
     "ListModeTarget",
-    "LocalOscillatorPreparation",
     "OutputChannelPreparation",
     "OutputSignal",
     "TargetAcquisitionLowering",

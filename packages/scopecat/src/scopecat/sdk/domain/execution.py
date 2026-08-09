@@ -2,10 +2,10 @@
 
 Domain compilers consume the target-neutral bound program and close target,
 result, and value decisions before a run is durably accepted. Scopecat retains
-ownership of runtime submission, correlation, journalling, recording, and
+ownership of runtime execution, correlation, journalling, recording, and
 terminal run evidence.
 
-The runtime boundary is synchronous: one fetch returns the complete result
+The runtime boundary is synchronous: one execute returns the complete result
 while receipts preserve known and indeterminate outcomes.
 """
 
@@ -16,12 +16,12 @@ from dataclasses import dataclass, field
 
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.domain.invocation import ClosedDomainInvocation
-from scopecat.sdk.domain.runtime import DomainFetchResult, DomainRuntime
+from scopecat.sdk.domain.runtime import DomainExecutionResult, DomainRuntime
 
 type ErasedDomainInvocation = ClosedDomainInvocation[Hashable, object]
 type ErasedDomainRuntime = DomainRuntime[object, object]
 type ErasedDomainRealizer = Callable[
-    [DomainFetchResult[object]],
+    [DomainExecutionResult[object]],
     tuple[MeasurementValueCandidate, ...],
 ]
 

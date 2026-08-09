@@ -115,9 +115,9 @@ class TestRunInstrumentHost:
             project_state(driver.instrument_id, driver.read_state())
             for driver in selected
         )
-        self._prepared_state = self._observed_state
+        self._baseline_state = self._observed_state
         self._assumed_states = {
-            state.instrument_id: state for state in self._prepared_state
+            state.instrument_id: state for state in self._baseline_state
         }
         self._finished: RunHardwareFinalizationReceipt | None = None
 
@@ -134,8 +134,8 @@ class TestRunInstrumentHost:
         return self._observed_state
 
     @property
-    def prepared_state(self) -> tuple[InstrumentStateSnapshot, ...]:
-        return self._prepared_state
+    def baseline_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        return self._baseline_state
 
     def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
         values: list[RunHardwareValue] = []

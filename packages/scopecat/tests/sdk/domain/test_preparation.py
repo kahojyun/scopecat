@@ -31,9 +31,8 @@ from scopecat.sdk.domain.job import (
     DomainResultValue,
 )
 from scopecat.sdk.domain.runtime import (
-    DomainFetchReceipt,
-    DomainFetchResult,
-    DomainSubmitReceipt,
+    DomainExecutionReceipt,
+    DomainExecutionResult,
 )
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
@@ -42,23 +41,15 @@ type _ResultBinding = DomainResultBinding[str]
 
 
 class _NoEffectsRuntime:
-    def submit(
+    def execute(
         self,
-        submission_key: str,
+        execution_key: str,
         payload: dict[str, str],
         *,
         instruments: object,
-    ) -> DomainSubmitReceipt:
-        del submission_key, payload, instruments
-        raise AssertionError("preparation must not submit")
-
-    def fetch(
-        self,
-        submission_key: str,
-        job_id: str,
-    ) -> DomainFetchReceipt | DomainFetchResult[dict[str, str]]:
-        del submission_key, job_id
-        raise AssertionError("preparation must not fetch")
+    ) -> DomainExecutionReceipt | DomainExecutionResult[dict[str, str]]:
+        del execution_key, payload, instruments
+        raise AssertionError("preparation must not execute")
 
 
 def _preparation_context(
@@ -356,9 +347,9 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
     )
 
     def reject_realization(
-        fetched: DomainFetchResult[dict[str, str]],
+        executed: DomainExecutionResult[dict[str, str]],
     ) -> tuple[DomainResultValue[str], ...]:
-        del fetched
+        del executed
         raise AssertionError("preparation must not realize")
 
     prepared = preparation.build(

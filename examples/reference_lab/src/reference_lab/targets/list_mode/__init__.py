@@ -19,7 +19,7 @@ from reference_lab.targets.list_mode.domain_runtime import (
     MappedListModeTarget,
     VirtualListModeDomainRuntime,
     list_mode_measurement_invocation_spec,
-    realize_fetched_measurements,
+    realize_executed_measurements,
 )
 from reference_lab.targets.list_mode.iq_semantics import (
     INTEGRATED_IQ_SEMANTICS_ID,
@@ -46,7 +46,6 @@ from reference_lab.targets.list_mode.model import (
     ListModeEntry,
     ListModePreparation,
     ListModeTarget,
-    LocalOscillatorPreparation,
     OutputChannelPreparation,
     OutputSignal,
     TargetAcquisitionLowering,
@@ -102,7 +101,6 @@ __all__ = [
     "ListModeRun",
     "ListModeTarget",
     "ListModeTargetCompiler",
-    "LocalOscillatorPreparation",
     "MappedListModeTarget",
     "OutputChannelPreparation",
     "OutputSignal",
@@ -116,6 +114,6 @@ __all__ = [
     "correlate_list_mode_run",
     "integrate_rectangular_iq",
     "list_mode_measurement_invocation_spec",
-    "realize_fetched_measurements",
+    "realize_executed_measurements",
     "realize_measurements",
 ]

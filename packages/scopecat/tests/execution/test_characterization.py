@@ -746,7 +746,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state == result.prepared_state
+    assert result.final_state == result.baseline_state
 
 
 def test_state_apply_stops_when_readback_does_not_confirm_assignment() -> None:
@@ -774,7 +774,7 @@ def test_state_apply_stops_when_readback_does_not_confirm_assignment() -> None:
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state == result.prepared_state
+    assert result.final_state == result.baseline_state
 
 
 def test_failed_coverage_does_not_apply_normal_completion_success_state() -> None:
@@ -903,7 +903,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state[0] != result.prepared_state[0]
+    assert result.final_state[0] != result.baseline_state[0]
     assert next(
         item.value
         for item in result.final_state[0].properties

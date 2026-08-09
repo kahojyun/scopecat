@@ -78,7 +78,7 @@ inside the configured target authority, and gives only that set to the
 scheduler. The executor validates or acquires it once
 and holds it across provider provisioning and all coverage blocks; there are no
 nested block leases or channel/group scheduler claims.
-Domain runtimes submit device programs through that provisioned run host, so a
+Domain runtimes execute device programs through that provisioned run host, so a
 target and an ad hoc operation aimed at the same AWG share the same exclusivity
 key and worker-owned driver instance.
 
@@ -92,7 +92,9 @@ the driver contract—chooses whether to require, prefer, or avoid onboard DSP;
 the selected physical representation and versioned semantic convention are
 retained in the immutable artifact. A device lowering is valid only when its
 driver implements that convention; the reference lab runs the target and
-device placements against identical traces as a conformance test.
+device placements against identical traces as a placement conformance test,
+while literal golden vectors independently fix signed-IF phase, sample-center,
+window, and normalization semantics.
 Multi-device target
 execution uses explicit `prepare`, `load`, `arm`, one timing-domain `trigger`,
 and `fetch` batches; ordering is visible and auditable even though the current
@@ -104,15 +106,35 @@ from lab policy and the timing-driver contract. Session idempotence permits
 deduplication only while the same device/driver session retains its epoch
 cache; it is not a durable recovery promise. An unknown receipt after reconnect
 or process restart remains indeterminate instead of firing again.
+Preparation is invocation-scoped: the target reasserts its required shared and
+channel state after run-level provisioning and immediately before loading its
+programs. Every prepare/load/arm/trigger/fetch operation is named by the domain
+execution id. Retrying the same execution therefore replays the same daemon
+operations, while two invocations of an identical artifact cannot collide in
+the run-scoped receipt cache. Preparation is not silently hoisted across
+invocations; a future optimizer would need an explicit state-preservation proof.
+The domain runtime itself exposes one synchronous `execute` call. Scopecat does
+not invent a provider job id, polling phase, or mid-call cancellation contract;
+an asynchronous runtime can be added only when a real target supplies durable
+job identity and recovery semantics.
+Before those invocations are compiled, core presents the complete bounded
+domain call to the domain compiler. The compiler returns ordered batch sizes
+from its actual target constraints; core no longer slices solely from a global
+point-count property. Ordinary scan results must be invariant to these batch
+boundaries. A workflow whose points intentionally depend on retained device
+state must model that sequence inside one domain program.
 
 Each closed domain invocation also retains a target-authored execution summary
 as journal evidence. This is a compact physical projection—instrument roles,
 DSP placement, timing guarantee, and preparation scope in the reference
 target—not an automatic dump of driver state and not a dataset variable. The
 complete opaque target intent remains fingerprinted rather than copied into the
-journal.
+journal. The started transition owns that intent once; terminal transitions
+refer to its fingerprint and add only compact receipt evidence. Ordinary run
+lists remain quiet, while one run's detail view projects these entries as typed
+`domain_executions` for provenance inspection.
 
-Observed, prepared, and final instrument snapshots are durable run evidence,
+Observed, baseline, and final instrument snapshots are durable run evidence,
 not measurement variables. Their manifest entry exposes only a neutral summary:
 property-change counts, changed instrument ids, and missing final readbacks.
 Intentional transitions such as scanning output enable are therefore visible

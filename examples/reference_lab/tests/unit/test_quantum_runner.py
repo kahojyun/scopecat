@@ -60,6 +60,31 @@ def _with_dsp_policy(
     )
 
 
+def _with_max_list_entries(
+    config: ConfigProfileSnapshot,
+    maximum: int,
+) -> ConfigProfileSnapshot:
+    target = config.domain_target
+    assert target is not None
+    configuration = target.configuration.copy()
+    capabilities = configuration["capabilities"]
+    assert isinstance(capabilities, dict)
+    capabilities = capabilities.copy()
+    capabilities["max_list_entries"] = maximum
+    configuration["capabilities"] = capabilities
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={
+                    "domain_target": target.model_copy(
+                        update={"configuration": configuration}
+                    )
+                }
+            )
+        }
+    )
+
+
 def _logical_measurement_values(
     tmp_path: Path,
     config: ConfigProfileSnapshot,
@@ -206,3 +231,20 @@ def test_target_and_device_dsp_follow_the_same_integrated_iq_semantics(
     )
 
     assert device_values == target_values
+
+
+def test_quantum_scan_results_are_invariant_to_target_batch_boundaries(
+    tmp_path: Path,
+) -> None:
+    config = bootstrap_config()
+
+    one_entry_batches = _logical_measurement_values(
+        tmp_path / "one-entry-batches",
+        _with_max_list_entries(config, 1),
+    )
+    complete_batch = _logical_measurement_values(
+        tmp_path / "complete-batch",
+        config,
+    )
+
+    assert one_entry_batches == complete_batch

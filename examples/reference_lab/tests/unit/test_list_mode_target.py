@@ -262,9 +262,12 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
     assert window.lowering.device_result_representation == "raw_trace"
     assert len(artifact.awg_programs) == 2
     assert len(artifact.digitizer_programs) == 1
-    assert tuple(
-        oscillator.group_id for oscillator in artifact.preparation.local_oscillators
-    ) == ("drive-a", "readout")
+    assert artifact.instrument_ids == (
+        "drive-awg",
+        "readout-awg",
+        "readout-digitizer",
+        "timing-controller",
+    )
 
     run = VirtualListModeRuntime().execute(artifact)
     assert [
@@ -327,8 +330,12 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
         [expected_iq, expected_iq]
     )
 
-    assert instruments.batches[0].operation_id.startswith("target.prepare:")
-    assert instruments.batches[1].operation_id.startswith("target.load:")
+    assert instruments.batches[0].operation_id.endswith(":prepare")
+    assert instruments.batches[1].operation_id.endswith(":load")
+    assert all(
+        "target:test.calibrated-acquisition:" in batch.operation_id
+        for batch in instruments.batches
+    )
     assert [action.kind for action in instruments.batches[1].actions] == [
         "invoke",
         "invoke",
@@ -350,6 +357,25 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
         "invoke",
     ]
     assert [action.kind for action in instruments.batches[4].actions] == ["collect"]
+
+    other_execution = _RecordingInstrumentExecutor()
+    InstrumentListModeRuntime().execute(
+        artifact,
+        execution_id="test.other-invocation",
+        instruments=other_execution,
+    )
+    assert {batch.operation_id for batch in instruments.batches}.isdisjoint(
+        batch.operation_id for batch in other_execution.batches
+    )
+    retry = _RecordingInstrumentExecutor()
+    InstrumentListModeRuntime().execute(
+        artifact,
+        execution_id="test.calibrated-acquisition",
+        instruments=retry,
+    )
+    assert [batch.operation_id for batch in retry.batches] == [
+        batch.operation_id for batch in instruments.batches
+    ]
 
     device_target = replace(
         target,

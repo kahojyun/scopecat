@@ -152,12 +152,12 @@ def test_terminal_manifest_preserves_existing_attachments(tmp_path: Path) -> Non
 def test_terminal_contents_index_supplied_instrument_state() -> None:
     outcome = _successful_outcome("run-instrument")
     observed = _instrument_state("scope", output=False, scale=1.0)
-    prepared = _instrument_state("scope", output=True, scale=1.0)
+    baseline = _instrument_state("scope", output=True, scale=1.0)
     final = _instrument_state("scope", output=True, scale=2.0)
     instrument_state = InstrumentStateEvidence(
         run_id=outcome.run_id,
         observed_state=[observed],
-        prepared_state=[prepared],
+        baseline_state=[baseline],
         final_state=[final],
     )
 
@@ -175,9 +175,9 @@ def test_terminal_contents_index_supplied_instrument_state() -> None:
     assert evidence_entry.metadata == {
         "summary": {
             "instrument_ids": ["scope"],
-            "prepared_change_count": 1,
+            "baseline_change_count": 1,
             "final_change_count": 1,
-            "prepared_changed_instrument_ids": ["scope"],
+            "baseline_changed_instrument_ids": ["scope"],
             "final_changed_instrument_ids": ["scope"],
             "missing_final_instrument_ids": [],
         }
@@ -189,7 +189,7 @@ def test_state_evidence_summary_keeps_missing_final_readback_neutral() -> None:
     evidence = InstrumentStateEvidence(
         run_id="run-incomplete-readback",
         observed_state=[observed],
-        prepared_state=[observed],
+        baseline_state=[observed],
     )
 
     summary = summarize_instrument_state_evidence(evidence)
