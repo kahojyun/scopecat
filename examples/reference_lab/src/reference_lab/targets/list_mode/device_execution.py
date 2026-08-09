@@ -95,11 +95,12 @@ class InstrumentListModeRuntime:
 
     ``prepare`` loads AWG and digitizer programs as a destructive setup phase.
     Core then reasserts host-owned offset requirements before ``execute`` applies
-    target-owned preparation and performs arm, one shared trigger, and fetch for
-    each shot and list entry. These typed batches make ordering auditable; their
-    sequential submission does not claim cross-device atomicity. Every operation
-    id is scoped to the domain execution so identical artifacts in two
-    invocations do not share worker receipts.
+    target-owned preparation and submits arm, one shared trigger, and fetch for
+    every shot and list entry as one ordered hardware block. The block preserves
+    action-level evidence without turning real-time sequencing into thousands of
+    separately durable control-plane operations. Its identity is scoped to the
+    domain execution so identical artifacts in two invocations do not share a
+    worker receipt.
     """
 
     def prepare(
@@ -127,37 +128,14 @@ class InstrumentListModeRuntime:
             instruments,
             _preparation_batch(artifact, execution_id=execution_id),
         )
+        receipt = _execute_batch(
+            instruments,
+            _execution_batch(artifact, execution_id=execution_id),
+        )
         playbacks: list[AwgPlayback] = []
         frames: list[DigitizerFrame] = []
         for shot_index in range(artifact.repetitions):
             for entry in artifact.entries:
-                _execute_batch(
-                    instruments,
-                    _arm_batch(
-                        artifact,
-                        entry,
-                        execution_id=execution_id,
-                        shot_index=shot_index,
-                    ),
-                )
-                _execute_batch(
-                    instruments,
-                    _trigger_batch(
-                        artifact,
-                        entry,
-                        execution_id=execution_id,
-                        shot_index=shot_index,
-                    ),
-                )
-                receipt = _execute_batch(
-                    instruments,
-                    _fetch_batch(
-                        artifact,
-                        entry,
-                        execution_id=execution_id,
-                        shot_index=shot_index,
-                    ),
-                )
                 playback = AwgPlayback(
                     shot_index=shot_index,
                     entry_id=entry.entry_id,
@@ -170,6 +148,7 @@ class InstrumentListModeRuntime:
                         entry,
                         playback=playback,
                         receipt=receipt,
+                        execution_id=execution_id,
                     )
                 )
         selected_playbacks = tuple(playbacks)
@@ -426,6 +405,43 @@ def _load_batch(
         )
     return RunHardwareBatch(
         operation_id=f"{prefix}:load",
+        actions=tuple(actions),
+    )
+
+
+def _execution_batch(
+    artifact: ListModeArtifact,
+    *,
+    execution_id: str,
+) -> RunHardwareBatch:
+    actions: list[RunHardwareApply | RunHardwareInvoke | RunHardwareCollect] = []
+    for shot_index in range(artifact.repetitions):
+        for entry in artifact.entries:
+            for batch in (
+                _arm_batch(
+                    artifact,
+                    entry,
+                    execution_id=execution_id,
+                    shot_index=shot_index,
+                ),
+                _trigger_batch(
+                    artifact,
+                    entry,
+                    execution_id=execution_id,
+                    shot_index=shot_index,
+                ),
+                _fetch_batch(
+                    artifact,
+                    entry,
+                    execution_id=execution_id,
+                    shot_index=shot_index,
+                ),
+            ):
+                actions.extend(batch.actions)
+    return RunHardwareBatch(
+        operation_id=(
+            f"{_execution_prefix(artifact, execution_id=execution_id)}:execute"
+        ),
         actions=tuple(actions),
     )
 
@@ -757,13 +773,26 @@ def _digitizer_frames(
     entry: ListModeEntry,
     *,
     playback: AwgPlayback,
-    receipt: RunHardwareBatchReceipt | None,
+    receipt: RunHardwareBatchReceipt,
+    execution_id: str,
 ) -> tuple[DigitizerFrame, ...]:
     if not entry.acquisitions:
         return ()
-    if receipt is None:
-        raise RuntimeError("digitizer acquisitions produced no hardware receipt")
-    values = {value.value_id: value.value for value in receipt.values}
+    entry_prefix = _entry_prefix(
+        artifact,
+        entry,
+        execution_id=execution_id,
+        shot_index=playback.shot_index,
+    )
+    collect_effect_ids = {
+        f"{entry_prefix}:collect:{input_id.value}"
+        for input_id in {window.input_id for window in entry.acquisitions}
+    }
+    values = {
+        value.value_id: value.value
+        for value in receipt.values
+        if value.evidence.command_id in collect_effect_ids
+    }
     expected_ids = {
         (
             _raw_value_id(window.input_id)

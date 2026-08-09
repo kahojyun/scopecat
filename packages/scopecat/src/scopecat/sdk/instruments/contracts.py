@@ -2003,6 +2003,67 @@ def project_instrument_state(
     )
 
 
+def project_instrument_invoke_state(
+    state: _InstrumentStateSnapshot | _ProjectedInstrumentState,
+    command: _commands.InvokeCommand,
+    *,
+    description: InstrumentDescription,
+) -> _ProjectedInstrumentState:
+    """Project the state knowledge retained after one declared operation."""
+
+    interface_spec = next(
+        item for item in description.interfaces if item.id == command.interface_id
+    )
+    component_spec = resolve_implementation_component(
+        description,
+        interface_spec,
+        command.component_path,
+    )
+    assert component_spec is not None
+    operation_spec = next(
+        item for item in component_spec.operations if item.id == command.operation_id
+    )
+    resolved_invalidations = tuple(
+        resolve_implementation_state_reference(
+            description,
+            declared,
+            context_interface_id=command.interface_id,
+            context_component_path=command.component_path,
+        )
+        for declared in operation_spec.invalidates
+    )
+    assert all(reference is not None for reference in resolved_invalidations)
+    invalidated = {
+        _property_target_identity(
+            reference.interface_id,
+            reference.component_path,
+            reference.property_id,
+        )
+        for reference in resolved_invalidations
+        if reference is not None
+    }
+    properties = {
+        _property_target_identity(
+            item.interface_id,
+            item.component_path,
+            item.property_id,
+        ): item.model_copy(deep=True)
+        for item in state.properties
+        if _property_target_identity(
+            item.interface_id,
+            item.component_path,
+            item.property_id,
+        )
+        not in invalidated
+    }
+    return _ProjectedInstrumentState(
+        instrument_id=state.instrument_id,
+        properties=tuple(
+            properties[key] for key in sorted(properties, key=_property_target_sort_key)
+        ),
+    )
+
+
 def _static_observable_state_scopes(
     description: InstrumentDescription,
 ) -> Iterable[tuple[_StateTargetScopeIdentity, InterfaceSpec | ComponentSpec]]:

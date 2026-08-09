@@ -86,6 +86,7 @@ class _RecordingInstrumentExecutor:
                 [dimension] = request.dimensions
                 assert dimension.size is not None
                 for value_id in binding.value_ids:
+                    capture_value = float(len(values) + 1)
                     values.append(
                         RunHardwareValue(
                             point_index=action.point_index,
@@ -93,7 +94,7 @@ class _RecordingInstrumentExecutor:
                             value=MeasurementArray.create(
                                 dtype="float64",
                                 unit="V",
-                                values=(0.0,) * dimension.size,
+                                values=(capture_value,) * dimension.size,
                             ),
                             evidence=InstrumentAcquisitionEvidence(
                                 command_id=action.effect_id,
@@ -332,7 +333,9 @@ def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
         (frame.shot_index, frame.entry_id, frame.slot_id)
         for frame in instrument_run.frames
     ] == [(shot, TargetCompileEntryId("entry-0"), slot.id) for shot in range(2)]
-    assert [frame.value for frame in instrument_run.frames] == [0j, 0j]
+    [first_value, second_value] = [frame.value for frame in instrument_run.frames]
+    assert first_value is not None
+    assert second_value == pytest.approx(first_value * 2)
 
     assert instruments.batches[0].operation_id.endswith(":load")
     assert instruments.batches[1].operation_id.endswith(":prepare")
@@ -344,23 +347,25 @@ def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
         "invoke",
         "invoke",
     ]
-    assert [
-        batch.operation_id.rsplit(":", 1)[-1] for batch in instruments.batches[2:5]
-    ] == [
-        "arm",
-        "trigger",
-        "fetch",
+    assert [batch.operation_id.rsplit(":", 1)[-1] for batch in instruments.batches] == [
+        "load",
+        "prepare",
+        "execute",
     ]
     assert [action.kind for action in instruments.batches[2].actions] == [
         "apply",
         "invoke",
         "invoke",
         "invoke",
-    ]
-    assert [action.kind for action in instruments.batches[3].actions] == [
         "invoke",
+        "collect",
+        "apply",
+        "invoke",
+        "invoke",
+        "invoke",
+        "invoke",
+        "collect",
     ]
-    assert [action.kind for action in instruments.batches[4].actions] == ["collect"]
 
     other_execution = _RecordingInstrumentExecutor()
     other_runtime = InstrumentListModeRuntime()

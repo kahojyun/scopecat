@@ -78,6 +78,7 @@ from scopecat.sdk.instruments.commands import (
 )
 from scopecat.sdk.instruments.contracts import (
     evaluate_acquisition_readiness,
+    project_instrument_invoke_state,
     project_instrument_state,
     resolve_acquisition_dimensions,
     resolve_interactive_collect,
@@ -211,6 +212,56 @@ def test_operation_contract_declares_state_knowledge_invalidations() -> None:
         ],
     )
     assert description.interfaces[0].operations[0].invalidates == reset.invalidates
+
+
+def test_invoke_state_projection_forgets_only_declared_invalidations() -> None:
+    output = InterfaceRef("test.output/v1")
+    offset = output.property("offset")
+    enabled = output.property("enabled")
+    description = InstrumentDescription(
+        instrument_id="source",
+        implementation_id="test.source",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                output.interface_id,
+                properties=(
+                    quantity_property(offset.property_id, unit="V"),
+                    bool_property(enabled.property_id),
+                ),
+                operations=(operation("reset", invalidates=(offset,)),),
+            )
+        ],
+    )
+    baseline = InstrumentStateSnapshot(
+        instrument_id="source",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id=output.interface_id,
+                property_id=offset.property_id,
+                value=StateValue(Quantity(0.1, "V")),
+            ),
+            RecordInstrumentPropertyState(
+                interface_id=output.interface_id,
+                property_id=enabled.property_id,
+                value=StateValue(True),
+            ),
+        ],
+    )
+
+    projected = project_instrument_invoke_state(
+        baseline,
+        InvokeCommand(
+            command_id="reset-output",
+            instrument_id="source",
+            resource_id="source",
+            interface_id=output.interface_id,
+            operation_id="reset",
+        ),
+        description=description,
+    )
+
+    assert [item.property_id for item in projected.properties] == ["enabled"]
 
 
 def test_operation_invalidation_must_reference_declared_state() -> None:

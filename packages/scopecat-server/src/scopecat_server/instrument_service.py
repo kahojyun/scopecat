@@ -97,6 +97,7 @@ from scopecat.sdk.instruments.commands import (
 )
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
+    project_instrument_invoke_state,
     project_instrument_state,
     resolve_interactive_collect,
     state_assignment_satisfied,
@@ -1271,8 +1272,17 @@ class InstrumentService:
                     )
                 )
                 if not action_problems:
-                    # Operations may mutate state without a projectable effect.
-                    assumed_states[action.instrument_id] = None
+                    baseline = assumed_states[action.instrument_id]
+                    if baseline is not None:
+                        assumed_states[action.instrument_id] = (
+                            project_instrument_invoke_state(
+                                baseline,
+                                command,
+                                description=runtime.instruments[
+                                    action.instrument_id
+                                ].description,
+                            )
+                        )
             else:
                 command = CollectCommand(
                     command_id=action.effect_id,
