@@ -256,6 +256,18 @@ def test_transition_retry_replays_the_original_commit(tmp_path: Path) -> None:
     assert journal.entries() == (first, changed)
 
 
+def test_transition_claim_rejects_operation_reentry(tmp_path: Path) -> None:
+    journal = SQLiteExecutionJournal(_runs(tmp_path), run_id="run-claim")
+    started = _transitions("run-claim")[0]
+
+    claimed = journal.claim(started)
+
+    assert claimed.sequence == 0
+    with pytest.raises(ExecutionJournalConflict, match="already claimed"):
+        journal.claim(started)
+    assert journal.entries() == (claimed,)
+
+
 def test_transition_transport_identity_excludes_only_daemon_fields() -> None:
     selected = problem(
         "read_failed",

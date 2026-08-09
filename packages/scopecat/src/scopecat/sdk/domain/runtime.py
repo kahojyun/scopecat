@@ -27,6 +27,7 @@ from scopecat.sdk.domain.invocation import (
     DomainInvocationIntent,
 )
 from scopecat.sdk.journal import ExecutionJournal
+from scopecat.sdk.journal import claim_transition as _claim_transition
 from scopecat.sdk.journal import commit_transition as _commit_transition
 from scopecat.sdk.problems import Problem, ProblemPhase
 from scopecat.sdk.runtime_problems import (
@@ -385,7 +386,7 @@ def _append_before_effect(
     execution_id: DomainExecutionId,
 ) -> None:
     try:
-        _commit_transition(journal, transition)
+        _claim_transition(journal, transition)
     except Exception as error:
         persistence_problem = problem_from_exception(
             "domain_runtime_intent_persistence_failed",

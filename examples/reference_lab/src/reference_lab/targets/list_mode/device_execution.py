@@ -7,6 +7,7 @@ from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
+from scopecat.kernel.errors import OperationFailure
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
@@ -179,10 +180,10 @@ class InstrumentListModeRuntime:
 WORKER_ADC_DSP_FINGERPRINT = "reference_lab.rectangular_adc_dsp.v2"
 
 
-def list_mode_state_writes(
+def list_mode_realtime_write_footprint(
     artifact: ListModeArtifact,
 ) -> tuple[DomainStateAddress, ...]:
-    """Project the target's physical state writes from its typed preparation."""
+    """Project the target's physical write footprint from typed preparation."""
 
     batch = _preparation_batch(artifact, execution_id="state-footprint")
     return tuple(
@@ -738,10 +739,7 @@ def _execute_batch(
     if receipt.indeterminate:
         raise RuntimeError("target device-program outcome is indeterminate")
     if receipt.problems:
-        raise RuntimeError(
-            "target device program failed: "
-            + "; ".join(problem.message for problem in receipt.problems)
-        )
+        raise OperationFailure(receipt.problems)
     return receipt
 
 
@@ -870,7 +868,7 @@ def _demodulate(
 __all__ = [
     "WORKER_ADC_DSP_FINGERPRINT",
     "InstrumentListModeRuntime",
+    "list_mode_realtime_write_footprint",
     "list_mode_setup_state_invalidations",
     "list_mode_state_requirements",
-    "list_mode_state_writes",
 ]

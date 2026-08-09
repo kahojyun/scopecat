@@ -426,16 +426,22 @@ class RunHardwareFinishCommand(_FencedOperationCommand):
     failed: bool
 
 
-class ExecutionTransitionAppend(_FencedCommand):
-    """Append one transition using its content hash as the retry identity."""
-
+class _ExecutionTransitionCommand(_FencedCommand):
     transition: ExecutionTransition
 
     @model_validator(mode="after")
-    def validate_transition(self) -> ExecutionTransitionAppend:
+    def validate_transition(self) -> _ExecutionTransitionCommand:
         if self.transition.sequence is not None:
             raise ValueError("submitted transition sequence must be daemon-assigned")
         return self
+
+
+class ExecutionTransitionClaim(_ExecutionTransitionCommand):
+    """Atomically claim a new effect operation before executing it."""
+
+
+class ExecutionTransitionAppend(_ExecutionTransitionCommand):
+    """Append one transition using its content hash as the retry identity."""
 
 
 class MeasurementHeaderCommand(_FencedCommand):
@@ -703,6 +709,7 @@ __all__ = [
     "ConfigUndoCommand",
     "DirectConfigRevisionSource",
     "ExecutionTransitionAppend",
+    "ExecutionTransitionClaim",
     "ExecutorHeartbeat",
     "ExecutorLease",
     "ExecutorStartRequest",

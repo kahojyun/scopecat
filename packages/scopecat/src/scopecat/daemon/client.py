@@ -46,6 +46,7 @@ from scopecat.daemon.wire import (
     ConfigPublishReceipt,
     ConfigUndoCommand,
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -733,6 +734,17 @@ class DaemonClient:
     ) -> ExecutionTransition:
         return self._post_model(
             f"{_API_PREFIX}/runs/{run_id}/transitions",
+            command,
+            ExecutionTransition,
+        )
+
+    def claim_transition(
+        self,
+        run_id: str,
+        command: ExecutionTransitionClaim,
+    ) -> ExecutionTransition:
+        return self._post_model(
+            f"{_API_PREFIX}/runs/{run_id}/transitions/claim",
             command,
             ExecutionTransition,
         )

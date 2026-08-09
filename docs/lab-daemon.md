@@ -83,11 +83,11 @@ target and an ad hoc operation aimed at the same AWG share the same exclusivity
 key and worker-owned driver instance.
 The instrument claim prevents another run or direct session from entering; it
 does not assign the entire device to either host orchestration or the domain
-runtime. Prepared domain jobs additionally expose their property-write
-addresses and host-provided state requirements. Planning permits disjoint host
+runtime. Prepared domain jobs additionally expose their physical write
+footprints and host-provided state requirements. Planning permits disjoint host
 and domain state on one device, rejects only the same physical property being
 assigned to both writers, and verifies each requirement against state
-established before that job. Required state does not expand the instruments the
+guaranteed before that job. Required state does not expand the instruments the
 domain runtime may access. Domain state invalidations are also distinct from
 writes: they withdraw planner knowledge after an effect without claiming the
 invalidated property or creating a false double-writer conflict.

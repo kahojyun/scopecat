@@ -37,6 +37,7 @@ from scopecat.daemon.wire import (
     ConfigUndoCommand,
     DirectConfigRevisionSource,
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorLease,
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentConfiguredDefaultsApplyReceipt,
@@ -451,18 +452,18 @@ def test_executor_lease_is_expiring_and_fenced() -> None:
         )
 
 
-def test_transition_append_keeps_sequence_daemon_owned() -> None:
-    command = ExecutionTransitionAppend(
-        lease_id="lease-1",
-        transition=_transition(),
-    )
+@pytest.mark.parametrize(
+    "command_type",
+    [ExecutionTransitionAppend, ExecutionTransitionClaim],
+)
+def test_transition_commands_keep_sequence_daemon_owned(
+    command_type: type[ExecutionTransitionAppend | ExecutionTransitionClaim],
+) -> None:
+    command = command_type(lease_id="lease-1", transition=_transition())
 
-    assert (
-        ExecutionTransitionAppend.model_validate_json(command.model_dump_json())
-        == command
-    )
+    assert command_type.model_validate_json(command.model_dump_json()) == command
     with pytest.raises(ValidationError, match="daemon-assigned"):
-        ExecutionTransitionAppend(
+        command_type(
             lease_id="lease-1",
             transition=_transition(sequence=1),
         )

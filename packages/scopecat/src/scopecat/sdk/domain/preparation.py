@@ -100,11 +100,11 @@ class DomainPreparationBuilder:
         *,
         instrument_ids: Sequence[str],
         setup: DomainSetup[PayloadT] | None = None,
-        setup_state_writes: Sequence[DomainStateAddress] = (),
+        setup_write_footprint: Sequence[DomainStateAddress] = (),
         setup_state_invalidations: Sequence[DomainStateAddress] = (),
         state_requirements: Sequence[DomainStateRequirement],
-        state_writes: Sequence[DomainStateAddress],
-        state_invalidations: Sequence[DomainStateAddress],
+        realtime_write_footprint: Sequence[DomainStateAddress],
+        realtime_state_invalidations: Sequence[DomainStateAddress],
         mapping: DomainResultMapping[ResultAddressT],
         invocation: DomainInvocationSpec[PayloadT],
         runtime: DomainRuntime[PayloadT, ResultT],
@@ -115,9 +115,11 @@ class DomainPreparationBuilder:
     ) -> PreparedDomainExecution:
         """Close one declarative target job behind the core execution ABI.
 
-        Setup writes and invalidations occur before host-managed requirements
-        are reconciled. ``state_writes`` declare realtime runtime authority;
-        ``state_invalidations`` withdraw knowledge after the complete job.
+        Setup write footprints and invalidations occur before host-managed
+        requirements are reconciled. ``realtime_write_footprint`` declares
+        runtime authority with an unknown postcondition;
+        ``realtime_state_invalidations`` withdraw knowledge about other
+        physically coupled properties after the complete job.
         """
 
         if mapping.context is not self._context:
@@ -152,14 +154,16 @@ class DomainPreparationBuilder:
         selected_requirements = _select_state_requirements(state_requirements)
         return PreparedDomainExecution(
             instrument_ids=selected_instrument_ids,
-            setup_state_writes=tuple(sorted(set(setup_state_writes))),
+            setup_write_footprint=tuple(sorted(set(setup_write_footprint))),
             setup_state_invalidations=tuple(sorted(set(setup_state_invalidations))),
             state_requirements=tuple(
                 selected_requirements[address]
                 for address in sorted(selected_requirements)
             ),
-            state_writes=tuple(sorted(set(state_writes))),
-            state_invalidations=tuple(sorted(set(state_invalidations))),
+            realtime_write_footprint=tuple(sorted(set(realtime_write_footprint))),
+            realtime_state_invalidations=tuple(
+                sorted(set(realtime_state_invalidations))
+            ),
             invocation=cast("ErasedDomainInvocation", native_invocation),
             setup=cast("ErasedDomainSetup | None", setup),
             runtime=cast("ErasedDomainRuntime", runtime),

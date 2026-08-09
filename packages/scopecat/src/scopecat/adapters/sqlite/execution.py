@@ -113,6 +113,38 @@ class SQLiteExecutionJournal:
                 f"failed to commit execution journal entry: {error}"
             ) from error
 
+    def claim_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        entry: ExecutionTransition,
+    ) -> ExecutionTransition:
+        """Atomically commit the first transition for one operation."""
+
+        if entry.state != "started":
+            raise ExecutionJournalConflict(
+                "only a started transition can claim an execution operation"
+            )
+        existing = _one(
+            connection.execute(
+                """
+                SELECT 1 AS claimed
+                FROM durable_events
+                WHERE run_id = ?
+                  AND kind = ?
+                  AND json_extract(payload_json, '$.operation_id') = ?
+                LIMIT 1
+                """,
+                (self._run_id, self._EVENT_KIND, entry.operation_id),
+            )
+        )
+        if existing is not None:
+            raise ExecutionJournalConflict(
+                f"execution operation {entry.operation_id!r} is already claimed"
+            )
+        committed, created = self.append_in_transaction(connection, entry)
+        assert created
+        return committed
+
     def list_in_transaction(
         self,
         connection: sqlite3.Connection,

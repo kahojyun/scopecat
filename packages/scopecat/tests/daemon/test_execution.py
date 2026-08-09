@@ -13,6 +13,7 @@ from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.execution import daemon_execution_session
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementAppendCommand,
@@ -93,7 +94,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     )
     started_manifest = admission.manifest
     fences: list[tuple[str, str]] = []
-    transition_commands: list[ExecutionTransitionAppend] = []
+    transition_commands: list[ExecutionTransitionAppend | ExecutionTransitionClaim] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
     hardware_operation_ids: list[str] = []
 
@@ -132,6 +133,11 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
                     operation_id=command.operation_id,
                 )
             )
+        if path.endswith("/transitions/claim"):
+            command = ExecutionTransitionClaim.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            transition_commands.append(command)
+            return _model(committed_transition)
         if path.endswith("/transitions"):
             command = ExecutionTransitionAppend.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
@@ -207,6 +213,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
         == "hardware.finish"
     )
 
+    assert journal.claim(transition) == committed_transition
     assert journal.append(transition) == committed_transition
     assert (
         journal.append(
@@ -216,7 +223,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
         )
         == committed_transition
     )
-    assert len(transition_commands) == 2
+    assert len(transition_commands) == 3
     assert {
         execution_transition_content_hash(command.transition)
         for command in transition_commands

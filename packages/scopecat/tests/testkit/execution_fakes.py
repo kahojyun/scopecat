@@ -25,6 +25,15 @@ class FakeExecutionJournal:
     def entries(self) -> tuple[ExecutionTransition, ...]:
         return tuple(self._entries)
 
+    def claim(self, entry: ExecutionTransition) -> ExecutionTransition:
+        if any(
+            existing.operation_id == entry.operation_id for existing in self._entries
+        ):
+            raise ExecutionJournalError(
+                f"execution operation {entry.operation_id!r} is already claimed"
+            )
+        return self.append(entry)
+
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         committed = entry.model_copy(
             update={

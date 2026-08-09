@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.kernel.errors import (
-    CheckFailed,
     DomainRuntimeFailure,
     DomainRuntimePersistenceError,
     MeasurementRecordingError,
+    OperationFailure,
 )
 from scopecat.kernel.problems import (
     Problem,
@@ -72,14 +72,21 @@ class _RequirementReconciledRuntime:
         *,
         instruments: DomainInstrumentExecutor,
     ) -> DomainExecutionReceipt | DomainExecutionResult[object]:
-        setup = self.prepared.setup
-        if setup is not None:
-            setup.prepare(execution_key, payload, instruments=instruments)
-        _reconcile_domain_state_requirements(
-            self.prepared,
-            execution_key=execution_key,
-            instruments=instruments,
-        )
+        try:
+            setup = self.prepared.setup
+            if setup is not None:
+                setup.prepare(execution_key, payload, instruments=instruments)
+            _reconcile_domain_state_requirements(
+                self.prepared,
+                execution_key=execution_key,
+                instruments=instruments,
+            )
+        except OperationFailure as error:
+            return DomainExecutionReceipt(
+                execution_key=execution_key,
+                status="not_executed",
+                problems=error.problems,
+            )
         return self.prepared.runtime.execute(
             execution_key,
             payload,
@@ -121,10 +128,14 @@ def _reconcile_domain_state_requirements(
             ),
         )
     )
-    if receipt.problems:
-        raise CheckFailed(receipt.problems)
+    if receipt.operation_id != operation_id:
+        raise RuntimeError(
+            "instrument worker returned a mismatched state-reconciliation receipt"
+        )
     if receipt.indeterminate:
         raise RuntimeError("domain state requirement reconciliation was indeterminate")
+    if receipt.problems:
+        raise OperationFailure(receipt.problems)
 
 
 def domain_runtime_terminal_problem(

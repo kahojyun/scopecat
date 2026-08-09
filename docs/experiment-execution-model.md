@@ -188,11 +188,19 @@ plans, durable record selection, labels, and metadata.
 The synchronous domain boundary still distinguishes a known execution failure
 from an unknown outcome. A provider exception after hardware may have changed is
 indeterminate unless the returned execution receipt says that no execution
-occurred. There is no core-owned retry or invented asynchronous job lifecycle.
+occurred. A setup or host-state reconciliation receipt with explicit problems is
+a known pre-realtime rejection: setup may already have changed properties in its
+declared footprint, but the realtime program did not begin. An indeterminate or
+uncorrelated setup receipt remains an unknown domain outcome. There is no
+core-owned retry or invented asynchronous job lifecycle.
 The journal retains the closed invocation intent once at the started boundary;
 the terminal boundary links it by execution key and intent fingerprint instead
-of copying the target summary again. Run-detail reads assemble the two into a
-compact domain-execution provenance view.
+of copying the target summary again. Committing that started boundary atomically
+claims the operation id, so re-entering the same execution key fails before a
+second runtime call. Stable worker operation ids are correlation and deduplication
+identities, not permission for core to retry an unknown write. Run-detail reads
+assemble the two journal boundaries into a compact domain-execution provenance
+view.
 
 ## Semantic Invariants
 
@@ -332,8 +340,8 @@ hierarchical lease model.
 
 That lease is not an internal ownership partition. Ordered host and domain
 stages may use the same provisioned instrument and worker-owned driver session.
-Each prepared domain execution declares the exact physical properties it may
-write and the exact host-provided state values it requires, using the same
+Each prepared domain execution declares the exact physical write footprint it
+may touch and the exact host-provided state values it requires, using the same
 instrument, interface, component path, and property address used by host
 desired state. Planning rejects only a host/domain double writer for one
 address; disjoint properties on the same device are ordinary. A domain job may
@@ -341,7 +349,7 @@ separately declare state invalidations: these grant no write authority and only
 remove values that later jobs may no longer assume, including physically
 coupled properties the job did not directly write. A prepared job may expose a
 slow setup phase before its realtime runtime. Requirements are checked against
-state established by preceding host coverage, then core idempotently reconciles
+state guaranteed by preceding host coverage, then core idempotently reconciles
 those exact values after setup and immediately before realtime execution. This
 lets a program load invalidate an AWG guard offset without giving the target
 runtime authority to choose that offset. A requirement may name an external LO
@@ -351,12 +359,12 @@ invalidations; core does not model a generic crosstalk graph.
 Semantically equal duplicate requirements for one address coalesce; different
 values are an adapter error instead of silently taking declaration order. A
 host invocation may likewise declare property invalidations in its instrument
-contract, so state established before a reset or calibration operation cannot
-authorize the following domain job. Setup writes remain target writes for
-conflict analysis; setup invalidations are applied before requirement
-reconciliation, while realtime invalidations apply after the job. Invocations
-and acquisitions retain declared order and therefore need no host/domain
-exclusion rule. Device-specific
+contract, so state guaranteed before a reset or calibration operation cannot
+authorize the following domain job. Setup and realtime write footprints claim
+authority but imply unknown postconditions; setup invalidations are applied
+before requirement reconciliation, while realtime invalidations apply after the
+job. Invocations and acquisitions retain declared order and therefore need no
+host/domain exclusion rule. Device-specific
 incompatibility inside one target batch remains the domain compiler's
 responsibility.
 

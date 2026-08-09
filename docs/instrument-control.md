@@ -105,9 +105,12 @@ An atomic operation that can disturb persistent state declares only that loss
 of knowledge in its contract. For example, a reset operation may list output
 amplitude, offset, and enable state in `invalidates`; it does not claim what
 their post-reset values will be. Planning then refuses to satisfy a later
-real-time-domain requirement from state established before the reset. A fresh
-readback or explicit `ensure` establishes the values again. This is a local
-operation fact, not a global rule about whether outputs should be enabled.
+real-time-domain requirement from a state guarantee scheduled before the reset.
+An explicit `ensure` schedules a fresh guarantee. A driver may implement that
+transition using write, readback, tolerance checks, and settling, but an ordinary
+acquisition remains a future runtime observation and cannot establish a static
+planning fact. This is a local operation fact, not a global rule about whether
+outputs should be enabled.
 
 Typed declarations address invalidations through the same state fields used by
 acquisition preconditions:

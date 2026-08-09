@@ -11,6 +11,7 @@ from pydantic import BaseModel, JsonValue, TypeAdapter
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -208,6 +209,16 @@ class _DaemonExecutionJournal:
         return self._authority.client.append_transition(
             self._authority.run_id,
             ExecutionTransitionAppend(
+                lease_id=lease_id,
+                transition=entry,
+            ),
+        )
+
+    def claim(self, entry: ExecutionTransition) -> ExecutionTransition:
+        lease_id = self._authority.fence()
+        return self._authority.client.claim_transition(
+            self._authority.run_id,
+            ExecutionTransitionClaim(
                 lease_id=lease_id,
                 transition=entry,
             ),

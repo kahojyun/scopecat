@@ -362,6 +362,13 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
     )
     prepared = preparation.build(
         instrument_ids=("instrument-b", "instrument-a"),
+        setup_write_footprint=(
+            DomainStateAddress(
+                instrument_id="instrument-b",
+                interface_id="test.program/v1",
+                property_id="loaded",
+            ),
+        ),
         state_requirements=(
             DomainStateRequirement(
                 address=guard_enabled,
@@ -372,7 +379,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
                 value=StateValue(True),
             ),
         ),
-        state_writes=(
+        realtime_write_footprint=(
             DomainStateAddress(
                 instrument_id="instrument-b",
                 interface_id="test.output/v1",
@@ -385,7 +392,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
                 property_id="source",
             ),
         ),
-        state_invalidations=(
+        realtime_state_invalidations=(
             DomainStateAddress(
                 instrument_id="guard-instrument",
                 interface_id="test.guard/v1",
@@ -406,7 +413,14 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
             value=StateValue(True),
         ),
     )
-    assert prepared.state_writes == (
+    assert prepared.setup_write_footprint == (
+        DomainStateAddress(
+            instrument_id="instrument-b",
+            interface_id="test.program/v1",
+            property_id="loaded",
+        ),
+    )
+    assert prepared.realtime_write_footprint == (
         DomainStateAddress(
             instrument_id="instrument-a",
             interface_id="test.clock/v1",
@@ -439,14 +453,14 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
                     value=StateValue(False),
                 ),
             ),
-            state_writes=(),
-            state_invalidations=(),
+            realtime_write_footprint=(),
+            realtime_state_invalidations=(),
             mapping=mapping,
             invocation=invocation,
             runtime=_NoEffectsRuntime(),
             realize=reject_realization,
         )
-    assert prepared.state_invalidations == (
+    assert prepared.realtime_state_invalidations == (
         DomainStateAddress(
             instrument_id="guard-instrument",
             interface_id="test.guard/v1",

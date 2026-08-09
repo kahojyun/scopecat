@@ -254,6 +254,9 @@ def test_runtime_exception_and_forged_receipt_are_indeterminate() -> None:
 
 @dataclass
 class _NoSequenceJournal:
+    def claim(self, entry: ExecutionTransition) -> ExecutionTransition:
+        return entry.model_copy(deep=True)
+
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         return entry.model_copy(deep=True)
 
@@ -273,3 +276,21 @@ def test_execution_intent_must_be_durable_before_provider_call() -> None:
 
     assert caught.value.certainty == "known"
     assert runtime.execute_calls == 0
+
+
+def test_unknown_execution_key_cannot_reenter_the_runtime() -> None:
+    invocation = _closed_invocation()
+    runtime = _Runtime(error=RuntimeError("receipt lost"))
+    journal = FakeExecutionJournal()
+
+    with pytest.raises(DomainExecutionFailed) as first:
+        _execute(runtime, invocation, journal)
+    assert first.value.certainty == "indeterminate"
+    assert runtime.execute_calls == 1
+
+    runtime.error = None
+    with pytest.raises(DomainRuntimePersistenceError) as repeated:
+        _execute(runtime, invocation, journal)
+
+    assert repeated.value.certainty == "known"
+    assert runtime.execute_calls == 1

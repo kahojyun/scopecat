@@ -516,8 +516,8 @@ def _reject_host_domain_state_write_conflicts(
         if not isinstance(operation, RunDomainJob):
             continue
         for write in (
-            *operation.execution.setup_state_writes,
-            *operation.execution.state_writes,
+            *operation.execution.setup_write_footprint,
+            *operation.execution.realtime_write_footprint,
         ):
             domain_write_points.setdefault(write, set()).update(
                 operation.point_ordinals
@@ -555,7 +555,7 @@ def _state_address_description(address: DomainStateAddress) -> str:
 
 
 @dataclass(frozen=True, slots=True)
-class _EstablishedDomainState:
+class _ScheduledStateGuarantee:
     value: StateValue
     provenance: dict[str, object]
 
@@ -565,9 +565,9 @@ def _validate_domain_state_requirements(
     *,
     catalog: InstrumentContractCatalog,
 ) -> None:
-    """Verify requirements against state established by preceding host stages."""
+    """Verify requirements against guarantees scheduled by preceding stages."""
 
-    established: dict[DomainStateAddress, _EstablishedDomainState] = {}
+    guarantees: dict[DomainStateAddress, _ScheduledStateGuarantee] = {}
     invalidated_by: dict[DomainStateAddress, dict[str, object]] = {}
     problems: list[Problem] = []
     for covered in coverage:
@@ -582,7 +582,7 @@ def _validate_domain_state_requirements(
                     component_path=target.component_path,
                     property_id=target.property_id,
                 )
-                established[address] = _EstablishedDomainState(
+                guarantees[address] = _ScheduledStateGuarantee(
                     value=target.value,
                     provenance={
                         "kind": "host_state",
@@ -604,13 +604,13 @@ def _validate_domain_state_requirements(
                 "point_index": covered.point_index,
             }
             for invalidated in _invoke_state_invalidations(operation, catalog):
-                established.pop(invalidated, None)
+                guarantees.pop(invalidated, None)
                 invalidated_by[invalidated] = provenance
             continue
         if not isinstance(covered, RunDomainJob):
             continue
         for requirement in covered.execution.state_requirements:
-            actual = established.get(requirement.address)
+            actual = guarantees.get(requirement.address)
             if actual is None:
                 details: dict[str, object] = {
                     "domain_job_id": covered.id,
@@ -623,7 +623,7 @@ def _validate_domain_state_requirements(
                     _planning_problem(
                         "domain_state_requirement_missing",
                         "domain execution requires physical state that no "
-                        "preceding host stage establishes",
+                        "preceding host stage guarantees",
                         details=details,
                     )
                 )
@@ -632,33 +632,33 @@ def _validate_domain_state_requirements(
                     _planning_problem(
                         "domain_state_requirement_mismatch",
                         "domain execution requires a different physical state "
-                        "value than the preceding host stage establishes",
+                        "value than the preceding host guarantee",
                         details={
                             "domain_job_id": covered.id,
                             "state_address": _state_address_description(
                                 requirement.address
                             ),
                             "point_ordinals": covered.point_ordinals,
-                            "established_by": actual.provenance,
+                            "guaranteed_by": actual.provenance,
                         },
                     )
                 )
-        for invalidated in covered.execution.setup_state_writes:
-            established.pop(invalidated, None)
+        for invalidated in covered.execution.setup_write_footprint:
+            guarantees.pop(invalidated, None)
             invalidated_by[invalidated] = {
-                "kind": "domain_setup_write",
+                "kind": "domain_setup_write_footprint",
                 "domain_job_id": covered.id,
                 "point_ordinals": covered.point_ordinals,
             }
         for invalidated in covered.execution.setup_state_invalidations:
-            established.pop(invalidated, None)
+            guarantees.pop(invalidated, None)
             invalidated_by[invalidated] = {
                 "kind": "domain_setup_invalidation",
                 "domain_job_id": covered.id,
                 "point_ordinals": covered.point_ordinals,
             }
         for requirement in covered.execution.state_requirements:
-            established[requirement.address] = _EstablishedDomainState(
+            guarantees[requirement.address] = _ScheduledStateGuarantee(
                 value=requirement.value,
                 provenance={
                     "kind": "domain_requirement_reconciliation",
@@ -667,17 +667,17 @@ def _validate_domain_state_requirements(
                 },
             )
             invalidated_by.pop(requirement.address, None)
-        for invalidated in covered.execution.state_writes:
-            established.pop(invalidated, None)
+        for invalidated in covered.execution.realtime_write_footprint:
+            guarantees.pop(invalidated, None)
             invalidated_by[invalidated] = {
-                "kind": "domain_runtime_write",
+                "kind": "domain_realtime_write_footprint",
                 "domain_job_id": covered.id,
                 "point_ordinals": covered.point_ordinals,
             }
-        for invalidated in covered.execution.state_invalidations:
-            established.pop(invalidated, None)
+        for invalidated in covered.execution.realtime_state_invalidations:
+            guarantees.pop(invalidated, None)
             invalidated_by[invalidated] = {
-                "kind": "domain_runtime_invalidation",
+                "kind": "domain_realtime_invalidation",
                 "domain_job_id": covered.id,
                 "point_ordinals": covered.point_ordinals,
             }

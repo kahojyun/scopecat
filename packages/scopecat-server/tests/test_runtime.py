@@ -58,6 +58,7 @@ from scopecat.daemon.wire import (
     ConfigUndoCommand,
     DirectConfigRevisionSource,
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -2184,14 +2185,28 @@ def test_run_detail_projects_compact_domain_execution_evidence(tmp_path: Path) -
                 },
             ),
         )
-        for transition in transitions:
-            runtime.application.executor.append_transition(
+        runtime.application.executor.claim_transition(
+            admission.run_id,
+            ExecutionTransitionClaim(
+                lease_id=lease.lease_id,
+                transition=transitions[0],
+            ),
+        )
+        with pytest.raises(BackendConflict, match="conflicts with durable run state"):
+            runtime.application.executor.claim_transition(
                 admission.run_id,
-                ExecutionTransitionAppend(
+                ExecutionTransitionClaim(
                     lease_id=lease.lease_id,
-                    transition=transition,
+                    transition=transitions[0],
                 ),
             )
+        runtime.application.executor.append_transition(
+            admission.run_id,
+            ExecutionTransitionAppend(
+                lease_id=lease.lease_id,
+                transition=transitions[1],
+            ),
+        )
 
         [execution] = runtime.application.runs.get_run(
             admission.run_id

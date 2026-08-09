@@ -50,6 +50,7 @@ from scopecat.daemon.wire import (
     ConfigPublishReceipt,
     ConfigUndoCommand,
     ExecutionTransitionAppend,
+    ExecutionTransitionClaim,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
@@ -597,6 +598,14 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ExecutionTransition:
         _require_run_id(run_id, command.transition.run_id)
         return application.executor.append_transition(run_id, command)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/transitions/claim")
+    def claim_transition(
+        run_id: str,
+        command: ExecutionTransitionClaim,
+    ) -> ExecutionTransition:
+        _require_run_id(run_id, command.transition.run_id)
+        return application.executor.claim_transition(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/header")
     def initialize_measurements(

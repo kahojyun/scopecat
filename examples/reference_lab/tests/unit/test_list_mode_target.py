@@ -119,6 +119,18 @@ class _RecordingInstrumentExecutor:
         )
 
 
+class _IndeterminateInstrumentExecutor:
+    def __init__(self) -> None:
+        self.batches: list[RunHardwareBatch] = []
+
+    def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
+        self.batches.append(batch)
+        return RunHardwareBatchReceipt(
+            operation_id=batch.operation_id,
+            indeterminate=True,
+        )
+
+
 def _modulated_samples(
     amplitude: float,
     *,
@@ -181,7 +193,7 @@ def _request(
     return compiler, request
 
 
-def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
+def _calibrated_acquisition() -> tuple[ScheduledPulseProgram, AcquisitionSlot]:
     slot = AcquisitionSlot(
         AcquisitionSlotId("result"),
         AcquisitionKind.INTEGRATED_IQ,
@@ -220,6 +232,11 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
             acquisition_slots=(slot,),
         )
     )
+    return scheduled, slot
+
+
+def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
+    scheduled, slot = _calibrated_acquisition()
     target = _target()
     compiler, request = _request(target, (scheduled,), repetitions=2)
 
@@ -443,6 +460,23 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
     assert device_artifact.digitizer_programs[0].result_representation == (
         "integrated_iq"
     )
+
+
+def test_indeterminate_awg_program_load_stops_before_realtime() -> None:
+    scheduled, _slot = _calibrated_acquisition()
+    compiler, request = _request(_target(), (scheduled,), repetitions=1)
+    artifact = compiler.compile(request)
+    instruments = _IndeterminateInstrumentExecutor()
+
+    with pytest.raises(RuntimeError, match="outcome is indeterminate"):
+        InstrumentListModeRuntime().prepare(
+            artifact,
+            execution_id="test.indeterminate-load",
+            instruments=instruments,
+        )
+
+    assert len(instruments.batches) == 1
+    assert instruments.batches[0].operation_id.endswith(":load")
 
 
 def test_offset_coupling_groups_may_split_one_physical_awg() -> None:

@@ -91,6 +91,10 @@ class SQLiteTestRunRepository(SQLiteRunRepository):
 class SQLiteTestExecutionJournal(SQLiteExecutionJournal):
     """Own test transactions and expose durable entries for assertions."""
 
+    def claim(self, entry: ExecutionTransition) -> ExecutionTransition:
+        with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
+            return self.claim_in_transaction(connection, entry)
+
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
             committed, _created = self.append_in_transaction(connection, entry)

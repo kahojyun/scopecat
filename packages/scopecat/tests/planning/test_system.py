@@ -141,8 +141,8 @@ class _DomainCompiler:
     compiler_id: str
     instrument_ids: tuple[str, ...] = ()
     state_requirements: tuple[DomainStateRequirement, ...] = ()
-    state_writes: tuple[DomainStateAddress, ...] = ()
-    state_invalidations: tuple[DomainStateAddress, ...] = ()
+    realtime_write_footprint: tuple[DomainStateAddress, ...] = ()
+    realtime_state_invalidations: tuple[DomainStateAddress, ...] = ()
     batch_size: int = 100
     partition_sizes: tuple[int, ...] | None = None
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
@@ -222,8 +222,8 @@ class _DomainCompiler:
         return preparation.build(
             instrument_ids=self.instrument_ids,
             state_requirements=self.state_requirements,
-            state_writes=self.state_writes,
-            state_invalidations=self.state_invalidations,
+            realtime_write_footprint=self.realtime_write_footprint,
+            realtime_state_invalidations=self.realtime_state_invalidations,
             mapping=mapping,
             invocation=invocation,
             runtime=self.runtime,
@@ -1229,10 +1229,42 @@ def test_domain_state_requirement_must_match_the_host_value() -> None:
         ).compile(bound)
 
     assert _problem_codes(captured.value) == {"domain_state_requirement_mismatch"}
-    assert captured.value.problems[0].details["established_by"] == {
+    assert captured.value.problems[0].details["guaranteed_by"] == {
         "kind": "host_state",
         "point_index": 0,
     }
+
+
+def test_runtime_readback_does_not_create_a_planning_state_guarantee() -> None:
+    config = _config_with_domain_resources("source-0")
+    bound = _bound_program(
+        product_count=2,
+        domain_product_count=1,
+        acquisition_before_domain=True,
+        config=config,
+    )
+    compiler = _DomainCompiler(
+        "tests.readback-is-not-state-guarantee",
+        instrument_ids=("source-0",),
+        state_requirements=(
+            DomainStateRequirement(
+                address=DomainStateAddress(
+                    instrument_id="source-0",
+                    interface_id="test.set_frequency/v1",
+                    property_id="frequency",
+                ),
+                value=StateValue(Quantity(value=5.0, unit="GHz")),
+            ),
+        ),
+    )
+
+    with pytest.raises(CheckFailed) as captured:
+        ExperimentSystem(
+            instrument_catalog=_catalog(bound, _TrackingProvider()),
+            domain_compiler=compiler,
+        ).compile(bound)
+
+    assert _problem_codes(captured.value) == {"domain_state_requirement_missing"}
 
 
 def test_domain_state_invalidation_requires_repreparation_before_next_job() -> None:
@@ -1251,7 +1283,7 @@ def test_domain_state_invalidation_requires_repreparation_before_next_job() -> N
                 value=StateValue(Quantity(value=5.0, unit="GHz")),
             ),
         ),
-        state_invalidations=(address,),
+        realtime_state_invalidations=(address,),
         batch_size=1,
     )
 
@@ -1267,7 +1299,7 @@ def test_domain_state_invalidation_requires_repreparation_before_next_job() -> N
         "state_address": "source-0:test.set_frequency/v1.frequency",
         "point_ordinals": (1,),
         "invalidated_by": {
-            "kind": "domain_runtime_invalidation",
+            "kind": "domain_realtime_invalidation",
             "domain_job_id": "domain:batch-0",
             "point_ordinals": (0,),
         },
@@ -1280,7 +1312,7 @@ def test_planning_rejects_host_and_domain_writes_to_the_same_property() -> None:
     compiler = _DomainCompiler(
         "tests.state-write-conflict",
         instrument_ids=("source-0",),
-        state_writes=(
+        realtime_write_footprint=(
             DomainStateAddress(
                 instrument_id="source-0",
                 interface_id="test.set_frequency/v1",

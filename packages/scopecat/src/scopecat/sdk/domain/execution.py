@@ -71,17 +71,17 @@ class PreparedDomainExecution:
     family, while core only inspects the exact physical instrument footprint
     and state contract needed to compose it with host stages. Setup completes
     before core reconciles host-managed requirements; runtime execution begins
-    only after that boundary. Writes declare target authority; invalidations
-    only withdraw planner knowledge and may name properties outside the target
-    footprint.
+    only after that boundary. Write footprints declare target authority and an
+    unknown postcondition; invalidations only withdraw planner knowledge and may
+    name physically coupled properties outside the target footprint.
     """
 
     instrument_ids: tuple[str, ...]
-    setup_state_writes: tuple[DomainStateAddress, ...]
+    setup_write_footprint: tuple[DomainStateAddress, ...]
     setup_state_invalidations: tuple[DomainStateAddress, ...]
     state_requirements: tuple[DomainStateRequirement, ...]
-    state_writes: tuple[DomainStateAddress, ...]
-    state_invalidations: tuple[DomainStateAddress, ...]
+    realtime_write_footprint: tuple[DomainStateAddress, ...]
+    realtime_state_invalidations: tuple[DomainStateAddress, ...]
     invocation: ErasedDomainInvocation = field(repr=False)
     setup: ErasedDomainSetup | None = field(repr=False, compare=False)
     runtime: ErasedDomainRuntime = field(repr=False, compare=False)
@@ -94,10 +94,11 @@ class PreparedDomainExecution:
             raise ValueError("prepared domain instrument ids must be unique")
         if any(
             write.instrument_id not in self.instrument_ids
-            for write in (*self.setup_state_writes, *self.state_writes)
+            for write in (*self.setup_write_footprint, *self.realtime_write_footprint)
         ):
             raise ValueError(
-                "prepared domain state writes must belong to its instrument footprint"
+                "prepared domain write footprints must belong to its instrument "
+                "footprint"
             )
 
 

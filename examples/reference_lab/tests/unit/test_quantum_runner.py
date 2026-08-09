@@ -378,7 +378,7 @@ def test_reviewed_los_prepare_once_without_fragmenting_quantum_batches() -> None
             write.property_id,
         )
         for job in jobs
-        for write in job.execution.state_writes
+        for write in job.execution.realtime_write_footprint
     }
     requirement_addresses = {
         (
