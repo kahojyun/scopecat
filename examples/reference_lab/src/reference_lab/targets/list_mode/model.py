@@ -120,7 +120,12 @@ class OutputChannelPreparation:
 
 @dataclass(frozen=True, slots=True)
 class ListModeHostStateRequirements:
-    """Named host state assumptions kept outside target runtime authority."""
+    """Named host state assumptions kept outside target runtime authority.
+
+    The compiler projects active IQ chains through one lab-owned coupling policy.
+    The resulting closure may include idle guard channels, while granting the
+    target no authority to choose or write their reviewed offsets.
+    """
 
     policy_id: str
     coupling_group_ids: tuple[str, ...]
@@ -415,7 +420,12 @@ class AwgChannelWaveform:
 
 @dataclass(frozen=True, slots=True)
 class AcquisitionIntent:
-    """Semantic acquisition result requested by the pulse program."""
+    """Semantic integrated-IQ result requested by the pulse program.
+
+    The semantics id fixes sample-center timing, ``exp(-iωt)`` demodulation,
+    rectangular averaging, and single-sideband amplitude normalization. Device
+    representation and DSP placement are selected separately during lowering.
+    """
 
     semantics_id: Literal["reference_lab.integrated_iq.ssb_midpoint.v1"]
     output_representation: Literal["integrated_iq"]
@@ -426,7 +436,7 @@ class AcquisitionIntent:
 
 @dataclass(frozen=True, slots=True)
 class TargetAcquisitionLowering:
-    """Raw device capture followed by target-side semantic processing."""
+    """Fetch raw ADC voltage and realize semantic IQ in the target runtime."""
 
     execution: Literal["target"] = "target"
     device_result_representation: Literal["raw_trace"] = "raw_trace"
@@ -434,7 +444,7 @@ class TargetAcquisitionLowering:
 
 @dataclass(frozen=True, slots=True)
 class DeviceAcquisitionLowering:
-    """Semantic processing lowered to an onboard digitizer acquisition."""
+    """Realize the same versioned semantic IQ in onboard digitizer DSP."""
 
     execution: Literal["device"] = "device"
     device_result_representation: Literal["integrated_iq"] = "integrated_iq"
@@ -509,7 +519,11 @@ class DigitizerProgram:
 
 @dataclass(frozen=True, slots=True)
 class TriggerEpoch:
-    """One idempotent shared edge and its exact armed participants."""
+    """One session-idempotent shared edge and its exact armed participants.
+
+    Idempotence depends on the current timing-device driver session and its epoch
+    cache. It is not a durable replay promise across reconnect or worker restart.
+    """
 
     id: str
     awg_instrument_ids: tuple[str, ...]

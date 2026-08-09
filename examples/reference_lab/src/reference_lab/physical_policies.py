@@ -60,7 +60,13 @@ class OutputOffsetRequirement:
 
 @dataclass(frozen=True, slots=True)
 class OutputOffsetCouplingGroup:
-    """Physical outputs whose reviewed offsets are prepared as one closure."""
+    """Physical outputs whose reviewed offsets are prepared as one closure.
+
+    Activation channels select the group; required offsets may additionally
+    include idle guards. Group membership is declared by lab policy rather than
+    inferred from instrument identity, so a closure may cover one bank, a whole
+    AWG, or a larger physical assembly.
+    """
 
     id: str
     activation_channels: tuple[AwgChannelId, ...]
@@ -69,7 +75,7 @@ class OutputOffsetCouplingGroup:
 
 @dataclass(frozen=True, slots=True)
 class IqOffsetCouplingGroupDefinition:
-    """One semantic activation and required-state closure."""
+    """One semantic activation and required-state closure before routing."""
 
     id: str
     activation_chain_ids: tuple[str, ...]
@@ -79,7 +85,7 @@ class IqOffsetCouplingGroupDefinition:
 
 @dataclass(frozen=True, slots=True)
 class IqOffsetPolicyDefinition:
-    """Lab-owned semantic policy shared by authoring and target lowering."""
+    """Lab-owned semantic policy shared by host preparation and target lowering."""
 
     id: str
     coupling_groups: tuple[IqOffsetCouplingGroupDefinition, ...]

@@ -1,4 +1,9 @@
-"""Generate typed first-party instrument surfaces from declared interfaces."""
+"""Generate committed first-party instrument surfaces from declarations.
+
+``PACKAGE_MANIFEST`` owns the input catalog. The output path constants below
+name every generated runtime module, test fixture, and lazy package facade;
+those files are build products and should not be edited directly.
+"""
 
 from __future__ import annotations
 

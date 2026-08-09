@@ -73,7 +73,14 @@ class XYDriveFrequencies:
 
 
 class XYDriveGroup:
-    """Compose shared LO/clock state with independently mounted IQ drives."""
+    """Compose shared LO/clock state with independently mounted IQ drives.
+
+    The facade accepts signed IF directly and returns the derived carrier using
+    ``RF = LO + IF``. Routing coalesces equal demands on shared LO and AWG clock
+    owners while preserving independent I/Q output mounts. This lab-local
+    composition keeps ordinary carrier-driven experiments simple and gives the
+    few fixed-IF LO scans an explicit host schedule.
+    """
 
     __slots__ = ("_context", "_entities", "_i", "_lo", "_q")
 

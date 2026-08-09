@@ -79,7 +79,14 @@ def _diagnostic_waveform() -> dict[str, object]:
 def awg_output_monitor(
     experiment: sc.ExperimentContext,
 ) -> AwgOutputMonitorDataset:
-    """Arm a temporary scope, play one AWG channel, and fetch the trace."""
+    """Capture one temporarily cabled AWG output with entityless resources.
+
+    Both devices are known inventory; only their cable is temporary. The run
+    name and description carry operator intent, routing identifies the physical
+    source and scope input, and the dataset records only the scientific trace.
+    An unregistered diagnostic scope instead belongs in a direct
+    ``temporary_instrument`` session.
+    """
 
     source = sc.capability_resource(
         experiment,

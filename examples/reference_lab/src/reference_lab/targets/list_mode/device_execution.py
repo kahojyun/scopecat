@@ -91,7 +91,16 @@ from reference_lab.targets.list_mode.model import (
 
 @dataclass(frozen=True, slots=True)
 class InstrumentListModeRuntime:
-    """Execute target device programs through the admitted instrument worker."""
+    """Execute target programs through the admitted instrument worker.
+
+    ``prepare`` loads AWG and digitizer programs as a destructive setup phase.
+    Core then reasserts host-owned offset requirements before ``execute`` applies
+    target-owned preparation and performs arm, one shared trigger, and fetch for
+    each shot and list entry. These typed batches make ordering auditable; their
+    sequential submission does not claim cross-device atomicity. Every operation
+    id is scoped to the domain execution so identical artifacts in two
+    invocations do not share worker receipts.
+    """
 
     def prepare(
         self,

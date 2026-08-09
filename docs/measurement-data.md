@@ -27,9 +27,9 @@ it in each variable's dimension list. Symbolic values default to observables;
 pass `role="coordinate"` when an expression derives an independent physical
 coordinate.
 
-An experiment that intentionally scans an LO should record its physical RF
-coordinate at authoring time instead of requiring an analysis script to
-reconstruct the x-axis. A signed IF keeps the lab convention explicit:
+A specialized LO scan can record its physical RF coordinate at authoring time,
+making the dataset immediately plot-ready. A signed IF keeps the lab convention
+explicit:
 
 ```python
 lo = experiment.scan("lo_frequency", (4.9, 5.0, 5.1), unit="GHz")
@@ -46,10 +46,10 @@ experiment.record(
 )
 ```
 
-The LO scan is already recorded as a point coordinate. The extra record makes
-RF directly available to plots while the metadata preserves how it was derived.
-This pattern can live in the few lab experiments that need it; the measurement
-model does not need a mixer-specific frequency-plan type.
+The LO scan is already a point coordinate. The derived record makes RF directly
+available to plots while metadata preserves how it was computed. A small
+lab-local helper can reuse this pattern across the spectroscopy experiments that
+need it.
 
 ## Choose the point-domain shape explicitly
 
@@ -373,21 +373,18 @@ an x/y scatter whose color encodes each scalar observable. For a
 higher-dimensional product grid, every remaining authored axis becomes a fixed
 slice selector. Axis values are persisted in the canonical header, so selectors
 are available before a run completes and show typed values with units. Duplicate
-or opaque fixed-axis values remain selectable by their authored index. Axes with
-more than 256 values use a one-based index input instead of rendering thousands
-of browser options.
+or opaque fixed-axis values remain selectable by their authored index. Large
+axes use an index input so the browser does not render an unbounded option list.
 
 Automatic product-grid plots load only the selected slice. Heatmaps require
 exactly one value for every x/y cell; incomplete live data is labeled instead
-of being presented as a complete surface. Automatic slices are bounded to 4,096
-points, while trace previews are bounded to 32 series and 4,096 plotted samples.
-Larger data remains available through notebook batch reads. Complex heatmaps offer
-magnitude, phase, real, and imaginary color modes. When several safe views
-exist, the GUI lists every candidate in a selector instead of silently
-truncating them. Shapes that do not have a safe automatic visual remain in the
-typed table, with raw records available as a secondary expandable view. This
-keeps automatic plotting useful without pretending that every tensor has one
-obvious chart.
+of being presented as a complete surface. Automatic slices and trace previews
+use bounded server projections; larger data remains available through notebook
+batch reads. The projection functions and UI constants own the current limits.
+Complex heatmaps offer magnitude, phase, real, and imaginary color modes. When
+several safe views exist, the GUI lists every candidate in a selector. Shapes
+without a safe automatic visual remain in the typed table, with raw records
+available as a secondary expandable view.
 
 Trace previews select one recording group or observable and may fix authored
 product-grid axes by index. Complex values support magnitude, phase, real, and
