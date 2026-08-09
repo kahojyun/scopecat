@@ -207,8 +207,12 @@ compact domain-execution provenance view.
 - Point parameter overrides agree across host and domain placement.
 - Pure computation may be folded, shared, hoisted, or placed on a domain target
   without changing its value.
-- Consequential effects retain declared order. State, acquisitions, and domain
-  jobs cannot be moved across an observable ordering boundary.
+- Consequential effect stages retain declared order within each stable segment.
+  All target batches for one domain stage remain contiguous; a later state
+  stage cannot slip between batches merely because target capacity split them.
+- Equal, static desired-state frames may reconcile once at a stable segment
+  anchor. Invocations, acquisitions, payload-backed state, and any physical
+  desired-state change remain point boundaries.
 - Domain jobs remain inside barriers created by varying inputs, conflicting
   resources, and observable effects.
 - Legal host/domain lowering and legal physical partitioning produce the same
@@ -254,10 +258,22 @@ An experiment definition is independent of the `ExperimentSystem` that runs
 it. The accepted system configuration statically selects one domain target and
 the instruments it is authorized to coordinate. Planning verifies the
 configured compiler's target identity once, unions the exact footprints
-declared by its prepared batches, and claims that run footprint once. The compiler
-participates through one `compile_batch` boundary. Planning first partitions
-the logical point space by the compiler's declared capacity, then resolves all
-program and compiler inputs for each execution-ordered bounded batch.
+declared by its prepared batches, and claims that run footprint once. The
+compiler participates through one `compile_batch` boundary. Planning first
+materializes host effects and compares the complete, physically routed
+desired-state frame at adjacent points. Equal static frames form one stable
+region and reconcile once at its first point; changed frames form a new region.
+Invocations, acquisitions, and state fed by a point-local payload always form
+singleton regions because their behavior cannot be inferred from value
+equality. Planning presents each region to the compiler's `partition` method,
+then resolves all program and compiler inputs for each selected batch.
+
+Pure host computation does not create a hardware boundary. Consequently a
+real-time program cannot cross an LO or bias change, instrument invocation, or
+host acquisition, while constant reviewed peripheral state does not fragment an
+otherwise batchable scan. Coverage uses segment-major order: pure computations
+for a region are prepared first, then the declared effect stages execute in
+order, with every target batch for a domain stage kept together.
 `compile_batch` closes
 the target artifact, exact point/product mapping, runtime invocation, and
 result realization into one prepared execution.
@@ -313,8 +329,45 @@ flat instrument claim set is leased once across provider
 provisioning and the whole effect program. Channel and topology-group bindings
 remain exact command data; the scheduler does not pretend they form a
 hierarchical lease model.
-Compatibility that depends on values or simultaneous hardware operation
-belongs to the provider or domain compiler.
+
+That lease is not an internal ownership partition. Ordered host and domain
+stages may use the same provisioned instrument and worker-owned driver session.
+Each prepared domain execution declares the exact physical properties it may
+write and the exact host-provided state values it requires, using the same
+instrument, interface, component path, and property address used by host
+desired state. Planning rejects only a host/domain double writer for one
+address; disjoint properties on the same device are ordinary. A domain job may
+separately declare state invalidations: these grant no write authority and only
+remove values that later jobs may no longer assume, including physically
+coupled properties the job did not directly write. A prepared job may expose a
+slow setup phase before its realtime runtime. Requirements are checked against
+state established by preceding host coverage, then core idempotently reconciles
+those exact values after setup and immediately before realtime execution. This
+lets a program load invalidate an AWG guard offset without giving the target
+runtime authority to choose that offset. A requirement may name an external LO
+or guard device outside the target's executable instrument footprint. Device and
+lab adapters expand named coupling policies into concrete requirements and
+invalidations; core does not model a generic crosstalk graph.
+Semantically equal duplicate requirements for one address coalesce; different
+values are an adapter error instead of silently taking declaration order. A
+host invocation may likewise declare property invalidations in its instrument
+contract, so state established before a reset or calibration operation cannot
+authorize the following domain job. Setup writes remain target writes for
+conflict analysis; setup invalidations are applied before requirement
+reconciliation, while realtime invalidations apply after the job. Invocations
+and acquisitions retain declared order and therefore need no host/domain
+exclusion rule. Device-specific
+incompatibility inside one target batch remains the domain compiler's
+responsibility.
+
+A target authority is the real-time execution island, not the transitive
+closure of its physical signal chain. Stable infrastructure such as an external
+LO may be selected and changed by ordinary host effects even when lab lowering
+uses its reviewed setpoint to derive a signed IF. Such a read-only compilation
+dependency does not grant the target runtime permission to program the LO. A
+lab runner can claim and reconcile that reviewed LO state once before an
+ordinary domain segment; the few experiments that scan it instead own their
+explicit host schedule.
 
 ## Execution, Outcomes, and Measurements
 

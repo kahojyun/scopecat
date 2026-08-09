@@ -6,6 +6,7 @@ import pytest
 
 import scopecat as sc
 from scopecat.kernel.errors import ProviderContractError
+from scopecat.kernel.state import StateValue
 from scopecat.measurements.results import MeasurementScalar
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
@@ -23,6 +24,8 @@ from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainResultBinding,
     DomainResultMapping,
+    DomainStateAddress,
+    DomainStateRequirement,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.invocation import DomainOutputValue, seal_domain_output_values
@@ -352,8 +355,43 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
         del executed
         raise AssertionError("preparation must not realize")
 
+    guard_enabled = DomainStateAddress(
+        instrument_id="guard-instrument",
+        interface_id="test.guard/v1",
+        property_id="enabled",
+    )
     prepared = preparation.build(
         instrument_ids=("instrument-b", "instrument-a"),
+        state_requirements=(
+            DomainStateRequirement(
+                address=guard_enabled,
+                value=StateValue(True),
+            ),
+            DomainStateRequirement(
+                address=guard_enabled,
+                value=StateValue(True),
+            ),
+        ),
+        state_writes=(
+            DomainStateAddress(
+                instrument_id="instrument-b",
+                interface_id="test.output/v1",
+                component_path=("channels", "2"),
+                property_id="enabled",
+            ),
+            DomainStateAddress(
+                instrument_id="instrument-a",
+                interface_id="test.clock/v1",
+                property_id="source",
+            ),
+        ),
+        state_invalidations=(
+            DomainStateAddress(
+                instrument_id="guard-instrument",
+                interface_id="test.guard/v1",
+                property_id="latched",
+            ),
+        ),
         mapping=mapping,
         invocation=invocation,
         runtime=_NoEffectsRuntime(),
@@ -362,3 +400,56 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
 
     assert isinstance(prepared, PreparedDomainExecution)
     assert prepared.instrument_ids == ("instrument-a", "instrument-b")
+    assert prepared.state_requirements == (
+        DomainStateRequirement(
+            address=guard_enabled,
+            value=StateValue(True),
+        ),
+    )
+    assert prepared.state_writes == (
+        DomainStateAddress(
+            instrument_id="instrument-a",
+            interface_id="test.clock/v1",
+            property_id="source",
+        ),
+        DomainStateAddress(
+            instrument_id="instrument-b",
+            interface_id="test.output/v1",
+            component_path=("channels", "2"),
+            property_id="enabled",
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"domain state requirements conflict for "
+            r"guard-instrument:test\.guard/v1\.enabled"
+        ),
+    ):
+        preparation.build(
+            instrument_ids=(),
+            state_requirements=(
+                DomainStateRequirement(
+                    address=guard_enabled,
+                    value=StateValue(True),
+                ),
+                DomainStateRequirement(
+                    address=guard_enabled,
+                    value=StateValue(False),
+                ),
+            ),
+            state_writes=(),
+            state_invalidations=(),
+            mapping=mapping,
+            invocation=invocation,
+            runtime=_NoEffectsRuntime(),
+            realize=reject_realization,
+        )
+    assert prepared.state_invalidations == (
+        DomainStateAddress(
+            instrument_id="guard-instrument",
+            interface_id="test.guard/v1",
+            property_id="latched",
+        ),
+    )

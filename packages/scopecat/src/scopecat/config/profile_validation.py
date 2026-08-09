@@ -45,6 +45,15 @@ def _routing_route_problems(
                     path,
                 )
             )
+        for entity_id in route.entity_ids:
+            if entity_id not in entity_ids:
+                problems.append(
+                    _problem(
+                        "unknown_resource_route_entity",
+                        f"resource route references unknown entity {entity_id}",
+                        path,
+                    )
+                )
         for endpoint in route.endpoints:
             if endpoint.entity_id is not None and endpoint.entity_id not in entity_ids:
                 problems.append(
@@ -52,15 +61,6 @@ def _routing_route_problems(
                         "unknown_resource_route_entity",
                         "resource route references unknown entity "
                         f"{endpoint.entity_id}",
-                        path,
-                    )
-                )
-            if endpoint.channel_id is not None and endpoint.entity_id is None:
-                problems.append(
-                    _problem(
-                        "resource_route_channel_without_entity",
-                        f"resource route channel {endpoint.channel_id} must "
-                        "declare an entity",
                         path,
                     )
                 )

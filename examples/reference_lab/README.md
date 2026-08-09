@@ -86,9 +86,12 @@ Run these scripts in order, or execute their `# %%` cells in an editor:
 18. `notebooks/35_awg_output_monitor.py` uses entityless bench resources to arm
     a temporarily cabled oscilloscope, play one physical AWG output, fetch its
     voltage trace, and keep the wiring intent in the run name and description.
-19. `notebooks/40_measurement_workbench.py` demonstrates selection, filtering,
+19. `notebooks/36_q0_fixed_if_lo_sweep.py` places a point-local LO state effect
+    before a quantum-domain call, keeps the compiled AWG program at signed
+    -50 MHz IF, and records the resulting RF carrier.
+20. `notebooks/40_measurement_workbench.py` demonstrates selection, filtering,
     grouping, Xarray grid restoration, Arrow export, and paged reads.
-20. `notebooks/50_ragged_scope_capture.py` varies the oscilloscope record length
+21. `notebooks/50_ragged_scope_capture.py` varies the oscilloscope record length
     while monitoring the same AWG output, then slices the resulting real ragged
     waveform data.
 
@@ -111,6 +114,7 @@ uv run python examples/reference_lab/notebooks/32_quantum_program_inspection.py
 uv run python examples/reference_lab/notebooks/33_multichannel_dc_bias.py
 uv run python examples/reference_lab/notebooks/34_xy_lo_sweep.py
 uv run python examples/reference_lab/notebooks/35_awg_output_monitor.py
+uv run python examples/reference_lab/notebooks/36_q0_fixed_if_lo_sweep.py
 uv run python examples/reference_lab/notebooks/40_measurement_workbench.py
 uv run python examples/reference_lab/notebooks/50_ragged_scope_capture.py
 ```
@@ -177,26 +181,58 @@ The facade renders the signed IF into separate real I/Q waveforms, coalesces
 shared LO and AWG clock demands, and leaves each mounted DAC output independently
 addressable.
 
-The quantum target derives static LO membership and physical RF-output
-components from routing. Its opaque target configuration keeps timing policy
-and maps each physical I/Q channel pair to a calibration key, without repeating
-entity membership. Reviewed carrier frequencies, LO setpoints, and one affine
+The lab lowering derives static LO membership from routing, but the LO devices
+remain ordinary host-controlled resources outside the quantum target. The
+ordinary `quantum_capture` policy claims all three routed LO groups and
+reconciles their reviewed setpoints before the real-time segment. It also
+applies the reviewed IQ-mixer DC offsets directly to the drive and readout AWG
+channels. The named `reference_lab.iq-offset.coupling-groups.v2` policy groups
+physical IQ chains by their real preparation boundary. When one channel
+participates in a compiled waveform, the artifact requires reviewed offsets
+for the whole selected group, including idle guard channels. Activation and
+required-state closure live together in the lab-owned Python policy; system
+configuration selects that policy only by id. The entity-free drive-AWG guard
+slot never appears in a pulse program, but any active drive IQ chain pulls its
+reviewed offset into the artifact requirements. The policy names the semantic
+slot once; its role-bearing route selects the current AWG channel and its
+parameter row supplies the reviewed value. Moving the guard to another channel
+therefore changes routing alone. A group may cover
+a complete AWG, one DAC bank inside it, or channels across a larger physical
+assembly; instrument identity is not used to infer coupling. The active
+waveform footprint remains channel-exact.
+
+The lab policy module owns coupling-group resolution and the logical host
+preparation used by `prepare_quantum_hardware(...)`; the target compiler
+projects the groups touched by each artifact. Planner checks the resulting
+concrete requirements against preceding host state, so configuration or
+calibration drift fails before execution. AWG program load is modeled as a
+destructive setup phase: the virtual device clears its output offsets, then the
+run host idempotently reconciles the already-authorized requirements before the
+target configures outputs, arms, and triggers. The offsets and target
+sequencer/output preparation therefore use the same physical AWGs but disjoint
+property addresses; the Run holds each AWG once and both stages share its
+worker-owned driver session. Because the resolved host state is constant, that
+preparation occurs once without fragmenting a normal scan. The target
+configuration keeps timing policy and maps each physical I/Q channel pair to a
+calibration key, without repeating entity membership. Reviewed carrier
+frequencies, LO setpoints, and one affine
 matrix/offset calibration per physical IQ mixer come from the accepted
 parameter snapshot. Shared readout tones therefore do not duplicate one mixer
 calibration per qubit. Each carrier resolves against exactly one LO group, and
 the compiler renders the resulting signed IF with an entry-trigger-reset phase
-reference. A compiled batch projects only the AWGs, digitizers, LO groups, and
-timing controller it actually uses; the configured target instrument list is
-an authority boundary, not a request to reserve every possible member. ADC
+reference. A compiled batch projects only the AWGs, digitizer, and timing
+controller needed to load, arm, trigger, and fetch the real-time program. A
+point-local LO change is a host effect that bounds domain partitioning, so no
+compiled list-mode batch can cross it. ADC
 input, semantic demodulation and integration, physical result representation,
 and logical result address remain separate fields. The semantic intent
 always requests integrated IQ. The daemon-resolved instrument catalog says
 which physical acquisitions the digitizer advertises, while the lab target
 configuration selects `target`, `device`, or `prefer_device` policy. Together
 they deterministically lower the intent to raw ADC capture plus target-side DSP
-or to the digitizer's onboard DSP acquisition. The target builder also verifies
-that every route, LO, and timing reference stays inside its configured
-instrument authority.
+or to the digitizer's onboard DSP acquisition. The target builder verifies that
+every real-time route and timing reference stays inside its configured
+instrument authority; LO routing is resolved separately by the lab layer.
 Both placements name the same versioned IQ convention: rectangular averaging
 at sample-center times, `exp(-iωt)` demodulation, unity normalization at zero IF,
 and factor-two single-sideband amplitude normalization otherwise. Integrated IQ
@@ -209,8 +245,9 @@ frequency-plan or channel-group API into Scopecat core.
 The fixed-IF LO sweep is intentionally one specialized lab workflow rather than
 a first-class `FrequencyPlan`. Most experiments consume reviewed carriers and LO
 groups; the few spectroscopy recipes that step an LO can own that local schedule
-and record both requested LO and derived carrier values. Signed IF remains
-native throughout, including negative sidebands.
+by opting out of `quantum_capture`'s default LO preparation and record both
+requested LO and derived carrier values. Signed IF remains native throughout,
+including negative sidebands.
 
 The AWG/scope monitor deliberately has no entity selection. Its routes identify
 the same `drive-awg` CH1 used by the q0 I path plus a reusable scope input, not a

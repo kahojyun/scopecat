@@ -11,7 +11,11 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.measurement import MeasurementArray, MeasurementUnavailable
-from scopecat.sdk.domain import DomainInstrumentExecutor
+from scopecat.sdk.domain import (
+    DomainInstrumentExecutor,
+    DomainStateAddress,
+    DomainStateRequirement,
+)
 from scopecat.sdk.instruments import PropertyRef
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
@@ -88,6 +92,20 @@ from reference_lab.targets.list_mode.runtime import (
 class InstrumentListModeRuntime:
     """Execute target device programs through the admitted instrument worker."""
 
+    def prepare(
+        self,
+        artifact: ListModeArtifact,
+        *,
+        execution_id: str,
+        instruments: DomainInstrumentExecutor,
+    ) -> None:
+        """Load device programs before host-managed requirements are reasserted."""
+
+        _execute_batch(
+            instruments,
+            _load_batch(artifact, execution_id=execution_id),
+        )
+
     def execute(
         self,
         artifact: ListModeArtifact,
@@ -98,10 +116,6 @@ class InstrumentListModeRuntime:
         _execute_batch(
             instruments,
             _preparation_batch(artifact, execution_id=execution_id),
-        )
-        _execute_batch(
-            instruments,
-            _load_batch(artifact, execution_id=execution_id),
         )
         playbacks: list[AwgPlayback] = []
         frames: list[DigitizerFrame] = []
@@ -165,6 +179,58 @@ class InstrumentListModeRuntime:
 WORKER_ADC_DSP_FINGERPRINT = "reference_lab.rectangular_adc_dsp.v2"
 
 
+def list_mode_state_writes(
+    artifact: ListModeArtifact,
+) -> tuple[DomainStateAddress, ...]:
+    """Project the target's physical state writes from its typed preparation."""
+
+    batch = _preparation_batch(artifact, execution_id="state-footprint")
+    return tuple(
+        sorted(
+            {
+                DomainStateAddress(
+                    instrument_id=action.instrument_id,
+                    interface_id=assignment.interface_id,
+                    component_path=tuple(assignment.component_path),
+                    property_id=assignment.property_id,
+                )
+                for action in batch.actions
+                if isinstance(action, RunHardwareApply)
+                for assignment in action.assignments
+            }
+        )
+    )
+
+
+def list_mode_state_requirements(
+    artifact: ListModeArtifact,
+) -> tuple[DomainStateRequirement, ...]:
+    """Project host-provided full-AWG offsets required by this artifact."""
+
+    return tuple(
+        DomainStateRequirement(
+            address=DomainStateAddress(
+                instrument_id=requirement.channel_id.instrument_id,
+                interface_id=ANALOG_WAVEFORM_OUTPUT_OFFSET.interface_id,
+                component_path=requirement.channel_id.component_path,
+                property_id=ANALOG_WAVEFORM_OUTPUT_OFFSET.property_id,
+            ),
+            value=StateValue(Quantity(requirement.offset_v, "V")),
+        )
+        for requirement in artifact.host_state_requirements.output_offsets
+    )
+
+
+def list_mode_setup_state_invalidations(
+    artifact: ListModeArtifact,
+) -> tuple[DomainStateAddress, ...]:
+    """Declare host-managed offsets disturbed while AWG programs are loaded."""
+
+    return tuple(
+        requirement.address for requirement in list_mode_state_requirements(artifact)
+    )
+
+
 def _preparation_batch(
     artifact: ListModeArtifact,
     *,
@@ -215,12 +281,6 @@ def _preparation_batch(
                         awg_program.instrument_id,
                         ANALOG_WAVEFORM_OUTPUT_AMPLITUDE,
                         Quantity(output.amplitude_v, "V"),
-                        component_path=channel.component_path,
-                    ),
-                    _assignment(
-                        awg_program.instrument_id,
-                        ANALOG_WAVEFORM_OUTPUT_OFFSET,
-                        Quantity(output.offset_v, "V"),
                         component_path=channel.component_path,
                     ),
                     _assignment(
@@ -807,4 +867,10 @@ def _demodulate(
     )
 
 
-__all__ = ["WORKER_ADC_DSP_FINGERPRINT", "InstrumentListModeRuntime"]
+__all__ = [
+    "WORKER_ADC_DSP_FINGERPRINT",
+    "InstrumentListModeRuntime",
+    "list_mode_setup_state_invalidations",
+    "list_mode_state_requirements",
+    "list_mode_state_writes",
+]

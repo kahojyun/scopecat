@@ -36,6 +36,7 @@ from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT_ENABLED,
     ANALOG_WAVEFORM_OUTPUT_OFFSET,
     ANALOG_WAVEFORM_OUTPUT_PLAY,
+    ANALOG_WAVEFORM_OUTPUT_RESET,
     ANALOG_WAVEFORM_OUTPUT_WAVEFORM,
     AWG_ARM_ENTRY,
     AWG_ENTRY,
@@ -501,6 +502,13 @@ class VirtualAwg:
                 cast("DriverPayload", request.arguments[AWG_PROGRAM.argument_id]).value,
             )
             self._armed_entry_index = None
+            for channel_id in self._output_component_ids:
+                self._state[
+                    _mount_property(
+                        ANALOG_WAVEFORM_OUTPUT_OFFSET,
+                        ("outputs", channel_id),
+                    )
+                ] = sc.Quantity(0.0, "V")
             return DriverSuccess(
                 self.read_state(),
                 metadata={
@@ -551,6 +559,27 @@ class VirtualAwg:
             )
 
         component_path = request.target.component_path
+        if request.target.operation_id == ANALOG_WAVEFORM_OUTPUT_RESET.operation_id:
+            self._state.update(
+                {
+                    _mount_property(
+                        ANALOG_WAVEFORM_OUTPUT_AMPLITUDE,
+                        component_path,
+                    ): sc.Quantity(0.25, "V"),
+                    _mount_property(
+                        ANALOG_WAVEFORM_OUTPUT_OFFSET,
+                        component_path,
+                    ): sc.Quantity(0.0, "V"),
+                    _mount_property(
+                        ANALOG_WAVEFORM_OUTPUT_ENABLED,
+                        component_path,
+                    ): False,
+                }
+            )
+            return DriverSuccess(
+                self.read_state(),
+                metadata={"operation_id": ANALOG_WAVEFORM_OUTPUT_RESET.operation_id},
+            )
         waveform = cast(
             "DecodedSampledWaveform",
             cast(

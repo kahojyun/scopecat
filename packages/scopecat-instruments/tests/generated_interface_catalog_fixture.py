@@ -68,7 +68,8 @@ _SCALAR_OPERATION_SPEC_JSON = (
     '":null,"finite":true}},{"id":"pulse_labe'
     'l","label":null,"description":null,"valu'
     'e_type":{"type":"string","choices":null}'
-    '}]}],"acquisitions":[],"components":[]}'
+    '}],"invalidates":[]}],"acquisitions":[],'
+    '"components":[]}'
 )
 
 
@@ -83,8 +84,9 @@ _LITERAL_OPERATION_SPEC_JSON = (
     ',"label":null,"description":null,"argume'
     'nts":[{"id":"mode","label":null,"descrip'
     'tion":null,"value_type":{"type":"string"'
-    ',"choices":["left","right"]}}]}],"acquis'
-    'itions":[],"components":[]}'
+    ',"choices":["left","right"]}}],"invalida'
+    'tes":[]}],"acquisitions":[],"components"'
+    ":[]}"
 )
 
 
@@ -99,8 +101,9 @@ _PAYLOAD_OPERATION_SPEC_JSON = (
     ',"label":null,"description":null,"argume'
     'nts":[{"id":"payload","label":null,"desc'
     'ription":null,"value_type":{"type":"payl'
-    'oad","schema_id":"test.payload/v1"}}]}],'
-    '"acquisitions":[],"components":[]}'
+    'oad","schema_id":"test.payload/v1"}}],"i'
+    'nvalidates":[]}],"acquisitions":[],"comp'
+    'onents":[]}'
 )
 
 

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from scopecat.kernel.errors import (
+    CheckFailed,
     DomainRuntimeFailure,
     DomainRuntimePersistenceError,
     MeasurementRecordingError,
@@ -16,10 +19,14 @@ from scopecat.measurements.values import (
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.runtime import (
+    DomainExecutionReceipt,
+    DomainExecutionResult,
     DomainInstrumentExecutor,
     execute_domain_invocation,
     plan_domain_execution,
 )
+from scopecat.sdk.instruments.commands import InstrumentStateAssignment
+from scopecat.sdk.instruments.execution import RunHardwareApply, RunHardwareBatch
 from scopecat.sdk.journal import ExecutionJournal
 from scopecat.sdk.runtime_problems import (
     runtime_problem,
@@ -37,7 +44,7 @@ def execute_domain_job_values(
     """Execute one closed domain job and return canonical logical candidates."""
 
     invocation = prepared.invocation
-    runtime = prepared.runtime
+    runtime = _RequirementReconciledRuntime(prepared)
     execution_id = plan_domain_execution(
         invocation,
         run_id=run_id,
@@ -51,6 +58,73 @@ def execute_domain_job_values(
         journal=journal,
     )
     return prepared.realize(result)
+
+
+@dataclass(frozen=True, slots=True)
+class _RequirementReconciledRuntime:
+    prepared: PreparedDomainExecution
+
+    def execute(
+        self,
+        execution_key: str,
+        payload: object,
+        /,
+        *,
+        instruments: DomainInstrumentExecutor,
+    ) -> DomainExecutionReceipt | DomainExecutionResult[object]:
+        setup = self.prepared.setup
+        if setup is not None:
+            setup.prepare(execution_key, payload, instruments=instruments)
+        _reconcile_domain_state_requirements(
+            self.prepared,
+            execution_key=execution_key,
+            instruments=instruments,
+        )
+        return self.prepared.runtime.execute(
+            execution_key,
+            payload,
+            instruments=instruments,
+        )
+
+
+def _reconcile_domain_state_requirements(
+    prepared: PreparedDomainExecution,
+    *,
+    execution_key: str,
+    instruments: DomainInstrumentExecutor,
+) -> None:
+    grouped: dict[str, list[InstrumentStateAssignment]] = {}
+    for requirement in prepared.state_requirements:
+        address = requirement.address
+        grouped.setdefault(address.instrument_id, []).append(
+            InstrumentStateAssignment(
+                resource_id=address.instrument_id,
+                interface_id=address.interface_id,
+                component_path=list(address.component_path),
+                property_id=address.property_id,
+                value=requirement.value,
+            )
+        )
+    if not grouped:
+        return
+    operation_id = f"domain:{execution_key}:reconcile-requirements"
+    receipt = instruments.execute(
+        RunHardwareBatch(
+            operation_id=operation_id,
+            actions=tuple(
+                RunHardwareApply(
+                    effect_id=f"{operation_id}:{instrument_id}",
+                    instrument_id=instrument_id,
+                    assignments=tuple(assignments),
+                )
+                for instrument_id, assignments in sorted(grouped.items())
+            ),
+        )
+    )
+    if receipt.problems:
+        raise CheckFailed(receipt.problems)
+    if receipt.indeterminate:
+        raise RuntimeError("domain state requirement reconciliation was indeterminate")
 
 
 def domain_runtime_terminal_problem(

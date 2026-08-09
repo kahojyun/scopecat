@@ -53,6 +53,9 @@ from reference_lab.targets.list_mode import (
     MappedListModeTarget,
     VirtualListModeDomainRuntime,
     list_mode_measurement_invocation_spec,
+    list_mode_setup_state_invalidations,
+    list_mode_state_requirements,
+    list_mode_state_writes,
     realize_executed_measurements,
 )
 from reference_lab.virtual_lab.compiler_parameters import QuantumCompilerParameters
@@ -212,6 +215,13 @@ class QuantumLabCompiler:
         )
         return preparation.build(
             instrument_ids=artifact.target_artifact.instrument_ids,
+            setup=runtime,
+            setup_state_invalidations=list_mode_setup_state_invalidations(
+                artifact.target_artifact
+            ),
+            state_requirements=list_mode_state_requirements(artifact.target_artifact),
+            state_writes=list_mode_state_writes(artifact.target_artifact),
+            state_invalidations=(),
             mapping=mapping,
             invocation=invocation,
             runtime=runtime,

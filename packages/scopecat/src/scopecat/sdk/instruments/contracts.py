@@ -97,7 +97,7 @@ class PropertySpec(BaseModel):
 
 
 class StatePropertyRef(BaseModel):
-    """One observable persistent property used by an acquisition contract."""
+    """One persistent property referenced by an instrument contract."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -194,12 +194,21 @@ class OperationSpec(BaseModel):
     label: str | None = None
     description: str | None = None
     arguments: list[OperationArgumentSpec] = Field(default_factory=list)
+    invalidates: list[StatePropertyRef] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_unique_arguments(self) -> OperationSpec:
+    def validate_unique_members(self) -> OperationSpec:
         _require_unique(
             (argument.id for argument in self.arguments),
             "operation argument ids",
+        )
+        _require_unique(
+            (
+                f"{reference.interface_id}:"
+                f"{'/'.join(reference.component_path)}:{reference.property_id}"
+                for reference in self.invalidates
+            ),
+            "operation invalidation references",
         )
         return self
 
@@ -363,7 +372,7 @@ class InstrumentDescription(BaseModel):
                             f"interface {interface_id!r} mounts must not overlap: "
                             f"{'/'.join(left)!r} and {'/'.join(right)!r}"
                         )
-        _validate_acquisition_state_references(self)
+        _validate_contract_state_references(self)
         return self
 
 
@@ -807,12 +816,14 @@ def operation(
     label: str | None = None,
     description: str | None = None,
     arguments: (list[OperationArgumentSpec] | tuple[OperationArgumentSpec, ...]) = (),
+    invalidates: Sequence[PropertyRef] = (),
 ) -> OperationSpec:
     return OperationSpec(
         id=id,
         label=label,
         description=description,
         arguments=list(arguments),
+        invalidates=[_state_property_ref(property) for property in invalidates],
     )
 
 
@@ -2251,7 +2262,7 @@ def validate_instrument_description_collection(
         )
     declared: dict[str, str] = {}
     for instrument in instruments:
-        _validate_acquisition_state_references(instrument)
+        _validate_contract_state_references(instrument)
         for interface_spec in instrument.interfaces:
             fingerprint = model_wire_content_hash(interface_spec)
             previous = declared.setdefault(interface_spec.id, fingerprint)
@@ -2262,11 +2273,18 @@ def validate_instrument_description_collection(
                 )
 
 
-def _validate_acquisition_state_references(
+def _validate_contract_state_references(
     description: InstrumentDescription,
 ) -> None:
     for interface_spec in description.interfaces:
         for component_spec in _component_specs(interface_spec):
+            for operation_spec in component_spec.operations:
+                for reference in operation_spec.invalidates:
+                    if _resolve_state_property(description, reference) is None:
+                        raise ValueError(
+                            f"operation {operation_spec.id!r} invalidation must "
+                            "reference a declared property"
+                        )
             for acquisition_spec in component_spec.acquisitions:
                 for precondition in acquisition_spec.preconditions:
                     _validate_acquisition_precondition(

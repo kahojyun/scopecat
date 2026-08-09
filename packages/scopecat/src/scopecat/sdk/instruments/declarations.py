@@ -230,6 +230,7 @@ class OperationMetadata:
     id: str | None
     label: str | None
     description: str | None
+    invalidates: tuple[DeclaredPropertyTarget, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -696,13 +697,15 @@ def operation[**P, ReturnT](
     id: str | None = None,
     label: str | None = None,
     description: str | None = None,
+    invalidates: Sequence[DeclaredPropertyTarget] = (),
 ) -> Callable[[Callable[P, ReturnT]], Callable[P, ReturnT]]:
-    """Mark a typed method as an atomic instrument operation."""
+    """Mark an atomic operation and any state it makes unknowable."""
 
     declaration = OperationMetadata(
         id=id,
         label=label,
         description=description,
+        invalidates=tuple(invalidates),
     )
 
     def decorate(method: Callable[P, ReturnT]) -> Callable[P, ReturnT]:
@@ -836,6 +839,7 @@ def _compile_scope_members(
                     method_name,
                     cast("Callable[..., object]", method),
                     operation_declaration,
+                    scope=scope,
                 )
             )
         if not isinstance(acquisition_declaration, AcquisitionMetadata):
@@ -1401,6 +1405,8 @@ def _compile_operation(
     method_name: str,
     method: Callable[..., object],
     declaration: OperationMetadata,
+    *,
+    scope: _DeclaredScopeRef,
 ) -> OperationSpec:
     parameters = tuple(signature(method).parameters.values())
     if (
@@ -1449,6 +1455,10 @@ def _compile_operation(
         label=declaration.label,
         description=declaration.description,
         arguments=arguments,
+        invalidates=[
+            _resolve_property_target(target, scope=scope)
+            for target in declaration.invalidates
+        ],
     )
 
 

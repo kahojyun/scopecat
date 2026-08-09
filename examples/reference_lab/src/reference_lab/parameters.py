@@ -91,6 +91,19 @@ IQ_CHAIN_ROWS = (
     READOUT_IQ_CHAIN,
 )
 
+AWG_OUTPUT_SLOT = sc.parameter_field("slot", sc.StringType())
+AWG_OUTPUT_OFFSET = sc.parameter_field("offset", sc.QuantityType(unit="V"))
+AWG_OUTPUT_BASELINES = sc.parameter_schema(
+    "awg_output_baselines",
+    fields=(AWG_OUTPUT_SLOT, AWG_OUTPUT_OFFSET),
+    primary_key=(AWG_OUTPUT_SLOT,),
+    description=("Reviewed state for lab policy slots that are not logical IQ chains."),
+)
+DRIVE_AWG_OFFSET_GUARD_SLOT_ID = "drive-awg.offset-guard"
+DRIVE_AWG_OFFSET_GUARD_BASELINE = AWG_OUTPUT_BASELINES.row(
+    AWG_OUTPUT_SLOT.key(DRIVE_AWG_OFFSET_GUARD_SLOT_ID)
+)
+
 LO_GROUP = sc.parameter_field("group", sc.StringType())
 LO_FREQUENCY = sc.parameter_field("frequency", sc.QuantityType(unit="Hz"))
 LO_POWER = sc.parameter_field("power", sc.QuantityType(unit="dBm"))
@@ -191,6 +204,7 @@ REFERENCE_PARAMETER_CATALOG = sc.parameter_catalog(
     "reference-lab-parameter-catalog",
     QUBITS,
     IQ_CHAINS,
+    AWG_OUTPUT_BASELINES,
     LO_GROUPS,
     READOUT_RESONATORS,
     CHANNEL_CALIBRATIONS,
@@ -277,6 +291,14 @@ def reference_lab_parameter_snapshot() -> ParameterSnapshot:
                 ),
             ),
             TableParameterValue(
+                id=AWG_OUTPUT_BASELINES.id,
+                rows=(
+                    DRIVE_AWG_OFFSET_GUARD_BASELINE.values(
+                        AWG_OUTPUT_OFFSET.value(0.007),
+                    ),
+                ),
+            ),
+            TableParameterValue(
                 id=LO_GROUPS.id,
                 rows=(
                     DRIVE_LO_A.values(
@@ -338,6 +360,9 @@ def reference_lab_parameter_snapshot() -> ParameterSnapshot:
 
 
 __all__ = [
+    "AWG_OUTPUT_BASELINES",
+    "AWG_OUTPUT_OFFSET",
+    "AWG_OUTPUT_SLOT",
     "BIAS_PROFILE",
     "BIAS_PROFILES",
     "BIAS_QUBIT",
@@ -345,6 +370,8 @@ __all__ = [
     "CHANNEL_CALIBRATIONS",
     "CHANNEL_DELAY",
     "DRAG_BETA",
+    "DRIVE_AWG_OFFSET_GUARD_BASELINE",
+    "DRIVE_AWG_OFFSET_GUARD_SLOT_ID",
     "DRIVE_CARRIER_FREQUENCY",
     "DRIVE_LO_A",
     "DRIVE_LO_B",

@@ -16,6 +16,7 @@ from scopecat_quantum._ids import TargetId
 from scopecat_quantum.pulses import AcquireSignal
 
 from reference_lab.bench_interfaces import (
+    ANALOG_WAVEFORM_OUTPUT,
     DIGITIZER_CONFIGURE_DSP,
     DIGITIZER_CONTROL,
     DIGITIZER_FETCH,
@@ -28,6 +29,9 @@ from reference_lab.bench_interfaces import (
     TRIGGER_FIRE_EPOCH,
 )
 from reference_lab.parameters import (
+    AWG_OUTPUT_BASELINES,
+    AWG_OUTPUT_OFFSET,
+    AWG_OUTPUT_SLOT,
     DRIVE_CARRIER_FREQUENCY,
     IQ_CHAIN,
     IQ_CHAINS,
@@ -45,6 +49,13 @@ from reference_lab.parameters import (
     READOUT_RESONATORS,
     RESONANCE_FREQUENCY,
     RESONATOR,
+)
+from reference_lab.physical_policies import (
+    IqOffsetOutputSlot,
+    OutputOffsetRequirement,
+    grouped_iq_offset_policy,
+    iq_offset_output_slots,
+    iq_offset_policy_definition,
 )
 from reference_lab.targets.configuration import (
     DRIVE_I_ROLE,
@@ -101,6 +112,12 @@ class _IqChainModel(BaseModel):
     q_channel_id: str = Field(min_length=1)
 
 
+class _IqOffsetPolicyModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy_id: str = Field(min_length=1)
+
+
 class _TimingDomainModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -119,6 +136,7 @@ class _ConfigurationModel(BaseModel):
     reference_clock: _ReferenceClockModel
     timing: _TimingDomainModel
     iq_chains: tuple[_IqChainModel, ...]
+    iq_offset_policy: _IqOffsetPolicyModel
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +199,30 @@ def configured_list_mode_target(
         iq_chain_calibrations=iq_chain_calibrations,
         lo_calibrations=lo_calibrations,
     )
+    policy = iq_offset_policy_definition(settings.iq_offset_policy.policy_id)
+    required_slots = iq_offset_output_slots(policy)
+    output_slots = _configured_output_slots(
+        config,
+        slots=required_slots,
+    )
+    output_baselines = _awg_output_baselines(config)
+    host_state_policy = grouped_iq_offset_policy(
+        policy=policy,
+        output_slots={
+            slot.id: OutputOffsetRequirement(
+                channel_id=_required_output_slot(
+                    slot.id,
+                    output_slots=output_slots,
+                ),
+                offset_v=_required_output_baseline(
+                    slot.id,
+                    output_baselines=output_baselines,
+                ),
+            )
+            for slot in required_slots
+        },
+        chain_outputs=_offset_requirements_by_chain(output_bindings),
+    )
     acquisition_bindings = _configured_acquisition_bindings(
         routes,
         output_bindings=output_bindings,
@@ -230,6 +272,7 @@ def configured_list_mode_target(
         acquisition_dsp_policy=capability.acquisition_dsp_policy,
         digitizer_result_representation=digitizer_result_representation,
         preparation=preparation,
+        host_state_policy=host_state_policy,
         output_bindings=output_bindings,
         acquisition_bindings=acquisition_bindings,
     )
@@ -573,26 +616,112 @@ def _iq_chain_id(
 def _output_preparations(
     bindings: tuple[IqOutputBinding, ...],
 ) -> tuple[OutputChannelPreparation, ...]:
-    offsets: dict[AwgChannelId, float] = {}
-    for binding in bindings:
-        for channel_id, offset_v in (
-            (binding.i_channel_id, binding.mixer.i_offset_v),
-            (binding.q_channel_id, binding.mixer.q_offset_v),
-        ):
-            existing = offsets.get(channel_id)
-            if existing is not None and existing != offset_v:
-                raise ValueError(
-                    f"shared AWG channel {channel_id.value!r} has conflicting offsets"
-                )
-            offsets[channel_id] = offset_v
+    channels = {
+        channel_id for binding in bindings for channel_id in binding.channel_ids
+    }
     return tuple(
         OutputChannelPreparation(
             channel_id=channel_id,
             amplitude_v=1.0,
-            offset_v=offset_v,
         )
-        for channel_id, offset_v in sorted(offsets.items())
+        for channel_id in sorted(channels)
     )
+
+
+def _offset_requirements_by_chain(
+    bindings: tuple[IqOutputBinding, ...],
+) -> dict[str, tuple[OutputOffsetRequirement, ...]]:
+    grouped: dict[str, list[OutputOffsetRequirement]] = {}
+    for binding in bindings:
+        grouped.setdefault(binding.iq_chain_id, []).extend(
+            (
+                OutputOffsetRequirement(
+                    channel_id=binding.i_channel_id,
+                    offset_v=binding.mixer.i_offset_v,
+                ),
+                OutputOffsetRequirement(
+                    channel_id=binding.q_channel_id,
+                    offset_v=binding.mixer.q_offset_v,
+                ),
+            )
+        )
+    return {chain_id: tuple(requirements) for chain_id, requirements in grouped.items()}
+
+
+def _configured_output_slots(
+    config: ConfigProfileSnapshot,
+    *,
+    slots: tuple[IqOffsetOutputSlot, ...],
+) -> dict[str, AwgChannelId]:
+    outputs: dict[str, AwgChannelId] = {}
+    for slot in slots:
+        slot_id = slot.id
+        routes = tuple(
+            route for route in config.routing.routes if route.role_id == slot.role_id
+        )
+        if len(routes) != 1:
+            raise ValueError(
+                f"IQ offset output slot {slot_id!r} requires exactly one route with "
+                f"role {slot.role_id!r}; found {len(routes)}"
+            )
+        [route] = routes
+        endpoints = tuple(
+            endpoint
+            for endpoint in route.endpoints
+            if endpoint.interface_id == ANALOG_WAVEFORM_OUTPUT.interface_id
+            and endpoint.channel_id is not None
+        )
+        if len(endpoints) != 1:
+            raise ValueError(
+                f"IQ offset output slot {slot_id!r} requires exactly one physical "
+                f"AWG output endpoint; found {len(endpoints)}"
+            )
+        [endpoint] = endpoints
+        outputs[slot_id] = AwgChannelId(
+            value=f"{route.instrument_id}:{endpoint.channel_id}",
+            instrument_id=route.instrument_id,
+            component_path=tuple(endpoint.component_path),
+        )
+    return outputs
+
+
+def _awg_output_baselines(config: ConfigProfileSnapshot) -> dict[str, float]:
+    table = config.parameter_snapshot.get(AWG_OUTPUT_BASELINES.id)
+    if not isinstance(table, TableParameterValue):
+        raise ValueError("AWG output baseline table is missing")
+    return {
+        cast("str", row[AWG_OUTPUT_SLOT.id]): _quantity_value(
+            row[AWG_OUTPUT_OFFSET.id],
+            "V",
+        )
+        for row in table.rows
+    }
+
+
+def _required_output_slot(
+    slot_id: str,
+    *,
+    output_slots: dict[str, AwgChannelId],
+) -> AwgChannelId:
+    try:
+        return output_slots[slot_id]
+    except KeyError as error:
+        raise ValueError(
+            f"IQ offset policy references unresolved output slot {slot_id!r}"
+        ) from error
+
+
+def _required_output_baseline(
+    slot_id: str,
+    *,
+    output_baselines: dict[str, float],
+) -> float:
+    try:
+        return output_baselines[slot_id]
+    except KeyError as error:
+        raise ValueError(
+            f"IQ offset policy has no reviewed baseline for output slot {slot_id!r}"
+        ) from error
 
 
 def _signal_calibrations(

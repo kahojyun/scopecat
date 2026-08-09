@@ -33,6 +33,10 @@ from reference_lab.parameters import (
     MIXER_QI,
     MIXER_QQ,
 )
+from reference_lab.physical_policies import (
+    DRIVE_AWG_OFFSET_GUARD,
+    REFERENCE_IQ_OFFSET_POLICY,
+)
 from reference_lab.provider import ReferenceLabProvider
 from reference_lab.targets.configuration import (
     DRIVE_LO_ROLE,
@@ -191,6 +195,7 @@ def test_target_configuration_keeps_topology_separate_from_calibration() -> None
     domain_target = config.domain_target
     assert domain_target is not None
     chains = domain_target.configuration["iq_chains"]
+    offset_policy = domain_target.configuration["iq_offset_policy"]
 
     assert "local_oscillators" not in domain_target.configuration
     assert isinstance(chains, list)
@@ -199,11 +204,80 @@ def test_target_configuration_keeps_topology_separate_from_calibration() -> None
         and set(chain) == {"chain_id", "i_channel_id", "q_channel_id"}
         for chain in chains
     )
+    assert offset_policy == {
+        "policy_id": "reference_lab.iq-offset.coupling-groups.v2",
+    }
+    assert [
+        group.id
+        for group in _configured_target(config).host_state_policy.coupling_groups
+    ] == [group.id for group in REFERENCE_IQ_OFFSET_POLICY.coupling_groups]
     assert isinstance(
         config.parameter_snapshot.get(IQ_CHAINS.id),
         TableParameterValue,
     )
     assert isinstance(config.parameter_snapshot.get(LO_GROUPS.id), TableParameterValue)
+
+
+def test_iq_guard_slot_resolves_physical_output_only_through_routing() -> None:
+    config = bootstrap_config()
+    routes = [
+        route.model_copy(
+            update={
+                "endpoints": [
+                    endpoint.model_copy(
+                        update={
+                            "channel_id": "drive.awg0.ch10",
+                            "component_path": ("outputs", "ch10"),
+                        }
+                    )
+                    for endpoint in route.endpoints
+                ]
+            }
+        )
+        if route.role_id == DRIVE_AWG_OFFSET_GUARD.role_id
+        else route
+        for route in config.routing.routes
+    ]
+    changed = config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={"routing": config.routing.model_copy(update={"routes": routes})}
+            )
+        }
+    )
+
+    target = _configured_target(changed)
+    [guard] = [
+        requirement
+        for group in target.host_state_policy.coupling_groups
+        for requirement in group.output_offsets
+        if requirement.channel_id.component_path == ("outputs", "ch10")
+    ]
+
+    assert guard.channel_id.value == "drive-awg:drive.awg0.ch10"
+    assert guard.offset_v == 0.007
+
+
+def test_target_rejects_an_unknown_lab_iq_policy() -> None:
+    config = bootstrap_config()
+    target = config.domain_target
+    assert target is not None
+    configuration = target.configuration.copy()
+    configuration["iq_offset_policy"] = {"policy_id": "reference_lab.unknown"}
+    changed = config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={
+                    "domain_target": target.model_copy(
+                        update={"configuration": configuration}
+                    )
+                }
+            )
+        }
+    )
+
+    with pytest.raises(ValueError, match="unsupported IQ offset policy"):
+        _configured_target(changed)
 
 
 def test_list_mode_target_owns_only_real_time_members() -> None:
@@ -230,11 +304,22 @@ def test_list_mode_target_owns_only_real_time_members() -> None:
         for binding in target.output_bindings
         if isinstance(binding.signal, DriveSignal)
     }
+    drive_lo_groups = {
+        binding.signal.qubit.value: binding.lo_group_id
+        for binding in target.output_bindings
+        if isinstance(binding.signal, DriveSignal)
+    }
     assert drive_ifs == {
         "q0": -50.0e6,
         "q1": 50.0e6,
         "q2": -50.0e6,
         "q3": 50.0e6,
+    }
+    assert drive_lo_groups == {
+        "q0": "drive-a",
+        "q1": "drive-a",
+        "q2": "drive-b",
+        "q3": "drive-b",
     }
     assert {binding.input_id for binding in target.acquisition_bindings} == {
         target.acquisition_bindings[0].input_id
@@ -350,10 +435,8 @@ def test_list_mode_target_reports_missing_lo_group() -> None:
     routes = [
         route.model_copy(
             update={
-                "endpoints": [
-                    endpoint
-                    for endpoint in route.endpoints
-                    if endpoint.entity_id != "q0"
+                "entity_ids": [
+                    entity_id for entity_id in route.entity_ids if entity_id != "q0"
                 ]
             }
         )
@@ -465,7 +548,11 @@ def test_list_mode_target_resolves_lo_and_mixer_from_reviewed_parameters() -> No
     assert binding.mixer.iq == 0.1
     assert binding.mixer.qi == -0.2
     assert binding.mixer.qq == 1.1
-    outputs = {output.channel_id: output for output in target.preparation.outputs}
+    outputs = {
+        output.channel_id: output
+        for group in target.host_state_policy.coupling_groups
+        for output in group.output_offsets
+    }
     assert outputs[binding.i_channel_id].offset_v == 0.01
     assert outputs[binding.q_channel_id].offset_v == -0.02
     assert binding.lo_group_id == "drive-a"

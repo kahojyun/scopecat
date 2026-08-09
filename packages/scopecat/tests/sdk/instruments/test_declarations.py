@@ -423,7 +423,12 @@ class LocalOscillatorLockReadback:
 
 @instrument_component(state=LocalOscillatorState)
 class LocalOscillatorComponent(Protocol):
-    @operation()
+    @operation(
+        invalidates=(
+            state_field(LocalOscillatorState, "frequency"),
+            state_field(LocalOscillatorState, "output_enabled"),
+        )
+    )
     def reset(self) -> None: ...
 
     @acquisition(
@@ -546,7 +551,19 @@ def test_interface_declaration_mounts_reusable_component_capabilities() -> None:
     assert compiled.spec.components[0] == expected_component(
         "lo0",
         properties=expected_properties,
-        operations=[expected_operation("reset")],
+        operations=[
+            expected_operation(
+                "reset",
+                invalidates=(
+                    declared_interface_ref(LocalOscillatorBank)
+                    .component("lo0")
+                    .property("frequency"),
+                    declared_interface_ref(LocalOscillatorBank)
+                    .component("lo0")
+                    .property("output_enabled"),
+                ),
+            )
+        ],
         acquisitions=[
             expected_acquisition(
                 "read_lock",
@@ -564,6 +581,13 @@ def test_interface_declaration_mounts_reusable_component_capabilities() -> None:
         ],
     )
     assert compiled.spec.components[1].properties == expected_properties
+    assert [
+        (reference.interface_id, tuple(reference.component_path), reference.property_id)
+        for reference in compiled.spec.components[1].operations[0].invalidates
+    ] == [
+        ("test.lo_bank/v1", ("lo1",), "frequency"),
+        ("test.lo_bank/v1", ("lo1",), "output_enabled"),
+    ]
 
 
 def test_ordinary_interface_metadata_inheritance_is_preserved() -> None:

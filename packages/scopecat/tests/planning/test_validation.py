@@ -88,19 +88,18 @@ def test_resource_route_endpoint_must_reference_declared_entity() -> None:
     config_data["system"]["routing"]["routes"][0]["endpoints"][0]["entity_id"] = (
         "missing"
     )
+    config_data["system"]["routing"]["routes"][0]["entity_ids"] = ["q0", "missing"]
     config = ConfigProfileSnapshot.model_validate(config_data)
 
     assert "configuration.unknown_resource_route_entity" in _problem_codes(config)
 
 
-def test_resource_route_channel_requires_an_entity() -> None:
+def test_resource_route_channel_may_describe_shared_infrastructure() -> None:
     config_data = load_config().model_dump(mode="json")
     config_data["system"]["routing"]["routes"][0]["endpoints"][0]["entity_id"] = None
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    assert "configuration.resource_route_channel_without_entity" in _problem_codes(
-        config
-    )
+    assert not bool(validate_config_profile(config))
 
 
 def test_one_endpoint_key_can_map_to_multiple_explicit_channels() -> None:

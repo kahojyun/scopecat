@@ -139,6 +139,19 @@ class DomainInstrumentExecutor(Protocol):
     def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt: ...
 
 
+class DomainSetup[PayloadT](Protocol):
+    """Perform slow target setup before host-managed state is reconciled."""
+
+    def prepare(
+        self,
+        execution_key: str,
+        payload: PayloadT,
+        /,
+        *,
+        instruments: DomainInstrumentExecutor,
+    ) -> None: ...
+
+
 class DomainRuntime[PayloadT, ResultT](Protocol):
     """Execute one target invocation completely in the current run host."""
 
@@ -464,6 +477,7 @@ __all__ = [
     "DomainExecutionResult",
     "DomainInstrumentExecutor",
     "DomainRuntime",
+    "DomainSetup",
     "execute_domain_invocation",
     "plan_domain_execution",
 ]

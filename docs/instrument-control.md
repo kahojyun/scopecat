@@ -101,6 +101,33 @@ continues to own device policy: command ordering, model-specific limits,
 temporary setup and restoration, and interpretation of device responses. Run,
 entity, point, product, and dataset concepts do not enter the driver API.
 
+An atomic operation that can disturb persistent state declares only that loss
+of knowledge in its contract. For example, a reset operation may list output
+amplitude, offset, and enable state in `invalidates`; it does not claim what
+their post-reset values will be. Planning then refuses to satisfy a later
+real-time-domain requirement from state established before the reset. A fresh
+readback or explicit `ensure` establishes the values again. This is a local
+operation fact, not a global rule about whether outputs should be enabled.
+
+Typed declarations address invalidations through the same state fields used by
+acquisition preconditions:
+
+```python
+@operation(
+    invalidates=(
+        state_field(OutputState, "amplitude"),
+        state_field(OutputState, "offset"),
+        state_field(OutputState, "enabled"),
+    )
+)
+def reset(self) -> None: ...
+```
+
+When this makes a later domain requirement unavailable, the planning problem's
+`invalidated_by` details identify the host operation or domain phase responsible.
+That causal evidence stays in diagnostics; ordinary state transitions are not
+copied into datasets or promoted into a general event log.
+
 See [Driver authoring](../packages/scopecat-instruments/README.md#driver-authoring)
 for the provider boundary and
 [Typed client source generation](../packages/scopecat-instruments/README.md#typed-client-source-generation)
@@ -246,6 +273,7 @@ resource route. A route groups every endpoint that must be chosen together:
       "id": "readout-source",
       "instrument_id": "readout-source-0",
       "role_id": "readout",
+      "entity_ids": ["q0"],
       "endpoints": [
         {
           "interface_id": "scopecat.rf_output/v1",
@@ -264,6 +292,25 @@ that exact cataloged role. Omitting `role` selects only routes with no role;
 it is not a wildcard. Rare authoring code that intentionally accepts any role
 can pass `sc.ANY_RESOURCE_ROLE`, after which planning must still find exactly
 one complete route.
+
+`entity_ids` says which logical entities the complete route serves. An
+endpoint's `entity_id` has the narrower meaning of a channel or command binding
+that belongs to one entity. A common LO or instrument-wide sequencer endpoint
+therefore has no endpoint entity, but it can still serve every entity explicitly
+listed by its route. This avoids duplicating one physical endpoint merely to
+make entity selection work.
+
+The same rule applies when a shared endpoint has a `channel_id`: routing expands
+one logical channel binding per selected route entity while retaining one
+physical `component_path`. A common readout waveform output can therefore serve
+several qubits without pretending the DAC channel exists several times. Equal
+state demands coalesce at that physical mount and unequal demands conflict.
+
+A route with no `entity_ids` deliberately stays out of entity-directed routing.
+That is appropriate for an unused AWG guard output, temporary oscilloscope
+connection, or other resource selected by role or by an unscoped ad hoc
+experiment. Such endpoints may still declare `channel_id` for physical identity
+and `component_path` for mounted state.
 
 ### Put shared state on its physical owner
 

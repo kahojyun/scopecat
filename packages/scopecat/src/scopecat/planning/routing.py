@@ -157,15 +157,13 @@ def _route_satisfies(
         declared_interfaces = {endpoint.interface_id for endpoint in route.endpoints}
         return all(interface in declared_interfaces for interface in interfaces)
     if not interfaces:
-        served_entity_ids = {
-            endpoint.entity_id
-            for endpoint in route.endpoints
-            if endpoint.entity_id is not None
-        }
-        return all(entity_id in served_entity_ids for entity_id in entity_ids)
+        return all(entity_id in route.entity_ids for entity_id in entity_ids)
+    if any(entity_id not in route.entity_ids for entity_id in entity_ids):
+        return False
     return all(
         any(
-            endpoint.interface_id == interface and endpoint.entity_id == entity_id
+            endpoint.interface_id == interface
+            and endpoint.entity_id in (None, entity_id)
             for endpoint in route.endpoints
         )
         for interface in interfaces
@@ -179,29 +177,30 @@ def _channel_bindings(
     interfaces: tuple[InterfaceId, ...],
     entity_ids: tuple[str, ...],
 ) -> tuple[CommandChannelBinding, ...]:
-    selected_entity_ids = set(entity_ids)
-    bindings = tuple(
+    selected_entity_ids = entity_ids or tuple(route.entity_ids)
+    return tuple(
         CommandChannelBinding(
-            entity_id=endpoint.entity_id,
+            entity_id=entity_id,
             channel_id=endpoint.channel_id,
             interface_id=endpoint.interface_id,
         )
+        for entity_id in selected_entity_ids
         for endpoint in route.endpoints
-        if endpoint.entity_id is not None
-        and endpoint.channel_id is not None
+        if endpoint.channel_id is not None
         and (not interfaces or endpoint.interface_id in interfaces)
-        and (not selected_entity_ids or endpoint.entity_id in selected_entity_ids)
+        and entity_id in endpoint_entity_ids(route, endpoint)
     )
-    if not entity_ids:
-        return bindings
-    bindings_by_entity: dict[str, list[CommandChannelBinding]] = {}
-    for binding in bindings:
-        bindings_by_entity.setdefault(binding.entity_id, []).append(binding)
-    return tuple(
-        binding
-        for entity_id in entity_ids
-        for binding in bindings_by_entity.get(entity_id, ())
-    )
+
+
+def endpoint_entity_ids(
+    route: ResourceRoute,
+    endpoint: RoutingEndpoint,
+) -> tuple[str, ...]:
+    """Project one endpoint onto its logical consumers within the route."""
+
+    if endpoint.entity_id is not None:
+        return (endpoint.entity_id,)
+    return tuple(route.entity_ids)
 
 
 def _selected_endpoints(

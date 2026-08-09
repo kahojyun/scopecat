@@ -34,11 +34,21 @@ def _route(
     instrument_id: str,
     *endpoints: tuple[str, str | None, str | None],
     role_id: str | None = None,
+    entity_ids: tuple[str, ...] | None = None,
 ) -> ResourceRoute:
     return ResourceRoute(
         id=route_id,
         instrument_id=instrument_id,
         role_id=role_id,
+        entity_ids=list(entity_ids)
+        if entity_ids is not None
+        else list(
+            dict.fromkeys(
+                endpoint_entity_id
+                for _, endpoint_entity_id, _ in endpoints
+                if endpoint_entity_id is not None
+            )
+        ),
         endpoints=[
             RoutingEndpoint(
                 interface_id=interface_id,
@@ -97,7 +107,7 @@ def test_all_interfaces_must_bind_every_selected_entity() -> None:
                 "partial",
                 "partial",
                 ("test.prepare/v1", "q0", None),
-                ("test.measure/v1", None, None),
+                ("test.measure/v1", "q1", None),
             ),
         )
     )
@@ -108,6 +118,38 @@ def test_all_interfaces_must_bind_every_selected_entity() -> None:
     ).select_one(("q0",))
 
     assert binding.instrument_id == "complete"
+
+
+def test_shared_endpoint_serves_only_the_route_entity_scope() -> None:
+    routing = RoutingView(
+        routes=(
+            _route(
+                "drive-a",
+                "drive-lo-a",
+                ("test.set_frequency/v1", None, "shared-lo"),
+                entity_ids=("q0", "q1"),
+            ),
+            _route(
+                "guard",
+                "guard-source",
+                ("test.set_frequency/v1", None, None),
+            ),
+        )
+    )
+    manifest = routing.bind_port(
+        port_id=_port("drive"),
+        interfaces=("test.set_frequency/v1",),
+    )
+
+    assert manifest.select_one(("q0", "q1")).instrument_id == "drive-lo-a"
+    assert [
+        (binding.entity_id, binding.channel_id)
+        for binding in manifest.select_one(("q1", "q0")).channel_bindings
+    ] == [("q1", "shared-lo"), ("q0", "shared-lo")]
+    with pytest.raises(ResourceBindingError) as failure:
+        manifest.select_one(("q2",))
+
+    assert failure.value.code == "module_resource_route_not_found"
 
 
 def test_unscoped_manifest_reports_ambiguous_routes() -> None:
@@ -281,6 +323,7 @@ def test_duplicate_route_endpoint_fails_model_validation() -> None:
             {
                 "id": "drive",
                 "instrument_id": "source-0",
+                "entity_ids": ["q0"],
                 "endpoints": [endpoint, endpoint],
             }
         )

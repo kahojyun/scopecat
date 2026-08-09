@@ -81,6 +81,16 @@ nested block leases or channel/group scheduler claims.
 Domain runtimes execute device programs through that provisioned run host, so a
 target and an ad hoc operation aimed at the same AWG share the same exclusivity
 key and worker-owned driver instance.
+The instrument claim prevents another run or direct session from entering; it
+does not assign the entire device to either host orchestration or the domain
+runtime. Prepared domain jobs additionally expose their property-write
+addresses and host-provided state requirements. Planning permits disjoint host
+and domain state on one device, rejects only the same physical property being
+assigned to both writers, and verifies each requirement against state
+established before that job. Required state does not expand the instruments the
+domain runtime may access. Domain state invalidations are also distinct from
+writes: they withdraw planner knowledge after an effect without claiming the
+invalidated property or creating a false double-writer conflict.
 
 The run host accepts generic device-scoped value ids rather than dataset product
 ids. A target therefore receives raw worker acquisitions and owns the mapping,
@@ -117,12 +127,18 @@ The domain runtime itself exposes one synchronous `execute` call. Scopecat does
 not invent a provider job id, polling phase, or mid-call cancellation contract;
 an asynchronous runtime can be added only when a real target supplies durable
 job identity and recovery semantics.
-Before those invocations are compiled, core presents the complete bounded
-domain call to the domain compiler. The compiler returns ordered batch sizes
-from its actual target constraints; core no longer slices solely from a global
-point-count property. Ordinary scan results must be invariant to these batch
-boundaries. A workflow whose points intentionally depend on retained device
-state must model that sequence inside one domain program.
+Before those invocations are compiled, core materializes host operations and
+compares the resolved physical desired-state frame between adjacent points.
+Equal static frames reconcile once and share one compiler region. A changed
+frame, host invocation, host acquisition, or payload-backed state starts a new
+region. The compiler returns ordered batch sizes from its actual target
+constraints within that region; it can never batch across an LO or bias change,
+host invocation, or host acquisition, while a constant reviewed LO no longer
+fragments every point. Pure computation does not create a device boundary.
+Within a stable region, declared effect stages are segment-major and all batches
+of one domain stage stay together. Ordinary scan results must be invariant to
+legal batch boundaries. A workflow whose points intentionally depend on
+retained target-device state must model that sequence inside one domain program.
 
 Each closed domain invocation also retains a target-authored execution summary
 as journal evidence. This is a compact physical projection—instrument roles,

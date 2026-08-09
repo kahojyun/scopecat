@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from scopecat.planning.routing import endpoint_entity_ids
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat_instruments.members import RF_OUTPUT
 from scopecat_quantum._ids import QubitId
@@ -77,24 +78,25 @@ def configured_quantum_routes(
         if resource_route.instrument_id not in instrument_ids:
             continue
         for endpoint in resource_route.endpoints:
-            if endpoint.entity_id is None or endpoint.channel_id is None:
+            if endpoint.channel_id is None:
                 continue
-            entity = config.topology.entity(endpoint.entity_id)
-            if entity is None or entity.kind is None:
-                raise ValueError(
-                    f"quantum route requires a typed entity {endpoint.entity_id!r}"
+            for entity_id in endpoint_entity_ids(resource_route, endpoint):
+                entity = config.topology.entity(entity_id)
+                if entity is None or entity.kind is None:
+                    raise ValueError(
+                        f"quantum route requires a typed entity {entity_id!r}"
+                    )
+                routes.append(
+                    ConfiguredQuantumRoute(
+                        instrument_id=resource_route.instrument_id,
+                        role_id=resource_route.role_id,
+                        interface_id=endpoint.interface_id,
+                        entity_id=entity_id,
+                        entity_kind=entity.kind,
+                        channel_id=endpoint.channel_id,
+                        component_path=tuple(endpoint.component_path),
+                    )
                 )
-            routes.append(
-                ConfiguredQuantumRoute(
-                    instrument_id=resource_route.instrument_id,
-                    role_id=resource_route.role_id,
-                    interface_id=endpoint.interface_id,
-                    entity_id=endpoint.entity_id,
-                    entity_kind=entity.kind,
-                    channel_id=endpoint.channel_id,
-                    component_path=tuple(endpoint.component_path),
-                )
-            )
     if not routes:
         raise ValueError("configured quantum target has no routed endpoints")
     return target.id, tuple(routes)
@@ -125,11 +127,8 @@ def configured_rf_outputs(
             endpoint
             for endpoint in route.endpoints
             if endpoint.interface_id == RF_OUTPUT.interface_id
-            and endpoint.entity_id is not None
         )
-        entity_ids = tuple(
-            sorted({endpoint.entity_id for endpoint in endpoints if endpoint.entity_id})
-        )
+        entity_ids = tuple(sorted(route.entity_ids))
         component_paths = {endpoint.component_path for endpoint in endpoints}
         if not entity_ids or len(component_paths) != 1:
             raise ValueError(

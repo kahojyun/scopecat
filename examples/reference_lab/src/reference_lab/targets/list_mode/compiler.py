@@ -53,12 +53,14 @@ from reference_lab.targets.list_mode.model import (
     IqOutputBinding,
     ListModeArtifact,
     ListModeEntry,
+    ListModeHostStateRequirements,
     ListModePreparation,
     ListModeTarget,
     OutputSignal,
     TargetAcquisitionLowering,
     acquisition_slot_identity_payload,
     canonical_fingerprint,
+    host_state_requirements_payload,
     preparation_payload,
     pulse_event_identity_payload,
     signal_key,
@@ -146,12 +148,17 @@ class ListModeTargetCompiler:
 
         entries = tuple(self._render_entry(plan) for plan in plans)
         preparation = _project_preparation(self.target, entries)
+        host_state_requirements = _project_host_state_requirements(
+            self.target,
+            entries,
+        )
         artifact_fingerprint = canonical_fingerprint(
             _artifact_payload(
                 compiler_id=self.id,
                 target=self.target,
                 request=request,
                 preparation=preparation,
+                host_state_requirements=host_state_requirements,
                 entries=entries,
             )
         )
@@ -167,6 +174,7 @@ class ListModeTargetCompiler:
             repetitions=request.repetitions,
             sample_rate_hz=self.target.sample_rate_hz,
             preparation=preparation,
+            host_state_requirements=host_state_requirements,
             entries=entries,
         )
 
@@ -657,16 +665,42 @@ def _project_preparation(
     )
 
 
+def _project_host_state_requirements(
+    target: ListModeTarget,
+    entries: tuple[ListModeEntry, ...],
+) -> ListModeHostStateRequirements:
+    """Expand active channels through the configured physical coupling groups."""
+
+    active_channel_ids = {
+        waveform.channel_id for entry in entries for waveform in entry.waveforms
+    }
+    selected_groups = tuple(
+        group
+        for group in target.host_state_policy.coupling_groups
+        if active_channel_ids & set(group.activation_channels)
+    )
+    return ListModeHostStateRequirements(
+        policy_id=target.host_state_policy.id,
+        coupling_group_ids=tuple(group.id for group in selected_groups),
+        output_offsets=tuple(
+            requirement
+            for group in selected_groups
+            for requirement in group.output_offsets
+        ),
+    )
+
+
 def _artifact_payload(
     *,
     compiler_id: TargetCompilerId,
     target: ListModeTarget,
     request: TargetCompileRequest,
     preparation: ListModePreparation,
+    host_state_requirements: ListModeHostStateRequirements,
     entries: tuple[ListModeEntry, ...],
 ) -> dict[str, object]:
     return {
-        "schema": "reference_lab.list_mode_artifact.v5",
+        "schema": "reference_lab.list_mode_artifact.v6",
         "target": {
             "id": target.id.value,
             "capability_fingerprint": target.capability_fingerprint,
@@ -676,6 +710,9 @@ def _artifact_payload(
         "repetitions": request.repetitions,
         "source_entry_ids": [entry.id.value for entry in request.entries],
         "preparation": preparation_payload(preparation),
+        "host_state_requirements": host_state_requirements_payload(
+            host_state_requirements
+        ),
         "entries": [
             {
                 "list_index": entry.list_index,

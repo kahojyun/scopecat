@@ -8,11 +8,15 @@ ownership. Its output is the closed ``RunProgram`` accepted by execution.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import cast
 
 from scopecat.compiler.bind import BoundDomainTarget, BoundPlan
-from scopecat.execution.local.program import LocalOperation
+from scopecat.execution.local.program import (
+    ApplyStateOperation,
+    InvokeOperation,
+    LocalOperation,
+)
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -32,6 +36,8 @@ from scopecat.kernel.resource_identity import (
     DomainTargetRequirement,
     ResourceRequirement,
 )
+from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.kernel.value_identity import scalar_values_equal
 from scopecat.measurements.projection import select_measurement_projection
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.domain_bridge import (
@@ -72,8 +78,12 @@ from scopecat.records.config import (
 from scopecat.sdk.domain.compiler import (
     DomainCompiler,
 )
-from scopecat.sdk.domain.execution import PreparedDomainExecution
+from scopecat.sdk.domain.execution import DomainStateAddress, PreparedDomainExecution
 from scopecat.sdk.domain.view import DomainCallView
+from scopecat.sdk.instruments.contracts import (
+    resolve_implementation_component,
+    resolve_implementation_state_reference,
+)
 from scopecat.sdk.payloads import PayloadCodecRegistry
 
 
@@ -279,10 +289,6 @@ def _compile_system_program(
         raise CheckFailed(domain_implementation_problems)
     if domain_instrument_required and catalog.problems:
         raise ProviderContractError(catalog.problems)
-    _reject_local_domain_overlap(
-        local_requirements=local_requirements,
-        domain_footprint=domain_footprint,
-    )
     resource_requirements = _sorted_requirements(
         (*local_requirements, *domain_footprint)
     )
@@ -313,6 +319,8 @@ def _compile_system_program(
             ),
             problems=(),
         )
+    _reject_host_domain_state_write_conflicts(local_effects, coverage)
+    _validate_domain_state_requirements(coverage, catalog=catalog)
 
     return RunProgram(
         config_content_hash=config_content_hash(config),
@@ -480,35 +488,256 @@ def _local_resource_requirements(
     )
 
 
-def _reject_local_domain_overlap(
-    *,
-    local_requirements: tuple[ResourceRequirement, ...],
-    domain_footprint: tuple[ResourceRequirement, ...],
+def _reject_host_domain_state_write_conflicts(
+    local_effects: MaterializedLocalEffects | None,
+    coverage: tuple[RunCoveredOperation, ...],
 ) -> None:
-    """Keep one owner for every physical instrument during a Run."""
+    """Keep one writer for each physical property within point coverage."""
 
-    local_instruments = {
-        requirement.id
-        for requirement in local_requirements
-        if requirement.kind == "instrument"
-    }
-    domain_instruments = {
-        requirement.id
-        for requirement in domain_footprint
-        if requirement.kind == "instrument"
-    }
-    overlap = sorted(local_instruments & domain_instruments)
-    if overlap:
+    host_write_points: dict[DomainStateAddress, set[int]] = {}
+    if local_effects is not None:
+        for group in local_effects.effect_operations:
+            for covered in group:
+                operation = covered.operation
+                if not isinstance(operation, ApplyStateOperation):
+                    continue
+                for target in operation.targets:
+                    address = DomainStateAddress(
+                        instrument_id=operation.instrument_id,
+                        interface_id=target.interface_id,
+                        component_path=target.component_path,
+                        property_id=target.property_id,
+                    )
+                    host_write_points.setdefault(address, set()).add(
+                        covered.point_index
+                    )
+    domain_write_points: dict[DomainStateAddress, set[int]] = {}
+    for operation in coverage:
+        if not isinstance(operation, RunDomainJob):
+            continue
+        for write in (
+            *operation.execution.setup_state_writes,
+            *operation.execution.state_writes,
+        ):
+            domain_write_points.setdefault(write, set()).update(
+                operation.point_ordinals
+            )
+    conflicts = tuple(
+        sorted(
+            address
+            for address in host_write_points.keys() & domain_write_points.keys()
+            if host_write_points[address] & domain_write_points[address]
+        )
+    )
+    if conflicts:
         raise CheckFailed(
             [
                 _planning_problem(
-                    "domain_target_local_instrument_overlap",
-                    "local operations cannot use instruments owned by the "
-                    "domain target",
-                    details={"instrument_ids": overlap},
+                    "host_domain_state_write_conflict",
+                    "host and domain effects cannot both own the same physical "
+                    "state property",
+                    details={
+                        "state_addresses": tuple(
+                            _state_address_description(address) for address in conflicts
+                        )
+                    },
                 )
             ]
         )
+
+
+def _state_address_description(address: DomainStateAddress) -> str:
+    component = "/".join(address.component_path)
+    mounted_interface = (
+        f"{address.interface_id}/{component}" if component else address.interface_id
+    )
+    return f"{address.instrument_id}:{mounted_interface}.{address.property_id}"
+
+
+@dataclass(frozen=True, slots=True)
+class _EstablishedDomainState:
+    value: StateValue
+    provenance: dict[str, object]
+
+
+def _validate_domain_state_requirements(
+    coverage: tuple[RunCoveredOperation, ...],
+    *,
+    catalog: InstrumentContractCatalog,
+) -> None:
+    """Verify requirements against state established by preceding host stages."""
+
+    established: dict[DomainStateAddress, _EstablishedDomainState] = {}
+    invalidated_by: dict[DomainStateAddress, dict[str, object]] = {}
+    problems: list[Problem] = []
+    for covered in coverage:
+        if isinstance(covered, RunCoverageEffect) and isinstance(
+            operation := covered.operation,
+            ApplyStateOperation,
+        ):
+            for target in operation.targets:
+                address = DomainStateAddress(
+                    instrument_id=operation.instrument_id,
+                    interface_id=target.interface_id,
+                    component_path=target.component_path,
+                    property_id=target.property_id,
+                )
+                established[address] = _EstablishedDomainState(
+                    value=target.value,
+                    provenance={
+                        "kind": "host_state",
+                        "point_index": covered.point_index,
+                    },
+                )
+                invalidated_by.pop(address, None)
+            continue
+        if isinstance(covered, RunCoverageEffect) and isinstance(
+            operation := covered.operation,
+            InvokeOperation,
+        ):
+            provenance: dict[str, object] = {
+                "kind": "host_operation",
+                "instrument_id": operation.instrument_id,
+                "interface_id": operation.interface_id,
+                "component_path": operation.component_path,
+                "operation_id": operation.operation_id,
+                "point_index": covered.point_index,
+            }
+            for invalidated in _invoke_state_invalidations(operation, catalog):
+                established.pop(invalidated, None)
+                invalidated_by[invalidated] = provenance
+            continue
+        if not isinstance(covered, RunDomainJob):
+            continue
+        for requirement in covered.execution.state_requirements:
+            actual = established.get(requirement.address)
+            if actual is None:
+                details: dict[str, object] = {
+                    "domain_job_id": covered.id,
+                    "state_address": _state_address_description(requirement.address),
+                    "point_ordinals": covered.point_ordinals,
+                }
+                if invalidation_provenance := invalidated_by.get(requirement.address):
+                    details["invalidated_by"] = invalidation_provenance
+                problems.append(
+                    _planning_problem(
+                        "domain_state_requirement_missing",
+                        "domain execution requires physical state that no "
+                        "preceding host stage establishes",
+                        details=details,
+                    )
+                )
+            elif not _state_values_equal(actual.value, requirement.value):
+                problems.append(
+                    _planning_problem(
+                        "domain_state_requirement_mismatch",
+                        "domain execution requires a different physical state "
+                        "value than the preceding host stage establishes",
+                        details={
+                            "domain_job_id": covered.id,
+                            "state_address": _state_address_description(
+                                requirement.address
+                            ),
+                            "point_ordinals": covered.point_ordinals,
+                            "established_by": actual.provenance,
+                        },
+                    )
+                )
+        for invalidated in covered.execution.setup_state_writes:
+            established.pop(invalidated, None)
+            invalidated_by[invalidated] = {
+                "kind": "domain_setup_write",
+                "domain_job_id": covered.id,
+                "point_ordinals": covered.point_ordinals,
+            }
+        for invalidated in covered.execution.setup_state_invalidations:
+            established.pop(invalidated, None)
+            invalidated_by[invalidated] = {
+                "kind": "domain_setup_invalidation",
+                "domain_job_id": covered.id,
+                "point_ordinals": covered.point_ordinals,
+            }
+        for requirement in covered.execution.state_requirements:
+            established[requirement.address] = _EstablishedDomainState(
+                value=requirement.value,
+                provenance={
+                    "kind": "domain_requirement_reconciliation",
+                    "domain_job_id": covered.id,
+                    "point_ordinals": covered.point_ordinals,
+                },
+            )
+            invalidated_by.pop(requirement.address, None)
+        for invalidated in covered.execution.state_writes:
+            established.pop(invalidated, None)
+            invalidated_by[invalidated] = {
+                "kind": "domain_runtime_write",
+                "domain_job_id": covered.id,
+                "point_ordinals": covered.point_ordinals,
+            }
+        for invalidated in covered.execution.state_invalidations:
+            established.pop(invalidated, None)
+            invalidated_by[invalidated] = {
+                "kind": "domain_runtime_invalidation",
+                "domain_job_id": covered.id,
+                "point_ordinals": covered.point_ordinals,
+            }
+    if problems:
+        raise CheckFailed(problems)
+
+
+def _invoke_state_invalidations(
+    operation: InvokeOperation,
+    catalog: InstrumentContractCatalog,
+) -> tuple[DomainStateAddress, ...]:
+    description = next(
+        item
+        for item in catalog.instruments
+        if item.instrument_id == operation.instrument_id
+    )
+    interface_spec = next(
+        item for item in description.interfaces if item.id == operation.interface_id
+    )
+    component_spec = resolve_implementation_component(
+        description,
+        interface_spec,
+        operation.component_path,
+    )
+    assert component_spec is not None
+    operation_spec = next(
+        item for item in component_spec.operations if item.id == operation.operation_id
+    )
+    resolved = tuple(
+        resolve_implementation_state_reference(
+            description,
+            reference,
+            context_interface_id=operation.interface_id,
+            context_component_path=operation.component_path,
+        )
+        for reference in operation_spec.invalidates
+    )
+    if any(reference is None for reference in resolved):
+        raise ValueError(
+            f"operation {operation.operation_id!r} has an invalid state "
+            "invalidation mount"
+        )
+    return tuple(
+        DomainStateAddress(
+            instrument_id=operation.instrument_id,
+            interface_id=reference.interface_id,
+            component_path=tuple(reference.component_path),
+            property_id=reference.property_id,
+        )
+        for reference in resolved
+        if reference is not None
+    )
+
+
+def _state_values_equal(left: StateValue, right: StateValue) -> bool:
+    left_value = left.root
+    right_value = right.root
+    if isinstance(left_value, PayloadRef) or isinstance(right_value, PayloadRef):
+        return left_value == right_value
+    return scalar_values_equal(left_value, right_value)
 
 
 def _compile_coverage(
@@ -524,12 +753,8 @@ def _compile_coverage(
     if not region:
         return ()
     compiler = cast("DomainCompiler", system.domain_compiler)
-    host_effects = (
-        ()
-        if local_effects is None
-        else tuple(item for group in local_effects.effect_operations for item in group)
-    )
-    compile_regions = _local_schedule_regions(region, host_effects, ())
+    compile_regions = _stable_host_regions(region, local_effects)
+    scheduled_local_effects = _coalesce_host_state(local_effects, compile_regions)
     jobs_by_execution: dict[str, list[RunDomainJob]] = {}
     for execution in bound.program.program.effects:
         if not isinstance(execution, LogicalDomainExecution):
@@ -548,8 +773,8 @@ def _compile_coverage(
         jobs_by_execution[execution.id] = jobs
     return _coverage_operations(
         effects=bound.program.program.effects,
-        local_effects=local_effects,
-        region=region,
+        local_effects=scheduled_local_effects,
+        regions=compile_regions,
         jobs_by_execution=jobs_by_execution,
     )
 
@@ -558,66 +783,103 @@ def _coverage_operations(
     *,
     effects: tuple[LogicalEffect, ...],
     local_effects: MaterializedLocalEffects | None,
-    region: tuple[int, ...],
+    regions: tuple[tuple[int, ...], ...],
     jobs_by_execution: dict[str, list[RunDomainJob]],
 ) -> tuple[RunCoveredOperation, ...]:
-    jobs = tuple(job for selected in jobs_by_execution.values() for job in selected)
     selected_compute = () if local_effects is None else local_effects.compute_operations
     selected_effects = () if local_effects is None else local_effects.effect_operations
-    host_effects = tuple(item for group in selected_effects for item in group)
-    local_regions = _local_schedule_regions(
-        region,
-        host_effects,
-        jobs,
-    )
     operations: list[RunCoveredOperation] = []
-    for local_region in local_regions:
+    for region in regions:
         operations.extend(
-            effect for effect in selected_compute if effect.point_index in local_region
+            effect for effect in selected_compute if effect.point_index in region
         )
         for effect_index, effect in enumerate(effects):
             if local_effects is not None:
                 operations.extend(
                     item
                     for item in selected_effects[effect_index]
-                    if item.point_index in local_region
+                    if item.point_index in region
                 )
             if isinstance(effect, LogicalDomainExecution):
                 operations.extend(
                     job
                     for job in jobs_by_execution.get(effect.id, ())
-                    if job.point_ordinals[0] in local_region
+                    if job.point_ordinals[0] in region
                 )
-        for ordinal in local_region:
+        for ordinal in region:
             operations.append(RunCoverageCheckpoint(ordinal))
     return tuple(operations)
 
 
-def _local_schedule_regions(
+def _stable_host_regions(
     region: tuple[int, ...],
-    effects: Sequence[RunCoverageEffect],
-    domain_jobs: Sequence[RunDomainJob],
+    local_effects: MaterializedLocalEffects | None,
 ) -> tuple[tuple[int, ...], ...]:
-    """Split ordered points at host effects and prepared domain batch starts.
+    """Group adjacent points that require the same static host state frame.
 
-    Pure host computation is deliberately absent: it can be evaluated for every
-    point before a batch runs. Instrument effects instead delimit the bounded
-    regions presented to a domain compiler, so a prepared real-time program can
-    never cross an externally controlled hardware operation.
+    Pure host computation does not delimit a real-time batch. Static state is
+    idempotent and can be reconciled once at the start of a stable region.
+    Invocations, acquisitions, and state backed by point-local payloads remain
+    hard point boundaries because repeating or reordering them changes meaning.
     """
 
-    boundaries = {
-        *(effect.point_index for effect in effects),
-        *(job.point_ordinals[0] for job in domain_jobs),
-    }
     selected: list[tuple[int, ...]] = []
     start = 0
+    previous_frame: tuple[tuple[ApplyStateOperation, ...], ...] | None = None
     for offset, ordinal in enumerate(region):
-        if offset and ordinal in boundaries:
+        frame = _static_state_frame(local_effects, ordinal)
+        changed = frame is None or previous_frame is None or frame != previous_frame
+        if offset and changed:
             selected.append(region[start:offset])
             start = offset
+        previous_frame = frame
     selected.append(region[start:])
     return tuple(selected)
+
+
+def _static_state_frame(
+    local_effects: MaterializedLocalEffects | None,
+    point_index: int,
+) -> tuple[tuple[ApplyStateOperation, ...], ...] | None:
+    """Return the comparable state frame for one point, or a hard boundary."""
+
+    if local_effects is None:
+        return ()
+    frame: list[tuple[ApplyStateOperation, ...]] = []
+    for group in local_effects.effect_operations:
+        operations: list[ApplyStateOperation] = []
+        for covered in group:
+            if covered.point_index != point_index:
+                continue
+            operation = covered.operation
+            if not isinstance(operation, ApplyStateOperation):
+                return None
+            if any(
+                isinstance(target.value.root, PayloadRef)
+                for target in operation.targets
+            ):
+                return None
+            operations.append(replace(operation, operation_id=""))
+        frame.append(tuple(operations))
+    return tuple(frame)
+
+
+def _coalesce_host_state(
+    local_effects: MaterializedLocalEffects | None,
+    regions: tuple[tuple[int, ...], ...],
+) -> MaterializedLocalEffects | None:
+    """Keep one materialized static-state frame at each stable region anchor."""
+
+    if local_effects is None:
+        return None
+    anchors = {region[0] for region in regions}
+    return MaterializedLocalEffects(
+        compute_operations=local_effects.compute_operations,
+        effect_operations=tuple(
+            tuple(effect for effect in group if effect.point_index in anchors)
+            for group in local_effects.effect_operations
+        ),
+    )
 
 
 def _compile_domain_batches(

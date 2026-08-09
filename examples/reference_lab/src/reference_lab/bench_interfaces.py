@@ -44,6 +44,7 @@ ANALOG_WAVEFORM_OUTPUT_OFFSET = ANALOG_WAVEFORM_OUTPUT.property("offset")
 ANALOG_WAVEFORM_OUTPUT_ENABLED = ANALOG_WAVEFORM_OUTPUT.property("output_enabled")
 ANALOG_WAVEFORM_OUTPUT_PLAY = ANALOG_WAVEFORM_OUTPUT.operation("play")
 ANALOG_WAVEFORM_OUTPUT_WAVEFORM = ANALOG_WAVEFORM_OUTPUT_PLAY.argument("waveform")
+ANALOG_WAVEFORM_OUTPUT_RESET = ANALOG_WAVEFORM_OUTPUT.operation("reset")
 
 OSCILLOSCOPE_CONTROL = InterfaceRef("reference_lab.oscilloscope_control/v1")
 OSCILLOSCOPE_SAMPLE_RATE = OSCILLOSCOPE_CONTROL.property("sample_rate")
@@ -182,6 +183,15 @@ def analog_waveform_output_interface() -> InterfaceSpec:
                         value_type=Scalar(Payload(SAMPLED_WAVEFORM_SCHEMA_ID)),
                         label="Sampled waveform",
                     ),
+                ),
+            ),
+            operation(
+                ANALOG_WAVEFORM_OUTPUT_RESET.operation_id,
+                label="Reset output settings",
+                invalidates=(
+                    ANALOG_WAVEFORM_OUTPUT_AMPLITUDE,
+                    ANALOG_WAVEFORM_OUTPUT_OFFSET,
+                    ANALOG_WAVEFORM_OUTPUT_ENABLED,
                 ),
             ),
         ),
@@ -464,6 +474,7 @@ __all__ = [
     "ANALOG_WAVEFORM_OUTPUT_ENABLED",
     "ANALOG_WAVEFORM_OUTPUT_OFFSET",
     "ANALOG_WAVEFORM_OUTPUT_PLAY",
+    "ANALOG_WAVEFORM_OUTPUT_RESET",
     "ANALOG_WAVEFORM_OUTPUT_WAVEFORM",
     "AWG_ENTRY",
     "AWG_PLAY_ENTRY",

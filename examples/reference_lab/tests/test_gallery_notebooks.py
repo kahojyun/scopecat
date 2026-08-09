@@ -38,6 +38,7 @@ def test_lab_tour_shows_one_inventory_and_parameter_catalog(
     assert summary["parameter_rows"] == {
         "qubits": 4,
         "iq_chains": 5,
+        "awg_output_baselines": 1,
         "lo_groups": 3,
         "readout_resonators": 4,
         "channel_calibrations": 4,
@@ -235,6 +236,21 @@ def test_parallel_ramsey_uses_two_drive_and_demod_channels(
         "records": 3,
         "q0_samples": 3,
         "q1_samples": 3,
+        "status": "completed",
+    }
+
+
+def test_fixed_if_lo_sweep_keeps_lo_outside_the_quantum_target(
+    reference_lab_daemon: _ReferenceLabDaemon,
+) -> None:
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "36_q0_fixed_if_lo_sweep.py"))
+    summary = cast("dict[str, object]", namespace["q0_fixed_if_lo_sweep_summary"])
+
+    assert summary == {
+        "points": 3,
+        "signed_if_mhz": [-50.0],
+        "carrier_ghz": [4.79, 4.8, 4.81],
         "status": "completed",
     }
 

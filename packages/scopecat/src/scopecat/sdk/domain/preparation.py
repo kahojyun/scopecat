@@ -8,15 +8,20 @@ from typing import cast
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.product_identity import ProductId, ProductUseId
+from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.kernel.value_identity import scalar_values_equal
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
 from scopecat.sdk.domain._identities import product_use_id
 from scopecat.sdk.domain.batch import DomainBatchRequest
 from scopecat.sdk.domain.execution import (
+    DomainStateAddress,
+    DomainStateRequirement,
     ErasedDomainInvocation,
     ErasedDomainRealizer,
     ErasedDomainRuntime,
+    ErasedDomainSetup,
     PreparedDomainExecution,
 )
 from scopecat.sdk.domain.invocation import (
@@ -33,7 +38,11 @@ from scopecat.sdk.domain.result_mapping import (
     DomainResultBinding,
     DomainResultMapping,
 )
-from scopecat.sdk.domain.runtime import DomainExecutionResult, DomainRuntime
+from scopecat.sdk.domain.runtime import (
+    DomainExecutionResult,
+    DomainRuntime,
+    DomainSetup,
+)
 
 
 class DomainPreparationBuilder:
@@ -90,6 +99,12 @@ class DomainPreparationBuilder:
         self,
         *,
         instrument_ids: Sequence[str],
+        setup: DomainSetup[PayloadT] | None = None,
+        setup_state_writes: Sequence[DomainStateAddress] = (),
+        setup_state_invalidations: Sequence[DomainStateAddress] = (),
+        state_requirements: Sequence[DomainStateRequirement],
+        state_writes: Sequence[DomainStateAddress],
+        state_invalidations: Sequence[DomainStateAddress],
         mapping: DomainResultMapping[ResultAddressT],
         invocation: DomainInvocationSpec[PayloadT],
         runtime: DomainRuntime[PayloadT, ResultT],
@@ -98,7 +113,12 @@ class DomainPreparationBuilder:
             Sequence[DomainResultValue[ResultAddressT]],
         ],
     ) -> PreparedDomainExecution:
-        """Close one declarative target job behind the core execution ABI."""
+        """Close one declarative target job behind the core execution ABI.
+
+        Setup writes and invalidations occur before host-managed requirements
+        are reconciled. ``state_writes`` declare realtime runtime authority;
+        ``state_invalidations`` withdraw knowledge after the complete job.
+        """
 
         if mapping.context is not self._context:
             msg = "domain result mapping belongs to another batch context"
@@ -128,12 +148,56 @@ class DomainPreparationBuilder:
                 ),
             )
 
+        selected_instrument_ids = tuple(sorted(instrument_ids))
+        selected_requirements = _select_state_requirements(state_requirements)
         return PreparedDomainExecution(
-            instrument_ids=tuple(sorted(instrument_ids)),
+            instrument_ids=selected_instrument_ids,
+            setup_state_writes=tuple(sorted(set(setup_state_writes))),
+            setup_state_invalidations=tuple(sorted(set(setup_state_invalidations))),
+            state_requirements=tuple(
+                selected_requirements[address]
+                for address in sorted(selected_requirements)
+            ),
+            state_writes=tuple(sorted(set(state_writes))),
+            state_invalidations=tuple(sorted(set(state_invalidations))),
             invocation=cast("ErasedDomainInvocation", native_invocation),
+            setup=cast("ErasedDomainSetup | None", setup),
             runtime=cast("ErasedDomainRuntime", runtime),
             realize=cast("ErasedDomainRealizer", close_realized_values),
         )
+
+
+def _select_state_requirements(
+    requirements: Sequence[DomainStateRequirement],
+) -> dict[DomainStateAddress, DomainStateRequirement]:
+    selected: dict[DomainStateAddress, DomainStateRequirement] = {}
+    for requirement in requirements:
+        previous = selected.get(requirement.address)
+        if previous is None:
+            selected[requirement.address] = requirement
+            continue
+        if not _state_values_equal(previous.value, requirement.value):
+            address = requirement.address
+            component = "/".join(address.component_path)
+            mounted_interface = (
+                f"{address.interface_id}/{component}"
+                if component
+                else address.interface_id
+            )
+            raise ValueError(
+                "domain state requirements conflict for "
+                f"{address.instrument_id}:{mounted_interface}."
+                f"{address.property_id}"
+            )
+    return selected
+
+
+def _state_values_equal(left: StateValue, right: StateValue) -> bool:
+    left_value = left.root
+    right_value = right.root
+    if isinstance(left_value, PayloadRef) or isinstance(right_value, PayloadRef):
+        return left_value == right_value
+    return scalar_values_equal(left_value, right_value)
 
 
 def _close_result_mapping[

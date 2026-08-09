@@ -108,7 +108,7 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
     return cast(
         "dict[str, JsonValue]",
         {
-            "schema": "reference_lab.list_mode_execution_summary.v2",
+            "schema": "reference_lab.list_mode_execution_summary.v4",
             "waveform_outputs": {
                 program.instrument_id: sorted(
                     {
@@ -150,6 +150,15 @@ def _execution_summary(artifact: ListModeArtifact) -> dict[str, JsonValue]:
                 "scope": "invocation",
                 "order": "reassert_before_program_load",
             },
+            "host_state_requirements": {
+                "policy_id": artifact.host_state_requirements.policy_id,
+                "coupling_group_count": len(
+                    artifact.host_state_requirements.coupling_group_ids
+                ),
+                "output_offset_count": len(
+                    artifact.host_state_requirements.output_offsets
+                ),
+            },
         },
     )
 
@@ -166,6 +175,19 @@ class ListModeDomainRuntime:
 
     def __init__(self) -> None:
         self._device = InstrumentListModeRuntime()
+
+    def prepare(
+        self,
+        execution_key: str,
+        mapped_target: MappedListModeTarget,
+        *,
+        instruments: DomainInstrumentExecutor,
+    ) -> None:
+        self._device.prepare(
+            mapped_target.artifact,
+            execution_id=execution_key,
+            instruments=instruments,
+        )
 
     def execute(
         self,

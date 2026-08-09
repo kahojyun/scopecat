@@ -47,6 +47,7 @@ from scopecat.kernel.resource_identity import (
     ResourceRequirement,
     logical_resource_port_id,
 )
+from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, Table, TableColumn
@@ -76,6 +77,8 @@ from scopecat.sdk.domain import (
     DomainBatchRequest,
     DomainCompileRequest,
     DomainPreparationBuilder,
+    DomainStateAddress,
+    DomainStateRequirement,
 )
 from scopecat.sdk.domain.execution import (
     PreparedDomainExecution,
@@ -137,6 +140,9 @@ class _EffectProbeRuntime:
 class _DomainCompiler:
     compiler_id: str
     instrument_ids: tuple[str, ...] = ()
+    state_requirements: tuple[DomainStateRequirement, ...] = ()
+    state_writes: tuple[DomainStateAddress, ...] = ()
+    state_invalidations: tuple[DomainStateAddress, ...] = ()
     batch_size: int = 100
     partition_sizes: tuple[int, ...] | None = None
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
@@ -215,6 +221,9 @@ class _DomainCompiler:
         )
         return preparation.build(
             instrument_ids=self.instrument_ids,
+            state_requirements=self.state_requirements,
+            state_writes=self.state_writes,
+            state_invalidations=self.state_invalidations,
             mapping=mapping,
             invocation=invocation,
             runtime=self.runtime,
@@ -1048,9 +1057,10 @@ def test_domain_and_local_state_retain_declared_effect_order() -> None:
         domain_before_state=True,
     )
     provider = _TrackingProvider()
+    compiler = _DomainCompiler("tests.declared-effect-order", batch_size=1)
     plan = ExperimentSystem(
         instrument_catalog=_catalog(bound, provider),
-        domain_compiler=_DomainCompiler("tests.declared-effect-order"),
+        domain_compiler=compiler,
     ).compile(bound)
 
     consequential = tuple(
@@ -1059,12 +1069,43 @@ def test_domain_and_local_state_retain_declared_effect_order() -> None:
         if not isinstance(operation, RunCoverageCheckpoint)
     )
 
-    assert isinstance(consequential[0], RunDomainJob)
-    assert isinstance(consequential[1], RunCoverageEffect)
-    assert isinstance(consequential[1].operation, ApplyStateOperation)
+    assert [type(operation) for operation in consequential] == [
+        RunDomainJob,
+        RunDomainJob,
+        RunCoverageEffect,
+    ]
+    assert isinstance(consequential[2], RunCoverageEffect)
+    assert isinstance(consequential[2].operation, ApplyStateOperation)
+    assert [request.point_ordinals for request in compiler.partition_requests] == [
+        (0, 1)
+    ]
 
 
-def test_planning_rejects_local_and_domain_target_instrument_overlap() -> None:
+def test_stable_host_state_prepares_a_domain_segment_once() -> None:
+    bound = _bound_program(state_mode="constant")
+    provider = _TrackingProvider()
+    compiler = _DomainCompiler("tests.state-before-domain", batch_size=1)
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, provider),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    consequential = tuple(
+        operation
+        for operation in plan.coverage
+        if not isinstance(operation, RunCoverageCheckpoint)
+    )
+    assert [type(operation) for operation in consequential] == [
+        RunCoverageEffect,
+        RunDomainJob,
+        RunDomainJob,
+    ]
+    assert isinstance(consequential[0], RunCoverageEffect)
+    assert isinstance(consequential[0].operation, ApplyStateOperation)
+
+
+def test_local_acquisition_and_domain_job_may_share_one_instrument() -> None:
     config = _config_with_domain_resources("source-0")
     bound = _bound_program(
         product_count=2,
@@ -1076,16 +1117,188 @@ def test_planning_rejects_local_and_domain_target_instrument_overlap() -> None:
         instrument_ids=("source-0",),
     )
 
+    provider = _TrackingProvider()
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, provider),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    assert plan.resource_requirements == (ResourceRequirement("source-0"),)
+    assert plan.domain_target_requirement == DomainTargetRequirement(
+        id="tests.domain.target",
+        kind="tests.domain",
+        instrument_ids=("source-0",),
+    )
+    assert compiler.compile_calls == 2
+
+
+def test_stable_host_state_and_domain_job_may_share_one_instrument() -> None:
+    config = _config_with_domain_resources("source-0")
+    bound = _bound_program(state_mode="constant", config=config)
+    compiler = _DomainCompiler(
+        "tests.disjoint-state",
+        instrument_ids=("source-0",),
+        state_requirements=(
+            DomainStateRequirement(
+                address=DomainStateAddress(
+                    instrument_id="source-0",
+                    interface_id="test.set_frequency/v1",
+                    property_id="frequency",
+                ),
+                value=StateValue(Quantity(value=5000.0, unit="MHz")),
+            ),
+        ),
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, _TrackingProvider()),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    assert [
+        operation.point_index
+        for operation in plan.coverage
+        if isinstance(operation, RunCoverageEffect)
+    ] == [0]
+    assert [
+        operation.point_ordinals
+        for operation in plan.coverage
+        if isinstance(operation, RunDomainJob)
+    ] == [(0, 1)]
+    assert plan.resource_requirements == (ResourceRequirement("source-0"),)
+
+
+def test_domain_state_requirement_must_follow_its_host_preparation() -> None:
+    config = _config_with_domain_resources("source-0")
+    bound = _bound_program(
+        state_mode="constant",
+        domain_before_state=True,
+        config=config,
+    )
+    compiler = _DomainCompiler(
+        "tests.state-requirement-order",
+        instrument_ids=("source-0",),
+        state_requirements=(
+            DomainStateRequirement(
+                address=DomainStateAddress(
+                    instrument_id="source-0",
+                    interface_id="test.set_frequency/v1",
+                    property_id="frequency",
+                ),
+                value=StateValue(Quantity(value=5.0, unit="GHz")),
+            ),
+        ),
+    )
+
     with pytest.raises(CheckFailed) as captured:
-        provider = _TrackingProvider()
         ExperimentSystem(
-            instrument_catalog=_catalog(bound, provider),
+            instrument_catalog=_catalog(bound, _TrackingProvider()),
             domain_compiler=compiler,
         ).compile(bound)
 
-    assert _problem_codes(captured.value) == {"domain_target_local_instrument_overlap"}
-    assert captured.value.problems[0].details == {"instrument_ids": ("source-0",)}
-    assert compiler.compile_calls == 2
+    assert _problem_codes(captured.value) == {"domain_state_requirement_missing"}
+    assert captured.value.problems[0].details == {
+        "domain_job_id": "domain:batch-0",
+        "state_address": "source-0:test.set_frequency/v1.frequency",
+        "point_ordinals": (0, 1),
+    }
+
+
+def test_domain_state_requirement_must_match_the_host_value() -> None:
+    config = _config_with_domain_resources("source-0")
+    bound = _bound_program(state_mode="constant", config=config)
+    compiler = _DomainCompiler(
+        "tests.state-requirement-value",
+        instrument_ids=("source-0",),
+        state_requirements=(
+            DomainStateRequirement(
+                address=DomainStateAddress(
+                    instrument_id="source-0",
+                    interface_id="test.set_frequency/v1",
+                    property_id="frequency",
+                ),
+                value=StateValue(Quantity(value=5.1, unit="GHz")),
+            ),
+        ),
+    )
+
+    with pytest.raises(CheckFailed) as captured:
+        ExperimentSystem(
+            instrument_catalog=_catalog(bound, _TrackingProvider()),
+            domain_compiler=compiler,
+        ).compile(bound)
+
+    assert _problem_codes(captured.value) == {"domain_state_requirement_mismatch"}
+    assert captured.value.problems[0].details["established_by"] == {
+        "kind": "host_state",
+        "point_index": 0,
+    }
+
+
+def test_domain_state_invalidation_requires_repreparation_before_next_job() -> None:
+    config = _config_with_domain_resources("source-0")
+    bound = _bound_program(state_mode="constant", config=config)
+    address = DomainStateAddress(
+        instrument_id="source-0",
+        interface_id="test.set_frequency/v1",
+        property_id="frequency",
+    )
+    compiler = _DomainCompiler(
+        "tests.state-invalidation",
+        state_requirements=(
+            DomainStateRequirement(
+                address=address,
+                value=StateValue(Quantity(value=5.0, unit="GHz")),
+            ),
+        ),
+        state_invalidations=(address,),
+        batch_size=1,
+    )
+
+    with pytest.raises(CheckFailed) as captured:
+        ExperimentSystem(
+            instrument_catalog=_catalog(bound, _TrackingProvider()),
+            domain_compiler=compiler,
+        ).compile(bound)
+
+    assert _problem_codes(captured.value) == {"domain_state_requirement_missing"}
+    assert captured.value.problems[0].details == {
+        "domain_job_id": "domain:batch-1",
+        "state_address": "source-0:test.set_frequency/v1.frequency",
+        "point_ordinals": (1,),
+        "invalidated_by": {
+            "kind": "domain_runtime_invalidation",
+            "domain_job_id": "domain:batch-0",
+            "point_ordinals": (0,),
+        },
+    }
+
+
+def test_planning_rejects_host_and_domain_writes_to_the_same_property() -> None:
+    config = _config_with_domain_resources("source-0")
+    bound = _bound_program(state_mode="constant", config=config)
+    compiler = _DomainCompiler(
+        "tests.state-write-conflict",
+        instrument_ids=("source-0",),
+        state_writes=(
+            DomainStateAddress(
+                instrument_id="source-0",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+            ),
+        ),
+    )
+
+    with pytest.raises(CheckFailed) as captured:
+        ExperimentSystem(
+            instrument_catalog=_catalog(bound, _TrackingProvider()),
+            domain_compiler=compiler,
+        ).compile(bound)
+
+    assert _problem_codes(captured.value) == {"host_domain_state_write_conflict"}
+    assert captured.value.problems[0].details == {
+        "state_addresses": ("source-0:test.set_frequency/v1.frequency",)
+    }
 
 
 def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
@@ -1109,7 +1322,7 @@ def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
     assert [request.point_ordinals for request in compiler.compile_requests] == [(0, 1)]
 
 
-def test_domain_compiler_batches_only_within_host_effect_regions() -> None:
+def test_domain_compiler_coalesces_a_stable_host_state_region() -> None:
     bound = _bound_program(state_mode="constant")
     compiler = _DomainCompiler("tests.constant-peripheral")
     provider = _TrackingProvider()
@@ -1133,22 +1346,23 @@ def test_domain_compiler_batches_only_within_host_effect_regions() -> None:
     domain_jobs = tuple(
         operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
     )
-    assert tuple(job.point_ordinals for job in domain_jobs) == ((0,), (1,))
+    assert tuple(job.point_ordinals for job in domain_jobs) == ((0, 1),)
     assert all(
         isinstance(domain_job.execution, PreparedDomainExecution)
         for domain_job in domain_jobs
     )
     assert provider.describe_calls == 1
     assert provider.connect_calls == 0
-    assert compiler.compile_calls == 2
+    assert compiler.compile_calls == 1
     assert [request.point_ordinals for request in compiler.partition_requests] == [
-        (0,),
-        (1,),
+        (0, 1),
     ]
-    assert [job.id for job in domain_jobs] == [
-        "domain:batch-0",
-        "domain:batch-1",
-    ]
+    assert [job.id for job in domain_jobs] == ["domain:batch-0"]
+    assert [
+        operation.point_index
+        for operation in plan.coverage
+        if isinstance(operation, RunCoverageEffect)
+    ] == [0]
     _assert_no_domain_effects(compiler)
 
 

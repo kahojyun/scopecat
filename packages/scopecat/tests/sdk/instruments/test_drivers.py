@@ -187,6 +187,57 @@ def test_property_spec_has_stable_scalar_wire_format(
     assert restored_from_json == property_spec
 
 
+def test_operation_contract_declares_state_knowledge_invalidations() -> None:
+    output = InterfaceRef("test.output/v1")
+    offset = output.property("offset")
+    reset = operation("reset", invalidates=(offset,))
+
+    assert reset.invalidates == [
+        StatePropertyRef(
+            interface_id=output.interface_id,
+            property_id=offset.property_id,
+        )
+    ]
+    description = InstrumentDescription(
+        instrument_id="source",
+        implementation_id="test.source",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                output.interface_id,
+                properties=(quantity_property(offset.property_id, unit="V"),),
+                operations=(reset,),
+            )
+        ],
+    )
+    assert description.interfaces[0].operations[0].invalidates == reset.invalidates
+
+
+def test_operation_invalidation_must_reference_declared_state() -> None:
+    output = InterfaceRef("test.output/v1")
+
+    with pytest.raises(
+        ValidationError,
+        match="invalidation must reference a declared property",
+    ):
+        InstrumentDescription(
+            instrument_id="source",
+            implementation_id="test.source",
+            implementation_version="v1",
+            interfaces=[
+                interface(
+                    output.interface_id,
+                    operations=(
+                        operation(
+                            "reset",
+                            invalidates=(output.property("missing"),),
+                        ),
+                    ),
+                )
+            ],
+        )
+
+
 def test_property_spec_wire_schema_matches_supported_state_values() -> None:
     schema = PropertySpec.model_json_schema(mode="validation")
     value_schema = schema["properties"]["value_type"]

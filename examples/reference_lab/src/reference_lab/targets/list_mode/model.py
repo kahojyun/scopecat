@@ -22,14 +22,12 @@ from scopecat_quantum.pulses import (
     ReadoutSignal,
 )
 
-
-@dataclass(frozen=True, slots=True, order=True)
-class AwgChannelId:
-    """One routed physical DAC output used by the target."""
-
-    value: str
-    instrument_id: str
-    component_path: tuple[str, ...]
+from reference_lab.physical_policies import (
+    AwgChannelId,
+    IqOffsetCouplingPolicy,
+    OutputOffsetCouplingGroup,
+    OutputOffsetRequirement,
+)
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -113,12 +111,20 @@ class ClockPreparation:
 
 @dataclass(frozen=True, slots=True, order=True)
 class OutputChannelPreparation:
-    """Run-wide analog state for one physical AWG output."""
+    """Domain-owned analog state for one active physical AWG output."""
 
     channel_id: AwgChannelId
     amplitude_v: float
-    offset_v: float
     output_enabled: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class ListModeHostStateRequirements:
+    """Named host state assumptions kept outside target runtime authority."""
+
+    policy_id: str
+    coupling_group_ids: tuple[str, ...]
+    output_offsets: tuple[OutputOffsetRequirement, ...]
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -192,7 +198,6 @@ def preparation_payload(preparation: ListModePreparation) -> dict[str, object]:
                 "instrument_id": output.channel_id.instrument_id,
                 "component_path": list(output.channel_id.component_path),
                 "amplitude_v": float(output.amplitude_v).hex(),
-                "offset_v": float(output.offset_v).hex(),
                 "output_enabled": output.output_enabled,
             }
             for output in preparation.outputs
@@ -204,6 +209,59 @@ def preparation_payload(preparation: ListModePreparation) -> dict[str, object]:
             "digitizer_trigger_source": (preparation.timing.digitizer_trigger_source),
             "phase_reference": preparation.timing.phase_reference,
         },
+    }
+
+
+def host_state_requirements_payload(
+    requirements: ListModeHostStateRequirements,
+) -> dict[str, object]:
+    """Return canonical host assumptions used by target fingerprints."""
+
+    return {
+        "policy_id": requirements.policy_id,
+        "coupling_group_ids": list(requirements.coupling_group_ids),
+        "output_offsets": [
+            {
+                "channel_id": requirement.channel_id.value,
+                "instrument_id": requirement.channel_id.instrument_id,
+                "component_path": list(requirement.channel_id.component_path),
+                "offset_v": float(requirement.offset_v).hex(),
+            }
+            for requirement in requirements.output_offsets
+        ],
+    }
+
+
+def host_state_policy_payload(
+    policy: IqOffsetCouplingPolicy,
+) -> dict[str, object]:
+    """Return the canonical lab coupling policy used by target fingerprints."""
+
+    return {
+        "policy_id": policy.id,
+        "coupling_groups": [
+            {
+                "id": group.id,
+                "activation_channels": [
+                    {
+                        "channel_id": channel.value,
+                        "instrument_id": channel.instrument_id,
+                        "component_path": list(channel.component_path),
+                    }
+                    for channel in group.activation_channels
+                ],
+                "output_offsets": [
+                    {
+                        "channel_id": requirement.channel_id.value,
+                        "instrument_id": requirement.channel_id.instrument_id,
+                        "component_path": list(requirement.channel_id.component_path),
+                        "offset_v": float(requirement.offset_v).hex(),
+                    }
+                    for requirement in group.output_offsets
+                ],
+            }
+            for group in policy.coupling_groups
+        ],
     }
 
 
@@ -220,6 +278,7 @@ class ListModeTarget:
     acquisition_dsp_policy: Literal["target", "device", "prefer_device"]
     digitizer_result_representation: Literal["raw_trace", "integrated_iq"]
     preparation: ListModePreparation
+    host_state_policy: IqOffsetCouplingPolicy
     output_bindings: tuple[IqOutputBinding, ...]
     acquisition_bindings: tuple[AcquisitionBinding, ...]
     _capability_fingerprint: str = field(init=False, repr=False)
@@ -300,7 +359,7 @@ class ListModeTarget:
 
     def _configuration_payload(self) -> dict[str, object]:
         return {
-            "schema": "reference_lab.list_mode_target.configuration.v2",
+            "schema": "reference_lab.list_mode_target.configuration.v3",
             "target_id": self.id.value,
             "capability_fingerprint": self.capability_fingerprint,
             "acquisition_dsp_policy": self.acquisition_dsp_policy,
@@ -342,6 +401,7 @@ class ListModeTarget:
                 for binding in self.acquisition_bindings
             ],
             "preparation": preparation_payload(self.preparation),
+            "host_state_policy": host_state_policy_payload(self.host_state_policy),
         }
 
 
@@ -470,6 +530,7 @@ class ListModeArtifact:
     repetitions: int
     sample_rate_hz: int
     preparation: ListModePreparation
+    host_state_requirements: ListModeHostStateRequirements
     entries: tuple[ListModeEntry, ...]
 
     @property
@@ -609,15 +670,21 @@ __all__ = [
     "DigitizerProgram",
     "DigitizerProgramEntry",
     "IqMixerCalibration",
+    "IqOffsetCouplingPolicy",
     "IqOutputBinding",
     "ListModeArtifact",
     "ListModeEntry",
+    "ListModeHostStateRequirements",
     "ListModePreparation",
     "ListModeTarget",
     "OutputChannelPreparation",
+    "OutputOffsetCouplingGroup",
+    "OutputOffsetRequirement",
     "OutputSignal",
     "TargetAcquisitionLowering",
     "TimingDomainPreparation",
     "TriggerEpoch",
+    "host_state_policy_payload",
+    "host_state_requirements_payload",
     "preparation_payload",
 ]

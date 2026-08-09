@@ -6,15 +6,24 @@ from dataclasses import dataclass
 
 import scopecat as sc
 from scopecat.kernel.entity import EntityRef
-from scopecat_instruments import DCSourceTarget, dc_source
+from scopecat_instruments import DCSourceTarget, dc_source, rf_output
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqProbabilityRecords,
     binary_iq_probabilities,
 )
 
-from reference_lab.parameters import QUBITS
+import reference_lab.parameters as lab_parameters
+from reference_lab.parameters import (
+    DRIVE_CARRIER_FREQUENCY,
+    DRIVE_LO_A,
+    LO_FREQUENCY,
+    LO_POWER,
+    QUBITS,
+    READOUT_LO,
+)
 from reference_lab.quantum_runner import (
     BINARY_IQ_DISCRIMINATOR,
+    prepare_quantum_hardware,
     quantum_capture,
 )
 from reference_lab.workflows.ramsey import (
@@ -28,6 +37,7 @@ Q1 = EntityRef(id="q1", kind="logical_qubit")
 RAMSEY_SHOTS = 64
 RAMSEY_DELAYS = tuple(sc.Quantity(value, "ns") for value in (8, 48, 88, 128, 168))
 FLUX_BIASES = tuple(sc.Quantity(value, "V") for value in (-0.10, 0.0, 0.10))
+Q0_LO_FREQUENCIES = tuple(sc.Quantity(value, "GHz") for value in (4.84, 4.85, 4.86))
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,10 +46,71 @@ class RamseyDataset:
     probabilities: BinaryIqProbabilityRecords
 
 
+@dataclass(frozen=True, slots=True)
+class FixedIfLoSweepDataset:
+    lo_frequency: sc.CoordinateRef[sc.Quantity]
+    signed_if_frequency: sc.RecordRef[float]
+    carrier_frequency: sc.RecordRef[float]
+    probabilities: BinaryIqProbabilityRecords
+
+
+@sc.experiment(id="reference_lab.q0_fixed_if_lo_sweep")
+def q0_fixed_if_lo_sweep(
+    experiment: sc.ExperimentContext,
+) -> FixedIfLoSweepDataset:
+    """Sweep the host-controlled LO while the real-time program keeps one IF."""
+
+    lo_frequency = experiment.scan("lo_frequency", Q0_LO_FREQUENCIES)
+    drive_lo = rf_output(experiment, for_=sc.one(Q0), role="drive-lo")
+    drive_lo.ensure(
+        frequency=lo_frequency,
+        power=DRIVE_LO_A[LO_POWER].ref,
+        output_enabled=True,
+        reference_source="external",
+    )
+    readout_lo = rf_output(experiment, for_=sc.one(Q0), role="readout-lo")
+    readout_lo.ensure(
+        frequency=READOUT_LO[LO_FREQUENCY].ref,
+        power=READOUT_LO[LO_POWER].ref,
+        output_enabled=True,
+        reference_source="external",
+    )
+    probabilities = experiment.record(
+        experiment.use(
+            quantum_capture(
+                ramsey_program(
+                    qubit="q0",
+                    delay=sc.Quantity(88, "ns"),
+                    phase=sc.Quantity(0.0, "rad"),
+                ).with_shots(RAMSEY_SHOTS),
+                prepare_los=False,
+            )
+        )
+    )
+    signed_if = (
+        lab_parameters.Q0[DRIVE_CARRIER_FREQUENCY].ref - DRIVE_LO_A[LO_FREQUENCY].ref
+    )
+    signed_if_frequency = experiment.record(
+        signed_if,
+        record_id="signed_if_frequency",
+    )
+    carrier_frequency = experiment.record(
+        lo_frequency + signed_if,
+        record_id="requested_carrier_frequency",
+    )
+    return FixedIfLoSweepDataset(
+        lo_frequency=lo_frequency,
+        signed_if_frequency=signed_if_frequency,
+        carrier_frequency=carrier_frequency,
+        probabilities=probabilities,
+    )
+
+
 @sc.experiment(id="reference_lab.conflicting_drive")
 def conflicting_drive(experiment: sc.ExperimentContext) -> None:
     """Author a deliberately invalid same-channel parallel pulse plan."""
 
+    prepare_quantum_hardware(experiment)
     experiment.use(
         conflicting_drive_program(qubit="q0").with_compiler_inputs(qubits=QUBITS.ref)
     )
@@ -163,6 +234,7 @@ def parallel_raw_ramsey(experiment: sc.ExperimentContext) -> ParallelRawRamseyDa
         q0_phase=sc.Quantity(0.0, "rad"),
         q1_phase=sc.Quantity(0.4, "rad"),
     ).with_shots(RAMSEY_SHOTS)
+    prepare_quantum_hardware(experiment)
     results = experiment.use(call.with_compiler_inputs(qubits=QUBITS.ref))
     return ParallelRawRamseyDataset(
         delay=delay,
@@ -185,6 +257,7 @@ def parallel_two_qubit_ramsey(
         q0_phase=sc.Quantity(0.0, "rad"),
         q1_phase=sc.Quantity(0.4, "rad"),
     ).with_shots(RAMSEY_SHOTS)
+    prepare_quantum_hardware(experiment)
     results = experiment.use(call.with_compiler_inputs(qubits=QUBITS.ref))
     q0_products = binary_iq_probabilities(
         experiment,
@@ -208,9 +281,11 @@ def parallel_two_qubit_ramsey(
 
 
 __all__ = [
+    "Q0_LO_FREQUENCIES",
     "RAMSEY_DELAYS",
     "RAMSEY_SHOTS",
     "EntityRamseyDataset",
+    "FixedIfLoSweepDataset",
     "FluxRamseyDataset",
     "ParallelRamseyDataset",
     "ParallelRawRamseyDataset",
@@ -220,5 +295,6 @@ __all__ = [
     "flux_ramsey",
     "parallel_raw_ramsey",
     "parallel_two_qubit_ramsey",
+    "q0_fixed_if_lo_sweep",
     "q0_ramsey",
 ]

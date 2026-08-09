@@ -70,6 +70,13 @@ def routing_graph(
                 id=instrument_id if role_id is None else f"{instrument_id}.{role_id}",
                 instrument_id=instrument_id,
                 role_id=role_id,
+                entity_ids=list(
+                    dict.fromkeys(
+                        endpoint.entity_id
+                        for endpoint in route_endpoints
+                        if endpoint.entity_id is not None
+                    )
+                ),
                 endpoints=route_endpoints,
             )
             for (instrument_id, role_id), route_endpoints in grouped.items()

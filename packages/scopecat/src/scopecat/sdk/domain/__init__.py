@@ -7,7 +7,11 @@ from scopecat.sdk.domain.batch import (
     DomainCompileRequest,
 )
 from scopecat.sdk.domain.compiler import DomainCompiler
-from scopecat.sdk.domain.execution import PreparedDomainExecution
+from scopecat.sdk.domain.execution import (
+    DomainStateAddress,
+    DomainStateRequirement,
+    PreparedDomainExecution,
+)
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResultValue,
@@ -24,6 +28,7 @@ from scopecat.sdk.domain.runtime import (
     DomainExecutionResult,
     DomainInstrumentExecutor,
     DomainRuntime,
+    DomainSetup,
 )
 from scopecat.sdk.domain.view import (
     DomainCallView,
@@ -63,5 +68,8 @@ __all__ = [
     "DomainResultPortView",
     "DomainResultValue",
     "DomainRuntime",
+    "DomainSetup",
+    "DomainStateAddress",
+    "DomainStateRequirement",
     "PreparedDomainExecution",
 ]

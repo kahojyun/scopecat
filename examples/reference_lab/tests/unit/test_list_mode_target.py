@@ -46,6 +46,13 @@ from scopecat_quantum.pulses import Sequence as PulseSequence
 from scopecat_quantum.targets import TargetCompileEntry, TargetCompileRequest
 
 from reference_lab.configuration import bootstrap_config
+from reference_lab.physical_policies import (
+    IQ_OFFSET_COUPLING_POLICY_ID,
+    IqOffsetCouplingGroupDefinition,
+    IqOffsetPolicyDefinition,
+    OutputOffsetRequirement,
+    grouped_iq_offset_policy,
+)
 from reference_lab.provider import ReferenceLabProvider
 from reference_lab.targets.list_mode import (
     InstrumentListModeRuntime,
@@ -223,6 +230,23 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
     assert drive_binding is not None
     assert readout_binding is not None
     waveforms = {waveform.channel_id: waveform.samples for waveform in entry.waveforms}
+    offset_requirements = artifact.host_state_requirements
+
+    assert offset_requirements.policy_id == IQ_OFFSET_COUPLING_POLICY_ID
+    assert offset_requirements.coupling_group_ids == (
+        "drive-awg.outputs",
+        "readout-awg.outputs",
+    )
+    assert {
+        instrument_id: sum(
+            requirement.channel_id.instrument_id == instrument_id
+            for requirement in offset_requirements.output_offsets
+        )
+        for instrument_id in {"drive-awg", "readout-awg"}
+    } == {"drive-awg": 9, "readout-awg": 2}
+    assert set(waveforms) < {
+        requirement.channel_id for requirement in offset_requirements.output_offsets
+    }
 
     assert scheduled.duration_seconds == Decimal("12e-9")
     drive_samples = _modulated_samples(
@@ -276,7 +300,13 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
     assert all(isinstance(frame.value, complex) for frame in run.frames)
 
     instruments = _RecordingInstrumentExecutor()
-    instrument_run = InstrumentListModeRuntime().execute(
+    instrument_runtime = InstrumentListModeRuntime()
+    instrument_runtime.prepare(
+        artifact,
+        execution_id="test.calibrated-acquisition",
+        instruments=instruments,
+    )
+    instrument_run = instrument_runtime.execute(
         artifact,
         execution_id="test.calibrated-acquisition",
         instruments=instruments,
@@ -321,22 +351,29 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
         )
         / window.sample_count
     )
-    measured = InstrumentListModeRuntime().execute(
+    measured_runtime = InstrumentListModeRuntime()
+    measured_instruments = _RecordingInstrumentExecutor(tone_trace)
+    measured_runtime.prepare(
         artifact,
         execution_id="test.worker-dsp",
-        instruments=_RecordingInstrumentExecutor(tone_trace),
+        instruments=measured_instruments,
+    )
+    measured = measured_runtime.execute(
+        artifact,
+        execution_id="test.worker-dsp",
+        instruments=measured_instruments,
     )
     assert [frame.value for frame in measured.frames] == pytest.approx(
         [expected_iq, expected_iq]
     )
 
-    assert instruments.batches[0].operation_id.endswith(":prepare")
-    assert instruments.batches[1].operation_id.endswith(":load")
+    assert instruments.batches[0].operation_id.endswith(":load")
+    assert instruments.batches[1].operation_id.endswith(":prepare")
     assert all(
         "target:test.calibrated-acquisition:" in batch.operation_id
         for batch in instruments.batches
     )
-    assert [action.kind for action in instruments.batches[1].actions] == [
+    assert [action.kind for action in instruments.batches[0].actions] == [
         "invoke",
         "invoke",
     ]
@@ -359,7 +396,13 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
     assert [action.kind for action in instruments.batches[4].actions] == ["collect"]
 
     other_execution = _RecordingInstrumentExecutor()
-    InstrumentListModeRuntime().execute(
+    other_runtime = InstrumentListModeRuntime()
+    other_runtime.prepare(
+        artifact,
+        execution_id="test.other-invocation",
+        instruments=other_execution,
+    )
+    other_runtime.execute(
         artifact,
         execution_id="test.other-invocation",
         instruments=other_execution,
@@ -368,7 +411,13 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
         batch.operation_id for batch in other_execution.batches
     )
     retry = _RecordingInstrumentExecutor()
-    InstrumentListModeRuntime().execute(
+    retry_runtime = InstrumentListModeRuntime()
+    retry_runtime.prepare(
+        artifact,
+        execution_id="test.calibrated-acquisition",
+        instruments=retry,
+    )
+    retry_runtime.execute(
         artifact,
         execution_id="test.calibrated-acquisition",
         instruments=retry,
@@ -394,6 +443,81 @@ def test_list_mode_compiles_and_runs_one_calibrated_acquisition() -> None:
     assert device_artifact.digitizer_programs[0].result_representation == (
         "integrated_iq"
     )
+
+
+def test_offset_coupling_groups_may_split_one_physical_awg() -> None:
+    target = _target()
+    [guard_requirement] = tuple(
+        requirement
+        for group in target.host_state_policy.coupling_groups
+        for requirement in group.output_offsets
+        if requirement.channel_id.component_path == ("outputs", "ch9")
+    )
+    target = replace(
+        target,
+        host_state_policy=grouped_iq_offset_policy(
+            policy=IqOffsetPolicyDefinition(
+                id=IQ_OFFSET_COUPLING_POLICY_ID,
+                coupling_groups=(
+                    IqOffsetCouplingGroupDefinition(
+                        id="drive-awg.bank-01",
+                        activation_chain_ids=("drive-q0", "drive-q1"),
+                        required_chain_ids=("drive-q0", "drive-q1"),
+                        required_output_slot_ids=("guard",),
+                    ),
+                    IqOffsetCouplingGroupDefinition(
+                        id="drive-awg.bank-23",
+                        activation_chain_ids=("drive-q2", "drive-q3"),
+                        required_chain_ids=("drive-q2", "drive-q3"),
+                    ),
+                    IqOffsetCouplingGroupDefinition(
+                        id="readout-awg.outputs",
+                        activation_chain_ids=("readout",),
+                        required_chain_ids=("readout",),
+                    ),
+                ),
+            ),
+            output_slots={"guard": guard_requirement},
+            chain_outputs={
+                binding.iq_chain_id: (
+                    OutputOffsetRequirement(
+                        channel_id=binding.i_channel_id,
+                        offset_v=binding.mixer.i_offset_v,
+                    ),
+                    OutputOffsetRequirement(
+                        channel_id=binding.q_channel_id,
+                        offset_v=binding.mixer.q_offset_v,
+                    ),
+                )
+                for binding in target.output_bindings
+            },
+        ),
+    )
+    scheduled = schedule(
+        PulseProgram(
+            PulseProgramId("q0-drive-only"),
+            Play(
+                PulseEventId("drive"),
+                DRIVE_Q0,
+                Constant(Quantity(4, "ns"), Quantity(0.25, "arb")),
+            ),
+        )
+    )
+    compiler, request = _request(target, (scheduled,), repetitions=1)
+
+    requirements = compiler.compile(request).host_state_requirements
+
+    assert requirements.coupling_group_ids == ("drive-awg.bank-01",)
+    assert {
+        requirement.channel_id.component_path
+        for requirement in requirements.output_offsets
+    } == {
+        ("outputs", "ch1"),
+        ("outputs", "ch2"),
+        ("outputs", "ch3"),
+        ("outputs", "ch4"),
+        ("outputs", "ch9"),
+    }
 
 
 def test_list_mode_samples_drag_and_tracks_beta_in_artifact_identity() -> None:

@@ -30,6 +30,7 @@ type ConfigContentHash = Annotated[
     str,
     Field(pattern=r"^sha256:[0-9a-f]{64}$"),
 ]
+type _NonEmptyId = Annotated[str, Field(min_length=1)]
 
 
 class _HasId(Protocol):
@@ -199,7 +200,15 @@ class ResourceRoute(BaseModel):
     id: str = Field(min_length=1)
     instrument_id: str = Field(min_length=1)
     role_id: str | None = Field(default=None, min_length=1)
+    entity_ids: list[_NonEmptyId] = Field(default_factory=list)
     endpoints: list[RoutingEndpoint] = Field(min_length=1)
+
+    @field_validator("entity_ids")
+    @classmethod
+    def validate_entity_ids(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("resource route entity ids must be unique")
+        return value
 
     @field_validator("endpoints")
     @classmethod
@@ -222,6 +231,23 @@ class ResourceRoute(BaseModel):
                 raise ValueError(msg)
             seen.add(identity)
         return value
+
+    @model_validator(mode="after")
+    def validate_endpoint_entities_are_served(self) -> ResourceRoute:
+        served = set(self.entity_ids)
+        unserved = sorted(
+            {
+                endpoint.entity_id
+                for endpoint in self.endpoints
+                if endpoint.entity_id is not None and endpoint.entity_id not in served
+            }
+        )
+        if unserved:
+            raise ValueError(
+                f"resource route {self.id!r} endpoints reference entities not "
+                f"served by the route: {', '.join(unserved)}"
+            )
+        return self
 
 
 class RoutingGraph(BaseModel):
@@ -259,17 +285,26 @@ class RoutingGraph(BaseModel):
                 )
                 raise ValueError(msg)
             for endpoint in route.endpoints:
-                identity = (route.role_id, endpoint.interface_id, endpoint.entity_id)
-                owner = ownership.get(identity)
-                if owner is not None and owner != route.id:
-                    msg = (
-                        "resource endpoint has multiple routes for the same role: "
-                        f"routes={owner!r}, {route.id!r}, role={route.role_id!r}, "
-                        f"interface={endpoint.interface_id}, "
-                        f"entity={endpoint.entity_id!r}"
-                    )
-                    raise ValueError(msg)
-                ownership[identity] = route.id
+                served_entities: tuple[str | None, ...]
+                if endpoint.entity_id is not None:
+                    served_entities = (endpoint.entity_id,)
+                elif route.entity_ids:
+                    served_entities = tuple(route.entity_ids)
+                else:
+                    served_entities = (None,)
+                for entity_id in served_entities:
+                    identity = (route.role_id, endpoint.interface_id, entity_id)
+                    owner = ownership.get(identity)
+                    if owner is not None and owner != route.id:
+                        msg = (
+                            "resource endpoint has multiple routes for the same role: "
+                            f"routes={owner!r}, {route.id!r}, "
+                            f"role={route.role_id!r}, "
+                            f"interface={endpoint.interface_id}, "
+                            f"entity={entity_id!r}"
+                        )
+                        raise ValueError(msg)
+                    ownership[identity] = route.id
         return self
 
 

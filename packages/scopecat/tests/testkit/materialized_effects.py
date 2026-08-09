@@ -71,6 +71,7 @@ def config_with_physical_resources(
             id=route.id if route is not None else resource_id,
             instrument_id=resource_id,
             role_id=route.role_id if route is not None else None,
+            entity_ids=list(route.entity_ids) if route is not None else [],
             endpoints=endpoints,
         )
 
