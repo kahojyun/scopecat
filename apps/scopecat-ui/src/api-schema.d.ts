@@ -1772,6 +1772,11 @@ export interface components {
          * @description Configured instrument with a stable physical access domain.
          *
          *     Default and safe states are sparse patches over freshly observed state.
+         *     After exclusive acquisition, ``run_start`` either preserves that observed
+         *     baseline or applies ``default_state`` to establish the execution baseline.
+         *     A successful run either releases its final authored state or restores that
+         *     baseline before terminal readback. Failure always aborts first and may then
+         *     apply ``safe_state`` while the instrument remains commandable.
          */
         "InstrumentSpec-Input": {
             connection: components["schemas"]["InstrumentConnection-Input"];
@@ -1794,6 +1799,11 @@ export interface components {
          * @description Configured instrument with a stable physical access domain.
          *
          *     Default and safe states are sparse patches over freshly observed state.
+         *     After exclusive acquisition, ``run_start`` either preserves that observed
+         *     baseline or applies ``default_state`` to establish the execution baseline.
+         *     A successful run either releases its final authored state or restores that
+         *     baseline before terminal readback. Failure always aborts first and may then
+         *     apply ``safe_state`` while the instrument remains commandable.
          */
         "InstrumentSpec-Output": {
             connection: components["schemas"]["InstrumentConnection-Output"];
@@ -2400,6 +2410,8 @@ export interface components {
             /** Description */
             description?: string | null;
             id: components["schemas"]["_NonEmptyId"];
+            /** Invalidates */
+            invalidates?: components["schemas"]["StatePropertyRef"][];
             /** Label */
             label?: string | null;
         };
@@ -2609,10 +2621,17 @@ export interface components {
         /**
          * ResourceRoute
          * @description A selectable physical resource and all endpoints it owns together.
+         *
+         *     The route binds one instrument, optional lab-purpose role, finite set of
+         *     served entities, and the interface endpoints selected as one resource.
+         *     Endpoint component paths preserve shared physical ownership when several
+         *     logical channels meet at the same device property.
          */
         ResourceRoute: {
             /** Endpoints */
             endpoints: components["schemas"]["RoutingEndpoint"][];
+            /** Entity Ids */
+            entity_ids?: components["schemas"]["_NonEmptyId"][];
             /** Id */
             id: string;
             /** Instrument Id */
@@ -2623,6 +2642,12 @@ export interface components {
         /**
          * RoutingEndpoint
          * @description One logical binding onto a physical interface component.
+         *
+         *     ``entity_id`` narrows the endpoint to one entity served by its route; an
+         *     omitted entity applies it to every route entity, or to entityless work when
+         *     the route has none. ``channel_id`` is the logical interface channel and
+         *     ``component_path`` identifies the owning physical subcomponent exposed by
+         *     the instrument driver.
          */
         RoutingEndpoint: {
             /** Channel Id */
@@ -3034,7 +3059,7 @@ export interface components {
         StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
         /**
          * StatePropertyRef
-         * @description One observable persistent property used by an acquisition contract.
+         * @description One persistent property referenced by an instrument contract.
          */
         StatePropertyRef: {
             /** Component Path */
