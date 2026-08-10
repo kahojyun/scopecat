@@ -131,13 +131,23 @@ samples = experiment.compute(
         unit="ratio",
     ),
 )
+
+
+def peak_value(*, values) -> float:
+    return float(values.max())
+
+
 peak = experiment.compute(
-    "peak",
-    fn=lambda values: float(values.max()),
-    inputs={"values": samples},
-    output_type=sc.ScalarType(sc.FloatType()),
+    fn=peak_value,
+    values=samples,
 )
 ```
+
+When a named function returns `bool`, `int`, `float`, or `str`, `compute`
+infers the scalar output contract. Use an `Annotated` return with
+`ScalarType(...)` or `ArrayType(...)` when units, bounds, dtype, or dimensions
+matter. Inputs can be passed as named keywords; `inputs={...}` remains useful
+when names are assembled dynamically.
 
 A named function supplies the default compute ID. Lambdas and repeated uses are
 allocated as `compute`, `compute.2`, and so on; pass an explicit first argument
@@ -185,8 +195,8 @@ parallel postprocessing API is required:
 ```python
 classified = experiment.compute(
     fn=classify,
-    inputs={"trace": acquired.trace, "threshold": threshold},
-    output_type=sc.ScalarType(sc.BoolType()),
+    trace=acquired.trace,
+    threshold=threshold,
 )
 ```
 

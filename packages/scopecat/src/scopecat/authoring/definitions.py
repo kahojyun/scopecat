@@ -460,9 +460,21 @@ class ExperimentContext:
         id: str | None = None,
         *,
         fn: ComputeFunction,
-        inputs: Mapping[str, ComputeInput | ProductRef],
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: type[BundleT],
+        **input_bindings: ComputeInput | ProductRef,
     ) -> BundleT: ...
+
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
+        output_type: Scalar | Array | Mapping[str, DataType] | None = None,
+        **input_bindings: ComputeInput | ProductRef,
+    ) -> ValueRef | ProductRef | ProductRefs: ...
 
     def compute(
         self,
@@ -470,26 +482,19 @@ class ExperimentContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
-        output_type: (Scalar | Array | Mapping[str, DataType] | type[ProductBundle]),
+        output_type: (
+            Scalar | Array | Mapping[str, DataType] | type[ProductBundle] | None
+        ) = None,
+        **input_bindings: ComputeInput | ProductRef,
     ) -> ValueRef | ProductRef | ProductRefs | ProductBundle:
         """Declare an experiment compute, inferring its id when omitted."""
 
-        if inputs and any(isinstance(value, ProductRef) for value in inputs.values()):
-            return self._program.compute(
-                id,
-                fn=fn,
-                inputs=inputs,
-                output_type=output_type,
-            )
-        if not isinstance(output_type, Scalar | Array):
-            raise TypeError(
-                "structured compute outputs currently require measured inputs"
-            )
         return self._program.compute(
             id,
             fn=fn,
-            inputs=cast("Mapping[str, ComputeInput] | None", inputs),
+            inputs=inputs,
             output_type=output_type,
+            **input_bindings,
         )
 
     def _postprocess(

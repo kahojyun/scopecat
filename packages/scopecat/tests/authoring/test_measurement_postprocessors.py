@@ -242,6 +242,27 @@ def test_compute_instantiates_an_annotated_product_bundle_schema() -> None:
     }
 
 
+def test_measured_compute_infers_bool_output_and_binds_keyword_inputs() -> None:
+    def classify(*, signal: float, threshold: float) -> bool:
+        return signal >= threshold
+
+    @sc.module(id="test.inferred-measurement-compute")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        signal = context._product("signal", unit="ratio")
+        result = context.compute(
+            fn=classify,
+            signal=signal,
+            threshold=0.5,
+        )
+        assert isinstance(result, sc.ProductRef)
+        return result
+
+    [compute] = module.definition.body.measurement_postprocessors
+    assert [name for name, _product in compute.input_bindings] == ["signal"]
+    assert [name for name, _value in compute.value_input_bindings] == ["threshold"]
+    assert module().result.value_spec.dtype == "bool"
+
+
 def test_postprocessor_chaining_is_sorted_by_dependency() -> None:
     @sc.module(id="test.postprocessor.chain")
     def module(context: sc.ModuleContext) -> None:

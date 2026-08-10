@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
-from typing import cast, overload
+from typing import Annotated, cast, get_args, get_origin, get_type_hints, overload
 
 from scopecat.authoring._module_invocation import (
     DomainCallProvider,
@@ -35,7 +35,15 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
     normalize_resource_role,
 )
-from scopecat.kernel.value_types import Array, DataType, Payload
+from scopecat.kernel.value_types import (
+    Array,
+    Bool,
+    DataType,
+    Float,
+    Int,
+    Payload,
+    String,
+)
 from scopecat.kernel.value_validation import coerce_literal
 from scopecat.program.bindings import (
     BindingIntent,
@@ -114,6 +122,33 @@ def _as_product_bundle_type(value: object) -> type[ProductBundle] | None:
     if not isinstance(value, type) or not issubclass(value, ProductBundle):
         return None
     return value
+
+
+def _infer_compute_output_type(fn: ComputeFunction) -> DataType:
+    hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
+    annotation = hints.get("return")
+    if get_origin(annotation) is Annotated:
+        _native_type, *metadata = cast(
+            "tuple[object, ...]",
+            get_args(annotation),
+        )
+        declared = tuple(
+            item for item in metadata if isinstance(item, ScalarType | ArrayType)
+        )
+        if len(declared) == 1:
+            return declared[0]
+    if annotation is bool:
+        return ScalarType(Bool())
+    if annotation is int:
+        return ScalarType(Int())
+    if annotation is float:
+        return ScalarType(Float())
+    if annotation is str:
+        return ScalarType(String())
+    raise TypeError(
+        "compute output_type is required unless the function return annotation "
+        "is bool, int, float, str, or Annotated with ScalarType/ArrayType"
+    )
 
 
 def _measurement_compute_output_spec(
@@ -888,9 +923,21 @@ class ModuleContext:
         id: str | None = None,
         *,
         fn: ComputeFunction,
-        inputs: Mapping[str, ComputeInput | ProductRef],
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: type[BundleT],
+        **input_bindings: ComputeInput | ProductRef,
     ) -> BundleT: ...
+
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
+        output_type: ScalarType | ArrayType | Mapping[str, DataType] | None = None,
+        **input_bindings: ComputeInput | ProductRef,
+    ) -> ValueRef | ProductRef | ProductRefs: ...
 
     def compute(
         self,
@@ -899,37 +946,46 @@ class ModuleContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: (
-            ScalarType | ArrayType | Mapping[str, DataType] | type[ProductBundle]
-        ),
+            ScalarType | ArrayType | Mapping[str, DataType] | type[ProductBundle] | None
+        ) = None,
+        **input_bindings: ComputeInput | ProductRef,
     ) -> ValueRef | ProductRef | ProductRefs | ProductBundle:
         """Declare a compute where its inputs exist, inferring an id when omitted."""
 
+        duplicate_inputs = set(inputs or {}) & set(input_bindings)
+        if duplicate_inputs:
+            rendered = ", ".join(sorted(duplicate_inputs))
+            raise TypeError(f"compute inputs were bound more than once: {rendered}")
+        selected_inputs = {**(inputs or {}), **input_bindings}
+        selected_output_type = (
+            _infer_compute_output_type(fn) if output_type is None else output_type
+        )
         selected_id = self._allocate_effect_id(
             _compute_name_hint(fn) if id is None else id,
             explicit=id is not None,
         )
-        if any(isinstance(value, ProductRef) for value in (inputs or {}).values()):
+        if any(isinstance(value, ProductRef) for value in selected_inputs.values()):
             return self._compute_measurements(
                 selected_id,
                 fn=fn,
-                inputs=inputs or {},
-                output_type=output_type,
+                inputs=selected_inputs,
+                output_type=selected_output_type,
             )
 
-        if not isinstance(output_type, ScalarType | ArrayType):
+        if not isinstance(selected_output_type, ScalarType | ArrayType):
             raise TypeError(
                 "structured compute outputs currently require measured inputs"
             )
 
-        selected_inputs = {
+        captured_inputs = {
             name: cast("ComputeInput", self._capture_domain_value(value))
-            for name, value in (inputs or {}).items()
+            for name, value in selected_inputs.items()
         }
         definition = define_compute(
             selected_id,
             fn=fn,
-            inputs=selected_inputs,
-            output_type=output_type,
+            inputs=captured_inputs,
+            output_type=selected_output_type,
         )
         self._operations.append(
             ModuleOperationDecl(

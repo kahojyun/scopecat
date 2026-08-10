@@ -168,6 +168,21 @@ def test_compute_infers_stable_ids_from_functions_and_allocates_lambda_ids() -> 
     ]
 
 
+def test_compute_binds_keyword_inputs_and_infers_scalar_return_type() -> None:
+    def add(*, left: int, right: int) -> int:
+        return left + right
+
+    @sc.module
+    def computed(module: sc.ModuleContext) -> sc.ValueRef:
+        result = module.compute(fn=add, left=1, right=2)
+        assert isinstance(result, sc.ValueRef)
+        return result
+
+    [operation] = computed.definition.body.operations
+    assert [name for name, _value in operation.inputs] == ["left", "right"]
+    assert operation.output_type == sc.ScalarType(sc.IntType())
+
+
 def test_experiment_infers_identity_description_and_runtime_defaults() -> None:
     elaborations = 0
 
