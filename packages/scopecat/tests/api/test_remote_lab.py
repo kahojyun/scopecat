@@ -90,7 +90,6 @@ from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunManifest,
-    RunSequenceDecision,
     RunSequenceLineage,
     RunSequenceTransition,
 )
@@ -362,11 +361,7 @@ def test_lab_sequence_records_durable_lineage_and_candidate_config(
             return None
         return SequenceProposal(
             experiment=invocations[sequence_run.run_index + 1],
-            policy_id="adaptive-threshold",
-            policy_version="1",
             config=candidate_config if sequence_run.run_index == 0 else None,
-            decision={"selected_index": sequence_run.run_index + 1},
-            checkpoint={"completed": sequence_run.run_index + 1},
         )
 
     result = lab.run_sequence(
@@ -416,17 +411,6 @@ def test_lab_sequence_records_durable_lineage_and_candidate_config(
             previous_run_id=None if index == 0 else f"run-{index}",
             proposal_id=(
                 None if index == 0 else result.transitions[index - 1].proposal_id
-            ),
-            decision=(
-                None
-                if index == 0
-                else RunSequenceDecision(
-                    policy_id="adaptive-threshold",
-                    policy_version="1",
-                    based_on_run_id=f"run-{index}",
-                    decision={"selected_index": index},
-                    checkpoint={"completed": index},
-                )
             ),
         )
         for index in range(3)
@@ -602,7 +586,7 @@ def test_sequence_proposal_recovery_requires_the_same_request_and_config(
     assert persisted_transitions == [first.transition]
 
 
-def test_lab_records_policy_failure_on_the_evaluated_run(
+def test_lab_records_proposal_failure_on_the_evaluated_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     persisted_events = _capture_sequence_transitions(monkeypatch)
@@ -628,7 +612,7 @@ def test_lab_records_policy_failure_on_the_evaluated_run(
         _invocation: object,
         **_kwargs: object,
     ) -> RunHandle:
-        return RunHandle(session=lab, id="run-policy-failure")
+        return RunHandle(session=lab, id="run-proposal-failure")
 
     def sequence_manifests(
         _lab: LabClient,
@@ -642,18 +626,18 @@ def test_lab_records_policy_failure_on_the_evaluated_run(
     monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
     monkeypatch.setattr(LabClient, "_sequence_manifests", sequence_manifests)
 
-    def fail_policy(_run: SequenceRun):
-        raise RuntimeError("optimizer failed")
+    def fail_proposal(_run: SequenceRun):
+        raise RuntimeError("next-run callback failed")
 
-    with pytest.raises(RuntimeError, match="optimizer failed"):
+    with pytest.raises(RuntimeError, match="next-run callback failed"):
         lab.run_sequence(
             invocation,
-            next_run=fail_policy,
+            next_run=fail_proposal,
             max_runs=2,
             sequence_id="failed-sequence",
         )
 
-    assert [event.status for event in persisted_events] == ["policy_failed"]
+    assert [event.status for event in persisted_events] == ["proposal_failed"]
     assert persisted_events[0].details == {"exception_type": "builtins.RuntimeError"}
 
 

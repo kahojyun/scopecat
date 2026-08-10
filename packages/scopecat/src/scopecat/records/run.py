@@ -64,28 +64,6 @@ type RunConfigSource = Annotated[
 ]
 
 
-class RunSequenceDecision(BaseModel):
-    """Durable policy decision that selected one run in a sequence."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    policy_id: str = Field(min_length=1)
-    policy_version: str = Field(min_length=1)
-    based_on_run_id: str = Field(min_length=1)
-    decision: Mapping[str, JsonValue] = Field(default_factory=dict)
-    checkpoint: Mapping[str, JsonValue] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def freeze_payloads(self) -> RunSequenceDecision:
-        object.__setattr__(self, "decision", freeze_json_mapping(self.decision))
-        object.__setattr__(self, "checkpoint", freeze_json_mapping(self.checkpoint))
-        return self
-
-    @field_serializer("decision", "checkpoint")
-    def serialize_payload(self, value: Mapping[str, JsonValue]) -> object:
-        return thaw_json_value(value)
-
-
 class RunSequenceTransition(BaseModel):
     """Durable transition owned by the completed run it evaluated."""
 
@@ -99,14 +77,13 @@ class RunSequenceTransition(BaseModel):
         "proposed",
         "stopped",
         "budget_exhausted",
-        "policy_failed",
+        "proposal_failed",
     ]
     next_experiment_id: str | None = Field(default=None, min_length=1)
     proposal_id: RunSequenceProposalId | None = None
     next_request_content_hash: RunSequenceRequestHash | None = None
     next_config_content_hash: ConfigContentHash | None = None
     next_config_source: RunConfigSource | None = None
-    decision: RunSequenceDecision | None = None
     details: Mapping[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -127,7 +104,6 @@ class RunSequenceTransition(BaseModel):
         if self.status != "proposed" and (
             any(field is not None for field in proposal_fields)
             or self.next_config_source is not None
-            or self.decision is not None
         ):
             raise ValueError(
                 "non-proposal sequence transitions cannot select a request or config"
@@ -139,10 +115,6 @@ class RunSequenceTransition(BaseModel):
             raise ValueError(
                 "sequence proposal config source hash must match its config"
             )
-        if self.decision is not None and (
-            self.decision.based_on_run_id != self.based_on_run_id
-        ):
-            raise ValueError("sequence transition must be based on the same run")
         object.__setattr__(self, "details", freeze_json_mapping(self.details))
         return self
 
@@ -161,7 +133,6 @@ class RunSequenceLineage(BaseModel):
     max_runs: int = Field(default=10, ge=1)
     previous_run_id: str | None = Field(default=None, min_length=1)
     proposal_id: RunSequenceProposalId | None = None
-    decision: RunSequenceDecision | None = None
 
     @model_validator(mode="after")
     def validate_predecessor(self) -> RunSequenceLineage:
@@ -173,11 +144,6 @@ class RunSequenceLineage(BaseModel):
             self.previous_run_id is None or self.proposal_id is None
         ):
             raise ValueError("a later sequence run requires proposal lineage")
-        if (
-            self.decision is not None
-            and self.decision.based_on_run_id != self.previous_run_id
-        ):
-            raise ValueError("sequence decision must be based on its predecessor run")
         return self
 
 

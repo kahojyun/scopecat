@@ -19,8 +19,8 @@ reveal a clearer or more scalable way to serve the charter.
   grids and point clouds, repeat and traversal policy, invocation edits, ragged
   axes, notebook slicing and ecosystem exports, and schema-driven GUI
   visualization.
-- [Run sequences](run-sequences.md): durable calibration and tune-up workflows
-  whose next run depends on earlier measurements.
+- [Run sequences](run-sequences.md): notebook-controlled linear run chains whose
+  next run depends on earlier measurements.
 - [Scalability benchmarks](scalability-benchmarks.md): current implementation
   boundaries, representative NISQ workloads, measurements, and target envelopes.
 

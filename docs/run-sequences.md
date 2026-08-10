@@ -51,7 +51,8 @@ write a scientific transition. The latest run remains `awaiting_decision`, so a
 later call can continue it. This keeps process scheduling separate from the
 meaning of the experiment.
 
-When a policy decision must be audited, return a structured proposal:
+When the next run should use a different accepted config snapshot, return a
+structured proposal:
 
 ```python
 from scopecat.api.lab import SequenceProposal
@@ -59,16 +60,11 @@ from scopecat.api.lab import SequenceProposal
 
 def choose_next(sequence_run):
     analysis = fit_calibration(sequence_run.measurements())
+    analysis.save()
     candidate = analysis.candidate_config()
-    if candidate is None:
-        return None
     return SequenceProposal(
         experiment=verification_experiment(),
-        policy_id="resonance-search",
-        policy_version="2",
         config=candidate,
-        decision={"proposal_id": candidate.proposal_id},
-        checkpoint={"source_run_id": sequence_run.run.id},
     )
 ```
 
@@ -78,15 +74,13 @@ snapshot until another structured proposal selects a different one. A sequence
 therefore models calibration and verification runs honestly instead of assuming
 that every run uses one global config.
 
-The policy identity, decision summary, and JSON checkpoint become part of the
-next run's typed lineage. The completed run that the policy evaluated owns a
-`run-sequence-transition` artifact recording `proposed`, `stopped`,
-`budget_exhausted`, or `policy_failed`. A proposed transition includes the next
-experiment, config provenance, normalized request hash, and deterministic
-proposal identity. If execution is interrupted after recording the proposal,
-resume reruns the notebook callback but proceeds only when it reproduces that
-same durable request and configuration. Plain invocation returns remain the
-short path.
+The completed run evaluated by the callback owns a `run-sequence-transition`
+artifact recording `proposed`, `stopped`, `budget_exhausted`, or
+`proposal_failed`. A proposed transition includes the next experiment, config
+provenance, normalized request hash, and deterministic proposal identity. If
+execution is interrupted after recording the proposal, resume reruns the
+notebook callback but proceeds only when it reproduces that same durable request
+and configuration. Plain invocation returns remain the short path.
 
 Sequences can be rediscovered with `lab.run_sequences()` or
 `lab.get_run_sequence(sequence_id)`. Their current status is derived from the
@@ -108,8 +102,15 @@ typed_views = results.bind(calibration_experiment().output)
 boundaries. Combining rows from heterogeneous runs is an explicit analysis
 choice rather than an implicit concatenation.
 
-The callback implementation remains notebook-owned. Durable state includes the
-runs, accepted configurations, lineage, and policy transitions; arbitrary
-Python closures and live optimizer objects are not serialized. A future
-in-run adaptive point plan should therefore be a separate abstraction with
-streaming and executor semantics, not an extension of `RunSequence`.
+The callback implementation and all long-lived workflow state remain
+notebook-owned. Durable sequence facts include the runs, accepted
+configurations, lineage, and next-run transitions; arbitrary Python closures,
+optimizer checkpoints, calibration conclusions, schedules, and approval state
+are not sequence state.
+
+This is the deliberate stopping point for `RunSequence`. Workflow definitions,
+workflow-owned state, branching, retry policy, calibration recommendations, and
+periodic scheduling should be designed from complete bring-up and recurring
+calibration workflows instead of being added to this linear primitive. A future
+in-run adaptive point plan is likewise a separate abstraction with streaming
+and executor semantics.

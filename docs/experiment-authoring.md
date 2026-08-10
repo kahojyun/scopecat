@@ -34,9 +34,10 @@ not construct either type themselves. A measured array is still a
 `ProductRef`, while a precomputed array is still a `ValueRef`.
 
 Measurement-dependent feedback cannot run earlier in the same invocation. If a
-new scan point, instrument state, or compiled program depends on a measurement,
-use a bounded adaptive stage so the completed measurement is a durable input to
-the next invocation.
+new instrument state or compiled program depends on a measurement, use a
+bounded run sequence so the completed measurement is a durable input to the
+next invocation. Measurement-dependent points inside one executing run require
+a separate adaptive point-plan abstraction.
 
 ## Return the result you mean to keep
 
@@ -301,7 +302,8 @@ experiment semantics:
 - runtime inputs and persistent parameters have different owners and lifecycle;
 - scan coordinates describe the point domain, while local array dimensions
   describe data inside one point;
-- measurement-dependent control requires a later adaptive stage;
+- measurement-dependent configuration or program control requires a later run
+  in a run sequence;
 - an explicit `alias(...)` is an additional destination, not ordinary dataflow.
 
 Further convenience should be judged against complete experiments. New
