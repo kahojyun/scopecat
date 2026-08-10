@@ -37,6 +37,7 @@ class ExperimentPreviewCompute:
     inputs: tuple[str, ...]
     outputs: tuple[str, ...]
     demanded_by: tuple[str, ...]
+    captures: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

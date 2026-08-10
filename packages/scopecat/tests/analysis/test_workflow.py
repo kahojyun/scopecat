@@ -138,6 +138,7 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
             "deterministic": False,
             "inputs": ["dataset"],
             "outputs": ["_dataset_size"],
+            "captures": [],
             "access": "full",
         },
         "binding": "dataset",
@@ -151,6 +152,7 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
     assert not data_output.content.execution.deterministic
     assert data_output.content.execution.inputs == ("dataset",)
     assert data_output.content.execution.outputs == ("_dataset_size",)
+    assert data_output.content.execution.captures == ()
     [input_binding] = data_output.content.execution.input_bindings
     assert input_binding.name == "dataset"
     assert input_binding.target == "raw-measurements"

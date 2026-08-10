@@ -108,6 +108,10 @@ def test_binary_iq_postprocessor_classifies_one_point(
 
     [postprocessor] = discriminate.definition.body.measurement_postprocessors
     assert postprocessor.input_bindings[0][1].qualified_name == "kernel/iq_shots"
+    assert [name for name, _value in postprocessor.value_input_bindings] == [
+        "discriminator"
+    ]
+    assert postprocessor.captures == ()
     assert tuple(
         (role, product_id.qualified_name)
         for role, product_id in postprocessor.output_bindings
@@ -123,7 +127,8 @@ def test_binary_iq_postprocessor_classifies_one_point(
                 -0.8 + 0.0j,
                 1.0 + 0.0j,
                 0.0 + 0.0j,
-            )
+            ),
+            "discriminator": _discriminator(tie_policy=tie_policy),
         }
     )
     assert outputs == {
@@ -164,7 +169,8 @@ def test_binary_iq_postprocessor_rejects_non_iq_input() -> None:
                     dtype="float64",
                     value=0.0,
                     unit="ratio",
-                )
+                ),
+                "discriminator": _discriminator(),
             }
         )
 

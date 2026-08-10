@@ -57,3 +57,14 @@ def test_custom_compute_output_codec_requires_an_encoder() -> None:
             "1",
             output_codec="test.custom.v1",
         )
+
+
+def test_registered_compute_rejects_hidden_nonlocal_inputs() -> None:
+    registry = sc.ComputeRegistry()
+    scale = 2.0
+
+    def captured(*, value: float) -> float:
+        return value * scale
+
+    with pytest.raises(ValueError, match="cannot capture nonlocal values: scale"):
+        registry.implementation("test.captured", "1")(captured)

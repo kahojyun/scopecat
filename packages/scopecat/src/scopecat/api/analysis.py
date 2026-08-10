@@ -63,6 +63,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.sdk.compute import (
     PYTHON_JSON_CODEC,
+    compute_capture_names_internal,
     compute_implementation_contract_internal,
     compute_output_encoder_internal,
 )
@@ -402,6 +403,7 @@ class AnalysisContext:
             contract.reference if contract is not None else f"python:{compute_id}"
         )
         deterministic = False if contract is None else contract.deterministic
+        captures = compute_capture_names_internal(fn)
         if (
             contract is not None
             and contract.input_codecs
@@ -428,6 +430,7 @@ class AnalysisContext:
             "deterministic": deterministic,
             "inputs": list(input_names),
             "outputs": list(output_names),
+            "captures": list(captures),
             "access": "full" if contract is None else contract.data_access,
         }
         if contract is not None:
@@ -485,6 +488,7 @@ class AnalysisContext:
                         inputs=input_names,
                         outputs=output_names,
                         input_bindings=input_provenance,
+                        captures=captures,
                         access=("full" if contract is None else contract.data_access),
                         output_content_hash=output_hash,
                     ),

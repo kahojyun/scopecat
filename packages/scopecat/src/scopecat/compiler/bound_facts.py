@@ -88,6 +88,7 @@ class BoundMeasurementPostprocessor:
     value_inputs: tuple[BoundMeasurementPostprocessorValueInput, ...] = ()
     implementation: str | None = None
     deterministic: bool = False
+    captures: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

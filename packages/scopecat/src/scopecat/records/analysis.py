@@ -406,10 +406,11 @@ class AnalysisComputeExecution(_AnalysisContentModel):
     inputs: Sequence[_NonEmptyText]
     outputs: Sequence[_NonEmptyText]
     input_bindings: Sequence[AnalysisComputeInput]
+    captures: Sequence[_NonEmptyText] = ()
     access: Literal["full", "batches"] = "full"
     output_content_hash: _NonEmptyText
 
-    @field_validator("inputs", "outputs", "input_bindings")
+    @field_validator("inputs", "outputs", "input_bindings", "captures")
     @classmethod
     def freeze_edges[T](cls, value: Sequence[T]) -> Sequence[T]:
         return tuple(value)

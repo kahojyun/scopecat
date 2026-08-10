@@ -292,6 +292,25 @@ classified = experiment.compute(
 )
 ```
 
+Structured immutable Python policy belongs on the same explicit input graph:
+
+```python
+probabilities = experiment.compute(
+    fn=discriminate,
+    shots=acquired.iq_shots,
+    discriminator=sc.constant(
+        discriminator,
+        schema="lab.binary-iq-discriminator.v1",
+    ),
+)
+```
+
+The kernel receives the unwrapped discriminator value, while preview retains
+`discriminator` as a named input. Local Python functions may still close over
+nonlocal values, but preview exposes their names in `captures` and makes no
+replay promise. A registered compute implementation must express every
+nonlocal value as an input; hidden nonlocal captures are rejected.
+
 ## Inspect placement and liveness before running
 
 `lab.preview(...)` exposes the compiler's decision without leaking compiler IR:
@@ -307,6 +326,7 @@ for compute in preview.computes:
         compute.inputs,
         compute.outputs,
         compute.demanded_by,
+        compute.captures,
     )
 
 for binding in preview.bindings:

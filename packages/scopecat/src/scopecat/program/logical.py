@@ -121,6 +121,7 @@ class LogicalMeasurementPostprocessor:
     value_inputs: tuple[tuple[str, ValueId], ...] = ()
     implementation: str | None = None
     deterministic: bool = False
+    captures: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

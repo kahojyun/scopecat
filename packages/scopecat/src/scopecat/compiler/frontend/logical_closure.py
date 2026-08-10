@@ -282,6 +282,7 @@ class LogicalProgramBuilder:
                 kernel=declaration.kernel,
                 implementation=declaration.implementation,
                 deterministic=declaration.deterministic,
+                captures=declaration.captures,
             )
         )
 

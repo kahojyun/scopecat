@@ -73,6 +73,12 @@ type ParameterKeyInput = (
 )
 
 
+def constant(value: object, *, schema: str) -> PayloadValue:
+    """Capture one immutable typed payload as an explicit compute input."""
+
+    return PayloadValue(schema_id=schema, payload=value)
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class Compute:
     """A typed compute declaration and its composable output value."""

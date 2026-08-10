@@ -20,6 +20,7 @@ from scopecat.planning.preview_models import (
 from scopecat.program.parameters import ParameterContract, ParameterValueContract
 from scopecat.program.scans import AroundScanSource, RangeScanSource, ValuesScanSource
 from scopecat.program.value_refs import ValueRef, internal_value_ref_parameter_contracts
+from scopecat.sdk.compute import compute_capture_names_internal
 
 type _BindingKind = Literal["input", "coordinate", "parameter"]
 type _BindingKey = tuple[_BindingKind, str]
@@ -271,6 +272,7 @@ def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ..
                     or (operation.logical_compute_node_id,)
                 ),
                 demanded_by=demands or ("experiment-effects",),
+                captures=compute_capture_names_internal(operation.kernel),
             )
         )
 
@@ -302,6 +304,7 @@ def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ..
                     output.product_id.qualified_name for output in postprocessor.outputs
                 ),
                 demanded_by=demands,
+                captures=postprocessor.captures,
             )
         )
     return tuple(computes)

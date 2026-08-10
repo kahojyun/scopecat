@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from types import CodeType
 from typing import Literal, cast
 
 from scopecat.kernel.frozen import freeze_json_mapping
@@ -106,6 +107,12 @@ class ComputeRegistry:
                     f"compute implementation is already registered: "
                     f"{contract.reference}"
                 )
+            captures = compute_capture_names_internal(fn)
+            if captures:
+                raise ValueError(
+                    "registered compute implementations cannot capture nonlocal "
+                    f"values: {', '.join(captures)}"
+                )
             setattr(fn, _CONTRACT_ATTRIBUTE, contract)
             if encode_output is not None:
                 setattr(fn, _OUTPUT_ENCODER_ATTRIBUTE, encode_output)
@@ -150,6 +157,13 @@ def compute_output_encoder_internal(
         "Callable[[object], JsonValue] | None",
         value if callable(value) else None,
     )
+
+
+def compute_capture_names_internal(fn: ComputeFunction) -> tuple[str, ...]:
+    """Return stable names for Python nonlocals hidden outside explicit inputs."""
+
+    code = getattr(fn, "__code__", None)
+    return () if not isinstance(code, CodeType) else code.co_freevars
 
 
 __all__ = ["ComputeImplementationContract", "ComputeRegistry"]

@@ -17,7 +17,10 @@ from scopecat import (
     ProductRef,
     QuantityType,
     ScalarType,
+    constant,
 )
+
+_BINARY_IQ_DISCRIMINATOR_SCHEMA = "scopecat-quantum.binary-iq-discriminator.v1"
 
 
 class IqCentroid(BaseModel):
@@ -79,7 +82,11 @@ def binary_iq_probabilities(
     """Declare binary state probabilities independently at each scan point."""
 
     @BinaryIqProbabilityProducts.kernel
-    def calculate(*, iq_shots: object) -> tuple[float, float]:
+    def calculate(
+        *,
+        iq_shots: object,
+        discriminator: BinaryIqDiscriminator,
+    ) -> tuple[float, float]:
         return _binary_iq_probability_value(
             np.asarray(iq_shots),
             discriminator,
@@ -89,6 +96,10 @@ def binary_iq_probabilities(
         id,
         fn=calculate,
         iq_shots=iq_shots,
+        discriminator=constant(
+            discriminator,
+            schema=_BINARY_IQ_DISCRIMINATOR_SCHEMA,
+        ),
     )
 
 

@@ -37,7 +37,7 @@ from scopecat.kernel.instrument_members import (
     PropertyRef,
 )
 from scopecat.kernel.interface_identity import InterfaceId
-from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.payloads import PayloadValue, unwrap_payload_values
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
@@ -132,6 +132,7 @@ from scopecat.records.measurement import (
 )
 from scopecat.sdk.compute import (
     ComputeRegistry,
+    compute_capture_names_internal,
     compute_implementation_contract_internal,
 )
 
@@ -1317,7 +1318,7 @@ class ModuleContext:
                             cast("MeasurementValue", values[name])
                         )
                         if name in product_inputs
-                        else values[name]
+                        else unwrap_payload_values(values[name])
                     )
                     for name in input_names
                 }
@@ -1365,6 +1366,7 @@ class ModuleContext:
                 deterministic=(
                     False if implementation is None else implementation.deterministic
                 ),
+                captures=compute_capture_names_internal(fn),
             )
         )
         if bundle_type is not None:

@@ -170,8 +170,10 @@ def test_in_process_lab_records_compute_value_without_instruments(
 ) -> None:
     @sc.experiment(id="test.session.compute-only", kind="compute-only")
     def compute_only(experiment: sc.ExperimentContext) -> _ComputeOnlyResult:
+        selected_score = 2.5
+
         def calculate_score() -> float:
-            return 2.5
+            return selected_score
 
         score = cast(
             "sc.ValueRef[float]",
@@ -199,6 +201,7 @@ def test_in_process_lab_records_compute_value_without_instruments(
     assert compute.demanded_by == ("record:score",)
     assert compute.implementation.startswith("python:")
     assert not compute.deterministic
+    assert compute.captures == ("selected_score",)
 
     run = lab.prepare(compute_only).run()
     dataset = run.measurements()
