@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.kernel.errors import CheckFailed
-from scopecat.measurements.results import MeasurementValue
+from scopecat.measurements.results import (
+    MeasurementArray,
+    MeasurementScalar,
+    MeasurementValue,
+)
 from scopecat.program.domain import domain_program
 from tests.testkit.domain import domain_call
 
@@ -74,7 +79,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
         )
 
     [lowered] = compose_module(module.definition).measurement_postprocessors
-    assert lowered.input.qualified_name == "nested/raw"
+    assert lowered.inputs[0][1].qualified_name == "nested/raw"
     assert lowered.outputs[0][1].qualified_name == "derived"
 
     @sc.module(id="test.postprocessor.child")
@@ -94,7 +99,49 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
 
     [scoped] = compose_module(root.definition).measurement_postprocessors
     assert scoped.id.qualified_name == "nested/derive"
-    assert scoped.input.qualified_name == "nested/raw"
+    assert scoped.inputs[0][1].qualified_name == "nested/raw"
+
+
+def test_compute_lowers_multiple_measured_inputs_to_the_observation_stage() -> None:
+    @sc.module(id="test.measurement-compute")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        left = context._product("left", unit="V")
+        right = context._product("right", unit="V")
+        return context.compute(
+            "pair",
+            fn=lambda *, left, right: np.asarray([left, right]),
+            inputs={"left": left, "right": right},
+            output_type=sc.ArrayType(
+                dtype="float64",
+                dimensions=(sc.ArrayDimension("channel", 2),),
+                unit="V",
+            ),
+        )
+
+    logical = compose_module(module.definition)
+
+    [compute] = logical.measurement_postprocessors
+    assert [(name, product.qualified_name) for name, product in compute.inputs] == [
+        ("left", "left"),
+        ("right", "right"),
+    ]
+    output = compute.kernel(
+        {
+            "left": MeasurementScalar.create(
+                value=1.0,
+                dtype="float64",
+                unit="V",
+            ),
+            "right": MeasurementScalar.create(
+                value=2.0,
+                dtype="float64",
+                unit="V",
+            ),
+        }
+    )["result"]
+    assert isinstance(output, MeasurementArray)
+    assert output.values.tolist() == [1.0, 2.0]
+    assert output.unit == "V"
 
 
 def test_postprocessor_chaining_is_sorted_by_dependency() -> None:

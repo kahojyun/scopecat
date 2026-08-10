@@ -61,12 +61,20 @@ class BoundMeasurementPostprocessorOutput:
 
 
 @dataclass(frozen=True, slots=True)
+class BoundMeasurementPostprocessorInput:
+    """One named measured product consumed by a point-local computation."""
+
+    id: str
+    product_id: ProductId
+    product_use_id: ProductUseId
+
+
+@dataclass(frozen=True, slots=True)
 class BoundMeasurementPostprocessor:
     """One live point-local postprocessor retained by record demand."""
 
     id: MeasurementPostprocessorId
-    input_product_id: ProductId
-    input_product_use_id: ProductUseId
+    inputs: tuple[BoundMeasurementPostprocessorInput, ...]
     outputs: tuple[BoundMeasurementPostprocessorOutput, ...]
     kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
 

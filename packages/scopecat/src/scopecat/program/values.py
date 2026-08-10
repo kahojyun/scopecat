@@ -101,7 +101,7 @@ class Compute:
                 f"scalar literals; invalid inputs: {', '.join(invalid)}"
             )
             raise TypeError(msg)
-        _validate_compute_function(self.id, self.fn, input_names)
+        validate_compute_function_internal(self.id, self.fn, input_names)
 
     @property
     def output(self) -> ValueRef:
@@ -433,7 +433,7 @@ def _parameter_key_value_type(value: ParameterKeyInput) -> Scalar:
     return literal_scalar_type(value)
 
 
-def _validate_compute_function(
+def validate_compute_function_internal(
     compute_id: str,
     fn: ComputeFunction,
     input_names: tuple[str, ...],

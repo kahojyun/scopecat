@@ -339,15 +339,17 @@ class ModuleBody:
             **local_product_origins,
         }
         for postprocessor in self.measurement_postprocessors:
-            _require_postprocessor_product(
-                postprocessor,
-                direction="input",
-                role="input",
-                selected_id=postprocessor.input_binding,
-                origin=postprocessor.input_product_origin,
-                local_product_origins=local_product_origins,
-                allowed_product_origins=visible_product_origins,
-            )
+            input_origins = dict(postprocessor.input_product_origins)
+            for name, selected_id in postprocessor.input_bindings:
+                _require_postprocessor_product(
+                    postprocessor,
+                    direction="input",
+                    role=name,
+                    selected_id=selected_id,
+                    origin=input_origins.get(name),
+                    local_product_origins=local_product_origins,
+                    allowed_product_origins=visible_product_origins,
+                )
             output_origins = dict(postprocessor.output_product_origins)
             for role, selected_id in postprocessor.output_bindings:
                 _require_postprocessor_product(

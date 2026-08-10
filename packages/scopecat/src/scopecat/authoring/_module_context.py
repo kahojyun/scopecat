@@ -30,7 +30,8 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
     normalize_resource_role,
 )
-from scopecat.kernel.value_types import Payload
+from scopecat.kernel.value_types import Array, DataType, Payload
+from scopecat.kernel.value_validation import coerce_literal
 from scopecat.program.bindings import (
     BindingIntent,
     EnsureStateIntent,
@@ -42,10 +43,14 @@ from scopecat.program.bindings import (
 from scopecat.program.bindings import bind_property as binding_property
 from scopecat.program.domain import DomainCall
 from scopecat.program.input_capture import capture_runtime_input
-from scopecat.program.measurement_contracts import MeasurementPostprocessorKernel
-from scopecat.program.measurement_types import MeasurementDType
+from scopecat.program.measurement_contracts import SingleMeasurementPostprocessorKernel
+from scopecat.program.measurement_types import (
+    MeasurementDType,
+    measurement_value_spec_from_scalar,
+)
 from scopecat.program.measurements import (
     MeasurementPostprocessor,
+    create_measurement_compute_internal,
     create_measurement_postprocessor_internal,
 )
 from scopecat.program.module import (
@@ -87,11 +92,74 @@ from scopecat.program.values import (
     ComputeFunction,
     ComputeInput,
     MetadataValue,
+    validate_compute_function_internal,
 )
 from scopecat.program.values import compute as define_compute
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementScalar,
+    MeasurementValue,
+)
 
 type BindingInput = StateBinding
 type InvocationInput = BindingInput | None
+
+
+def _measurement_compute_output_spec(
+    value_type: DataType,
+) -> tuple[MeasurementDType, str | None, tuple[ProductAxis, ...]]:
+    if isinstance(value_type, Array):
+        return (
+            value_type.dtype,
+            value_type.unit,
+            tuple(
+                ProductAxis(
+                    id=dimension.id,
+                    size=dimension.size,
+                    kind=dimension.kind,
+                    unit=dimension.unit,
+                    shared_as=dimension.id,
+                )
+                for dimension in value_type.dimensions
+            ),
+        )
+    dtype, unit = measurement_value_spec_from_scalar(value_type)
+    return dtype, unit, ()
+
+
+def _native_measurement_value(value: MeasurementValue) -> object:
+    if isinstance(value, MeasurementArray):
+        return value.values
+    if isinstance(value, MeasurementScalar):
+        return value.value
+    raise AssertionError(
+        "unavailable measurement values must not reach compute kernels"
+    )
+
+
+def _measurement_compute_result(
+    value: object,
+    value_type: DataType,
+) -> MeasurementValue:
+    selected = coerce_literal(value_type, value, path=("measurement_compute", "output"))
+    if isinstance(value_type, Array):
+        return MeasurementArray.create(
+            values=selected,
+            dtype=value_type.dtype,
+            unit=value_type.unit,
+        )
+    dtype, unit = measurement_value_spec_from_scalar(value_type)
+    if isinstance(selected, Quantity):
+        scalar_value: object = selected.value
+    elif isinstance(selected, EntityRef):
+        scalar_value = selected.id
+    else:
+        scalar_value = selected
+    return MeasurementScalar.create(
+        value=scalar_value,
+        dtype=dtype,
+        unit=unit,
+    )
 
 
 def _is_entity_input_type(value_type: ValueType) -> bool:
@@ -763,6 +831,17 @@ class ModuleContext:
 
         self._require_owned_resource(resource)
 
+    @overload
+    def compute(
+        self,
+        id: str,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ProductRef],
+        output_type: ScalarType | ArrayType,
+    ) -> ProductRef: ...
+
+    @overload
     def compute(
         self,
         id: str,
@@ -770,8 +849,31 @@ class ModuleContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput] | None = None,
         output_type: ScalarType | ArrayType,
-    ) -> ValueRef:
-        """Declare one compute node and return its typed result."""
+    ) -> ValueRef: ...
+
+    def compute(
+        self,
+        id: str,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
+        output_type: ScalarType | ArrayType,
+    ) -> ValueRef | ProductRef:
+        """Declare a compute at the earliest stage where its inputs exist."""
+
+        if any(isinstance(value, ProductRef) for value in (inputs or {}).values()):
+            if not inputs or not all(
+                isinstance(value, ProductRef) for value in inputs.values()
+            ):
+                raise TypeError(
+                    "measurement-derived compute inputs must all be measured products"
+                )
+            return self._compute_measurements(
+                id,
+                fn=fn,
+                inputs=cast("Mapping[str, ProductRef]", inputs),
+                output_type=output_type,
+            )
 
         selected_inputs = {
             name: cast("ComputeInput", self._capture_domain_value(value))
@@ -801,13 +903,54 @@ class ModuleContext:
         self._local_value_ids.add(definition.output.id)
         return definition.output
 
+    def _compute_measurements(
+        self,
+        id: str,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ProductRef],
+        output_type: DataType,
+    ) -> ProductRef:
+        """Lower measured inputs to the point-local observation stage."""
+
+        input_names = tuple(inputs)
+        validate_compute_function_internal(id, fn, input_names)
+        dtype, unit, axes = _measurement_compute_output_spec(output_type)
+        output = self._product(
+            id,
+            unit=unit,
+            dtype=dtype,
+            axes=axes,
+        )
+
+        def kernel(
+            values: Mapping[str, MeasurementValue],
+        ) -> Mapping[str, MeasurementValue]:
+            raw = fn(
+                **{
+                    name: _native_measurement_value(values[name])
+                    for name in input_names
+                }
+            )
+            return {"result": _measurement_compute_result(raw, output_type)}
+
+        self._measurement_postprocessors.append(
+            create_measurement_compute_internal(
+                id,
+                inputs=inputs,
+                outputs={"result": output},
+                kernel=kernel,
+            )
+        )
+        return output
+
     def _postprocess(
         self,
         id: str,
         *,
         input: ProductRef,
         outputs: Mapping[str, ProductRef],
-        kernel: MeasurementPostprocessorKernel,
+        kernel: SingleMeasurementPostprocessorKernel,
     ) -> None:
         """Register a typed producer's point-local measurement calculation."""
 

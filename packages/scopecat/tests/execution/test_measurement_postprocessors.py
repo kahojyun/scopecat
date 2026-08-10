@@ -8,6 +8,7 @@ import pytest
 
 from scopecat.compiler.bound_facts import (
     BoundMeasurementPostprocessor,
+    BoundMeasurementPostprocessorInput,
     BoundMeasurementPostprocessorOutput,
 )
 from scopecat.execution.measurement_postprocessors import (
@@ -47,8 +48,13 @@ def _postprocessor(
     output = scenario.uses[output_index]
     return BoundMeasurementPostprocessor(
         id=MeasurementPostprocessorId(SymbolId(local_id=id)),
-        input_product_id=source.product_id,
-        input_product_use_id=source.id,
+        inputs=(
+            BoundMeasurementPostprocessorInput(
+                id="input",
+                product_id=source.product_id,
+                product_use_id=source.id,
+            ),
+        ),
         outputs=(
             BoundMeasurementPostprocessorOutput(
                 id="output",
@@ -56,7 +62,7 @@ def _postprocessor(
                 product_use_ids=(output.id,),
             ),
         ),
-        kernel=kernel,
+        kernel=lambda values: kernel(values["input"]),
     )
 
 
@@ -119,6 +125,63 @@ def test_postprocessor_runs_one_direct_kernel_per_point() -> None:
         MeasurementScalar.create(dtype="float64", value=1.0, unit="ratio"),
         MeasurementScalar.create(dtype="float64", value=101.0, unit="ratio"),
     ]
+
+
+def test_postprocessor_joins_multiple_named_inputs_per_point() -> None:
+    scenario = measurement_assembly_scenario(point_values=(2.0,), use_count=3)
+    left, right, output = scenario.uses
+    postprocessor = BoundMeasurementPostprocessor(
+        id=MeasurementPostprocessorId(SymbolId(local_id="sum")),
+        inputs=(
+            BoundMeasurementPostprocessorInput(
+                id="left",
+                product_id=left.product_id,
+                product_use_id=left.id,
+            ),
+            BoundMeasurementPostprocessorInput(
+                id="right",
+                product_id=right.product_id,
+                product_use_id=right.id,
+            ),
+        ),
+        outputs=(
+            BoundMeasurementPostprocessorOutput(
+                id="result",
+                product_id=output.product_id,
+                product_use_ids=(output.id,),
+            ),
+        ),
+        kernel=lambda values: {
+            "result": MeasurementScalar.create(
+                dtype="float64",
+                unit="ratio",
+                value=sum(
+                    float(value.value)
+                    for value in values.values()
+                    if isinstance(value, MeasurementScalar)
+                    and isinstance(value.value, int | float)
+                ),
+            )
+        },
+    )
+
+    completed = execute_measurement_postprocessors(
+        (postprocessor,),
+        measurement_value_candidates(scenario, (left, right)),
+        points=scenario.points,
+        catalog=scenario.catalog,
+    )
+
+    result = next(
+        candidate.value
+        for candidate in completed
+        if candidate.product_use_id == output.id
+    )
+    assert result == MeasurementScalar.create(
+        dtype="float64",
+        unit="ratio",
+        value=1.0,
+    )
 
 
 def test_postprocessor_chain_feeds_derived_outputs_to_downstream_nodes() -> None:

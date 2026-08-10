@@ -9,8 +9,12 @@ if TYPE_CHECKING:
     from scopecat.records.measurement import MeasurementValue
 
 type MeasurementPostprocessorKernel = Callable[
+    [Mapping[str, "MeasurementValue"]],
+    Mapping[str, "MeasurementValue"],
+]
+type SingleMeasurementPostprocessorKernel = Callable[
     ["MeasurementValue"],
     Mapping[str, "MeasurementValue"],
 ]
 
-__all__ = ["MeasurementPostprocessorKernel"]
+__all__ = ["MeasurementPostprocessorKernel", "SingleMeasurementPostprocessorKernel"]

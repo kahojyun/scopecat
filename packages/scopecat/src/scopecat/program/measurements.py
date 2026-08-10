@@ -4,27 +4,32 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.measurement_contracts import (
     MeasurementPostprocessorKernel,
+    SingleMeasurementPostprocessorKernel,
 )
 from scopecat.program.products import ProductRef
+
+if TYPE_CHECKING:
+    from scopecat.records.measurement import MeasurementValue
 
 
 @dataclass(frozen=True, slots=True)
 class MeasurementPostprocessor:
-    """One direct Python calculation from one measured product."""
+    """One direct Python calculation from measured products."""
 
     id: str
-    input_binding: ProductId
+    input_bindings: tuple[tuple[str, ProductId], ...]
     output_bindings: tuple[tuple[str, ProductId], ...]
     kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
     scope: tuple[str, ...] = ()
     # Origins are authoring-only; compiler bindings remain plain ProductIds.
-    input_product_origin: tuple[object, ...] | None = field(
-        default=None,
+    input_product_origins: tuple[tuple[str, tuple[object, ...]], ...] = field(
+        default=(),
         repr=False,
         compare=False,
     )
@@ -37,6 +42,10 @@ class MeasurementPostprocessor:
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("measurement postprocessor ids must be non-empty")
+        if not self.input_bindings:
+            raise ValueError("measurement postprocessors require at least one input")
+        if any(not name for name, _product in self.input_bindings):
+            raise ValueError("measurement postprocessor input names must be non-empty")
         if any(not role for role, _product in self.output_bindings):
             raise ValueError("measurement postprocessor output roles must be non-empty")
         if not self.output_bindings:
@@ -45,12 +54,16 @@ class MeasurementPostprocessor:
             raise ValueError(
                 "measurement postprocessor scope must contain non-empty strings"
             )
-        if self.input_binding in {
-            product_id for _role, product_id in self.output_bindings
-        }:
+        input_ids = {product_id for _name, product_id in self.input_bindings}
+        output_ids = {product_id for _role, product_id in self.output_bindings}
+        if input_ids & output_ids:
             raise ValueError(
-                "measurement postprocessor input and outputs must be distinct"
+                "measurement postprocessor inputs and outputs must be distinct"
             )
+        _require_unique(
+            "measurement postprocessor input",
+            tuple(name for name, _product in self.input_bindings),
+        )
         _require_unique(
             "measurement postprocessor output",
             tuple(role for role, _product in self.output_bindings),
@@ -66,18 +79,47 @@ def create_measurement_postprocessor_internal(
     *,
     input: ProductRef,
     outputs: Mapping[str, ProductRef],
-    kernel: MeasurementPostprocessorKernel,
+    kernel: SingleMeasurementPostprocessorKernel,
 ) -> MeasurementPostprocessor:
     """Build the program IR recorded by a typed measurement producer."""
 
+    def mapped_kernel(
+        values: Mapping[str, MeasurementValue],
+    ) -> Mapping[
+        str,
+        MeasurementValue,
+    ]:
+        return kernel(values["input"])
+
+    return create_measurement_compute_internal(
+        id,
+        inputs={"input": input},
+        outputs=outputs,
+        kernel=mapped_kernel,
+    )
+
+
+def create_measurement_compute_internal(
+    id: str,
+    *,
+    inputs: Mapping[str, ProductRef],
+    outputs: Mapping[str, ProductRef],
+    kernel: MeasurementPostprocessorKernel,
+) -> MeasurementPostprocessor:
+    """Build a multi-input point-local measurement computation."""
+
     return MeasurementPostprocessor(
         id=id,
-        input_binding=input.product_id,
+        input_bindings=tuple(
+            (name, product.product_id) for name, product in inputs.items()
+        ),
         output_bindings=tuple(
             (role, product.product_id) for role, product in outputs.items()
         ),
         kernel=kernel,
-        input_product_origin=input.origin,
+        input_product_origins=tuple(
+            (name, product.origin) for name, product in inputs.items()
+        ),
         output_product_origins=tuple(
             (role, product.origin) for role, product in outputs.items()
         ),

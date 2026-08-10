@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from scopecat.compiler.bound_facts import (
     BoundMeasurementPostprocessor,
+    BoundMeasurementPostprocessorInput,
     BoundMeasurementPostprocessorOutput,
 )
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
@@ -34,7 +35,7 @@ def lower_measurement_postprocessor_graph(
 ) -> LoweredMeasurementPostprocessorGraph:
     """Retain only record-reachable postprocessors and mint exact input uses.
 
-    The single input is a real product consumer. Input uses are minted only
+    Inputs are real product consumers. Input uses are minted only
     after liveness so an unused declaration cannot cause an acquisition.
     """
 
@@ -53,16 +54,28 @@ def lower_measurement_postprocessor_graph(
         if producer is None or producer.id in live_ids:
             continue
         live_ids.add(producer.id)
-        pending.append(producer.input)
+        pending.extend(product_id for _name, product_id in producer.inputs)
     live = tuple(
         postprocessor for postprocessor in declarations if postprocessor.id in live_ids
     )
-    input_uses = tuple(
-        ProductUse(
-            product_id=postprocessor.input,
-            id=_postprocessor_input_use_id(postprocessor.id),
+    named_input_uses = tuple(
+        (
+            postprocessor,
+            tuple(
+                (
+                    name,
+                    ProductUse(
+                        product_id=product_id,
+                        id=_postprocessor_input_use_id(postprocessor.id, name),
+                    ),
+                )
+                for name, product_id in postprocessor.inputs
+            ),
         )
         for postprocessor in live
+    )
+    input_uses = tuple(
+        use for _postprocessor, inputs in named_input_uses for _name, use in inputs
     )
     all_uses = (*tuple(record_product_uses), *input_uses)
     uses_by_product: dict[ProductId, list[ProductUseId]] = {}
@@ -70,7 +83,7 @@ def lower_measurement_postprocessor_graph(
         uses_by_product.setdefault(use.product_id, []).append(use.id)
 
     bound: list[BoundMeasurementPostprocessor] = []
-    for postprocessor, input_use in zip(live, input_uses, strict=True):
+    for postprocessor, inputs in named_input_uses:
         outputs: list[BoundMeasurementPostprocessorOutput] = []
         for role, product_id in postprocessor.outputs:
             outputs.append(
@@ -83,8 +96,14 @@ def lower_measurement_postprocessor_graph(
         bound.append(
             BoundMeasurementPostprocessor(
                 id=postprocessor.id,
-                input_product_id=postprocessor.input,
-                input_product_use_id=input_use.id,
+                inputs=tuple(
+                    BoundMeasurementPostprocessorInput(
+                        id=name,
+                        product_id=use.product_id,
+                        product_use_id=use.id,
+                    )
+                    for name, use in inputs
+                ),
                 outputs=tuple(outputs),
                 kernel=postprocessor.kernel,
             )
@@ -97,7 +116,9 @@ def lower_measurement_postprocessor_graph(
 
 def _postprocessor_input_use_id(
     postprocessor_id: MeasurementPostprocessorId,
+    input_id: str,
 ) -> ProductUseId:
     return ProductUseId(
-        f"scopecat.measurement-postprocessor/{postprocessor_id.qualified_name}/input"
+        "scopecat.measurement-postprocessor/"
+        f"{postprocessor_id.qualified_name}/inputs/{input_id}"
     )

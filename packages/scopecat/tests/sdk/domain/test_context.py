@@ -157,11 +157,11 @@ def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
     [postprocessor_output] = postprocessor.outputs
 
     assert program.domain_result_use_ids[(call.id, direct_result[0])] == (
-        postprocessor.input_product_use_id,
+        postprocessor.inputs[0].product_use_id,
     )
     assert postprocessor_output.product_use_ids
     recorded_use_ids = {record.product_use_id for record in program.product_record_uses}
-    assert postprocessor.input_product_use_id not in recorded_use_ids
+    assert postprocessor.inputs[0].product_use_id not in recorded_use_ids
     assert set(postprocessor_output.product_use_ids) == recorded_use_ids
 
     context = _batch_context(
@@ -170,7 +170,7 @@ def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
     )
 
     assert tuple(use.id for use in context.product_uses) == (
-        postprocessor.input_product_use_id.value,
+        postprocessor.inputs[0].product_use_id.value,
     )
 
 

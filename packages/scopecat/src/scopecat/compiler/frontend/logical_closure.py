@@ -255,7 +255,7 @@ class LogicalProgramBuilder:
         self._measurement_postprocessors.append(
             LogicalMeasurementPostprocessor(
                 id=MeasurementPostprocessorId(declaration.symbol_id),
-                input=declaration.input_binding,
+                inputs=declaration.input_bindings,
                 outputs=declaration.output_bindings,
                 kernel=declaration.kernel,
             )

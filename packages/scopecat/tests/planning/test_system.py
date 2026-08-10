@@ -11,6 +11,7 @@ import scopecat as sc
 from scopecat.compiler.bind import BoundPlan, bind_program
 from scopecat.compiler.bound_facts import (
     BoundMeasurementPostprocessor,
+    BoundMeasurementPostprocessorInput,
     BoundMeasurementPostprocessorOutput,
     LogicalResourceRequirement,
     record_product,
@@ -484,8 +485,13 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
     postprocessors = (
         BoundMeasurementPostprocessor(
             id=MeasurementPostprocessorId(SymbolId(local_id="normalize")),
-            input_product_id=source.id,
-            input_product_use_id=source_use.id,
+            inputs=(
+                BoundMeasurementPostprocessorInput(
+                    id="input",
+                    product_id=source.id,
+                    product_use_id=source_use.id,
+                ),
+            ),
             outputs=(
                 BoundMeasurementPostprocessorOutput(
                     id="result",
@@ -493,12 +499,17 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
                     product_use_ids=(middle_use.id,),
                 ),
             ),
-            kernel=_postprocess_identity,
+            kernel=lambda values: _postprocess_identity(values["input"]),
         ),
         BoundMeasurementPostprocessor(
             id=MeasurementPostprocessorId(SymbolId(local_id="summarize")),
-            input_product_id=middle.id,
-            input_product_use_id=middle_use.id,
+            inputs=(
+                BoundMeasurementPostprocessorInput(
+                    id="input",
+                    product_id=middle.id,
+                    product_use_id=middle_use.id,
+                ),
+            ),
             outputs=(
                 BoundMeasurementPostprocessorOutput(
                     id="result",
@@ -506,7 +517,7 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
                     product_use_ids=(derived_use.id,),
                 ),
             ),
-            kernel=_postprocess_identity,
+            kernel=lambda values: _postprocess_identity(values["input"]),
         ),
     )
     program = program_fixture(
@@ -888,15 +899,17 @@ def test_planning_keeps_postprocessor_outputs_out_of_local_acquisition() -> None
         "normalize",
         "summarize",
     ]
-    assert first.input_product_id.qualified_name == "source"
-    assert second.input_product_id.qualified_name == "middle"
+    assert first.inputs[0].product_id.qualified_name == "source"
+    assert second.inputs[0].product_id.qualified_name == "middle"
     [collect] = [
         effect.operation
         for effect in plan.coverage
         if isinstance(effect, RunCoverageEffect)
         and isinstance(effect.operation, CollectOperation)
     ]
-    assert collect.result_bindings[0].product_use_ids == (first.input_product_use_id,)
+    assert collect.result_bindings[0].product_use_ids == (
+        first.inputs[0].product_use_id,
+    )
 
 
 def test_domain_target_partitions_complete_point_space_by_capacity() -> None:

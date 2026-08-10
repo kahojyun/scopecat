@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import pytest
 
 from scopecat.kernel.errors import CheckFailed
@@ -18,8 +20,8 @@ def test_postprocessor_kernel_type_is_runtime_introspectable() -> None:
     assert MeasurementPostprocessorKernel.__value__ is not None
 
 
-def _kernel(value: MeasurementValue) -> dict[str, MeasurementValue]:
-    return {"result": value}
+def _kernel(values: Mapping[str, MeasurementValue]) -> dict[str, MeasurementValue]:
+    return {"result": values["input"]}
 
 
 def _postprocessor(
@@ -30,7 +32,7 @@ def _postprocessor(
 ) -> LogicalMeasurementPostprocessor:
     return LogicalMeasurementPostprocessor(
         id=MeasurementPostprocessorId(SymbolId(local_id=local_id)),
-        input=product_id(source),
+        inputs=(("input", product_id(source)),),
         outputs=(("result", product_id(output)),),
         kernel=_kernel,
     )

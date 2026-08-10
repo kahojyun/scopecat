@@ -42,46 +42,59 @@ def execute_measurement_postprocessors(
     derived: list[MeasurementValueCandidate] = []
     for postprocessor in postprocessors:
         for point in points:
-            source = candidates_by_key.get(
-                (point.logical_id, postprocessor.input_product_use_id),
-                [],
-            )
-            if len(source) != 1:
-                code = (
-                    "measurement_postprocessor_input_missing"
-                    if not source
-                    else "measurement_postprocessor_input_duplicate"
+            sources: dict[str, MeasurementValueCandidate] = {}
+            for input_binding in postprocessor.inputs:
+                source = candidates_by_key.get(
+                    (point.logical_id, input_binding.product_use_id),
+                    [],
                 )
-                raise MeasurementPostprocessorExecutionError(
-                    (
-                        _execution_problem(
-                            code,
-                            "measurement postprocessor requires exactly one input "
-                            "value for each logical point",
-                            postprocessor=postprocessor,
-                            point_index=point.logical_ordinal,
-                        ),
+                if len(source) != 1:
+                    code = (
+                        "measurement_postprocessor_input_missing"
+                        if not source
+                        else "measurement_postprocessor_input_duplicate"
                     )
-                )
-            source_value = source[0].value
-            if isinstance(source_value, MeasurementUnavailable):
+                    raise MeasurementPostprocessorExecutionError(
+                        (
+                            _execution_problem(
+                                code,
+                                "measurement postprocessor requires exactly one "
+                                "value for each named input and logical point",
+                                postprocessor=postprocessor,
+                                point_index=point.logical_ordinal,
+                                path=("inputs", input_binding.id),
+                            ),
+                        )
+                    )
+                sources[input_binding.id] = source[0]
+            unavailable = next(
+                (
+                    source.value
+                    for source in sources.values()
+                    if isinstance(source.value, MeasurementUnavailable)
+                ),
+                None,
+            )
+            if isinstance(unavailable, MeasurementUnavailable):
                 # The compiled graph owns lineage; value metadata carries source
                 # diagnostics through transformations that could not run.
                 outputs = {
                     output.id: MeasurementUnavailable.create(
-                        reason=source_value.reason,
+                        reason=unavailable.reason,
                         dtype=product_by_id[output.product_id].dtype,
                         unit=product_by_id[output.product_id].unit,
                         shape=tuple(
                             axis.size for axis in product_by_id[output.product_id].axes
                         ),
-                        metadata=source_value.metadata,
+                        metadata=unavailable.metadata,
                     )
                     for output in postprocessor.outputs
                 }
             else:
                 try:
-                    outputs = postprocessor.kernel(source_value)
+                    outputs = postprocessor.kernel(
+                        {name: source.value for name, source in sources.items()}
+                    )
                 except Exception as error:
                     raise MeasurementPostprocessorExecutionError(
                         (
@@ -146,7 +159,14 @@ def execute_measurement_postprocessors(
                         logical_point_id=point.logical_id,
                         product_use_id=use_id,
                         value=value,
-                        evidence=source[0].evidence,
+                        evidence=next(
+                            (
+                                source.evidence
+                                for source in sources.values()
+                                if source.evidence is not None
+                            ),
+                            None,
+                        ),
                     )
                     for use_id in output.product_use_ids
                 )

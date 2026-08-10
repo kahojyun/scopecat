@@ -70,7 +70,7 @@ from scopecat.program.definitions import (
     create_experiment_def,
 )
 from scopecat.program.domain import DomainCall
-from scopecat.program.measurement_contracts import MeasurementPostprocessorKernel
+from scopecat.program.measurement_contracts import SingleMeasurementPostprocessorKernel
 from scopecat.program.measurement_types import (
     MeasurementDType,
     MeasurementVariableRole,
@@ -409,6 +409,17 @@ class ExperimentContext:
             metadata=metadata,
         )
 
+    @overload
+    def compute(
+        self,
+        id: str,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ProductRef],
+        output_type: Scalar | Array,
+    ) -> ProductRef: ...
+
+    @overload
     def compute(
         self,
         id: str,
@@ -416,13 +427,29 @@ class ExperimentContext:
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput] | None = None,
         output_type: Scalar | Array,
-    ) -> ValueRef:
+    ) -> ValueRef: ...
+
+    def compute(
+        self,
+        id: str,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
+        output_type: Scalar | Array,
+    ) -> ValueRef | ProductRef:
         """Declare one experiment-owned compute node and return its result."""
 
+        if inputs and any(isinstance(value, ProductRef) for value in inputs.values()):
+            return self._program.compute(
+                id,
+                fn=fn,
+                inputs=cast("Mapping[str, ProductRef]", inputs),
+                output_type=output_type,
+            )
         return self._program.compute(
             id,
             fn=fn,
-            inputs=inputs,
+            inputs=cast("Mapping[str, ComputeInput] | None", inputs),
             output_type=output_type,
         )
 
@@ -432,7 +459,7 @@ class ExperimentContext:
         *,
         input: ProductRef,
         outputs: Mapping[str, ProductRef],
-        kernel: MeasurementPostprocessorKernel,
+        kernel: SingleMeasurementPostprocessorKernel,
     ) -> None:
         """Register a typed producer's point-local measurement calculation."""
 

@@ -114,7 +114,7 @@ class LogicalMeasurementPostprocessor:
     """One point-local Python calculation with explicit product edges."""
 
     id: MeasurementPostprocessorId
-    input: ProductId
+    inputs: tuple[tuple[str, ProductId], ...]
     outputs: tuple[tuple[str, ProductId], ...]
     kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
 

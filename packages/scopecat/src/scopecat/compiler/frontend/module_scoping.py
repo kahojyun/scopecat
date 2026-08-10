@@ -404,7 +404,10 @@ def _scope_measurement_postprocessor(
     return replace(
         postprocessor,
         scope=(*scope, *postprocessor.scope),
-        input_binding=postprocessor.input_binding.prefixed(*scope),
+        input_bindings=tuple(
+            (name, product_id.prefixed(*scope))
+            for name, product_id in postprocessor.input_bindings
+        ),
         output_bindings=tuple(
             (role, product_id.prefixed(*scope))
             for role, product_id in postprocessor.output_bindings

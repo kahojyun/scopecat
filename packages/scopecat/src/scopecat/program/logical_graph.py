@@ -239,11 +239,12 @@ def _topological_measurement_postprocessors(
         postprocessor.id: set() for postprocessor in postprocessors
     }
     for postprocessor in postprocessors:
-        producer = owner_by_output.get(postprocessor.input)
-        if producer is None:
-            continue
-        dependencies[postprocessor.id].add(producer)
-        dependents[producer].add(postprocessor.id)
+        for _name, input_product_id in postprocessor.inputs:
+            producer = owner_by_output.get(input_product_id)
+            if producer is None:
+                continue
+            dependencies[postprocessor.id].add(producer)
+            dependents[producer].add(postprocessor.id)
     indegree = {
         postprocessor_id: len(upstream)
         for postprocessor_id, upstream in dependencies.items()
