@@ -12,6 +12,8 @@ from scopecat_instruments import (
     temperature_readout,
 )
 
+from reference_lab.notebook import show
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FLUX_SOURCE = dc_source("bench-source")
 MIXING_CHAMBER = temperature_readout("mixing-chamber")
@@ -59,19 +61,16 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         finally:
             source.apply(DCSourcePatch(output_enabled=False))
 
-print("inventory:", inventory)
-print(
-    "temperature:",
-    {
+direct_control_summary = {
+    "inventory": inventory,
+    "temperature": {
         "status": temperature.receipt.status,
         "temperature": temperature.temperature,
         "resistance": temperature.resistance,
     },
-)
-print(
-    "trace:",
-    {
+    "trace": {
         "status": trace.receipt.status,
         "results": trace_results,
     },
-)
+}
+show(direct_control_summary)

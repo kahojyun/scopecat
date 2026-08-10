@@ -7,6 +7,7 @@ import scopecat as sc
 from scopecat.records.measurement import MeasurementUnavailable
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.ramsey_experiments import parallel_raw_ramsey
 
 # %%
@@ -32,4 +33,4 @@ channel_unavailable_summary = {
     ),
     "q1_available_records": len(q1_available),
 }
-print(channel_unavailable_summary)
+show(channel_unavailable_summary)

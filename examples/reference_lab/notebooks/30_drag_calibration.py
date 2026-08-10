@@ -6,6 +6,7 @@ from __future__ import annotations
 import scopecat as sc
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.drag_beta_analysis import drag_beta_analysis
 from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
 from reference_lab.workflows.production_drag_gate import production_drag_experiment
@@ -73,4 +74,4 @@ drag_beta_summary = {
         == accepted.activation.previous_entry_content_hash
     ),
 }
-print(drag_beta_summary)
+show(drag_beta_summary)

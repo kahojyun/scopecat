@@ -7,6 +7,7 @@ import scopecat as sc
 from scopecat.api.lab import ExperimentStage
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.flux_spectroscopy import flux_spectroscopy
 from reference_lab.workflows.flux_spectroscopy_analysis import (
     fit_flux_spectroscopy,
@@ -57,4 +58,4 @@ adaptive_summary = {
     "completed_stages": len(resumed.stages),
     "resumed_to_completion": resumed.stopped_by_limit is False,
 }
-print(adaptive_summary)
+show(adaptive_summary)

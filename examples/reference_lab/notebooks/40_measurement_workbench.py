@@ -8,6 +8,7 @@ from typing import Protocol, cast
 import scopecat as sc
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.flux_spectroscopy import flux_spectroscopy
 
 
@@ -60,4 +61,4 @@ measurement_summary = {
     "batch_sizes": [len(batch) for batch in batches],
     "batch_offsets": [batch.metadata["scopecat_batch_offset"] for batch in batches],
 }
-print(measurement_summary)
+show(measurement_summary)

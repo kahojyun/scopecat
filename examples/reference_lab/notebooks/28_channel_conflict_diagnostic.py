@@ -7,6 +7,7 @@ import scopecat as sc
 from scopecat_quantum.pulses import PulseValidationError
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.ramsey_experiments import conflicting_drive
 
 # %%
@@ -25,4 +26,4 @@ channel_conflict_summary = {
         "('drive', 'qubit', 'q0')" in message for message in conflict_messages
     ),
 }
-print(channel_conflict_summary)
+show(channel_conflict_summary)

@@ -9,6 +9,7 @@ import scopecat as sc
 from numpy.typing import NDArray
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.awg_output_monitor import AWG_OUTPUT_MONITOR
 
 # %%
@@ -48,4 +49,4 @@ awg_output_monitor_summary = {
     "minimum_mv": round(min(voltage_values) * 1e3, 6),
     "status": status,
 }
-print(awg_output_monitor_summary)
+show(awg_output_monitor_summary)

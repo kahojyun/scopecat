@@ -7,6 +7,7 @@ import scopecat as sc
 from scopecat.records.parameter import TableParameterValue
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 
 # %%
 with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
@@ -26,4 +27,4 @@ lab_tour_summary = {
         if isinstance(value, TableParameterValue)
     },
 }
-print(lab_tour_summary)
+show(lab_tour_summary)

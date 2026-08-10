@@ -6,6 +6,7 @@ from __future__ import annotations
 import scopecat as sc
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.drag_beta_experiment import drag_beta_experiment
 from reference_lab.workflows.flux_spectroscopy import flux_spectroscopy
 
@@ -55,4 +56,4 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         "repeated_grid_layout": repeated_data.schema.point_domain.kind,
         "repeated_grid_rows": len(repeated_data),
     }
-print(scan_shapes_summary)
+show(scan_shapes_summary)

@@ -6,6 +6,7 @@ from __future__ import annotations
 import scopecat as sc
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.parameters import CHANNEL_DELAY, Q1_CHANNEL_CALIBRATION
 from reference_lab.workflows.ramsey_experiments import parallel_two_qubit_ramsey
 
@@ -42,4 +43,4 @@ channel_candidate_summary = {
         and source.proposal_id == candidate.proposal_id
     ),
 }
-print(channel_candidate_summary)
+show(channel_candidate_summary)
