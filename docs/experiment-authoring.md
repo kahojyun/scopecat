@@ -101,6 +101,27 @@ usable = result.where_available(
 observations = usable.rows(build_observation)
 ```
 
+When rejected points are evidence rather than noise, partition once and inspect
+the existing typed reason vocabulary:
+
+```python
+usable, rejected = result.partition_available(result.output.trace.response)
+for point in rejected:
+    match point.availability(result.output.trace.response):
+        case "missing":
+            ...
+        case "invalid":
+            ...
+        case "overload":
+            ...
+```
+
+`point.is_available(ref)` handles the simple boolean branch. Persisted result
+paths returned by `run.result()` expose the same methods, so diagnostic code
+does not need to reach into raw measurement records or parse exception text.
+Use `point.unavailable(ref)` when diagnostic metadata or the unavailable value's
+declared dtype, unit, and shape are also relevant.
+
 With no arguments, `where_available()` requires every returned leaf. The
 historical `run.result()` view offers the same operation with persisted paths.
 Point-local compute uses the complementary rule: if any measured input is

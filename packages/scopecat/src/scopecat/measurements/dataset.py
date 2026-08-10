@@ -1556,6 +1556,35 @@ class ExperimentResultPoint:
     _dataset: Dataset = field(repr=False)
     index: int
 
+    def availability(
+        self,
+        ref: ProductRef | RecordRef | ValueRef[object],
+        /,
+    ) -> MeasurementUnavailableReason | None:
+        """Return the typed unavailability reason for one result field."""
+
+        unavailable = self.unavailable(ref)
+        return None if unavailable is None else unavailable.reason
+
+    def unavailable(
+        self,
+        ref: ProductRef | RecordRef | ValueRef[object],
+        /,
+    ) -> MeasurementUnavailable | None:
+        """Return the complete unavailable diagnostic for one result field."""
+
+        value = self._dataset[ref]._raw_values[self.index]
+        return value if isinstance(value, MeasurementUnavailable) else None
+
+    def is_available(
+        self,
+        ref: ProductRef | RecordRef | ValueRef[object],
+        /,
+    ) -> bool:
+        """Return whether one result field has a usable value at this point."""
+
+        return self.availability(ref) is None
+
     @overload
     def value(self, ref: ValueRef[Quantity], /) -> Quantity: ...
 
@@ -1576,8 +1605,10 @@ class ExperimentResultPoint:
         variable = self._dataset[ref]
         value = variable[self.index]
         if value is None:
+            reason = self.availability(ref)
             raise ValueError(
-                f"variable {variable.id!r} is unavailable at row position {self.index}"
+                f"variable {variable.id!r} is unavailable at row position "
+                f"{self.index}: {reason}"
             )
         if (
             isinstance(ref, ValueRef)
@@ -1606,8 +1637,10 @@ class ExperimentResultPoint:
         variable = self._dataset[ref]
         value = variable.quantities(unit)[self.index]
         if value is None:
+            reason = self.availability(ref)
             raise ValueError(
-                f"variable {variable.id!r} is unavailable at row position {self.index}"
+                f"variable {variable.id!r} is unavailable at row position "
+                f"{self.index}: {reason}"
             )
         return value
 
@@ -1670,6 +1703,21 @@ class ExperimentResultView[ResultT](Sequence[ExperimentResultPoint]):
             mask &= self.dataset[ref].is_available()
         return ExperimentResultView(self.dataset.where(mask), self.output)
 
+    def partition_available(
+        self,
+        *refs: ProductRef | RecordRef | ValueRef[object],
+    ) -> tuple[ExperimentResultView[ResultT], ExperimentResultView[ResultT]]:
+        """Split usable and unavailable points while preserving the result schema."""
+
+        selected = tuple(refs) or tuple(_experiment_result_refs(self.output))
+        mask = self.dataset[selected[0]].is_available()
+        for ref in selected[1:]:
+            mask &= self.dataset[ref].is_available()
+        return (
+            ExperimentResultView(self.dataset.where(mask), self.output),
+            ExperimentResultView(self.dataset.where(~mask), self.output),
+        )
+
 
 type ResultPath = str | tuple[str, ...]
 
@@ -1681,13 +1729,36 @@ class StoredExperimentResultPoint:
     _view: StoredExperimentResultView = field(repr=False)
     index: int
 
+    def availability(
+        self,
+        path: ResultPath,
+        /,
+    ) -> MeasurementUnavailableReason | None:
+        """Return the typed unavailability reason for one persisted result field."""
+
+        unavailable = self.unavailable(path)
+        return None if unavailable is None else unavailable.reason
+
+    def unavailable(
+        self,
+        path: ResultPath,
+        /,
+    ) -> MeasurementUnavailable | None:
+        """Return the complete unavailable diagnostic for one persisted field."""
+
+        value = self._view.variable(path)._raw_values[self.index]
+        return value if isinstance(value, MeasurementUnavailable) else None
+
+    def is_available(self, path: ResultPath, /) -> bool:
+        return self.availability(path) is None
+
     def value(self, path: ResultPath, /) -> NativeAvailableValue:
         variable = self._view.variable(path)
         value = variable[self.index]
         if value is None:
             raise ValueError(
                 f"result field {_normalize_result_path(path)!r} is unavailable at "
-                f"row position {self.index}"
+                f"row position {self.index}: {self.availability(path)}"
             )
         return value
 
@@ -1697,7 +1768,7 @@ class StoredExperimentResultPoint:
         if value is None:
             raise ValueError(
                 f"result field {_normalize_result_path(path)!r} is unavailable at "
-                f"row position {self.index}"
+                f"row position {self.index}: {self.availability(path)}"
             )
         return value
 
@@ -1774,6 +1845,21 @@ class StoredExperimentResultView(Sequence[StoredExperimentResultPoint]):
         for path in selected[1:]:
             mask &= self.variable(path).is_available()
         return StoredExperimentResultView(self.dataset.where(mask), self.contract)
+
+    def partition_available(
+        self,
+        *paths: ResultPath,
+    ) -> tuple[StoredExperimentResultView, StoredExperimentResultView]:
+        """Split usable and unavailable points addressed by persisted paths."""
+
+        selected = tuple(paths) or self.paths
+        mask = self.variable(selected[0]).is_available()
+        for path in selected[1:]:
+            mask &= self.variable(path).is_available()
+        return (
+            StoredExperimentResultView(self.dataset.where(mask), self.contract),
+            StoredExperimentResultView(self.dataset.where(~mask), self.contract),
+        )
 
 
 def _normalize_result_path(path: ResultPath) -> tuple[str, ...]:

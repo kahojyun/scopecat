@@ -177,7 +177,17 @@ def test_dataset_binds_an_experiment_result_to_typed_points() -> None:
         Quantity(1000.0, "mV"),
         Quantity(2000.0, "mV"),
     )
-    with pytest.raises(ValueError, match="unavailable at row position 1"):
+    assert result[0].availability(schema.temperature) is None
+    assert result[0].is_available(schema.temperature)
+    assert result[1].availability(schema.temperature) == "invalid"
+    assert not result[1].is_available(schema.temperature)
+    unavailable = result[1].unavailable(schema.temperature)
+    assert unavailable is not None
+    assert unavailable.metadata == {"cause": "sensor settling"}
+    with pytest.raises(
+        ValueError,
+        match="unavailable at row position 1: invalid",
+    ):
         result[1].value(schema.temperature)
 
     available = result.where_available(schema.temperature)
@@ -188,6 +198,10 @@ def test_dataset_binds_an_experiment_result_to_typed_points() -> None:
         0.05,
         0.2,
     )
+    usable, rejected = result.partition_available(schema.temperature)
+    assert usable.dataset.point_indices == (0, 2)
+    assert rejected.dataset.point_indices == (1,)
+    assert rejected[0].availability(schema.temperature) == "invalid"
 
     stored_schema = schema_with_sources.model_copy(
         update={
@@ -207,9 +221,16 @@ def test_dataset_binds_an_experiment_result_to_typed_points() -> None:
     stored = Dataset(
         base.raw.model_copy(update={"dataset_schema": stored_schema}),
         base.entry,
-    ).result.where_available("temperature")
-    assert stored.dataset.point_indices == (0, 2)
-    assert stored.rows(lambda point: point.value("temperature")) == (0.05, 0.2)
+    ).result
+    stored_usable, stored_rejected = stored.partition_available("temperature")
+    assert stored_usable.dataset.point_indices == (0, 2)
+    assert stored_usable.rows(lambda point: point.value("temperature")) == (0.05, 0.2)
+    assert stored_rejected.dataset.point_indices == (1,)
+    assert stored_rejected[0].availability("temperature") == "invalid"
+    assert not stored_rejected[0].is_available("temperature")
+    stored_unavailable = stored_rejected[0].unavailable("temperature")
+    assert stored_unavailable is not None
+    assert stored_unavailable.metadata == {"cause": "sensor settling"}
 
 
 def test_logical_product_handle_selects_its_durable_variable() -> None:
