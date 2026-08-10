@@ -194,7 +194,7 @@ class AnalysisTable(_AnalysisContentModel):
             type(row) is not row_type for row in selected_rows
         ):
             raise TypeError("analysis object rows must share one dataclass type")
-        hints = get_type_hints(row_type, include_extras=True)
+        hints = _dataclass_type_hints(row_type)
         selected_fields = tuple(
             (member.name, policy)
             for member in fields(row_type)
@@ -229,6 +229,22 @@ class AnalysisTable(_AnalysisContentModel):
             ],
             columns=columns,
         )
+
+
+def _dataclass_type_hints(row_type: type[object]) -> Mapping[str, object]:
+    """Resolve postponed fields even after a project module is unloaded."""
+
+    initializer = getattr(row_type, "__init__", None)
+    retained_globals = getattr(initializer, "__globals__", None)
+    globalns = cast(
+        "dict[str, object] | None",
+        retained_globals if isinstance(retained_globals, dict) else None,
+    )
+    return get_type_hints(
+        row_type,
+        globalns=globalns,
+        include_extras=True,
+    )
 
 
 class AnalysisFigureAxis(_AnalysisContentModel):

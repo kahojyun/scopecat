@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
+from types import ModuleType
 from typing import Annotated
 
 import numpy as np
@@ -72,6 +74,34 @@ def test_analysis_projects_annotated_objects_into_tables_and_figures() -> None:
         ("1", [100.0, 200.0], [0.2, 0.4]),
         ("2", [300.0], [0.6]),
     ]
+
+
+def test_analysis_projects_postponed_fields_after_their_module_is_unloaded() -> None:
+    module_name = "test_detached_analysis_result"
+    module = ModuleType(module_name)
+    module.__dict__.update(
+        Annotated=Annotated,
+        AnalysisField=AnalysisField,
+        dataclass=dataclass,
+    )
+    sys.modules[module_name] = module
+    exec(  # noqa: S102 - isolate a real unloaded project-module boundary
+        """
+from __future__ import annotations
+
+@dataclass(frozen=True, slots=True)
+class Result:
+    score: Annotated[float, AnalysisField(label="Score")]
+""",
+        module.__dict__,
+    )
+    result_type = module.Result
+    del sys.modules[module_name]
+
+    table = AnalysisTable.from_objects([result_type(0.5)])
+
+    assert table.columns == [AnalysisTableColumn(id="score", label="Score")]
+    assert table.rows == [AnalysisTableRow(cells=[0.5])]
 
 
 def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts() -> (
