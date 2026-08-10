@@ -66,6 +66,29 @@ is the canonical task guide; the `PointPlan` docstring defines its exact local
 contract. Adaptive selection uses bounded stages whose next invocation depends
 on earlier results.
 
+### Compute transport boundary
+
+Python compute functions currently remain local closures owned by the runner
+that planned the invocation. Their implementation IDs are diagnostic execution
+identities, not durable or remotely resolvable contracts. Scopecat must not
+pickle closures or infer portability from a function's module and qualified
+name: either choice silently captures environment and dependency state.
+
+A genuinely portable compute implementation requires one explicit deployment
+contract with all three parts:
+
+1. a registry-owned implementation ID and version that another worker can
+   resolve;
+2. input, output, payload, and failure codecs compatible with the declared
+   `ScalarType`/`ArrayType` contract;
+3. an execution capability contract covering runtime dependencies, resource
+   limits, and whether replay is deterministic.
+
+When such a registry exists, `compute(...)` should remain the authoring API;
+registration and deployment select an implementation behind it. Until then,
+preview reports the local implementation identity and placement without
+claiming that the closure is portable.
+
 Logical resource ports describe the interfaces and entities required by a
 reusable definition. The accepted configuration maps those requirements onto a
 finite catalog of physical endpoints. This keeps experiment definitions
