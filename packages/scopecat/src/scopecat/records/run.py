@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scopecat.kernel.frozen import freeze_json_mapping
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.run_outcome import RunOutcome, RunStatus, utc_now
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigContentHash
@@ -52,6 +55,24 @@ type RunConfigSource = Annotated[
 ]
 
 
+class RunStageDecision(BaseModel):
+    """Durable policy decision that selected one staged run."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy_id: str = Field(min_length=1)
+    policy_version: str = Field(min_length=1)
+    based_on_run_id: str = Field(min_length=1)
+    decision: Mapping[str, JsonValue] = Field(default_factory=dict)
+    checkpoint: Mapping[str, JsonValue] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def freeze_payloads(self) -> RunStageDecision:
+        object.__setattr__(self, "decision", freeze_json_mapping(self.decision))
+        object.__setattr__(self, "checkpoint", freeze_json_mapping(self.checkpoint))
+        return self
+
+
 class RunStageLineage(BaseModel):
     """Durable identity of one run within a notebook-driven sequence."""
 
@@ -60,6 +81,7 @@ class RunStageLineage(BaseModel):
     sequence_id: str = Field(min_length=1)
     index: int = Field(ge=0)
     previous_run_id: str | None = Field(default=None, min_length=1)
+    decision: RunStageDecision | None = None
 
     @model_validator(mode="after")
     def validate_predecessor(self) -> RunStageLineage:
@@ -67,6 +89,11 @@ class RunStageLineage(BaseModel):
             raise ValueError("the first run stage cannot have a predecessor")
         if self.index > 0 and self.previous_run_id is None:
             raise ValueError("a later run stage requires a predecessor")
+        if (
+            self.decision is not None
+            and self.decision.based_on_run_id != self.previous_run_id
+        ):
+            raise ValueError("stage decision must be based on its predecessor run")
         return self
 
 

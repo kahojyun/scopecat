@@ -18,6 +18,7 @@ from scopecat.api.lab import (
     LabClient,
     PreparedLabExperiment,
     StagedExperiment,
+    StageProposal,
 )
 from scopecat.api.run import RunHandle
 from scopecat.config.drafts import ConfigDraft
@@ -86,6 +87,7 @@ from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunManifest,
+    RunStageDecision,
     RunStageLineage,
 )
 from scopecat.records.run_request import RunRequest
@@ -305,7 +307,15 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
     def choose_next(stage: ExperimentStage):
         assert stage.measurements() is stage_dataset
         stages.append(stage)
-        return None if stage.index == 2 else invocations[stage.index + 1]
+        if stage.index == 2:
+            return None
+        return StageProposal(
+            experiment=invocations[stage.index + 1],
+            policy_id="adaptive-threshold",
+            policy_version="1",
+            decision={"selected_index": stage.index + 1},
+            checkpoint={"completed": stage.index + 1},
+        )
 
     result = lab.run_staged(
         invocations[0],
@@ -336,6 +346,17 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
             sequence_id="adaptive-sequence",
             index=index,
             previous_run_id=None if index == 0 else f"run-{index}",
+            decision=(
+                None
+                if index == 0
+                else RunStageDecision(
+                    policy_id="adaptive-threshold",
+                    policy_version="1",
+                    based_on_run_id=f"run-{index}",
+                    decision={"selected_index": index},
+                    checkpoint={"completed": index},
+                )
+            ),
         )
         for index in range(3)
     ]

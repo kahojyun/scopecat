@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import TracebackType
 from typing import Self, cast
 from uuid import uuid4
@@ -18,12 +18,18 @@ from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
+from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.measurements.results import Dataset
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.program.values import MetadataValue
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.run import RunConfigSource, RunManifest, RunStageLineage
+from scopecat.records.run import (
+    RunConfigSource,
+    RunManifest,
+    RunStageDecision,
+    RunStageLineage,
+)
 from scopecat.runs.selectors import RunSelector
 
 type ExperimentSpec = ExperimentInvocation | Experiment[...]
@@ -43,13 +49,45 @@ class ExperimentStage:
     def previous_run(self) -> RunHandle | None:
         return None if self.index == 0 else self.history[-2]
 
+    @property
+    def decision(self) -> RunStageDecision | None:
+        """Return the durable policy decision that selected this stage."""
+
+        lineage = self.run.manifest.stage
+        return None if lineage is None else lineage.decision
+
     def measurements(self, *, selector: str = "raw-measurements") -> Dataset:
         """Load this completed stage's labeled measurement dataset."""
 
         return self.run.measurements(selector=selector)
 
 
-type NextExperimentStage = Callable[[ExperimentStage], ExperimentSpec | None]
+def _empty_stage_metadata() -> dict[str, MetadataValue]:
+    return {}
+
+
+@dataclass(frozen=True, slots=True)
+class StageProposal:
+    """One next invocation plus durable adaptive-policy state."""
+
+    experiment: ExperimentSpec
+    policy_id: str
+    policy_version: str
+    decision: Mapping[str, MetadataValue] = field(default_factory=_empty_stage_metadata)
+    checkpoint: Mapping[str, MetadataValue] = field(
+        default_factory=_empty_stage_metadata
+    )
+
+    def __post_init__(self) -> None:
+        if not self.policy_id or not self.policy_version:
+            raise ValueError("stage policy id and version must be non-empty")
+        object.__setattr__(self, "decision", freeze_json_mapping(self.decision))
+        object.__setattr__(self, "checkpoint", freeze_json_mapping(self.checkpoint))
+
+
+type NextExperimentStage = Callable[
+    [ExperimentStage], ExperimentSpec | StageProposal | None
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,6 +356,7 @@ class LabClient:
         return self._execute_staged(
             sequence_id=selected_sequence_id,
             current=prepared.invocation,
+            current_decision=None,
             next_stage=next_stage,
             max_stages=max_stages,
             config=prepared.config,
@@ -356,10 +395,15 @@ class LabClient:
         following = next_stage(existing.stages[-1])
         if following is None:
             return replace(existing, stopped_by_limit=False)
+        current, current_decision = _next_stage(
+            following,
+            based_on_run_id=existing.latest.id,
+        )
         latest_request = existing.latest.request
         return self._execute_staged(
             sequence_id=sequence_id,
-            current=_experiment_invocation(following),
+            current=current,
+            current_decision=current_decision,
             next_stage=next_stage,
             max_stages=max_stages,
             config=existing.latest.config,
@@ -380,6 +424,7 @@ class LabClient:
         *,
         sequence_id: str,
         current: ExperimentInvocation,
+        current_decision: RunStageDecision | None,
         next_stage: NextExperimentStage,
         max_stages: int,
         config: ConfigProfileSnapshot,
@@ -400,6 +445,7 @@ class LabClient:
                 sequence_id=sequence_id,
                 index=index,
                 previous_run_id=previous_run_id,
+                decision=current_decision,
             )
             run = self.execute_invocation(
                 current,
@@ -429,7 +475,10 @@ class LabClient:
                     stages=tuple(selected),
                     stopped_by_limit=False,
                 )
-            current = _experiment_invocation(following)
+            current, current_decision = _next_stage(
+                following,
+                based_on_run_id=run.id,
+            )
             previous_run_id = run.id
         return StagedExperiment(
             sequence_id=sequence_id,
@@ -561,6 +610,25 @@ def _experiment_invocation(experiment: ExperimentSpec) -> ExperimentInvocation:
     return experiment.bind() if isinstance(experiment, Experiment) else experiment
 
 
+def _next_stage(
+    proposed: ExperimentSpec | StageProposal,
+    *,
+    based_on_run_id: str,
+) -> tuple[ExperimentInvocation, RunStageDecision | None]:
+    if not isinstance(proposed, StageProposal):
+        return _experiment_invocation(proposed), None
+    return (
+        _experiment_invocation(proposed.experiment),
+        RunStageDecision(
+            policy_id=proposed.policy_id,
+            policy_version=proposed.policy_version,
+            based_on_run_id=based_on_run_id,
+            decision=proposed.decision,
+            checkpoint=proposed.checkpoint,
+        ),
+    )
+
+
 def _stage_submission_id(sequence_id: str, index: int) -> str:
     return f"staged:{sequence_id}:{index}"
 
@@ -569,5 +637,6 @@ __all__ = [
     "ExperimentStage",
     "LabClient",
     "PreparedLabExperiment",
+    "StageProposal",
     "StagedExperiment",
 ]

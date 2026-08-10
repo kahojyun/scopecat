@@ -25,6 +25,31 @@ bounds an optimizer that keeps proposing work; when the bound is reached, the
 callback for the final completed stage is deferred so stateful optimizers do not
 advance beyond durable work.
 
+When a policy must survive or be audited across notebook restarts, return a
+structured proposal instead of only the invocation:
+
+```python
+from scopecat.api.lab import StageProposal
+
+
+def choose_next(stage):
+    optimizer.restore(stage.decision.checkpoint if stage.decision else {})
+    candidate = optimizer.ask(stage.measurements())
+    if candidate is None:
+        return None
+    return StageProposal(
+        experiment=point_experiment(candidate),
+        policy_id="resonance-search",
+        policy_version="2",
+        decision={"candidate_hz": candidate.frequency_hz},
+        checkpoint=optimizer.checkpoint(),
+    )
+```
+
+The policy identity, decision summary, and JSON checkpoint become part of the
+next run's durable stage lineage. Plain invocation returns remain the short
+path. Arbitrary callback closures and optimizer objects are never serialized.
+
 Sequences retain their configuration snapshot and typed run lineage. They can
 be rediscovered and continued after restarting a notebook:
 
