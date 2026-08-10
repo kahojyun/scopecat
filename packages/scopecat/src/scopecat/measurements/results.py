@@ -7,6 +7,8 @@ from scopecat.measurements.contracts import (
 )
 from scopecat.measurements.dataset import (
     Dataset,
+    ExperimentResultPoint,
+    ExperimentResultView,
     NativeAvailableValue,
     PointMask,
     Variable,
@@ -35,6 +37,8 @@ from scopecat.records.measurement import (
 
 __all__ = [
     "Dataset",
+    "ExperimentResultPoint",
+    "ExperimentResultView",
     "InstrumentAcquisitionEvidence",
     "MeasurementArray",
     "MeasurementDType",

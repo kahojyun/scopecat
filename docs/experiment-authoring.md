@@ -76,6 +76,23 @@ data = run.measurements()
 trace = data.traces(schema.trace.s_parameter)
 ```
 
+For row-oriented fitting, bind the complete returned schema once. Binding
+validates every leaf up front, and each point preserves the Python type carried
+by its symbolic reference:
+
+```python
+observations = data.bind(schema).rows(
+    lambda point: Observation(
+        bias=point.value(schema.bias),
+        response=point.value(schema.trace.response),
+    )
+)
+```
+
+This replaces independently loading columns, rejecting unavailable values, and
+zipping them by position. Use `point.quantity(ref, "mV")` when a numeric leaf
+should be converted to a requested unit.
+
 There is no parallel `*Records` dataclass to declare or maintain. Product
 bundles keep their author-facing field names, and returned nested values receive
 hierarchical record names. These paths are the durable names: they do not change

@@ -11,7 +11,7 @@ import math
 import operator
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from importlib import import_module
 from itertools import product as cartesian_product
 from types import MappingProxyType
@@ -42,6 +42,7 @@ from scopecat.program.value_refs import (
     internal_value_ref_record_source_id,
 )
 from scopecat.program.value_types import Array, Payload, Scalar
+from scopecat.program.value_types import Quantity as QuantityType
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -619,6 +620,16 @@ class Dataset:
             raise KeyError(
                 f"measurement dataset has no variable {variable_id!r}"
             ) from error
+
+    def bind[ResultT](self, output: ResultT, /) -> ExperimentResultView[ResultT]:
+        """Bind an experiment's returned schema to this dataset.
+
+        Every returned data reference is validated immediately. The resulting
+        point views preserve each reference's native Python type without making
+        callers manually align independent variable tuples.
+        """
+
+        return ExperimentResultView(self, output)
 
     def _variable_from_record_ref[T: NativeAvailableValue](
         self,
@@ -1526,6 +1537,142 @@ class Dataset:
                         }
                     )
         return rows
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentResultPoint:
+    """One complete typed point from a schema-bound experiment result."""
+
+    _dataset: Dataset = field(repr=False)
+    index: int
+
+    @overload
+    def value(self, ref: ValueRef[Quantity], /) -> Quantity: ...
+
+    @overload
+    def value[T: NativeAvailableValue](
+        self,
+        ref: ProductRef[T] | RecordRef[T] | ValueRef[T],
+        /,
+    ) -> T: ...
+
+    def value(
+        self,
+        ref: ProductRef | RecordRef | ValueRef[object],
+        /,
+    ) -> object:
+        """Return one available native value, preserving Quantity semantics."""
+
+        variable = self._dataset[ref]
+        value = variable[self.index]
+        if value is None:
+            raise ValueError(
+                f"variable {variable.id!r} is unavailable at row position {self.index}"
+            )
+        if (
+            isinstance(ref, ValueRef)
+            and isinstance(ref.value_type, Scalar)
+            and isinstance(ref.value_type.atom, QuantityType)
+        ):
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise TypeError(
+                    f"quantity variable {variable.id!r} must contain numbers"
+                )
+            if variable.unit is None:
+                raise TypeError(
+                    f"quantity variable {variable.id!r} must declare a unit"
+                )
+            return Quantity(float(value), variable.unit)
+        return value
+
+    def quantity(
+        self,
+        ref: ProductRef | RecordRef | ValueRef[object],
+        /,
+        unit: str | None = None,
+    ) -> Quantity:
+        """Return one available point scalar as a quantity."""
+
+        variable = self._dataset[ref]
+        value = variable.quantities(unit)[self.index]
+        if value is None:
+            raise ValueError(
+                f"variable {variable.id!r} is unavailable at row position {self.index}"
+            )
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentResultView[ResultT](Sequence[ExperimentResultPoint]):
+    """A dataset validated against one experiment's returned result schema."""
+
+    dataset: Dataset
+    output: ResultT
+
+    def __post_init__(self) -> None:
+        refs = tuple(_experiment_result_refs(self.output))
+        if not refs:
+            raise TypeError("experiment result schemas must contain data references")
+        for ref in refs:
+            self.dataset[ref]
+
+    @override
+    def __len__(self) -> int:
+        return len(self.dataset)
+
+    @overload
+    def __getitem__(self, index: int) -> ExperimentResultPoint: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[ExperimentResultPoint, ...]: ...
+
+    @override
+    def __getitem__(
+        self,
+        index: int | slice,
+    ) -> ExperimentResultPoint | tuple[ExperimentResultPoint, ...]:
+        if isinstance(index, slice):
+            return tuple(
+                ExperimentResultPoint(self.dataset, position)
+                for position in range(*index.indices(len(self)))
+            )
+        position = _normalize_index(index, size=len(self), label="result point")
+        return ExperimentResultPoint(self.dataset, position)
+
+    def rows[RowT](
+        self,
+        build: Callable[[ExperimentResultPoint], RowT],
+        /,
+    ) -> tuple[RowT, ...]:
+        """Materialize typed rows without independently aligning columns."""
+
+        return tuple(build(point) for point in self)
+
+
+def _experiment_result_refs(
+    value: object,
+) -> Iterator[ProductRef | RecordRef | ValueRef[object]]:
+    if isinstance(value, ProductRef | RecordRef | ValueRef):
+        yield value
+        return
+    if is_dataclass(value) and not isinstance(value, type):
+        for member in fields(value):
+            yield from _experiment_result_refs(
+                cast("object", getattr(value, member.name))
+            )
+        return
+    if isinstance(value, Mapping):
+        for item in value.values():
+            yield from _experiment_result_refs(item)
+        return
+    if isinstance(value, tuple):
+        for item in value:
+            yield from _experiment_result_refs(item)
+        return
+    raise TypeError(
+        "experiment result schemas must be tuple/dataclass/mapping trees of "
+        "data references"
+    )
 
 
 def _native_value(value: MeasurementValue) -> NativeValue:

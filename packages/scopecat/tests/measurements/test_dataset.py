@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import assert_type, cast
 
@@ -127,6 +128,55 @@ def test_coordinate_handle_narrows_a_dataset_coordinate() -> None:
 
     assert_type(bias, Variable[float])
     assert bias.require_quantities("mV")[1] == Quantity(1000.0, "mV")
+
+
+def test_dataset_binds_an_experiment_result_to_typed_points() -> None:
+    @dataclass(frozen=True, slots=True)
+    class ResultSchema:
+        bias: CoordinateRef[Quantity]
+        temperature: ProductRef[float]
+
+    base = _dataset()
+    variables = tuple(
+        variable.model_copy(
+            update=(
+                {"source_product_id": "thermometer/temperature"}
+                if variable.id == "temperature"
+                else {}
+            )
+        )
+        for variable in base.schema.variables
+    )
+    schema_with_sources = base.schema.model_copy(update={"variables": variables})
+    dataset = Dataset(
+        base.raw.model_copy(update={"dataset_schema": schema_with_sources}),
+        base.entry,
+    )
+    schema = ResultSchema(
+        bias=coordinate("bias", QuantityType(unit="V")),
+        temperature=ProductRef.from_declaration(
+            ModuleProductDecl(
+                id="temperature",
+                scope=("thermometer",),
+                value_spec=ProductValueSpec[float](dtype="float64", unit="K"),
+            )
+        ),
+    )
+
+    result = dataset.bind(schema)
+
+    assert result.output is schema
+    assert_type(result[0].value(schema.bias), Quantity)
+    assert_type(result[0].value(schema.temperature), float)
+    assert result[0].value(schema.bias) == Quantity(0.0, "V")
+    assert result[0].quantity(schema.temperature, "mK") == Quantity(50.0, "mK")
+    assert result.rows(lambda point: point.quantity(schema.bias, "mV")) == (
+        Quantity(0.0, "mV"),
+        Quantity(1000.0, "mV"),
+        Quantity(2000.0, "mV"),
+    )
+    with pytest.raises(ValueError, match="unavailable at row position 1"):
+        result[1].value(schema.temperature)
 
 
 def test_logical_product_handle_selects_its_durable_variable() -> None:

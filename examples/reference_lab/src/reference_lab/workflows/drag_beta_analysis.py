@@ -186,27 +186,11 @@ def _observations_from_dataset(
     dataset: Dataset,
 ) -> tuple[DragBetaObservation, ...]:
     schema = DRAG_BETA_EXPERIMENT.output
-    try:
-        beta = dataset[schema.beta].require_quantities("ns")
-        amplification = dataset[schema.amplification].require_values()
-        probability_one = dataset[
-            schema.probabilities.probability_1
-        ].require_quantities("ratio")
-    except KeyError as error:
-        raise ValueError(
-            "run does not contain the DRAG-beta measurement schema"
-        ) from error
-    return tuple(
-        DragBetaObservation(
-            beta=beta_value,
-            amplification=amplification_value,
-            p1=float(probability_one_value.value),
-        )
-        for beta_value, amplification_value, probability_one_value in zip(
-            beta,
-            amplification,
-            probability_one,
-            strict=True,
+    return dataset.bind(schema).rows(
+        lambda point: DragBetaObservation(
+            beta=point.value(schema.beta),
+            amplification=point.value(schema.amplification),
+            p1=point.value(schema.probabilities.probability_1),
         )
     )
 
