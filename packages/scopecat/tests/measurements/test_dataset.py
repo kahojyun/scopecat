@@ -568,6 +568,22 @@ def test_measurement_projection_controls_names_units_and_native_adapters() -> No
     assert isinstance(frame, pd.DataFrame)
     assert list(frame["voltage"]) == [0.0, 1000.0, 2000.0]
     assert frame.loc[1, "temp__unavailable_reason"] == "invalid"
+    np.testing.assert_array_equal(
+        frame.loc[0, "response"],
+        np.array([complex(1.0, 0.0), complex(0.5, -0.1)]),
+    )
+    assert frame.attrs["scopecat"]["schema_id"] == (
+        "scopecat.measurement-data-projection.v1"
+    )
+
+    arrow_frame = projection.to_pandas(dtype_backend="pyarrow")
+    assert "pyarrow" in str(arrow_frame["temp"].dtype)
+
+    pl = pytest.importorskip("polars")
+    polars_frame = projection.to_polars()
+    assert isinstance(polars_frame, pl.DataFrame)
+    assert polars_frame.columns == table.column_names
+    assert polars_frame["voltage"].to_list() == [0.0, 1000.0, 2000.0]
 
     labeled = projection.to_xarray()
     assert isinstance(labeled, xr.Dataset)

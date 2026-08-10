@@ -17,6 +17,7 @@ from scopecat.measurements.dataset import (
 )
 from scopecat.measurements.interop import (
     MeasurementDataProjection,
+    PandasDTypeBackend,
     ProjectionDiagnostics,
     ProjectionField,
     ProjectionSchema,
@@ -71,6 +72,7 @@ __all__ = [
     "MeasurementVariable",
     "MeasurementVariableRole",
     "NativeAvailableValue",
+    "PandasDTypeBackend",
     "PointMask",
     "ProjectionDiagnostics",
     "ProjectionField",

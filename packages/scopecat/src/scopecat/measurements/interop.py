@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from importlib import import_module
 from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
@@ -28,12 +28,18 @@ from scopecat.records.measurement import (
 
 if TYPE_CHECKING:
     import pandas as pd
+    import polars as pl
 
 type ProjectionDiagnostics = Literal["none", "reason", "full"]
+type PandasDTypeBackend = Literal["numpy", "pyarrow"]
 
 
 class _PolarsModule(Protocol):
     def from_arrow(self, data: pa.Table) -> object: ...
+
+
+class _PandasModule(Protocol):
+    ArrowDtype: Callable[[pa.DataType], object]
 
 
 class _ProjectionVariable(Protocol):
@@ -106,6 +112,7 @@ class ProjectionSchema:
     fields: tuple[ProjectionField, ...]
     diagnostics: ProjectionDiagnostics = "none"
     include_identity: bool = True
+    schema_id: str = "scopecat.measurement-data-projection.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,16 +314,33 @@ class MeasurementDataProjection:
             },
         )
 
-    def to_pandas(self) -> pd.DataFrame:
-        """Convert through Arrow so tabular adapters share one mapping contract."""
+    def to_pandas(
+        self,
+        *,
+        dtype_backend: PandasDTypeBackend = "numpy",
+    ) -> pd.DataFrame:
+        """Convert through Arrow, optionally retaining Arrow extension dtypes."""
 
-        return cast("pd.DataFrame", self.to_arrow().to_pandas())
+        if dtype_backend not in {"numpy", "pyarrow"}:
+            raise ValueError("pandas dtype_backend must be numpy or pyarrow")
+        module = cast("_PandasModule", _optional_module("pandas", extra="pandas"))
+        table = self.to_arrow()
+        frame = cast(
+            "pd.DataFrame",
+            table.to_pandas(
+                types_mapper=(None if dtype_backend == "numpy" else module.ArrowDtype)
+            ),
+        )
+        if dtype_backend == "numpy":
+            _restore_numpy_columns(frame, table=table, fields=self.schema.fields)
+        frame.attrs["scopecat"] = thaw_json_value(asdict(self.schema))
+        return frame
 
-    def to_polars(self) -> object:
+    def to_polars(self) -> pl.DataFrame:
         """Convert through Arrow without making Polars a core dependency."""
 
         module = cast("_PolarsModule", _optional_module("polars", extra="polars"))
-        return module.from_arrow(self.to_arrow())
+        return cast("pl.DataFrame", module.from_arrow(self.to_arrow()))
 
 
 def bind_projection(
@@ -408,6 +432,58 @@ def _unavailable_columns(
     return tuple(reasons), tuple(metadata)
 
 
+def _restore_numpy_columns(
+    frame: pd.DataFrame,
+    *,
+    table: pa.Table,
+    fields: Sequence[ProjectionField],
+) -> None:
+    for field in fields:
+        values = table[field.name].to_pylist()
+        if len(field.dims) > 1:
+            restored = np.empty(len(values), dtype=np.object_)
+            restored[:] = tuple(
+                None
+                if value is None
+                else np.asarray(
+                    _complex_nested(value) if field.dtype == "complex128" else value,
+                    dtype=_numpy_dtype(field.dtype),
+                )
+                for value in values
+            )
+            frame[field.name] = restored
+        elif field.dtype == "complex128":
+            frame[field.name] = tuple(
+                None if value is None else _complex_scalar(value) for value in values
+            )
+
+
+def _numpy_dtype(dtype: MeasurementDType) -> np.dtype[np.generic]:
+    return np.dtype(
+        {
+            "bool": np.bool_,
+            "complex128": np.complex128,
+            "float64": np.float64,
+            "int64": np.int64,
+            "string": np.str_,
+        }[dtype]
+    )
+
+
+def _complex_nested(value: object) -> object:
+    if isinstance(value, Mapping):
+        return _complex_scalar(value)
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return tuple(_complex_nested(item) for item in value)
+    raise TypeError("Arrow complex arrays must contain struct or sequence values")
+
+
+def _complex_scalar(value: object) -> complex:
+    if not isinstance(value, Mapping):
+        raise TypeError("Arrow complex scalars must use real/imag struct values")
+    return complex(cast("float", value["real"]), cast("float", value["imag"]))
+
+
 def _field_metadata(field: ProjectionField) -> dict[bytes, bytes]:
     metadata = {
         b"scopecat.variable_id": field.variable_id.encode(),
@@ -467,6 +543,7 @@ def _optional_module(name: str, *, extra: str) -> object:
 
 __all__ = [
     "MeasurementDataProjection",
+    "PandasDTypeBackend",
     "ProjectionDiagnostics",
     "ProjectionField",
     "ProjectionSchema",

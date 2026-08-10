@@ -10,7 +10,7 @@ import numpy as np
 import scopecat as sc
 from numpy.typing import ArrayLike, NDArray
 from scipy.optimize import least_squares  # pyright: ignore[reportUnknownVariableType]
-from scopecat.measurements.results import Dataset, Trace
+from scopecat.measurements.results import Dataset
 
 from reference_lab.parameters import (
     FLUX_SWEET_SPOT,
@@ -216,21 +216,35 @@ def fit_flux_spectroscopy(
         raise ValueError("flux spectroscopy analysis requires measurement records")
     try:
         schema = FLUX_SPECTROSCOPY.output
-        dc_bias = dataset[schema.dc_bias]
-        temperature = dataset[schema.temperature]
-        traces = dataset.traces(schema.trace.s_parameter)
+        projected = (
+            dataset.bind(schema)
+            .project(
+                dc_bias=schema.dc_bias,
+                temperature=schema.temperature,
+                frequency=schema.trace.frequency,
+                s_parameter=schema.trace.s_parameter,
+            )
+            .with_units(dc_bias="V", temperature="K", frequency="Hz")
+            .to_xarray()
+        )
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError(
             "run does not contain the flux-spectroscopy measurement schema"
         ) from error
     return tuple(
-        _fit_point(dc_bias_value, temperature_value, trace)
-        for trace, dc_bias_value, temperature_value in zip(
-            traces,
-            dc_bias.require_quantities("V"),
-            temperature.require_quantities("K"),
-            strict=True,
+        fit_resonator_trace(
+            projected["frequency"].isel(point=point).values,
+            projected["s_parameter"].isel(point=point).values,
+            dc_bias=sc.Quantity(
+                float(cast("SupportsFloat", projected["dc_bias"].values[point])),
+                "V",
+            ),
+            temperature=sc.Quantity(
+                float(cast("SupportsFloat", projected["temperature"].values[point])),
+                "K",
+            ),
         )
+        for point in range(projected.sizes["point"])
     )
 
 
@@ -281,19 +295,6 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
                 "MHz."
             ),
         )
-    )
-
-
-def _fit_point(
-    dc_bias: sc.Quantity,
-    temperature: sc.Quantity,
-    trace: Trace,
-) -> ResonatorTraceFit:
-    return fit_resonator_trace(
-        trace.x,
-        trace.y,
-        dc_bias=dc_bias,
-        temperature=temperature,
     )
 
 

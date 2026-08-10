@@ -7,9 +7,9 @@ requires-python = ">=3.14"
 dependencies = [
   "numpy>=2",
   "scipy>=1.16",
-  "scopecat",
   "scopecat-instruments",
   "scopecat-quantum",
+  "scopecat[polars]",
 ]
 
 [build-system]

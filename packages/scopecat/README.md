@@ -57,7 +57,7 @@ and Arrow support for data that fits in notebook memory. Large runs remain
 available through `run.measurement_batches(...)`; selections and exports can be
 applied to each yielded batch. See the
 [measurement workflow](../../docs/measurement-data.md) for details; install
-`scopecat[pandas]` only for pandas conversion.
+`scopecat[pandas]` or `scopecat[polars]` only for the corresponding conversion.
 
 See the [authoring dataflow](../../docs/experiment-authoring.md) for how scalar
 and array shape, compute placement, returned results, and explicit recording fit

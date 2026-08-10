@@ -156,11 +156,26 @@ def _observations_from_dataset(
     dataset: Dataset,
 ) -> tuple[DragBetaObservation, ...]:
     schema = DRAG_BETA_EXPERIMENT.output
-    return dataset.bind(schema).rows(
-        lambda point: DragBetaObservation(
-            beta=point.value(schema.beta),
-            amplification=point.value(schema.amplification),
-            p1=point.value(schema.probabilities.probability_1),
+    frame = (
+        dataset.bind(schema)
+        .project(
+            beta_ns=schema.beta,
+            amplification=schema.amplification,
+            probability_1=schema.probabilities.probability_1,
+        )
+        .with_units(beta_ns="ns")
+        .with_identity(False)
+        .to_polars()
+    )
+    return tuple(
+        DragBetaObservation(
+            beta=Quantity(beta_ns, "ns"),
+            amplification=amplification,
+            p1=probability_1,
+        )
+        for beta_ns, amplification, probability_1 in cast(
+            "list[tuple[float, int, float]]",
+            frame.rows(),
         )
     )
 
@@ -169,7 +184,7 @@ def _observations_from_dataset(
     "reference-lab.drag-beta-fit",
     "1",
     input_codecs={"dataset": "scopecat.measurement-dataset.v8"},
-    capabilities=("numpy",),
+    capabilities=("numpy", "polars"),
     deterministic=True,
 )
 def _fit_drag_beta_dataset(

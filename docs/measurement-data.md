@@ -310,6 +310,51 @@ Analysis steps receive the same facade through `context.measurements()`. The
 separate `run.data()` handle is for listing stored content and reading
 artifacts; it is not a second measurement API.
 
+Before handing data to an ecosystem library, bind the external names and units
+once with `project(...)`. Selectors may be durable variable ids, typed result
+handles, or persisted result paths:
+
+```python
+projected = (
+    result.project(
+        bias_v=result.output.dc_bias,
+        temperature_mk=result.output.temperature,
+        s21=result.output.trace.s_parameter,
+    )
+    .with_units(bias_v="V", temperature_mk="mK")
+    .with_diagnostics("reason")
+)
+
+arrow = projected.to_arrow()
+pandas_frame = projected.to_pandas()
+polars_frame = projected.to_polars()
+xarray_dataset = projected.to_xarray()
+```
+
+This small projection is the adapter boundary, not an analysis framework. Fit,
+filter, group, and plot with pandas, Polars, Xarray, NumPy, SciPy, or another
+library after conversion. `ProjectionSchema` retains each external name's
+durable variable id, typed-result path, dtype, dimensions, role, unit, label,
+and recording group. Arrow repeats those semantics in field and schema
+metadata, so an adapter does not have to infer them from values.
+
+The conversion rules are deliberately fixed:
+
+| Scopecat value | Arrow / Polars | pandas `numpy` backend | Xarray |
+|---|---|---|---|
+| point scalar | declared scalar type | native scalar column | `point` variable |
+| point-local array | fixed or variable list | NumPy array per row | named local dimensions |
+| `complex128` | `{real, imag}` struct | native complex scalar/array | native complex array |
+| unavailable | null plus optional diagnostics | missing value plus optional diagnostics | fill value plus optional diagnostics |
+
+`to_pandas()` defaults to familiar NumPy/native values. Use
+`to_pandas(dtype_backend="pyarrow")` when pandas should retain Arrow extension
+dtypes. `with_diagnostics("reason")` always emits one
+`<name>__unavailable_reason` column per selected field, even when the current
+batch has no unavailable values; `"full"` also emits JSON metadata. This keeps
+schemas identical across batches. Identity columns are included by default and
+can be omitted with `with_identity(False)`.
+
 Exact selection retains every matching row, including duplicate point-cloud
 coordinates. Numeric coordinate selection accepts unit-aware quantities and an
 optional nearest tolerance. `isel(...)` accepts the point dimension and any
@@ -342,7 +387,8 @@ schema-bearing batch so callers can still inspect variables and initialize
 downstream tables.
 
 Xarray and Arrow are core dependencies and are available on every measurement
-view. Install the `scopecat[pandas]` extra only for explicit pandas exports:
+view. Install `scopecat[pandas]` or `scopecat[polars]` for the corresponding
+tabular export:
 
 ```python
 xds = data.to_xarray()  # explicit conversion spelling
