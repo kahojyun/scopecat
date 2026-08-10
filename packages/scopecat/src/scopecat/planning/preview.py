@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.execution.local.program import ComputeOperation, OutputInput
 from scopecat.execution.program import RunCoverageEffect, RunProgram
@@ -9,6 +11,8 @@ from scopecat.measurements.records import RecordPlan, ValueRecordPlan
 from scopecat.planning.preview_models import (
     ExperimentPreview,
     ExperimentPreviewBinding,
+    ExperimentPreviewBindingEdge,
+    ExperimentPreviewBindingRef,
     ExperimentPreviewCompute,
     ExperimentPreviewPoint,
     ExperimentPreviewRecord,
@@ -16,6 +20,9 @@ from scopecat.planning.preview_models import (
 from scopecat.program.parameters import ParameterContract, ParameterValueContract
 from scopecat.program.scans import AroundScanSource, RangeScanSource, ValuesScanSource
 from scopecat.program.value_refs import ValueRef, internal_value_ref_parameter_contracts
+
+type _BindingKind = Literal["input", "coordinate", "parameter"]
+type _BindingKey = tuple[_BindingKind, str]
 
 
 def build_run_program_preview(
@@ -27,6 +34,9 @@ def build_run_program_preview(
 
     selected = program.measurements
     catalog = program.points
+    bindings, binding_edges = (
+        ((), ()) if invocation is None else _preview_binding_graph(invocation)
+    )
     return ExperimentPreview(
         experiment_id=catalog.experiment_id,
         experiment_kind=catalog.experiment_kind,
@@ -55,74 +65,93 @@ def build_run_program_preview(
             for record in selected.records
         ),
         computes=_preview_computes(program),
-        bindings=() if invocation is None else _preview_bindings(invocation),
+        bindings=bindings,
+        binding_edges=binding_edges,
     )
 
 
-def _preview_bindings(
+def _preview_binding_graph(
     invocation: ExperimentInvocation,
-) -> tuple[ExperimentPreviewBinding, ...]:
-    bindings = [
-        ExperimentPreviewBinding(
+) -> tuple[
+    tuple[ExperimentPreviewBinding, ...],
+    tuple[ExperimentPreviewBindingEdge, ...],
+]:
+    bindings: dict[_BindingKey, ExperimentPreviewBinding] = {
+        ("input", input_definition.id): ExperimentPreviewBinding(
             id=input_definition.id,
             kind="input",
             owner="invocation",
-            source=(
+            origin=(
                 "override"
                 if input_definition.id in invocation.input_overrides
                 else "default"
             ),
         )
         for input_definition in invocation.definition.inputs
-    ]
+    }
+    edges: list[ExperimentPreviewBindingEdge] = []
     for axis in invocation.point_plan.domain.axes:
         source = axis.source
-        source_name = (
+        origin = (
             "values"
             if isinstance(source, ValuesScanSource)
             else "range"
             if isinstance(source, RangeScanSource)
             else "around"
         )
-        bindings.append(
-            ExperimentPreviewBinding(
-                id=axis.id,
-                kind="coordinate",
-                owner="point-plan",
-                source=source_name,
-            )
+        coordinate_ref = ExperimentPreviewBindingRef(id=axis.id, kind="coordinate")
+        bindings[("coordinate", axis.id)] = ExperimentPreviewBinding(
+            id=axis.id,
+            kind="coordinate",
+            owner="point-plan",
+            origin=origin,
         )
         if isinstance(source, AroundScanSource) and isinstance(source.center, ValueRef):
-            bindings.extend(
-                _parameter_bindings(
-                    source.center,
-                    source=f"scan-center:{axis.id}",
-                )
+            _add_parameter_edges(
+                bindings,
+                edges,
+                source.center,
+                target=coordinate_ref,
+                relation="centers",
             )
         if axis.overlay is not None:
-            bindings.extend(
-                _parameter_bindings(
-                    axis.overlay,
-                    source=f"coordinate-overlay:{axis.id}",
-                )
+            _add_parameter_edges(
+                bindings,
+                edges,
+                axis.overlay,
+                target=coordinate_ref,
+                relation="overlays",
             )
-    return tuple(bindings)
+    return tuple(bindings.values()), tuple(edges)
 
 
-def _parameter_bindings(
+def _add_parameter_edges(
+    bindings: dict[_BindingKey, ExperimentPreviewBinding],
+    edges: list[ExperimentPreviewBindingEdge],
     value: ValueRef,
     *,
-    source: str,
-) -> tuple[ExperimentPreviewBinding, ...]:
-    return tuple(
-        ExperimentPreviewBinding(
-            id=_parameter_contract_id(contract),
+    target: ExperimentPreviewBindingRef,
+    relation: Literal["centers", "overlays"],
+) -> None:
+    for contract in internal_value_ref_parameter_contracts(value):
+        parameter_id = _parameter_contract_id(contract)
+        parameter_ref = ExperimentPreviewBindingRef(
+            id=parameter_id,
+            kind="parameter",
+        )
+        bindings[("parameter", parameter_id)] = ExperimentPreviewBinding(
+            id=parameter_id,
             kind="parameter",
             owner="configuration",
-            source=source,
+            origin=None,
         )
-        for contract in internal_value_ref_parameter_contracts(value)
-    )
+        edges.append(
+            ExperimentPreviewBindingEdge(
+                source=parameter_ref,
+                target=target,
+                relation=relation,
+            )
+        )
 
 
 def _parameter_contract_id(contract: ParameterContract) -> str:

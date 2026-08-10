@@ -45,7 +45,24 @@ class ExperimentPreviewBinding:
     id: str
     kind: Literal["input", "coordinate", "parameter"]
     owner: Literal["invocation", "point-plan", "configuration"]
-    source: str
+    origin: Literal["default", "override", "values", "range", "around"] | None
+
+
+@dataclass(frozen=True)
+class ExperimentPreviewBindingRef:
+    """Typed identity of one value in the preview binding graph."""
+
+    id: str
+    kind: Literal["input", "coordinate", "parameter"]
+
+
+@dataclass(frozen=True)
+class ExperimentPreviewBindingEdge:
+    """One parameter relationship without delimiter-encoded provenance."""
+
+    source: ExperimentPreviewBindingRef
+    target: ExperimentPreviewBindingRef
+    relation: Literal["centers", "overlays"]
 
 
 @dataclass(frozen=True)
@@ -60,6 +77,7 @@ class ExperimentPreview:
     records: tuple[ExperimentPreviewRecord, ...]
     computes: tuple[ExperimentPreviewCompute, ...] = ()
     bindings: tuple[ExperimentPreviewBinding, ...] = ()
+    binding_edges: tuple[ExperimentPreviewBindingEdge, ...] = ()
 
     @property
     def point_count(self) -> int:

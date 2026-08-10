@@ -270,7 +270,10 @@ for compute in preview.computes:
     print(compute.id, compute.placement, compute.demanded_by)
 
 for binding in preview.bindings:
-    print(binding.id, binding.kind, binding.owner, binding.source)
+    print(binding.id, binding.kind, binding.owner, binding.origin)
+
+for edge in preview.binding_edges:
+    print(edge.source, edge.relation, edge.target)
 ```
 
 Placement is either `host` (all inputs exist before acquisition) or
@@ -282,10 +285,11 @@ because no durable output or downstream compute needs them.
 `bindings` gives runtime inputs, scan coordinates, and parameter dependencies
 one common inspection shape without giving them one lifecycle. Its `owner`
 states who may change the value: `invocation` for call-time inputs, `point-plan`
-for coordinates, and `configuration` for persistent parameters. `source` then
-explains whether an input used its default or an override, which scan form
-supplied a coordinate, or where a parameter enters the point plan or receives a
-coordinate overlay.
+for coordinates, and `configuration` for persistent parameters. `origin`
+explains whether an input used its default or an override and which scan form
+supplied a coordinate. `binding_edges` represents parameter relationships with
+typed `centers` and `overlays` edges, so consumers never need to parse strings
+such as `scan-center:drive_frequency`.
 The existing function arguments and scan declarations remain the authoring
 API; this is a review vocabulary, not another binding DSL.
 
