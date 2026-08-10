@@ -206,6 +206,7 @@ def test_compute_joins_measured_products_with_earlier_compute_values() -> None:
 
 
 def test_compute_instantiates_an_annotated_product_bundle_schema() -> None:
+    @_ProbabilityProducts.kernel
     def probabilities(*, signal: float) -> tuple[float, float]:
         return signal, 1.0 - signal
 
@@ -217,7 +218,6 @@ def test_compute_instantiates_an_annotated_product_bundle_schema() -> None:
                 "probabilities",
                 fn=probabilities,
                 inputs={"signal": signal},
-                output_type=_ProbabilityProducts,
             ),
             _ProbabilityProducts,
         )
@@ -254,6 +254,17 @@ def test_compute_instantiates_an_annotated_product_bundle_schema() -> None:
             unit="ratio",
         ),
     }
+
+    with pytest.raises(TypeError, match="output_type must be omitted"):
+
+        @sc.module(id="test.duplicated-structured-compute-schema")
+        def duplicated(context: sc.ModuleContext) -> None:
+            signal = context._product("signal", unit="ratio")
+            context.compute(
+                fn=probabilities,
+                output_type=_ProbabilityProducts,
+                signal=signal,
+            )
 
 
 def test_measured_compute_infers_bool_output_and_binds_keyword_inputs() -> None:

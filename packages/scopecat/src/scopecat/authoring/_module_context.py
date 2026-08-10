@@ -22,7 +22,9 @@ from scopecat.authoring._module_invocation import (
 )
 from scopecat.authoring._module_results import (
     ProductBundle,
+    ProductBundleKernel,
     create_product_bundle_internal,
+    product_bundle_kernel_type_internal,
     product_bundle_schema_internal,
 )
 from scopecat.kernel.entity import EntityRef
@@ -139,7 +141,12 @@ def _as_product_bundle_type(value: object) -> type[ProductBundle] | None:
     return value
 
 
-def _infer_compute_output_type(fn: ComputeFunction) -> DataType:
+def _infer_compute_output_type(
+    fn: ComputeFunction,
+) -> DataType | type[ProductBundle]:
+    bundle_type = product_bundle_kernel_type_internal(fn)
+    if bundle_type is not None:
+        return bundle_type
     hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
     annotation = hints.get("return")
     while isinstance(annotation, TypeAliasType):
@@ -164,7 +171,8 @@ def _infer_compute_output_type(fn: ComputeFunction) -> DataType:
         return ScalarType(String())
     raise TypeError(
         "compute output_type is required unless the function return annotation "
-        "is bool, int, float, str, or Annotated with ScalarType/ArrayType"
+        "is bool, int, float, str, or Annotated with ScalarType/ArrayType, or "
+        "the function is decorated with ProductBundle.kernel"
     )
 
 
@@ -1051,6 +1059,17 @@ class ModuleContext:
         self,
         id: str | None = None,
         *,
+        fn: ProductBundleKernel[BundleT],
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
+        output_type: None = None,
+        **input_bindings: ComputeInput | ProductRef,
+    ) -> BundleT: ...
+
+    @overload
+    def compute[BundleT: ProductBundle](
+        self,
+        id: str | None = None,
+        *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: type[BundleT],
@@ -1086,6 +1105,12 @@ class ModuleContext:
             rendered = ", ".join(sorted(duplicate_inputs))
             raise TypeError(f"compute inputs were bound more than once: {rendered}")
         selected_inputs = {**(inputs or {}), **input_bindings}
+        declared_bundle_type = product_bundle_kernel_type_internal(fn)
+        if declared_bundle_type is not None and output_type is not None:
+            raise TypeError(
+                "compute output_type must be omitted when ProductBundle.kernel "
+                "declares the structured schema"
+            )
         selected_output_type = (
             _infer_compute_output_type(fn) if output_type is None else output_type
         )

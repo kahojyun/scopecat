@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import fields, is_dataclass, replace
 from typing import (
     Annotated,
     Protocol,
+    Self,
     cast,
     get_args,
     get_origin,
@@ -67,6 +68,17 @@ class ProductBundle:
 
     __slots__ = ()
 
+    @classmethod
+    def kernel(
+        cls,
+        fn: Callable[..., object],
+    ) -> ProductBundleKernel[Self]:
+        """Bind this structured output schema to one native compute kernel."""
+
+        kernel = cast("ProductBundleKernel[Self]", fn)
+        kernel.__scopecat_product_bundle_type__ = cls
+        return kernel
+
     def _records_internal(
         self,
         record: _RecordProduct,
@@ -91,6 +103,25 @@ class ProductBundle:
                     "product bundle fields must be ProductRef or ProductBundle values"
                 )
         return RecordedProducts(entries)
+
+
+class ProductBundleKernel[BundleT: ProductBundle](Protocol):
+    """A native compute function carrying its symbolic product schema."""
+
+    __scopecat_product_bundle_type__: type[BundleT]
+
+    def __call__(self, *args: object, **kwargs: object) -> object: ...
+
+
+def product_bundle_kernel_type_internal(
+    fn: object,
+) -> type[ProductBundle] | None:
+    """Read the structured schema attached by :meth:`ProductBundle.kernel`."""
+
+    return cast(
+        "type[ProductBundle] | None",
+        getattr(fn, "__scopecat_product_bundle_type__", None),
+    )
 
 
 def product_bundle_schema_internal(

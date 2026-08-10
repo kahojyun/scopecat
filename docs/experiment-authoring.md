@@ -239,18 +239,23 @@ class Probabilities(sc.ProductBundle):
     ]
 
 
+@Probabilities.kernel
+def discriminate(*, shots) -> tuple[float, float]: ...
+
+
 probabilities = experiment.compute(
-    fn=lambda *, shots: discriminate(shots),
-    output_type=Probabilities,
+    fn=discriminate,
     shots=acquired.iq_shots,
 )
 ```
 
 Product identities are scoped below the compute identity, so repeated typed
-computes only need distinct compute IDs. A mapping of names to types remains
+computes only need distinct compute IDs. `ProductBundle.kernel` binds the native
+tuple-returning kernel to that reusable symbolic result schema once, so call
+sites do not repeat `output_type=...`. A mapping of names to types remains
 available for dynamic schemas. The internal execution model still has separate
-host and observation stages, but that distinction is compiler-owned rather
-than a second authoring API.
+host and observation stages, but that distinction is compiler-owned rather than
+a second authoring API.
 
 Earlier values can be bound directly beside measured products; no closure or
 parallel postprocessing API is required:

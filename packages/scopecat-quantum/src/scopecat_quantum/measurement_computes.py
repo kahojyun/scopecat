@@ -78,6 +78,7 @@ def binary_iq_probabilities(
 ) -> BinaryIqProbabilityProducts:
     """Declare binary state probabilities independently at each scan point."""
 
+    @BinaryIqProbabilityProducts.kernel
     def calculate(*, iq_shots: object) -> tuple[float, float]:
         return _binary_iq_probability_value(
             np.asarray(iq_shots),
@@ -87,7 +88,6 @@ def binary_iq_probabilities(
     return context.compute(
         id,
         fn=calculate,
-        output_type=BinaryIqProbabilityProducts,
         iq_shots=iq_shots,
     )
 

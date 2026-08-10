@@ -34,6 +34,7 @@ from scopecat.authoring._module_invocation import (
 )
 from scopecat.authoring._module_results import (
     ProductBundle,
+    ProductBundleKernel,
     RecordedProducts,
     module_result_value_exports,
 )
@@ -489,6 +490,17 @@ class ExperimentContext:
         inputs: Mapping[str, ComputeInput | ProductRef],
         output_type: Mapping[str, DataType],
     ) -> ProductRefs: ...
+
+    @overload
+    def compute[BundleT: ProductBundle](
+        self,
+        id: str | None = None,
+        *,
+        fn: ProductBundleKernel[BundleT],
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
+        output_type: None = None,
+        **input_bindings: ComputeInput | ProductRef,
+    ) -> BundleT: ...
 
     @overload
     def compute[BundleT: ProductBundle](
