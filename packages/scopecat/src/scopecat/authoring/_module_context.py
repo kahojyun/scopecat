@@ -130,10 +130,32 @@ from scopecat.records.measurement import (
     MeasurementScalar,
     MeasurementValue,
 )
-from scopecat.sdk.compute import compute_implementation_contract_internal
+from scopecat.sdk.compute import (
+    ComputeRegistry,
+    compute_implementation_contract_internal,
+)
 
 type BindingInput = StateBinding
 type InvocationInput = BindingInput | None
+
+_INTERNAL_COMPUTES = ComputeRegistry()
+_BUNDLE_FIELD_IMPLEMENTATION = "scopecat.bundle-field"
+
+
+@_INTERNAL_COMPUTES.implementation(_BUNDLE_FIELD_IMPLEMENTATION, "1")
+def _bundle_field(
+    *,
+    bundle: object,
+    field: str,
+    index: int,
+) -> object:
+    if isinstance(bundle, Mapping):
+        return bundle[field]
+    if isinstance(bundle, tuple):
+        return cast("object", bundle[index])
+    if is_dataclass(bundle) and not isinstance(bundle, type):
+        return cast("object", getattr(bundle, field))
+    raise TypeError("structured compute must return a mapping, tuple, or dataclass")
 
 
 def _as_product_bundle_type(value: object) -> type[ProductBundle] | None:
@@ -1128,10 +1150,16 @@ class ModuleContext:
                 output_type=selected_output_type,
             )
 
-        if not isinstance(selected_output_type, ScalarType | ArrayType):
-            raise TypeError(
-                "structured compute outputs currently require measured inputs"
+        bundle_type = _as_product_bundle_type(selected_output_type)
+        if bundle_type is not None:
+            return self._compute_values_bundle(
+                selected_id,
+                fn=fn,
+                inputs=selected_inputs,
+                bundle_type=bundle_type,
             )
+        if not isinstance(selected_output_type, ScalarType | ArrayType):
+            raise TypeError("structured compute output must be a product bundle type")
 
         captured_inputs = {
             name: cast("ComputeInput", self._capture_domain_value(value))
@@ -1160,6 +1188,79 @@ class ModuleContext:
         )
         self._local_value_ids.add(definition.output.id)
         return definition.output
+
+    def _compute_values_bundle[BundleT: ProductBundle](
+        self,
+        id: str,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef],
+        bundle_type: type[BundleT],
+    ) -> BundleT:
+        """Lower one structured host compute to an opaque result plus projections."""
+
+        output_types = dict(product_bundle_schema_internal(bundle_type))
+        captured_inputs = {
+            name: cast("ComputeInput", self._capture_domain_value(value))
+            for name, value in inputs.items()
+        }
+        definition = define_compute(
+            id,
+            fn=fn,
+            inputs=captured_inputs,
+            output_type=ScalarType(Payload("scopecat.compute-bundle.v1")),
+        )
+        self._operations.append(
+            ModuleOperationDecl(
+                id=definition.id,
+                declaration_key=definition.declaration_key,
+                input_types=definition.input_types,
+                inputs=definition.inputs,
+                output_type=definition.output_type,
+            )
+        )
+        self._python_implementations.append(
+            ModulePythonImplementation(
+                declaration_key=definition.declaration_key,
+                fn=definition.fn,
+            )
+        )
+        self._local_value_ids.add(definition.output.id)
+
+        outputs: dict[str, ValueRef] = {}
+        for index, (name, output_type) in enumerate(output_types.items()):
+            projection_id = self._allocate_effect_id(
+                f"{id}.outputs.{name}",
+                explicit=False,
+            )
+            projection = define_compute(
+                projection_id,
+                fn=_bundle_field,
+                inputs={
+                    "bundle": definition.output,
+                    "field": name,
+                    "index": index,
+                },
+                output_type=output_type,
+            )
+            self._operations.append(
+                ModuleOperationDecl(
+                    id=projection.id,
+                    declaration_key=projection.declaration_key,
+                    input_types=projection.input_types,
+                    inputs=projection.inputs,
+                    output_type=projection.output_type,
+                )
+            )
+            self._python_implementations.append(
+                ModulePythonImplementation(
+                    declaration_key=projection.declaration_key,
+                    fn=projection.fn,
+                )
+            )
+            self._local_value_ids.add(projection.output.id)
+            outputs[name] = projection.output
+        return create_product_bundle_internal(bundle_type, outputs)
 
     def _compute_measurements(
         self,
@@ -1221,15 +1322,22 @@ class ModuleContext:
                     for name in input_names
                 }
             )
-            if bundle_type is not None and isinstance(raw, tuple):
+            raw_outputs: Mapping[str, object]
+            if (
+                bundle_type is not None
+                and is_dataclass(raw)
+                and not isinstance(raw, type)
+            ):
+                raw_outputs = {
+                    name: cast("object", getattr(raw, name)) for name in output_types
+                }
+            elif bundle_type is not None and isinstance(raw, tuple):
                 raw_tuple = cast("tuple[object, ...]", raw)
                 if len(raw_tuple) != len(output_types):
                     raise ValueError(
                         "structured compute tuple length must match its product bundle"
                     )
-                raw_outputs: Mapping[str, object] = dict(
-                    zip(output_types, raw_tuple, strict=True)
-                )
+                raw_outputs = dict(zip(output_types, raw_tuple, strict=True))
             else:
                 raw_outputs = (
                     cast("Mapping[str, object]", raw) if structured else {"result": raw}

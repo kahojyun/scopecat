@@ -49,6 +49,17 @@ class _ComputeOnlyResult:
     score: sc.ValueRef[float]
 
 
+@dataclass(frozen=True, slots=True)
+class _StructuredComputeResult(sc.ProductBundle):
+    doubled: Annotated[sc.DataRef[int], sc.ScalarType(sc.IntType())]
+    label: Annotated[sc.DataRef[str], sc.ScalarType(sc.StringType())]
+
+
+@_StructuredComputeResult.kernel
+def _structured_compute(*, value: int) -> tuple[int, str]:
+    return value * 2, f"value-{value}"
+
+
 @authoring.module(id="test.session.simple_frequency_scan")
 def SIMPLE_FREQUENCY_SCAN(
     module: authoring.ModuleContext,
@@ -211,6 +222,38 @@ def test_in_process_lab_records_compute_value_without_instruments(
     content = run.data()
     assert content.datasets == ("raw-measurements",)
     assert content.dataset("raw-measurements") == dataset.entry
+
+
+def test_structured_host_compute_is_one_public_compute(tmp_path: Path) -> None:
+    @sc.experiment(id="test.session.structured-compute")
+    def structured(experiment: sc.ExperimentContext) -> _StructuredComputeResult:
+        return experiment.compute(fn=_structured_compute, value=3)
+
+    config = load_config()
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=ExperimentSystem(
+            instrument_catalog=InstrumentContractCatalog(
+                config_content_hash=config_content_hash(config)
+            )
+        ),
+    )
+
+    prepared = lab.prepare(structured())
+    preview = prepared.preview()
+    [compute] = preview.computes
+    assert compute.id == "structured_compute"
+    assert compute.placement == "host"
+    assert compute.inputs == ("value",)
+    assert compute.outputs == ("doubled", "label")
+    assert compute.demanded_by == ("record:doubled", "record:label")
+
+    run = prepared.run()
+    result = run.result(structured().output)
+    [point] = result
+    assert point.value(result.output.doubled) == 6
+    assert point.value(result.output.label) == "value-3"
 
 
 def test_measurement_batches_page_a_real_run_and_preserve_point_identity(

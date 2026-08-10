@@ -10,7 +10,7 @@ from scopecat.authoring._module_context import ModuleContext
 from scopecat.authoring._module_invocation import (
     ModuleInvocation,
 )
-from scopecat.authoring._module_results import ProductBundle, RecordedProducts
+from scopecat.authoring._module_results import DataRef, ProductBundle, RecordedProducts
 from scopecat.authoring.capability_resources import (
     CapabilityResource,
     capability_resource,
@@ -129,6 +129,7 @@ __all__ = [
     "ComputeInput",
     "ConcreteEntityInput",
     "CoordinateRef",
+    "DataRef",
     "EachEntity",
     "EntityInput",
     "EntitySelection",

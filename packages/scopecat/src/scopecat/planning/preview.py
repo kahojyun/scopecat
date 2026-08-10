@@ -23,6 +23,7 @@ from scopecat.program.value_refs import ValueRef, internal_value_ref_parameter_c
 
 type _BindingKind = Literal["input", "coordinate", "parameter"]
 type _BindingKey = tuple[_BindingKind, str]
+_BUNDLE_FIELD_IMPLEMENTATION = "registry:scopecat.bundle-field@1"
 
 
 def build_run_program_preview(
@@ -202,9 +203,8 @@ def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ..
             if isinstance(input_value, OutputInput):
                 host_result_demands.setdefault(input_value.value_id, []).append(demand)
 
-    computes: list[ExperimentPreviewCompute] = []
-    for operation in host_operations.values():
-        demands = tuple(
+    def host_demands(operation: ComputeOperation) -> tuple[str, ...]:
+        return tuple(
             dict.fromkeys(
                 (
                     *(host_result_demands.get(operation.result.id, ())),
@@ -222,6 +222,40 @@ def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ..
                 )
             )
         )
+
+    bundle_fields_by_source: dict[object, list[ComputeOperation]] = {}
+    bundle_field_ids: set[str] = set()
+    for operation in host_operations.values():
+        if operation.implementation_id != _BUNDLE_FIELD_IMPLEMENTATION:
+            continue
+        source = operation.inputs.get("bundle")
+        if not isinstance(source, OutputInput):
+            continue
+        bundle_fields_by_source.setdefault(source.value_id, []).append(operation)
+        bundle_field_ids.add(operation.logical_compute_node_id)
+
+    computes: list[ExperimentPreviewCompute] = []
+    for operation in host_operations.values():
+        if operation.logical_compute_node_id in bundle_field_ids:
+            continue
+        bundle_fields = tuple(bundle_fields_by_source.get(operation.result.id, ()))
+        internal_demands = {
+            f"compute:{field.logical_compute_node_id}" for field in bundle_fields
+        }
+        demands = tuple(
+            dict.fromkeys(
+                demand
+                for demand in (
+                    *host_demands(operation),
+                    *(
+                        demand
+                        for field in bundle_fields
+                        for demand in host_demands(field)
+                    ),
+                )
+                if demand not in internal_demands
+            )
+        )
         computes.append(
             ExperimentPreviewCompute(
                 id=operation.logical_compute_node_id,
@@ -229,7 +263,13 @@ def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ..
                 implementation=operation.implementation_id,
                 deterministic=operation.deterministic,
                 inputs=tuple(operation.inputs),
-                outputs=(operation.logical_compute_node_id,),
+                outputs=(
+                    tuple(
+                        field.logical_compute_node_id.rsplit(".outputs.", 1)[-1]
+                        for field in bundle_fields
+                    )
+                    or (operation.logical_compute_node_id,)
+                ),
                 demanded_by=demands or ("experiment-effects",),
             )
         )

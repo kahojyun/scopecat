@@ -249,11 +249,11 @@ from typing import Annotated
 @dataclass(frozen=True, slots=True)
 class Probabilities(sc.ProductBundle):
     ground: Annotated[
-        sc.ProductRef[float],
+        sc.DataRef[float],
         sc.ScalarType(sc.QuantityType(unit="ratio")),
     ]
     excited: Annotated[
-        sc.ProductRef[float],
+        sc.DataRef[float],
         sc.ScalarType(sc.QuantityType(unit="ratio")),
     ]
 
@@ -270,11 +270,16 @@ probabilities = experiment.compute(
 
 Product identities are scoped below the compute identity, so repeated typed
 computes only need distinct compute IDs. `ProductBundle.kernel` binds the native
-tuple-returning kernel to that reusable symbolic result schema once, so call
-sites do not repeat `output_type=...`. A mapping of names to types remains
-available for dynamic schemas. The internal execution model still has separate
-host and observation stages, but that distinction is compiler-owned rather than
-a second authoring API.
+tuple-, mapping-, or dataclass-returning kernel to that reusable symbolic result
+schema once, so call sites do not repeat `output_type=...`. `DataRef` means that
+each field follows
+the compute's input availability: the same bundle schema produces `ValueRef`
+fields on the host and `ProductRef` fields after acquisition. Host structured
+compute is still one public compute; field projections in the scalar value graph
+are compiler-owned. A mapping of names to types remains available for dynamic
+schemas. The internal execution model still has separate host and observation
+stages, but that distinction is compiler-owned rather than a second authoring
+API.
 
 Earlier values can be bound directly beside measured products; no closure or
 parallel postprocessing API is required:

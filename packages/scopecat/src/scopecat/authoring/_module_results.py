@@ -20,12 +20,13 @@ from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.product_identity import ProductId
 from scopecat.program.measurement_types import NativeMeasurementValue
 from scopecat.program.module import ModuleValueExport
-from scopecat.program.products import ProductRef
+from scopecat.program.products import ProductNativeValue, ProductRef
 from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_refs import ValueRef
 from scopecat.program.value_types import Array, DataType, Scalar
 
 type _ProductKey = tuple[ProductId, tuple[object, ...]]
+type DataRef[T: ProductNativeValue = ProductNativeValue] = ProductRef[T] | ValueRef[T]
 
 
 class _RecordProduct(Protocol):
@@ -150,9 +151,9 @@ def product_bundle_schema_internal(
             "tuple[object, ...]",
             get_args(annotation),
         )
-        if get_origin(value_annotation) is not ProductRef:
+        if get_origin(value_annotation) not in {DataRef, ProductRef, ValueRef}:
             raise TypeError(
-                f"computed product field {member.name!r} must annotate ProductRef"
+                f"computed bundle field {member.name!r} must annotate DataRef"
             )
         value_types = tuple(
             item for item in metadata if isinstance(item, Scalar | Array)
@@ -168,11 +169,11 @@ def product_bundle_schema_internal(
 
 def create_product_bundle_internal[BundleT: ProductBundle](
     bundle_type: type[BundleT],
-    products: Mapping[str, ProductRef],
+    values: Mapping[str, ProductRef | ValueRef],
 ) -> BundleT:
-    """Instantiate a trusted computed product bundle from named products."""
+    """Instantiate a trusted computed bundle from named symbolic values."""
 
-    return bundle_type(**products)
+    return bundle_type(**values)
 
 
 def module_result_value_exports(result: object) -> tuple[ModuleValueExport, ...]:
