@@ -1,10 +1,13 @@
+# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false
+
 from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import pytest
 from pydantic import ValidationError
@@ -12,6 +15,7 @@ from pydantic import ValidationError
 import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
+from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
 from scopecat.analysis.service import AnalysisDataOutput
 from scopecat.config.registry import service as config_registry_service
 from scopecat.measurements.results import Dataset
@@ -36,6 +40,27 @@ def _dataset_size(dataset: Dataset) -> int:
 
 def _scaled_dataset_size(*, dataset: Dataset, scale: int) -> int:
     return len(dataset) * scale
+
+
+def _derived_signal_frame(dataset: Dataset) -> DerivedDataset:
+    frame = (
+        dataset.project(
+            frequency="drive_frequency",
+            response="signal",
+        )
+        .with_identity(False)
+        .to_pandas()
+    )
+    frame["score"] = frame["response"] * 2.0
+    return sc.derived_dataset(
+        frame[["frequency", "response", "score"]],
+        coordinates=("frequency",),
+        labels={"score": "Doubled response"},
+    )
+
+
+def _derived_score_max(dataset: DerivedDataset) -> float:
+    return float(cast("float", dataset.to_pandas()["score"].max()))
 
 
 _COMPUTES = sc.ComputeRegistry()
@@ -204,6 +229,63 @@ def test_registered_dataset_compute_can_reduce_bounded_batches(tmp_path: Path) -
     assert output.content.execution.implementation == (
         "registry:test.dataset-size-batches@1"
     )
+
+
+def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    context = sc.AnalysisContext(run=handle)
+
+    derived = context.compute(
+        fn=_derived_signal_frame,
+        dataset=context.measurements(),
+    )
+    maximum = context.compute(fn=_derived_score_max, dataset=derived)
+    outcome = (
+        context.result("Native derived data", key="native-derived-data")
+        .table(derived, title="Derived rows")
+        .figure(
+            derived,
+            kind="line",
+            x="frequency",
+            y="score",
+            title="Derived score",
+        )
+        .save()
+    )
+
+    assert isinstance(derived, DerivedDataset)
+    assert derived.table.column_names == ["frequency", "response", "score"]
+    assert maximum == 2.0
+    data_output, maximum_output, table_output, figure_output = outcome.outputs
+    assert isinstance(data_output, AnalysisDataOutput)
+    assert data_output.content.codec == DERIVED_DATASET_CODEC
+    restored = DerivedDataset.from_json_value(data_output.content.value)
+    assert restored.table.equals(derived.table, check_metadata=True)
+    assert isinstance(maximum_output, AnalysisDataOutput)
+    assert maximum_output.content.value == 2.0
+    [derived_input] = maximum_output.content.execution.input_bindings
+    assert derived_input.codec == DERIVED_DATASET_CODEC
+    assert table_output.kind == "table"
+    assert figure_output.kind == "figure"
+
+    stored = handle.record_json(
+        "analysis-native-derived-data",
+        expected_kind="analysis",
+    )
+    outputs = stored.content["outputs"]
+    assert isinstance(outputs, list)
+    persisted = outputs[0]
+    assert isinstance(persisted, dict)
+    content = persisted["content"]
+    assert isinstance(content, dict)
+    assert content["codec"] == DERIVED_DATASET_CODEC
 
 
 def test_dataset_compute_records_named_inline_inputs(tmp_path: Path) -> None:

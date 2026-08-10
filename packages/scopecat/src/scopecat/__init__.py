@@ -15,6 +15,12 @@ from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from scopecat.analysis.datasets import (
+        DerivedDataset,
+        DerivedDatasetField,
+        DerivedDatasetSchema,
+        derived_dataset,
+    )
     from scopecat.api._instruments import (
         InstrumentClientFactory,
         InstrumentRef,
@@ -139,6 +145,15 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "CoordinateRef": ("scopecat.authoring", "CoordinateRef"),
     "DataRef": ("scopecat.authoring", "DataRef"),
     "DEFAULT_RESOURCE_ROLE": ("scopecat.authoring", "DEFAULT_RESOURCE_ROLE"),
+    "DerivedDataset": ("scopecat.analysis.datasets", "DerivedDataset"),
+    "DerivedDatasetField": (
+        "scopecat.analysis.datasets",
+        "DerivedDatasetField",
+    ),
+    "DerivedDatasetSchema": (
+        "scopecat.analysis.datasets",
+        "DerivedDatasetSchema",
+    ),
     "EachEntity": ("scopecat.authoring", "EachEntity"),
     "EntityType": ("scopecat.authoring", "EntityType"),
     "Experiment": ("scopecat.authoring", "Experiment"),
@@ -202,6 +217,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "EntityRef": ("scopecat.kernel.entity", "EntityRef"),
     "entity_ref": ("scopecat.kernel.entity", "entity_ref"),
     "delete_parameter_rows": ("scopecat.config.parameters", "delete_parameter_rows"),
+    "derived_dataset": ("scopecat.analysis.datasets", "derived_dataset"),
     "insert_parameter_rows": ("scopecat.config.parameters", "insert_parameter_rows"),
     "replace_scalar_parameter": (
         "scopecat.config.parameters",

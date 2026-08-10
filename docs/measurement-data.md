@@ -528,6 +528,44 @@ result = (
 )
 ```
 
+When analysis is naturally expressed in pandas, Polars, Xarray, or Arrow,
+return a `DerivedDataset` instead of translating the result back into bespoke
+row dataclasses:
+
+```python
+def fit_with_polars(measurements):
+    frame = (
+        measurements.project(bias="dc_bias", response="signal")
+        .with_units(bias="V")
+        .with_identity(False)
+        .to_polars()
+    )
+    fitted = frame.with_columns(
+        (pl.col("response") * 2).alias("score"),
+    )
+    return sc.derived_dataset(
+        fitted,
+        coordinates=("bias",),
+        units={"bias": "V", "response": "ratio", "score": "ratio"},
+    )
+
+
+derived = context.compute(fn=fit_with_polars, measurements=measurements)
+review = (
+    context.result("Fit review")
+    .table(derived, title="Fit rows")
+    .figure(derived, kind="line", x="bias", y="score")
+)
+```
+
+The native frame remains available through `derived.to_pandas()` or
+`derived.to_polars()`. Compute may also consume the returned `DerivedDataset`
+directly, so multi-stage analysis does not need to rebuild schema or align
+columns. Persistence uses a versioned Arrow IPC codec plus explicit coordinate,
+unit, and label semantics; table and figure outputs are bounded scalar
+presentations of that same data. The current embedded analysis-data budget is
+intended for fit results and summaries, not large transformed acquisitions.
+
 An analysis step returns that declarative `Analysis` value. Running the step
 publishes it and returns one durable outcome; there is no additional save call:
 

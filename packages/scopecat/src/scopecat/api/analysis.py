@@ -17,6 +17,7 @@ from typing import (
 
 from pydantic import BaseModel, JsonValue
 
+from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
 from scopecat.analysis.service import (
     AnalysisDataOutput,
     AnalysisFigureOutput,
@@ -123,16 +124,17 @@ class Analysis:
 
     def table(
         self,
-        content: AnalysisTable | Sequence[object],
+        content: DerivedDataset | AnalysisTable | Sequence[object],
         *,
         title: str = "table",
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
-        table = (
-            content
-            if isinstance(content, AnalysisTable)
-            else AnalysisTable.from_objects(content)
-        )
+        if isinstance(content, DerivedDataset):
+            table = content.to_analysis_table()
+        elif isinstance(content, AnalysisTable):
+            table = content
+        else:
+            table = AnalysisTable.from_objects(content)
         return replace(
             self,
             outputs=(
@@ -158,7 +160,7 @@ class Analysis:
     @overload
     def figure(
         self,
-        content: AnalysisTable | Sequence[object],
+        content: DerivedDataset | AnalysisTable | Sequence[object],
         *,
         kind: Literal["line", "scatter"],
         x: str,
@@ -171,7 +173,7 @@ class Analysis:
 
     def figure(
         self,
-        content: AnalysisFigure | AnalysisTable | Sequence[object],
+        content: DerivedDataset | AnalysisFigure | AnalysisTable | Sequence[object],
         *,
         kind: Literal["line", "scatter"] | None = None,
         x: str | None = None,
@@ -188,11 +190,12 @@ class Analysis:
                 raise TypeError(
                     "analysis figures projected from rows require kind, x, and y"
                 )
-            table = (
-                content
-                if isinstance(content, AnalysisTable)
-                else AnalysisTable.from_objects(content)
-            )
+            if isinstance(content, DerivedDataset):
+                table = content.to_analysis_table()
+            elif isinstance(content, AnalysisTable):
+                table = content
+            else:
+                table = AnalysisTable.from_objects(content)
             figure = AnalysisFigure.from_table(
                 table,
                 kind=kind,
@@ -441,9 +444,12 @@ class AnalysisContext:
         selected_inputs = {**(inputs or {}), **input_bindings}
         if not selected_inputs:
             raise TypeError("analysis compute requires at least one named input")
-        dataset_inputs: dict[str, Dataset | ExperimentResultView[object]] = {}
+        dataset_inputs: dict[
+            str,
+            Dataset | DerivedDataset | ExperimentResultView[object],
+        ] = {}
         for name, value in selected_inputs.items():
-            if isinstance(value, Dataset):
+            if isinstance(value, Dataset | DerivedDataset):
                 dataset_inputs[name] = value
             elif isinstance(value, ExperimentResultView):
                 dataset_inputs[name] = cast("ExperimentResultView[object]", value)
@@ -516,6 +522,10 @@ class AnalysisContext:
                     "batched analysis compute requires exactly one dataset input"
                 )
             dataset_name, data = next(iter(dataset_inputs.items()))
+            if isinstance(data, DerivedDataset):
+                raise ValueError(
+                    "batched analysis compute requires a measurement dataset input"
+                )
             batches = self.run.measurement_batches(batch_size=contract.batch_size)
             call_inputs[dataset_name] = (
                 (batch.bind(data.output) for batch in batches)
@@ -524,16 +534,26 @@ class AnalysisContext:
             )
         result = fn(**call_inputs)
         encoder = compute_output_encoder_internal(fn)
-        encoded = _analysis_json(result if encoder is None else encoder(result))
+        output = result if encoder is None else encoder(result)
+        if isinstance(output, DerivedDataset):
+            if contract is not None and contract.output_codec != PYTHON_JSON_CODEC:
+                raise ValueError(
+                    "derived dataset compute outputs own their Arrow IPC codec"
+                )
+            encoded = output.to_json_value()
+            output_codec = DERIVED_DATASET_CODEC
+        else:
+            encoded = _analysis_json(output)
+            output_codec = (
+                PYTHON_JSON_CODEC if contract is None else contract.output_codec
+            )
         output_hash = f"sha256:{stable_content_hash(encoded)}"
         self._compute_outputs.append(
             AnalysisDataOutput(
                 kind="data",
                 title=compute_id,
                 content=AnalysisDerivedData(
-                    codec=(
-                        PYTHON_JSON_CODEC if contract is None else contract.output_codec
-                    ),
+                    codec=output_codec,
                     value=encoded,
                     execution=AnalysisComputeExecution(
                         id=compute_id,
@@ -588,6 +608,21 @@ def _analysis_compute_input(
     *,
     codec: str | None,
 ) -> AnalysisComputeInput:
+    if isinstance(value, DerivedDataset):
+        if codec is not None and codec != DERIVED_DATASET_CODEC:
+            raise ValueError(
+                "derived dataset compute inputs require the Arrow IPC codec"
+            )
+        encoded = value.to_json_value()
+        content_hash = f"sha256:{stable_content_hash(encoded)}"
+        return AnalysisComputeInput(
+            name=name,
+            kind="value",
+            target=f"inline:{name}:{content_hash}",
+            content_hash=content_hash,
+            codec=DERIVED_DATASET_CODEC,
+            value=encoded,
+        )
     dataset = (
         cast("ExperimentResultView[object]", value).dataset
         if isinstance(value, ExperimentResultView)
@@ -616,6 +651,8 @@ def _analysis_compute_input(
 
 
 def _analysis_json(value: object) -> JsonValue:
+    if isinstance(value, DerivedDataset):
+        return value.to_json_value()
     if value is None or isinstance(value, bool | int | float | str):
         return value
     if isinstance(value, Quantity):
@@ -867,5 +904,6 @@ __all__ = [
     "AnalysisTableCell",
     "AnalysisTableColumn",
     "AnalysisTableRow",
+    "DerivedDataset",
     "analysis_step",
 ]
