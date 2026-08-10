@@ -167,6 +167,9 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
 
 
 def test_measurement_compute_mints_one_live_use_for_each_named_input() -> None:
+    def add(*, left: float, right: float) -> float:
+        return left + right
+
     @sc.module(id="test.measurement-compute.lowering")
     def module(context: sc.ModuleContext) -> sc.ProductRef:
         source = context._resource("source", requires=(_SCALAR_SIGNAL,))
@@ -174,7 +177,7 @@ def test_measurement_compute_mints_one_live_use_for_each_named_input() -> None:
         right = context._product("right")
         result = context.compute(
             "sum",
-            fn=lambda *, left, right: left + right,
+            fn=add,
             inputs={"left": left, "right": right},
             output_type=sc.ScalarType(sc.FloatType()),
         )

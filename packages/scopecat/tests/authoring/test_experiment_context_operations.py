@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import numpy as np
+from numpy.typing import NDArray
 
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource
@@ -270,6 +271,9 @@ def test_experiment_composes_and_records_array_compute_results() -> None:
         unit="V",
     )
 
+    def peak_value(*, values: NDArray[np.float64]) -> float:
+        return float(np.max(values))
+
     @sc.experiment(id="test.direct.array-value-record", kind="direct")
     def direct(experiment: sc.ExperimentContext) -> None:
         trace = experiment.compute(
@@ -279,7 +283,7 @@ def test_experiment_composes_and_records_array_compute_results() -> None:
         )
         peak = experiment.compute(
             "peak",
-            fn=lambda *, values: float(np.max(values)),
+            fn=peak_value,
             inputs={"values": trace},
             output_type=sc.ScalarType(sc.FloatType()),
         )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Annotated, Literal, Never
+from typing import Annotated, Literal, Never, cast
 
 import numpy as np
 import pytest
@@ -500,7 +500,9 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
                     product_use_ids=(middle_use.id,),
                 ),
             ),
-            kernel=lambda values: _postprocess_identity(values["input"]),
+            kernel=lambda values: _postprocess_identity(
+                cast("MeasurementValue", values["input"])
+            ),
         ),
         BoundMeasurementPostprocessor(
             id=MeasurementPostprocessorId(SymbolId(local_id="summarize")),
@@ -518,7 +520,9 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
                     product_use_ids=(derived_use.id,),
                 ),
             ),
-            kernel=lambda values: _postprocess_identity(values["input"]),
+            kernel=lambda values: _postprocess_identity(
+                cast("MeasurementValue", values["input"])
+            ),
         ),
     )
     program = program_fixture(

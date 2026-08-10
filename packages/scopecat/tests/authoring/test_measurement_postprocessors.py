@@ -7,6 +7,7 @@ from typing import Annotated, assert_type
 
 import numpy as np
 import pytest
+from numpy.typing import NDArray
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
@@ -119,13 +120,16 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
 
 
 def test_compute_lowers_multiple_measured_inputs_to_the_observation_stage() -> None:
+    def pair(*, left: float, right: float) -> NDArray[np.float64]:
+        return np.asarray([left, right])
+
     @sc.module(id="test.measurement-compute")
     def module(context: sc.ModuleContext) -> sc.ProductRef:
         left = context._product("left", unit="V")
         right = context._product("right", unit="V")
         return context.compute(
             "pair",
-            fn=lambda *, left, right: np.asarray([left, right]),
+            fn=pair,
             inputs={"left": left, "right": right},
             output_type=sc.ArrayType(
                 dtype="float64",
@@ -161,18 +165,24 @@ def test_compute_lowers_multiple_measured_inputs_to_the_observation_stage() -> N
 
 
 def test_compute_joins_measured_products_with_earlier_compute_values() -> None:
+    def double(*, base: float) -> float:
+        return base * 2.0
+
+    def classify_value(*, signal: float, threshold: float) -> bool:
+        return signal > threshold
+
     @sc.module(id="test.mixed-availability-compute")
     def module(context: sc.ModuleContext) -> sc.ProductRef:
         threshold = context.compute(
             "threshold",
-            fn=lambda *, base: base * 2.0,
+            fn=double,
             inputs={"base": 1.5},
             output_type=sc.ScalarType(sc.FloatType()),
         )
         signal = context._product("signal", unit="V")
         return context.compute(
             "classify",
-            fn=lambda *, signal, threshold: signal > threshold,
+            fn=classify_value,
             inputs={"signal": signal, "threshold": threshold},
             output_type=sc.ScalarType(sc.BoolType()),
         )
@@ -196,13 +206,16 @@ def test_compute_joins_measured_products_with_earlier_compute_values() -> None:
 
 
 def test_compute_instantiates_an_annotated_product_bundle_schema() -> None:
+    def probabilities(*, signal: float) -> tuple[float, float]:
+        return signal, 1.0 - signal
+
     @sc.module(id="test.typed-structured-compute")
     def module(context: sc.ModuleContext) -> _ProbabilityProducts:
         signal = context._product("signal", unit="ratio")
         return assert_type(
             context.compute(
                 "probabilities",
-                fn=lambda *, signal: (signal, 1.0 - signal),
+                fn=probabilities,
                 inputs={"signal": signal},
                 output_type=_ProbabilityProducts,
             ),
@@ -295,7 +308,7 @@ def test_compute_parameter_annotations_validate_array_dimension_identity() -> No
     def peak(
         *,
         trace: Annotated[
-            object,
+            NDArray[np.float64],
             sc.ArrayType(
                 dtype="float64",
                 dimensions=(sc.ArrayDimension("sample", 4, kind="time", unit="ns"),),

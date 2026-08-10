@@ -1018,8 +1018,18 @@ class ModuleContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef],
-        output_type: ScalarType | ArrayType | Mapping[str, DataType],
-    ) -> ValueRef | ProductRef | ProductRefs: ...
+        output_type: ScalarType | ArrayType,
+    ) -> ProductRef: ...
+
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef],
+        output_type: Mapping[str, DataType],
+    ) -> ProductRefs: ...
 
     @overload
     def compute[BundleT: ProductBundle](

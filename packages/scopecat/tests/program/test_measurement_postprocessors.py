@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import cast
 
 import pytest
 
@@ -20,8 +21,8 @@ def test_postprocessor_kernel_type_is_runtime_introspectable() -> None:
     assert MeasurementPostprocessorKernel.__value__ is not None
 
 
-def _kernel(values: Mapping[str, MeasurementValue]) -> dict[str, MeasurementValue]:
-    return {"result": values["input"]}
+def _kernel(values: Mapping[str, object]) -> dict[str, MeasurementValue]:
+    return {"result": cast("MeasurementValue", values["input"])}
 
 
 def _postprocessor(

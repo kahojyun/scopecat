@@ -287,12 +287,18 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
     monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
     monkeypatch.setattr(LabClient, "_staged_manifests", staged_manifests)
     stage_dataset = object()
+
+    def measurements(
+        _run: RunHandle,
+        *,
+        selector: str = "raw-measurements",
+    ) -> object | None:
+        return stage_dataset if selector == "raw-measurements" else None
+
     monkeypatch.setattr(
         RunHandle,
         "measurements",
-        lambda _run, *, selector="raw-measurements": (
-            stage_dataset if selector == "raw-measurements" else None
-        ),
+        measurements,
     )
     stages: list[ExperimentStage] = []
 

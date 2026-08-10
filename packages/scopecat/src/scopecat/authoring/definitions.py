@@ -451,8 +451,18 @@ class ExperimentContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef],
-        output_type: Scalar | Array | Mapping[str, DataType],
-    ) -> ValueRef | ProductRef | ProductRefs: ...
+        output_type: Scalar | Array,
+    ) -> ProductRef: ...
+
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef],
+        output_type: Mapping[str, DataType],
+    ) -> ProductRefs: ...
 
     @overload
     def compute[BundleT: ProductBundle](

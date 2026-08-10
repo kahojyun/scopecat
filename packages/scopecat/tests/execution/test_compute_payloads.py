@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from numpy.typing import NDArray
 
 from scopecat.execution.effects.compute import (
     ComputeEffectExecutor,
@@ -102,6 +103,9 @@ def test_compute_executor_normalizes_and_chains_array_results() -> None:
     )
     frame = EffectEvaluationFrame()
 
+    def peak(*, trace: NDArray[np.float64]) -> float:
+        return float(np.max(trace))
+
     executor.execute(
         frame,
         (
@@ -117,7 +121,7 @@ def test_compute_executor_normalizes_and_chains_array_results() -> None:
                 operation_id="point.compute.peak",
                 logical_compute_node_id="peak",
                 implementation_id="tests.peak",
-                kernel=lambda *, trace: float(np.max(trace)),
+                kernel=peak,
                 inputs={
                     "trace": OutputInput(value_id=trace_id, value_type=trace_type),
                 },

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import cast
 
 import pytest
 
@@ -65,7 +66,7 @@ def _postprocessor(
                 product_use_ids=(output.id,),
             ),
         ),
-        kernel=lambda values: kernel(values["input"]),
+        kernel=lambda values: kernel(cast("MeasurementValue", values["input"])),
     )
 
 
@@ -217,7 +218,7 @@ def test_postprocessor_joins_an_early_value_by_logical_point() -> None:
             "result": MeasurementScalar.create(
                 dtype="float64",
                 unit="ratio",
-                value=float(values["threshold"]),
+                value=cast("float", values["threshold"]),
             )
         },
     )
