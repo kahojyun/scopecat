@@ -116,6 +116,14 @@ class PublishedAnalysis:
         return self.view.analysis.title
 
     @property
+    def revision(self) -> int:
+        return self.view.analysis.revision
+
+    @property
+    def publication_hash(self) -> str:
+        return self.view.analysis.publication_hash
+
+    @property
     def outputs(self) -> tuple[AnalysisRecordOutput, ...]:
         return tuple(self.view.analysis.outputs)
 

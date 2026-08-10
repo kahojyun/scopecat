@@ -1034,6 +1034,9 @@ export interface components {
             key?: components["schemas"]["_NonEmptyText"] | null;
             /** Outputs */
             outputs: components["schemas"]["AnalysisRecordOutput"][];
+            publication_hash: components["schemas"]["_NonEmptyText"];
+            /** Revision */
+            revision: number;
             run_id: components["schemas"]["_NonEmptyText"];
             step_id?: components["schemas"]["_NonEmptyText"] | null;
             title: components["schemas"]["_NonEmptyText"];

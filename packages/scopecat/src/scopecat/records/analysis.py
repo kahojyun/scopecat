@@ -632,6 +632,8 @@ class AnalysisRecord(BaseModel):
     run_id: _NonEmptyText
     title: _NonEmptyText
     key: _NonEmptyText | None = None
+    revision: int = Field(ge=1)
+    publication_hash: _NonEmptyText
     step_id: _NonEmptyText | None = None
     inputs: list[AnalysisRecordInput] = Field(default_factory=list)
     outputs: list[AnalysisRecordOutput] = Field(max_length=MAX_ANALYSIS_OUTPUTS)

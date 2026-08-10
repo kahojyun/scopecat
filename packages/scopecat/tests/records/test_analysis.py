@@ -36,6 +36,8 @@ from scopecat.records.analysis import (
     AnalysisTableView,
 )
 
+_PUBLICATION_HASH = f"sha256:{'0' * 64}"
+
 
 @dataclass(frozen=True)
 class _Observation:
@@ -113,6 +115,8 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
     record = AnalysisRecord(
         run_id="run-analysis",
         title="Fit review",
+        revision=1,
+        publication_hash=_PUBLICATION_HASH,
         outputs=[
             AnalysisTableRecordOutput(
                 kind="table",
@@ -249,6 +253,8 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
         AnalysisRecord(
             run_id="run-table-budget",
             title="large tables",
+            revision=1,
+            publication_hash=_PUBLICATION_HASH,
             outputs=[
                 table_output.model_copy(update={"id": f"table-{index}"})
                 for index in range(
@@ -277,6 +283,8 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
         AnalysisRecord(
             run_id="run-figure-budget",
             title="large figures",
+            revision=1,
+            publication_hash=_PUBLICATION_HASH,
             outputs=[
                 figure_output.model_copy(update={"id": f"figure-{index}"})
                 for index in range(
@@ -289,6 +297,8 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
         AnalysisRecord(
             run_id="run-output-budget",
             title="too many outputs",
+            revision=1,
+            publication_hash=_PUBLICATION_HASH,
             outputs=[
                 table_output.model_copy(update={"id": f"output-{index}"})
                 for index in range(MAX_ANALYSIS_OUTPUTS + 1)
@@ -298,11 +308,19 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
 
 def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() -> None:
     with pytest.raises(ValidationError, match="at least 1 character"):
-        AnalysisRecord(run_id="run-analysis", title="", outputs=[])
+        AnalysisRecord(
+            run_id="run-analysis",
+            title="",
+            revision=1,
+            publication_hash=_PUBLICATION_HASH,
+            outputs=[],
+        )
     with pytest.raises(ValidationError, match="at least 1 character"):
         AnalysisRecord(
             run_id="run-analysis",
             title="Analysis",
+            revision=1,
+            publication_hash=_PUBLICATION_HASH,
             step_id="",
             outputs=[],
         )
@@ -328,6 +346,8 @@ def test_analysis_record_rejects_view_without_its_dataset_output() -> None:
         AnalysisRecord(
             run_id="run-analysis",
             title="Dangling view",
+            revision=1,
+            publication_hash=_PUBLICATION_HASH,
             outputs=[
                 AnalysisTableRecordOutput(
                     kind="table",

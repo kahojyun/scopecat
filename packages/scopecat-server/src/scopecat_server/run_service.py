@@ -450,6 +450,7 @@ class RunService:
             record=prepared.saved.record,
             analysis_key=prepared.saved.analysis_key,
             inputs=command.inputs,
+            parameter_proposals=prepared.saved.parameter_proposals,
         )
 
     def get_run_artifact_bytes(

@@ -442,6 +442,108 @@ def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> N
         published.dataset("resonance")
 
 
+def test_analysis_key_appends_only_changed_publication_revisions(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+
+    first = (
+        handle.analysis("Fit result", key="fit-result")
+        .fact("score", 0.5)
+        .artifact("report", text="first")
+        .save()
+    )
+    retried = (
+        handle.analysis("Fit result", key="fit-result")
+        .fact("score", 0.5)
+        .artifact("report", text="first")
+        .save()
+    )
+    second = (
+        handle.analysis("Fit result", key="fit-result")
+        .fact("score", 0.75)
+        .artifact("report", text="second")
+        .save()
+    )
+
+    assert first.record.id == retried.record.id == "analysis-fit-result"
+    assert second.record.id == "analysis-fit-result-r2"
+    first_publication = handle.published_analysis("analysis-fit-result")
+    latest = handle.published_analysis("fit-result")
+    assert first_publication.revision == 1
+    assert latest.revision == 2
+    assert first_publication.publication_hash != latest.publication_hash
+    assert first_publication.fact("score").value == 0.5
+    assert latest.fact("score").value == 0.75
+    assert first_publication.artifact("report").text() == "first"
+    assert latest.artifact("report").text() == "second"
+    assert [item.id for item in handle.manifest.records if item.kind == "analysis"] == [
+        "analysis-fit-result",
+        "analysis-fit-result-r2",
+    ]
+
+
+def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    update = sc.replace_scalar_parameter(
+        "drive_frequency",
+        sc.Quantity(5.4, "GHz"),
+    )
+
+    first = (
+        handle.analysis("Fit", key="fit")
+        .propose(
+            "drive-frequency",
+            update,
+            reason="initial fit",
+        )
+        .save()
+    )
+    second = (
+        handle.analysis("Fit", key="fit")
+        .propose(
+            "drive-frequency",
+            update,
+            reason="reviewed fit",
+        )
+        .save()
+    )
+    retried = (
+        handle.analysis("Fit", key="fit")
+        .propose(
+            "drive-frequency",
+            update,
+            reason="reviewed fit",
+        )
+        .save()
+    )
+
+    [first_proposal] = first.parameter_proposals
+    [second_proposal] = second.parameter_proposals
+    [retried_proposal] = retried.parameter_proposals
+    assert first_proposal.id == "drive-frequency"
+    assert first_proposal.analysis_record_id == "analysis-fit"
+    assert second_proposal.id == "drive-frequency-r2"
+    assert second_proposal.analysis_record_id == "analysis-fit-r2"
+    assert retried_proposal == second_proposal
+    assert retried.record.id == second.record.id
+    assert [
+        item.id
+        for item in handle.manifest.records
+        if item.kind == "parameter_change_proposal"
+    ] == ["drive-frequency", "drive-frequency-r2"]
+
+
 def test_dataset_compute_records_named_inline_inputs(tmp_path: Path) -> None:
     run = execute_signal_run(
         config=load_config(),

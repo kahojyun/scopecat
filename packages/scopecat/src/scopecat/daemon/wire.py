@@ -321,6 +321,7 @@ class AnalysisSaveReceipt(_WireModel):
     record: RunContentEntry
     analysis_key: NonEmptyText
     inputs: tuple[AnalysisInputPayload, ...] = ()
+    parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
 
 
 class RunAttachmentCommand(_WireModel):

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, NoReturn
 
 from scopecat.analysis.datasets import (
@@ -12,12 +12,15 @@ from scopecat.analysis.datasets import (
     DerivedDataset,
 )
 from scopecat.config.changes import (
+    load_parameter_change_proposal,
     parameter_change_proposal_record_ref,
     prepare_parameter_change_proposal_contents,
 )
 from scopecat.kernel.content_identity import (
+    content_fingerprint,
     model_wire_content_hash,
     sha256_content_hash,
+    stable_content_hash,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.ids import artifact_slug
@@ -49,6 +52,7 @@ from scopecat.records.analysis import (
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
+from scopecat.runs.access import list_records
 from scopecat.runs.refs import (
     artifact_content_ref,
     dataset_content_ref,
@@ -144,6 +148,8 @@ class SavedAnalysis:
     record: RunContentEntry
     analysis_key: str
     inputs: tuple[AnalysisInput, ...] = ()
+    outputs: tuple[AnalysisOutput, ...] = ()
+    parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,10 +198,21 @@ def prepare_analysis(
 ) -> PreparedAnalysis:
     """Prepare analysis content for publication in a caller-owned unit."""
 
-    selected_record_id = f"analysis-{analysis_key}"
+    base_record_id = f"analysis-{analysis_key}"
     _validate_analysis_output_ids(outputs)
+    output_proposals = tuple(
+        output.content
+        for output in outputs
+        if isinstance(output, AnalysisParameterProposalOutput)
+    )
+    if output_proposals != tuple(parameter_proposals):
+        _raise_analysis_problem(
+            "analysis_parameter_proposals_mismatch",
+            "analysis parameter proposals must match proposal outputs",
+            "parameter_proposals",
+        )
     if any(
-        proposal.analysis_record_id != selected_record_id
+        proposal.analysis_record_id != base_record_id
         for proposal in parameter_proposals
     ):
         _raise_analysis_problem(
@@ -203,24 +220,75 @@ def prepare_analysis(
             "analysis parameter proposal does not identify its producing analysis",
             "parameter_proposals",
         )
+    publication_hash = _analysis_publication_hash(
+        title=title,
+        analysis_key=analysis_key,
+        step_id=step_id,
+        inputs=inputs,
+        outputs=outputs,
+    )
+    existing = _latest_analysis(
+        services=services,
+        run_id=run_id,
+        analysis_key=analysis_key,
+    )
+    if existing is not None and existing.record.publication_hash == publication_hash:
+        saved_outputs = _load_existing_outputs(
+            services=services,
+            run_id=run_id,
+            outputs=outputs,
+            record=existing.record,
+        )
+        saved_proposals = tuple(
+            output.content
+            for output in saved_outputs
+            if isinstance(output, AnalysisParameterProposalOutput)
+        )
+        return PreparedAnalysis(
+            saved=SavedAnalysis(
+                record=existing.entry,
+                analysis_key=analysis_key,
+                inputs=tuple(inputs),
+                outputs=saved_outputs,
+                parameter_proposals=saved_proposals,
+            ),
+            publication=RunContentPublication(run_id=run_id, entries=()),
+        )
+
+    revision = 1 if existing is None else existing.record.revision + 1
+    selected_record_id = (
+        base_record_id if revision == 1 else f"{base_record_id}-r{revision}"
+    )
+    saved_outputs = _revisioned_outputs(
+        outputs,
+        analysis_record_id=selected_record_id,
+        revision=revision,
+    )
+    saved_proposals = tuple(
+        output.content
+        for output in saved_outputs
+        if isinstance(output, AnalysisParameterProposalOutput)
+    )
     ref = record_content_ref(record_id=selected_record_id, kind="analysis")
     storage = services.runs
     prepared_datasets = _prepare_analysis_datasets(
         analysis_record_id=selected_record_id,
-        outputs=outputs,
+        outputs=saved_outputs,
     )
     prepared_artifacts = _prepare_analysis_artifacts(
         analysis_record_id=selected_record_id,
-        outputs=outputs,
+        outputs=saved_outputs,
     )
     analysis_record = AnalysisRecord(
         run_id=run_id,
         title=title,
         key=analysis_key,
+        revision=revision,
+        publication_hash=publication_hash,
         step_id=step_id,
         inputs=_analysis_record_inputs(inputs),
         outputs=_analysis_record_outputs(
-            outputs,
+            saved_outputs,
             dataset_references=prepared_datasets.references,
             artifact_references=prepared_artifacts.references,
         ),
@@ -235,12 +303,14 @@ def prepare_analysis(
     prepared_proposals = prepare_parameter_change_proposal_contents(
         storage=storage,
         run_id=run_id,
-        proposals=parameter_proposals,
+        proposals=saved_proposals,
     )
     saved = SavedAnalysis(
         record=record,
         analysis_key=analysis_key,
         inputs=tuple(inputs),
+        outputs=saved_outputs,
+        parameter_proposals=saved_proposals,
     )
     return PreparedAnalysis(
         saved=saved,
@@ -259,6 +329,150 @@ def prepare_analysis(
             bytes=(*prepared_datasets.writes, *prepared_artifacts.writes),
         ),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _ExistingAnalysis:
+    entry: RunContentEntry
+    record: AnalysisRecord
+
+
+def _latest_analysis(
+    *,
+    services: ProjectStateServices,
+    run_id: str,
+    analysis_key: str,
+) -> _ExistingAnalysis | None:
+    storage = services.runs
+    matches: list[_ExistingAnalysis] = []
+    for entry in list_records(storage.read_manifest(run_id), kind="analysis"):
+        record = storage.read_model(
+            run_id,
+            record_content_ref(record_id=entry.id, kind="analysis"),
+            AnalysisRecord,
+        )
+        if record.key == analysis_key:
+            matches.append(_ExistingAnalysis(entry=entry, record=record))
+    return max(matches, key=lambda item: item.record.revision, default=None)
+
+
+def _revisioned_outputs(
+    outputs: Sequence[AnalysisOutput],
+    *,
+    analysis_record_id: str,
+    revision: int,
+) -> tuple[AnalysisOutput, ...]:
+    selected: list[AnalysisOutput] = []
+    for output in outputs:
+        if not isinstance(output, AnalysisParameterProposalOutput):
+            selected.append(output)
+            continue
+        proposal_id = output.id if revision == 1 else f"{output.id}-r{revision}"
+        selected.append(
+            replace(
+                output,
+                content=output.content.model_copy(
+                    update={
+                        "id": proposal_id,
+                        "analysis_record_id": analysis_record_id,
+                    }
+                ),
+            )
+        )
+    return tuple(selected)
+
+
+def _load_existing_outputs(
+    *,
+    services: ProjectStateServices,
+    run_id: str,
+    outputs: Sequence[AnalysisOutput],
+    record: AnalysisRecord,
+) -> tuple[AnalysisOutput, ...]:
+    proposal_ids = {
+        output.id: output.content.proposal_id
+        for output in record.outputs
+        if isinstance(output, AnalysisParameterProposalRecordOutput)
+    }
+    selected: list[AnalysisOutput] = []
+    for output in outputs:
+        if not isinstance(output, AnalysisParameterProposalOutput):
+            selected.append(output)
+            continue
+        selected.append(
+            replace(
+                output,
+                content=load_parameter_change_proposal(
+                    run_id=run_id,
+                    selector=proposal_ids[output.id],
+                    services=services,
+                ),
+            )
+        )
+    return tuple(selected)
+
+
+def _analysis_publication_hash(
+    *,
+    title: str,
+    analysis_key: str,
+    step_id: str | None,
+    inputs: Sequence[AnalysisInput],
+    outputs: Sequence[AnalysisOutput],
+) -> str:
+    identity = {
+        "title": title,
+        "key": analysis_key,
+        "step_id": step_id,
+        "inputs": [
+            {
+                "target": item.target,
+                "kind": item.kind,
+                "content_hash": item.content_hash,
+                "codec": item.codec,
+                "role": item.role,
+                "title": item.title,
+                "metadata": validate_json_metadata(item.metadata or {}),
+            }
+            for item in inputs
+        ],
+        "outputs": [_analysis_output_identity(output) for output in outputs],
+    }
+    return f"sha256:{stable_content_hash(content_fingerprint(identity))}"
+
+
+def _analysis_output_identity(output: AnalysisOutput) -> dict[str, object]:
+    shared: dict[str, object] = {
+        "kind": output.kind,
+        "id": output.id,
+        "title": output.title,
+        "metadata": validate_json_metadata(output.metadata),
+    }
+    if isinstance(output, AnalysisDatasetOutput):
+        shared["content"] = {
+            "content_hash": sha256_content_hash(output.content.to_arrow_ipc()),
+            "schema": output.content.schema.model_dump(mode="json"),
+            "execution": output.execution,
+        }
+    elif isinstance(output, AnalysisArtifactOutput):
+        shared["content"] = {
+            "content_hash": sha256_content_hash(output.content),
+            "filename": output.filename,
+            "media_type": output.media_type,
+        }
+    elif isinstance(output, AnalysisParameterProposalOutput):
+        proposal = output.content
+        shared["content"] = {
+            "source_run_id": proposal.source_run_id,
+            "base_config_id": proposal.base_config_id,
+            "base_config_content_hash": proposal.base_config_content_hash,
+            "reason": proposal.reason,
+            "confidence": proposal.confidence,
+            "deltas": proposal.deltas,
+        }
+    else:
+        shared["content"] = output.content
+    return shared
 
 
 def _analysis_record_inputs(

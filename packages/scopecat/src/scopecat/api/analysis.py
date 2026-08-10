@@ -575,9 +575,9 @@ class Analysis:
             title=self.title,
             analysis_key=saved.analysis_key,
             step_id=self.step_id,
-            inputs=self.inputs,
-            outputs=self.outputs,
-            parameter_proposals=self.parameter_proposals,
+            inputs=saved.inputs,
+            outputs=saved.outputs,
+            parameter_proposals=saved.parameter_proposals,
         )
 
 

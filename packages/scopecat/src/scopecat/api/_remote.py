@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from base64 import b64encode
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pyarrow as pa
@@ -144,10 +144,19 @@ class RemoteRunOperations:
                 outputs=payloads,
             ),
         )
+        saved_proposals = iter(receipt.parameter_proposals)
+        saved_outputs = tuple(
+            replace(output, content=next(saved_proposals))
+            if isinstance(output, AnalysisParameterProposalOutput)
+            else output
+            for output in outputs
+        )
         return SavedAnalysis(
             record=receipt.record,
             analysis_key=receipt.analysis_key,
             inputs=tuple(inputs),
+            outputs=saved_outputs,
+            parameter_proposals=receipt.parameter_proposals,
         )
 
     def analyses(self, run_id: str) -> RunAnalysisListView:

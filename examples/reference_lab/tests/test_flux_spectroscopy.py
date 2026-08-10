@@ -56,6 +56,7 @@ class _FluxNotebookSummary(TypedDict):
     point_count: int
     measurement_records: int
     analysis_id: str
+    published_analysis_id: str
     candidate_config_id: str
 
 

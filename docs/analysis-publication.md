@@ -37,6 +37,28 @@ artifacts live as separate run content entries; the record stores typed
 references. This keeps one atomic publication without embedding every payload
 in one JSON record.
 
+## Logical keys and immutable revisions
+
+The author supplies one logical analysis `key`, not a version number. The first
+publication uses `analysis-<key>`. Repeating the same logical content is an
+idempotent notebook or step retry and returns that existing publication. If any
+input snapshot, output content, title, metadata, or other durable meaning
+changes, Scopecat appends `analysis-<key>-r2`, then `-r3`, without replacing the
+earlier record.
+
+Datasets, artifacts, and parameter proposals use the allocated analysis record
+ID as part of their durable identity, so a revision never leaves a supposedly
+immutable payload pointing at overwritten content. Proposal timestamps are not
+part of logical content identity: rebuilding the same proposal in a later
+notebook execution resolves to the already-published proposal and its original
+timestamp.
+
+Reading by logical key returns the latest revision. Reading by an exact analysis
+record ID returns that historical revision. `PublishedAnalysis.revision` and
+`publication_hash` expose the allocated revision and the content identity when
+code needs to report or compare them; ordinary authoring code does not manage
+either value.
+
 ## Conversion policy
 
 Adapters may perform an automatic conversion only when Scopecat can preserve

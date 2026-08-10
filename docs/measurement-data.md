@@ -680,7 +680,11 @@ table_preview = published.table("fit-table").preview
 
 The selector may be an exact analysis record ID or a logical analysis key. A
 logical key selects its latest immutable publication; output access rejects a
-kind mismatch instead of returning untyped record JSON.
+kind mismatch instead of returning untyped record JSON. Saving identical
+content under the same key is idempotent. Changed content appends an automatic
+`r2`, `r3`, and so on; the revision also owns distinct datasets, artifacts, and
+parameter proposals, so earlier publications remain readable without the user
+supplying version numbers.
 
 Dataset compute accepts named inputs like experiment compute. Each dataset input
 records its durable target, content hash, and codec; JSON-safe inline inputs are
