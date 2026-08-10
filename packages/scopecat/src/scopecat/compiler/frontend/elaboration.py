@@ -58,6 +58,7 @@ from scopecat.program.products import (
     ModuleProductDecl,
 )
 from scopecat.program.recording import (
+    ExperimentResultField,
     LogicalRecordSelection,
     LogicalValueRecordSelection,
     ProgramRecordSelection,
@@ -217,6 +218,7 @@ def compose_experiment(
         logical_inputs=inputs,
         parameter_overlays=tuple(axis for axis in scans if axis.overlay is not None),
         record_selections=definition.record_selections,
+        result_fields=definition.result_fields,
         additional_parameter_contracts=merge_parameter_contracts(
             *(axis_parameter_contracts(axis) for axis in scans),
         ),
@@ -238,6 +240,7 @@ def _elaborate_hierarchy(
     logical_inputs: Mapping[str, object] | None = None,
     parameter_overlays: Sequence[AxisSpec] = (),
     record_selections: Sequence[ProgramRecordSelection] = (),
+    result_fields: Sequence[ExperimentResultField] = (),
     additional_parameter_contracts: tuple[ParameterContract, ...] = (),
     point_domain: PointAxes[ValueRef] = (),
     point_domain_layout: PointDomainLayout = "product_grid",
@@ -331,6 +334,7 @@ def _elaborate_hierarchy(
         parameter_overlays=parameter_overlays,
         product_declarations=tuple(composer.product_declarations),
         record_selections=logical_record_selections,
+        result_fields=result_fields,
         parameter_contracts=merge_parameter_contracts(
             dependencies.parameters,
             additional_parameter_contracts,

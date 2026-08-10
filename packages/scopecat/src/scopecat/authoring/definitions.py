@@ -91,7 +91,11 @@ from scopecat.program.products import (
     record_ref_from_product,
 )
 from scopecat.program.record_refs import RecordRef
-from scopecat.program.recording import ProgramRecordSelection, ValueRecordSelection
+from scopecat.program.recording import (
+    ExperimentResultField,
+    ProgramRecordSelection,
+    ValueRecordSelection,
+)
 from scopecat.program.scans import (
     GridSpec,
     PointDomainSpec,
@@ -247,6 +251,7 @@ class ExperimentContext:
         "_point_plan",
         "_program",
         "_record_selections",
+        "_result_fields",
         "_success_state_bindings",
     )
 
@@ -255,6 +260,7 @@ class ExperimentContext:
         self._point_plan = PointPlan()
         self._point_domain_mode = "none"
         self._record_selections: list[ProgramRecordSelection] = []
+        self._result_fields: list[ExperimentResultField] = []
         self._success_state_bindings: list[BindingIntent] = []
 
     def close_definition_internal(
@@ -281,6 +287,7 @@ class ExperimentContext:
             body=body,
             python_implementations=python_implementations,
             record_selections=self._record_selections,
+            result_fields=self._result_fields,
             input_defaults=input_defaults,
             required_inputs=required_inputs,
             default_point_plan=self._point_plan,
@@ -718,7 +725,7 @@ class ExperimentContext:
         self._point_domain_mode = "explicit"
 
     @overload
-    def record[T: NativeMeasurementValue](
+    def alias[T: NativeMeasurementValue](
         self,
         value: ProductRef[T],
         /,
@@ -729,7 +736,7 @@ class ExperimentContext:
     ) -> RecordRef[T]: ...
 
     @overload
-    def record(
+    def alias(
         self,
         value: ProductBundle,
         /,
@@ -740,7 +747,7 @@ class ExperimentContext:
     ) -> RecordedProducts: ...
 
     @overload
-    def record[T: NativeMeasurementValue](
+    def alias[T: NativeMeasurementValue](
         self,
         value: PerEntity[ProductRef[T]],
         /,
@@ -751,7 +758,7 @@ class ExperimentContext:
     ) -> PerEntity[RecordRef[T]]: ...
 
     @overload
-    def record(
+    def alias(
         self,
         value: PerEntity[ProductBundle],
         /,
@@ -762,7 +769,7 @@ class ExperimentContext:
     ) -> PerEntity[RecordedProducts]: ...
 
     @overload
-    def record(
+    def alias(
         self,
         value: ValueRef[QuantityValue],
         /,
@@ -774,7 +781,7 @@ class ExperimentContext:
     ) -> RecordRef[float]: ...
 
     @overload
-    def record(
+    def alias(
         self,
         value: ValueRef[EntityRef | str],
         /,
@@ -786,7 +793,7 @@ class ExperimentContext:
     ) -> RecordRef[str]: ...
 
     @overload
-    def record[T: bool | int | float | str](
+    def alias[T: bool | int | float | str](
         self,
         value: ValueRef[T],
         /,
@@ -798,7 +805,7 @@ class ExperimentContext:
     ) -> RecordRef[T]: ...
 
     @overload
-    def record(
+    def alias(
         self,
         value: ValueRef[object],
         /,
@@ -809,7 +816,7 @@ class ExperimentContext:
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> RecordRef[NativeMeasurementValue]: ...
 
-    def record(
+    def alias(
         self,
         value: ProductRef | ProductBundle | PerEntity[object] | ValueRef,
         /,
@@ -819,10 +826,10 @@ class ExperimentContext:
         role: MeasurementVariableRole | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> object:
-        """Persist one typed value or complete acquisition bundle.
+        """Create an explicit durable alias outside the normal return tree.
 
-        Symbolic values may select their dataset role here. Product roles are
-        fixed by their interface declarations.
+        Experiment returns remain the ordinary durability path. Use an alias
+        only when one source needs an additional dynamic destination.
         """
 
         if record_id is not None and namespace is not None:
@@ -838,7 +845,7 @@ class ExperimentContext:
                     raise TypeError(
                         "PerEntity records must contain products or product bundles"
                     )
-                return self.record(
+                return self.alias(
                     item,
                     namespace=namespace,
                     metadata=metadata,
@@ -1394,28 +1401,58 @@ def _record_experiment_output(
             _record_selection_source_key(selection)
             for selection in context._record_selections
         )
-    if value is None or isinstance(value, RecordRef):
+    if value is None:
         return
     selected_policy = policy or Result()
+    result_path = path or ("result",)
+    if isinstance(value, RecordRef):
+        context._result_fields.append(
+            ExperimentResultField(path=result_path, variable_id=value.id)
+        )
+        return
     if isinstance(value, ValueRef):
-        if internal_value_ref_point_id(value) is not None:
+        point_id = internal_value_ref_point_id(value)
+        if point_id is not None:
+            context._result_fields.append(
+                ExperimentResultField(path=result_path, variable_id=point_id)
+            )
             return
         if _value_record_source_key(value) in explicit_sources:
+            context._result_fields.append(
+                ExperimentResultField(
+                    path=result_path,
+                    variable_id=_existing_record_id(context, value),
+                )
+            )
             return
-        context.record(
+        record_id = _result_record_id(path, selected_policy)
+        context._result_fields.append(
+            ExperimentResultField(path=result_path, variable_id=record_id)
+        )
+        context.alias(
             value,
-            record_id=_result_record_id(path, selected_policy),
+            record_id=record_id,
             role=selected_policy.role or "observable",
             metadata=selected_policy.metadata,
         )
         return
     if isinstance(value, ProductRef):
         if _product_record_source_key(value) in explicit_sources:
+            context._result_fields.append(
+                ExperimentResultField(
+                    path=result_path,
+                    variable_id=_existing_record_id(context, value),
+                )
+            )
             return
+        record_id = _result_record_id(path, selected_policy)
+        context._result_fields.append(
+            ExperimentResultField(path=result_path, variable_id=record_id)
+        )
         _record_product_output(
             context,
             value,
-            record_id=_result_record_id(path, selected_policy),
+            record_id=record_id,
             role=selected_policy.role,
             metadata=selected_policy.metadata,
         )
@@ -1490,6 +1527,37 @@ def _record_experiment_output(
         "experiment functions must return None or a tuple/dataclass/PerEntity "
         "tree of data references"
     )
+
+
+def _existing_record_id(
+    context: ExperimentContext,
+    value: ProductRef | ValueRef,
+) -> str:
+    source_key = (
+        _product_record_source_key(value)
+        if isinstance(value, ProductRef)
+        else _value_record_source_key(value)
+    )
+    matches = tuple(
+        selection
+        for selection in context._record_selections
+        if _record_selection_source_key(selection) == source_key
+    )
+    if len(matches) != 1:
+        raise ValueError(
+            "returning a data source with multiple explicit records is ambiguous; "
+            "return the selected RecordRef instead"
+        )
+    selection = matches[0]
+    if isinstance(selection, ValueRecordSelection):
+        source_value_id = internal_value_ref_record_source_id(selection.value)
+        return (
+            selection.record_id
+            or parse_product_id(source_value_id)
+            .prefixed(*selection.namespace)
+            .qualified_name
+        )
+    return selection.record_id or selection.product_id.qualified_name
 
 
 def _record_product_output[T: NativeMeasurementValue](

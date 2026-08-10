@@ -101,8 +101,8 @@ def _domain_scenario(
         products = experiment.use(domain_module(count_input=count))
         experiment.grid(sc.axis(count, (1, 3, 5)))
         if record_raw:
-            experiment.record(products.raw, record_id="raw")
-        experiment.record(products.summary, record_id="summary")
+            experiment.alias(products.raw, record_id="raw")
+        experiment.alias(products.summary, record_id="summary")
 
     resolved = bind_invocation(
         experiment.bind(),

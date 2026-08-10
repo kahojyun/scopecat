@@ -107,8 +107,8 @@ def test_experiment_authors_root_device_operations_without_a_module() -> None:
             outputs={"derived": derived},
             kernel=_derive_signal,
         )
-        experiment.record(raw)
-        experiment.record(derived)
+        experiment.alias(raw)
+        experiment.alias(derived)
         experiment.on_success(
             _TypedDevice(device),
             _DeviceTarget(level=0.0, enabled=False),
@@ -165,7 +165,7 @@ def test_experiment_supports_direct_root_authoring() -> None:
             resource=device,
             results={_DEVICE_SIGNAL: signal},
         )
-        experiment.record(signal)
+        experiment.alias(signal)
 
     program = compile_invocation(direct()).program.program
 
@@ -235,7 +235,7 @@ def test_public_capability_resource_supports_lab_owned_acquisition() -> None:
         )
         signal = experiment._product("signal")
         monitor.acquire({_DEVICE_SIGNAL: signal})
-        experiment.record(signal)
+        experiment.alias(signal)
 
     logical = compile_invocation(direct()).program.program
 
@@ -253,7 +253,7 @@ def test_experiment_records_a_compute_result_as_a_named_dataset_value() -> None:
             fn=lambda: 2.5,
             output_type=sc.ScalarType(sc.FloatType()),
         )
-        experiment.record(score)
+        experiment.alias(score)
 
     logical = compile_invocation(direct()).program.program
 
@@ -287,8 +287,8 @@ def test_experiment_composes_and_records_array_compute_results() -> None:
             inputs={"values": trace},
             output_type=sc.ScalarType(sc.FloatType()),
         )
-        trace_record = experiment.record(trace)
-        experiment.record(peak)
+        trace_record = experiment.alias(trace)
+        experiment.alias(peak)
         assert trace_record.dims == ("point", "sample")
 
     logical = compile_invocation(direct()).program.program
@@ -314,8 +314,8 @@ def test_experiment_derives_record_id_from_module_source_identity() -> None:
     def direct(experiment: sc.ExperimentContext) -> None:
         score = experiment.use(value_source())
         trace = experiment._product("trace")
-        experiment.record(score)
-        experiment.record(trace)
+        experiment.alias(score)
+        experiment.alias(trace)
 
     logical = compile_invocation(direct()).program.program
 
@@ -335,8 +335,8 @@ def test_value_record_namespaces_preserve_segment_identity() -> None:
             fn=lambda: 2.5,
             output_type=sc.ScalarType(sc.FloatType()),
         )
-        experiment.record(score, namespace="analysis%2Fdaily")
-        experiment.record(score, namespace="analysis/daily")
+        experiment.alias(score, namespace="analysis%2Fdaily")
+        experiment.alias(score, namespace="analysis/daily")
 
     logical = compile_invocation(direct()).program.program
 

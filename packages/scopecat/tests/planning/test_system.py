@@ -648,7 +648,7 @@ def test_recorded_compute_runs_without_an_instrument_provider() -> None:
             fn=lambda: 2.5,
             output_type=sc.ScalarType(sc.FloatType()),
         )
-        experiment.record(score)
+        experiment.alias(score)
 
     bound = bind_program(
         compile_invocation(definition()).program,
@@ -697,8 +697,8 @@ def test_array_compute_results_are_ordered_and_recordable() -> None:
             inputs={"trace": trace},
             output_type=sc.ScalarType(sc.FloatType()),
         )
-        experiment.record(trace)
-        experiment.record(maximum)
+        experiment.alias(trace)
+        experiment.alias(maximum)
 
     bound = bind_program(
         compile_invocation(definition()).program,
@@ -734,7 +734,7 @@ def test_plan_stage_value_record_is_materialized_per_point() -> None:
             sc.ScalarType(sc.FloatType()),
         ] = 1.5,
     ) -> None:
-        experiment.record(sc.input_ref(threshold))
+        experiment.alias(sc.input_ref(threshold))
 
     bound = bind_program(
         compile_invocation(definition()).program,

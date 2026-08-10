@@ -159,7 +159,7 @@ def test_experiment_record_expands_per_entity_products_in_declaration_order() ->
     second = context._product("second")
     products = sc.PerEntity(((q1, first), (q0, second)))
 
-    context.record(products)
+    context.alias(products)
 
     definition = context.close_definition_internal(
         id="test.per-entity-record",
@@ -186,14 +186,14 @@ def test_record_namespace_is_non_empty_and_exclusive_with_record_id() -> None:
     product = context._product("signal", scope=("readout",))
 
     with pytest.raises(ValueError, match="record namespace must be non-empty"):
-        context.record(product, namespace="")
+        context.alias(product, namespace="")
     with pytest.raises(
         ValueError,
         match="record_id and namespace cannot be used together",
     ):
-        context.record(product, record_id="signal", namespace="calibration")
+        context.alias(product, record_id="signal", namespace="calibration")
 
-    context.record(product, namespace="calibration/first")
+    context.alias(product, namespace="calibration/first")
     definition = context.close_definition_internal(
         id="test.record-namespace",
         kind="test",

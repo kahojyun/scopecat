@@ -93,6 +93,20 @@ This replaces independently loading columns, rejecting unavailable values, and
 zipping them by position. Use `point.quantity(ref, "mV")` when a numeric leaf
 should be converted to a requested unit.
 
+Every new dataset also persists the experiment result contract itself. Historical
+code can therefore inspect return paths without rebuilding the invocation that
+created the run:
+
+```python
+result = data.result
+print(result.contract.id, result.contract.version, result.paths)
+value = result[0].value("probabilities/probability_1")
+```
+
+`bind(schema)` remains the statically typed convenience when the originating
+symbolic output is already available; `result` is the durable interpretation
+boundary.
+
 There is no parallel `*Records` dataclass to declare or maintain. Product
 bundles keep their author-facing field names, and returned nested values receive
 hierarchical record names. These paths are the durable names: they do not change
@@ -100,10 +114,9 @@ when an internal product or compute operation is renamed. Repeating one source
 at two return paths creates two aliases over the same product use. `PerEntity`
 paths include both entity kind and identity.
 
-Call `experiment.record(...)` only for recording policy that cannot be expressed
-by the return structure: an explicit durable name, namespace, role override, or
-metadata. Put that policy beside the returned field instead of adding an
-imperative record call:
+The return tree is the ordinary durability and liveness boundary. Put explicit
+names, namespaces, roles, and metadata beside returned fields rather than
+adding an imperative selection call:
 
 ```python
 from typing import Annotated
@@ -120,7 +133,9 @@ class Spectrum:
 
 `Result(id=...)` names one leaf; `namespace`, `role`, and `metadata` can annotate
 a complete nested subtree. Returning an already-recorded leaf does not select
-it twice.
+it twice. `experiment.alias(...)` remains only for the uncommon case where one
+source needs an additional dynamic durable destination; return the resulting
+`RecordRef` when that alias is also part of the result contract.
 
 ## Keep the common input path short
 
@@ -283,7 +298,7 @@ experiment semantics:
 - scan coordinates describe the point domain, while local array dimensions
   describe data inside one point;
 - measurement-dependent control requires a later adaptive stage;
-- an explicit `record(...)` is recording policy, not ordinary dataflow.
+- an explicit `alias(...)` is an additional destination, not ordinary dataflow.
 
 Further convenience should be judged against complete experiments. New
 features should extend typed results, the shared compute model, or this

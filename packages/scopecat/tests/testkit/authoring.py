@@ -110,7 +110,7 @@ def simple_experiment(
                 points=5,
             ),
         )
-        experiment.record(signal, record_id="signal")
+        experiment.alias(signal, record_id="signal")
 
     return authoring.experiment(
         id=id,

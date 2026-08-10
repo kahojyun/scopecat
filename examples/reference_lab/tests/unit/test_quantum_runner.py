@@ -65,7 +65,7 @@ def _reset_guard_before_quantum(experiment: sc.ExperimentContext) -> None:
         .with_shots(7)
         .with_compiler_inputs(qubits=QUBITS.ref)
     )
-    experiment.record(results.iq_shots)
+    experiment.alias(results.iq_shots)
 
 
 def _configured_target(

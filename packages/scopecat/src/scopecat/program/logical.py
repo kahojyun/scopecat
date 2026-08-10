@@ -29,6 +29,7 @@ from scopecat.program.parameters import ParameterContract
 from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl, RecordSelection
 from scopecat.program.recording import (
+    ExperimentResultField,
     LogicalRecordSelection,
     LogicalValueRecordSelection,
 )
@@ -230,6 +231,7 @@ class LogicalProgram:
     parameter_overlays: tuple[AxisSpec, ...] = ()
     product_declarations: tuple[ModuleProductDecl, ...] = ()
     record_selections: tuple[LogicalRecordSelection, ...] = ()
+    result_fields: tuple[ExperimentResultField, ...] = ()
     parameter_contracts: tuple[ParameterContract, ...] = ()
     point_domain: PointAxes[ValueRef] = ()
     point_domain_layout: PointDomainLayout = "product_grid"

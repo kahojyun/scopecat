@@ -113,7 +113,7 @@ def _ragged_point_cloud(experiment: ExperimentContext) -> None:
         )
     )
     capture = experiment.use(_ragged_capture(gain=_RAGGED_GAIN))
-    experiment.record(capture, record_id="trace")
+    experiment.alias(capture, record_id="trace")
 
 
 def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:

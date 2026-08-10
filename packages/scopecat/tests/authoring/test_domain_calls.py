@@ -199,7 +199,7 @@ def test_structural_domain_call_captures_external_values_once() -> None:
 
     @sc.experiment(id="test.domain.structural-call")
     def experiment(context: sc.ExperimentContext) -> None:
-        context.record(context.use(invocation))
+        context.alias(context.use(invocation))
 
     compile_invocation(experiment())
 
@@ -548,8 +548,8 @@ def test_experiment_domain_execution_lowers_plan_inputs_and_composed_product_use
     def experiment(experiment: sc.ExperimentContext) -> None:
         selected_product = experiment.use(root_module(point_x_count))
         experiment.grid(sc.axis(point_x_count, (1, 2)))
-        experiment.record(selected_product, record_id="counts_first")
-        experiment.record(selected_product, record_id="counts_second")
+        experiment.alias(selected_product, record_id="counts_first")
+        experiment.alias(selected_product, record_id="counts_second")
 
     resolved = bind_invocation(
         experiment(),

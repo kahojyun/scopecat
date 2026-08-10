@@ -88,7 +88,7 @@ def test_binary_iq_postprocessor_classifies_one_point(
     assert invocation_products.probability_1.id == "kernel/discriminate/probability_1"
     experiment = sc.ExperimentContext()
     records = assert_type(
-        experiment.record(experiment.use(discriminate())),
+        experiment.alias(experiment.use(discriminate())),
         sc.RecordedProducts,
     )
     assert isinstance(records.probability_0, sc.RecordRef)

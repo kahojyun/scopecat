@@ -46,7 +46,7 @@ from scopecat.program.operations import (
 from scopecat.program.parameters import ParameterContract
 from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl
-from scopecat.program.recording import LogicalRecordSelection
+from scopecat.program.recording import ExperimentResultField, LogicalRecordSelection
 from scopecat.program.scans import AxisSpec, PointTraversal, RepeatMode
 from scopecat.program.value_graph import OperationId, operation_result_id
 from scopecat.program.value_refs import (
@@ -298,6 +298,7 @@ class LogicalProgramBuilder:
         parameter_overlays: Sequence[AxisSpec],
         product_declarations: Sequence[ModuleProductDecl],
         record_selections: Sequence[LogicalRecordSelection],
+        result_fields: Sequence[ExperimentResultField],
         parameter_contracts: Sequence[ParameterContract],
         point_domain: PointAxes[ValueRef],
         point_domain_layout: PointDomainLayout,
@@ -325,6 +326,7 @@ class LogicalProgramBuilder:
             parameter_overlays=tuple(parameter_overlays),
             product_declarations=tuple(product_declarations),
             record_selections=tuple(record_selections),
+            result_fields=tuple(result_fields),
             parameter_contracts=tuple(parameter_contracts),
             point_domain=point_domain,
             point_domain_layout=point_domain_layout,

@@ -293,7 +293,7 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
     @sc.experiment(id="test.quantum.call-template", kind="x_count")
     def experiment(context: sc.ExperimentContext) -> None:
         results = context.use(call)
-        context.record(results.iq_shots)
+        context.alias(results.iq_shots)
 
     invocation = experiment()
     [selection] = invocation.definition.record_selections
@@ -328,8 +328,8 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
     @sc.experiment(id="test.quantum.multi-result", kind="quantum")
     def experiment(context: sc.ExperimentContext) -> None:
         context.use(call)
-        context.record(call.results.first_iq)
-        context.record(call.results.second_iq)
+        context.alias(call.results.first_iq)
+        context.alias(call.results.second_iq)
 
     compiled = compile_invocation(experiment())
     bound = bind_program(

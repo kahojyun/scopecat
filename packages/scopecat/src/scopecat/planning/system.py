@@ -231,6 +231,7 @@ def _compile_system_program(
     measurements = select_measurement_projection(
         measurement_catalog,
         bound.bindings.record_uses,
+        result_fields=logical.result_fields,
         static_value_candidates=project_static_value_record_candidates(
             bound_points,
             tuple(

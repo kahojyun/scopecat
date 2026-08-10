@@ -32,23 +32,33 @@ coordinate handles used during authoring. `RecordRef` is only needed to select
 one of several explicitly recorded aliases. See the
 [authoring dataflow](experiment-authoring.md) for the complete model.
 
-A specialized LO scan can record its physical RF coordinate at authoring time,
-making the dataset immediately plot-ready. A signed IF keeps the lab convention
-explicit:
+The persisted dataset schema also carries a versioned result contract mapping
+each return path to its variable. `dataset.result` reads this mapping without
+importing or rebuilding the original experiment; symbolic handles are an
+optional typed convenience rather than historical schema authority.
+
+A specialized LO scan can return its physical RF coordinate with coordinate
+policy, making the dataset immediately plot-ready. A signed IF keeps the lab
+convention explicit:
 
 ```python
+@dataclass(frozen=True)
+class SpectrumResult:
+    rf_frequency: Annotated[
+        sc.ValueRef[sc.Quantity],
+        sc.Result(
+            role="coordinate",
+            metadata={
+                "relation": "rf_frequency = lo_frequency + signed_if",
+                "signed_if_hz": -100_000_000.0,
+            },
+        ),
+    ]
+
+
 lo = experiment.scan("lo_frequency", (4.9, 5.0, 5.1), unit="GHz")
-signed_if = sc.Quantity(-100, "MHz")
-rf = lo + signed_if
-experiment.record(
-    rf,
-    record_id="rf_frequency",
-    role="coordinate",
-    metadata={
-        "relation": "rf_frequency = lo_frequency + signed_if",
-        "signed_if_hz": float(signed_if.to("Hz").value),
-    },
-)
+rf = lo + sc.Quantity(-100, "MHz")
+return SpectrumResult(rf_frequency=rf)
 ```
 
 The LO scan is already a point coordinate. The derived record makes RF directly

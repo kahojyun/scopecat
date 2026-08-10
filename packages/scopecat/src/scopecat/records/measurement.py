@@ -141,6 +141,45 @@ class MeasurementVariable(_FrozenMeasurementModel):
         return self
 
 
+class MeasurementResultField(_FrozenMeasurementModel):
+    """One experiment return path resolved to a durable dataset variable."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: Sequence[str] = Field(min_length=1)
+    variable_id: str = Field(min_length=1)
+
+    @field_validator("path")
+    @classmethod
+    def freeze_path(cls, value: Sequence[str]) -> Sequence[str]:
+        if any(not segment for segment in value):
+            raise ValueError("measurement result path segments must be non-empty")
+        return tuple(value)
+
+
+class MeasurementResultContract(_FrozenMeasurementModel):
+    """Self-describing experiment return contract persisted with a dataset."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1)
+    version: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    fields: Sequence[MeasurementResultField] = Field(min_length=1)
+
+    @field_validator("fields")
+    @classmethod
+    def freeze_fields[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def validate_paths(self) -> MeasurementResultContract:
+        ensure_unique_ids(
+            ["/".join(field.path) for field in self.fields],
+            "measurement result paths must be unique",
+        )
+        return self
+
+
 class MeasurementPointDomainAxis(_FrozenMeasurementModel):
     """One ordered independent axis in a product-grid point domain."""
 
@@ -238,6 +277,7 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
     variables: Sequence[MeasurementVariable] = Field(default_factory=tuple)
     primary_coordinates: Sequence[str] = Field(default_factory=tuple)
     primary_observables: Sequence[str] = Field(default_factory=tuple)
+    result: MeasurementResultContract | None = None
     metadata: MeasurementMetadata = Field(default_factory=_empty_metadata)
 
     @field_validator(
@@ -324,6 +364,20 @@ class MeasurementDatasetSchema(_FrozenMeasurementModel):
             if variable.role != "observable":
                 msg = f"primary observable {variable_id} must have observable role"
                 raise ValueError(msg)
+
+        if self.result is not None:
+            missing_result_variables = sorted(
+                {
+                    field.variable_id
+                    for field in self.result.fields
+                    if field.variable_id not in variable_by_id
+                }
+            )
+            if missing_result_variables:
+                raise ValueError(
+                    "measurement result fields reference missing variables: "
+                    + ", ".join(missing_result_variables)
+                )
 
         return self
 

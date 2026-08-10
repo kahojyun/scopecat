@@ -16,6 +16,21 @@ from scopecat.program.value_refs import ValueRef
 
 
 @dataclass(frozen=True, slots=True)
+class ExperimentResultField:
+    """One returned data leaf mapped to its durable dataset variable."""
+
+    path: tuple[str, ...]
+    variable_id: str
+
+    def __post_init__(self) -> None:
+        if not self.path or any(not segment for segment in self.path):
+            raise ValueError("experiment result paths must contain non-empty segments")
+        if not self.variable_id:
+            raise ValueError("experiment result variable id must be non-empty")
+        object.__setattr__(self, "path", tuple(self.path))
+
+
+@dataclass(frozen=True, slots=True)
 class ValueRecordSelection:
     """Experiment-owned request to persist one symbolic scalar value."""
 
@@ -60,6 +75,7 @@ type LogicalRecordSelection = RecordSelection | LogicalValueRecordSelection
 
 
 __all__ = [
+    "ExperimentResultField",
     "LogicalRecordSelection",
     "LogicalValueRecordSelection",
     "ProgramRecordSelection",

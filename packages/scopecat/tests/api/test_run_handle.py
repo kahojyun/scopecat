@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Protocol, cast
 
@@ -41,6 +42,11 @@ class _ArrowTable(Protocol):
     def num_rows(self) -> int: ...
 
     def __getitem__(self, name: str) -> _ArrowColumn: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _ComputeOnlyResult:
+    score: sc.ValueRef[float]
 
 
 @authoring.module(id="test.session.simple_frequency_scan")
@@ -103,7 +109,7 @@ def simple_frequency_scan_experiment() -> Experiment[...]:
                 points=3,
             ),
         )
-        experiment.record(signal, record_id="signal")
+        experiment.alias(signal, record_id="signal")
 
     return authoring.experiment(
         id="test.session.simple_frequency_scan",
@@ -147,13 +153,15 @@ def test_in_process_lab_records_compute_value_without_instruments(
     tmp_path: Path,
 ) -> None:
     @sc.experiment(id="test.session.compute-only", kind="compute-only")
-    def compute_only(experiment: sc.ExperimentContext) -> None:
-        score = experiment.compute(
-            "score",
-            fn=lambda: 2.5,
-            output_type=sc.ScalarType(sc.FloatType()),
+    def compute_only(experiment: sc.ExperimentContext) -> _ComputeOnlyResult:
+        def calculate_score() -> float:
+            return 2.5
+
+        score = cast(
+            "sc.ValueRef[float]",
+            experiment.compute(fn=calculate_score),
         )
-        experiment.record(score)
+        return _ComputeOnlyResult(score=score)
 
     config = load_config()
     lab = in_process_lab(
@@ -167,11 +175,11 @@ def test_in_process_lab_records_compute_value_without_instruments(
     )
 
     preview = lab.prepare(compute_only).preview()
-    assert preview.host_compute_ids == ("score",)
+    assert preview.host_compute_ids == ("calculate_score",)
     assert preview.observation_compute_ids == ()
     [compute] = preview.computes
     assert compute.input_names == ()
-    assert compute.outputs == ("score",)
+    assert compute.outputs == ("calculate_score",)
     assert compute.demanded_by == ("record:score",)
 
     run = lab.prepare(compute_only).run()
@@ -186,7 +194,10 @@ def test_in_process_lab_records_compute_value_without_instruments(
         value=2.5,
     )
     variable = next(item for item in dataset.schema.variables if item.id == "score")
-    assert variable.source_value_id == "score"
+    assert variable.source_value_id == "calculate_score"
+    assert dataset.result.contract.id == "test.session.compute-only"
+    assert dataset.result.paths == (("score",),)
+    assert dataset.result[0].value("score") == 2.5
     content = run.data()
     assert content.datasets == ("raw-measurements",)
     assert content.dataset("raw-measurements") == dataset.entry
@@ -230,7 +241,7 @@ def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
     @sc.experiment(id="test.session.empty-points", kind="empty-points")
     def empty_points(experiment: sc.ExperimentContext) -> None:
         experiment.points((), coordinates=(DRIVE_FREQUENCY_POINT,))
-        experiment.record(DRIVE_FREQUENCY_POINT, record_id="observed_frequency")
+        experiment.alias(DRIVE_FREQUENCY_POINT, record_id="observed_frequency")
 
     config = load_config()
     lab = in_process_lab(

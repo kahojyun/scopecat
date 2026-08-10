@@ -70,8 +70,8 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     @sc.experiment(id="test.postprocessor.lowering", kind="postprocessor")
     def experiment(experiment: sc.ExperimentContext) -> None:
         result = experiment.use(module())
-        experiment.record(result, record_id="first")
-        experiment.record(result, record_id="second")
+        experiment.alias(result, record_id="first")
+        experiment.alias(result, record_id="second")
 
     resolved = bind_invocation(experiment(), config_profile=load_config())
     program = resolved.bindings
@@ -137,8 +137,8 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
     @sc.experiment(id="test.postprocessor.hidden-id", kind="postprocessor")
     def experiment(experiment: sc.ExperimentContext) -> None:
         result = experiment.use(root())
-        experiment.record(result.left, record_id="left")
-        experiment.record(result.right, record_id="right")
+        experiment.alias(result.left, record_id="left")
+        experiment.alias(result.right, record_id="right")
 
     def compile_input_use_ids() -> dict[str, str]:
         program = bind_invocation(
@@ -196,7 +196,7 @@ def test_measurement_compute_mints_one_live_use_for_each_named_input() -> None:
     @sc.experiment(id="test.measurement-compute.lowering", kind="compute")
     def experiment(experiment: sc.ExperimentContext) -> None:
         result = experiment.use(module())
-        experiment.record(result)
+        experiment.alias(result)
 
     bound = bind_invocation(experiment(), config_profile=load_config())
 
@@ -220,7 +220,7 @@ def test_recorded_product_requires_a_producer() -> None:
     @sc.experiment(id="test.product.owner", kind="product-owner")
     def experiment(experiment: sc.ExperimentContext) -> None:
         result = experiment.use(module())
-        experiment.record(result)
+        experiment.alias(result)
 
     with pytest.raises(CheckFailed) as error:
         bind_invocation(experiment(), config_profile=load_config())

@@ -251,7 +251,7 @@ def test_experiment_returns_a_typed_dataset_schema() -> None:
         count = experiment.scan("count", (1, 2, 3))
         return _CountDataset(
             count=count,
-            recorded_count=experiment.record(count, record_id="count_copy"),
+            recorded_count=experiment.alias(count, record_id="count_copy"),
         )
 
     invocation = assert_type(
@@ -373,7 +373,7 @@ def test_returned_explicit_record_is_not_selected_twice() -> None:
             fn=lambda: 1.0,
             output_type=sc.ScalarType(sc.FloatType()),
         )
-        experiment.record(score)
+        experiment.alias(score)
         return score
 
     assert len(definition().definition.record_selections) == 1
@@ -548,7 +548,7 @@ def test_symbolic_structural_argument_becomes_a_private_module_import() -> None:
     @sc.experiment(id="test.function.structural-value")
     def authored(experiment: sc.ExperimentContext) -> None:
         experiment.grid(sc.axis(point, (1, 2)))
-        experiment.record(
+        experiment.alias(
             experiment.use(invocation),
             record_id="selected_result",
         )
@@ -662,7 +662,7 @@ def test_use_returns_typed_results_and_requires_an_occurrence() -> None:
     @sc.experiment(id="test.use.experiment", kind="use")
     def authored(experiment: sc.ExperimentContext) -> None:
         value = assert_type(experiment.use(parent()), sc.ValueRef)
-        experiment.record(value)
+        experiment.alias(value)
 
     compile_invocation(authored())
 

@@ -8,6 +8,7 @@ from typing import cast
 
 from pydantic import JsonValue as WireJsonValue
 
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
 from scopecat.kernel.graph_identity import ValueId
@@ -38,6 +39,8 @@ from scopecat.measurements.results import (
     MeasurementPointDomainAxis,
     MeasurementPointDomainColumn,
     MeasurementProductGridPointDomain,
+    MeasurementResultContract,
+    MeasurementResultField,
     MeasurementScalar,
     MeasurementVariable,
 )
@@ -46,6 +49,7 @@ from scopecat.program.measurement_types import (
     MeasurementVariableRole,
     measurement_value_spec_from_scalar,
 )
+from scopecat.program.recording import ExperimentResultField
 
 
 def _empty_metadata() -> FrozenMapping[str, JsonValue]:
@@ -391,6 +395,7 @@ def expected_dataset_schema(
     point_domain_layout: PointDomainLayout = "product_grid",
     point_domain_axis_sizes: Sequence[tuple[str, int]] = (),
     point_domain_axis_values: Sequence[tuple[str, Sequence[CellValue]]] = (),
+    result_fields: Sequence[ExperimentResultField] = (),
 ) -> MeasurementDatasetSchema | None:
     """Build the complete planned dataset schema from points and record plans."""
 
@@ -413,6 +418,12 @@ def expected_dataset_schema(
         variable for variable in record_variables if variable.role == "observable"
     ]
     coordinates = [*point_coordinates, *record_coordinates]
+    variables = [*coordinates, *observables]
+    result = _measurement_result_contract(
+        experiment_id,
+        result_fields,
+        variables=variables,
+    )
     return MeasurementDatasetSchema(
         dataset_id=dataset_id,
         point_domain=(
@@ -438,10 +449,41 @@ def expected_dataset_schema(
             )
         ),
         dimensions=dimensions,
-        variables=[*coordinates, *observables],
+        variables=variables,
         primary_coordinates=[variable.id for variable in coordinates],
         primary_observables=[variable.id for variable in observables],
+        result=result,
         metadata={"experiment_id": experiment_id},
+    )
+
+
+def _measurement_result_contract(
+    experiment_id: str,
+    result_fields: Sequence[ExperimentResultField],
+    *,
+    variables: Sequence[MeasurementVariable],
+) -> MeasurementResultContract | None:
+    if not result_fields:
+        return None
+    selected = tuple(
+        MeasurementResultField(path=field.path, variable_id=field.variable_id)
+        for field in result_fields
+    )
+    variable_by_id = {variable.id: variable for variable in variables}
+    identity = {
+        "id": experiment_id,
+        "fields": [
+            {
+                "path": list(field.path),
+                "variable": variable_by_id[field.variable_id].model_dump(mode="json"),
+            }
+            for field in selected
+        ],
+    }
+    return MeasurementResultContract(
+        id=experiment_id,
+        version=f"sha256:{stable_content_hash(identity)}",
+        fields=selected,
     )
 
 

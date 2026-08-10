@@ -34,6 +34,7 @@ from scopecat.measurements.values import (
     MeasurementValueCatalog,
 )
 from scopecat.program.measurement_types import MeasurementVariableRole
+from scopecat.program.recording import ExperimentResultField
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
@@ -53,6 +54,10 @@ class MeasurementProjection:
         repr=False,
         compare=False,
     )
+    _result_fields: tuple[ExperimentResultField, ...] = field(
+        repr=False,
+        compare=False,
+    )
     contract_fingerprint: str
 
     def __init__(
@@ -61,6 +66,7 @@ class MeasurementProjection:
         records: tuple[DatasetRecordPlan, ...],
         *,
         static_value_candidates: Sequence[ValueRecordCandidate] = (),
+        result_fields: Sequence[ExperimentResultField] = (),
     ) -> None:
         object.__setattr__(self, "catalog", catalog)
         object.__setattr__(self, "_records", records)
@@ -69,6 +75,7 @@ class MeasurementProjection:
             "_static_value_candidates",
             tuple(static_value_candidates),
         )
+        object.__setattr__(self, "_result_fields", tuple(result_fields))
         object.__setattr__(
             self,
             "contract_fingerprint",
@@ -113,6 +120,7 @@ class MeasurementProjection:
             records=self.records,
             point_coordinate_columns=self.catalog.point_contract.coordinate_columns,
             point_domain_layout=self.catalog.point_contract.domain_layout,
+            result_fields=self._result_fields,
             point_domain_axis_sizes=self.catalog.point_contract.domain_axis_sizes,
             point_domain_axis_values=self.catalog.point_contract.domain_axis_values,
         )
@@ -152,6 +160,7 @@ def select_measurement_projection(
     record_uses: Sequence[BoundRecordUse],
     *,
     static_value_candidates: Sequence[ValueRecordCandidate] = (),
+    result_fields: Sequence[ExperimentResultField] = (),
 ) -> MeasurementProjection:
     """Close every record projection against one value catalog."""
 
@@ -205,6 +214,7 @@ def select_measurement_projection(
         catalog,
         record_plans,
         static_value_candidates=static_value_candidates,
+        result_fields=result_fields,
     )
 
 

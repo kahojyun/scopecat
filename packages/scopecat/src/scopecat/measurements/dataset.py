@@ -50,6 +50,7 @@ from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
+    MeasurementResultContract,
     MeasurementScalar,
     MeasurementUnavailable,
     MeasurementUnavailableReason,
@@ -630,6 +631,15 @@ class Dataset:
         """
 
         return ExperimentResultView(self, output)
+
+    @property
+    def result(self) -> StoredExperimentResultView:
+        """Return the self-describing result view persisted with this dataset."""
+
+        contract = self.schema.result
+        if contract is None:
+            raise ValueError("measurement dataset has no experiment result contract")
+        return StoredExperimentResultView(self, contract)
 
     def _variable_from_record_ref[T: NativeAvailableValue](
         self,
@@ -1647,6 +1657,106 @@ class ExperimentResultView[ResultT](Sequence[ExperimentResultPoint]):
         """Materialize typed rows without independently aligning columns."""
 
         return tuple(build(point) for point in self)
+
+
+type ResultPath = str | tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class StoredExperimentResultPoint:
+    """One point addressed through a dataset's persisted return paths."""
+
+    _view: StoredExperimentResultView = field(repr=False)
+    index: int
+
+    def value(self, path: ResultPath, /) -> NativeAvailableValue:
+        variable = self._view.variable(path)
+        value = variable[self.index]
+        if value is None:
+            raise ValueError(
+                f"result field {_normalize_result_path(path)!r} is unavailable at "
+                f"row position {self.index}"
+            )
+        return value
+
+    def quantity(self, path: ResultPath, /, unit: str | None = None) -> Quantity:
+        variable = self._view.variable(path)
+        value = variable.quantities(unit)[self.index]
+        if value is None:
+            raise ValueError(
+                f"result field {_normalize_result_path(path)!r} is unavailable at "
+                f"row position {self.index}"
+            )
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class StoredExperimentResultView(Sequence[StoredExperimentResultPoint]):
+    """Historical result paths resolved without rebuilding symbolic Python refs."""
+
+    dataset: Dataset
+    contract: MeasurementResultContract
+    _variables: Mapping[tuple[str, ...], Variable[NativeAvailableValue]] = field(
+        init=False,
+        repr=False,
+    )
+
+    def __post_init__(self) -> None:
+        variables = {
+            tuple(result_field.path): self.dataset[result_field.variable_id]
+            for result_field in self.contract.fields
+        }
+        object.__setattr__(self, "_variables", MappingProxyType(variables))
+
+    @property
+    def paths(self) -> tuple[tuple[str, ...], ...]:
+        return tuple(self._variables)
+
+    def variable(self, path: ResultPath, /) -> Variable[NativeAvailableValue]:
+        selected = _normalize_result_path(path)
+        try:
+            return self._variables[selected]
+        except KeyError:
+            raise KeyError(
+                f"experiment result has no field {'/'.join(selected)!r}"
+            ) from None
+
+    @override
+    def __len__(self) -> int:
+        return len(self.dataset)
+
+    @overload
+    def __getitem__(self, index: int) -> StoredExperimentResultPoint: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[StoredExperimentResultPoint, ...]: ...
+
+    @override
+    def __getitem__(
+        self,
+        index: int | slice,
+    ) -> StoredExperimentResultPoint | tuple[StoredExperimentResultPoint, ...]:
+        if isinstance(index, slice):
+            return tuple(
+                StoredExperimentResultPoint(self, position)
+                for position in range(*index.indices(len(self)))
+            )
+        position = _normalize_index(index, size=len(self), label="result point")
+        return StoredExperimentResultPoint(self, position)
+
+    def rows[RowT](
+        self,
+        build: Callable[[StoredExperimentResultPoint], RowT],
+        /,
+    ) -> tuple[RowT, ...]:
+        return tuple(build(point) for point in self)
+
+
+def _normalize_result_path(path: ResultPath) -> tuple[str, ...]:
+    selected = tuple(path.split("/")) if isinstance(path, str) else tuple(path)
+    if not selected or any(not segment for segment in selected):
+        raise ValueError("experiment result paths must contain non-empty segments")
+    return selected
 
 
 def _experiment_result_refs(
