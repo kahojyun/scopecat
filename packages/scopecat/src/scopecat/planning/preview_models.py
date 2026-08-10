@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.program.measurement_types import MeasurementVariableRole
@@ -26,6 +27,18 @@ class ExperimentPreviewRecord:
 
 
 @dataclass(frozen=True)
+class ExperimentPreviewCompute:
+    """Why one live compute runs at its compiler-selected placement."""
+
+    id: str
+    placement: Literal["host", "observation"]
+    input_names: tuple[str, ...]
+    outputs: tuple[str, ...]
+    demanded_by: tuple[str, ...]
+    implementation_id: str | None = None
+
+
+@dataclass(frozen=True)
 class ExperimentPreview:
     """Stable experiment shape that a user can review before execution."""
 
@@ -35,6 +48,7 @@ class ExperimentPreview:
     coordinate_ids: tuple[str, ...]
     points: tuple[ExperimentPreviewPoint, ...]
     records: tuple[ExperimentPreviewRecord, ...]
+    computes: tuple[ExperimentPreviewCompute, ...] = ()
 
     @property
     def point_count(self) -> int:
@@ -46,4 +60,18 @@ class ExperimentPreview:
             return tuple(self.schema.primary_observables)
         return tuple(
             record.id for record in self.records if record.role == "observable"
+        )
+
+    @property
+    def host_compute_ids(self) -> tuple[str, ...]:
+        return tuple(
+            compute.id for compute in self.computes if compute.placement == "host"
+        )
+
+    @property
+    def observation_compute_ids(self) -> tuple[str, ...]:
+        return tuple(
+            compute.id
+            for compute in self.computes
+            if compute.placement == "observation"
         )

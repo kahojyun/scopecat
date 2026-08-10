@@ -153,6 +153,14 @@ def test_in_process_lab_records_compute_value_without_instruments(
         ),
     )
 
+    preview = lab.prepare(compute_only).preview()
+    assert preview.host_compute_ids == ("score",)
+    assert preview.observation_compute_ids == ()
+    [compute] = preview.computes
+    assert compute.input_names == ()
+    assert compute.outputs == ("score",)
+    assert compute.demanded_by == ("record:score",)
+
     run = lab.prepare(compute_only).run()
     dataset = run.measurements()
 

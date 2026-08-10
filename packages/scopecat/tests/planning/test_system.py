@@ -55,6 +55,7 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, Table, TableColumn
 from scopecat.measurements.results import MeasurementValue
 from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.provider_binding import (
     resolve_instrument_contract_catalog,
 )
@@ -910,6 +911,12 @@ def test_planning_keeps_postprocessor_outputs_out_of_local_acquisition() -> None
     assert collect.result_bindings[0].product_use_ids == (
         first.inputs[0].product_use_id,
     )
+    preview = build_run_program_preview(plan)
+    assert preview.observation_compute_ids == ("normalize", "summarize")
+    normalize, summarize = preview.computes
+    assert normalize.placement == "observation"
+    assert normalize.demanded_by == ("compute:summarize",)
+    assert summarize.demanded_by == ("record:derived",)
 
 
 def test_domain_target_partitions_complete_point_space_by_capacity() -> None:

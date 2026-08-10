@@ -208,6 +208,22 @@ classified = experiment.compute(
 )
 ```
 
+## Inspect placement and liveness before running
+
+`lab.preview(...)` exposes the compiler's decision without leaking compiler IR:
+
+```python
+preview = lab.preview(spectrum())
+for compute in preview.computes:
+    print(compute.id, compute.placement, compute.demanded_by)
+```
+
+Placement is either `host` (all inputs exist before acquisition) or
+`observation` (at least one input is a measured product). `demanded_by` names
+the returned record, downstream compute, payload, or experiment effect that
+keeps the compute live. Observation computes absent from this list were removed
+because no durable output or downstream compute needs them.
+
 ## Deliberate remaining boundaries
 
 Some distinctions should stay visible because removing them would hide real
