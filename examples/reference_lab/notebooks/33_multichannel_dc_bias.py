@@ -5,6 +5,7 @@ from __future__ import annotations
 import scopecat as sc
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.multichannel_bias import (
     MULTICHANNEL_DC_BIAS,
     OPERATE_PROFILE,
@@ -50,4 +51,4 @@ multichannel_dc_bias_summary = {
     "records": len(data),
     "status": status,
 }
-print(multichannel_dc_bias_summary)
+show(multichannel_dc_bias_summary)

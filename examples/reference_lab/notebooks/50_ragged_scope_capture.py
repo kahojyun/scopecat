@@ -6,6 +6,7 @@ import scopecat as sc
 from scopecat.records.measurement import MeasurementArray, MeasurementValue
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.ragged_scope_capture import RAGGED_SCOPE_CAPTURE
 
 
@@ -47,4 +48,4 @@ ragged_scope_summary = {
     ],
     "status": status,
 }
-print(ragged_scope_summary)
+show(ragged_scope_summary)

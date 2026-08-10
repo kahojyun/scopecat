@@ -64,10 +64,9 @@
       "type": "pickString",
       "description": "Scopecat project to start",
       "options": [
-        "examples/quantum",
-        "examples/instruments"
+        "examples/reference_lab"
       ],
-      "default": "examples/quantum"
+      "default": "examples/reference_lab"
     }
   ]
 }

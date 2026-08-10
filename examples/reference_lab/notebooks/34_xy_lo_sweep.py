@@ -5,6 +5,7 @@ from __future__ import annotations
 import scopecat as sc
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.xy_drive import XY_LO_SWEEP
 
 # %%
@@ -26,4 +27,4 @@ xy_lo_sweep_summary = {
     "requested_carrier_ghz": requested_carrier_frequency_ghz,
     "status": status,
 }
-print(xy_lo_sweep_summary)
+show(xy_lo_sweep_summary)

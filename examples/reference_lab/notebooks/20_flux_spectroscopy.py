@@ -7,6 +7,8 @@ from pathlib import Path
 
 import scopecat as sc
 
+from reference_lab.notebook import show
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -44,4 +46,4 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         "candidate_config_id": candidate_snapshot.id,
     }
 
-print(summary)
+show(summary)

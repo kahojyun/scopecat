@@ -6,6 +6,7 @@ from __future__ import annotations
 import scopecat as sc
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.ramsey_experiments import entity_routed_ramsey
 
 # %%
@@ -28,4 +29,4 @@ entity_ramsey_summary = {
     "qubit_groups": len(groups),
     "status": status,
 }
-print(entity_ramsey_summary)
+show(entity_ramsey_summary)

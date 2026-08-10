@@ -7,6 +7,7 @@ import scopecat as sc
 from scopecat.planning.routing import endpoint_entity_ids
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 
 # %%
 with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
@@ -60,4 +61,4 @@ channel_map_summary = {
         and endpoint.entity_id is not None
     },
 }
-print(channel_map_summary)
+show(channel_map_summary)

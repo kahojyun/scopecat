@@ -6,6 +6,7 @@ from __future__ import annotations
 import scopecat as sc
 
 from reference_lab.configuration import EXAMPLE_ROOT
+from reference_lab.notebook import show
 from reference_lab.workflows.ramsey_experiments import (
     q0_fixed_if_lo_sweep,
 )
@@ -30,4 +31,4 @@ q0_fixed_if_lo_sweep_summary = {
     "carrier_ghz": [round(value.value, 6) for value in carriers],
     "status": status,
 }
-print(q0_fixed_if_lo_sweep_summary)
+show(q0_fixed_if_lo_sweep_summary)

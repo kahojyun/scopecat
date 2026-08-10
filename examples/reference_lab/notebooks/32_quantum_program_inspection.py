@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from reference_lab.notebook import show
+
 # %%
 from reference_lab.workflows.drag_beta_calibration import drag_beta_program
 
@@ -15,6 +17,6 @@ program_inspection_summary = {
     "tree_has_parallel_readout": "parallel" in program_tree,
 }
 
-print(program_description)
-print(program_tree)
-print(program_inspection_summary)
+show(program_description)
+show(program_tree)
+show(program_inspection_summary)
