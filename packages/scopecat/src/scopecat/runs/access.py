@@ -113,6 +113,15 @@ def read_artifact_bytes(
     return storage.read_bytes(run_id, artifact_storage_ref(artifact))
 
 
+def read_dataset_bytes(
+    *,
+    storage: RunRepository,
+    run_id: str,
+    dataset: RunContentEntry,
+) -> bytes:
+    return storage.read_bytes(run_id, dataset_storage_ref(dataset))
+
+
 def read_artifact_text(
     *,
     storage: RunRepository,

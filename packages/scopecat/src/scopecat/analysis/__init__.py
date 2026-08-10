@@ -2,6 +2,7 @@
 
 from scopecat.analysis.datasets import (
     DERIVED_DATASET_CODEC,
+    DERIVED_DATASET_MEDIA_TYPE,
     DerivedDataset,
     DerivedDatasetField,
     DerivedDatasetSchema,
@@ -10,6 +11,7 @@ from scopecat.analysis.datasets import (
 
 __all__ = [
     "DERIVED_DATASET_CODEC",
+    "DERIVED_DATASET_MEDIA_TYPE",
     "DerivedDataset",
     "DerivedDatasetField",
     "DerivedDatasetSchema",

@@ -20,6 +20,7 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.analysis.datasets import DerivedDatasetPayload
 from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
@@ -32,6 +33,7 @@ from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
+    AnalysisComputeExecution,
     AnalysisDerivedData,
     AnalysisFigure,
     AnalysisTable,
@@ -194,6 +196,15 @@ class AnalysisDataOutputPayload(_WireModel):
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+class AnalysisDatasetOutputPayload(_WireModel):
+    kind: Literal["dataset"]
+    id: NonEmptyText
+    title: NonEmptyText
+    content: DerivedDatasetPayload
+    execution: AnalysisComputeExecution | None = None
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+
 class AnalysisFigureOutputPayload(_WireModel):
     kind: Literal["figure"]
     title: NonEmptyText
@@ -210,6 +221,7 @@ class AnalysisParameterProposalOutputPayload(_WireModel):
 
 type AnalysisOutputPayload = Annotated[
     AnalysisDataOutputPayload
+    | AnalysisDatasetOutputPayload
     | AnalysisTableOutputPayload
     | AnalysisFigureOutputPayload
     | AnalysisParameterProposalOutputPayload,
@@ -701,6 +713,7 @@ def _validated_base64(value: str) -> str:
 
 __all__ = [
     "AnalysisDataOutputPayload",
+    "AnalysisDatasetOutputPayload",
     "AnalysisFigureOutputPayload",
     "AnalysisInputPayload",
     "AnalysisOutputPayload",

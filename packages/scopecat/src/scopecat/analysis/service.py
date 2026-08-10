@@ -6,14 +6,21 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, NoReturn
 
+from scopecat.analysis.datasets import (
+    DERIVED_DATASET_CODEC,
+    DERIVED_DATASET_MEDIA_TYPE,
+    DerivedDataset,
+)
 from scopecat.config.changes import (
     parameter_change_proposal_record_ref,
     prepare_parameter_change_proposal_contents,
 )
 from scopecat.kernel.content_identity import (
     model_wire_content_hash,
+    sha256_content_hash,
 )
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
     LocationPathItem,
     ProblemPhase,
@@ -23,7 +30,10 @@ from scopecat.kernel.problems import (
 from scopecat.project_state import ProjectStateServices
 from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
+    AnalysisComputeExecution,
     AnalysisDataRecordOutput,
+    AnalysisDatasetRecordOutput,
+    AnalysisDatasetReference,
     AnalysisDerivedData,
     AnalysisFigure,
     AnalysisFigureRecordOutput,
@@ -37,8 +47,9 @@ from scopecat.records.analysis import (
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.runs.refs import record_content_ref
+from scopecat.runs.refs import dataset_content_ref, record_content_ref
 from scopecat.runs.repository import (
+    RunBytesWrite,
     RunContentPublication,
     RunModelWrite,
 )
@@ -85,8 +96,19 @@ class AnalysisDataOutput:
     metadata: Mapping[str, object]
 
 
+@dataclass(frozen=True)
+class AnalysisDatasetOutput:
+    kind: Literal["dataset"]
+    id: str
+    title: str
+    content: DerivedDataset
+    execution: AnalysisComputeExecution | None
+    metadata: Mapping[str, object]
+
+
 type AnalysisOutput = (
     AnalysisDataOutput
+    | AnalysisDatasetOutput
     | AnalysisTableOutput
     | AnalysisFigureOutput
     | AnalysisParameterProposalOutput
@@ -158,13 +180,20 @@ def prepare_analysis(
         )
     ref = record_content_ref(record_id=selected_record_id, kind="analysis")
     storage = services.runs
+    prepared_datasets = _prepare_analysis_datasets(
+        analysis_record_id=selected_record_id,
+        outputs=outputs,
+    )
     analysis_record = AnalysisRecord(
         run_id=run_id,
         title=title,
         key=analysis_key,
         step_id=step_id,
         inputs=_analysis_record_inputs(inputs),
-        outputs=_analysis_record_outputs(outputs),
+        outputs=_analysis_record_outputs(
+            outputs,
+            dataset_references=prepared_datasets.references,
+        ),
     )
     record = RunContentEntry(
         role="record",
@@ -189,12 +218,14 @@ def prepare_analysis(
             run_id=run_id,
             entries=(
                 *prepared_proposals.entries,
+                *prepared_datasets.entries,
                 record,
             ),
             models=(
                 *prepared_proposals.writes,
                 RunModelWrite(ref=ref, value=analysis_record),
             ),
+            bytes=prepared_datasets.writes,
         ),
     )
 
@@ -221,6 +252,8 @@ def _analysis_record_inputs(
 
 def _analysis_record_outputs(
     outputs: Sequence[AnalysisOutput],
+    *,
+    dataset_references: Mapping[str, AnalysisDatasetReference],
 ) -> list[AnalysisRecordOutput]:
     selected: list[AnalysisRecordOutput] = []
     for output in outputs:
@@ -231,6 +264,15 @@ def _analysis_record_outputs(
                     kind="data",
                     title=output.title,
                     content=output.content,
+                    metadata=metadata,
+                )
+            )
+        elif isinstance(output, AnalysisDatasetOutput):
+            selected.append(
+                AnalysisDatasetRecordOutput(
+                    kind="dataset",
+                    title=output.title,
+                    content=dataset_references[output.id],
                     metadata=metadata,
                 )
             )
@@ -267,6 +309,87 @@ def _analysis_record_outputs(
                 )
             )
     return selected
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedAnalysisDatasets:
+    entries: tuple[RunContentEntry, ...]
+    writes: tuple[RunBytesWrite, ...]
+    references: Mapping[str, AnalysisDatasetReference]
+
+
+def _prepare_analysis_datasets(
+    *,
+    analysis_record_id: str,
+    outputs: Sequence[AnalysisOutput],
+) -> _PreparedAnalysisDatasets:
+    entries: list[RunContentEntry] = []
+    writes: list[RunBytesWrite] = []
+    references: dict[str, AnalysisDatasetReference] = {}
+    for output in outputs:
+        if not isinstance(output, AnalysisDatasetOutput):
+            continue
+        output_id = artifact_slug(output.id, fallback="data")
+        if output_id != output.id:
+            _raise_analysis_problem(
+                "analysis_dataset_id_invalid",
+                f"analysis dataset id is not normalized: {output.id}",
+                "outputs",
+            )
+        if output.id in references:
+            _raise_analysis_problem(
+                "analysis_dataset_id_duplicated",
+                f"analysis dataset id is duplicated: {output.id}",
+                "outputs",
+            )
+        dataset_id = f"{analysis_record_id}-{output.id}"
+        content = output.content.to_arrow_ipc()
+        content_hash = sha256_content_hash(content)
+        if (
+            output.execution is not None
+            and output.execution.output_content_hash != content_hash
+        ):
+            _raise_analysis_problem(
+                "analysis_dataset_execution_hash_mismatch",
+                "analysis dataset content does not match its compute execution",
+                "outputs",
+            )
+        metadata = validate_json_metadata(output.metadata)
+        entries.append(
+            RunContentEntry(
+                role="dataset",
+                id=dataset_id,
+                kind="analysis_dataset",
+                title=output.title,
+                media_type=DERIVED_DATASET_MEDIA_TYPE,
+                filename=f"{output.id}.arrow",
+                schema=output.content.schema.model_dump(mode="json"),
+                content_hash=content_hash,
+                produced_by=analysis_record_id,
+                metadata=metadata,
+            )
+        )
+        writes.append(
+            RunBytesWrite(
+                ref=dataset_content_ref(
+                    dataset_id=dataset_id,
+                    kind="analysis_dataset",
+                ),
+                content=content,
+            )
+        )
+        references[output.id] = AnalysisDatasetReference(
+            output_id=output.id,
+            dataset_id=dataset_id,
+            content_hash=content_hash,
+            codec=DERIVED_DATASET_CODEC,
+            execution=output.execution,
+        )
+    return _PreparedAnalysisDatasets(
+        entries=tuple(entries),
+        writes=tuple(writes),
+        references=references,
+    )
 
 
 def _raise_analysis_problem(

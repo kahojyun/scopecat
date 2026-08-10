@@ -13,6 +13,32 @@ export function AnalysisOutputView({ output }: { output: RunAnalysisOutput }) {
     content = <AnalysisTableView content={output.content} title={output.title} />;
   } else if (output.kind === "figure") {
     content = <AnalysisFigureView content={output.content} title={output.title} />;
+  } else if (output.kind === "dataset") {
+    content = (
+      <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 p-[9px] text-[0.62rem]">
+        <dt className="font-bold text-text-dim">Dataset</dt>
+        <dd className="m-0 min-w-0 text-text-soft">
+          <code>{output.content.dataset_id}</code>
+        </dd>
+        <dt className="font-bold text-text-dim">Codec</dt>
+        <dd className="m-0 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-text-soft">
+          <code title={output.content.codec}>{output.content.codec}</code>
+        </dd>
+        <dt className="font-bold text-text-dim">Content</dt>
+        <dd className="m-0 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-text-soft">
+          <code title={output.content.content_hash}>{output.content.content_hash}</code>
+        </dd>
+      </dl>
+    );
+  } else if (output.kind === "data") {
+    content = (
+      <div className="p-[9px] text-[0.62rem] text-text-soft">
+        <div className="mb-1 text-[0.58rem] font-bold text-text-dim">{output.content.codec}</div>
+        <pre className="m-0 max-h-36 overflow-auto whitespace-pre-wrap">
+          {JSON.stringify(output.content.value, null, 2)}
+        </pre>
+      </div>
+    );
   } else {
     content = (
       <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 p-[9px] text-[0.62rem]">

@@ -808,6 +808,98 @@ export interface components {
             source_run_id: string;
         };
         /**
+         * AnalysisComputeExecution
+         * @description Content-addressed provenance for one successful dataset compute.
+         */
+        "AnalysisComputeExecution-Output": {
+            /**
+             * Access
+             * @default full
+             * @enum {string}
+             */
+            access: "full" | "batches";
+            /**
+             * Captures
+             * @default []
+             */
+            captures: components["schemas"]["_NonEmptyText"][];
+            /** Deterministic */
+            deterministic: boolean;
+            id: components["schemas"]["_NonEmptyText"];
+            implementation: components["schemas"]["_NonEmptyText"];
+            /** Input Bindings */
+            input_bindings: components["schemas"]["AnalysisComputeInput-Output"][];
+            /** Inputs */
+            inputs: components["schemas"]["_NonEmptyText"][];
+            output_content_hash: components["schemas"]["_NonEmptyText"];
+            /** Outputs */
+            outputs: components["schemas"]["_NonEmptyText"][];
+            /**
+             * Placement
+             * @default dataset
+             * @constant
+             */
+            placement: "dataset";
+        };
+        /**
+         * AnalysisComputeInput
+         * @description One named, content-identified input consumed by dataset compute.
+         */
+        "AnalysisComputeInput-Output": {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "measurement_dataset" | "derived_dataset" | "value";
+            name: components["schemas"]["_NonEmptyText"];
+            target: components["schemas"]["_NonEmptyText"];
+            value?: components["schemas"]["pydantic__types__JsonValue"] | null;
+        };
+        /** AnalysisDataRecordOutput */
+        AnalysisDataRecordOutput: {
+            content: components["schemas"]["AnalysisDerivedData-Output"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "data";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            title: components["schemas"]["_NonEmptyText"];
+        };
+        /** AnalysisDatasetRecordOutput */
+        AnalysisDatasetRecordOutput: {
+            content: components["schemas"]["AnalysisDatasetReference"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "dataset";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            title: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisDatasetReference
+         * @description Reference to one separately stored, content-addressed derived dataset.
+         */
+        AnalysisDatasetReference: {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            dataset_id: components["schemas"]["_NonEmptyText"];
+            execution?: components["schemas"]["AnalysisComputeExecution-Output"] | null;
+            output_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisDerivedData
+         * @description JSON-safe compute output retained as an analysis fact.
+         */
+        "AnalysisDerivedData-Output": {
+            codec: components["schemas"]["_NonEmptyText"];
+            execution: components["schemas"]["AnalysisComputeExecution-Output"];
+            value: components["schemas"]["pydantic__types__JsonValue"];
+        };
+        /**
          * AnalysisFigure
          * @description A finite embedded line or scatter figure ready for local rendering.
          */
@@ -896,7 +988,7 @@ export interface components {
             /** Title */
             title?: string | null;
         };
-        AnalysisRecordOutput: components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
+        AnalysisRecordOutput: components["schemas"]["AnalysisDataRecordOutput"] | components["schemas"]["AnalysisDatasetRecordOutput"] | components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
         /**
          * AnalysisTable
          * @description A bounded, display-ready scalar table with an explicit column schema.
@@ -2058,6 +2150,7 @@ export interface components {
              * @constant
              */
             record_schema: "scopecat.measurement_record.v4";
+            result?: components["schemas"]["MeasurementResultContract"] | null;
             /** Variables */
             variables?: components["schemas"]["MeasurementVariable-Output"][];
         };
@@ -2157,6 +2250,28 @@ export interface components {
             point_index: number;
             /** Run Id */
             run_id: string;
+        };
+        /**
+         * MeasurementResultContract
+         * @description Self-describing experiment return contract persisted with a dataset.
+         */
+        MeasurementResultContract: {
+            /** Fields */
+            fields: components["schemas"]["MeasurementResultField"][];
+            /** Id */
+            id: string;
+            /** Version */
+            version: string;
+        };
+        /**
+         * MeasurementResultField
+         * @description One experiment return path resolved to a durable dataset variable.
+         */
+        MeasurementResultField: {
+            /** Path */
+            path: string[];
+            /** Variable Id */
+            variable_id: string;
         };
         /**
          * MeasurementScalar
@@ -2867,7 +2982,7 @@ export interface components {
             outcome?: components["schemas"]["RunOutcome-Output"] | null;
             /** Run Id */
             run_id: string;
-            stage?: components["schemas"]["RunStageLineage"] | null;
+            sequence?: components["schemas"]["RunSequenceLineage"] | null;
         };
         /**
          * RunMeasurementDatasetResult
@@ -2965,17 +3080,24 @@ export interface components {
             status: "required" | "active" | "quarantined" | "released";
         };
         /**
-         * RunStageLineage
+         * RunSequenceLineage
          * @description Durable identity of one run within a notebook-driven sequence.
          */
-        RunStageLineage: {
-            /** Index */
-            index: number;
+        RunSequenceLineage: {
+            /**
+             * Max Runs
+             * @default 10
+             */
+            max_runs: number;
             /** Previous Run Id */
             previous_run_id?: string | null;
+            proposal_id?: components["schemas"]["RunSequenceProposalId"] | null;
+            /** Run Index */
+            run_index: number;
             /** Sequence Id */
             sequence_id: string;
         };
+        RunSequenceProposalId: string;
         /**
          * RunSummary
          * @description Scheduler projection paired with the accepted run snapshot.

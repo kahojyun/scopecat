@@ -39,6 +39,7 @@ from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
+    RunDatasetBytesResult,
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
@@ -47,6 +48,7 @@ from scopecat.runs.service import (
     read_run_artifact_bytes,
     read_run_artifact_json,
     read_run_artifact_text,
+    read_run_dataset_bytes,
     read_run_measurement_dataset,
     read_run_record_json,
 )
@@ -77,6 +79,20 @@ class ServiceRunOperations:
             selector=selector,
         )
 
+    def load_dataset_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunDatasetBytesResult:
+        return read_run_dataset_bytes(
+            run_id=run_id,
+            selector=selector,
+            expected_kind=expected_kind,
+            services=self.services,
+        )
+
     def load_measurement_page(
         self,
         run_id: str,
@@ -84,10 +100,12 @@ class ServiceRunOperations:
         limit: int,
         offset: int,
     ) -> MeasurementPage:
-        items, next_offset, dataset_schema = SQLiteMeasurementDatasetRepository(
-            cast("SQLiteRunRepository", self.services.runs),
-            run_id=run_id,
-        ).measurement_page(limit=limit, offset=offset)
+        items, next_offset, dataset_schema, _snapshot_size = (
+            SQLiteMeasurementDatasetRepository(
+                cast("SQLiteRunRepository", self.services.runs),
+                run_id=run_id,
+            ).measurement_page(limit=limit, offset=offset)
+        )
         return MeasurementPage(
             items=items,
             next_offset=next_offset,
@@ -99,19 +117,20 @@ class ServiceRunOperations:
         run_id: str,
         *,
         query: MeasurementArrowQuery,
-    ) -> tuple[pa.Table, int | None]:
+    ) -> tuple[pa.Table, int | None, int]:
         manifest = self.services.runs.read_manifest(run_id)
         entry = require_dataset(
             manifest=manifest,
             selector=RAW_MEASUREMENTS_DATASET_ID,
         )
         variable_ids = tuple(column.variable_id for column in query.columns)
-        items, next_offset, schema = SQLiteMeasurementDatasetRepository(
+        items, next_offset, schema, snapshot_size = SQLiteMeasurementDatasetRepository(
             cast("SQLiteRunRepository", self.services.runs),
             run_id=run_id,
         ).measurement_page(
             limit=query.limit,
             offset=query.offset,
+            snapshot_size=query.snapshot_size,
             variable_ids=variable_ids,
         )
         if schema is None:
@@ -126,7 +145,7 @@ class ServiceRunOperations:
             include_identity=query.include_identity,
             layout=query.layout,
         )
-        return table, next_offset
+        return table, next_offset, snapshot_size
 
     def save_analysis(
         self,

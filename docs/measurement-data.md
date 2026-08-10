@@ -451,8 +451,11 @@ chosen from measured run sizes rather than added to the authoring model now.
 point can expand into multiple observation rows; the returned reader still
 splits those rows into bounded Arrow record batches. This API is a finite,
 non-following read of the currently durable dataset, not a live subscription.
-Run-progress triggers, snapshot/watermark semantics, retries, and workflow-owned
-analysis state remain part of a future workflow streaming contract.
+Its first page pins the current durable point count and every later page uses
+that same append watermark, so points arriving during iteration belong to a
+later read instead of silently extending the current one. Run-progress
+triggers, retries, and workflow-owned live analysis state remain part of a
+future workflow streaming contract.
 
 Xarray and Arrow are core dependencies and are available on every measurement
 view. Install `scopecat[pandas]` or `scopecat[polars]` for the corresponding
@@ -556,7 +559,7 @@ class FitPoint:
     ]
 
 
-fits = context.compute(fn=fit_resonator, measurements=measurements)
+fits = fit_resonator(measurements)
 fit_table = sc.AnalysisTable.from_objects(fits)
 result = (
     context.result("Resonator fit")
@@ -576,9 +579,9 @@ result = (
 )
 ```
 
-When analysis is naturally expressed in pandas, Polars, Xarray, or Arrow,
-return a `DerivedDataset` instead of translating the result back into bespoke
-row dataclasses:
+When analysis is naturally expressed in pandas, Polars, Xarray, or Arrow, keep
+using that library. Give the native result one analysis-local name at the
+publication boundary instead of translating it into bespoke row dataclasses:
 
 ```python
 def fit_with_polars(measurements):
@@ -590,28 +593,46 @@ def fit_with_polars(measurements):
     fitted = frame.with_columns(
         (pl.col("response") * 2).alias("score"),
     )
-    return sc.derived_dataset(
-        fitted,
+    return fitted
+
+
+fits = fit_with_polars(measurements)
+review = (
+    context.result("Fit review")
+    .data(
+        "fits",
+        fits,
         coordinates=("bias",),
         units={"bias": "V", "response": "ratio", "score": "ratio"},
     )
-
-
-derived = context.compute(fn=fit_with_polars, measurements=measurements)
-review = (
-    context.result("Fit review")
-    .table(derived, title="Fit rows")
-    .figure(derived, kind="line", x="bias", y="score")
+    .table(data="fits", columns=("bias", "score"), title="Fit rows")
+    .figure(data="fits", kind="line", x="bias", y="score")
 )
 ```
 
-The native frame remains available through `derived.to_pandas()` or
-`derived.to_polars()`. Compute may also consume the returned `DerivedDataset`
-directly, so multi-stage analysis does not need to rebuild schema or align
-columns. Persistence uses a versioned Arrow IPC codec plus explicit coordinate,
-unit, and label semantics; table and figure outputs are bounded scalar
-presentations of that same data. The current embedded analysis-data budget is
-intended for fit results and summaries, not large transformed acquisitions.
+`data(...)` accepts the native object and normalizes it once. Explicit
+`coordinates`, `units`, and `labels` override metadata inherited from a
+measurement projection, Arrow fields, or Xarray variables. A pandas default
+`RangeIndex` is dropped; a named or otherwise meaningful index becomes
+coordinate columns unless `index="drop"` is requested. Tables and figures only
+extract their selected scalar columns, so unrelated array-valued columns remain
+in the durable dataset without making a view invalid.
+
+Persistence writes one content-addressed Arrow IPC dataset and keeps only its
+reference in the analysis record. It can be loaded later without losing the
+Arrow schema:
+
+```python
+fits = run.derived_dataset("analysis-fit-review-fits")
+pandas_frame = fits.to_pandas()
+polars_frame = fits.to_polars()
+```
+
+Use `context.compute(...)` when the computation needs Scopecat-managed runtime
+metadata, registered codecs, deterministic provenance, or bounded batch access.
+A `DerivedDataset` returned from that advanced path is published through the
+same dataset mechanism; small scalar compute results remain inline analysis
+facts.
 
 An analysis step returns that declarative `Analysis` value. Running the step
 publishes it and returns one durable outcome; there is no additional save call:

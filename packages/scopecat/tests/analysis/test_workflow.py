@@ -16,7 +16,7 @@ import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
 from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
-from scopecat.analysis.service import AnalysisDataOutput
+from scopecat.analysis.service import AnalysisDataOutput, AnalysisDatasetOutput
 from scopecat.config.registry import service as config_registry_service
 from scopecat.measurements.results import Dataset
 from scopecat.records.run import RunManifest
@@ -245,9 +245,13 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     maximum = context.compute(fn=_derived_score_max, dataset=derived)
     outcome = (
         context.result("Native derived data", key="native-derived-data")
-        .table(derived, title="Derived rows")
+        .table(
+            data="_derived_signal_frame",
+            columns=("frequency", "score"),
+            title="Derived rows",
+        )
         .figure(
-            derived,
+            data="_derived_signal_frame",
             kind="line",
             x="frequency",
             y="score",
@@ -260,14 +264,19 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     assert derived.table.column_names == ["frequency", "response", "score"]
     assert maximum == 2.0
     data_output, maximum_output, table_output, figure_output = outcome.outputs
-    assert isinstance(data_output, AnalysisDataOutput)
-    assert data_output.content.codec == DERIVED_DATASET_CODEC
-    restored = DerivedDataset.from_json_value(data_output.content.value)
+    assert isinstance(data_output, AnalysisDatasetOutput)
+    assert data_output.execution is not None
+    assert data_output.execution.output_content_hash.startswith("sha256:")
+    dataset_id = "analysis-native-derived-data-_derived_signal_frame"
+    restored = handle.derived_dataset(dataset_id)
     assert restored.table.equals(derived.table, check_metadata=True)
     assert isinstance(maximum_output, AnalysisDataOutput)
     assert maximum_output.content.value == 2.0
     [derived_input] = maximum_output.content.execution.input_bindings
+    assert derived_input.kind == "derived_dataset"
+    assert derived_input.target == "_derived_signal_frame"
     assert derived_input.codec == DERIVED_DATASET_CODEC
+    assert derived_input.value is None
     assert table_output.kind == "table"
     assert figure_output.kind == "figure"
 
@@ -282,6 +291,58 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     content = persisted["content"]
     assert isinstance(content, dict)
     assert content["codec"] == DERIVED_DATASET_CODEC
+    assert content["output_id"] == "_derived_signal_frame"
+    assert content["dataset_id"] == dataset_id
+    assert "value" not in content
+    assert "arrow_ipc_base64" not in str(stored.content)
+    manifest_entry = next(
+        entry for entry in handle.manifest.datasets if entry.id == dataset_id
+    )
+    assert manifest_entry.kind == "analysis_dataset"
+    assert manifest_entry.content_hash == content["content_hash"]
+
+
+def test_analysis_data_publishes_a_native_frame_once(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    frame = (
+        handle.measurements()
+        .project(
+            {"frequency": "drive_frequency", "response": "signal"},
+            identity=False,
+        )
+        .to_pandas()
+    )
+    frame["score"] = frame["response"] * 2.0
+
+    outcome = (
+        handle.analysis("Native fits", key="native-fits")
+        .data(
+            "fits",
+            frame[["frequency", "score"]],
+            labels={"score": "Fit score"},
+        )
+        .save()
+    )
+
+    [output] = outcome.outputs
+    assert isinstance(output, AnalysisDatasetOutput)
+    restored = handle.derived_dataset("analysis-native-fits-fits")
+    assert restored.table.to_pylist() == [
+        {"frequency": frequency, "score": score}
+        for frequency, score in zip(
+            frame["frequency"],
+            frame["score"],
+            strict=True,
+        )
+    ]
+    assert restored.schema.fields[0].role == "coordinate"
+    assert restored.schema.fields[0].unit == "GHz"
+    assert restored.schema.fields[1].label == "Fit score"
 
 
 def test_dataset_compute_records_named_inline_inputs(tmp_path: Path) -> None:

@@ -562,17 +562,28 @@ class SQLiteMeasurementDatasetRepository:
         *,
         limit: int,
         offset: int,
+        snapshot_size: int | None = None,
         include_schema: bool = True,
         variable_ids: Sequence[str] | None = None,
     ) -> tuple[
         tuple[MeasurementRecord, ...],
         int | None,
         MeasurementDatasetSchema | None,
+        int,
     ]:
-        """Read one record page plus its canonical dataset schema."""
+        """Read one record page against an append-stable finite snapshot."""
 
         try:
             with closing(self._runs.sqlite.connect()) as connection:
+                total = _measurement_record_count(connection, self._run_id)
+                selected_size = total if snapshot_size is None else snapshot_size
+                if selected_size > total:
+                    raise ValueError(
+                        "measurement snapshot is larger than the available dataset"
+                    )
+                if offset > selected_size:
+                    raise ValueError("measurement page offset exceeds its snapshot")
+                page_end = min(offset + limit, selected_size)
                 rows = _all(
                     connection.execute(
                         """
@@ -583,21 +594,19 @@ class SQLiteMeasurementDatasetRepository:
                           AND start_index + record_count > ?
                         ORDER BY start_index
                         """,
-                        (self._run_id, offset + limit, offset),
+                        (self._run_id, page_end, offset),
                     )
                 )
                 header_row = _measurement_header_row(connection, self._run_id)
-                total = _measurement_record_count(connection, self._run_id)
 
             if header_row is None:
-                return (), None, None
+                return (), None, None, selected_size
 
             dataset_schema = self._runs.read_model(
                 self._run_id,
                 _text(header_row, "ref"),
                 MeasurementDatasetHeader,
             ).dataset_schema
-            page_end = offset + limit
             items: list[MeasurementRecord] = []
             for row in rows:
                 start_index = _integer(row, "start_index")
@@ -618,11 +627,14 @@ class SQLiteMeasurementDatasetRepository:
                         variable_ids=variable_ids,
                     )
                 )
-            next_offset = offset + len(items) if offset + len(items) < total else None
+            next_offset = (
+                offset + len(items) if offset + len(items) < selected_size else None
+            )
             return (
                 tuple(items),
                 next_offset,
                 dataset_schema if include_schema else None,
+                selected_size,
             )
         except Exception as error:
             raise ExecutionJournalError(

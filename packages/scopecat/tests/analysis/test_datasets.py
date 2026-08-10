@@ -194,5 +194,23 @@ def test_derived_dataset_round_trips_raw_arrow_content() -> None:
     assert restored.table.equals(dataset.table, check_metadata=True)
 
 
+def test_derived_dataset_presentation_selects_only_scalar_view_columns() -> None:
+    dataset = sc.derived_dataset(
+        pa.table(
+            {
+                "bias": [0.0, 1.0],
+                "score": [0.2, 0.8],
+                "trace": [[1.0, 2.0], [3.0, 4.0]],
+            }
+        ),
+        coordinates=("bias",),
+    )
+
+    table = dataset.to_analysis_table(columns=("bias", "score"))
+
+    assert [column.id for column in table.columns] == ["bias", "score"]
+    assert table.rows[1].cells == [1.0, 0.8]
+
+
 def test_derived_dataset_codec_is_public_and_versioned() -> None:
     assert DERIVED_DATASET_CODEC == "scopecat.derived-dataset.arrow-ipc.v1"

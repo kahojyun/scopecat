@@ -1,4 +1,6 @@
 import type {
+  AnalysisDatasetReference,
+  AnalysisDerivedData,
   AnalysisFigure,
   AnalysisParameterProposalReference,
   AnalysisRecordInput,
@@ -106,6 +108,8 @@ interface RunAnalysisOutputBase {
 
 export type RunAnalysisOutput = RunAnalysisOutputBase &
   (
+    | { kind: "data"; content: AnalysisDerivedData }
+    | { kind: "dataset"; content: AnalysisDatasetReference }
     | { kind: "table"; content: AnalysisTable }
     | { kind: "figure"; content: AnalysisFigure }
     | { kind: "parameter_change_proposal"; content: AnalysisParameterProposalReference }

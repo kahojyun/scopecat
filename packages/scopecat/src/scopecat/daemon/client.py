@@ -35,6 +35,7 @@ from scopecat.daemon.views import (
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
+    RunDatasetBytesView,
     RunDetail,
     RunRequestView,
     RunSummaryPage,
@@ -115,6 +116,7 @@ from scopecat.sdk.instruments.execution import (
 
 _API_PREFIX = "/api/v1"
 _NEXT_OFFSET_HEADER = "X-Scopecat-Next-Offset"
+_SNAPSHOT_SIZE_HEADER = "X-Scopecat-Snapshot-Size"
 # The daemon owns operation deadlines; a read timeout would make a completed
 # hardware command ambiguous to its caller.
 _DEFAULT_TIMEOUT = httpx2.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
@@ -594,6 +596,24 @@ class DaemonClient:
             RunMeasurementDatasetResult,
         )
 
+    def dataset_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunDatasetBytesView:
+        selected_run = quote(run_id, safe="")
+        selected_dataset = quote(selector, safe="")
+        params: dict[str, str | int] | None = (
+            None if expected_kind is None else {"expected_kind": expected_kind}
+        )
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{selected_run}/datasets/{selected_dataset}/bytes",
+            RunDatasetBytesView,
+            params=params,
+        )
+
     def attach(
         self,
         run_id: str,
@@ -638,7 +658,7 @@ class DaemonClient:
         self,
         run_id: str,
         query: MeasurementArrowQuery,
-    ) -> tuple[pa.Table, int | None]:
+    ) -> tuple[pa.Table, int | None, int]:
         response = self._request(
             "POST",
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/measurements/arrow",
@@ -649,7 +669,12 @@ class DaemonClient:
             "str | None", response.headers.get(_NEXT_OFFSET_HEADER)
         )
         next_offset = None if encoded_next_offset is None else int(encoded_next_offset)
-        return table, next_offset
+        encoded_snapshot_size = cast(
+            "str | None", response.headers.get(_SNAPSHOT_SIZE_HEADER)
+        )
+        if encoded_snapshot_size is None:
+            raise ValueError("measurement Arrow response has no snapshot size")
+        return table, next_offset, int(encoded_snapshot_size)
 
     def measurement_trace_preview(
         self,

@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
+import pyarrow as pa
 import pytest
 from pydantic import ValidationError
 
+from scopecat.analysis.datasets import DerivedDataset
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.inventory import (
     InstrumentInventoryRekey,
@@ -25,6 +27,7 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.daemon.wire import (
+    AnalysisDatasetOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
@@ -251,6 +254,15 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         title="fit",
         analysis_key="fit",
         outputs=(
+            AnalysisDatasetOutputPayload(
+                kind="dataset",
+                id="fits",
+                title="fit data",
+                content=DerivedDataset.from_arrow(
+                    pa.table({"bias": [1.0, 2.0], "signal": [3.0, 4.0]}),
+                    coordinates=("bias",),
+                ).to_payload(),
+            ),
             AnalysisFigureOutputPayload(
                 kind="figure",
                 title="fit curve",

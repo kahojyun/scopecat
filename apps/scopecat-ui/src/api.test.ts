@@ -66,10 +66,12 @@ describe("project daemon reads", () => {
             manifest: {
               run_id: "run/1",
               config_content_hash: "sha256:config",
-              stage: {
+              sequence: {
                 sequence_id: "adaptive-sequence",
-                index: 1,
+                run_index: 1,
+                max_runs: 10,
                 previous_run_id: "run/0",
+                proposal_id: "proposal-1",
               },
               outcome: { result: "succeeded", certainty: "known" },
               contents: [
@@ -201,10 +203,12 @@ describe("project daemon reads", () => {
               manifest: {
                 run_id: "run/stage-2",
                 contents: [],
-                stage: {
+                sequence: {
                   sequence_id: "adaptive-sequence",
-                  index: 1,
+                  run_index: 1,
+                  max_runs: 10,
                   previous_run_id: "run/stage-1",
+                  proposal_id: "proposal-1",
                 },
               },
             },
@@ -213,10 +217,12 @@ describe("project daemon reads", () => {
               manifest: {
                 run_id: "run/stage-1",
                 contents: [],
-                stage: {
+                sequence: {
                   sequence_id: "adaptive-sequence",
-                  index: 0,
+                  run_index: 0,
+                  max_runs: 10,
                   previous_run_id: null,
+                  proposal_id: null,
                 },
               },
             },

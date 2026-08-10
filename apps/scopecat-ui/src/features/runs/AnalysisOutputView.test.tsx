@@ -54,6 +54,25 @@ describe("AnalysisOutputView", () => {
     expect(screen.getByText("5000000002")).toHaveAttribute("title", "5000000002");
   });
 
+  it("renders a content-addressed analysis dataset reference", () => {
+    const output: RunAnalysisOutput = {
+      kind: "dataset",
+      title: "Fit data",
+      metadata: {},
+      content: {
+        output_id: "fits",
+        dataset_id: "analysis-fit-fits",
+        codec: "scopecat.derived-dataset.arrow-ipc.v1",
+        content_hash: `sha256:${"a".repeat(64)}`,
+      },
+    };
+
+    render(<AnalysisOutputView output={output} />);
+
+    expect(screen.getByText("analysis-fit-fits")).toBeVisible();
+    expect(screen.getByText("scopecat.derived-dataset.arrow-ipc.v1")).toBeVisible();
+  });
+
   it("renders embedded multi-series figure data as an accessible ECharts figure", () => {
     const output: RunAnalysisOutput = {
       kind: "figure",

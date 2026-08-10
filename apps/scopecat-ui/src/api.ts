@@ -190,6 +190,12 @@ function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
   if (output.kind === "figure") {
     return { ...shared, kind: "figure", content: output.content };
   }
+  if (output.kind === "data") {
+    return { ...shared, kind: "data", content: output.content };
+  }
+  if (output.kind === "dataset") {
+    return { ...shared, kind: "dataset", content: output.content };
+  }
   return {
     ...shared,
     kind: "parameter_change_proposal",
@@ -324,11 +330,11 @@ function normalizeRun(
     attentionReason: control.attention_reason ?? undefined,
     result: outcome?.result,
     certainty: outcome?.certainty,
-    stage: manifest.stage
+    stage: manifest.sequence
       ? {
-          sequenceId: manifest.stage.sequence_id,
-          index: manifest.stage.index,
-          previousRunId: manifest.stage.previous_run_id ?? undefined,
+          sequenceId: manifest.sequence.sequence_id,
+          index: manifest.sequence.run_index,
+          previousRunId: manifest.sequence.previous_run_id ?? undefined,
         }
       : undefined,
     plan: {

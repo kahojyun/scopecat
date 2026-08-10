@@ -18,6 +18,7 @@ from scopecat.adapters.sqlite import (
     SQLiteDatabase,
     SQLiteRunRepository,
 )
+from scopecat.analysis.datasets import DerivedDataset
 from scopecat.application import LabApplication
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.documents import load_config_snapshot_document
@@ -42,9 +43,11 @@ from scopecat.daemon.views import (
     ParameterProposalListView,
     RunConfigView,
     RunControlView,
+    RunDatasetBytesView,
     RunDetail,
 )
 from scopecat.daemon.wire import (
+    AnalysisDatasetOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
@@ -111,7 +114,7 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import ConfigRegistryRunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.refs import record_content_ref
+from scopecat.runs.refs import dataset_content_ref, record_content_ref
 from scopecat.sdk.domain.invocation import close_domain_invocation
 from scopecat.sdk.domain.result_mapping import DomainResultMapping
 from scopecat.sdk.domain.runtime import (
@@ -333,6 +336,15 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
                 kind="table",
                 title="fit parameters",
                 content=AnalysisTable.from_rows([{"frequency": 5.1}]),
+            ),
+            AnalysisDatasetOutputPayload(
+                kind="dataset",
+                id="fits",
+                title="fit data",
+                content=DerivedDataset.from_arrow(
+                    pa.table({"bias": [1.0, 2.0], "signal": [3.0, 4.0]}),
+                    coordinates=("bias",),
+                ).to_payload(),
             ),
             AnalysisFigureOutputPayload(
                 kind="figure",
@@ -1670,6 +1682,12 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             f"analysis-{analysis_command.analysis_key}/json",
             params={"expected_kind": "analysis"},
         )
+        dataset_bytes = RunDatasetBytesView.model_validate(
+            client.get(
+                f"/api/v1/runs/{admission.run_id}/datasets/analysis-fit-fits/bytes",
+                params={"expected_kind": "analysis_dataset"},
+            ).json()
+        )
         attachment_command = RunAttachmentCommand(
             key="notebook-notes",
             text="operator notes",
@@ -1724,13 +1742,26 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             "columns": [{"id": "frequency", "label": None, "unit": None}],
             "rows": [{"cells": [5.1]}],
         }
-        assert persisted_outputs[1]["content"]["series"][0] == {
+        assert persisted_outputs[1]["content"]["dataset_id"] == "analysis-fit-fits"
+        restored_dataset = DerivedDataset.from_arrow_ipc(
+            dataset_bytes.content_bytes(),
+            schema=DerivedDataset.from_payload(
+                cast(
+                    "AnalysisDatasetOutputPayload", analysis_command.outputs[1]
+                ).content
+            ).schema,
+        )
+        assert restored_dataset.table.to_pylist() == [
+            {"bias": 1.0, "signal": 3.0},
+            {"bias": 2.0, "signal": 4.0},
+        ]
+        assert persisted_outputs[2]["content"]["series"][0] == {
             "id": "fit",
             "label": None,
             "x": [1.0, 2.0],
             "y": [3.0, 4.0],
         }
-        assert persisted_outputs[2]["content"]["proposal_id"] == proposal.id
+        assert persisted_outputs[3]["content"]["proposal_id"] == proposal.id
         assert attachment.json()["filename"] == "notes.md"
         assert attachment_text.json()["content"] == "operator notes\n"
         assert config.config == _config()
@@ -1801,6 +1832,13 @@ def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
         assert not repository.exists(
             admission.run_id,
             record_content_ref(record_id="analysis-fit", kind="analysis"),
+        )
+        assert not repository.exists(
+            admission.run_id,
+            dataset_content_ref(
+                dataset_id="analysis-fit-fits",
+                kind="analysis_dataset",
+            ),
         )
         assert [
             event.kind
@@ -2484,6 +2522,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert measurements.json()["dataset_schema"]["dataset_id"] == "raw-measurements"
         assert measurement_arrow.status_code == 200
         assert measurement_arrow.headers["x-scopecat-next-offset"] == "2"
+        assert measurement_arrow.headers["x-scopecat-snapshot-size"] == "4"
         arrow_table = pa.ipc.open_stream(measurement_arrow.content).read_all()
         assert arrow_table.schema.names == [
             "point_index",

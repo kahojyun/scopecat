@@ -17,9 +17,15 @@ from typing import (
 
 from pydantic import BaseModel, JsonValue
 
-from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
+from scopecat.analysis.datasets import (
+    DERIVED_DATASET_CODEC,
+    DerivedDataset,
+    PandasIndexPolicy,
+    derived_dataset,
+)
 from scopecat.analysis.service import (
     AnalysisDataOutput,
+    AnalysisDatasetOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -36,7 +42,7 @@ from scopecat.config.changes import (
     parameter_change_proposal_from_updates,
 )
 from scopecat.config.parameter_updates import ParameterUpdate
-from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.content_identity import sha256_content_hash, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
@@ -122,19 +128,101 @@ class Analysis:
     outputs: tuple[AnalysisOutput, ...] = ()
     parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
 
+    def data(
+        self,
+        id: str,
+        content: object,
+        *,
+        coordinates: Sequence[str] = (),
+        units: Mapping[str, str] | None = None,
+        labels: Mapping[str, str] | None = None,
+        index: PandasIndexPolicy = "auto",
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> Analysis:
+        """Publish familiar dataframe or array data as one reusable run dataset."""
+
+        if not id.strip():
+            _raise_analysis_problem(
+                "analysis_dataset_id_invalid",
+                "analysis dataset id must be non-empty",
+                "id",
+            )
+        selected_id = artifact_slug(id, fallback="data")
+        if any(
+            isinstance(output, AnalysisDatasetOutput) and output.id == selected_id
+            for output in self.outputs
+        ):
+            _raise_analysis_problem(
+                "analysis_dataset_id_duplicated",
+                f"analysis dataset id is duplicated: {selected_id}",
+                "id",
+            )
+        dataset = derived_dataset(
+            content,
+            coordinates=coordinates,
+            units=units,
+            labels=labels,
+            index=index,
+        )
+        return replace(
+            self,
+            outputs=(
+                *self.outputs,
+                AnalysisDatasetOutput(
+                    kind="dataset",
+                    id=selected_id,
+                    title=title or selected_id,
+                    content=dataset,
+                    execution=None,
+                    metadata=metadata or {},
+                ),
+            ),
+        )
+
+    @overload
     def table(
         self,
         content: DerivedDataset | AnalysisTable | Sequence[object],
         *,
+        columns: Sequence[str] | None = None,
+        title: str = "table",
+        metadata: Mapping[str, object] | None = None,
+    ) -> Analysis: ...
+
+    @overload
+    def table(
+        self,
+        *,
+        data: str,
+        columns: Sequence[str] | None = None,
+        title: str = "table",
+        metadata: Mapping[str, object] | None = None,
+    ) -> Analysis: ...
+
+    def table(
+        self,
+        content: DerivedDataset | AnalysisTable | Sequence[object] | None = None,
+        *,
+        data: str | None = None,
+        columns: Sequence[str] | None = None,
         title: str = "table",
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
-        if isinstance(content, DerivedDataset):
-            table = content.to_analysis_table()
-        elif isinstance(content, AnalysisTable):
-            table = content
+        if (content is None) == (data is None):
+            raise TypeError(
+                "analysis table requires exactly one content or data source"
+            )
+        source = self._dataset(data) if data is not None else content
+        if isinstance(source, DerivedDataset):
+            table = source.to_analysis_table(columns=columns)
+        elif columns is not None:
+            raise TypeError("analysis table columns only apply to derived datasets")
+        elif isinstance(source, AnalysisTable):
+            table = source
         else:
-            table = AnalysisTable.from_objects(content)
+            assert source is not None
+            table = AnalysisTable.from_objects(source)
         return replace(
             self,
             outputs=(
@@ -171,10 +259,27 @@ class Analysis:
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis: ...
 
+    @overload
     def figure(
         self,
-        content: DerivedDataset | AnalysisFigure | AnalysisTable | Sequence[object],
         *,
+        data: str,
+        kind: Literal["line", "scatter"],
+        x: str,
+        y: str,
+        series: str | None = None,
+        label: str | None = None,
+        title: str = "figure",
+        metadata: Mapping[str, object] | None = None,
+    ) -> Analysis: ...
+
+    def figure(
+        self,
+        content: (
+            DerivedDataset | AnalysisFigure | AnalysisTable | Sequence[object] | None
+        ) = None,
+        *,
+        data: str | None = None,
         kind: Literal["line", "scatter"] | None = None,
         x: str | None = None,
         y: str | None = None,
@@ -183,19 +288,28 @@ class Analysis:
         title: str = "figure",
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
-        if isinstance(content, AnalysisFigure):
-            figure = content
+        if (content is None) == (data is None):
+            raise TypeError(
+                "analysis figure requires exactly one content or data source"
+            )
+        source = self._dataset(data) if data is not None else content
+        if isinstance(source, AnalysisFigure):
+            figure = source
         else:
             if kind is None or x is None or y is None:
                 raise TypeError(
                     "analysis figures projected from rows require kind, x, and y"
                 )
-            if isinstance(content, DerivedDataset):
-                table = content.to_analysis_table()
-            elif isinstance(content, AnalysisTable):
-                table = content
+            if isinstance(source, DerivedDataset):
+                selected_columns = tuple(
+                    dict.fromkeys((x, y) if series is None else (x, y, series))
+                )
+                table = source.to_analysis_table(columns=selected_columns)
+            elif isinstance(source, AnalysisTable):
+                table = source
             else:
-                table = AnalysisTable.from_objects(content)
+                assert source is not None
+                table = AnalysisTable.from_objects(source)
             figure = AnalysisFigure.from_table(
                 table,
                 kind=kind,
@@ -216,6 +330,13 @@ class Analysis:
                 ),
             ),
         )
+
+    def _dataset(self, id: str) -> DerivedDataset:
+        selected_id = artifact_slug(id, fallback="data")
+        for output in self.outputs:
+            if isinstance(output, AnalysisDatasetOutput) and output.id == selected_id:
+                return output.content
+        raise KeyError(f"analysis has no dataset output: {selected_id}")
 
     @property
     def analysis_key(self) -> str:
@@ -364,7 +485,7 @@ class AnalysisContext:
         repr=False,
         compare=False,
     )
-    _compute_outputs: list[AnalysisDataOutput] = field(
+    _compute_outputs: list[AnalysisOutput] = field(
         default_factory=list,
         repr=False,
         compare=False,
@@ -381,6 +502,11 @@ class AnalysisContext:
     )
     _compute_input_targets: set[str] = field(
         default_factory=set,
+        repr=False,
+        compare=False,
+    )
+    _derived_output_ids_by_hash: dict[str, str] = field(
+        default_factory=dict,
         repr=False,
         compare=False,
     )
@@ -473,11 +599,38 @@ class AnalysisContext:
                 "registered analysis compute input codecs must exactly match "
                 "its named inputs"
             )
+        for name, value in selected_inputs.items():
+            if not isinstance(value, DerivedDataset):
+                continue
+            content_hash = sha256_content_hash(value.to_arrow_ipc())
+            if content_hash in self._derived_output_ids_by_hash:
+                continue
+            input_output_id = self._allocate_dataset_output_id(
+                f"{compute_id}-{name}-input"
+            )
+            self._compute_outputs.append(
+                AnalysisDatasetOutput(
+                    kind="dataset",
+                    id=input_output_id,
+                    title=input_output_id,
+                    content=value,
+                    execution=None,
+                    metadata={},
+                )
+            )
+            self._derived_output_ids_by_hash[content_hash] = input_output_id
         input_provenance = tuple(
             _analysis_compute_input(
                 name,
                 value,
                 codec=(None if contract is None else contract.input_codecs.get(name)),
+                derived_output_id=(
+                    self._derived_output_ids_by_hash.get(
+                        sha256_content_hash(value.to_arrow_ipc())
+                    )
+                    if isinstance(value, DerivedDataset)
+                    else None
+                ),
             )
             for name, value in selected_inputs.items()
         )
@@ -540,50 +693,81 @@ class AnalysisContext:
                 raise ValueError(
                     "derived dataset compute outputs own their Arrow IPC codec"
                 )
-            encoded = output.to_json_value()
+            encoded: JsonValue | None = None
             output_codec = DERIVED_DATASET_CODEC
+            output_hash = sha256_content_hash(output.to_arrow_ipc())
         else:
             encoded = _analysis_json(output)
             output_codec = (
                 PYTHON_JSON_CODEC if contract is None else contract.output_codec
             )
-        output_hash = f"sha256:{stable_content_hash(encoded)}"
-        self._compute_outputs.append(
-            AnalysisDataOutput(
-                kind="data",
-                title=compute_id,
-                content=AnalysisDerivedData(
-                    codec=output_codec,
-                    value=encoded,
-                    execution=AnalysisComputeExecution(
-                        id=compute_id,
-                        implementation=implementation,
-                        deterministic=deterministic,
-                        inputs=input_names,
-                        outputs=output_names,
-                        input_bindings=input_provenance,
-                        captures=captures,
-                        access=("full" if contract is None else contract.data_access),
-                        output_content_hash=output_hash,
-                    ),
-                ),
-                metadata=(
-                    {}
-                    if contract is None
-                    else {
-                        "runtime": contract.runtime,
-                        "capabilities": list(contract.capabilities),
-                        "resources": dict(contract.resources),
-                    }
-                ),
-            )
+            output_hash = f"sha256:{stable_content_hash(encoded)}"
+        execution = AnalysisComputeExecution(
+            id=compute_id,
+            implementation=implementation,
+            deterministic=deterministic,
+            inputs=input_names,
+            outputs=output_names,
+            input_bindings=input_provenance,
+            captures=captures,
+            access=("full" if contract is None else contract.data_access),
+            output_content_hash=output_hash,
         )
+        output_metadata = (
+            {}
+            if contract is None
+            else {
+                "runtime": contract.runtime,
+                "capabilities": list(contract.capabilities),
+                "resources": dict(contract.resources),
+            }
+        )
+        if isinstance(output, DerivedDataset):
+            dataset_output_id = self._allocate_dataset_output_id(compute_id)
+            self._compute_outputs.append(
+                AnalysisDatasetOutput(
+                    kind="dataset",
+                    id=dataset_output_id,
+                    title=compute_id,
+                    content=output,
+                    execution=execution,
+                    metadata=output_metadata,
+                )
+            )
+            self._derived_output_ids_by_hash[output_hash] = dataset_output_id
+        else:
+            self._compute_outputs.append(
+                AnalysisDataOutput(
+                    kind="data",
+                    title=compute_id,
+                    content=AnalysisDerivedData(
+                        codec=output_codec,
+                        value=encoded,
+                        execution=execution,
+                    ),
+                    metadata=output_metadata,
+                )
+            )
         return result
 
     def _allocate_compute_id(self, requested: str) -> str:
         count = self._compute_ids.get(requested, 0) + 1
         self._compute_ids[requested] = count
         return requested if count == 1 else f"{requested}.{count}"
+
+    def _allocate_dataset_output_id(self, requested: str) -> str:
+        base = artifact_slug(requested, fallback="data")
+        used = {
+            output.id
+            for output in self._compute_outputs
+            if isinstance(output, AnalysisDatasetOutput)
+        }
+        if base not in used:
+            return base
+        suffix = 2
+        while f"{base}-{suffix}" in used:
+            suffix += 1
+        return f"{base}-{suffix}"
 
     def result(self, title: str = "analysis", *, key: str | None = None) -> Analysis:
         accessed_inputs = tuple(
@@ -607,21 +791,22 @@ def _analysis_compute_input(
     value: object,
     *,
     codec: str | None,
+    derived_output_id: str | None,
 ) -> AnalysisComputeInput:
     if isinstance(value, DerivedDataset):
         if codec is not None and codec != DERIVED_DATASET_CODEC:
             raise ValueError(
                 "derived dataset compute inputs require the Arrow IPC codec"
             )
-        encoded = value.to_json_value()
-        content_hash = f"sha256:{stable_content_hash(encoded)}"
+        if derived_output_id is None:
+            raise ValueError("derived dataset compute input is not an analysis output")
+        content_hash = sha256_content_hash(value.to_arrow_ipc())
         return AnalysisComputeInput(
             name=name,
-            kind="value",
-            target=f"inline:{name}:{content_hash}",
+            kind="derived_dataset",
+            target=derived_output_id,
             content_hash=content_hash,
             codec=DERIVED_DATASET_CODEC,
-            value=encoded,
         )
     dataset = (
         cast("ExperimentResultView[object]", value).dataset

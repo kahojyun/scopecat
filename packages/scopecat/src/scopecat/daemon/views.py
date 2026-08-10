@@ -310,6 +310,21 @@ class RunArtifactBytesView(_ViewModel):
         return b64decode(self.content_base64, validate=True)
 
 
+class RunDatasetBytesView(_ViewModel):
+    run_id: str
+    dataset: RunContentEntry
+    content_base64: str
+
+    @model_validator(mode="after")
+    def validate_content(self) -> RunDatasetBytesView:
+        _require_entry_role(self.dataset, "dataset")
+        _validate_base64(self.content_base64)
+        return self
+
+    def content_bytes(self) -> bytes:
+        return b64decode(self.content_base64, validate=True)
+
+
 class ParameterProposalView(_ViewModel):
     """One proposal and its optional immutable operator approval."""
 
@@ -362,6 +377,7 @@ class MeasurementArrowQuery(_ViewModel):
     layout: Literal["points", "observations"] = "points"
     limit: Annotated[int, Field(ge=1, le=MAX_MEASUREMENT_PAGE_SIZE)] = 100
     offset: Annotated[int, Field(ge=0)] = 0
+    snapshot_size: Annotated[int, Field(ge=0)] | None = None
 
     @model_validator(mode="after")
     def validate_projection(self) -> MeasurementArrowQuery:
@@ -547,6 +563,7 @@ __all__ = [
     "RunArtifactBytesView",
     "RunConfigView",
     "RunControlView",
+    "RunDatasetBytesView",
     "RunDetail",
     "RunDomainExecutionView",
     "RunPlanView",

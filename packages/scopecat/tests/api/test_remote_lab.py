@@ -219,11 +219,14 @@ def test_remote_run_measurement_batches_use_typed_and_arrow_page_endpoints() -> 
             return httpx2.Response(
                 200,
                 content=sink.getvalue().to_pybytes(),
-                headers=(
-                    {"X-Scopecat-Next-Offset": str(next_offset)}
-                    if next_offset < len(records)
-                    else {}
-                ),
+                headers={
+                    "X-Scopecat-Snapshot-Size": str(len(records)),
+                    **(
+                        {"X-Scopecat-Next-Offset": str(next_offset)}
+                        if next_offset < len(records)
+                        else {}
+                    ),
+                },
             )
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
@@ -272,6 +275,7 @@ def test_remote_run_measurement_batches_use_typed_and_arrow_page_endpoints() -> 
         if request.url.path.endswith("/measurements/arrow")
     ]
     assert [query["offset"] for query in queries] == [0, 2]
+    assert [query["snapshot_size"] for query in queries] == [None, 3]
     assert all(
         query["columns"] == [{"name": "signal", "variable_id": "signal"}]
         for query in queries

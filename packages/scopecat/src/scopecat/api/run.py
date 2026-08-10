@@ -12,6 +12,7 @@ from typing import Protocol, overload
 import pyarrow as pa
 from pydantic import JsonValue
 
+from scopecat.analysis.datasets import DerivedDataset, DerivedDatasetSchema
 from scopecat.analysis.service import (
     AnalysisInput,
     AnalysisOutput,
@@ -56,6 +57,7 @@ from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
+    RunDatasetBytesResult,
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
@@ -78,6 +80,14 @@ class RunOperations(Protocol):
         selector: str,
     ) -> RunMeasurementDatasetResult: ...
 
+    def load_dataset_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunDatasetBytesResult: ...
+
     def load_measurement_page(
         self,
         run_id: str,
@@ -91,7 +101,7 @@ class RunOperations(Protocol):
         run_id: str,
         *,
         query: MeasurementArrowQuery,
-    ) -> tuple[pa.Table, int | None]: ...
+    ) -> tuple[pa.Table, int | None, int]: ...
 
     def save_analysis(
         self,
@@ -201,6 +211,21 @@ class RunHandle:
         )
         return Dataset(raw=loaded.dataset, entry=loaded.dataset_entry)
 
+    def derived_dataset(self, selector: str) -> DerivedDataset:
+        """Load one analysis-authored dataset into its exact Arrow schema."""
+
+        loaded = self.session.run_operations.load_dataset_bytes(
+            self.id,
+            selector,
+            expected_kind="analysis_dataset",
+        )
+        if loaded.dataset.data_schema is None:
+            raise ValueError("analysis dataset is missing its semantic schema")
+        return DerivedDataset.from_arrow_ipc(
+            loaded.content,
+            schema=DerivedDatasetSchema.model_validate(loaded.dataset.data_schema),
+        )
+
     @overload
     def result(
         self,
@@ -309,9 +334,11 @@ class RunHandle:
             layout=layout,
             batch_size=batch_size,
         )
-        first, next_offset = self.session.run_operations.load_measurement_arrow_page(
-            self.id,
-            query=query,
+        first, next_offset, snapshot_size = (
+            self.session.run_operations.load_measurement_arrow_page(
+                self.id,
+                query=query,
+            )
         )
 
         def batches() -> Iterator[pa.RecordBatch]:
@@ -321,12 +348,19 @@ class RunHandle:
             while offset is not None:
                 if offset <= previous_offset:
                     raise ValueError("measurement Arrow page next_offset must advance")
-                table, following_offset = (
+                table, following_offset, page_snapshot_size = (
                     self.session.run_operations.load_measurement_arrow_page(
                         self.id,
-                        query=query.model_copy(update={"offset": offset}),
+                        query=query.model_copy(
+                            update={
+                                "offset": offset,
+                                "snapshot_size": snapshot_size,
+                            }
+                        ),
                     )
                 )
+                if page_snapshot_size != snapshot_size:
+                    raise ValueError("measurement Arrow snapshot changed between pages")
                 if table.schema != first.schema:
                     raise ValueError("measurement pages produced different projections")
                 yield from table.to_batches(max_chunksize=batch_size)

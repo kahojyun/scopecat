@@ -14,6 +14,7 @@ from pydantic import JsonValue
 
 from scopecat.analysis.service import (
     AnalysisDataOutput,
+    AnalysisDatasetOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -30,6 +31,7 @@ from scopecat.daemon.views import (
 )
 from scopecat.daemon.wire import (
     AnalysisDataOutputPayload,
+    AnalysisDatasetOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisInputPayload,
     AnalysisOutputPayload,
@@ -48,6 +50,7 @@ from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
+    RunDatasetBytesResult,
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
@@ -76,6 +79,23 @@ class RemoteRunOperations:
     ) -> RunMeasurementDatasetResult:
         return self.client.dataset_content(run_id, selector)
 
+    def load_dataset_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunDatasetBytesResult:
+        view = self.client.dataset_bytes(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+        return RunDatasetBytesResult(
+            dataset=view.dataset,
+            content=view.content_bytes(),
+        )
+
     def load_measurement_page(
         self,
         run_id: str,
@@ -90,7 +110,7 @@ class RemoteRunOperations:
         run_id: str,
         *,
         query: MeasurementArrowQuery,
-    ) -> tuple[pa.Table, int | None]:
+    ) -> tuple[pa.Table, int | None, int]:
         return self.client.measurement_arrow(run_id, query)
 
     def save_analysis(
@@ -243,6 +263,15 @@ def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
             kind="data",
             title=value.title,
             content=value.content,
+            metadata=metadata,
+        )
+    if isinstance(value, AnalysisDatasetOutput):
+        return AnalysisDatasetOutputPayload(
+            kind="dataset",
+            id=value.id,
+            title=value.title,
+            content=value.content.to_payload(),
+            execution=value.execution,
             metadata=metadata,
         )
     if isinstance(value, AnalysisTableOutput):

@@ -39,6 +39,7 @@ from scopecat.daemon.views import (
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
+    RunDatasetBytesView,
     RunDetail,
     RunRequestView,
     RunSummaryPage,
@@ -125,6 +126,7 @@ from .payload_service import (
 _API_PREFIX = "/api/v1"
 _ARROW_STREAM_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
 _NEXT_OFFSET_HEADER = "X-Scopecat-Next-Offset"
+_SNAPSHOT_SIZE_HEADER = "X-Scopecat-Snapshot-Size"
 _SSE_PAGE_SIZE = 100
 _SSE_POLL_SECONDS = 0.5
 DEFAULT_MAX_COMMAND_BODY_BYTES = 8 * 1024 * 1024
@@ -475,6 +477,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> RunMeasurementDatasetResult:
         return application.runs.get_run_dataset_content(run_id, selector)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/datasets/{{selector}}/bytes")
+    def get_run_dataset_bytes(
+        run_id: str,
+        selector: str,
+        expected_kind: str | None = None,
+    ) -> RunDatasetBytesView:
+        return application.runs.get_run_dataset_bytes(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/attachments", status_code=201)
     def attach_run_content(
         run_id: str,
@@ -511,11 +525,15 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         query: MeasurementArrowQuery,
     ) -> Response:
-        table, next_offset = application.runs.measurement_arrow(run_id, query)
+        table, next_offset, snapshot_size = application.runs.measurement_arrow(
+            run_id, query
+        )
         sink = pa.BufferOutputStream()
         with pa.ipc.new_stream(sink, table.schema) as writer:
             writer.write_table(table)
-        headers = {} if next_offset is None else {_NEXT_OFFSET_HEADER: str(next_offset)}
+        headers = {_SNAPSHOT_SIZE_HEADER: str(snapshot_size)}
+        if next_offset is not None:
+            headers[_NEXT_OFFSET_HEADER] = str(next_offset)
         return Response(
             content=sink.getvalue().to_pybytes(),
             media_type=_ARROW_STREAM_MEDIA_TYPE,

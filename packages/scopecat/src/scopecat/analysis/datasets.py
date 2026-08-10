@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     import polars as pl
 
 DERIVED_DATASET_CODEC = "scopecat.derived-dataset.arrow-ipc.v1"
+DERIVED_DATASET_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
 
 type DerivedDatasetRole = Literal["coordinate", "observable"]
 type PandasIndexPolicy = Literal["auto", "columns", "drop"]
@@ -179,16 +180,16 @@ class DerivedDataset:
         """Flatten an explicitly selected Xarray result into observation rows."""
 
         frame = dataset.to_dataframe().reset_index()
-        inherited_units = {
-            str(name): str(unit)
-            for name in dataset.variables
-            if (unit := dataset[name].attrs.get("units")) is not None
-        }
-        inherited_labels = {
-            str(name): str(label)
-            for name in dataset.variables
-            if (label := dataset[name].attrs.get("long_name")) is not None
-        }
+        inherited_units: dict[str, str] = {}
+        inherited_labels: dict[str, str] = {}
+        for raw_name in dataset.variables:
+            name = str(cast("object", raw_name))
+            unit = cast("object | None", dataset[raw_name].attrs.get("units"))
+            label = cast("object | None", dataset[raw_name].attrs.get("long_name"))
+            if unit is not None:
+                inherited_units[name] = str(unit)
+            if label is not None:
+                inherited_labels[name] = str(label)
         return cls.from_pandas(
             frame,
             coordinates=coordinates or tuple(str(name) for name in dataset.coords),
@@ -258,19 +259,36 @@ class DerivedDataset:
 
         return cast("JsonValue", self.to_payload().model_dump(mode="json"))
 
-    def to_analysis_table(self) -> AnalysisTable:
-        """Create the bounded scalar presentation used by table and figure outputs."""
+    def to_analysis_table(
+        self,
+        *,
+        columns: Sequence[str] | None = None,
+    ) -> AnalysisTable:
+        """Create a bounded scalar presentation from explicitly selected columns."""
 
         fields = {field.name: field for field in self.schema.fields}
+        selected_names = (
+            tuple(self.table.column_names) if columns is None else tuple(columns)
+        )
+        if not selected_names:
+            raise ValueError("analysis table requires at least one dataset column")
+        if len(selected_names) != len(set(selected_names)):
+            raise ValueError("analysis table dataset columns must be unique")
+        unknown = set(selected_names) - set(self.table.column_names)
+        if unknown:
+            raise KeyError(
+                "derived dataset has no columns: " + ", ".join(sorted(unknown))
+            )
+        selected = self.table.select(selected_names)
         return AnalysisTable.from_rows(
-            cast("list[Mapping[str, object]]", self.table.to_pylist()),
+            cast("list[Mapping[str, object]]", selected.to_pylist()),
             columns=tuple(
                 AnalysisTableColumn(
                     id=name,
                     label=fields[name].label,
                     unit=fields[name].unit,
                 )
-                for name in self.table.column_names
+                for name in selected_names
             ),
         )
 
@@ -467,13 +485,15 @@ def _pandas_columns(
     )
     if is_implicit:
         return frame, ()
+    index_names = cast("Sequence[object]", index.names)
     names = tuple(
         str(name)
         if name is not None
         else ("index" if index.nlevels == 1 else f"level_{i}")
-        for i, name in enumerate(index.names)
+        for i, name in enumerate(index_names)
     )
-    conflicts = set(names) & {str(column) for column in frame.columns}
+    frame_columns = cast("Sequence[object]", cast("object", frame.columns))
+    conflicts = set(names) & {str(column) for column in frame_columns}
     if conflicts:
         raise ValueError(
             "pandas index names conflict with columns: " + ", ".join(sorted(conflicts))
@@ -522,6 +542,7 @@ def _optional_module(name: str, *, extra: str) -> object:
 
 __all__ = [
     "DERIVED_DATASET_CODEC",
+    "DERIVED_DATASET_MEDIA_TYPE",
     "DerivedDataset",
     "DerivedDatasetField",
     "DerivedDatasetPayload",

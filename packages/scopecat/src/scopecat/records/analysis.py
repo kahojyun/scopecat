@@ -405,7 +405,7 @@ class AnalysisComputeInput(_AnalysisContentModel):
     """One named, content-identified input consumed by dataset compute."""
 
     name: _NonEmptyText
-    kind: Literal["measurement_dataset", "value"]
+    kind: Literal["measurement_dataset", "derived_dataset", "value"]
     target: _NonEmptyText
     content_hash: _NonEmptyText
     codec: _NonEmptyText
@@ -455,6 +455,16 @@ class AnalysisDerivedData(_AnalysisContentModel):
         return self
 
 
+class AnalysisDatasetReference(_AnalysisContentModel):
+    """Reference to one separately stored, content-addressed derived dataset."""
+
+    output_id: _NonEmptyText
+    dataset_id: _NonEmptyText
+    content_hash: _NonEmptyText
+    codec: _NonEmptyText
+    execution: AnalysisComputeExecution | None = None
+
+
 class AnalysisRecordInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -492,8 +502,14 @@ class AnalysisDataRecordOutput(_AnalysisRecordOutput):
     content: AnalysisDerivedData
 
 
+class AnalysisDatasetRecordOutput(_AnalysisRecordOutput):
+    kind: Literal["dataset"]
+    content: AnalysisDatasetReference
+
+
 type AnalysisRecordOutput = Annotated[
     AnalysisDataRecordOutput
+    | AnalysisDatasetRecordOutput
     | AnalysisTableRecordOutput
     | AnalysisFigureRecordOutput
     | AnalysisParameterProposalRecordOutput,

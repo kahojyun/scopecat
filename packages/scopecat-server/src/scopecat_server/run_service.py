@@ -16,8 +16,10 @@ from scopecat.adapters.sqlite import (
     SQLiteMeasurementDatasetRepository,
     SQLiteRunRepository,
 )
+from scopecat.analysis.datasets import DerivedDataset
 from scopecat.analysis.service import (
     AnalysisDataOutput,
+    AnalysisDatasetOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -52,6 +54,7 @@ from scopecat.daemon.views import (
     RunArtifactBytesView,
     RunConfigView,
     RunControlView,
+    RunDatasetBytesView,
     RunDetail,
     RunDomainExecutionView,
     RunPlanView,
@@ -62,6 +65,7 @@ from scopecat.daemon.views import (
 )
 from scopecat.daemon.wire import (
     AnalysisDataOutputPayload,
+    AnalysisDatasetOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
@@ -109,6 +113,7 @@ from scopecat.runs.service import (
     read_run_artifact_bytes,
     read_run_artifact_json,
     read_run_artifact_text,
+    read_run_dataset_bytes,
     read_run_measurement_dataset,
     read_run_record_json,
 )
@@ -124,6 +129,15 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
             kind="data",
             title=item.title,
             content=item.content,
+            metadata=item.metadata,
+        )
+    if isinstance(item, AnalysisDatasetOutputPayload):
+        return AnalysisDatasetOutput(
+            kind="dataset",
+            id=item.id,
+            title=item.title,
+            content=DerivedDataset.from_payload(item.content),
+            execution=item.execution,
             metadata=item.metadata,
         )
     if isinstance(item, AnalysisTableOutputPayload):
@@ -497,6 +511,26 @@ class RunService:
                 services=self._services,
             )
 
+    def get_run_dataset_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunDatasetBytesView:
+        with self._config_errors():
+            result = read_run_dataset_bytes(
+                run_id=run_id,
+                selector=selector,
+                expected_kind=expected_kind,
+                services=self._services,
+            )
+            return RunDatasetBytesView(
+                run_id=run_id,
+                dataset=result.dataset,
+                content_base64=b64encode(result.content).decode("ascii"),
+            )
+
     def attach_run_content(
         self,
         run_id: str,
@@ -552,13 +586,15 @@ class RunService:
     ) -> MeasurementPage:
         with self._config_errors():
             manifest = self._runs.read_manifest(run_id)
-            items, next_offset, live_schema = SQLiteMeasurementDatasetRepository(
-                self._runs,
-                run_id=run_id,
-            ).measurement_page(
-                limit=limit,
-                offset=offset,
-                include_schema=include_schema,
+            items, next_offset, live_schema, _snapshot_size = (
+                SQLiteMeasurementDatasetRepository(
+                    self._runs,
+                    run_id=run_id,
+                ).measurement_page(
+                    limit=limit,
+                    offset=offset,
+                    include_schema=include_schema,
+                )
             )
         dataset = next(
             (
@@ -583,19 +619,22 @@ class RunService:
         self,
         run_id: str,
         query: MeasurementArrowQuery,
-    ) -> tuple[pa.Table, int | None]:
+    ) -> tuple[pa.Table, int | None, int]:
         """Read and project one finite page from Arrow-backed measurement chunks."""
 
         variable_ids = tuple(column.variable_id for column in query.columns)
         with self._config_errors():
             manifest = self._runs.read_manifest(run_id)
-            items, next_offset, schema = SQLiteMeasurementDatasetRepository(
-                self._runs,
-                run_id=run_id,
-            ).measurement_page(
-                limit=query.limit,
-                offset=query.offset,
-                variable_ids=variable_ids,
+            items, next_offset, schema, snapshot_size = (
+                SQLiteMeasurementDatasetRepository(
+                    self._runs,
+                    run_id=run_id,
+                ).measurement_page(
+                    limit=query.limit,
+                    offset=query.offset,
+                    snapshot_size=query.snapshot_size,
+                    variable_ids=variable_ids,
+                )
             )
         if schema is None:
             raise BackendConflict("measurement dataset has no registered schema")
@@ -626,7 +665,7 @@ class RunService:
             )
         except (KeyError, TypeError, ValueError) as error:
             raise BackendConflict(str(error)) from error
-        return table, next_offset
+        return table, next_offset, snapshot_size
 
     def measurement_slice(
         self,
