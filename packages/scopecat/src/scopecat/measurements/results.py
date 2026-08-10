@@ -15,6 +15,12 @@ from scopecat.measurements.dataset import (
     StoredExperimentResultView,
     Variable,
 )
+from scopecat.measurements.interop import (
+    MeasurementDataProjection,
+    ProjectionDiagnostics,
+    ProjectionField,
+    ProjectionSchema,
+)
 from scopecat.measurements.traces import Trace
 from scopecat.program.measurement_types import MeasurementDType, MeasurementVariableRole
 from scopecat.program.record_refs import RecordRef
@@ -46,6 +52,7 @@ __all__ = [
     "InstrumentAcquisitionEvidence",
     "MeasurementArray",
     "MeasurementDType",
+    "MeasurementDataProjection",
     "MeasurementDataset",
     "MeasurementDatasetSchema",
     "MeasurementDimension",
@@ -65,6 +72,9 @@ __all__ = [
     "MeasurementVariableRole",
     "NativeAvailableValue",
     "PointMask",
+    "ProjectionDiagnostics",
+    "ProjectionField",
+    "ProjectionSchema",
     "RecordRef",
     "StoredExperimentResultPoint",
     "StoredExperimentResultView",

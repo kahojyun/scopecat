@@ -232,6 +232,29 @@ def test_dataset_binds_an_experiment_result_to_typed_points() -> None:
     assert stored_unavailable is not None
     assert stored_unavailable.metadata == {"cause": "sensor settling"}
 
+    typed_projection = result.project()
+    assert tuple(field.name for field in typed_projection.schema.fields) == (
+        "bias",
+        "temperature",
+    )
+    assert tuple(field.source_path for field in typed_projection.schema.fields) == (
+        ("bias",),
+        ("temperature",),
+    )
+    assert tuple(
+        field.name for field in result.project(voltage=schema.bias).schema.fields
+    ) == ("voltage",)
+
+    stored_projection = stored.project(voltage="bias", temp="temperature")
+    assert tuple(field.name for field in stored_projection.schema.fields) == (
+        "voltage",
+        "temp",
+    )
+    assert tuple(field.source_path for field in stored_projection.schema.fields) == (
+        ("bias",),
+        ("temperature",),
+    )
+
 
 def test_logical_product_handle_selects_its_durable_variable() -> None:
     dataset = _dataset_with_record_sources()
@@ -487,6 +510,113 @@ def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() ->
     assert len(signal_rows) == 6
     assert signal_rows.iloc[1]["local_index"] == (1,)
     assert signal_rows.iloc[1]["value"] == complex(0.5, -0.1)
+
+
+def test_measurement_projection_controls_names_units_and_native_adapters() -> None:
+    pd = pytest.importorskip("pandas")
+    projection = (
+        _dataset()
+        .project(voltage="bias", temp="temperature", response="signal")
+        .with_units(voltage="mV", temp="mK")
+        .with_diagnostics("full")
+    )
+
+    assert tuple(field.name for field in projection.schema.fields) == (
+        "voltage",
+        "temp",
+        "response",
+    )
+    assert projection.schema.fields[0].variable_id == "bias"
+    assert projection.schema.fields[0].unit == "mV"
+    assert projection.schema.fields[0].role == "coordinate"
+    assert projection.schema.fields[2].dims == ("point", "sample")
+
+    table = projection.to_arrow()
+    assert table.column_names == [
+        "point_index",
+        "logical_point_id",
+        "voltage",
+        "voltage__unavailable_reason",
+        "voltage__unavailable_metadata",
+        "temp",
+        "temp__unavailable_reason",
+        "temp__unavailable_metadata",
+        "response",
+        "response__unavailable_reason",
+        "response__unavailable_metadata",
+    ]
+    assert table["voltage"].to_pylist() == [0.0, 1000.0, 2000.0]
+    assert table["temp"].to_pylist() == [50.0, None, 200.0]
+    assert table["temp__unavailable_reason"].to_pylist() == [
+        None,
+        "invalid",
+        None,
+    ]
+    assert json.loads(table["temp__unavailable_metadata"][1].as_py()) == {
+        "cause": "sensor settling"
+    }
+    voltage_field = table.schema.field("voltage")
+    assert voltage_field.metadata[b"scopecat.variable_id"] == b"bias"
+    assert voltage_field.metadata[b"units"] == b"mV"
+    assert voltage_field.metadata[b"scopecat.role"] == b"coordinate"
+    encoded_projection = json.loads(
+        table.schema.metadata[b"scopecat.projection"].decode()
+    )
+    assert encoded_projection["fields"][1]["name"] == "temp"
+
+    frame = projection.to_pandas()
+    assert isinstance(frame, pd.DataFrame)
+    assert list(frame["voltage"]) == [0.0, 1000.0, 2000.0]
+    assert frame.loc[1, "temp__unavailable_reason"] == "invalid"
+
+    labeled = projection.to_xarray()
+    assert isinstance(labeled, xr.Dataset)
+    assert tuple(labeled["voltage"].dims) == ("point",)
+    assert tuple(labeled["response"].dims) == ("point", "sample")
+    assert labeled["voltage"].attrs["units"] == "mV"
+    assert labeled["temp"].values[2] == 200.0
+    assert labeled["temp__unavailable_reason"].values[1] == "invalid"
+    assert "bias" not in labeled.variables
+    assert "temperature" not in labeled.variables
+
+    batches = list(projection.to_record_batch_reader(max_chunksize=2))
+    assert [batch.num_rows for batch in batches] == [2, 1]
+    assert all(batch.schema == table.schema for batch in batches)
+
+
+def test_projection_diagnostics_have_one_schema_across_availability_slices() -> None:
+    dataset = _dataset()
+
+    available = (
+        dataset.isel(point=[0])
+        .project(temp="temperature")
+        .with_diagnostics("reason")
+        .to_arrow()
+    )
+    unavailable = (
+        dataset.isel(point=[1])
+        .project(temp="temperature")
+        .with_diagnostics("reason")
+        .to_arrow()
+    )
+
+    assert available.schema == unavailable.schema
+    assert available["temp__unavailable_reason"].to_pylist() == [None]
+    assert unavailable["temp__unavailable_reason"].to_pylist() == ["invalid"]
+
+
+def test_projection_rejects_ambiguous_generated_names() -> None:
+    dataset = _dataset()
+
+    with pytest.raises(ValueError, match="generated column names must be unique"):
+        dataset.project(point_index="bias")
+
+    with pytest.raises(ValueError, match="generated column names must be unique"):
+        ambiguous = dataset.project(
+            temp="temperature",
+            temp__unavailable_reason="bias",
+        )
+        ambiguous.with_diagnostics("reason")
 
 
 def test_empty_arrow_export_keeps_declared_scientific_types() -> None:

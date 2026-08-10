@@ -61,6 +61,8 @@ from scopecat.records.measurement import (
 if TYPE_CHECKING:
     import pandas as pd  # pyright: ignore[reportMissingImports]
 
+    from scopecat.measurements.interop import MeasurementDataProjection
+
 type NativeScalar = NativeMeasurementScalar
 type NativeAvailableValue = NativeMeasurementValue
 type NativeValue = NativeAvailableValue | None
@@ -631,6 +633,27 @@ class Dataset:
         """
 
         return ExperimentResultView(self, output)
+
+    def project(
+        self,
+        **columns: str | ProductRef | RecordRef | ValueRef[object],
+    ) -> MeasurementDataProjection:
+        """Bind explicit external names before entering an ecosystem adapter."""
+
+        from scopecat.measurements.interop import bind_projection
+
+        selected = (
+            tuple(
+                (name, cast("Variable[object]", self[ref]), None)
+                for name, ref in columns.items()
+            )
+            if columns
+            else tuple(
+                (variable.id, cast("Variable[object]", variable), None)
+                for variable in self.variables.values()
+            )
+        )
+        return bind_projection(self, selected)
 
     @property
     def result(self) -> StoredExperimentResultView:
@@ -1691,6 +1714,31 @@ class ExperimentResultView[ResultT](Sequence[ExperimentResultPoint]):
 
         return tuple(build(point) for point in self)
 
+    def project(
+        self,
+        **columns: ProductRef | RecordRef | ValueRef[object],
+    ) -> MeasurementDataProjection:
+        """Project typed result fields under exact user-controlled column names."""
+
+        from scopecat.measurements.interop import bind_projection
+
+        selected = (
+            tuple(
+                (name, cast("Variable[object]", self.dataset[ref]), None)
+                for name, ref in columns.items()
+            )
+            if columns
+            else tuple(
+                (
+                    ".".join(path),
+                    cast("Variable[object]", self.dataset[ref]),
+                    path,
+                )
+                for path, ref in _experiment_result_ref_paths(self.output)
+            )
+        )
+        return bind_projection(self.dataset, selected)
+
     def where_available(
         self,
         *refs: ProductRef | RecordRef | ValueRef[object],
@@ -1834,6 +1882,32 @@ class StoredExperimentResultView(Sequence[StoredExperimentResultPoint]):
     ) -> tuple[RowT, ...]:
         return tuple(build(point) for point in self)
 
+    def project(self, **columns: ResultPath) -> MeasurementDataProjection:
+        """Project persisted result paths under exact external column names."""
+
+        from scopecat.measurements.interop import bind_projection
+
+        selected = (
+            tuple(
+                (
+                    name,
+                    cast("Variable[object]", self.variable(path)),
+                    _normalize_result_path(path),
+                )
+                for name, path in columns.items()
+            )
+            if columns
+            else tuple(
+                (
+                    ".".join(path),
+                    cast("Variable[object]", variable),
+                    path,
+                )
+                for path, variable in self._variables.items()
+            )
+        )
+        return bind_projection(self.dataset, selected)
+
     def where_available(
         self,
         *paths: ResultPath,
@@ -1888,6 +1962,33 @@ def _experiment_result_refs(
     if isinstance(value, tuple):
         for item in value:
             yield from _experiment_result_refs(item)
+        return
+
+
+def _experiment_result_ref_paths(
+    value: object,
+    path: tuple[str, ...] = (),
+) -> Iterator[tuple[tuple[str, ...], ProductRef | RecordRef | ValueRef[object]]]:
+    if isinstance(value, ProductRef | RecordRef | ValueRef):
+        yield path or ("result",), value
+        return
+    if is_dataclass(value) and not isinstance(value, type):
+        for member in fields(value):
+            yield from _experiment_result_ref_paths(
+                cast("object", getattr(value, member.name)),
+                (*path, member.name),
+            )
+        return
+    if isinstance(value, Mapping):
+        for name, item in value.items():
+            yield from _experiment_result_ref_paths(
+                item,
+                (*path, str(name)),
+            )
+        return
+    if isinstance(value, tuple):
+        for index, item in enumerate(value):
+            yield from _experiment_result_ref_paths(item, (*path, str(index)))
         return
     raise TypeError(
         "experiment result schemas must be tuple/dataclass/mapping trees of "
