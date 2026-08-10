@@ -205,6 +205,69 @@ def test_compute_joins_measured_products_with_earlier_compute_values() -> None:
     assert result == MeasurementScalar.create(value=True, dtype="bool")
 
 
+def test_convert_preserves_measurement_availability_and_converts_native_values() -> (
+    None
+):
+    @sc.module(id="test.measurement-unit-conversion")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        signal = context._product("signal", unit="V")
+        return context.convert(signal, "mV")
+
+    logical = compose_module(module.definition)
+
+    [conversion] = logical.measurement_postprocessors
+    assert conversion.id.local_id == "convert_unit_value"
+    assert [name for name, _binding in conversion.value_inputs] == [
+        "source_unit",
+        "target_unit",
+    ]
+    result = conversion.kernel(
+        {
+            "value": MeasurementScalar.create(
+                value=0.125,
+                dtype="float64",
+                unit="V",
+            ),
+            "source_unit": "V",
+            "target_unit": "mV",
+        }
+    )["result"]
+    assert result == MeasurementScalar.create(
+        value=125.0,
+        dtype="float64",
+        unit="mV",
+    )
+
+
+def test_convert_preserves_local_array_shape() -> None:
+    @sc.module(id="test.measurement-array-unit-conversion")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        trace = context._product(
+            "trace",
+            unit="V",
+            axes=(ProductAxis("sample", 2),),
+        )
+        return context.convert(trace, "mV")
+
+    [conversion] = compose_module(module.definition).measurement_postprocessors
+    result = conversion.kernel(
+        {
+            "value": MeasurementArray.create(
+                values=np.asarray([0.1, 0.2]),
+                dtype="float64",
+                unit="V",
+            ),
+            "source_unit": "V",
+            "target_unit": "mV",
+        }
+    )["result"]
+
+    assert isinstance(result, MeasurementArray)
+    assert result.values.tolist() == [100.0, 200.0]
+    assert result.unit == "mV"
+    assert result.shape == (2,)
+
+
 def test_compute_instantiates_an_annotated_product_bundle_schema() -> None:
     @_ProbabilityProducts.kernel
     def probabilities(*, signal: float) -> tuple[float, float]:

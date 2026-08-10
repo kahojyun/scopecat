@@ -442,6 +442,35 @@ class ExperimentContext:
         )
 
     @overload
+    def convert[T](
+        self,
+        value: ValueRef[T],
+        unit: str,
+        *,
+        id: str | None = None,
+    ) -> ValueRef[T]: ...
+
+    @overload
+    def convert(
+        self,
+        value: ProductRef,
+        unit: str,
+        *,
+        id: str | None = None,
+    ) -> ProductRef: ...
+
+    def convert(
+        self,
+        value: ValueRef | ProductRef,
+        unit: str,
+        *,
+        id: str | None = None,
+    ) -> ValueRef | ProductRef:
+        """Convert a unit-bearing reference at its inferred compute placement."""
+
+        return self._program.convert(value, unit, id=id)
+
+    @overload
     def compute(
         self,
         id: str | None = None,

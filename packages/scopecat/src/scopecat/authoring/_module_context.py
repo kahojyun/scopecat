@@ -45,6 +45,7 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
     normalize_resource_role,
 )
+from scopecat.kernel.units import compatible_units
 from scopecat.kernel.value_type_compatibility import (
     describe_value_type,
     is_assignable,
@@ -332,6 +333,49 @@ def _native_measurement_value(value: MeasurementValue) -> object:
     raise AssertionError(
         "unavailable measurement values must not reach compute kernels"
     )
+
+
+def _converted_unit_type(value_type: DataType, unit: str) -> DataType:
+    if isinstance(value_type, ArrayType):
+        source_unit = value_type.unit
+        if source_unit is None:
+            raise TypeError("unit conversion requires a unit-bearing array")
+        if not compatible_units(source_unit, unit):
+            raise ValueError(f"cannot convert {source_unit!r} to {unit!r}")
+        return replace(value_type, unit=unit)
+    if not isinstance(value_type.atom, QuantityType):
+        raise TypeError("unit conversion requires a quantity value")
+    source_unit = value_type.atom.unit
+    if source_unit is None:
+        raise TypeError("unit conversion requires a quantity with a declared unit")
+    if not compatible_units(source_unit, unit):
+        raise ValueError(f"cannot convert {source_unit!r} to {unit!r}")
+
+    def convert_bound(value: float | None) -> float | None:
+        if value is None:
+            return None
+        return float(Quantity(value, source_unit).to(unit).value)
+
+    return ScalarType(
+        replace(
+            value_type.atom,
+            unit=unit,
+            minimum=convert_bound(value_type.atom.minimum),
+            maximum=convert_bound(value_type.atom.maximum),
+        )
+    )
+
+
+def _convert_unit_value(
+    *,
+    value: object,
+    source_unit: str,
+    target_unit: str,
+) -> object:
+    if isinstance(value, Quantity):
+        return value.to(target_unit)
+    scale = Quantity(1.0, source_unit).to(target_unit).value
+    return cast("object", value * scale)  # pyright: ignore[reportOperatorIssue]
 
 
 def _measurement_compute_result(
@@ -1027,6 +1071,54 @@ class ModuleContext:
         """Validate a resource at a containing authoring boundary."""
 
         self._require_owned_resource(resource)
+
+    @overload
+    def convert[T](
+        self,
+        value: ValueRef[T],
+        unit: str,
+        *,
+        id: str | None = None,
+    ) -> ValueRef[T]: ...
+
+    @overload
+    def convert(
+        self,
+        value: ProductRef,
+        unit: str,
+        *,
+        id: str | None = None,
+    ) -> ProductRef: ...
+
+    def convert(
+        self,
+        value: ValueRef | ProductRef,
+        unit: str,
+        *,
+        id: str | None = None,
+    ) -> ValueRef | ProductRef:
+        """Convert a unit-bearing reference without changing its availability."""
+
+        source_type = _compute_input_data_type(value)
+        output_type = _converted_unit_type(source_type, unit)
+        source_unit = (
+            source_type.unit
+            if isinstance(source_type, ArrayType)
+            else cast("QuantityType", source_type.atom).unit
+        )
+        if source_unit is None:
+            raise AssertionError("converted unit types must have a source unit")
+        return cast(
+            "ValueRef | ProductRef",
+            self.compute(
+                id,
+                fn=_convert_unit_value,
+                value=value,
+                source_unit=source_unit,
+                target_unit=unit,
+                output_type=output_type,
+            ),
+        )
 
     @overload
     def compute(

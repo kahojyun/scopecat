@@ -50,6 +50,11 @@ class _ComputeOnlyResult:
 
 
 @dataclass(frozen=True, slots=True)
+class _ConvertedQuantityResult:
+    voltage: sc.ValueRef[sc.Quantity]
+
+
+@dataclass(frozen=True, slots=True)
 class _StructuredComputeResult(sc.ProductBundle):
     doubled: Annotated[sc.DataRef[int], sc.ScalarType(sc.IntType())]
     label: Annotated[sc.DataRef[str], sc.ScalarType(sc.StringType())]
@@ -257,6 +262,50 @@ def test_structured_host_compute_is_one_public_compute(tmp_path: Path) -> None:
     [point] = result
     assert point.value(result.output.doubled) == 6
     assert point.value(result.output.label) == "value-3"
+
+
+def test_host_unit_conversion_is_recordable_and_visible_in_preview(
+    tmp_path: Path,
+) -> None:
+    def source_voltage() -> Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="V")),
+    ]:
+        return sc.Quantity(0.125, "V")
+
+    @sc.experiment(id="test.session.converted-quantity")
+    def converted(experiment: sc.ExperimentContext) -> _ConvertedQuantityResult:
+        voltage = cast(
+            "sc.ValueRef[sc.Quantity]",
+            experiment.compute(fn=source_voltage),
+        )
+        return _ConvertedQuantityResult(
+            voltage=experiment.convert(voltage, "mV"),
+        )
+
+    config = load_config()
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=ExperimentSystem(
+            instrument_catalog=InstrumentContractCatalog(
+                config_content_hash=config_content_hash(config)
+            )
+        ),
+    )
+
+    prepared = lab.prepare(converted())
+    preview = prepared.preview()
+    assert preview.host_compute_ids == ("source_voltage", "convert_unit_value")
+    assert preview.observation_compute_ids == ()
+    assert preview.computes[1].inputs == (
+        "value",
+        "source_unit",
+        "target_unit",
+    )
+
+    result = prepared.run().result(converted().output)
+    assert result[0].value(result.output.voltage) == sc.Quantity(125.0, "mV")
 
 
 def test_measurement_batches_page_a_real_run_and_preserve_point_identity(

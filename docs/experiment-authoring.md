@@ -231,6 +231,18 @@ also compare dtype, value unit, and each local dimension's ID, kind, unit, and
 size. Leaving a parameter unannotated opts out when a generic kernel genuinely
 accepts several schemas.
 
+Convert a symbolic reference explicitly when the next data edge should carry a
+different unit:
+
+```python
+voltage_mv = experiment.convert(acquired.voltage, "mV")
+```
+
+The result preserves shape and availability. A host `ValueRef` produces another
+host value; a measured `ProductRef` produces a point-local, recordable product.
+Both scalar quantities and unit-bearing arrays use the same operation, and the
+target unit becomes part of the returned data contract.
+
 A named function supplies the default compute ID. Lambdas and repeated uses are
 allocated as `compute`, `compute.2`, and so on; pass an explicit first argument
 when that identity is part of a public data contract.

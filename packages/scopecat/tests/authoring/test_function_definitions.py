@@ -199,6 +199,28 @@ def test_compute_binds_keyword_inputs_and_infers_scalar_return_type() -> None:
     assert operation.output_type == sc.ScalarType(sc.IntType())
 
 
+def test_convert_preserves_host_availability_and_changes_the_unit_contract() -> None:
+    @sc.module
+    def converted(module: sc.ModuleContext) -> sc.ValueRef[sc.Quantity]:
+        voltage = cast(
+            "sc.ValueRef[sc.Quantity]",
+            module.compute(
+                "voltage",
+                fn=lambda: sc.Quantity(0.125, "V"),
+                output_type=sc.ScalarType(sc.QuantityType(unit="V")),
+            ),
+        )
+        return assert_type(
+            module.convert(voltage, "mV"),
+            sc.ValueRef[sc.Quantity],
+        )
+
+    _voltage, conversion = converted.definition.body.operations
+    assert conversion.id == "convert_unit_value"
+    assert conversion.output_type == sc.ScalarType(sc.QuantityType(unit="mV"))
+    assert conversion.inputs[0][0] == "value"
+
+
 def test_experiment_infers_identity_description_and_runtime_defaults() -> None:
     elaborations = 0
 
