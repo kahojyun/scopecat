@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
 import scopecat as sc
 from scopecat.authoring import (
@@ -48,6 +48,11 @@ from reference_lab.interfaces import (
     CLOCK_REFERENCE_SOURCE,
 )
 from reference_lab.payloads import SAMPLED_WAVEFORM_SCHEMA_ID
+
+type SampledWaveform = Annotated[
+    dict[str, object],
+    sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
+]
 
 Q0 = EntityRef(id="q0", kind="logical_qubit")
 Q1 = EntityRef(id="q1", kind="logical_qubit")
@@ -200,13 +205,11 @@ class XYDriveGroup:
             i_waveform = self._context.compute(
                 f"xy_i_waveform_{entity.id}",
                 fn=_i_waveform,
-                output_type=sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
                 if_frequency=frequencies[entity],
             )
             q_waveform = self._context.compute(
                 f"xy_q_waveform_{entity.id}",
                 fn=_q_waveform,
-                output_type=sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
                 if_frequency=frequencies[entity],
             )
             self._i[entity].invoke(
@@ -269,11 +272,11 @@ class XYLoSweepDataset:
     requested_carrier_frequency: PerEntity[sc.ValueRef[Quantity]]
 
 
-def _i_waveform(if_frequency: Quantity) -> dict[str, object]:
+def _i_waveform(if_frequency: Quantity) -> SampledWaveform:
     return _sampled_if_waveform(if_frequency, quadrature=False)
 
 
-def _q_waveform(if_frequency: Quantity) -> dict[str, object]:
+def _q_waveform(if_frequency: Quantity) -> SampledWaveform:
     return _sampled_if_waveform(if_frequency, quadrature=True)
 
 

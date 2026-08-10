@@ -181,8 +181,10 @@ peak = experiment.compute(
 When a named function returns `bool`, `int`, `float`, or `str`, `compute`
 infers the scalar output contract. Use an `Annotated` return with
 `ScalarType(...)` or `ArrayType(...)` when units, bounds, dtype, or dimensions
-matter. Inputs can be passed as named keywords; `inputs={...}` remains useful
-when names are assembled dynamically.
+matter. The annotation may be a reusable PEP 695 type alias, including payload
+schemas used by hardware operations, so call sites do not repeat
+`output_type=PayloadType(...)`. Inputs can be passed as named keywords;
+`inputs={...}` remains useful when names are assembled dynamically.
 
 The same annotations on function parameters are checked against every bound
 `ValueRef` or `ProductRef` during authoring. Measurement units must match

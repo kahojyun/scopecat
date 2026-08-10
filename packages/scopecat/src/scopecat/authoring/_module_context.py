@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
-from typing import Annotated, cast, get_args, get_origin, get_type_hints, overload
+from typing import (
+    Annotated,
+    TypeAliasType,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+    overload,
+)
 
 from scopecat.authoring._module_invocation import (
     DomainCallProvider,
@@ -134,6 +142,8 @@ def _as_product_bundle_type(value: object) -> type[ProductBundle] | None:
 def _infer_compute_output_type(fn: ComputeFunction) -> DataType:
     hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
     annotation = hints.get("return")
+    while isinstance(annotation, TypeAliasType):
+        annotation = cast("object", annotation.__value__)
     if get_origin(annotation) is Annotated:
         _native_type, *metadata = cast(
             "tuple[object, ...]",
@@ -163,7 +173,12 @@ def _compute_parameter_contracts(fn: ComputeFunction) -> dict[str, DataType]:
     contracts: dict[str, DataType] = {}
     for name, annotation in hints.items():
         if name == "return" or get_origin(annotation) is not Annotated:
-            continue
+            if name == "return":
+                continue
+            while isinstance(annotation, TypeAliasType):
+                annotation = cast("object", annotation.__value__)
+            if get_origin(annotation) is not Annotated:
+                continue
         _native_type, *metadata = cast(
             "tuple[object, ...]",
             get_args(annotation),
