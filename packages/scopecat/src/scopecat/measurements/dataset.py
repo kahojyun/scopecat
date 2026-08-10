@@ -1658,6 +1658,18 @@ class ExperimentResultView[ResultT](Sequence[ExperimentResultPoint]):
 
         return tuple(build(point) for point in self)
 
+    def where_available(
+        self,
+        *refs: ProductRef | RecordRef | ValueRef[object],
+    ) -> ExperimentResultView[ResultT]:
+        """Keep points where the selected result fields all have usable values."""
+
+        selected = tuple(refs) or tuple(_experiment_result_refs(self.output))
+        mask = self.dataset[selected[0]].is_available()
+        for ref in selected[1:]:
+            mask &= self.dataset[ref].is_available()
+        return ExperimentResultView(self.dataset.where(mask), self.output)
+
 
 type ResultPath = str | tuple[str, ...]
 
@@ -1750,6 +1762,18 @@ class StoredExperimentResultView(Sequence[StoredExperimentResultPoint]):
         /,
     ) -> tuple[RowT, ...]:
         return tuple(build(point) for point in self)
+
+    def where_available(
+        self,
+        *paths: ResultPath,
+    ) -> StoredExperimentResultView:
+        """Keep points where the selected persisted result paths are available."""
+
+        selected = tuple(paths) or self.paths
+        mask = self.variable(selected[0]).is_available()
+        for path in selected[1:]:
+            mask &= self.variable(path).is_available()
+        return StoredExperimentResultView(self.dataset.where(mask), self.contract)
 
 
 def _normalize_result_path(path: ResultPath) -> tuple[str, ...]:

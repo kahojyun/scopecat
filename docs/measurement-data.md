@@ -292,6 +292,20 @@ valid = data.where(data["temperature"].is_available())
 groups = data.groupby("amplification")
 ```
 
+When analysis starts from the experiment's return value, the equivalent typed
+path does not require constructing masks:
+
+```python
+result = run.result(experiment().output)
+complete = result.where_available(result.output.temperature)
+rows = complete.rows(build_fit_row)
+```
+
+Omitting fields requires every returned field to be available. Historical result
+views accept persisted paths instead. Point-local measurement compute already
+propagates unavailable inputs without invoking user kernels; these result filters
+make dropping incomplete points a visible dataset-analysis decision.
+
 Analysis steps receive the same facade through `context.measurements()`. The
 separate `run.data()` handle is for listing stored content and reading
 artifacts; it is not a second measurement API.

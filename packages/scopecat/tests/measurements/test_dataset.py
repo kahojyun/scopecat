@@ -35,6 +35,8 @@ from scopecat.records.measurement import (
     MeasurementPointDomainColumn,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
+    MeasurementResultContract,
+    MeasurementResultField,
     MeasurementScalar,
     MeasurementUnavailable,
     MeasurementValue,
@@ -177,6 +179,37 @@ def test_dataset_binds_an_experiment_result_to_typed_points() -> None:
     )
     with pytest.raises(ValueError, match="unavailable at row position 1"):
         result[1].value(schema.temperature)
+
+    available = result.where_available(schema.temperature)
+    assert available.dataset.point_indices == (0, 2)
+    assert result.where_available().dataset.point_indices == (0, 2)
+    assert result.where_available(schema.bias).dataset.point_indices == (0, 1, 2)
+    assert available.rows(lambda point: point.value(schema.temperature)) == (
+        0.05,
+        0.2,
+    )
+
+    stored_schema = schema_with_sources.model_copy(
+        update={
+            "result": MeasurementResultContract(
+                id="test.result",
+                version=f"sha256:{'0' * 64}",
+                fields=(
+                    MeasurementResultField(path=("bias",), variable_id="bias"),
+                    MeasurementResultField(
+                        path=("temperature",),
+                        variable_id="temperature",
+                    ),
+                ),
+            )
+        }
+    )
+    stored = Dataset(
+        base.raw.model_copy(update={"dataset_schema": stored_schema}),
+        base.entry,
+    ).result.where_available("temperature")
+    assert stored.dataset.point_indices == (0, 2)
+    assert stored.rows(lambda point: point.value("temperature")) == (0.05, 0.2)
 
 
 def test_logical_product_handle_selects_its_durable_variable() -> None:

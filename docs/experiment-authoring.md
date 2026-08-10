@@ -89,6 +89,25 @@ observations = result.rows(
 )
 ```
 
+Typed point access is strict: `point.value(...)` raises when that field is
+unavailable. Filter deliberately before fitting when incomplete points are valid
+input data:
+
+```python
+usable = result.where_available(
+    result.output.bias,
+    result.output.trace.response,
+)
+observations = usable.rows(build_observation)
+```
+
+With no arguments, `where_available()` requires every returned leaf. The
+historical `run.result()` view offers the same operation with persisted paths.
+Point-local compute uses the complementary rule: if any measured input is
+unavailable, Scopecat does not call the kernel and propagates its reason and
+metadata to every derived output. Filtering is therefore an explicit analysis
+choice rather than a hidden acquisition policy.
+
 This replaces independently loading columns, rejecting unavailable values, and
 zipping them by position. Use `point.quantity(ref, "mV")` when a numeric leaf
 should be converted to a requested unit.
