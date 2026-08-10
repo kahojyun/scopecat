@@ -243,6 +243,7 @@ def test_sequence_run_query_filters_and_enforces_index_identity(
                 sequence_id="sequence-a",
                 run_index=1,
                 previous_run_id="run-a-0",
+                proposal_id="sha256:" + "0" * 64,
             )
         }
     )

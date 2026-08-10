@@ -8,6 +8,8 @@ from types import TracebackType
 from typing import Literal, Self, cast
 from uuid import uuid4
 
+from pydantic import BaseModel
+
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._control import LabControlOperations
 from scopecat.api._instruments import LabInstrumentOperations
@@ -15,15 +17,24 @@ from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.run import RunHandle, run_handle_id
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.candidates import CandidateConfig
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
+from scopecat.kernel.content_identity import (
+    model_wire_content_hash,
+    stable_content_hash,
+)
 from scopecat.kernel.frozen import freeze_json_mapping
-from scopecat.measurements.results import Dataset
+from scopecat.measurements.results import (
+    Dataset,
+    ExperimentResultView,
+    StoredExperimentResultView,
+)
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.program.values import MetadataValue
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import (
     RunConfigSource,
     RunManifest,
@@ -69,11 +80,12 @@ def _empty_sequence_metadata() -> dict[str, MetadataValue]:
 
 @dataclass(frozen=True, slots=True)
 class SequenceProposal:
-    """One next invocation plus durable adaptive-policy state."""
+    """One next invocation, optional config, and durable policy state."""
 
     experiment: ExperimentSpec
     policy_id: str
     policy_version: str
+    config: ConfigProfileSnapshot | CandidateConfig | None = None
     decision: Mapping[str, MetadataValue] = field(
         default_factory=_empty_sequence_metadata
     )
@@ -131,12 +143,53 @@ class RunSequence:
     def is_terminal(self) -> bool:
         return self.status in {"stopped", "budget_exhausted"}
 
+    def results(self, *, selector: str = "raw-measurements") -> SequenceResults:
+        """Load one result collection while preserving durable run boundaries."""
+
+        return SequenceResults(
+            sequence_id=self.sequence_id,
+            sequence_runs=self.sequence_runs,
+            selector=selector,
+            datasets=tuple(
+                sequence_run.measurements(selector=selector)
+                for sequence_run in self.sequence_runs
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SequenceResults:
+    """Measurement results from an ordered run sequence."""
+
+    sequence_id: str
+    sequence_runs: tuple[SequenceRun, ...]
+    datasets: tuple[Dataset, ...]
+    selector: str = "raw-measurements"
+
+    @property
+    def stored(self) -> tuple[StoredExperimentResultView, ...]:
+        """Return each run's self-describing persisted result contract."""
+
+        return tuple(dataset.result for dataset in self.datasets)
+
+    def bind[ResultT](
+        self,
+        output: ResultT,
+        /,
+    ) -> tuple[ExperimentResultView[ResultT], ...]:
+        """Bind the same authored result schema to every run dataset."""
+
+        return tuple(dataset.bind(output) for dataset in self.datasets)
+
 
 @dataclass(frozen=True, slots=True)
 class _SequenceEvaluation:
     invocation: ExperimentInvocation | None
     decision: RunSequenceDecision | None
     transition: RunSequenceTransition
+    config: ConfigProfileSnapshot | None = None
+    config_source: RunConfigSource | None = None
+    proposal_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,6 +441,7 @@ class LabClient:
             sequence_id=selected_sequence_id,
             current=prepared.invocation,
             current_decision=None,
+            current_proposal_id=None,
             next_run=next_run,
             max_runs=max_runs,
             max_new_runs=max_runs if max_new_runs is None else max_new_runs,
@@ -424,7 +478,7 @@ class LabClient:
             raise ValueError("the latest sequence run must be completed before resume")
         if existing.is_terminal:
             raise ValueError(f"run sequence is already terminal: {existing.status}")
-        if existing.status != "awaiting_decision":
+        if existing.status not in {"awaiting_decision", "proposed"}:
             raise ValueError(
                 f"run sequence cannot resume from status: {existing.status}"
             )
@@ -441,36 +495,60 @@ class LabClient:
             else min(max_new_runs, remaining_runs)
         )
         latest_sequence_run = existing.sequence_runs[-1]
-        selected = _evaluate_next_run(
+        latest_request = existing.latest.request
+        current_config = existing.latest.config
+        expected_transition = (
+            existing.transitions[-1] if existing.status == "proposed" else None
+        )
+        selected = self._evaluate_sequence_run(
             latest_sequence_run,
             next_run,
-            ordinal=sum(
-                transition.run_index == latest_sequence_run.run_index
-                for transition in existing.transitions
+            run_index=len(existing.sequence_runs),
+            max_runs=max_runs,
+            current_config=current_config,
+            current_config_source=latest_manifest.config_source,
+            name=latest_request.display_name,
+            tags=latest_request.tags,
+            description=latest_request.description,
+            metadata=cast("Mapping[str, MetadataValue]", latest_request.metadata),
+            operator=latest_request.operator,
+            ordinal=(
+                expected_transition.ordinal
+                if expected_transition is not None
+                else sum(
+                    transition.run_index == latest_sequence_run.run_index
+                    for transition in existing.transitions
+                )
             ),
+            expected_transition=expected_transition,
         )
-        transitions = (*existing.transitions, selected.transition)
+        transitions = (
+            existing.transitions
+            if expected_transition is not None
+            else (*existing.transitions, selected.transition)
+        )
         if selected.invocation is None:
             return RunSequence(
                 sequence_id=sequence_id,
                 sequence_runs=existing.sequence_runs,
                 transitions=transitions,
             )
-        latest_request = existing.latest.request
+        assert selected.config is not None
         return self._execute_sequence(
             sequence_id=sequence_id,
             current=selected.invocation,
             current_decision=selected.decision,
+            current_proposal_id=selected.proposal_id,
             next_run=next_run,
             max_runs=max_runs,
             max_new_runs=selected_new_runs,
-            config=existing.latest.config,
-            config_source=latest_manifest.config_source,
+            config=selected.config,
+            config_source=selected.config_source,
             completed=existing.sequence_runs,
             transitions=transitions,
-            name=None,
-            tags=(),
-            description=None,
+            name=latest_request.display_name,
+            tags=latest_request.tags,
+            description=latest_request.description,
             metadata=cast(
                 "Mapping[str, MetadataValue]",
                 latest_request.metadata,
@@ -484,6 +562,7 @@ class LabClient:
         sequence_id: str,
         current: ExperimentInvocation,
         current_decision: RunSequenceDecision | None,
+        current_proposal_id: str | None,
         next_run: NextSequenceRun,
         max_runs: int,
         max_new_runs: int,
@@ -509,6 +588,7 @@ class LabClient:
                 run_index=run_index,
                 max_runs=max_runs,
                 previous_run_id=previous_run_id,
+                proposal_id=current_proposal_id,
                 decision=current_decision,
             )
             run = self.execute_invocation(
@@ -550,7 +630,20 @@ class LabClient:
                     sequence_runs=tuple(selected),
                     transitions=tuple(recorded_transitions),
                 )
-            following = _evaluate_next_run(sequence_run, next_run, ordinal=0)
+            following = self._evaluate_sequence_run(
+                sequence_run,
+                next_run,
+                run_index=run_index + 1,
+                max_runs=max_runs,
+                current_config=config,
+                current_config_source=config_source,
+                name=name,
+                tags=tags,
+                description=description,
+                metadata=metadata,
+                operator=operator,
+                ordinal=0,
+            )
             recorded_transitions.append(following.transition)
             if following.invocation is None:
                 return RunSequence(
@@ -560,11 +653,132 @@ class LabClient:
                 )
             current = following.invocation
             current_decision = following.decision
+            current_proposal_id = following.proposal_id
+            assert following.config is not None
+            config = following.config
+            config_source = following.config_source
             previous_run_id = run.id
         return RunSequence(
             sequence_id=sequence_id,
             sequence_runs=tuple(selected),
             transitions=tuple(recorded_transitions),
+        )
+
+    def _evaluate_sequence_run(
+        self,
+        sequence_run: SequenceRun,
+        next_run: NextSequenceRun,
+        *,
+        run_index: int,
+        max_runs: int,
+        current_config: ConfigProfileSnapshot,
+        current_config_source: RunConfigSource | None,
+        name: str | None,
+        tags: tuple[str, ...],
+        description: str | None,
+        metadata: Mapping[str, MetadataValue] | None,
+        operator: str | None,
+        ordinal: int,
+        expected_transition: RunSequenceTransition | None = None,
+    ) -> _SequenceEvaluation:
+        try:
+            proposed = next_run(sequence_run)
+            normalized = (
+                None
+                if proposed is None
+                else _next_run(proposed, based_on_run_id=sequence_run.run.id)
+            )
+            if normalized is None:
+                if expected_transition is not None:
+                    raise ValueError(
+                        "sequence callback no longer reproduces its durable proposal"
+                    )
+                transition = _record_sequence_transition(
+                    sequence_run,
+                    ordinal=ordinal,
+                    status="stopped",
+                    details={"reason": "callback-returned-none"},
+                )
+                return _SequenceEvaluation(
+                    invocation=None,
+                    decision=None,
+                    transition=transition,
+                )
+            invocation, decision, proposed_config = normalized
+            if proposed_config is None:
+                selected_config = current_config
+                selected_source = current_config_source
+            else:
+                selected_config, selected_source = self._config.resolve_with_source(
+                    proposed_config
+                )
+            base_request = compile_invocation(
+                invocation,
+                display_name=name,
+                tags=tags,
+                description=description,
+                metadata=metadata,
+                operator=operator,
+            ).request
+            selected_config_hash = config_content_hash(selected_config)
+            proposal_id = _sequence_proposal_id(
+                request=base_request,
+                config_content_hash=selected_config_hash,
+                sequence_id=sequence_run.sequence_id,
+                run_index=run_index,
+                previous_run_id=sequence_run.run.id,
+                decision=decision,
+            )
+            lineage = RunSequenceLineage(
+                sequence_id=sequence_run.sequence_id,
+                run_index=run_index,
+                max_runs=max_runs,
+                previous_run_id=sequence_run.run.id,
+                proposal_id=proposal_id,
+                decision=decision,
+            )
+            request = base_request.model_copy(update={"sequence": lineage})
+            transition = RunSequenceTransition(
+                sequence_id=sequence_run.sequence_id,
+                run_index=sequence_run.run_index,
+                ordinal=ordinal,
+                based_on_run_id=sequence_run.run.id,
+                status="proposed",
+                next_experiment_id=invocation.definition.id,
+                proposal_id=proposal_id,
+                next_request_content_hash=_model_content_hash(request),
+                next_config_content_hash=selected_config_hash,
+                next_config_source=selected_source,
+                decision=decision,
+            )
+        except Exception as error:
+            if expected_transition is None:
+                _record_sequence_transition(
+                    sequence_run,
+                    ordinal=ordinal,
+                    status="policy_failed",
+                    details={
+                        "exception_type": (
+                            f"{type(error).__module__}.{type(error).__qualname__}"
+                        )
+                    },
+                )
+            raise
+        if expected_transition is not None:
+            if transition != expected_transition:
+                raise ValueError(
+                    "sequence callback no longer reproduces its durable proposal"
+                )
+            transition = expected_transition
+        else:
+            _attach_sequence_transition(sequence_run, transition)
+        return _SequenceEvaluation(
+            invocation=invocation,
+            decision=decision,
+            transition=transition,
+            config=selected_config,
+            config_source=selected_source,
+            proposal_id=proposal_id,
         )
 
     def _run_sequence(
@@ -596,13 +810,6 @@ class LabClient:
         ):
             raise ValueError(
                 f"run sequence {sequence_id!r} changes its persistent run budget"
-            )
-        if any(
-            manifest.config_content_hash != ordered[0].config_content_hash
-            for manifest in ordered[1:]
-        ):
-            raise ValueError(
-                f"run sequence {sequence_id!r} uses multiple configurations"
             )
         for run_index, manifest in enumerate(ordered):
             lineage = manifest.sequence
@@ -709,9 +916,13 @@ def _next_run(
     proposed: ExperimentSpec | SequenceProposal,
     *,
     based_on_run_id: str,
-) -> tuple[ExperimentInvocation, RunSequenceDecision | None]:
+) -> tuple[
+    ExperimentInvocation,
+    RunSequenceDecision | None,
+    ConfigProfileSnapshot | CandidateConfig | None,
+]:
     if not isinstance(proposed, SequenceProposal):
-        return _experiment_invocation(proposed), None
+        return _experiment_invocation(proposed), None, None
     return (
         _experiment_invocation(proposed.experiment),
         RunSequenceDecision(
@@ -721,58 +932,7 @@ def _next_run(
             decision=proposed.decision,
             checkpoint=proposed.checkpoint,
         ),
-    )
-
-
-def _evaluate_next_run(
-    sequence_run: SequenceRun,
-    next_run: NextSequenceRun,
-    *,
-    ordinal: int,
-) -> _SequenceEvaluation:
-    try:
-        proposed = next_run(sequence_run)
-        normalized = (
-            None
-            if proposed is None
-            else _next_run(proposed, based_on_run_id=sequence_run.run.id)
-        )
-    except Exception as error:
-        _record_sequence_transition(
-            sequence_run,
-            ordinal=ordinal,
-            status="policy_failed",
-            details={
-                "exception_type": (
-                    f"{type(error).__module__}.{type(error).__qualname__}"
-                )
-            },
-        )
-        raise
-    if normalized is None:
-        transition = _record_sequence_transition(
-            sequence_run,
-            ordinal=ordinal,
-            status="stopped",
-            details={"reason": "callback-returned-none"},
-        )
-        return _SequenceEvaluation(
-            invocation=None,
-            decision=None,
-            transition=transition,
-        )
-    invocation, decision = normalized
-    transition = _record_sequence_transition(
-        sequence_run,
-        ordinal=ordinal,
-        status="proposed",
-        next_experiment_id=invocation.definition.id,
-        decision=decision,
-    )
-    return _SequenceEvaluation(
-        invocation=invocation,
-        decision=decision,
-        transition=transition,
+        proposed.config,
     )
 
 
@@ -786,8 +946,6 @@ def _record_sequence_transition(
         "budget_exhausted",
         "policy_failed",
     ],
-    next_experiment_id: str | None = None,
-    decision: RunSequenceDecision | None = None,
     details: Mapping[str, MetadataValue] | None = None,
 ) -> RunSequenceTransition:
     transition = RunSequenceTransition(
@@ -796,23 +954,57 @@ def _record_sequence_transition(
         ordinal=ordinal,
         based_on_run_id=sequence_run.run.id,
         status=status,
-        next_experiment_id=next_experiment_id,
-        decision=decision,
         details=details or {},
     )
+    _attach_sequence_transition(sequence_run, transition)
+    return transition
+
+
+def _attach_sequence_transition(
+    sequence_run: SequenceRun,
+    transition: RunSequenceTransition,
+) -> None:
     sequence_run.run.attach(
-        key=f"sequence-transition-{sequence_run.run_index}-{ordinal}",
+        key=f"sequence-transition-{sequence_run.run_index}-{transition.ordinal}",
         kind="run-sequence-transition",
         text=transition.model_dump_json(),
-        filename=f"sequence-transition-{sequence_run.run_index}-{ordinal}.json",
+        filename=(
+            f"sequence-transition-{sequence_run.run_index}-{transition.ordinal}.json"
+        ),
         media_type="application/json",
         metadata={
             "sequence_id": sequence_run.sequence_id,
             "run_index": sequence_run.run_index,
-            "status": status,
+            "status": transition.status,
         },
     )
-    return transition
+
+
+def _sequence_proposal_id(
+    *,
+    request: BaseModel,
+    config_content_hash: str,
+    sequence_id: str,
+    run_index: int,
+    previous_run_id: str,
+    decision: RunSequenceDecision | None,
+) -> str:
+    return "sha256:" + stable_content_hash(
+        {
+            "request_content_hash": _model_content_hash(request),
+            "config_content_hash": config_content_hash,
+            "sequence_id": sequence_id,
+            "run_index": run_index,
+            "previous_run_id": previous_run_id,
+            "decision": (
+                None if decision is None else decision.model_dump(mode="json")
+            ),
+        }
+    )
+
+
+def _model_content_hash(model: BaseModel) -> str:
+    return "sha256:" + model_wire_content_hash(model)
 
 
 def _sequence_result(
@@ -859,5 +1051,6 @@ __all__ = [
     "PreparedLabExperiment",
     "RunSequence",
     "SequenceProposal",
+    "SequenceResults",
     "SequenceRun",
 ]

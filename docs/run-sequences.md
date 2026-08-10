@@ -58,28 +58,55 @@ from scopecat.api.lab import SequenceProposal
 
 
 def choose_next(sequence_run):
-    candidate = optimizer.ask(sequence_run.measurements())
+    analysis = fit_calibration(sequence_run.measurements())
+    candidate = analysis.candidate_config()
     if candidate is None:
         return None
     return SequenceProposal(
-        experiment=calibration_experiment(candidate),
+        experiment=verification_experiment(),
         policy_id="resonance-search",
         policy_version="2",
-        decision={"candidate_hz": candidate.frequency_hz},
-        checkpoint=optimizer.checkpoint(),
+        config=candidate,
+        decision={"proposal_id": candidate.proposal_id},
+        checkpoint={"source_run_id": sequence_run.run.id},
     )
 ```
+
+The candidate configuration is resolved for the proposed run without changing
+the project's active configuration. Later plain proposals inherit that accepted
+snapshot until another structured proposal selects a different one. A sequence
+therefore models calibration and verification runs honestly instead of assuming
+that every run uses one global config.
 
 The policy identity, decision summary, and JSON checkpoint become part of the
 next run's typed lineage. The completed run that the policy evaluated owns a
 `run-sequence-transition` artifact recording `proposed`, `stopped`,
-`budget_exhausted`, or `policy_failed`. Plain invocation returns remain the
+`budget_exhausted`, or `policy_failed`. A proposed transition includes the next
+experiment, config provenance, normalized request hash, and deterministic
+proposal identity. If execution is interrupted after recording the proposal,
+resume reruns the notebook callback but proceeds only when it reproduces that
+same durable request and configuration. Plain invocation returns remain the
 short path.
 
 Sequences can be rediscovered with `lab.run_sequences()` or
 `lab.get_run_sequence(sequence_id)`. Their current status is derived from the
 latest run's transition, rather than from an in-memory loop flag. A latest run
 without a transition is `awaiting_decision`.
+
+Results remain grouped by run because different sequence runs may use different
+experiments or result schemas:
+
+```python
+results = sequence.results()
+historical_views = results.stored
+
+# When every run used the same authored result schema:
+typed_views = results.bind(calibration_experiment().output)
+```
+
+`datasets`, `stored`, and `bind(...)` all preserve sequence order and run
+boundaries. Combining rows from heterogeneous runs is an explicit analysis
+choice rather than an implicit concatenation.
 
 The callback implementation remains notebook-owned. Durable state includes the
 runs, accepted configurations, lineage, and policy transitions; arbitrary

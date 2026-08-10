@@ -14,6 +14,15 @@ from scopecat.kernel.run_outcome import RunOutcome, RunStatus, utc_now
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigContentHash
 
+type RunSequenceProposalId = Annotated[
+    str,
+    Field(pattern=r"^sha256:[0-9a-f]{64}$"),
+]
+type RunSequenceRequestHash = Annotated[
+    str,
+    Field(pattern=r"^sha256:[0-9a-f]{64}$"),
+]
+
 
 class ConfigRegistryRunConfigSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -93,20 +102,42 @@ class RunSequenceTransition(BaseModel):
         "policy_failed",
     ]
     next_experiment_id: str | None = Field(default=None, min_length=1)
+    proposal_id: RunSequenceProposalId | None = None
+    next_request_content_hash: RunSequenceRequestHash | None = None
+    next_config_content_hash: ConfigContentHash | None = None
+    next_config_source: RunConfigSource | None = None
     decision: RunSequenceDecision | None = None
     details: Mapping[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_event(self) -> RunSequenceTransition:
-        if self.status == "proposed" and self.next_experiment_id is None:
-            raise ValueError(
-                "proposed sequence transition requires a next experiment id"
-            )
-        if self.status != "proposed" and (
-            self.next_experiment_id is not None or self.decision is not None
+    def validate_transition(self) -> RunSequenceTransition:
+        proposal_fields = (
+            self.next_experiment_id,
+            self.proposal_id,
+            self.next_request_content_hash,
+            self.next_config_content_hash,
+        )
+        if self.status == "proposed" and any(
+            field is None for field in proposal_fields
         ):
             raise ValueError(
-                "non-proposal sequence transitions cannot select an experiment"
+                "proposed sequence transition requires complete request and config "
+                "identity"
+            )
+        if self.status != "proposed" and (
+            any(field is not None for field in proposal_fields)
+            or self.next_config_source is not None
+            or self.decision is not None
+        ):
+            raise ValueError(
+                "non-proposal sequence transitions cannot select a request or config"
+            )
+        if (
+            self.next_config_source is not None
+            and self.next_config_source.content_hash != self.next_config_content_hash
+        ):
+            raise ValueError(
+                "sequence proposal config source hash must match its config"
             )
         if self.decision is not None and (
             self.decision.based_on_run_id != self.based_on_run_id
@@ -129,14 +160,19 @@ class RunSequenceLineage(BaseModel):
     run_index: int = Field(ge=0)
     max_runs: int = Field(default=10, ge=1)
     previous_run_id: str | None = Field(default=None, min_length=1)
+    proposal_id: RunSequenceProposalId | None = None
     decision: RunSequenceDecision | None = None
 
     @model_validator(mode="after")
     def validate_predecessor(self) -> RunSequenceLineage:
-        if self.run_index == 0 and self.previous_run_id is not None:
-            raise ValueError("the first sequence run cannot have a predecessor")
-        if self.run_index > 0 and self.previous_run_id is None:
-            raise ValueError("a later sequence run requires a predecessor")
+        if self.run_index == 0 and (
+            self.previous_run_id is not None or self.proposal_id is not None
+        ):
+            raise ValueError("the first sequence run cannot have proposal lineage")
+        if self.run_index > 0 and (
+            self.previous_run_id is None or self.proposal_id is None
+        ):
+            raise ValueError("a later sequence run requires proposal lineage")
         if (
             self.decision is not None
             and self.decision.based_on_run_id != self.previous_run_id

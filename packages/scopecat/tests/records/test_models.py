@@ -105,6 +105,7 @@ def test_run_request_records_typed_sequence_lineage() -> None:
         sequence_id="adaptive-sequence",
         run_index=2,
         previous_run_id="run-2",
+        proposal_id="sha256:" + "0" * 64,
     )
 
     restored = assert_model_round_trip(RunRequest(sequence=lineage))

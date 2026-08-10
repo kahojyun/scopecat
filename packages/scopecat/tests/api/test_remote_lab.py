@@ -6,12 +6,14 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event
+from typing import cast
 
 import httpx2
 import pytest
 from pydantic import BaseModel
 
 import scopecat.api._runner as runner_module
+from scopecat.api._config import LabConfigOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.lab import (
     LabClient,
@@ -73,6 +75,7 @@ from scopecat.execution.services import ExecutionSession
 from scopecat.kernel.errors import RunCancelled
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.measurements.results import Dataset
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.service import PlannedRun
@@ -133,6 +136,7 @@ def _capture_sequence_transitions(
 
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
+_PROPOSAL_ID = "sha256:" + "0" * 64
 
 
 def test_remote_run_measurement_batches_use_typed_page_endpoint() -> None:
@@ -269,11 +273,12 @@ def test_lab_preview_and_run_are_direct_prepare_shortcuts(
     ]
 
 
-def test_lab_sequence_uses_one_config_and_records_durable_lineage(
+def test_lab_sequence_records_durable_lineage_and_candidate_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     persisted_events = _capture_sequence_transitions(monkeypatch)
     config = load_config()
+    candidate_config = config.model_copy(update={"id": f"{config.id}.candidate"})
     source = ConfigRegistryRunConfigSource(
         selector="active",
         entry_id="baseline",
@@ -283,6 +288,7 @@ def test_lab_sequence_uses_one_config_and_records_durable_lineage(
     )
     invocations = [load_invocation() for _ in range(3)]
     lab = object.__new__(LabClient)
+    lab._config = object.__new__(LabConfigOperations)
     prepared = PreparedLabExperiment(
         lab=lab,
         invocation=invocations[0],
@@ -320,6 +326,19 @@ def test_lab_sequence_uses_one_config_and_records_durable_lineage(
     monkeypatch.setattr(LabClient, "prepare", prepare)
     monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
     monkeypatch.setattr(LabClient, "_sequence_manifests", sequence_manifests)
+
+    def resolve_with_source(
+        _config_operations: LabConfigOperations,
+        selected: object,
+    ) -> tuple[ConfigProfileSnapshot, None]:
+        assert selected is candidate_config
+        return candidate_config, None
+
+    monkeypatch.setattr(
+        LabConfigOperations,
+        "resolve_with_source",
+        resolve_with_source,
+    )
     sequence_dataset = object()
 
     def measurements(
@@ -345,6 +364,7 @@ def test_lab_sequence_uses_one_config_and_records_durable_lineage(
             experiment=invocations[sequence_run.run_index + 1],
             policy_id="adaptive-threshold",
             policy_version="1",
+            config=candidate_config if sequence_run.run_index == 0 else None,
             decision={"selected_index": sequence_run.run_index + 1},
             checkpoint={"completed": sequence_run.run_index + 1},
         )
@@ -360,10 +380,16 @@ def test_lab_sequence_uses_one_config_and_records_durable_lineage(
 
     assert prepare_calls == [(invocations[0], "active")]
     assert [invocation for invocation, _kwargs in execute_calls] == invocations
-    assert all(kwargs["config"] is config for _invocation, kwargs in execute_calls)
-    assert all(
-        kwargs["config_source"] == source for _invocation, kwargs in execute_calls
-    )
+    assert [kwargs["config"] for _invocation, kwargs in execute_calls] == [
+        config,
+        candidate_config,
+        candidate_config,
+    ]
+    assert [kwargs["config_source"] for _invocation, kwargs in execute_calls] == [
+        source,
+        None,
+        None,
+    ]
     assert [run.id for run in result.runs] == ["run-1", "run-2", "run-3"]
     assert result.status == "stopped"
     assert result.transitions == tuple(persisted_events)
@@ -372,6 +398,9 @@ def test_lab_sequence_uses_one_config_and_records_durable_lineage(
         "proposed",
         "stopped",
     ]
+    assert [
+        transition.next_config_content_hash for transition in result.transitions[:2]
+    ] == [config_content_hash(candidate_config)] * 2
     assert result.latest is result.runs[-1]
     assert sequence_runs[0].previous_run is None
     assert sequence_runs[1].previous_run is result.runs[0]
@@ -385,6 +414,9 @@ def test_lab_sequence_uses_one_config_and_records_durable_lineage(
             run_index=index,
             max_runs=5,
             previous_run_id=None if index == 0 else f"run-{index}",
+            proposal_id=(
+                None if index == 0 else result.transitions[index - 1].proposal_id
+            ),
             decision=(
                 None
                 if index == 0
@@ -443,6 +475,131 @@ def test_lab_sequence_uses_one_config_and_records_durable_lineage(
             next_run=lambda _run: None,
             max_new_runs=0,
         )
+
+
+def test_run_sequence_collects_typed_results_without_losing_run_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lab = object.__new__(LabClient)
+    runs = tuple(RunHandle(session=lab, id=f"run-{index}") for index in range(2))
+    sequence_runs = tuple(
+        SequenceRun(
+            sequence_id="result-sequence",
+            run_index=index,
+            run=run,
+            history=runs[: index + 1],
+        )
+        for index, run in enumerate(runs)
+    )
+
+    class FakeDataset:
+        def __init__(self, run_id: str) -> None:
+            self.run_id = run_id
+
+        @property
+        def result(self) -> str:
+            return f"stored:{self.run_id}"
+
+        def bind(self, output: object) -> tuple[str, object]:
+            return self.run_id, output
+
+    datasets = {
+        run.id: cast("Dataset", cast("object", FakeDataset(run.id))) for run in runs
+    }
+    loads: list[tuple[str, str]] = []
+
+    def measurements(
+        run: RunHandle,
+        *,
+        selector: str = "raw-measurements",
+    ) -> Dataset:
+        loads.append((run.id, selector))
+        return datasets[run.id]
+
+    monkeypatch.setattr(RunHandle, "measurements", measurements)
+    sequence = RunSequence(
+        sequence_id="result-sequence",
+        sequence_runs=sequence_runs,
+    )
+
+    results = sequence.results(selector="calibrated")
+    output = object()
+
+    assert results.sequence_runs == sequence_runs
+    assert results.datasets == tuple(datasets[run.id] for run in runs)
+    assert results.stored == ("stored:run-0", "stored:run-1")
+    assert results.bind(output) == (("run-0", output), ("run-1", output))
+    assert loads == [("run-0", "calibrated"), ("run-1", "calibrated")]
+
+
+def test_sequence_proposal_recovery_requires_the_same_request_and_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    persisted_transitions = _capture_sequence_transitions(monkeypatch)
+    lab = object.__new__(LabClient)
+    config = load_config()
+    invocation = load_invocation()
+    run = RunHandle(session=lab, id="run-proposal-source")
+    sequence_run = SequenceRun(
+        sequence_id="recovery-sequence",
+        run_index=0,
+        run=run,
+        history=(run,),
+    )
+
+    first = lab._evaluate_sequence_run(
+        sequence_run,
+        lambda _run: invocation,
+        run_index=1,
+        max_runs=3,
+        current_config=config,
+        current_config_source=None,
+        name="Calibration",
+        tags=("recovery",),
+        description="durable proposal",
+        metadata={"campaign": "proposal-recovery"},
+        operator="alice",
+        ordinal=0,
+    )
+    replayed = lab._evaluate_sequence_run(
+        sequence_run,
+        lambda _run: invocation,
+        run_index=1,
+        max_runs=3,
+        current_config=config,
+        current_config_source=None,
+        name="Calibration",
+        tags=("recovery",),
+        description="durable proposal",
+        metadata={"campaign": "proposal-recovery"},
+        operator="alice",
+        ordinal=0,
+        expected_transition=first.transition,
+    )
+
+    assert replayed.transition is first.transition
+    assert first.proposal_id == first.transition.proposal_id
+    assert first.transition.next_config_content_hash == config_content_hash(config)
+    assert first.transition.next_request_content_hash is not None
+    assert persisted_transitions == [first.transition]
+
+    with pytest.raises(ValueError, match="no longer reproduces"):
+        lab._evaluate_sequence_run(
+            sequence_run,
+            lambda _run: None,
+            run_index=1,
+            max_runs=3,
+            current_config=config,
+            current_config_source=None,
+            name="Calibration",
+            tags=("recovery",),
+            description="durable proposal",
+            metadata={"campaign": "proposal-recovery"},
+            operator="alice",
+            ordinal=0,
+            expected_transition=first.transition,
+        )
+    assert persisted_transitions == [first.transition]
 
 
 def test_lab_records_policy_failure_on_the_evaluated_run(
@@ -514,6 +671,7 @@ def test_lab_rediscovers_run_sequences_across_run_pages() -> None:
             sequence_id="new-sequence",
             run_index=1,
             previous_run_id=new_first.run_id,
+            proposal_id=_PROPOSAL_ID,
         ),
     )
     old_first = RunManifest(
@@ -528,6 +686,7 @@ def test_lab_rediscovers_run_sequences_across_run_pages() -> None:
             sequence_id="old-sequence",
             run_index=1,
             previous_run_id=old_first.run_id,
+            proposal_id=_PROPOSAL_ID,
         ),
     )
     requests: list[httpx2.Request] = []
@@ -662,6 +821,7 @@ def test_lab_get_run_sequence_rejects_missing_and_broken_sequences() -> None:
             sequence_id="broken",
             run_index=1,
             previous_run_id="run-wrong",
+            proposal_id=_PROPOSAL_ID,
         ),
     )
     page = RunSummaryPage(
@@ -713,6 +873,7 @@ def test_lab_resumes_latest_run_with_durable_context(
                 sequence_id="resume-sequence",
                 run_index=1,
                 previous_run_id=first.run_id,
+                proposal_id=_PROPOSAL_ID,
             ),
         )
     )
@@ -793,11 +954,13 @@ def test_lab_resumes_latest_run_with_durable_context(
             sequence_id="resume-sequence",
             run_index=2,
             previous_run_id="run-resume-1",
+            proposal_id=resumed.transitions[0].proposal_id,
         ),
         RunSequenceLineage(
             sequence_id="resume-sequence",
             run_index=3,
             previous_run_id="run-resume-2",
+            proposal_id=resumed.transitions[1].proposal_id,
         ),
     ]
     assert all(kwargs["config"] == config for _invocation, kwargs in execute_calls)
@@ -842,6 +1005,7 @@ def test_call_limit_defers_latest_callback_until_resume(
                 run_index=1,
                 max_runs=4,
                 previous_run_id=first.run_id,
+                proposal_id=_PROPOSAL_ID,
             ),
         )
     )
@@ -952,12 +1116,14 @@ def test_call_limit_defers_latest_callback_until_resume(
             run_index=1,
             max_runs=4,
             previous_run_id="run-limit-0",
+            proposal_id=resumed.transitions[0].proposal_id,
         ),
         RunSequenceLineage(
             sequence_id="limit-sequence",
             run_index=2,
             max_runs=4,
             previous_run_id="run-limit-1",
+            proposal_id=resumed.transitions[1].proposal_id,
         ),
     ]
     assert [call["submission_id"] for call in execute_calls] == [
@@ -1636,7 +1802,7 @@ def _run_summary(manifest: RunManifest, *, sequence: int) -> RunSummary:
             admission=RunAdmissionView(
                 run_id=manifest.run_id,
                 plan=RunPlanView(
-                    experiment_id="staged-test",
+                    experiment_id="sequence-test",
                     experiment_kind="test",
                     point_count=1,
                 ),
