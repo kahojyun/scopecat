@@ -119,7 +119,7 @@ def _product_demand_problems(
         _problem(
             "product_acquire_missing",
             f"product {product_id.qualified_name!r} is selected but has no "
-            "acquisition, domain, or postprocessor owner",
+            "acquisition, domain, or compute owner",
             model_location("product_uses", product_id.qualified_name),
         )
         for product_id in sorted(

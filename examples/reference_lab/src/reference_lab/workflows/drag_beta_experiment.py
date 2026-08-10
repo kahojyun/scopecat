@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import scopecat as sc
 from scopecat import Quantity
-from scopecat_quantum.measurement_postprocessors import BinaryIqProbabilityProducts
+from scopecat_quantum.measurement_computes import BinaryIqProbabilityProducts
 
 from reference_lab.parameters import Q0_DRAG_BETA
 from reference_lab.quantum_runner import quantum_capture

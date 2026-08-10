@@ -12,7 +12,7 @@ from scopecat.measurements.results import (
 )
 
 from scopecat_quantum import authoring
-from scopecat_quantum.measurement_postprocessors import (
+from scopecat_quantum.measurement_computes import (
     BinaryIqDiscriminator,
     BinaryIqProbabilityProducts,
     IqCentroid,

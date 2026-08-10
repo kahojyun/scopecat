@@ -56,7 +56,7 @@ def test_module_requires_postprocessor_products_and_unique_ids() -> None:
 
     with pytest.raises(
         ValueError,
-        match="duplicate module measurement postprocessor ids",
+        match="duplicate module measurement compute ids",
     ):
 
         @sc.module(id="test.postprocessor.duplicate")

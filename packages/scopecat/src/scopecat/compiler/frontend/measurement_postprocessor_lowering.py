@@ -1,4 +1,4 @@
-"""Demand-close authored measurement postprocessors into bound product edges."""
+"""Demand-close authored measurement computes into bound product edges."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from scopecat.program.logical import (
 
 @dataclass(frozen=True, slots=True)
 class LoweredMeasurementPostprocessorGraph:
-    """Live bound postprocessors plus the source uses they introduce."""
+    """Live bound measurement computes plus the source uses they introduce."""
 
     postprocessors: tuple[BoundMeasurementPostprocessor, ...]
     input_product_uses: tuple[ProductUse, ...]
@@ -127,6 +127,6 @@ def _postprocessor_input_use_id(
     input_id: str,
 ) -> ProductUseId:
     return ProductUseId(
-        "scopecat.measurement-postprocessor/"
+        "scopecat.measurement-compute/"
         f"{postprocessor_id.qualified_name}/inputs/{input_id}"
     )

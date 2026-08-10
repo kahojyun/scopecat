@@ -1,4 +1,4 @@
-"""Execute point-local measurement postprocessors."""
+"""Execute point-local measurement computes."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import cast
 
 from scopecat.compiler.bound_facts import BoundMeasurementPostprocessor
-from scopecat.kernel.errors import MeasurementPostprocessorExecutionError
+from scopecat.kernel.errors import ComputeExecutionError
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.measurements.contracts import measurement_value_contract_issues
@@ -30,7 +30,7 @@ def execute_measurement_postprocessors(
     catalog: MeasurementValueCatalog,
     value_candidates: Sequence[ValueRecordCandidate] = (),
 ) -> tuple[MeasurementValueCandidate, ...]:
-    """Run each live postprocessor in dependency order per logical point."""
+    """Run each live measurement compute in dependency order per logical point."""
 
     supplied = tuple(candidates)
     product_by_id = {product.id: product for product in catalog.product_defs}
@@ -56,15 +56,15 @@ def execute_measurement_postprocessors(
                 )
                 if len(source) != 1:
                     code = (
-                        "measurement_postprocessor_input_missing"
+                        "compute_input_missing"
                         if not source
-                        else "measurement_postprocessor_input_duplicate"
+                        else "compute_input_duplicate"
                     )
-                    raise MeasurementPostprocessorExecutionError(
+                    raise ComputeExecutionError(
                         (
                             _execution_problem(
                                 code,
-                                "measurement postprocessor requires exactly one "
+                                "point-local compute requires exactly one "
                                 "value for each named input and logical point",
                                 postprocessor=postprocessor,
                                 point_index=point.logical_ordinal,
@@ -108,11 +108,11 @@ def execute_measurement_postprocessors(
                         for binding in postprocessor.value_inputs
                         if (point.logical_id, binding.value_id) not in values_by_key
                     )
-                    raise MeasurementPostprocessorExecutionError(
+                    raise ComputeExecutionError(
                         (
                             _execution_problem(
-                                "measurement_postprocessor_value_input_missing",
-                                "measurement postprocessor requires one value for "
+                                "compute_value_input_missing",
+                                "point-local compute requires one value for "
                                 "each early input and logical point",
                                 postprocessor=postprocessor,
                                 point_index=point.logical_ordinal,
@@ -128,11 +128,11 @@ def execute_measurement_postprocessors(
                         }
                     )
                 except Exception as error:
-                    raise MeasurementPostprocessorExecutionError(
+                    raise ComputeExecutionError(
                         (
                             _execution_problem(
-                                "measurement_postprocessor_kernel_failed",
-                                f"measurement postprocessor "
+                                "compute_kernel_failed",
+                                f"point-local compute "
                                 f"{postprocessor.id.qualified_name!r} raised",
                                 postprocessor=postprocessor,
                                 point_index=point.logical_ordinal,
@@ -150,12 +150,11 @@ def execute_measurement_postprocessors(
                 try:
                     value = outputs[output.id]
                 except (KeyError, TypeError) as error:
-                    raise MeasurementPostprocessorExecutionError(
+                    raise ComputeExecutionError(
                         (
                             _execution_problem(
-                                "measurement_postprocessor_output_missing",
-                                f"measurement postprocessor output {output.id!r} "
-                                "is missing",
+                                "compute_output_missing",
+                                f"point-local compute output {output.id!r} is missing",
                                 postprocessor=postprocessor,
                                 point_index=point.logical_ordinal,
                             ),
@@ -169,11 +168,11 @@ def execute_measurement_postprocessors(
                     expected_shape=tuple(axis.size for axis in product.axes),
                 )
                 if issues:
-                    raise MeasurementPostprocessorExecutionError(
+                    raise ComputeExecutionError(
                         tuple(
                             _execution_problem(
-                                f"measurement_postprocessor_output_{issue.code.value}",
-                                f"measurement postprocessor output {output.id!r} "
+                                f"compute_output_{issue.code.value}",
+                                f"point-local compute output {output.id!r} "
                                 "does not satisfy its product contract",
                                 postprocessor=postprocessor,
                                 point_index=point.logical_ordinal,
@@ -225,12 +224,12 @@ def _execution_problem(
         message,
         phase=ProblemPhase.EXECUTION,
         location=model_location(
-            "measurement_postprocessors",
+            "computes",
             postprocessor.id.qualified_name,
             *path,
         ),
         details={
-            "postprocessor_id": postprocessor.id.qualified_name,
+            "compute_id": postprocessor.id.qualified_name,
             "point_index": point_index,
             **({} if details is None else details),
         },

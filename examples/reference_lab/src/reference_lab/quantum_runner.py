@@ -6,7 +6,7 @@ import scopecat as sc
 from scopecat.kernel.entity import EntityRef
 from scopecat_instruments import rf_output
 from scopecat_quantum import authoring as quantum
-from scopecat_quantum.measurement_postprocessors import (
+from scopecat_quantum.measurement_computes import (
     BinaryIqDiscriminator,
     BinaryIqProbabilityProducts,
     IqCentroid,

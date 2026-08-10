@@ -320,7 +320,7 @@ class ModuleBody:
             tuple(item.id for item in self.invocations),
         )
         _require_unique(
-            "module measurement postprocessor",
+            "module measurement compute",
             tuple(item.symbol_id for item in self.measurement_postprocessors),
         )
         local_product_origins = {
@@ -747,7 +747,7 @@ def _require_postprocessor_product(
     if origin is None:
         if selected_id not in local_product_origins:
             raise ValueError(
-                f"measurement postprocessor {postprocessor.id!r} {direction} "
+                f"measurement compute {postprocessor.id!r} {direction} "
                 f"{role!r} references undeclared local product "
                 f"{selected_id.qualified_name!r}"
             )
@@ -760,12 +760,12 @@ def _require_postprocessor_product(
             else "outside this module's local products"
         )
         raise ValueError(
-            f"measurement postprocessor {postprocessor.id!r} {direction} {role!r} "
+            f"measurement compute {postprocessor.id!r} {direction} {role!r} "
             f"references product {selected_id.qualified_name!r} {location}"
         )
     if origin != expected_origin:
         raise ValueError(
-            f"measurement postprocessor {postprocessor.id!r} {direction} {role!r} "
+            f"measurement compute {postprocessor.id!r} {direction} {role!r} "
             f"references product {selected_id.qualified_name!r} from another "
             "module instance"
         )

@@ -124,10 +124,10 @@ def _verify_measurement_postprocessor_values(
                 continue
             problems.append(
                 _problem(
-                    "logical_measurement_postprocessor_value_missing",
-                    f"measurement postprocessor value input {name!r} references "
+                    "logical_compute_value_missing",
+                    f"measurement compute value input {name!r} references "
                     f"unknown value {value_id.qualified_name!r}",
-                    "measurement_postprocessors",
+                    "computes",
                     postprocessor.id.qualified_name,
                     "value_inputs",
                     name,
@@ -153,10 +153,10 @@ def _measurement_postprocessors_by_id(
     for transform_id in sorted(ambiguous, key=lambda item: item.qualified_name):
         problems.append(
             _problem(
-                "logical_measurement_postprocessor_duplicate",
-                "measurement postprocessor "
+                "logical_compute_duplicate",
+                "measurement compute "
                 f"{transform_id.qualified_name!r} is declared more than once",
-                "measurement_postprocessors",
+                "computes",
                 transform_id.qualified_name,
             )
         )
@@ -225,9 +225,9 @@ def _verify_product_owners(
                         "logical_product_producer_duplicate",
                         f"logical product {product_id.qualified_name!r} is "
                         f"produced by both {owner}/{owner_port!r} and measurement "
-                        "postprocessor "
+                        "compute "
                         f"{postprocessor.id.qualified_name!r}/{role!r}",
-                        "measurement_postprocessors",
+                        "computes",
                         postprocessor.id.qualified_name,
                         "outputs",
                         role,
@@ -235,7 +235,7 @@ def _verify_product_owners(
                 )
                 continue
             owners[product_id] = (
-                f"measurement postprocessor {postprocessor.id.qualified_name!r}",
+                f"measurement compute {postprocessor.id.qualified_name!r}",
                 role,
             )
     return frozenset(ambiguous)
@@ -301,10 +301,10 @@ def _topological_measurement_postprocessors(
     first = cyclic[0]
     problems.append(
         _problem(
-            "logical_measurement_postprocessor_cycle",
-            "measurement postprocessor graph contains a cycle involving: "
+            "logical_compute_cycle",
+            "measurement compute graph contains a cycle involving: "
             + ", ".join(item.qualified_name for item in cyclic),
-            "measurement_postprocessors",
+            "computes",
             first.qualified_name,
         )
     )

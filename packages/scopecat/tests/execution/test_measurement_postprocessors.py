@@ -16,7 +16,7 @@ from scopecat.compiler.bound_facts import (
 from scopecat.execution.measurement_postprocessors import (
     execute_measurement_postprocessors,
 )
-from scopecat.kernel.errors import MeasurementPostprocessorExecutionError
+from scopecat.kernel.errors import ComputeExecutionError
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.products import ProductAxisDef
@@ -508,11 +508,11 @@ def test_postprocessor_propagates_mixed_fixed_and_ragged_output_shape() -> None:
                 value=complex(1.0, 0.0),
                 unit="ratio",
             ),
-            "measurement_postprocessor_output_dtype_mismatch",
+            "compute_output_dtype_mismatch",
         ),
         (
             MeasurementScalar.create(dtype="float64", value=1.0, unit="V"),
-            "measurement_postprocessor_output_unit_mismatch",
+            "compute_output_unit_mismatch",
         ),
         (
             MeasurementArray.create(
@@ -520,7 +520,7 @@ def test_postprocessor_propagates_mixed_fixed_and_ragged_output_shape() -> None:
                 unit="ratio",
                 values=[1.0],
             ),
-            "measurement_postprocessor_output_shape_mismatch",
+            "compute_output_shape_mismatch",
         ),
     ],
 )
@@ -530,7 +530,7 @@ def test_postprocessor_validates_each_output_product_contract(
 ) -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
 
-    with pytest.raises(MeasurementPostprocessorExecutionError) as caught:
+    with pytest.raises(ComputeExecutionError) as caught:
         execute_measurement_postprocessors(
             (_postprocessor(scenario, lambda _source: {"output": value}),),
             measurement_value_candidates(scenario, (scenario.uses[0],)),
@@ -547,7 +547,7 @@ def test_postprocessor_kernel_exception_becomes_one_execution_problem() -> None:
     def fail(_value: MeasurementValue) -> dict[str, MeasurementValue]:
         raise RuntimeError("classification failed")
 
-    with pytest.raises(MeasurementPostprocessorExecutionError) as caught:
+    with pytest.raises(ComputeExecutionError) as caught:
         execute_measurement_postprocessors(
             (_postprocessor(scenario, fail),),
             measurement_value_candidates(scenario, (scenario.uses[0],)),
@@ -556,5 +556,5 @@ def test_postprocessor_kernel_exception_becomes_one_execution_problem() -> None:
         )
 
     [problem] = caught.value.problems
-    assert problem.code == "measurement_postprocessor_kernel_failed"
+    assert problem.code == "compute_kernel_failed"
     assert problem.details["exception_type"] == "builtins.RuntimeError"

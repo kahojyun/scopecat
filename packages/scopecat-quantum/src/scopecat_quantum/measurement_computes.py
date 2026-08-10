@@ -1,5 +1,5 @@
 # pyright: reportPrivateUsage=false
-"""Hardware-independent quantum measurement postprocessors."""
+"""Hardware-independent point-local measurement computes."""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ def _binary_iq_probability_value(
     if value.dtype != np.dtype("complex128") or value.ndim != 1:
         raise ValueError("binary IQ compute requires complex128 [shot] values")
     if value.shape[0] <= 0:
-        raise ValueError("binary IQ postprocessor requires at least one shot")
+        raise ValueError("binary IQ compute requires at least one shot")
 
     state_0 = complex(
         discriminator.state_0_centroid.real,

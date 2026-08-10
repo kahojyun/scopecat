@@ -1,9 +1,9 @@
 # Experiment authoring dataflow
 
 Experiment authors describe one dataflow. They do not choose a compute engine,
-postprocessor phase, or storage representation. Scopecat places each operation
-at the earliest stage where all of its inputs are available, and the value
-returned by the experiment defines the ordinary durable result.
+hidden execution phase, or storage representation. Scopecat places each
+operation at the earliest stage where all of its inputs are available, and the
+value returned by the experiment defines the ordinary durable result.
 
 ## Think in availability and shape
 

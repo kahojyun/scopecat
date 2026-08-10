@@ -14,7 +14,7 @@ from scopecat.program.products import RecordSelection
 
 from scopecat_quantum import authoring
 from scopecat_quantum.gates import GateCall, GateParameterKind
-from scopecat_quantum.measurement_postprocessors import (
+from scopecat_quantum.measurement_computes import (
     BinaryIqDiscriminator,
     BinaryIqProbabilityProducts,
     IqCentroid,

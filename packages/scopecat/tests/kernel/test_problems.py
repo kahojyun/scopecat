@@ -7,8 +7,8 @@ from pydantic import ValidationError
 
 from scopecat.kernel.errors import (
     CheckFailed,
+    ComputeExecutionError,
     Conflict,
-    MeasurementPostprocessorExecutionError,
     OperationFailure,
     ProblemFailure,
     ProviderContractError,
@@ -117,14 +117,14 @@ def test_problem_failure_requires_nonempty_problems() -> None:
     )
 
 
-def test_postprocessor_execution_has_its_own_operation_failure_type() -> None:
+def test_compute_execution_has_its_own_operation_failure_type() -> None:
     selected = problem(
-        "measurement_postprocessor_kernel_failed",
-        "measurement postprocessor failed",
+        "compute_kernel_failed",
+        "point-local compute failed",
         phase=ProblemPhase.EXECUTION,
     )
 
-    error = MeasurementPostprocessorExecutionError((selected,))
+    error = ComputeExecutionError((selected,))
 
     assert isinstance(error, OperationFailure)
     assert not isinstance(error, ProviderContractError)

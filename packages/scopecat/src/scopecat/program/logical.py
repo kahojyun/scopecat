@@ -58,7 +58,7 @@ class AcquireId:
 
 @dataclass(frozen=True, slots=True)
 class MeasurementPostprocessorId:
-    """Nominal identity in the authored measurement-postprocessor symbol space."""
+    """Nominal identity in the authored measurement-compute symbol space."""
 
     symbol: SymbolId
 

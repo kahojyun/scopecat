@@ -50,9 +50,7 @@ def test_duplicate_measurement_postprocessor_id_is_rejected() -> None:
     with pytest.raises(CheckFailed) as caught:
         verify_logical_graph((), (), (second, first))
 
-    assert _problem_codes(caught.value) == [
-        "logical_measurement_postprocessor_duplicate"
-    ]
+    assert _problem_codes(caught.value) == ["logical_compute_duplicate"]
 
 
 def test_postprocessor_output_owner_conflict_is_rejected() -> None:
@@ -86,4 +84,4 @@ def test_postprocessor_cycles_are_rejected() -> None:
     with pytest.raises(CheckFailed) as caught:
         verify_logical_graph((), (), (second, first))
 
-    assert _problem_codes(caught.value) == ["logical_measurement_postprocessor_cycle"]
+    assert _problem_codes(caught.value) == ["logical_compute_cycle"]

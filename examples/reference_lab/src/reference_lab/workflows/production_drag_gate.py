@@ -7,7 +7,7 @@ from typing import Annotated
 import scopecat as sc
 from scopecat import Quantity, QuantityType
 from scopecat_quantum import authoring as quantum
-from scopecat_quantum.measurement_postprocessors import BinaryIqProbabilityProducts
+from scopecat_quantum.measurement_computes import BinaryIqProbabilityProducts
 from scopecat_quantum.standard_gates import X90, XM90
 
 from reference_lab.parameters import Q0_DRAG_BETA

@@ -16,7 +16,7 @@ from scopecat.planning.compilation import compile_run_program
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
-from scopecat_quantum.measurement_postprocessors import (
+from scopecat_quantum.measurement_computes import (
     BinaryIqProbabilityProducts,
 )
 from tests.testkit.in_process_lab import in_process_lab

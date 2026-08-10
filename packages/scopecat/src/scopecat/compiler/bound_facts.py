@@ -79,7 +79,7 @@ class BoundMeasurementPostprocessorValueInput:
 
 @dataclass(frozen=True, slots=True)
 class BoundMeasurementPostprocessor:
-    """One live point-local postprocessor retained by record demand."""
+    """One live point-local compute retained by record demand."""
 
     id: MeasurementPostprocessorId
     inputs: tuple[BoundMeasurementPostprocessorInput, ...]

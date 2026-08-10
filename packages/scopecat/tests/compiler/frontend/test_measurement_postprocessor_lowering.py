@@ -157,10 +157,10 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
         == compile_input_use_ids()
         == {
             "root/left/derive": (
-                "scopecat.measurement-postprocessor/root/left/derive/inputs/input"
+                "scopecat.measurement-compute/root/left/derive/inputs/input"
             ),
             "root/right/derive": (
-                "scopecat.measurement-postprocessor/root/right/derive/inputs/input"
+                "scopecat.measurement-compute/root/right/derive/inputs/input"
             ),
         }
     )

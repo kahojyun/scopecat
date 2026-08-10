@@ -9,7 +9,7 @@ import scopecat as sc
 from scopecat.kernel.entity import EntityRef
 from scopecat.program.measurement_types import MeasurementArrayData
 from scopecat_instruments import DCSourceTarget, dc_source, rf_output
-from scopecat_quantum.measurement_postprocessors import (
+from scopecat_quantum.measurement_computes import (
     BinaryIqProbabilityProducts,
     binary_iq_probabilities,
 )
