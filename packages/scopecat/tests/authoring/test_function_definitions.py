@@ -48,6 +48,22 @@ class _ReturnedDataset:
 
 
 @dataclass(frozen=True, slots=True)
+class _PolicyDataset:
+    capture: Annotated[
+        _ReturnedSignals,
+        sc.Result(
+            namespace="science",
+            role="coordinate",
+            metadata={"reviewed": True},
+        ),
+    ]
+    score: Annotated[
+        sc.ValueRef[float],
+        sc.Result(id="quality", metadata={"metric": "quality"}),
+    ]
+
+
+@dataclass(frozen=True, slots=True)
 class _ReturnedAliases:
     primary: sc.ProductRef
     diagnostic: sc.ProductRef
@@ -301,6 +317,33 @@ def test_return_paths_name_product_bundles_and_named_values() -> None:
         "capture/reference",
         "score",
     ]
+
+
+def test_return_annotations_refine_durable_record_policy() -> None:
+    def score_value() -> float:
+        return 0.75
+
+    @sc.experiment(id="test.return-policy", kind="return")
+    def definition(experiment: sc.ExperimentContext) -> _PolicyDataset:
+        score = experiment.compute(fn=score_value)
+        return _PolicyDataset(
+            capture=_ReturnedSignals(
+                signal=experiment._product("source/signal"),
+                reference=experiment._product("source/reference"),
+            ),
+            score=cast("sc.ValueRef[float]", score),
+        )
+
+    signal, reference, score = definition().definition.record_selections
+
+    assert [selection.record_id for selection in (signal, reference, score)] == [
+        "science/capture/signal",
+        "science/capture/reference",
+        "quality",
+    ]
+    assert signal.role == reference.role == "coordinate"
+    assert signal.metadata == reference.metadata == {"reviewed": True}
+    assert score.metadata == {"metric": "quality"}
 
 
 def test_repeated_return_source_creates_aliases_without_duplicate_product_uses() -> (

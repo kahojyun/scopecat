@@ -141,6 +141,25 @@ type Symbolic[T] = T | ValueRef[T]
 type Input[T] = T | ValueRef[T]
 
 
+@dataclass(frozen=True, slots=True)
+class Result:
+    """Durable recording policy attached to an experiment result field."""
+
+    id: str | None = None
+    namespace: str | None = None
+    role: MeasurementVariableRole | None = None
+    metadata: Mapping[str, MetadataValue] | None = None
+
+    def __post_init__(self) -> None:
+        if self.id is not None and not self.id:
+            raise ValueError("result id must be non-empty")
+        if self.namespace is not None:
+            _record_namespace_segments(self.namespace)
+        if self.id is not None and self.namespace is not None:
+            raise ValueError("result id and namespace cannot be used together")
+        object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata or {}))
+
+
 def input_ref[T](value: Input[T]) -> ValueRef[T]:
     """View a decorator function input as its symbolic authoring reference.
 
@@ -837,6 +856,7 @@ class ExperimentContext:
                 return self._record_product(
                     product,
                     namespace=namespace,
+                    role=None,
                     metadata=metadata,
                 )
 
@@ -846,6 +866,7 @@ class ExperimentContext:
                 value,
                 record_id=record_id,
                 namespace=namespace,
+                role=None,
                 metadata=metadata,
             )
         return self._record_value(
@@ -862,6 +883,7 @@ class ExperimentContext:
         *,
         record_id: str | None = None,
         namespace: str | None,
+        role: MeasurementVariableRole | None,
         metadata: Mapping[str, MetadataValue] | None,
     ) -> RecordRef[T]:
         namespace_segments = (
@@ -869,7 +891,8 @@ class ExperimentContext:
         )
         selection_factory = (
             record_coordinate
-            if _recording_role_is_coordinate(value)
+            if role == "coordinate"
+            or (role is None and _recording_role_is_coordinate(value))
             else record_product
         )
         selection = selection_factory(
@@ -1361,6 +1384,7 @@ def _record_experiment_output(
     value: object,
     *,
     path: tuple[str, ...] = (),
+    policy: Result | None = None,
     explicit_sources: frozenset[tuple[object, ...]] | None = None,
 ) -> None:
     """Treat returned data as the experiment's durable output selection."""
@@ -1372,6 +1396,7 @@ def _record_experiment_output(
         )
     if value is None or isinstance(value, RecordRef):
         return
+    selected_policy = policy or Result()
     if isinstance(value, ValueRef):
         if internal_value_ref_point_id(value) is not None:
             return
@@ -1379,7 +1404,9 @@ def _record_experiment_output(
             return
         context.record(
             value,
-            record_id="/".join(path or ("result",)),
+            record_id=_result_record_id(path, selected_policy),
+            role=selected_policy.role or "observable",
+            metadata=selected_policy.metadata,
         )
         return
     if isinstance(value, ProductRef):
@@ -1388,50 +1415,74 @@ def _record_experiment_output(
         _record_product_output(
             context,
             value,
-            record_id="/".join(path or ("result",)),
+            record_id=_result_record_id(path, selected_policy),
+            role=selected_policy.role,
+            metadata=selected_policy.metadata,
         )
         return
     if isinstance(value, ProductBundle):
+        _reject_structured_result_id(selected_policy)
         if not is_dataclass(value):
             raise TypeError("experiment output product bundles must be dataclasses")
         members = fields(value)
         if not members:
             raise TypeError("experiment output product bundles must not be empty")
+        hints = cast(
+            "Mapping[str, object]",
+            get_type_hints(type(value), include_extras=True),
+        )
         for member in members:
             _record_experiment_output(
                 context,
                 cast("object", getattr(value, member.name)),
                 path=(*path, member.name),
+                policy=_merge_result_policy(
+                    selected_policy,
+                    _result_policy(hints.get(member.name)),
+                ),
                 explicit_sources=explicit_sources,
             )
         return
     if isinstance(value, PerEntity):
+        _reject_structured_result_id(selected_policy)
         for entity, item in value.items():
             _record_experiment_output(
                 context,
                 item,
                 path=(*path, entity.kind or "entity", entity.id),
+                policy=selected_policy,
                 explicit_sources=explicit_sources,
             )
         return
     if isinstance(value, tuple):
+        _reject_structured_result_id(selected_policy)
         for index, item in enumerate(cast("tuple[object, ...]", value)):
             _record_experiment_output(
                 context,
                 item,
                 path=(*path, str(index)),
+                policy=selected_policy,
                 explicit_sources=explicit_sources,
             )
         return
     if is_dataclass(value) and not isinstance(value, type):
+        _reject_structured_result_id(selected_policy)
         members = fields(value)
         if not members:
             raise TypeError("experiment output dataclasses must not be empty")
+        hints = cast(
+            "Mapping[str, object]",
+            get_type_hints(type(value), include_extras=True),
+        )
         for member in members:
             _record_experiment_output(
                 context,
                 cast("object", getattr(value, member.name)),
                 path=(*path, member.name),
+                policy=_merge_result_policy(
+                    selected_policy,
+                    _result_policy(hints.get(member.name)),
+                ),
                 explicit_sources=explicit_sources,
             )
         return
@@ -1446,6 +1497,8 @@ def _record_product_output[T: NativeMeasurementValue](
     product: ProductRef[T],
     *,
     record_id: str,
+    role: MeasurementVariableRole | None,
+    metadata: Mapping[str, MetadataValue] | None,
 ) -> None:
     existing = next(
         (
@@ -1458,14 +1511,61 @@ def _record_product_output[T: NativeMeasurementValue](
         None,
     )
     if existing is not None:
-        context._record_selections.append(record_alias(existing, record_id=record_id))
+        context._record_selections.append(
+            record_alias(
+                existing,
+                record_id=record_id,
+                role=role,
+                metadata=metadata,
+            )
+        )
         return
     context._record_product(
         product,
         record_id=record_id,
         namespace=None,
-        metadata=None,
+        role=role,
+        metadata=metadata,
     )
+
+
+def _result_policy(annotation: object) -> Result | None:
+    if get_origin(annotation) is not Annotated:
+        return None
+    _value_type, *metadata = cast("tuple[object, ...]", get_args(annotation))
+    policies = tuple(item for item in metadata if isinstance(item, Result))
+    if len(policies) > 1:
+        raise TypeError("result fields may declare at most one Result policy")
+    return policies[0] if policies else None
+
+
+def _merge_result_policy(parent: Result, child: Result | None) -> Result:
+    if child is None:
+        return parent
+    namespace_segments = (*_result_namespace(parent), *_result_namespace(child))
+    return Result(
+        id=child.id,
+        namespace="/".join(namespace_segments) if namespace_segments else None,
+        role=child.role if child.role is not None else parent.role,
+        metadata={**(parent.metadata or {}), **(child.metadata or {})},
+    )
+
+
+def _result_namespace(policy: Result) -> tuple[str, ...]:
+    return (
+        () if policy.namespace is None else _record_namespace_segments(policy.namespace)
+    )
+
+
+def _result_record_id(path: tuple[str, ...], policy: Result) -> str:
+    if policy.id is not None:
+        return policy.id
+    return "/".join((*_result_namespace(policy), *(path or ("result",))))
+
+
+def _reject_structured_result_id(policy: Result) -> None:
+    if policy.id is not None:
+        raise TypeError("Result(id=...) can only annotate one data-reference leaf")
 
 
 def _record_selection_source_key(

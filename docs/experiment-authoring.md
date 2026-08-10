@@ -102,7 +102,25 @@ paths include both entity kind and identity.
 
 Call `experiment.record(...)` only for recording policy that cannot be expressed
 by the return structure: an explicit durable name, namespace, role override, or
-metadata. Returning an already-recorded leaf does not select it twice.
+metadata. Put that policy beside the returned field instead of adding an
+imperative record call:
+
+```python
+from typing import Annotated
+
+
+@dataclass(frozen=True, slots=True)
+class Spectrum:
+    bias: sc.CoordinateRef[sc.Quantity]
+    trace: Annotated[
+        NetworkSweepProducts,
+        sc.Result(namespace="science", metadata={"reviewed": True}),
+    ]
+```
+
+`Result(id=...)` names one leaf; `namespace`, `role`, and `metadata` can annotate
+a complete nested subtree. Returning an already-recorded leaf does not select
+it twice.
 
 ## Keep the common input path short
 
