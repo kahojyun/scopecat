@@ -35,8 +35,14 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
     normalize_resource_role,
 )
+from scopecat.kernel.value_type_compatibility import (
+    describe_value_type,
+    is_assignable,
+    literal_scalar_type,
+)
 from scopecat.kernel.value_types import (
     Array,
+    ArrayDimension,
     Bool,
     DataType,
     Float,
@@ -44,6 +50,7 @@ from scopecat.kernel.value_types import (
     Payload,
     String,
 )
+from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_validation import coerce_literal
 from scopecat.program.bindings import (
     BindingIntent,
@@ -149,6 +156,103 @@ def _infer_compute_output_type(fn: ComputeFunction) -> DataType:
         "compute output_type is required unless the function return annotation "
         "is bool, int, float, str, or Annotated with ScalarType/ArrayType"
     )
+
+
+def _compute_parameter_contracts(fn: ComputeFunction) -> dict[str, DataType]:
+    hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
+    contracts: dict[str, DataType] = {}
+    for name, annotation in hints.items():
+        if name == "return" or get_origin(annotation) is not Annotated:
+            continue
+        _native_type, *metadata = cast(
+            "tuple[object, ...]",
+            get_args(annotation),
+        )
+        declared = tuple(
+            item for item in metadata if isinstance(item, ScalarType | ArrayType)
+        )
+        if len(declared) > 1:
+            raise TypeError(
+                f"compute parameter {name!r} has multiple value type annotations"
+            )
+        if declared:
+            contracts[name] = declared[0]
+    return contracts
+
+
+def _validate_compute_input_contracts(
+    compute_id: str,
+    fn: ComputeFunction,
+    inputs: Mapping[str, ComputeInput | ProductRef],
+) -> None:
+    for name, expected in _compute_parameter_contracts(fn).items():
+        value = inputs.get(name)
+        if value is None and name not in inputs:
+            continue
+        actual = _compute_input_data_type(value)
+        if _compute_contract_assignable(actual, expected):
+            continue
+        raise TypeError(
+            f"compute {compute_id!r} input {name!r} expects "
+            f"{describe_value_type(expected)}, got {describe_value_type(actual)}"
+        )
+
+
+def _compute_input_data_type(value: object) -> DataType:
+    if isinstance(value, ProductRef):
+        spec = value.value_spec
+        if spec.axes:
+            return ArrayType(
+                dtype=spec.dtype,
+                unit=spec.unit,
+                dimensions=tuple(
+                    ArrayDimension(
+                        id=axis.id,
+                        size=(
+                            axis.size
+                            if isinstance(axis.size, int)
+                            and not isinstance(axis.size, bool)
+                            else None
+                        ),
+                        kind=axis.kind,
+                        unit=axis.unit,
+                    )
+                    for axis in spec.axes
+                ),
+            )
+        if spec.dtype == "bool":
+            return ScalarType(Bool())
+        if spec.dtype == "int64" and spec.unit is None:
+            return ScalarType(Int())
+        if spec.dtype == "float64":
+            return ScalarType(
+                Float() if spec.unit is None else QuantityType(unit=spec.unit)
+            )
+        if spec.dtype == "string" and spec.unit is None:
+            return ScalarType(String())
+        raise TypeError(
+            f"product {value.id!r} scalar schema cannot be expressed as a compute "
+            "parameter contract"
+        )
+    if isinstance(value, ValueRef):
+        if not isinstance(value.value_type, ScalarType | ArrayType):
+            raise TypeError(
+                "compute parameter contracts require scalar or array values"
+            )
+        return value.value_type
+    return literal_scalar_type(value)
+
+
+def _compute_contract_assignable(actual: DataType, expected: DataType) -> bool:
+    if (
+        isinstance(actual, ScalarType)
+        and isinstance(expected, ScalarType)
+        and isinstance(actual.atom, QuantityType)
+        and isinstance(expected.atom, QuantityType)
+        and actual.atom.unit != expected.atom.unit
+    ):
+        return False
+    return is_assignable(actual, expected)
 
 
 def _measurement_compute_output_spec(
@@ -964,6 +1068,7 @@ class ModuleContext:
             _compute_name_hint(fn) if id is None else id,
             explicit=id is not None,
         )
+        _validate_compute_input_contracts(selected_id, fn, selected_inputs)
         if any(isinstance(value, ProductRef) for value in selected_inputs.values()):
             return self._compute_measurements(
                 selected_id,

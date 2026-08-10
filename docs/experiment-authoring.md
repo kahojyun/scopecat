@@ -149,6 +149,14 @@ infers the scalar output contract. Use an `Annotated` return with
 matter. Inputs can be passed as named keywords; `inputs={...}` remains useful
 when names are assembled dynamically.
 
+The same annotations on function parameters are checked against every bound
+`ValueRef` or `ProductRef` during authoring. Measurement units must match
+exactly because native kernels receive numbers in the product's declared unit;
+compatible-but-different units are not silently converted. Array contracts
+also compare dtype, value unit, and each local dimension's ID, kind, unit, and
+size. Leaving a parameter unannotated opts out when a generic kernel genuinely
+accepts several schemas.
+
 A named function supplies the default compute ID. Lambdas and repeated uses are
 allocated as `compute`, `compute.2`, and so on; pass an explicit first argument
 when that identity is part of a public data contract.

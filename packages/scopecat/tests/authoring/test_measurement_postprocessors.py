@@ -18,6 +18,7 @@ from scopecat.measurements.results import (
     MeasurementValue,
 )
 from scopecat.program.domain import domain_program
+from scopecat.program.products import ProductAxis
 from tests.testkit.domain import domain_call
 
 
@@ -261,6 +262,66 @@ def test_measured_compute_infers_bool_output_and_binds_keyword_inputs() -> None:
     assert [name for name, _product in compute.input_bindings] == ["signal"]
     assert [name for name, _value in compute.value_input_bindings] == ["threshold"]
     assert module().result.value_spec.dtype == "bool"
+
+
+def test_compute_parameter_annotations_validate_measurement_units() -> None:
+    def threshold(
+        *,
+        signal: Annotated[
+            float,
+            sc.ScalarType(sc.QuantityType(unit="V")),
+        ],
+    ) -> bool:
+        return signal >= 0.5
+
+    @sc.module(id="test.measurement-unit-contract")
+    def valid(context: sc.ModuleContext) -> sc.ProductRef:
+        signal = context._product("signal", unit="V")
+        result = context.compute(fn=threshold, signal=signal)
+        assert isinstance(result, sc.ProductRef)
+        return result
+
+    assert valid().result.value_spec.dtype == "bool"
+
+    with pytest.raises(TypeError, match="input 'signal' expects Scalar"):
+
+        @sc.module(id="test.measurement-unit-mismatch")
+        def invalid(context: sc.ModuleContext) -> None:
+            signal = context._product("signal", unit="mV")
+            context.compute(fn=threshold, signal=signal)
+
+
+def test_compute_parameter_annotations_validate_array_dimension_identity() -> None:
+    def peak(
+        *,
+        trace: Annotated[
+            object,
+            sc.ArrayType(
+                dtype="float64",
+                dimensions=(sc.ArrayDimension("sample", 4, kind="time", unit="ns"),),
+                unit="V",
+            ),
+        ],
+    ) -> float:
+        return float(np.max(trace))
+
+    with pytest.raises(TypeError, match="input 'trace' expects Array"):
+
+        @sc.module(id="test.measurement-dimension-mismatch")
+        def invalid(context: sc.ModuleContext) -> None:
+            trace = context._product(
+                "trace",
+                unit="V",
+                axes=(
+                    ProductAxis(
+                        "frequency",
+                        size=4,
+                        kind="frequency",
+                        unit="Hz",
+                    ),
+                ),
+            )
+            context.compute(fn=peak, trace=trace)
 
 
 def test_postprocessor_chaining_is_sorted_by_dependency() -> None:
