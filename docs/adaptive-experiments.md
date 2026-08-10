@@ -6,7 +6,7 @@ decides whether to create the next one.
 
 ```python
 def choose_next(stage):
-    data = stage.run.measurements()
+    data = stage.measurements()
     candidate = optimizer.ask(data)
     return None if candidate is None else point_experiment(candidate)
 
@@ -18,8 +18,9 @@ sequence = lab.run_staged(
 )
 ```
 
-The callback can inspect the latest run through `stage.run` and earlier stages
-through `stage.history`. Returning `None` finishes the sequence. `max_stages`
+The callback reads the latest dataset through `stage.measurements()`, inspects
+other run facts through `stage.run`, and reaches earlier runs through
+`stage.history`. Returning `None` finishes the sequence. `max_stages`
 bounds an optimizer that keeps proposing work; when the bound is reached, the
 callback for the final completed stage is deferred so stateful optimizers do not
 advance beyond durable work.

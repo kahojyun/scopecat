@@ -286,9 +286,18 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
     monkeypatch.setattr(LabClient, "prepare", prepare)
     monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
     monkeypatch.setattr(LabClient, "_staged_manifests", staged_manifests)
+    stage_dataset = object()
+    monkeypatch.setattr(
+        RunHandle,
+        "measurements",
+        lambda _run, *, selector="raw-measurements": (
+            stage_dataset if selector == "raw-measurements" else None
+        ),
+    )
     stages: list[ExperimentStage] = []
 
     def choose_next(stage: ExperimentStage):
+        assert stage.measurements() is stage_dataset
         stages.append(stage)
         return None if stage.index == 2 else invocations[stage.index + 1]
 

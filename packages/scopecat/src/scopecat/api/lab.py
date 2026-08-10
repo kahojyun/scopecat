@@ -18,6 +18,7 @@ from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.config.candidates import CandidateConfig
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
+from scopecat.measurements.results import Dataset
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.program.values import MetadataValue
@@ -41,6 +42,11 @@ class ExperimentStage:
     @property
     def previous_run(self) -> RunHandle | None:
         return None if self.index == 0 else self.history[-2]
+
+    def measurements(self, *, selector: str = "raw-measurements") -> Dataset:
+        """Load this completed stage's labeled measurement dataset."""
+
+        return self.run.measurements(selector=selector)
 
 
 type NextExperimentStage = Callable[[ExperimentStage], ExperimentSpec | None]
