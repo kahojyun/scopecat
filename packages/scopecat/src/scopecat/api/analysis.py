@@ -57,6 +57,7 @@ from scopecat.records.analysis import (
     AnalysisTableColumn,
     AnalysisTableRow,
 )
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.sdk.compute import compute_implementation_contract_internal
@@ -103,7 +104,7 @@ class _AnalysisRun(Protocol):
 
 @dataclass(frozen=True)
 class Analysis:
-    """In-notebook analysis record for exploratory experiment work."""
+    """Declarative analysis content before it is saved to its source run."""
 
     run: _AnalysisRun
     title: str
@@ -245,6 +246,38 @@ class Analysis:
             parameter_proposals=(*self.parameter_proposals, proposal),
         )
 
+    def save(self) -> AnalysisOutcome:
+        saved = self.run.save_analysis(
+            title=self.title,
+            analysis_key=self.analysis_key,
+            step_id=self.step_id,
+            inputs=self.inputs,
+            outputs=self.outputs,
+            parameter_proposals=self.parameter_proposals,
+        )
+        return AnalysisOutcome(
+            record=saved.record,
+            title=self.title,
+            analysis_key=saved.analysis_key,
+            step_id=self.step_id,
+            inputs=self.inputs,
+            outputs=self.outputs,
+            parameter_proposals=self.parameter_proposals,
+        )
+
+
+@dataclass(frozen=True)
+class AnalysisOutcome:
+    """One analysis that has been durably published to its source run."""
+
+    record: RunContentEntry
+    title: str
+    analysis_key: str
+    step_id: str | None = None
+    inputs: tuple[AnalysisInput, ...] = ()
+    outputs: tuple[AnalysisOutput, ...] = ()
+    parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
+
     def candidate_config(
         self,
         selection: CandidateSelection = None,
@@ -255,16 +288,6 @@ class Analysis:
         )
         return CandidateConfig(
             parameter_proposal=proposal,
-        )
-
-    def save(self) -> SavedAnalysis:
-        return self.run.save_analysis(
-            title=self.title,
-            analysis_key=self.analysis_key,
-            step_id=self.step_id,
-            inputs=self.inputs,
-            outputs=self.outputs,
-            parameter_proposals=self.parameter_proposals,
         )
 
 
@@ -695,12 +718,12 @@ __all__ = [
     "AnalysisFigureSeries",
     "AnalysisInput",
     "AnalysisInvocation",
+    "AnalysisOutcome",
     "AnalysisOutput",
     "AnalysisStep",
     "AnalysisTable",
     "AnalysisTableCell",
     "AnalysisTableColumn",
     "AnalysisTableRow",
-    "SavedAnalysis",
     "analysis_step",
 ]

@@ -343,13 +343,13 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
             reason="manual notebook pick",
         )
     )
-    saved = analysis.save()
-    candidate_config = analysis.candidate_config()
+    outcome = analysis.save()
+    candidate_config = outcome.candidate_config()
     candidate = lab.prepare(experiment, config=candidate_config).run()
 
     assert baseline.id.startswith("run_")
     assert dataset.entry.id == "raw-measurements"
-    assert [input_ref.target for input_ref in saved.inputs] == ["raw-measurements"]
+    assert [input_ref.target for input_ref in outcome.inputs] == ["raw-measurements"]
     assert not any(
         record.kind == "candidate_config" for record in baseline.manifest.records
     )
@@ -357,7 +357,7 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     source = candidate.manifest.config_source
     assert isinstance(source, AnalysisCandidateRunConfigSource)
     assert source.source_run_id == baseline.id
-    assert source.analysis_record_id == saved.record.id
+    assert source.analysis_record_id == outcome.record.id
     assert source.proposal_id == candidate_config.proposal_id
 
 
@@ -390,8 +390,8 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
         ),
         reason="manual center point",
     )
-    saved = analysis.save()
-    candidate_config = analysis.candidate_config()
+    outcome = analysis.save()
+    candidate_config = outcome.candidate_config()
     candidate = lab.prepare(experiment, config=candidate_config).run()
 
     assert baseline.manifest.status == "completed"
@@ -403,4 +403,4 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     assert candidate.manifest.status == "completed"
     source = candidate.manifest.config_source
     assert isinstance(source, AnalysisCandidateRunConfigSource)
-    assert source.analysis_record_id == saved.record.id
+    assert source.analysis_record_id == outcome.record.id

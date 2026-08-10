@@ -31,7 +31,6 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
     )
 
     analysis = run.analyze(flux_spectroscopy_analysis())
-    saved_analysis = analysis.save()
     candidate = analysis.candidate_config()
     candidate_snapshot = lab.resolve_config(candidate)
     [proposal] = analysis.parameter_proposals
@@ -41,7 +40,7 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         "status": run.manifest.status,
         "point_count": preview.point_count,
         "measurement_records": len(run.measurements().records),
-        "analysis_id": saved_analysis.record.id,
+        "analysis_id": analysis.record.id,
         "proposal_id": proposal.id,
         "candidate_config_id": candidate_snapshot.id,
     }

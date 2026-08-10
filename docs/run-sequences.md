@@ -59,12 +59,10 @@ from scopecat.api.lab import SequenceProposal
 
 
 def choose_next(sequence_run):
-    analysis = fit_calibration(sequence_run.measurements())
-    analysis.save()
-    candidate = analysis.candidate_config()
+    analysis = sequence_run.run.analyze(calibration_analysis())
     return SequenceProposal(
         experiment=verification_experiment(),
-        config=candidate,
+        config=analysis.candidate_config(),
     )
 ```
 

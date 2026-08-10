@@ -22,8 +22,8 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         Q1_CHANNEL_CALIBRATION.update(CHANNEL_DELAY.value(1.0)),
         reason="align q1 acquisition with the shared readout window",
     )
-    saved = analysis.save()
-    candidate = analysis.candidate_config()
+    outcome = analysis.save()
+    candidate = outcome.candidate_config()
     candidate_run = lab.run(
         parallel_two_qubit_ramsey(),
         config=candidate,
@@ -34,7 +34,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     candidate_status = candidate_run.manifest.status
 
 channel_candidate_summary = {
-    "analysis": saved.record.id,
+    "analysis": outcome.record.id,
     "proposal_id": candidate.proposal_id,
     "candidate_status": candidate_status,
     "candidate_provenance": (

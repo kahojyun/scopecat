@@ -14,7 +14,12 @@ from scopecat.analysis.service import (
     AnalysisOutput,
     SavedAnalysis,
 )
-from scopecat.api.analysis import Analysis, AnalysisContext, AnalysisStep
+from scopecat.api.analysis import (
+    Analysis,
+    AnalysisContext,
+    AnalysisOutcome,
+    AnalysisStep,
+)
 from scopecat.api.data import Data
 from scopecat.daemon.views import MeasurementPage
 from scopecat.measurements.datasets import (
@@ -229,6 +234,8 @@ class RunHandle:
         key: str | None = None,
         step_id: str | None = None,
     ) -> Analysis:
+        """Start an exploratory analysis draft that the caller may save."""
+
         return Analysis(run=self, title=title, key=key, step_id=step_id)
 
     def save_analysis(
@@ -253,7 +260,14 @@ class RunHandle:
             parameter_proposals=parameter_proposals,
         )
 
-    def analyze(self, step: AnalysisStep, *, key: str | None = None) -> Analysis:
+    def analyze(
+        self,
+        step: AnalysisStep,
+        *,
+        key: str | None = None,
+    ) -> AnalysisOutcome:
+        """Run and durably publish one declared analysis step."""
+
         analysis = step.run(
             AnalysisContext(
                 run=self,
@@ -267,7 +281,7 @@ class RunHandle:
                 key=analysis.key or key or step.id,
                 step_id=analysis.step_id or step.id,
             )
-        return analysis
+        return analysis.save()
 
     def attach(
         self,

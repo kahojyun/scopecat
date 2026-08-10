@@ -255,9 +255,8 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     )
 
     analysis = run.analyze(flux_spectroscopy_analysis())
-    saved = analysis.save()
     candidate = lab.resolve_config(config=analysis.candidate_config())
-    assert saved.record.id == "analysis-reference_lab-flux_spectroscopy-analysis"
+    assert analysis.record.id == "analysis-reference_lab-flux_spectroscopy-analysis"
     assert [output.kind for output in analysis.outputs] == [
         "table",
         "table",

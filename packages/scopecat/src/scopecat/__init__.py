@@ -209,6 +209,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "update_parameter_rows": ("scopecat.config.parameters", "update_parameter_rows"),
     "Analysis": ("scopecat.api.analysis", "Analysis"),
     "AnalysisContext": ("scopecat.api.analysis", "AnalysisContext"),
+    "AnalysisOutcome": ("scopecat.api.analysis", "AnalysisOutcome"),
     "AnalysisFigure": ("scopecat.api.analysis", "AnalysisFigure"),
     "AnalysisField": ("scopecat.api.analysis", "AnalysisField"),
     "AnalysisFigureAxis": ("scopecat.api.analysis", "AnalysisFigureAxis"),

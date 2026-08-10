@@ -447,6 +447,21 @@ result = (
 )
 ```
 
+An analysis step returns that declarative `Analysis` value. Running the step
+publishes it and returns one durable outcome; there is no additional save call:
+
+```python
+analysis = run.analyze(resonator_fit_analysis())
+candidate = analysis.candidate_config()
+accepted = lab.config.accept(analysis)
+print(analysis.record.id)
+```
+
+Use `run.analysis(...).save()` only for an exploratory notebook analysis assembled
+directly rather than through a reusable analysis step. Both paths return the same
+`AnalysisOutcome`, so tables, figures, derived data, proposals, and candidate
+configuration all come from an analysis that already exists in the source run.
+
 `AnalysisTable.from_rows(...)` remains available for dynamic schemas. The
 durable models enforce finite, GUI-safe scalar, derived-data, and point budgets.
 The run view renders tables and SVG figures while retaining the content-addressed

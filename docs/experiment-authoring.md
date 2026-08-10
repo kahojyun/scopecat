@@ -294,6 +294,23 @@ such as `scan-center:drive_frequency`.
 The existing function arguments and scan declarations remain the authoring
 API; this is a review vocabulary, not another binding DSL.
 
+## Judge authoring against complete paths
+
+Three executable reference paths are the acceptance baseline for authoring
+changes:
+
+- flux spectroscopy acquires point-local complex traces, returns one typed result,
+  and reads and plots it without restating a measurement schema;
+- DRAG calibration turns per-shot arrays into durable probabilities, binds the
+  returned result for a dataset fit, and publishes one analysis outcome;
+- candidate verification obtains a configuration from that saved analysis and
+  runs an independent experiment without changing the accepted default.
+
+A convenience is valuable when it removes a declaration or concept from one of
+these paths while preserving typed shape, availability, result identity, and
+configuration provenance. Internal generality that does not shorten a complete
+path is not by itself an authoring feature.
+
 ## Deliberate remaining boundaries
 
 Some distinctions should stay visible because removing them would hide real

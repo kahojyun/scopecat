@@ -69,12 +69,12 @@ def test_candidate_config_activation_materializes_table_row_updates(
         ),
         reason="table row updates",
     )
-    candidate = analysis.candidate_config()
-    proposal = analysis.parameter_proposals[0]
+    outcome = analysis.save()
+    candidate = outcome.candidate_config()
+    proposal = outcome.parameter_proposals[0]
 
     assert len(proposal.deltas) == 1
     assert proposal.deltas[0].parameter_id == "drive_channels"
-    analysis.save()
     lab.review_parameter_proposal(run, proposal.id)
 
     activation = activate_candidate_config(

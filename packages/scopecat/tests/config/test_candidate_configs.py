@@ -46,8 +46,8 @@ def test_candidate_config_resolves_proposal_and_runs_follow_up(
         ),
         confidence=0.9,
     )
-    analysis.save()
-    candidate = analysis.candidate_config()
+    outcome = analysis.save()
+    candidate = outcome.candidate_config()
 
     follow_up = lab.prepare(load_invocation(), config=candidate).run()
     approval = lab.review_parameter_proposal(
@@ -62,7 +62,7 @@ def test_candidate_config_resolves_proposal_and_runs_follow_up(
     updated = follow_up.config.parameter_snapshot.get("drive_frequency")
     assert isinstance(updated, ScalarParameterValue)
     assert updated.value == Quantity(value=5.5, unit="GHz")
-    proposal = analysis.parameter_proposals[0]
+    proposal = outcome.parameter_proposals[0]
     assert proposal.deltas[0].after == updated
 
 
@@ -78,8 +78,8 @@ def test_candidate_checks_and_run_leave_source_run_unchanged(
             sc.Quantity(5.4, "GHz"),
         ),
     )
-    analysis.save()
-    candidate = analysis.candidate_config()
+    outcome = analysis.save()
+    candidate = outcome.candidate_config()
     prepared = lab.prepare(load_invocation(), config=candidate)
     storage = sqlite_run_repository(tmp_path)
     manifest_before = storage.read_manifest(source_run.id)
@@ -141,6 +141,7 @@ def test_candidate_config_from_snapshot_rejects_stale_base_hash(
                 sc.Quantity(5.4, "GHz"),
             ),
         )
+        .save()
         .candidate_config()
     )
     changed_source = run.config.model_copy(
@@ -202,6 +203,7 @@ def test_candidate_config_rejects_drifted_source_snapshot_before_publish(
                 sc.Quantity(5.4, "GHz"),
             ),
         )
+        .save()
         .candidate_config()
     )
     stale_source = run.config.model_copy(update={"id": "changed-after-fit"})
@@ -293,9 +295,9 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
         ),
         reason="first fit",
     )
+    first_outcome = first.save()
     first.save()
-    first.save()
-    first_proposal = first.parameter_proposals[0]
+    first_proposal = first_outcome.parameter_proposals[0]
     approval = lab.review_parameter_proposal(
         run,
         first_proposal.id,

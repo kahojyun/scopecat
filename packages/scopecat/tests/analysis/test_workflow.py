@@ -69,9 +69,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     run_handle = lab.get_run(run.run_id)
 
     summary = run_handle.analyze(SummaryStatsAnalysisStep())
-    summary.save()
     analysis = run_handle.analyze(BestSignalAnalysisStep())
-    analysis.save()
     candidate = analysis.candidate_config()
     lab.review_parameter_proposal(run_handle, candidate.proposal_id)
     activation = activate_candidate_config(
@@ -93,6 +91,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
         config_source=active_source,
     )
 
+    assert isinstance(summary, sc.AnalysisOutcome)
     assert summary.outputs[0].kind == "table"
     assert candidate.parameter_proposal.deltas[0].parameter_id == "drive_frequency"
     assert activation.entry.id == "candidate-best-signal"
@@ -129,7 +128,6 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
     )
     assert data_output.content.execution.output_content_hash.startswith("sha256:")
     assert table_output.kind == "table"
-    analysis.save()
     stored = handle.record_json(
         "analysis-dataset-compute",
         expected_kind="analysis",
@@ -172,10 +170,9 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
         experiment=load_invocation(),
         project_root=tmp_path,
     )
-    analysis = (
-        in_process_lab(tmp_path, config=load_config())
-        .get_run(run.run_id)
-        .analyze(SummaryStatsAnalysisStep())
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    analysis = SummaryStatsAnalysisStep().run(
+        sc.AnalysisContext(run=handle),
     )
     analysis_record_id = "analysis-summary-stats"
     original_publish = SQLiteRunRepository.publish_prepared_content_in_transaction

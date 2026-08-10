@@ -106,7 +106,8 @@ compute client rather than a second durable writer.
 The same client exposes replayable events, cancellation, and attention
 resolution through `lab.control`. Analysis records, parameter proposals,
 acceptance decisions, and default changes also use daemon commands. Local Python
-may calculate arbitrary candidates, while `Analysis.save()`,
+may calculate arbitrary candidates, while `run.analyze(...)` (or an exploratory
+`run.analysis(...).save()`),
 `lab.config.accept(...)`, and `lab.config.set_default(...)` establish durable
 state.
 
