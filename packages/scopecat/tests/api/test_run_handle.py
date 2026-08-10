@@ -128,6 +128,19 @@ def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
 
     assert preview.point_count == 3
     assert preview.primary_observables == ("signal",)
+    assert [
+        (binding.id, binding.kind, binding.owner, binding.source)
+        for binding in preview.bindings
+    ] == [
+        ("subject", "input", "invocation", "override"),
+        ("drive_frequency", "coordinate", "point-plan", "around"),
+        (
+            "drive_frequency",
+            "parameter",
+            "configuration",
+            "scan-center:drive_frequency",
+        ),
+    ]
 
 
 def test_in_process_lab_records_compute_value_without_instruments(

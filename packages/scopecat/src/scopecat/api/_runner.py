@@ -142,7 +142,10 @@ class _DaemonRunner:
             operator=operator,
             stage=None,
         )
-        return build_run_program_preview(planned.program)
+        return build_run_program_preview(
+            planned.program,
+            invocation=experiment,
+        )
 
     def _plan(
         self,

@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.execution.local.program import ComputeOperation, OutputInput
 from scopecat.execution.program import RunCoverageEffect, RunProgram
 from scopecat.measurements.records import RecordPlan, ValueRecordPlan
 from scopecat.planning.preview_models import (
     ExperimentPreview,
+    ExperimentPreviewBinding,
     ExperimentPreviewCompute,
     ExperimentPreviewPoint,
     ExperimentPreviewRecord,
 )
+from scopecat.program.parameters import ParameterContract, ParameterValueContract
+from scopecat.program.scans import AroundScanSource, RangeScanSource, ValuesScanSource
+from scopecat.program.value_refs import ValueRef, internal_value_ref_parameter_contracts
 
 
 def build_run_program_preview(
     program: RunProgram,
+    *,
+    invocation: ExperimentInvocation | None = None,
 ) -> ExperimentPreview:
     """Project stable user-visible facts from a closed RunProgram."""
 
@@ -48,7 +55,80 @@ def build_run_program_preview(
             for record in selected.records
         ),
         computes=_preview_computes(program),
+        bindings=() if invocation is None else _preview_bindings(invocation),
     )
+
+
+def _preview_bindings(
+    invocation: ExperimentInvocation,
+) -> tuple[ExperimentPreviewBinding, ...]:
+    bindings = [
+        ExperimentPreviewBinding(
+            id=input_definition.id,
+            kind="input",
+            owner="invocation",
+            source=(
+                "override"
+                if input_definition.id in invocation.input_overrides
+                else "default"
+            ),
+        )
+        for input_definition in invocation.definition.inputs
+    ]
+    for axis in invocation.point_plan.domain.axes:
+        source = axis.source
+        source_name = (
+            "values"
+            if isinstance(source, ValuesScanSource)
+            else "range"
+            if isinstance(source, RangeScanSource)
+            else "around"
+        )
+        bindings.append(
+            ExperimentPreviewBinding(
+                id=axis.id,
+                kind="coordinate",
+                owner="point-plan",
+                source=source_name,
+            )
+        )
+        if isinstance(source, AroundScanSource) and isinstance(source.center, ValueRef):
+            bindings.extend(
+                _parameter_bindings(
+                    source.center,
+                    source=f"scan-center:{axis.id}",
+                )
+            )
+        if axis.overlay is not None:
+            bindings.extend(
+                _parameter_bindings(
+                    axis.overlay,
+                    source=f"coordinate-overlay:{axis.id}",
+                )
+            )
+    return tuple(bindings)
+
+
+def _parameter_bindings(
+    value: ValueRef,
+    *,
+    source: str,
+) -> tuple[ExperimentPreviewBinding, ...]:
+    return tuple(
+        ExperimentPreviewBinding(
+            id=_parameter_contract_id(contract),
+            kind="parameter",
+            owner="configuration",
+            source=source,
+        )
+        for contract in internal_value_ref_parameter_contracts(value)
+    )
+
+
+def _parameter_contract_id(contract: ParameterContract) -> str:
+    if isinstance(contract, ParameterValueContract):
+        return contract.parameter_id
+    return f"{contract.table_id}.{contract.column_id}"
 
 
 def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ...]:

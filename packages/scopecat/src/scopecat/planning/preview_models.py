@@ -39,6 +39,16 @@ class ExperimentPreviewCompute:
 
 
 @dataclass(frozen=True)
+class ExperimentPreviewBinding:
+    """One user value classified by ownership rather than authoring syntax."""
+
+    id: str
+    kind: Literal["input", "coordinate", "parameter"]
+    owner: Literal["invocation", "point-plan", "configuration"]
+    source: str
+
+
+@dataclass(frozen=True)
 class ExperimentPreview:
     """Stable experiment shape that a user can review before execution."""
 
@@ -49,6 +59,7 @@ class ExperimentPreview:
     points: tuple[ExperimentPreviewPoint, ...]
     records: tuple[ExperimentPreviewRecord, ...]
     computes: tuple[ExperimentPreviewCompute, ...] = ()
+    bindings: tuple[ExperimentPreviewBinding, ...] = ()
 
     @property
     def point_count(self) -> int:

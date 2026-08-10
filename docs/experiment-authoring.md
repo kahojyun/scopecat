@@ -253,6 +253,9 @@ classified = experiment.compute(
 preview = lab.preview(spectrum())
 for compute in preview.computes:
     print(compute.id, compute.placement, compute.demanded_by)
+
+for binding in preview.bindings:
+    print(binding.id, binding.kind, binding.owner, binding.source)
 ```
 
 Placement is either `host` (all inputs exist before acquisition) or
@@ -260,6 +263,16 @@ Placement is either `host` (all inputs exist before acquisition) or
 the returned record, downstream compute, payload, or experiment effect that
 keeps the compute live. Observation computes absent from this list were removed
 because no durable output or downstream compute needs them.
+
+`bindings` gives runtime inputs, scan coordinates, and parameter dependencies
+one common inspection shape without giving them one lifecycle. Its `owner`
+states who may change the value: `invocation` for call-time inputs, `point-plan`
+for coordinates, and `configuration` for persistent parameters. `source` then
+explains whether an input used its default or an override, which scan form
+supplied a coordinate, or where a parameter enters the point plan or receives a
+coordinate overlay.
+The existing function arguments and scan declarations remain the authoring
+API; this is a review vocabulary, not another binding DSL.
 
 ## Deliberate remaining boundaries
 
@@ -272,7 +285,7 @@ experiment semantics:
 - measurement-dependent control requires a later adaptive stage;
 - an explicit `record(...)` is recording policy, not ordinary dataflow.
 
-Further convenience should be judged against complete experiments. The most
-useful next candidates are typed structured compute schemas and input/output
-inference from annotated functions. Neither should introduce another kind of
-value or another postprocessing API.
+Further convenience should be judged against complete experiments. New
+features should extend typed results, the shared compute model, or this
+ownership vocabulary instead of introducing another kind of value or another
+postprocessing API.
