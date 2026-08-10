@@ -28,6 +28,8 @@ class MeasurementPostprocessor:
     output_bindings: tuple[tuple[str, ProductId], ...]
     kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
     value_input_bindings: tuple[tuple[str, ComputeInput], ...] = ()
+    implementation: str | None = None
+    deterministic: bool = False
     scope: tuple[str, ...] = ()
     # Origins are authoring-only; compiler bindings remain plain ProductIds.
     input_product_origins: tuple[tuple[str, tuple[object, ...]], ...] = field(
@@ -109,6 +111,8 @@ def create_measurement_compute_internal(
     value_inputs: Mapping[str, ComputeInput] | None = None,
     outputs: Mapping[str, ProductRef],
     kernel: MeasurementPostprocessorKernel,
+    implementation: str | None = None,
+    deterministic: bool = False,
 ) -> MeasurementPostprocessor:
     """Build a multi-input point-local measurement computation."""
 
@@ -125,6 +129,8 @@ def create_measurement_compute_internal(
             (role, product.product_id) for role, product in outputs.items()
         ),
         kernel=kernel,
+        implementation=implementation,
+        deterministic=deterministic,
         input_product_origins=tuple(
             (name, product.origin) for name, product in inputs.items()
         ),

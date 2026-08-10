@@ -114,6 +114,8 @@ def lower_measurement_postprocessor_graph(
                 ),
                 outputs=tuple(outputs),
                 kernel=postprocessor.kernel,
+                implementation=postprocessor.implementation,
+                deterministic=postprocessor.deterministic,
             )
         )
     return LoweredMeasurementPostprocessorGraph(

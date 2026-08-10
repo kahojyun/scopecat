@@ -114,8 +114,11 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
     assert dependency.metadata == {
         "compute": {
             "id": "_dataset_size",
-            "implementation": "local:_dataset_size",
+            "implementation": "python:_dataset_size",
             "placement": "dataset",
+            "deterministic": False,
+            "inputs": ["data"],
+            "outputs": ["_dataset_size"],
             "access": "full",
         }
     }
@@ -123,6 +126,11 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
     assert isinstance(data_output, AnalysisDataOutput)
     assert data_output.content.value == 3
     assert data_output.content.execution.id == "_dataset_size"
+    assert data_output.content.execution.placement == "dataset"
+    assert data_output.content.execution.implementation == "python:_dataset_size"
+    assert not data_output.content.execution.deterministic
+    assert data_output.content.execution.inputs == ("data",)
+    assert data_output.content.execution.outputs == ("_dataset_size",)
     assert data_output.content.execution.input_content_hash == (
         handle.measurements().entry.content_hash
     )

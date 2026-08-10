@@ -86,6 +86,8 @@ class BoundMeasurementPostprocessor:
     outputs: tuple[BoundMeasurementPostprocessorOutput, ...]
     kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
     value_inputs: tuple[BoundMeasurementPostprocessorValueInput, ...] = ()
+    implementation: str | None = None
+    deterministic: bool = False
 
 
 @dataclass(frozen=True, slots=True)

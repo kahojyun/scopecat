@@ -919,6 +919,9 @@ def test_planning_keeps_postprocessor_outputs_out_of_local_acquisition() -> None
     assert preview.observation_compute_ids == ("normalize", "summarize")
     normalize, summarize = preview.computes
     assert normalize.placement == "observation"
+    assert normalize.implementation == "python:normalize"
+    assert not normalize.deterministic
+    assert normalize.inputs == ("input",)
     assert normalize.demanded_by == ("compute:summarize",)
     assert summarize.demanded_by == ("record:derived",)
 

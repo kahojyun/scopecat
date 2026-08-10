@@ -382,8 +382,9 @@ class AnalysisContext:
             id or getattr(fn, "__name__", "dataset-compute")
         )
         implementation = (
-            contract.reference if contract is not None else f"local:{compute_id}"
+            contract.reference if contract is not None else f"python:{compute_id}"
         )
+        deterministic = False if contract is None else contract.deterministic
         self._compute_inputs.append(
             AnalysisInput(
                 target=dataset.entry.id,
@@ -395,12 +396,14 @@ class AnalysisContext:
                         "id": compute_id,
                         "implementation": implementation,
                         "placement": "dataset",
+                        "deterministic": deterministic,
+                        "inputs": ["data"],
+                        "outputs": [compute_id],
                         "access": "full" if contract is None else contract.data_access,
                         **(
                             {}
                             if contract is None
                             else {
-                                "deterministic": contract.deterministic,
                                 "runtime": contract.runtime,
                                 "capabilities": list(contract.capabilities),
                             }
@@ -434,13 +437,13 @@ class AnalysisContext:
                     execution=AnalysisComputeExecution(
                         id=compute_id,
                         implementation=implementation,
+                        deterministic=deterministic,
+                        inputs=("data",),
+                        outputs=(compute_id,),
                         access=("full" if contract is None else contract.data_access),
                         input_target=dataset.entry.id,
                         input_content_hash=dataset.entry.content_hash,
                         output_content_hash=output_hash,
-                        deterministic=(
-                            False if contract is None else contract.deterministic
-                        ),
                     ),
                 ),
                 metadata=(

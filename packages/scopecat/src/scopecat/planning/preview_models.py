@@ -32,10 +32,11 @@ class ExperimentPreviewCompute:
 
     id: str
     placement: Literal["host", "observation"]
-    input_names: tuple[str, ...]
+    implementation: str
+    deterministic: bool
+    inputs: tuple[str, ...]
     outputs: tuple[str, ...]
     demanded_by: tuple[str, ...]
-    implementation_id: str | None = None
 
 
 @dataclass(frozen=True)

@@ -226,10 +226,11 @@ def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ..
             ExperimentPreviewCompute(
                 id=operation.logical_compute_node_id,
                 placement="host",
-                input_names=tuple(operation.inputs),
+                implementation=operation.implementation_id,
+                deterministic=operation.deterministic,
+                inputs=tuple(operation.inputs),
                 outputs=(operation.logical_compute_node_id,),
                 demanded_by=demands or ("experiment-effects",),
-                implementation_id=operation.implementation_id,
             )
         )
 
@@ -248,7 +249,12 @@ def _preview_computes(program: RunProgram) -> tuple[ExperimentPreviewCompute, ..
             ExperimentPreviewCompute(
                 id=postprocessor.id.qualified_name,
                 placement="observation",
-                input_names=(
+                implementation=(
+                    postprocessor.implementation
+                    or f"python:{postprocessor.id.qualified_name}"
+                ),
+                deterministic=postprocessor.deterministic,
+                inputs=(
                     *(input.id for input in postprocessor.inputs),
                     *(input.id for input in postprocessor.value_inputs),
                 ),

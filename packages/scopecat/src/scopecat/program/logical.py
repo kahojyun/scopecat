@@ -119,6 +119,8 @@ class LogicalMeasurementPostprocessor:
     outputs: tuple[tuple[str, ProductId], ...]
     kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
     value_inputs: tuple[tuple[str, ValueId], ...] = ()
+    implementation: str | None = None
+    deterministic: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +208,7 @@ class ImplementationId:
 class LocalPythonImplementation:
     id: ImplementationId
     kernel: Callable[..., object] = field(repr=False, compare=False)
+    deterministic: bool = False
 
 
 type LogicalEffect = (

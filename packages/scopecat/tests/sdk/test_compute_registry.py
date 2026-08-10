@@ -37,6 +37,7 @@ def test_registered_compute_has_a_resolvable_stable_implementation() -> None:
     [implementation] = logical.implementations.values()
 
     assert implementation.id.value == "registry:window.peak@2"
+    assert implementation.deterministic
     assert registry.resolve("registry:window.peak@2") is peak
     contract = registry.contract("registry:window.peak@2")
     assert contract.deterministic

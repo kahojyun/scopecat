@@ -482,3 +482,6 @@ durable models enforce finite, GUI-safe scalar, derived-data, and point budgets.
 The run view renders tables and SVG figures while retaining the content-addressed
 compute execution and declared analysis inputs as provenance; proposal outputs
 remain typed references to their separately persisted proposal records.
+Dataset compute provenance uses the same compute inspection fields as experiment
+preview (`id`, `placement`, `implementation`, `deterministic`, `inputs`, and
+`outputs`) and adds dataset content hashes plus full or batched access.

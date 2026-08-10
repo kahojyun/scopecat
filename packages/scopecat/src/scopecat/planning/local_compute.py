@@ -139,6 +139,7 @@ def bind_compute_operations(
                     id=node.result_id,
                     value_type=node.result_type,
                 ),
+                deterministic=implementation.deterministic,
                 payload_slot=(
                     PayloadSlot(id=payload_id, schema_id=schema_id)
                     if payload_id is not None and schema_id is not None

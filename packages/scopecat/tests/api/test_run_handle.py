@@ -183,9 +183,11 @@ def test_in_process_lab_records_compute_value_without_instruments(
     assert preview.host_compute_ids == ("calculate_score",)
     assert preview.observation_compute_ids == ()
     [compute] = preview.computes
-    assert compute.input_names == ()
+    assert compute.inputs == ()
     assert compute.outputs == ("calculate_score",)
     assert compute.demanded_by == ("record:score",)
+    assert compute.implementation.startswith("python:")
+    assert not compute.deterministic
 
     run = lab.prepare(compute_only).run()
     dataset = run.measurements()

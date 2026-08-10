@@ -21,6 +21,7 @@ from pydantic import (
     Field,
     FiniteFloat,
     JsonValue,
+    field_validator,
     model_validator,
 )
 
@@ -390,11 +391,18 @@ class AnalysisComputeExecution(_AnalysisContentModel):
     id: _NonEmptyText
     implementation: _NonEmptyText
     placement: Literal["dataset"] = "dataset"
+    deterministic: bool
+    inputs: Sequence[_NonEmptyText]
+    outputs: Sequence[_NonEmptyText]
     access: Literal["full", "batches"] = "full"
     input_target: _NonEmptyText
     input_content_hash: _NonEmptyText
     output_content_hash: _NonEmptyText
-    deterministic: bool
+
+    @field_validator("inputs", "outputs")
+    @classmethod
+    def freeze_edges[T](cls, value: Sequence[T]) -> Sequence[T]:
+        return tuple(value)
 
 
 class AnalysisDerivedData(_AnalysisContentModel):

@@ -130,6 +130,7 @@ from scopecat.records.measurement import (
     MeasurementScalar,
     MeasurementValue,
 )
+from scopecat.sdk.compute import compute_implementation_contract_internal
 
 type BindingInput = StateBinding
 type InvocationInput = BindingInput | None
@@ -1242,6 +1243,7 @@ class ModuleContext:
                 for name, value_type in output_types.items()
             }
 
+        implementation = compute_implementation_contract_internal(fn)
         self._measurement_postprocessors.append(
             create_measurement_compute_internal(
                 id,
@@ -1249,6 +1251,12 @@ class ModuleContext:
                 value_inputs=value_inputs,
                 outputs=outputs,
                 kernel=kernel,
+                implementation=(
+                    None if implementation is None else implementation.reference
+                ),
+                deterministic=(
+                    False if implementation is None else implementation.deterministic
+                ),
             )
         )
         if bundle_type is not None:

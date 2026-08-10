@@ -119,6 +119,7 @@ class LogicalProgramBuilder:
                 )
             ),
             kernel=implementation,
+            deterministic=False if contract is None else contract.deterministic,
         )
 
     def add_domain_execution(
@@ -279,6 +280,8 @@ class LogicalProgramBuilder:
                 ),
                 outputs=declaration.output_bindings,
                 kernel=declaration.kernel,
+                implementation=declaration.implementation,
+                deterministic=declaration.deterministic,
             )
         )
 

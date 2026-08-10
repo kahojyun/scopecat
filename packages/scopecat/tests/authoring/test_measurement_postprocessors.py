@@ -268,6 +268,13 @@ def test_compute_instantiates_an_annotated_product_bundle_schema() -> None:
 
 
 def test_measured_compute_infers_bool_output_and_binds_keyword_inputs() -> None:
+    registry = sc.ComputeRegistry()
+
+    @registry.implementation(
+        "test.measurement.classify",
+        "1",
+        deterministic=False,
+    )
     def classify(*, signal: float, threshold: float) -> bool:
         return signal >= threshold
 
@@ -285,6 +292,8 @@ def test_measured_compute_infers_bool_output_and_binds_keyword_inputs() -> None:
     [compute] = module.definition.body.measurement_postprocessors
     assert [name for name, _product in compute.input_bindings] == ["signal"]
     assert [name for name, _value in compute.value_input_bindings] == ["threshold"]
+    assert compute.implementation == "registry:test.measurement.classify@1"
+    assert not compute.deterministic
     assert module().result.value_spec.dtype == "bool"
 
 

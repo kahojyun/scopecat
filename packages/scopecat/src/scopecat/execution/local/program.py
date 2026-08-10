@@ -68,6 +68,7 @@ class ComputeOperation:
     kernel: ComputeKernel
     inputs: Mapping[str, ComputeInput]
     result: ComputeOutput
+    deterministic: bool = False
     payload_slot: PayloadSlot | None = None
 
 
