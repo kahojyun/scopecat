@@ -10,6 +10,7 @@ from pathlib import Path
 from pydantic import JsonValue
 
 from scopecat.analysis.service import (
+    AnalysisDataOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -20,6 +21,7 @@ from scopecat.analysis.service import (
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import MeasurementPage, RunAnalysisListView, RunAnalysisView
 from scopecat.daemon.wire import (
+    AnalysisDataOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisInputPayload,
     AnalysisOutputPayload,
@@ -220,6 +222,13 @@ def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
 
 def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
     metadata = validate_json_metadata(value.metadata)
+    if isinstance(value, AnalysisDataOutput):
+        return AnalysisDataOutputPayload(
+            kind="data",
+            title=value.title,
+            content=value.content,
+            metadata=metadata,
+        )
     if isinstance(value, AnalysisTableOutput):
         return AnalysisTableOutputPayload(
             kind="table",

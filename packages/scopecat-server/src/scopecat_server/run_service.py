@@ -14,6 +14,7 @@ from scopecat.adapters.sqlite import (
     SQLiteRunRepository,
 )
 from scopecat.analysis.service import (
+    AnalysisDataOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -56,6 +57,7 @@ from scopecat.daemon.views import (
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
+    AnalysisDataOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
@@ -111,6 +113,13 @@ from .errors import BackendConflict, BackendNotFound
 
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
+    if isinstance(item, AnalysisDataOutputPayload):
+        return AnalysisDataOutput(
+            kind="data",
+            title=item.title,
+            content=item.content,
+            metadata=item.metadata,
+        )
     if isinstance(item, AnalysisTableOutputPayload):
         return AnalysisTableOutput(
             kind="table",

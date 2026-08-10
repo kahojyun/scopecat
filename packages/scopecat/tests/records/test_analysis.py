@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Annotated
+
 import numpy as np
 import pytest
 from pydantic import ValidationError
 
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.analysis import (
     MAX_ANALYSIS_FIGURE_POINTS,
     MAX_ANALYSIS_OUTPUTS,
@@ -12,6 +16,7 @@ from scopecat.records.analysis import (
     MAX_ANALYSIS_TABLE_SAFE_INTEGER,
     MAX_ANALYSIS_TOTAL_FIGURE_POINTS,
     MAX_ANALYSIS_TOTAL_TABLE_CELLS,
+    AnalysisField,
     AnalysisFigure,
     AnalysisFigureAxis,
     AnalysisFigureRecordOutput,
@@ -25,6 +30,48 @@ from scopecat.records.analysis import (
     AnalysisTableRecordOutput,
     AnalysisTableRow,
 )
+
+
+@dataclass(frozen=True)
+class _Observation:
+    bias: Annotated[
+        Quantity,
+        AnalysisField(id="bias_mv", label="Bias", unit="mV"),
+    ]
+    response: Annotated[float, AnalysisField(label="Response", unit="ratio")]
+    group: Annotated[int, AnalysisField(label="Group")]
+
+
+def test_analysis_projects_annotated_objects_into_tables_and_figures() -> None:
+    table = AnalysisTable.from_objects(
+        [
+            _Observation(Quantity(0.1, "V"), 0.2, 1),
+            _Observation(Quantity(0.2, "V"), 0.4, 1),
+            _Observation(Quantity(0.3, "V"), 0.6, 2),
+        ]
+    )
+    figure = AnalysisFigure.from_table(
+        table,
+        kind="scatter",
+        x="bias_mv",
+        y="response",
+        series="group",
+    )
+
+    assert [column.id for column in table.columns] == [
+        "bias_mv",
+        "response",
+        "group",
+    ]
+    assert [row.cells for row in table.rows] == [
+        [100.0, 0.2, 1],
+        [200.0, 0.4, 1],
+        [300.0, 0.6, 2],
+    ]
+    assert [(series.id, series.x, series.y) for series in figure.series] == [
+        ("1", [100.0, 200.0], [0.2, 0.4]),
+        ("2", [300.0], [0.6]),
+    ]
 
 
 def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts() -> (

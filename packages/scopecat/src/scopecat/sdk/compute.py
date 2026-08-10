@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Literal
 
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.json_types import JsonValue
@@ -32,6 +33,8 @@ class ComputeImplementationContract:
     capabilities: tuple[str, ...] = ()
     resources: Mapping[str, JsonValue] = field(default_factory=_empty_resources)
     deterministic: bool = True
+    data_access: Literal["full", "batches"] = "full"
+    batch_size: int = 100
 
     def __post_init__(self) -> None:
         if not self.id or not self.version:
@@ -42,6 +45,8 @@ class ComputeImplementationContract:
             raise ValueError("compute input codec names and ids must be non-empty")
         if any(not capability for capability in self.capabilities):
             raise ValueError("compute capabilities must be non-empty")
+        if self.batch_size <= 0:
+            raise ValueError("compute batch size must be positive")
         object.__setattr__(self, "input_codecs", dict(self.input_codecs))
         object.__setattr__(self, "capabilities", tuple(self.capabilities))
         object.__setattr__(self, "resources", freeze_json_mapping(self.resources))
@@ -72,6 +77,8 @@ class ComputeRegistry:
         capabilities: tuple[str, ...] = (),
         resources: Mapping[str, JsonValue] | None = None,
         deterministic: bool = True,
+        data_access: Literal["full", "batches"] = "full",
+        batch_size: int = 100,
     ) -> Callable[[Callable[P, ResultT]], Callable[P, ResultT]]:
         contract = ComputeImplementationContract(
             id=id,
@@ -82,6 +89,8 @@ class ComputeRegistry:
             capabilities=capabilities,
             resources=resources or {},
             deterministic=deterministic,
+            data_access=data_access,
+            batch_size=batch_size,
         )
 
         def register(fn: Callable[P, ResultT]) -> Callable[P, ResultT]:

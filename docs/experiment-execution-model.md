@@ -116,10 +116,19 @@ closures retain diagnostic `python:` identities.
 The same availability rule extends to completed datasets. Inside an analysis
 step, `context.compute(dataset, fn=fit)` runs only after the complete dataset is
 durable and automatically records that dataset plus the registered or local
-implementation identity as an analysis dependency. Thus point-local and
-dataset-level calculations share the `compute` concept; their inputs determine
-placement. Dataset compute does not run inside acquisition or silently mutate
-the source measurement dataset.
+implementation identity as an analysis dependency. Its JSON-safe output is a
+durable analysis data output with input and output content hashes, codec,
+implementation, access mode, and determinism. Thus point-local and dataset-level
+calculations share the `compute` concept; their inputs determine placement.
+Dataset compute does not run inside acquisition or silently mutate the source
+measurement dataset.
+
+Implementations that cannot load the complete dataset declare
+`data_access="batches"` and a bounded `batch_size` in their registry contract.
+The function then receives an iterator of `Dataset` batches through the same
+`context.compute(dataset, fn=...)` call. Full-dataset Python remains the short
+path; bounded access is an implementation property rather than a second
+analysis API.
 
 Logical resource ports describe the interfaces and entities required by a
 reusable definition. The accepted configuration maps those requirements onto a

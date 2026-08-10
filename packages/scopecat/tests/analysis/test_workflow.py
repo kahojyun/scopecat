@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from pydantic import ValidationError
 import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
+from scopecat.analysis.service import AnalysisDataOutput
 from scopecat.config.registry import service as config_registry_service
 from scopecat.measurements.results import Dataset
 from scopecat.records.run import RunManifest
@@ -28,6 +30,19 @@ from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 def _dataset_size(dataset: Dataset) -> int:
     return len(dataset)
+
+
+_COMPUTES = sc.ComputeRegistry()
+
+
+@_COMPUTES.implementation(
+    "test.dataset-size-batches",
+    "1",
+    data_access="batches",
+    batch_size=2,
+)
+def _batch_dataset_size(batches: Iterator[Dataset]) -> int:
+    return sum(len(batch) for batch in batches)
 
 
 class _DatasetComputeStep:
@@ -91,11 +106,8 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
         experiment=load_invocation(),
         project_root=tmp_path,
     )
-    analysis = (
-        in_process_lab(tmp_path, config=load_config())
-        .get_run(run.run_id)
-        .analyze(_DatasetComputeStep())
-    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    analysis = handle.analyze(_DatasetComputeStep())
 
     [dependency] = analysis.inputs
     assert dependency.target == "raw-measurements"
@@ -105,8 +117,49 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
             "id": "_dataset_size",
             "implementation": "local:_dataset_size",
             "placement": "dataset",
+            "access": "full",
         }
     }
+    [data_output, table_output] = analysis.outputs
+    assert isinstance(data_output, AnalysisDataOutput)
+    assert data_output.content.value == 3
+    assert data_output.content.execution.id == "_dataset_size"
+    assert data_output.content.execution.input_content_hash == (
+        handle.measurements().entry.content_hash
+    )
+    assert data_output.content.execution.output_content_hash.startswith("sha256:")
+    assert table_output.kind == "table"
+    analysis.save()
+    stored = handle.record_json(
+        "analysis-dataset-compute",
+        expected_kind="analysis",
+    )
+    stored_outputs = stored.content["outputs"]
+    assert isinstance(stored_outputs, list)
+    [stored_output, _stored_table] = stored_outputs
+    assert isinstance(stored_output, dict)
+    assert stored_output["kind"] == "data"
+
+
+def test_registered_dataset_compute_can_reduce_bounded_batches(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    context = sc.AnalysisContext(run=handle)
+
+    count = context.compute(context.measurements(), fn=_batch_dataset_size)
+    analysis = context.result("Batch compute")
+
+    assert count == 3
+    [output] = analysis.outputs
+    assert isinstance(output, AnalysisDataOutput)
+    assert output.content.execution.access == "batches"
+    assert output.content.execution.implementation == (
+        "registry:test.dataset-size-batches@1"
+    )
 
 
 def test_analysis_save_rolls_back_refs_after_manifest_failure(

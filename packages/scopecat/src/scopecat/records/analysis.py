@@ -3,7 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import Annotated, Literal, Self, cast
+from dataclasses import dataclass, fields, is_dataclass
+from typing import (
+    Annotated,
+    Literal,
+    Self,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from pydantic import (
     BaseModel,
@@ -11,9 +20,12 @@ from pydantic import (
     ConfigDict,
     Field,
     FiniteFloat,
+    JsonValue,
     model_validator,
 )
 
+from scopecat.kernel.content_identity import canonical_json
+from scopecat.kernel.quantity import Quantity
 from scopecat.records._metadata import JsonMetadata
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
@@ -24,6 +36,7 @@ MAX_ANALYSIS_TABLE_ROWS = 500
 MAX_ANALYSIS_FIGURE_SERIES = 16
 MAX_ANALYSIS_FIGURE_POINTS = 4096
 MAX_ANALYSIS_OUTPUTS = 32
+MAX_ANALYSIS_DATA_BYTES = 1_000_000
 MAX_ANALYSIS_TOTAL_TABLE_CELLS = 64_000
 MAX_ANALYSIS_TOTAL_FIGURE_POINTS = 16_384
 
@@ -51,6 +64,15 @@ type AnalysisTableCell = Annotated[
     bool | _AnalysisTableInteger | FiniteFloat | str | None,
     BeforeValidator(_reject_unsafe_table_integer),
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisField:
+    """Presentation policy declared once beside a typed derived-data field."""
+
+    id: str | None = None
+    label: str | None = None
+    unit: str | None = None
 
 
 def _normalized_external_scalar(value: object) -> bool | int | float | str | None:
@@ -159,6 +181,54 @@ class AnalysisTable(_AnalysisContentModel):
             ],
         )
 
+    @classmethod
+    def from_objects(cls, rows: Sequence[object]) -> Self:
+        """Project annotated dataclass fields into one scalar table."""
+
+        selected_rows = tuple(rows)
+        if not selected_rows:
+            raise ValueError("analysis object rows must not be empty")
+        row_type = type(selected_rows[0])
+        if not is_dataclass(row_type) or any(
+            type(row) is not row_type for row in selected_rows
+        ):
+            raise TypeError("analysis object rows must share one dataclass type")
+        hints = get_type_hints(row_type, include_extras=True)
+        selected_fields = tuple(
+            (member.name, policy)
+            for member in fields(row_type)
+            if (policy := _analysis_field(hints.get(member.name))) is not None
+        )
+        if not selected_fields:
+            raise TypeError(
+                "analysis object rows require Annotated AnalysisField fields"
+            )
+        columns = tuple(
+            AnalysisTableColumn(
+                id=policy.id or name,
+                label=policy.label,
+                unit=policy.unit,
+            )
+            for name, policy in selected_fields
+        )
+        return cls.from_rows(
+            [
+                {
+                    column.id: _analysis_field_value(
+                        cast("object", getattr(row, name)),
+                        policy,
+                    )
+                    for (name, policy), column in zip(
+                        selected_fields,
+                        columns,
+                        strict=True,
+                    )
+                }
+                for row in selected_rows
+            ],
+            columns=columns,
+        )
+
 
 class AnalysisFigureAxis(_AnalysisContentModel):
     """One labeled numeric figure axis."""
@@ -231,12 +301,117 @@ class AnalysisFigure(_AnalysisContentModel):
             )
         return self
 
+    @classmethod
+    def from_table(
+        cls,
+        table: AnalysisTable,
+        *,
+        kind: Literal["line", "scatter"],
+        x: str,
+        y: str,
+        series: str | None = None,
+        label: str | None = None,
+    ) -> Self:
+        """Project aligned numeric columns without rebuilding x/y lists."""
+
+        columns = {
+            column.id: (index, column) for index, column in enumerate(table.columns)
+        }
+        try:
+            x_index, x_column = columns[x]
+            y_index, y_column = columns[y]
+            series_index = None if series is None else columns[series][0]
+        except KeyError as error:
+            raise KeyError(
+                f"analysis figure column is missing: {error.args[0]}"
+            ) from None
+        grouped: dict[object, list[AnalysisTableRow]] = {}
+        for row in table.rows:
+            group = label or y if series_index is None else row.cells[series_index]
+            grouped.setdefault(group, []).append(row)
+        return cls(
+            kind=kind,
+            x_axis=AnalysisFigureAxis(
+                label=x_column.label or x_column.id, unit=x_column.unit
+            ),
+            y_axis=AnalysisFigureAxis(
+                label=y_column.label or y_column.id, unit=y_column.unit
+            ),
+            series=[
+                AnalysisFigureSeries(
+                    id=str(group),
+                    label=str(group),
+                    x=[_figure_cell(row.cells[x_index], column=x) for row in rows],
+                    y=[_figure_cell(row.cells[y_index], column=y) for row in rows],
+                )
+                for group, rows in grouped.items()
+            ],
+        )
+
+
+def _analysis_field(annotation: object) -> AnalysisField | None:
+    if get_origin(annotation) is not Annotated:
+        return None
+    metadata_items = cast("tuple[object, ...]", get_args(annotation)[1:])
+    return next(
+        (
+            metadata
+            for metadata in metadata_items
+            if isinstance(metadata, AnalysisField)
+        ),
+        None,
+    )
+
+
+def _analysis_field_value(value: object, policy: AnalysisField) -> object:
+    if isinstance(value, Quantity):
+        if policy.unit is None:
+            raise TypeError("Quantity analysis fields require a presentation unit")
+        return value.to(policy.unit).value
+    return value
+
+
+def _figure_cell(value: AnalysisTableCell, *, column: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"analysis figure column {column!r} must contain numbers")
+    return float(value)
+
 
 class AnalysisParameterProposalReference(_AnalysisContentModel):
     """Persisted reference to the separately stored proposal record."""
 
     proposal_id: _NonEmptyText
     record_ref: _NonEmptyText
+
+
+class AnalysisComputeExecution(_AnalysisContentModel):
+    """Content-addressed provenance for one successful dataset compute."""
+
+    id: _NonEmptyText
+    implementation: _NonEmptyText
+    placement: Literal["dataset"] = "dataset"
+    access: Literal["full", "batches"] = "full"
+    input_target: _NonEmptyText
+    input_content_hash: _NonEmptyText
+    output_content_hash: _NonEmptyText
+    deterministic: bool
+
+
+class AnalysisDerivedData(_AnalysisContentModel):
+    """JSON-safe compute output retained as an analysis fact."""
+
+    codec: _NonEmptyText
+    value: JsonValue
+    execution: AnalysisComputeExecution
+
+    @model_validator(mode="after")
+    def validate_budget(self) -> AnalysisDerivedData:
+        size = len(canonical_json(self.value).encode("utf-8"))
+        if size > MAX_ANALYSIS_DATA_BYTES:
+            raise ValueError(
+                f"analysis derived data must not exceed {MAX_ANALYSIS_DATA_BYTES} bytes"
+            )
+        return self
 
 
 class AnalysisRecordInput(BaseModel):
@@ -271,8 +446,14 @@ class AnalysisParameterProposalRecordOutput(_AnalysisRecordOutput):
     content: AnalysisParameterProposalReference
 
 
+class AnalysisDataRecordOutput(_AnalysisRecordOutput):
+    kind: Literal["data"]
+    content: AnalysisDerivedData
+
+
 type AnalysisRecordOutput = Annotated[
-    AnalysisTableRecordOutput
+    AnalysisDataRecordOutput
+    | AnalysisTableRecordOutput
     | AnalysisFigureRecordOutput
     | AnalysisParameterProposalRecordOutput,
     Field(discriminator="kind"),

@@ -32,6 +32,7 @@ from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
+    AnalysisDerivedData,
     AnalysisFigure,
     AnalysisTable,
     validate_analysis_output_content_budget,
@@ -186,6 +187,13 @@ class AnalysisTableOutputPayload(_WireModel):
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+class AnalysisDataOutputPayload(_WireModel):
+    kind: Literal["data"]
+    title: NonEmptyText
+    content: AnalysisDerivedData
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+
 class AnalysisFigureOutputPayload(_WireModel):
     kind: Literal["figure"]
     title: NonEmptyText
@@ -201,7 +209,8 @@ class AnalysisParameterProposalOutputPayload(_WireModel):
 
 
 type AnalysisOutputPayload = Annotated[
-    AnalysisTableOutputPayload
+    AnalysisDataOutputPayload
+    | AnalysisTableOutputPayload
     | AnalysisFigureOutputPayload
     | AnalysisParameterProposalOutputPayload,
     Field(discriminator="kind"),
@@ -691,6 +700,7 @@ def _validated_base64(value: str) -> str:
 
 
 __all__ = [
+    "AnalysisDataOutputPayload",
     "AnalysisFigureOutputPayload",
     "AnalysisInputPayload",
     "AnalysisOutputPayload",

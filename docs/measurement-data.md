@@ -409,51 +409,45 @@ is exhausted.
 
 ## Save analysis results as typed views
 
-Analysis outputs use the same explicit presentation contract instead of saving
-arbitrary JSON under a `table` or `figure` label. Tables declare ordered
-columns, labels, and units; figures declare numeric axes and embedded line or
-scatter series:
+Dataset compute outputs become durable derived data before presentation. A
+typed dataclass can declare column presentation once, and both tables and
+figures project that same aligned data:
 
 ```python
+@dataclass(frozen=True)
+class FitPoint:
+    bias: Annotated[
+        sc.Quantity,
+        sc.AnalysisField(id="bias_v", label="Bias", unit="V"),
+    ]
+    resonance: Annotated[
+        sc.Quantity,
+        sc.AnalysisField(id="frequency_ghz", label="Resonance", unit="GHz"),
+    ]
+
+
+fits = context.compute(measurements, fn=fit_resonator)
+fit_table = sc.AnalysisTable.from_objects(fits)
 result = (
     context.result("Resonator fit")
-    .input(measurements.entry.id, role="fit-input")
     .table(
-        sc.AnalysisTable.from_rows(
-            fit_rows,
-            columns=(
-                sc.AnalysisTableColumn(id="bias_v", label="Bias", unit="V"),
-                sc.AnalysisTableColumn(
-                    id="frequency_ghz",
-                    label="Resonance",
-                    unit="GHz",
-                ),
-            ),
-        ),
+        fit_table,
         title="Fit parameters",
     )
     .figure(
-        sc.AnalysisFigure(
+        sc.AnalysisFigure.from_table(
+            fit_table,
             kind="line",
-            x_axis=sc.AnalysisFigureAxis(label="Bias", unit="V"),
-            y_axis=sc.AnalysisFigureAxis(label="Resonance", unit="GHz"),
-            series=[
-                sc.AnalysisFigureSeries.from_arrays(
-                    id="fit",
-                    x=bias_values,
-                    y=resonance_values,
-                )
-            ],
+            x="bias_v",
+            y="frequency_ghz",
         ),
         title="Resonance fit",
     )
 )
 ```
 
-`AnalysisTable.from_rows(...)` and
-`AnalysisFigureSeries.from_arrays(...)` materialize NumPy-style scalar and
-array values at the authoring boundary. The durable models then enforce finite,
-GUI-safe scalar and point budgets. The run view renders these outputs as an
-accessible table and SVG figure and retains the declared analysis inputs and
-metadata as provenance; proposal outputs remain typed references to their
-separately persisted proposal records.
+`AnalysisTable.from_rows(...)` remains available for dynamic schemas. The
+durable models enforce finite, GUI-safe scalar, derived-data, and point budgets.
+The run view renders tables and SVG figures while retaining the content-addressed
+compute execution and declared analysis inputs as provenance; proposal outputs
+remain typed references to their separately persisted proposal records.

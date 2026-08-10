@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from scopecat.api.analysis import (
         Analysis,
         AnalysisContext,
+        AnalysisField,
         AnalysisFigure,
         AnalysisFigureAxis,
         AnalysisFigureSeries,
@@ -209,6 +210,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "Analysis": ("scopecat.api.analysis", "Analysis"),
     "AnalysisContext": ("scopecat.api.analysis", "AnalysisContext"),
     "AnalysisFigure": ("scopecat.api.analysis", "AnalysisFigure"),
+    "AnalysisField": ("scopecat.api.analysis", "AnalysisField"),
     "AnalysisFigureAxis": ("scopecat.api.analysis", "AnalysisFigureAxis"),
     "AnalysisFigureSeries": ("scopecat.api.analysis", "AnalysisFigureSeries"),
     "AnalysisTable": ("scopecat.api.analysis", "AnalysisTable"),

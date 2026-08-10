@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from typing import (
     Concatenate,
     NoReturn,
@@ -14,7 +14,10 @@ from typing import (
     overload,
 )
 
+from pydantic import BaseModel, JsonValue
+
 from scopecat.analysis.service import (
+    AnalysisDataOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -31,6 +34,7 @@ from scopecat.config.changes import (
     parameter_change_proposal_from_updates,
 )
 from scopecat.config.parameter_updates import ParameterUpdate
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
@@ -39,8 +43,12 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import Dataset, ExperimentResultView
 from scopecat.records.analysis import (
+    AnalysisComputeExecution,
+    AnalysisDerivedData,
+    AnalysisField,
     AnalysisFigure,
     AnalysisFigureAxis,
     AnalysisFigureSeries,
@@ -70,6 +78,8 @@ class _AnalysisRun(Protocol):
         *,
         selector: str = "raw-measurements",
     ) -> Dataset: ...
+
+    def measurement_batches(self, *, batch_size: int = 100) -> Iterator[Dataset]: ...
 
     def analysis(
         self,
@@ -268,6 +278,16 @@ class AnalysisContext:
         repr=False,
         compare=False,
     )
+    _compute_outputs: list[AnalysisDataOutput] = field(
+        default_factory=list,
+        repr=False,
+        compare=False,
+    )
+    _compute_ids: dict[str, int] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def config(self) -> ConfigProfileSnapshot:
@@ -292,12 +312,32 @@ class AnalysisContext:
     ) -> ResultT: ...
 
     @overload
+    def compute[ResultT](
+        self,
+        data: Dataset,
+        /,
+        *,
+        fn: Callable[[Iterator[Dataset]], ResultT],
+        id: str | None = None,
+    ) -> ResultT: ...
+
+    @overload
     def compute[SchemaT, ResultT](
         self,
         data: ExperimentResultView[SchemaT],
         /,
         *,
         fn: Callable[[ExperimentResultView[SchemaT]], ResultT],
+        id: str | None = None,
+    ) -> ResultT: ...
+
+    @overload
+    def compute[SchemaT, ResultT](
+        self,
+        data: ExperimentResultView[SchemaT],
+        /,
+        *,
+        fn: Callable[[Iterator[ExperimentResultView[SchemaT]]], ResultT],
         id: str | None = None,
     ) -> ResultT: ...
 
@@ -315,7 +355,9 @@ class AnalysisContext:
         if not isinstance(dataset, Dataset):
             raise TypeError("analysis compute requires a Dataset or bound result")
         contract = compute_implementation_contract_internal(fn)
-        compute_id = id or getattr(fn, "__name__", "dataset-compute")
+        compute_id = self._allocate_compute_id(
+            id or getattr(fn, "__name__", "dataset-compute")
+        )
         implementation = (
             contract.reference if contract is not None else f"local:{compute_id}"
         )
@@ -330,6 +372,7 @@ class AnalysisContext:
                         "id": compute_id,
                         "implementation": implementation,
                         "placement": "dataset",
+                        "access": "full" if contract is None else contract.data_access,
                         **(
                             {}
                             if contract is None
@@ -343,7 +386,57 @@ class AnalysisContext:
                 },
             )
         )
-        return fn(data)
+        selected_data: object = cast("object", data)
+        if contract is not None and contract.data_access == "batches":
+            batches = self.run.measurement_batches(batch_size=contract.batch_size)
+            selected_data = (
+                (batch.bind(cast("object", data.output)) for batch in batches)
+                if isinstance(data, ExperimentResultView)
+                else batches
+            )
+        result = fn(selected_data)
+        encoded = _analysis_json(result)
+        output_hash = f"sha256:{stable_content_hash(encoded)}"
+        self._compute_outputs.append(
+            AnalysisDataOutput(
+                kind="data",
+                title=compute_id,
+                content=AnalysisDerivedData(
+                    codec=(
+                        "scopecat.python-json.v1"
+                        if contract is None
+                        else contract.output_codec
+                    ),
+                    value=encoded,
+                    execution=AnalysisComputeExecution(
+                        id=compute_id,
+                        implementation=implementation,
+                        access=("full" if contract is None else contract.data_access),
+                        input_target=dataset.entry.id,
+                        input_content_hash=dataset.entry.content_hash,
+                        output_content_hash=output_hash,
+                        deterministic=(
+                            False if contract is None else contract.deterministic
+                        ),
+                    ),
+                ),
+                metadata=(
+                    {}
+                    if contract is None
+                    else {
+                        "runtime": contract.runtime,
+                        "capabilities": list(contract.capabilities),
+                        "resources": dict(contract.resources),
+                    }
+                ),
+            )
+        )
+        return result
+
+    def _allocate_compute_id(self, requested: str) -> str:
+        count = self._compute_ids.get(requested, 0) + 1
+        self._compute_ids[requested] = count
+        return requested if count == 1 else f"{requested}.{count}"
 
     def result(self, title: str = "analysis", *, key: str | None = None) -> Analysis:
         return replace(
@@ -353,7 +446,38 @@ class AnalysisContext:
                 step_id=self.step_id,
             ),
             inputs=tuple(self._compute_inputs),
+            outputs=tuple(self._compute_outputs),
         )
+
+
+def _analysis_json(value: object) -> JsonValue:
+    if value is None or isinstance(value, bool | int | float | str):
+        return value
+    if isinstance(value, Quantity):
+        return {"value": _analysis_json(value.value), "unit": value.unit}
+    if isinstance(value, BaseModel):
+        return cast("JsonValue", value.model_dump(mode="json"))
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            member.name: _analysis_json(cast("object", getattr(value, member.name)))
+            for member in fields(value)
+        }
+    if isinstance(value, Mapping):
+        mapping = cast("Mapping[object, object]", value)
+        if any(not isinstance(key, str) for key in mapping):
+            raise TypeError("analysis derived data mappings require string keys")
+        return {cast("str", key): _analysis_json(item) for key, item in mapping.items()}
+    if isinstance(value, Sequence):
+        return [_analysis_json(item) for item in value]
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist):
+        return _analysis_json(tolist())
+    item = getattr(value, "item", None)
+    if callable(item):
+        return _analysis_json(item())
+    raise TypeError(
+        f"analysis compute output {type(value).__qualname__} is not JSON encodable"
+    )
 
 
 class AnalysisStep(Protocol):
@@ -565,6 +689,7 @@ __all__ = [
     "Analysis",
     "AnalysisContext",
     "AnalysisDefinition",
+    "AnalysisField",
     "AnalysisFigure",
     "AnalysisFigureAxis",
     "AnalysisFigureSeries",

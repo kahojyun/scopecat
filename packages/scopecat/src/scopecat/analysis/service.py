@@ -23,6 +23,8 @@ from scopecat.kernel.problems import (
 from scopecat.project_state import ProjectStateServices
 from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
+    AnalysisDataRecordOutput,
+    AnalysisDerivedData,
     AnalysisFigure,
     AnalysisFigureRecordOutput,
     AnalysisParameterProposalRecordOutput,
@@ -75,8 +77,19 @@ class AnalysisParameterProposalOutput:
     metadata: Mapping[str, object]
 
 
+@dataclass(frozen=True)
+class AnalysisDataOutput:
+    kind: Literal["data"]
+    title: str
+    content: AnalysisDerivedData
+    metadata: Mapping[str, object]
+
+
 type AnalysisOutput = (
-    AnalysisTableOutput | AnalysisFigureOutput | AnalysisParameterProposalOutput
+    AnalysisDataOutput
+    | AnalysisTableOutput
+    | AnalysisFigureOutput
+    | AnalysisParameterProposalOutput
 )
 
 
@@ -212,7 +225,16 @@ def _analysis_record_outputs(
     selected: list[AnalysisRecordOutput] = []
     for output in outputs:
         metadata = validate_json_metadata(output.metadata)
-        if isinstance(output, AnalysisTableOutput):
+        if isinstance(output, AnalysisDataOutput):
+            selected.append(
+                AnalysisDataRecordOutput(
+                    kind="data",
+                    title=output.title,
+                    content=output.content,
+                    metadata=metadata,
+                )
+            )
+        elif isinstance(output, AnalysisTableOutput):
             selected.append(
                 AnalysisTableRecordOutput(
                     kind="table",
