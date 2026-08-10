@@ -4,7 +4,7 @@ from scopecat.adapters.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
 from scopecat.adapters.sqlite.execution_schema import EXECUTION_TABLES_SQL
 from scopecat.adapters.sqlite.run_schema import RUN_TABLES_SQL
 
-PROJECT_SCHEMA_VERSION = 21
+PROJECT_SCHEMA_VERSION = 22
 
 _CONTROL_TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS project_schema (
@@ -26,27 +26,29 @@ CREATE TABLE IF NOT EXISTS scheduler_runs (
     admission_json TEXT NOT NULL,
     attention_reason TEXT,
     cancellation_requested_at TEXT,
-    stage_sequence_id TEXT,
-    stage_index INTEGER CHECK (stage_index IS NULL OR stage_index >= 0),
+    run_sequence_id TEXT,
+    sequence_run_index INTEGER CHECK (
+        sequence_run_index IS NULL OR sequence_run_index >= 0
+    ),
     CHECK (
         (state = 'attention_required' AND attention_reason IS NOT NULL)
         OR (state <> 'attention_required' AND attention_reason IS NULL)
     ),
     CHECK (
-        (stage_sequence_id IS NULL) = (stage_index IS NULL)
+        (run_sequence_id IS NULL) = (sequence_run_index IS NULL)
     )
 );
 
 CREATE INDEX IF NOT EXISTS scheduler_runs_state_sequence
 ON scheduler_runs(state, sequence);
 
-CREATE UNIQUE INDEX IF NOT EXISTS scheduler_runs_stage_identity
-ON scheduler_runs(stage_sequence_id, stage_index)
-WHERE stage_sequence_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS scheduler_runs_sequence_identity
+ON scheduler_runs(run_sequence_id, sequence_run_index)
+WHERE run_sequence_id IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS scheduler_runs_staged_sequence
+CREATE INDEX IF NOT EXISTS scheduler_runs_sequence
 ON scheduler_runs(sequence DESC)
-WHERE stage_sequence_id IS NOT NULL;
+WHERE run_sequence_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS run_resource_claims (
     run_id TEXT NOT NULL REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,

@@ -427,7 +427,7 @@ class DaemonClient:
             params["state"] = state
         return self._get_model(f"{_API_PREFIX}/runs", RunSummaryPage, params=params)
 
-    def list_run_stages(
+    def list_run_sequences(
         self,
         *,
         limit: int = 50,
@@ -440,7 +440,7 @@ class DaemonClient:
         if sequence_id is not None:
             params["sequence_id"] = sequence_id
         return self._get_model(
-            f"{_API_PREFIX}/run-stages",
+            f"{_API_PREFIX}/run-sequences",
             RunSummaryPage,
             params=params,
         )

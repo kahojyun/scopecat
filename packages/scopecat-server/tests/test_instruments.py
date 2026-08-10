@@ -18,7 +18,7 @@ from scopecat.api._instruments import (
     instrument,
     temporary_instrument,
 )
-from scopecat.api.lab import ExperimentStage, LabClient
+from scopecat.api.lab import LabClient, SequenceRun
 from scopecat.control.models import RunPlanSummary, RunResourceRequirement
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.views import ActiveConfigView
@@ -823,7 +823,7 @@ def test_notebook_can_attach_a_session_only_instrument(tmp_path: Path) -> None:
     assert driver.disconnect_count == 1
 
 
-def test_staged_run_is_rediscovered_and_resumed_by_a_new_daemon_client(
+def test_run_sequence_is_rediscovered_and_resumed_by_a_new_daemon_client(
     tmp_path: Path,
 ) -> None:
     provider = _TrackingProvider()
@@ -832,48 +832,48 @@ def test_staged_run_is_rediscovered_and_resumed_by_a_new_daemon_client(
     with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             with _daemon_client(transport) as daemon:
-                initial = LabClient(daemon).run_staged(
+                initial = LabClient(daemon).run_sequence(
                     invocation,
-                    next_stage=lambda _stage: pytest.fail(
-                        "the terminal callback is deferred at the stage limit"
+                    next_run=lambda _run: pytest.fail(
+                        "the callback is deferred at the per-call run limit"
                     ),
-                    max_stages=1,
+                    max_runs=3,
+                    max_new_runs=1,
                     sequence_id=sequence_id,
                 )
 
             callback_indices: list[int] = []
 
-            def next_stage(stage: ExperimentStage):
-                callback_indices.append(stage.index)
-                return invocation if stage.index == 0 else None
+            def next_run(sequence_run: SequenceRun):
+                callback_indices.append(sequence_run.run_index)
+                return invocation if sequence_run.run_index == 0 else None
 
             with _daemon_client(transport) as daemon:
                 lab = LabClient(daemon)
-                discovered = lab.get_staged_experiment(sequence_id)
-                resumed = lab.resume_staged(
+                discovered = lab.get_run_sequence(sequence_id)
+                resumed = lab.resume_sequence(
                     sequence_id,
-                    next_stage=next_stage,
-                    max_stages=2,
+                    next_run=next_run,
+                    max_new_runs=2,
                 )
 
             with _daemon_client(transport) as daemon:
-                rediscovered = LabClient(daemon).get_staged_experiment(sequence_id)
+                rediscovered = LabClient(daemon).get_run_sequence(sequence_id)
 
-    assert [stage.index for stage in initial.stages] == [0]
-    assert initial.stopped_by_limit
-    assert initial.status == "paused"
-    assert [stage.index for stage in discovered.stages] == [0]
-    assert discovered.stopped_by_limit is True
-    assert discovered.status == "paused"
-    assert [event.status for event in discovered.events] == ["limit"]
+    assert [sequence_run.run_index for sequence_run in initial.sequence_runs] == [0]
+    assert initial.status == "awaiting_decision"
+    assert [sequence_run.run_index for sequence_run in discovered.sequence_runs] == [0]
+    assert discovered.status == "awaiting_decision"
+    assert discovered.transitions == ()
     assert callback_indices == [0, 1]
-    assert [stage.index for stage in resumed.stages] == [0, 1]
-    assert not resumed.stopped_by_limit
+    assert [sequence_run.run_index for sequence_run in resumed.sequence_runs] == [0, 1]
     assert resumed.status == "stopped"
-    assert [stage.index for stage in rediscovered.stages] == [0, 1]
+    assert [sequence_run.run_index for sequence_run in rediscovered.sequence_runs] == [
+        0,
+        1,
+    ]
     assert rediscovered.status == "stopped"
-    assert [event.status for event in rediscovered.events] == [
-        "limit",
+    assert [event.status for event in rediscovered.transitions] == [
         "proposed",
         "stopped",
     ]
@@ -881,10 +881,10 @@ def test_staged_run_is_rediscovered_and_resumed_by_a_new_daemon_client(
     control = SQLiteControlPlane(
         SQLiteDatabase(tmp_path / ".scopecat" / "control.sqlite3")
     )
-    durable = tuple(reversed(control.list_staged_runs(sequence_id=sequence_id).items))
+    durable = tuple(reversed(control.list_sequence_runs(sequence_id=sequence_id).items))
     assert [run.admission.submission_id for run in durable] == [
-        f"staged:{sequence_id}:0",
-        f"staged:{sequence_id}:1",
+        f"sequence:{sequence_id}:0",
+        f"sequence:{sequence_id}:1",
     ]
 
 

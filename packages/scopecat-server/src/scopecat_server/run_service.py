@@ -213,17 +213,17 @@ class RunService:
                 next_cursor=page.next_cursor,
             )
 
-    def list_run_stages(
+    def list_run_sequences(
         self,
         *,
         limit: int,
         before: int | None,
         sequence_id: str | None,
     ) -> RunSummaryPage:
-        """List staged runs without scanning unrelated run manifests."""
+        """List sequence runs without scanning unrelated run manifests."""
 
         with self._control.read_transaction() as connection:
-            page = self._control.list_staged_runs_in_transaction(
+            page = self._control.list_sequence_runs_in_transaction(
                 connection,
                 limit=limit,
                 before=before,

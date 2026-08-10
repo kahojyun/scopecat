@@ -300,11 +300,11 @@ def test_adaptive_tuneup_rediscovers_and_resumes(
     namespace = run_path(str(NOTEBOOKS / "31_adaptive_tuneup.py"))
     summary = cast("dict[str, object]", namespace["adaptive_summary"])
 
-    assert summary["initial_stages"] == 2
-    assert summary["stopped_by_limit"] is True
-    assert summary["rediscovered_stages"] == 2
-    assert summary["completed_stages"] == 3
-    assert summary["resumed_to_completion"] is True
+    assert summary["initial_runs"] == 2
+    assert summary["initial_status"] == "awaiting_decision"
+    assert summary["rediscovered_runs"] == 2
+    assert summary["completed_runs"] == 3
+    assert summary["final_status"] == "stopped"
 
 
 def test_quantum_program_is_inspectable_without_hardware() -> None:

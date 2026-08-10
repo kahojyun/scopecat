@@ -367,13 +367,13 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
             state=state,
         )
 
-    @app.get(f"{_API_PREFIX}/run-stages")
-    def list_run_stages(
+    @app.get(f"{_API_PREFIX}/run-sequences")
+    def list_run_sequences(
         limit: Annotated[int, Query(ge=1, le=500)] = 50,
         before: Annotated[int | None, Query(ge=1)] = None,
         sequence_id: Annotated[str | None, Query(min_length=1)] = None,
     ) -> RunSummaryPage:
-        return application.runs.list_run_stages(
+        return application.runs.list_run_sequences(
             limit=limit,
             before=before,
             sequence_id=sequence_id,

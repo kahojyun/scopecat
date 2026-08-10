@@ -104,7 +104,7 @@ def test_run_stage_query_uses_the_dedicated_typed_endpoint() -> None:
     requests: list[httpx2.Request] = []
     client = _client(requests)
 
-    stages = client.list_run_stages(
+    stages = client.list_run_sequences(
         limit=5,
         before=2,
         sequence_id="adaptive-sequence",
@@ -113,7 +113,7 @@ def test_run_stage_query_uses_the_dedicated_typed_endpoint() -> None:
     assert isinstance(stages, RunSummaryPage)
     [request] = requests
     assert request.method == "GET"
-    assert request.url.path == "/api/v1/run-stages"
+    assert request.url.path == "/api/v1/run-sequences"
     assert dict(request.url.params) == {
         "limit": "5",
         "before": "2",
@@ -561,7 +561,7 @@ def _client(requests: list[httpx2.Request]) -> DaemonClient:
 
 def _client_response(request: httpx2.Request) -> httpx2.Response:
     path = request.url.path
-    if path in {"/api/v1/runs", "/api/v1/run-stages"} and request.method == "GET":
+    if path in {"/api/v1/runs", "/api/v1/run-sequences"} and request.method == "GET":
         return _model(
             RunSummaryPage(
                 items=(

@@ -113,7 +113,7 @@ class FakeRuns:
     def get_run(self, run_id: str) -> RunDetail:
         raise BackendNotFound(f"run was not found: {run_id}")
 
-    def list_run_stages(
+    def list_run_sequences(
         self,
         *,
         limit: int,
@@ -280,7 +280,7 @@ def test_run_stage_query_forwards_sequence_filter() -> None:
     client = TestClient(_create_test_app(backend))
 
     response = client.get(
-        "/api/v1/run-stages",
+        "/api/v1/run-sequences",
         params={"limit": 25, "before": 9, "sequence_id": "adaptive"},
     )
 

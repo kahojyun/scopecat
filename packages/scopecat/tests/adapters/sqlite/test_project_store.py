@@ -52,8 +52,8 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     assert {"run_sequence", "deduplication_key"} <= event_columns
     assert {"renewed_at", "expires_at"} <= instrument_session_columns
     assert {
-        "stage_sequence_id",
-        "stage_index",
+        "run_sequence_id",
+        "sequence_run_index",
         "cancellation_requested_at",
     } <= scheduler_run_columns
 

@@ -33,6 +33,6 @@
     "repeat_mode": "point",
     "traversal": "forward"
   },
-  "stage": null,
+  "sequence": null,
   "metadata": {}
 }

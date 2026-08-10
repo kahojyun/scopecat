@@ -46,7 +46,7 @@ from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunConfigSource,
     RunManifest,
-    RunStageLineage,
+    RunSequenceLineage,
 )
 
 
@@ -99,7 +99,7 @@ class _DaemonRunner:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
-        stage: RunStageLineage | None = None,
+        sequence: RunSequenceLineage | None = None,
         executor_id: str = "notebook",
         submission_id: str | None = None,
     ) -> RunManifest:
@@ -112,7 +112,7 @@ class _DaemonRunner:
             description=description,
             metadata=metadata,
             operator=operator,
-            stage=stage,
+            sequence=sequence,
         )
         return self.execute(
             planned,
@@ -140,7 +140,7 @@ class _DaemonRunner:
             description=description,
             metadata=metadata,
             operator=operator,
-            stage=None,
+            sequence=None,
         )
         return build_run_program_preview(
             planned.program,
@@ -158,7 +158,7 @@ class _DaemonRunner:
         description: str | None,
         metadata: Mapping[str, MetadataValue] | None,
         operator: str | None,
-        stage: RunStageLineage | None,
+        sequence: RunSequenceLineage | None,
     ) -> PlannedRun:
         selected_source = config_source
         if config is None:
@@ -192,11 +192,11 @@ class _DaemonRunner:
             metadata=metadata,
             operator=operator,
         )
-        if stage is None:
+        if sequence is None:
             return planned
         return replace(
             planned,
-            request=planned.request.model_copy(update={"stage": stage}),
+            request=planned.request.model_copy(update={"sequence": sequence}),
         )
 
 

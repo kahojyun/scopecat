@@ -92,7 +92,7 @@ class SQLiteControlPlane:
                 INSERT INTO scheduler_runs(
                     submission_id, run_id, state, updated_at,
                     admission_json, attention_reason, cancellation_requested_at,
-                    stage_sequence_id, stage_index
+                    run_sequence_id, sequence_run_index
                 )
                 VALUES (?, ?, 'queued', ?, ?, NULL, NULL, ?, ?)
                 """,
@@ -101,22 +101,30 @@ class SQLiteControlPlane:
                     admission.run_id,
                     admitted_at,
                     admission.model_dump_json(),
-                    (None if admission.stage is None else admission.stage.sequence_id),
-                    None if admission.stage is None else admission.stage.index,
+                    (
+                        None
+                        if admission.sequence is None
+                        else admission.sequence.sequence_id
+                    ),
+                    (
+                        None
+                        if admission.sequence is None
+                        else admission.sequence.run_index
+                    ),
                 ),
             )
         except sqlite3.IntegrityError as error:
             existing = self._find_admission_conflict(connection, admission)
             if existing is not None:
                 return existing
-            if admission.stage is not None and self._stage_exists(
+            if admission.sequence is not None and self._sequence_run_exists(
                 connection,
-                sequence_id=admission.stage.sequence_id,
-                index=admission.stage.index,
+                sequence_id=admission.sequence.sequence_id,
+                run_index=admission.sequence.run_index,
             ):
                 raise ControlPlaneConflict(
-                    f"staged experiment {admission.stage.sequence_id!r} "
-                    f"already contains index {admission.stage.index}"
+                    f"run sequence {admission.sequence.sequence_id!r} "
+                    f"already contains run index {admission.sequence.run_index}"
                 ) from error
             raise ControlPlaneConflict(
                 "run id or submission id is already admitted"
@@ -261,24 +269,24 @@ class SQLiteControlPlane:
         next_cursor = None if len(rows) <= limit else items[-1].sequence
         return RunPage(items=items, next_cursor=next_cursor)
 
-    def list_staged_runs(
+    def list_sequence_runs(
         self,
         *,
         limit: int = 50,
         before: int | None = None,
         sequence_id: str | None = None,
     ) -> RunPage:
-        """Return newest staged runs, optionally limited to one sequence."""
+        """Return newest sequence runs, optionally limited to one sequence."""
 
         with closing(self._connect()) as connection:
-            return self.list_staged_runs_in_transaction(
+            return self.list_sequence_runs_in_transaction(
                 connection,
                 limit=limit,
                 before=before,
                 sequence_id=sequence_id,
             )
 
-    def list_staged_runs_in_transaction(
+    def list_sequence_runs_in_transaction(
         self,
         connection: sqlite3.Connection,
         *,
@@ -286,7 +294,7 @@ class SQLiteControlPlane:
         before: int | None = None,
         sequence_id: str | None = None,
     ) -> RunPage:
-        """Read one newest-first staged-run page in an existing snapshot."""
+        """Read one newest-first sequence-run page in an existing snapshot."""
 
         _page_size(limit)
         if before is None and sequence_id is None:
@@ -294,7 +302,7 @@ class SQLiteControlPlane:
                 connection.execute(
                     """
                     SELECT * FROM scheduler_runs
-                    WHERE stage_sequence_id IS NOT NULL
+                    WHERE run_sequence_id IS NOT NULL
                     ORDER BY sequence DESC
                     LIMIT ?
                     """,
@@ -306,7 +314,7 @@ class SQLiteControlPlane:
                 connection.execute(
                     """
                     SELECT * FROM scheduler_runs
-                    WHERE stage_sequence_id = ?
+                    WHERE run_sequence_id = ?
                     ORDER BY sequence DESC
                     LIMIT ?
                     """,
@@ -318,7 +326,7 @@ class SQLiteControlPlane:
                 connection.execute(
                     """
                     SELECT * FROM scheduler_runs
-                    WHERE stage_sequence_id IS NOT NULL AND sequence < ?
+                    WHERE run_sequence_id IS NOT NULL AND sequence < ?
                     ORDER BY sequence DESC
                     LIMIT ?
                     """,
@@ -330,7 +338,7 @@ class SQLiteControlPlane:
                 connection.execute(
                     """
                     SELECT * FROM scheduler_runs
-                    WHERE stage_sequence_id = ? AND sequence < ?
+                    WHERE run_sequence_id = ? AND sequence < ?
                     ORDER BY sequence DESC
                     LIMIT ?
                     """,
@@ -1561,20 +1569,20 @@ class SQLiteControlPlane:
         return existing if admission.is_retry_of(existing.admission) else None
 
     @staticmethod
-    def _stage_exists(
+    def _sequence_run_exists(
         connection: sqlite3.Connection,
         *,
         sequence_id: str,
-        index: int,
+        run_index: int,
     ) -> bool:
         return (
             _one(
                 connection.execute(
                     """
                     SELECT 1 FROM scheduler_runs
-                    WHERE stage_sequence_id = ? AND stage_index = ?
+                    WHERE run_sequence_id = ? AND sequence_run_index = ?
                     """,
-                    (sequence_id, index),
+                    (sequence_id, run_index),
                 )
             )
             is not None

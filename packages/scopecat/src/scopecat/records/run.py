@@ -55,8 +55,8 @@ type RunConfigSource = Annotated[
 ]
 
 
-class RunStageDecision(BaseModel):
-    """Durable policy decision that selected one staged run."""
+class RunSequenceDecision(BaseModel):
+    """Durable policy decision that selected one run in a sequence."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -67,7 +67,7 @@ class RunStageDecision(BaseModel):
     checkpoint: Mapping[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def freeze_payloads(self) -> RunStageDecision:
+    def freeze_payloads(self) -> RunSequenceDecision:
         object.__setattr__(self, "decision", freeze_json_mapping(self.decision))
         object.__setattr__(self, "checkpoint", freeze_json_mapping(self.checkpoint))
         return self
@@ -77,32 +77,41 @@ class RunStageDecision(BaseModel):
         return thaw_json_value(value)
 
 
-class RunStageEvent(BaseModel):
-    """Durable sequence decision owned by the run it evaluated."""
+class RunSequenceTransition(BaseModel):
+    """Durable transition owned by the completed run it evaluated."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     sequence_id: str = Field(min_length=1)
-    stage_index: int = Field(ge=0)
+    run_index: int = Field(ge=0)
     ordinal: int = Field(ge=0)
     based_on_run_id: str = Field(min_length=1)
-    status: Literal["proposed", "stopped", "limit", "policy_failed"]
+    status: Literal[
+        "proposed",
+        "stopped",
+        "budget_exhausted",
+        "policy_failed",
+    ]
     next_experiment_id: str | None = Field(default=None, min_length=1)
-    decision: RunStageDecision | None = None
+    decision: RunSequenceDecision | None = None
     details: Mapping[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_event(self) -> RunStageEvent:
+    def validate_event(self) -> RunSequenceTransition:
         if self.status == "proposed" and self.next_experiment_id is None:
-            raise ValueError("proposed stage event requires a next experiment id")
+            raise ValueError(
+                "proposed sequence transition requires a next experiment id"
+            )
         if self.status != "proposed" and (
             self.next_experiment_id is not None or self.decision is not None
         ):
-            raise ValueError("non-proposal stage events cannot select an experiment")
+            raise ValueError(
+                "non-proposal sequence transitions cannot select an experiment"
+            )
         if self.decision is not None and (
             self.decision.based_on_run_id != self.based_on_run_id
         ):
-            raise ValueError("stage event decision must be based on the same run")
+            raise ValueError("sequence transition must be based on the same run")
         object.__setattr__(self, "details", freeze_json_mapping(self.details))
         return self
 
@@ -111,27 +120,28 @@ class RunStageEvent(BaseModel):
         return thaw_json_value(value)
 
 
-class RunStageLineage(BaseModel):
+class RunSequenceLineage(BaseModel):
     """Durable identity of one run within a notebook-driven sequence."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     sequence_id: str = Field(min_length=1)
-    index: int = Field(ge=0)
+    run_index: int = Field(ge=0)
+    max_runs: int = Field(default=10, ge=1)
     previous_run_id: str | None = Field(default=None, min_length=1)
-    decision: RunStageDecision | None = None
+    decision: RunSequenceDecision | None = None
 
     @model_validator(mode="after")
-    def validate_predecessor(self) -> RunStageLineage:
-        if self.index == 0 and self.previous_run_id is not None:
-            raise ValueError("the first run stage cannot have a predecessor")
-        if self.index > 0 and self.previous_run_id is None:
-            raise ValueError("a later run stage requires a predecessor")
+    def validate_predecessor(self) -> RunSequenceLineage:
+        if self.run_index == 0 and self.previous_run_id is not None:
+            raise ValueError("the first sequence run cannot have a predecessor")
+        if self.run_index > 0 and self.previous_run_id is None:
+            raise ValueError("a later sequence run requires a predecessor")
         if (
             self.decision is not None
             and self.decision.based_on_run_id != self.previous_run_id
         ):
-            raise ValueError("stage decision must be based on its predecessor run")
+            raise ValueError("sequence decision must be based on its predecessor run")
         return self
 
 
@@ -148,7 +158,7 @@ class RunManifest(BaseModel):
     outcome: RunOutcome | None = None
     config_content_hash: ConfigContentHash
     config_source: RunConfigSource | None = None
-    stage: RunStageLineage | None = None
+    sequence: RunSequenceLineage | None = None
     contents: tuple[RunContentEntry, ...] = ()
 
     @property

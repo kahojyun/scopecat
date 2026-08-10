@@ -42,14 +42,14 @@ class LabControlOperations:
             state=state,
         )
 
-    def run_stages(
+    def run_sequences(
         self,
         *,
         limit: int = 50,
         before: int | None = None,
         sequence_id: str | None = None,
     ) -> RunSummaryPage:
-        return self.client.list_run_stages(
+        return self.client.list_run_sequences(
             limit=limit,
             before=before,
             sequence_id=sequence_id,

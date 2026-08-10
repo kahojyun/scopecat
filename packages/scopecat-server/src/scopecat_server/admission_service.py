@@ -122,7 +122,7 @@ class AdmissionService:
                     },
                     domain_target=active_config.domain_target,
                 ),
-                stage=submission.request.stage,
+                sequence=submission.request.sequence,
                 admitted_at=skeleton.manifest.created_at,
             )
         except BackendConflict:

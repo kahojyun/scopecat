@@ -29,7 +29,7 @@ from scopecat.control.models import (
     RunPlanSummary,
     RunResourceRequirement,
 )
-from scopecat.records.run import RunStageLineage
+from scopecat.records.run import RunSequenceLineage
 
 NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 SUBMISSION_HASH = "1" * 64
@@ -226,22 +226,22 @@ def test_run_admission_state_and_pagination(tmp_path: Path) -> None:
         )
 
 
-def test_staged_run_query_filters_and_enforces_sequence_index_identity(
+def test_sequence_run_query_filters_and_enforces_index_identity(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path / "control.sqlite3")
     first = _admission("run-a-0").model_copy(
-        update={"stage": RunStageLineage(sequence_id="sequence-a", index=0)}
+        update={"sequence": RunSequenceLineage(sequence_id="sequence-a", run_index=0)}
     )
     unrelated = _admission("run-unrelated")
     other = _admission("run-b-0").model_copy(
-        update={"stage": RunStageLineage(sequence_id="sequence-b", index=0)}
+        update={"sequence": RunSequenceLineage(sequence_id="sequence-b", run_index=0)}
     )
     latest = _admission("run-a-1").model_copy(
         update={
-            "stage": RunStageLineage(
+            "sequence": RunSequenceLineage(
                 sequence_id="sequence-a",
-                index=1,
+                run_index=1,
                 previous_run_id="run-a-0",
             )
         }
@@ -249,24 +249,24 @@ def test_staged_run_query_filters_and_enforces_sequence_index_identity(
     for admission in (first, unrelated, other, latest):
         _admit(store, admission)
 
-    staged = store.list_staged_runs(limit=2)
-    assert [run.run_id for run in staged.items] == ["run-a-1", "run-b-0"]
-    assert staged.next_cursor == staged.items[-1].sequence
+    sequence_runs = store.list_sequence_runs(limit=2)
+    assert [run.run_id for run in sequence_runs.items] == ["run-a-1", "run-b-0"]
+    assert sequence_runs.next_cursor == sequence_runs.items[-1].sequence
     assert [
         run.run_id
-        for run in store.list_staged_runs(
+        for run in store.list_sequence_runs(
             limit=2,
-            before=staged.next_cursor,
+            before=sequence_runs.next_cursor,
         ).items
     ] == ["run-a-0"]
     assert [
-        run.run_id for run in store.list_staged_runs(sequence_id="sequence-a").items
+        run.run_id for run in store.list_sequence_runs(sequence_id="sequence-a").items
     ] == ["run-a-1", "run-a-0"]
 
     duplicate = _admission("run-a-duplicate").model_copy(
-        update={"stage": RunStageLineage(sequence_id="sequence-a", index=0)}
+        update={"sequence": RunSequenceLineage(sequence_id="sequence-a", run_index=0)}
     )
-    with pytest.raises(ControlPlaneConflict, match="already contains index 0"):
+    with pytest.raises(ControlPlaneConflict, match="already contains run index 0"):
         _admit(store, duplicate)
 
 

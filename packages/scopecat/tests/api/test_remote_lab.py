@@ -14,11 +14,11 @@ from pydantic import BaseModel
 import scopecat.api._runner as runner_module
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.lab import (
-    ExperimentStage,
     LabClient,
     PreparedLabExperiment,
-    StagedExperiment,
-    StageProposal,
+    RunSequence,
+    SequenceProposal,
+    SequenceRun,
 )
 from scopecat.api.run import RunHandle
 from scopecat.config.drafts import ConfigDraft
@@ -87,9 +87,9 @@ from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunManifest,
-    RunStageDecision,
-    RunStageEvent,
-    RunStageLineage,
+    RunSequenceDecision,
+    RunSequenceLineage,
+    RunSequenceTransition,
 )
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.data import RunArtifactJsonResult
@@ -104,10 +104,10 @@ from tests.testkit.workflow_fixtures import (
 )
 
 
-def _capture_stage_events(
+def _capture_sequence_transitions(
     monkeypatch: pytest.MonkeyPatch,
-) -> list[RunStageEvent]:
-    events: list[RunStageEvent] = []
+) -> list[RunSequenceTransition]:
+    events: list[RunSequenceTransition] = []
 
     def attach(
         _run: RunHandle,
@@ -115,16 +115,16 @@ def _capture_stage_events(
         **kwargs: object,
     ) -> RunContentEntry:
         assert not args
-        assert kwargs["kind"] == "stage-sequence-event"
+        assert kwargs["kind"] == "run-sequence-transition"
         text = kwargs["text"]
         key = kwargs["key"]
         assert isinstance(text, str)
         assert isinstance(key, str)
-        events.append(RunStageEvent.model_validate_json(text))
+        events.append(RunSequenceTransition.model_validate_json(text))
         return RunContentEntry(
             role="artifact",
             id=key,
-            kind="stage-sequence-event",
+            kind="run-sequence-transition",
             content_hash="sha256:" + "0" * 64,
         )
 
@@ -269,10 +269,10 @@ def test_lab_preview_and_run_are_direct_prepare_shortcuts(
     ]
 
 
-def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
+def test_lab_sequence_uses_one_config_and_records_durable_lineage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    persisted_events = _capture_stage_events(monkeypatch)
+    persisted_events = _capture_sequence_transitions(monkeypatch)
     config = load_config()
     source = ConfigRegistryRunConfigSource(
         selector="active",
@@ -309,7 +309,7 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
         execute_calls.append((invocation, kwargs))
         return RunHandle(session=lab, id=f"run-{len(execute_calls)}")
 
-    def staged_manifests(
+    def sequence_manifests(
         _lab: LabClient,
         *,
         sequence_id: str | None = None,
@@ -319,40 +319,40 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
 
     monkeypatch.setattr(LabClient, "prepare", prepare)
     monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
-    monkeypatch.setattr(LabClient, "_staged_manifests", staged_manifests)
-    stage_dataset = object()
+    monkeypatch.setattr(LabClient, "_sequence_manifests", sequence_manifests)
+    sequence_dataset = object()
 
     def measurements(
         _run: RunHandle,
         *,
         selector: str = "raw-measurements",
     ) -> object | None:
-        return stage_dataset if selector == "raw-measurements" else None
+        return sequence_dataset if selector == "raw-measurements" else None
 
     monkeypatch.setattr(
         RunHandle,
         "measurements",
         measurements,
     )
-    stages: list[ExperimentStage] = []
+    sequence_runs: list[SequenceRun] = []
 
-    def choose_next(stage: ExperimentStage):
-        assert stage.measurements() is stage_dataset
-        stages.append(stage)
-        if stage.index == 2:
+    def choose_next(sequence_run: SequenceRun):
+        assert sequence_run.measurements() is sequence_dataset
+        sequence_runs.append(sequence_run)
+        if sequence_run.run_index == 2:
             return None
-        return StageProposal(
-            experiment=invocations[stage.index + 1],
+        return SequenceProposal(
+            experiment=invocations[sequence_run.run_index + 1],
             policy_id="adaptive-threshold",
             policy_version="1",
-            decision={"selected_index": stage.index + 1},
-            checkpoint={"completed": stage.index + 1},
+            decision={"selected_index": sequence_run.run_index + 1},
+            checkpoint={"completed": sequence_run.run_index + 1},
         )
 
-    result = lab.run_staged(
+    result = lab.run_sequence(
         invocations[0],
-        next_stage=choose_next,
-        max_stages=5,
+        next_run=choose_next,
+        max_runs=5,
         sequence_id="adaptive-sequence",
         config="active",
         metadata={"campaign": "notebook-demo"},
@@ -365,30 +365,30 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
         kwargs["config_source"] == source for _invocation, kwargs in execute_calls
     )
     assert [run.id for run in result.runs] == ["run-1", "run-2", "run-3"]
-    assert not result.stopped_by_limit
     assert result.status == "stopped"
-    assert result.events == tuple(persisted_events)
-    assert [event.status for event in result.events] == [
+    assert result.transitions == tuple(persisted_events)
+    assert [event.status for event in result.transitions] == [
         "proposed",
         "proposed",
         "stopped",
     ]
     assert result.latest is result.runs[-1]
-    assert stages[0].previous_run is None
-    assert stages[1].previous_run is result.runs[0]
-    assert stages[2].history == result.runs
+    assert sequence_runs[0].previous_run is None
+    assert sequence_runs[1].previous_run is result.runs[0]
+    assert sequence_runs[2].history == result.runs
     assert [kwargs["metadata"] for _invocation, kwargs in execute_calls] == [
         {"campaign": "notebook-demo"},
     ] * 3
-    assert [kwargs["stage"] for _invocation, kwargs in execute_calls] == [
-        RunStageLineage(
+    assert [kwargs["sequence"] for _invocation, kwargs in execute_calls] == [
+        RunSequenceLineage(
             sequence_id="adaptive-sequence",
-            index=index,
+            run_index=index,
+            max_runs=5,
             previous_run_id=None if index == 0 else f"run-{index}",
             decision=(
                 None
                 if index == 0
-                else RunStageDecision(
+                else RunSequenceDecision(
                     policy_id="adaptive-threshold",
                     policy_version="1",
                     based_on_run_id=f"run-{index}",
@@ -400,30 +400,55 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
         for index in range(3)
     ]
     assert [kwargs["submission_id"] for _invocation, kwargs in execute_calls] == [
-        f"staged:adaptive-sequence:{index}" for index in range(3)
+        f"sequence:adaptive-sequence:{index}" for index in range(3)
     ]
 
-    limited = lab.run_staged(
+    limited = lab.run_sequence(
         invocations[0],
-        next_stage=lambda _stage: invocations[0],
-        max_stages=2,
+        next_run=lambda _run: invocations[0],
+        max_runs=4,
+        max_new_runs=2,
     )
 
-    assert len(limited.stages) == 2
-    assert limited.stopped_by_limit
-    assert limited.status == "paused"
+    assert len(limited.sequence_runs) == 2
+    assert limited.status == "awaiting_decision"
+
+    exhausted = lab.run_sequence(
+        invocations[0],
+        next_run=lambda _run: pytest.fail("budget must stop before policy callback"),
+        max_runs=1,
+    )
+
+    assert len(exhausted.sequence_runs) == 1
+    assert exhausted.status == "budget_exhausted"
+    assert exhausted.is_terminal
+    assert [transition.status for transition in exhausted.transitions] == [
+        "budget_exhausted"
+    ]
+    exhausted_lineage = execute_calls[-1][1]["sequence"]
+    assert isinstance(exhausted_lineage, RunSequenceLineage)
+    assert exhausted_lineage.max_runs == 1
+
     with pytest.raises(ValueError, match="sequence_id must be non-empty"):
-        lab.run_staged(
+        lab.run_sequence(
             invocations[0],
-            next_stage=lambda _stage: None,
+            next_run=lambda _run: None,
             sequence_id="",
+        )
+    with pytest.raises(ValueError, match="max_runs must be positive"):
+        lab.run_sequence(invocations[0], next_run=lambda _run: None, max_runs=0)
+    with pytest.raises(ValueError, match="max_new_runs must be positive"):
+        lab.run_sequence(
+            invocations[0],
+            next_run=lambda _run: None,
+            max_new_runs=0,
         )
 
 
 def test_lab_records_policy_failure_on_the_evaluated_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    persisted_events = _capture_stage_events(monkeypatch)
+    persisted_events = _capture_sequence_transitions(monkeypatch)
     invocation = load_invocation()
     lab = object.__new__(LabClient)
     prepared = PreparedLabExperiment(
@@ -448,7 +473,7 @@ def test_lab_records_policy_failure_on_the_evaluated_run(
     ) -> RunHandle:
         return RunHandle(session=lab, id="run-policy-failure")
 
-    def staged_manifests(
+    def sequence_manifests(
         _lab: LabClient,
         *,
         sequence_id: str | None = None,
@@ -458,16 +483,16 @@ def test_lab_records_policy_failure_on_the_evaluated_run(
 
     monkeypatch.setattr(LabClient, "prepare", prepare)
     monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
-    monkeypatch.setattr(LabClient, "_staged_manifests", staged_manifests)
+    monkeypatch.setattr(LabClient, "_sequence_manifests", sequence_manifests)
 
-    def fail_policy(_stage: ExperimentStage):
+    def fail_policy(_run: SequenceRun):
         raise RuntimeError("optimizer failed")
 
     with pytest.raises(RuntimeError, match="optimizer failed"):
-        lab.run_staged(
+        lab.run_sequence(
             invocation,
-            next_stage=fail_policy,
-            max_stages=2,
+            next_run=fail_policy,
+            max_runs=2,
             sequence_id="failed-sequence",
         )
 
@@ -475,33 +500,33 @@ def test_lab_records_policy_failure_on_the_evaluated_run(
     assert persisted_events[0].details == {"exception_type": "builtins.RuntimeError"}
 
 
-def test_lab_rediscovers_staged_experiments_across_run_pages() -> None:
+def test_lab_rediscovers_run_sequences_across_run_pages() -> None:
     config_hash = config_content_hash(load_config())
     new_first = RunManifest(
         run_id="run-new-0",
         config_content_hash=config_hash,
-        stage=RunStageLineage(sequence_id="new-sequence", index=0),
+        sequence=RunSequenceLineage(sequence_id="new-sequence", run_index=0),
     )
     new_latest = RunManifest(
         run_id="run-new-1",
         config_content_hash=config_hash,
-        stage=RunStageLineage(
+        sequence=RunSequenceLineage(
             sequence_id="new-sequence",
-            index=1,
+            run_index=1,
             previous_run_id=new_first.run_id,
         ),
     )
     old_first = RunManifest(
         run_id="run-old-0",
         config_content_hash=config_hash,
-        stage=RunStageLineage(sequence_id="old-sequence", index=0),
+        sequence=RunSequenceLineage(sequence_id="old-sequence", run_index=0),
     )
     old_latest = RunManifest(
         run_id="run-old-1",
         config_content_hash=config_hash,
-        stage=RunStageLineage(
+        sequence=RunSequenceLineage(
             sequence_id="old-sequence",
-            index=1,
+            run_index=1,
             previous_run_id=old_first.run_id,
         ),
     )
@@ -509,7 +534,7 @@ def test_lab_rediscovers_staged_experiments_across_run_pages() -> None:
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        assert request.url.path == "/api/v1/run-stages"
+        assert request.url.path == "/api/v1/run-sequences"
         before = request.url.params.get("before")
         if before is None:
             return _model(
@@ -531,7 +556,7 @@ def test_lab_rediscovers_staged_experiments_across_run_pages() -> None:
 
     lab = LabClient(_client(handler))
 
-    experiments = lab.staged_experiments()
+    experiments = lab.run_sequences()
 
     assert [item.sequence_id for item in experiments] == [
         "new-sequence",
@@ -541,45 +566,49 @@ def test_lab_rediscovers_staged_experiments_across_run_pages() -> None:
         ["run-new-0", "run-new-1"],
         ["run-old-0", "run-old-1"],
     ]
-    assert experiments[0].stages[1].previous_run is experiments[0].runs[0]
+    assert experiments[0].sequence_runs[1].previous_run is experiments[0].runs[0]
     assert [dict(request.url.params) for request in requests] == [
         {"limit": "500"},
         {"limit": "500", "before": "4"},
     ]
 
 
-def test_lab_rediscovers_durable_staged_status() -> None:
+def test_lab_rediscovers_durable_sequence_status() -> None:
     sequence_id = "durable-status"
     run_id = "run-durable-status"
-    event = RunStageEvent(
+    event = RunSequenceTransition(
         sequence_id=sequence_id,
-        stage_index=0,
+        run_index=0,
         ordinal=0,
         based_on_run_id=run_id,
-        status="limit",
-        details={"max_stages": 1},
+        status="budget_exhausted",
+        details={"max_runs": 1},
     )
     artifact = RunContentEntry(
         role="artifact",
-        id="stage-event-0-0",
-        kind="stage-sequence-event",
+        id="sequence-transition-0-0",
+        kind="run-sequence-transition",
         media_type="application/json",
         content_hash="sha256:" + "1" * 64,
     )
     manifest = RunManifest(
         run_id=run_id,
         config_content_hash=config_content_hash(load_config()),
-        stage=RunStageLineage(sequence_id=sequence_id, index=0),
+        sequence=RunSequenceLineage(
+            sequence_id=sequence_id,
+            run_index=0,
+            max_runs=1,
+        ),
         contents=(artifact,),
     )
 
     def handler(request: httpx2.Request) -> httpx2.Response:
-        if request.url.path == "/api/v1/run-stages":
+        if request.url.path == "/api/v1/run-sequences":
             return _model(RunSummaryPage(items=(_run_summary(manifest, sequence=1),)))
         assert request.url.path == (
             f"/api/v1/runs/{run_id}/artifacts/{artifact.id}/json"
         )
-        assert request.url.params["expected_kind"] == "stage-sequence-event"
+        assert request.url.params["expected_kind"] == "run-sequence-transition"
         return _model(
             RunArtifactJsonResult(
                 artifact=artifact,
@@ -587,23 +616,22 @@ def test_lab_rediscovers_durable_staged_status() -> None:
             )
         )
 
-    rediscovered = LabClient(_client(handler)).get_staged_experiment(sequence_id)
+    rediscovered = LabClient(_client(handler)).get_run_sequence(sequence_id)
 
-    assert rediscovered.events == (event,)
-    assert rediscovered.status == "paused"
-    assert rediscovered.stopped_by_limit is True
+    assert rediscovered.transitions == (event,)
+    assert rediscovered.status == "budget_exhausted"
 
 
-def test_lab_rejects_starting_an_existing_staged_sequence() -> None:
+def test_lab_rejects_starting_an_existing_run_sequence() -> None:
     config_hash = config_content_hash(load_config())
     existing = RunManifest(
         run_id="run-existing-0",
         config_content_hash=config_hash,
-        stage=RunStageLineage(sequence_id="existing-sequence", index=0),
+        sequence=RunSequenceLineage(sequence_id="existing-sequence", run_index=0),
     )
 
     def handler(request: httpx2.Request) -> httpx2.Response:
-        assert request.url.path == "/api/v1/run-stages"
+        assert request.url.path == "/api/v1/run-sequences"
         assert dict(request.url.params) == {
             "limit": "500",
             "sequence_id": "existing-sequence",
@@ -612,27 +640,27 @@ def test_lab_rejects_starting_an_existing_staged_sequence() -> None:
 
     lab = LabClient(_client(handler))
 
-    with pytest.raises(ValueError, match="use resume_staged"):
-        lab.run_staged(
+    with pytest.raises(ValueError, match="use resume_sequence"):
+        lab.run_sequence(
             load_invocation(),
-            next_stage=lambda _stage: None,
+            next_run=lambda _run: None,
             sequence_id="existing-sequence",
         )
 
 
-def test_lab_get_staged_experiment_rejects_missing_and_broken_sequences() -> None:
+def test_lab_get_run_sequence_rejects_missing_and_broken_sequences() -> None:
     config_hash = config_content_hash(load_config())
     first = RunManifest(
         run_id="run-broken-0",
         config_content_hash=config_hash,
-        stage=RunStageLineage(sequence_id="broken", index=0),
+        sequence=RunSequenceLineage(sequence_id="broken", run_index=0),
     )
     broken = RunManifest(
         run_id="run-broken-1",
         config_content_hash=config_hash,
-        stage=RunStageLineage(
+        sequence=RunSequenceLineage(
             sequence_id="broken",
-            index=1,
+            run_index=1,
             previous_run_id="run-wrong",
         ),
     )
@@ -641,25 +669,25 @@ def test_lab_get_staged_experiment_rejects_missing_and_broken_sequences() -> Non
     )
 
     def handler(request: httpx2.Request) -> httpx2.Response:
-        assert request.url.path == "/api/v1/run-stages"
+        assert request.url.path == "/api/v1/run-sequences"
         assert request.url.params["sequence_id"] == "broken"
         return _model(page)
 
     lab = LabClient(_client(handler))
 
     with pytest.raises(ValueError, match="broken predecessor"):
-        lab.get_staged_experiment("broken")
+        lab.get_run_sequence("broken")
 
     empty = LabClient(_client(lambda _request: _model(RunSummaryPage())))
-    assert empty.staged_experiments() == ()
+    assert empty.run_sequences() == ()
     with pytest.raises(KeyError, match="not found"):
-        empty.get_staged_experiment("missing")
+        empty.get_run_sequence("missing")
 
 
-def test_lab_resumes_latest_stage_with_durable_context(
+def test_lab_resumes_latest_run_with_durable_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    persisted_events = _capture_stage_events(monkeypatch)
+    persisted_events = _capture_sequence_transitions(monkeypatch)
     config = load_config()
     source = ConfigRegistryRunConfigSource(
         selector="active",
@@ -673,7 +701,7 @@ def test_lab_resumes_latest_stage_with_durable_context(
             run_id="run-resume-0",
             config_content_hash=source.content_hash,
             config_source=source,
-            stage=RunStageLineage(sequence_id="resume-sequence", index=0),
+            sequence=RunSequenceLineage(sequence_id="resume-sequence", run_index=0),
         )
     )
     latest = _terminal_manifest(
@@ -681,9 +709,9 @@ def test_lab_resumes_latest_stage_with_durable_context(
             run_id="run-resume-1",
             config_content_hash=source.content_hash,
             config_source=source,
-            stage=RunStageLineage(
+            sequence=RunSequenceLineage(
                 sequence_id="resume-sequence",
-                index=1,
+                run_index=1,
                 previous_run_id=first.run_id,
             ),
         )
@@ -692,12 +720,12 @@ def test_lab_resumes_latest_stage_with_durable_context(
         experiment_id="test.workflow_scan",
         operator="alice",
         metadata={"campaign": "persisted"},
-        stage=latest.stage,
+        sequence=latest.sequence,
     )
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
-        if path == "/api/v1/run-stages":
+        if path == "/api/v1/run-sequences":
             assert request.url.params["sequence_id"] == "resume-sequence"
             return _model(
                 RunSummaryPage(
@@ -735,37 +763,40 @@ def test_lab_resumes_latest_stage_with_durable_context(
         return RunHandle(session=lab, id=f"run-resume-{len(execute_calls) + 1}")
 
     monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
-    callback_stages: list[ExperimentStage] = []
+    callback_runs: list[SequenceRun] = []
 
-    def choose_next(stage: ExperimentStage):
-        callback_stages.append(stage)
-        return None if stage.index == 3 else invocations[stage.index - 1]
+    def choose_next(sequence_run: SequenceRun):
+        callback_runs.append(sequence_run)
+        return (
+            None
+            if sequence_run.run_index == 3
+            else invocations[sequence_run.run_index - 1]
+        )
 
-    resumed = lab.resume_staged(
+    resumed = lab.resume_sequence(
         "resume-sequence",
-        next_stage=choose_next,
-        max_stages=4,
+        next_run=choose_next,
+        max_new_runs=4,
     )
 
-    assert [stage.index for stage in callback_stages] == [1, 2, 3]
+    assert [sequence_run.run_index for sequence_run in callback_runs] == [1, 2, 3]
     assert [run.id for run in resumed.runs] == [
         "run-resume-0",
         "run-resume-1",
         "run-resume-2",
         "run-resume-3",
     ]
-    assert not resumed.stopped_by_limit
     assert resumed.status == "stopped"
-    assert resumed.events == tuple(persisted_events)
-    assert [kwargs["stage"] for _invocation, kwargs in execute_calls] == [
-        RunStageLineage(
+    assert resumed.transitions == tuple(persisted_events)
+    assert [kwargs["sequence"] for _invocation, kwargs in execute_calls] == [
+        RunSequenceLineage(
             sequence_id="resume-sequence",
-            index=2,
+            run_index=2,
             previous_run_id="run-resume-1",
         ),
-        RunStageLineage(
+        RunSequenceLineage(
             sequence_id="resume-sequence",
-            index=3,
+            run_index=3,
             previous_run_id="run-resume-2",
         ),
     ]
@@ -777,10 +808,10 @@ def test_lab_resumes_latest_stage_with_durable_context(
     assert all(kwargs["operator"] == "alice" for _, kwargs in execute_calls)
 
 
-def test_staged_limit_defers_latest_callback_until_resume(
+def test_call_limit_defers_latest_callback_until_resume(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    persisted_events = _capture_stage_events(monkeypatch)
+    persisted_events = _capture_sequence_transitions(monkeypatch)
     config = load_config()
     source = ConfigRegistryRunConfigSource(
         selector="active",
@@ -794,7 +825,11 @@ def test_staged_limit_defers_latest_callback_until_resume(
             run_id="run-limit-0",
             config_content_hash=source.content_hash,
             config_source=source,
-            stage=RunStageLineage(sequence_id="limit-sequence", index=0),
+            sequence=RunSequenceLineage(
+                sequence_id="limit-sequence",
+                run_index=0,
+                max_runs=4,
+            ),
         )
     )
     latest = _terminal_manifest(
@@ -802,9 +837,10 @@ def test_staged_limit_defers_latest_callback_until_resume(
             run_id="run-limit-1",
             config_content_hash=source.content_hash,
             config_source=source,
-            stage=RunStageLineage(
+            sequence=RunSequenceLineage(
                 sequence_id="limit-sequence",
-                index=1,
+                run_index=1,
+                max_runs=4,
                 previous_run_id=first.run_id,
             ),
         )
@@ -812,12 +848,12 @@ def test_staged_limit_defers_latest_callback_until_resume(
     latest_request = RunRequest(
         operator="alice",
         metadata={"campaign": "limited"},
-        stage=latest.stage,
+        sequence=latest.sequence,
     )
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
-        if path == "/api/v1/run-stages":
+        if path == "/api/v1/run-sequences":
             assert request.url.params["sequence_id"] == "limit-sequence"
             return _model(RunSummaryPage())
         if path == f"/api/v1/runs/{latest.run_id}":
@@ -867,58 +903,67 @@ def test_staged_limit_defers_latest_callback_until_resume(
     monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
     callback_indices: list[int] = []
 
-    def choose_next(stage: ExperimentStage):
-        callback_indices.append(stage.index)
+    def choose_next(sequence_run: SequenceRun):
+        callback_indices.append(sequence_run.run_index)
         return invocation
 
-    limited = lab.run_staged(
+    limited = lab.run_sequence(
         invocation,
-        next_stage=choose_next,
-        max_stages=2,
+        next_run=choose_next,
+        max_runs=4,
+        max_new_runs=2,
         sequence_id="limit-sequence",
     )
 
     assert callback_indices == [0]
-    assert [stage.index for stage in limited.stages] == [0, 1]
-    assert limited.stopped_by_limit
-    assert limited.status == "paused"
+    assert [sequence_run.run_index for sequence_run in limited.sequence_runs] == [0, 1]
+    assert limited.status == "awaiting_decision"
 
-    def get_staged_experiment(
+    def get_run_sequence(
         _lab: LabClient,
         _sequence_id: str,
-    ) -> StagedExperiment:
+    ) -> RunSequence:
         return limited
 
-    monkeypatch.setattr(LabClient, "get_staged_experiment", get_staged_experiment)
-    resumed = lab.resume_staged(
+    monkeypatch.setattr(LabClient, "get_run_sequence", get_run_sequence)
+    resumed = lab.resume_sequence(
         "limit-sequence",
-        next_stage=choose_next,
-        max_stages=1,
+        next_run=choose_next,
+        max_new_runs=1,
     )
 
     assert callback_indices == [0, 1]
-    assert [stage.index for stage in resumed.stages] == [0, 1, 2]
-    assert resumed.stopped_by_limit
-    assert resumed.status == "paused"
-    assert resumed.events == tuple(persisted_events)
-    assert [event.ordinal for event in resumed.events] == [0, 0, 1, 0]
-    assert [call["stage"] for call in execute_calls] == [
-        RunStageLineage(sequence_id="limit-sequence", index=0),
-        RunStageLineage(
+    assert [sequence_run.run_index for sequence_run in resumed.sequence_runs] == [
+        0,
+        1,
+        2,
+    ]
+    assert resumed.status == "awaiting_decision"
+    assert resumed.transitions == tuple(persisted_events)
+    assert [event.ordinal for event in resumed.transitions] == [0, 0]
+    assert [call["sequence"] for call in execute_calls] == [
+        RunSequenceLineage(
             sequence_id="limit-sequence",
-            index=1,
+            run_index=0,
+            max_runs=4,
+        ),
+        RunSequenceLineage(
+            sequence_id="limit-sequence",
+            run_index=1,
+            max_runs=4,
             previous_run_id="run-limit-0",
         ),
-        RunStageLineage(
+        RunSequenceLineage(
             sequence_id="limit-sequence",
-            index=2,
+            run_index=2,
+            max_runs=4,
             previous_run_id="run-limit-1",
         ),
     ]
     assert [call["submission_id"] for call in execute_calls] == [
-        "staged:limit-sequence:0",
-        "staged:limit-sequence:1",
-        "staged:limit-sequence:2",
+        "sequence:limit-sequence:0",
+        "sequence:limit-sequence:1",
+        "sequence:limit-sequence:2",
     ]
 
 
@@ -1378,7 +1423,7 @@ def test_run_invocation_plans_against_explicit_snapshot_without_local_storage(
     catalog = _instrument_catalog(config)
     system = ExperimentSystem(instrument_catalog=catalog)
     captured: dict[str, object] = {}
-    stage = RunStageLineage(sequence_id="scratch-sequence", index=0)
+    sequence_run = RunSequenceLineage(sequence_id="scratch-sequence", run_index=0)
 
     def execute_run(
         self: _DaemonRunner,
@@ -1420,7 +1465,7 @@ def test_run_invocation_plans_against_explicit_snapshot_without_local_storage(
         description="fit one trace",
         metadata={"sample": "q0"},
         operator="alice",
-        stage=stage,
+        sequence=sequence_run,
         executor_id="notebook-1",
         submission_id="scratch-submission",
     )
@@ -1429,7 +1474,7 @@ def test_run_invocation_plans_against_explicit_snapshot_without_local_storage(
     assert isinstance(planned, PlannedRun)
     assert planned.config == config
     assert planned.request.operator == "alice"
-    assert planned.request.stage == stage
+    assert planned.request.sequence == sequence_run
     assert planned.request.display_name == "scratch fit"
     assert planned.request.tags == ("calibration", "demo")
     assert planned.request.description == "fit one trace"

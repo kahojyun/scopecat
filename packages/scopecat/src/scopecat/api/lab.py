@@ -27,9 +27,9 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import (
     RunConfigSource,
     RunManifest,
-    RunStageDecision,
-    RunStageEvent,
-    RunStageLineage,
+    RunSequenceDecision,
+    RunSequenceLineage,
+    RunSequenceTransition,
 )
 from scopecat.runs.selectors import RunSelector
 
@@ -38,96 +38,105 @@ _RUN_PAGE_SIZE = 500
 
 
 @dataclass(frozen=True, slots=True)
-class ExperimentStage:
-    """One durable run in a notebook-driven staged experiment."""
+class SequenceRun:
+    """One durable run in a policy-controlled linear sequence."""
 
     sequence_id: str
-    index: int
+    run_index: int
     run: RunHandle
     history: tuple[RunHandle, ...]
 
     @property
     def previous_run(self) -> RunHandle | None:
-        return None if self.index == 0 else self.history[-2]
+        return None if self.run_index == 0 else self.history[-2]
 
     @property
-    def decision(self) -> RunStageDecision | None:
-        """Return the durable policy decision that selected this stage."""
+    def decision(self) -> RunSequenceDecision | None:
+        """Return the durable policy decision that selected this run."""
 
-        lineage = self.run.manifest.stage
+        lineage = self.run.manifest.sequence
         return None if lineage is None else lineage.decision
 
     def measurements(self, *, selector: str = "raw-measurements") -> Dataset:
-        """Load this completed stage's labeled measurement dataset."""
+        """Load this completed run's labeled measurement dataset."""
 
         return self.run.measurements(selector=selector)
 
 
-def _empty_stage_metadata() -> dict[str, MetadataValue]:
+def _empty_sequence_metadata() -> dict[str, MetadataValue]:
     return {}
 
 
 @dataclass(frozen=True, slots=True)
-class StageProposal:
+class SequenceProposal:
     """One next invocation plus durable adaptive-policy state."""
 
     experiment: ExperimentSpec
     policy_id: str
     policy_version: str
-    decision: Mapping[str, MetadataValue] = field(default_factory=_empty_stage_metadata)
+    decision: Mapping[str, MetadataValue] = field(
+        default_factory=_empty_sequence_metadata
+    )
     checkpoint: Mapping[str, MetadataValue] = field(
-        default_factory=_empty_stage_metadata
+        default_factory=_empty_sequence_metadata
     )
 
     def __post_init__(self) -> None:
         if not self.policy_id or not self.policy_version:
-            raise ValueError("stage policy id and version must be non-empty")
+            raise ValueError("sequence policy id and version must be non-empty")
         object.__setattr__(self, "decision", freeze_json_mapping(self.decision))
         object.__setattr__(self, "checkpoint", freeze_json_mapping(self.checkpoint))
 
 
-type NextExperimentStage = Callable[
-    [ExperimentStage], ExperimentSpec | StageProposal | None
-]
+type NextSequenceRun = Callable[[SequenceRun], ExperimentSpec | SequenceProposal | None]
 
 
 @dataclass(frozen=True, slots=True)
-class StagedExperiment:
-    """Durable runs belonging to one staged notebook sequence."""
+class RunSequence:
+    """Durable runs and transitions in one linear sequence."""
 
     sequence_id: str
-    stages: tuple[ExperimentStage, ...]
-    events: tuple[RunStageEvent, ...] = ()
-    stopped_by_limit: bool | None = None
+    sequence_runs: tuple[SequenceRun, ...]
+    transitions: tuple[RunSequenceTransition, ...] = ()
 
     @property
     def runs(self) -> tuple[RunHandle, ...]:
-        return tuple(stage.run for stage in self.stages)
+        return tuple(sequence_run.run for sequence_run in self.sequence_runs)
 
     @property
     def latest(self) -> RunHandle:
-        return self.stages[-1].run
+        return self.sequence_runs[-1].run
 
     @property
-    def status(self) -> Literal["active", "proposed", "stopped", "paused", "failed"]:
-        if not self.events:
-            return "active"
-        match self.events[-1].status:
-            case "proposed":
-                return "proposed"
-            case "stopped":
-                return "stopped"
-            case "limit":
-                return "paused"
-            case "policy_failed":
-                return "failed"
+    def status(
+        self,
+    ) -> Literal[
+        "awaiting_decision",
+        "proposed",
+        "stopped",
+        "budget_exhausted",
+        "policy_failed",
+    ]:
+        latest_index = self.sequence_runs[-1].run_index
+        latest_transitions = tuple(
+            transition
+            for transition in self.transitions
+            if transition.run_index == latest_index
+        )
+        if not latest_transitions:
+            return "awaiting_decision"
+        return latest_transitions[-1].status
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in {"stopped", "budget_exhausted"}
 
 
 @dataclass(frozen=True, slots=True)
-class _StageEvaluation:
+class _SequenceEvaluation:
     invocation: ExperimentInvocation | None
-    decision: RunStageDecision | None
-    event: RunStageEvent
+    decision: RunSequenceDecision | None
+    transition: RunSequenceTransition
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,28 +256,28 @@ class LabClient:
             for item in self._control.runs().items
         )
 
-    def staged_experiments(self) -> tuple[StagedExperiment, ...]:
-        """Rediscover durable staged experiments, newest sequence first."""
+    def run_sequences(self) -> tuple[RunSequence, ...]:
+        """Rediscover durable run sequences, newest sequence first."""
 
         grouped: dict[str, list[RunManifest]] = {}
-        for manifest in self._staged_manifests():
-            lineage = manifest.stage
+        for manifest in self._sequence_manifests():
+            lineage = manifest.sequence
             assert lineage is not None
             grouped.setdefault(lineage.sequence_id, []).append(manifest)
         return tuple(
-            self._staged_experiment(sequence_id, manifests)
+            self._run_sequence(sequence_id, manifests)
             for sequence_id, manifests in grouped.items()
         )
 
-    def get_staged_experiment(self, sequence_id: str) -> StagedExperiment:
-        """Load one durable staged experiment by its sequence identity."""
+    def get_run_sequence(self, sequence_id: str) -> RunSequence:
+        """Load one durable run sequence by its sequence identity."""
 
         if not sequence_id:
             raise ValueError("sequence_id must be non-empty")
-        manifests = self._staged_manifests(sequence_id=sequence_id)
+        manifests = self._sequence_manifests(sequence_id=sequence_id)
         if not manifests:
-            raise KeyError(f"staged experiment not found: {sequence_id}")
-        return self._staged_experiment(sequence_id, list(manifests))
+            raise KeyError(f"run sequence not found: {sequence_id}")
+        return self._run_sequence(sequence_id, list(manifests))
 
     def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
         run_id = run_handle_id(run)
@@ -338,12 +347,13 @@ class LabClient:
             operator=operator,
         )
 
-    def run_staged(
+    def run_sequence(
         self,
         experiment: ExperimentSpec,
         *,
-        next_stage: NextExperimentStage,
-        max_stages: int = 10,
+        next_run: NextSequenceRun,
+        max_runs: int = 10,
+        max_new_runs: int | None = None,
         sequence_id: str | None = None,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         name: str | None = None,
@@ -351,41 +361,40 @@ class LabClient:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
-    ) -> StagedExperiment:
-        """Run a bounded sequence whose next point domain uses prior results.
+    ) -> RunSequence:
+        """Run a durable linear sequence whose next run uses prior results.
 
-        Each stage is an ordinary durable run. The callback receives its
-        completed :class:`ExperimentStage` and returns the next invocation, or
-        ``None`` to finish. All stages use one resolved configuration snapshot
-        and carry explicit typed sequence lineage in their request and manifest.
-        When ``max_stages`` is reached, the callback is not called for the
-        final completed stage; resuming calls it with that latest stage.
+        Each sequence run is an ordinary durable run. The callback receives its
+        completed :class:`SequenceRun` and returns the next invocation, or
+        ``None`` to finish. ``max_runs`` is the persistent scientific budget.
+        ``max_new_runs`` optionally limits work performed by this call without
+        changing that budget.
         """
 
-        if max_stages < 1:
-            raise ValueError("max_stages must be positive")
+        _validate_run_budget(max_runs=max_runs, max_new_runs=max_new_runs)
         selected_sequence_id = uuid4().hex if sequence_id is None else sequence_id
         if not selected_sequence_id:
             raise ValueError("sequence_id must be non-empty")
-        if sequence_id is not None and self._staged_manifests(
+        if sequence_id is not None and self._sequence_manifests(
             sequence_id=selected_sequence_id
         ):
             raise ValueError(
-                f"staged experiment already exists: {selected_sequence_id}; "
-                "use resume_staged()"
+                f"run sequence already exists: {selected_sequence_id}; "
+                "use resume_sequence()"
             )
 
         prepared = self.prepare(experiment, config=config)
-        return self._execute_staged(
+        return self._execute_sequence(
             sequence_id=selected_sequence_id,
             current=prepared.invocation,
             current_decision=None,
-            next_stage=next_stage,
-            max_stages=max_stages,
+            next_run=next_run,
+            max_runs=max_runs,
+            max_new_runs=max_runs if max_new_runs is None else max_new_runs,
             config=prepared.config,
             config_source=prepared.config_source,
             completed=(),
-            events=(),
+            transitions=(),
             name=name,
             tags=tags,
             description=description,
@@ -393,56 +402,72 @@ class LabClient:
             operator=operator,
         )
 
-    def resume_staged(
+    def resume_sequence(
         self,
         sequence_id: str,
         *,
-        next_stage: NextExperimentStage,
-        max_stages: int = 10,
-    ) -> StagedExperiment:
+        next_run: NextSequenceRun,
+        max_new_runs: int | None = None,
+    ) -> RunSequence:
         """Continue a rediscovered sequence from its latest successful run.
 
-        ``max_stages`` bounds newly executed stages. The accepted config,
+        ``max_new_runs`` optionally bounds work performed by this call. The accepted
+        persistent run budget, config,
         config source, ordinary request metadata, and operator are inherited
-        from the latest durable stage. Resume first calls ``next_stage`` with
-        that latest stage, including when the prior execution stopped at its
-        limit. If this execution reaches its own limit, its final callback is
-        likewise deferred until a later resume.
+        from the latest durable sequence run. Resume first calls ``next_run`` with
+        that latest run when it is awaiting a decision.
         """
 
-        if max_stages < 1:
-            raise ValueError("max_stages must be positive")
-        existing = self.get_staged_experiment(sequence_id)
+        existing = self.get_run_sequence(sequence_id)
         latest_manifest = existing.latest.manifest
         if latest_manifest.status != "completed":
-            raise ValueError("the latest staged run must be completed before resume")
-        latest_stage = existing.stages[-1]
-        selected = _evaluate_next_stage(
-            latest_stage,
-            next_stage,
+            raise ValueError("the latest sequence run must be completed before resume")
+        if existing.is_terminal:
+            raise ValueError(f"run sequence is already terminal: {existing.status}")
+        if existing.status != "awaiting_decision":
+            raise ValueError(
+                f"run sequence cannot resume from status: {existing.status}"
+            )
+        lineage = latest_manifest.sequence
+        assert lineage is not None
+        max_runs = lineage.max_runs
+        remaining_runs = max_runs - len(existing.sequence_runs)
+        if remaining_runs < 1:
+            raise ValueError("run sequence has exhausted its persistent run budget")
+        _validate_run_budget(max_runs=max_runs, max_new_runs=max_new_runs)
+        selected_new_runs = (
+            remaining_runs
+            if max_new_runs is None
+            else min(max_new_runs, remaining_runs)
+        )
+        latest_sequence_run = existing.sequence_runs[-1]
+        selected = _evaluate_next_run(
+            latest_sequence_run,
+            next_run,
             ordinal=sum(
-                event.stage_index == latest_stage.index for event in existing.events
+                transition.run_index == latest_sequence_run.run_index
+                for transition in existing.transitions
             ),
         )
-        events = (*existing.events, selected.event)
+        transitions = (*existing.transitions, selected.transition)
         if selected.invocation is None:
-            return StagedExperiment(
+            return RunSequence(
                 sequence_id=sequence_id,
-                stages=existing.stages,
-                events=events,
-                stopped_by_limit=False,
+                sequence_runs=existing.sequence_runs,
+                transitions=transitions,
             )
         latest_request = existing.latest.request
-        return self._execute_staged(
+        return self._execute_sequence(
             sequence_id=sequence_id,
             current=selected.invocation,
             current_decision=selected.decision,
-            next_stage=next_stage,
-            max_stages=max_stages,
+            next_run=next_run,
+            max_runs=max_runs,
+            max_new_runs=selected_new_runs,
             config=existing.latest.config,
             config_source=latest_manifest.config_source,
-            completed=existing.stages,
-            events=events,
+            completed=existing.sequence_runs,
+            transitions=transitions,
             name=None,
             tags=(),
             description=None,
@@ -453,33 +478,36 @@ class LabClient:
             operator=latest_request.operator,
         )
 
-    def _execute_staged(
+    def _execute_sequence(
         self,
         *,
         sequence_id: str,
         current: ExperimentInvocation,
-        current_decision: RunStageDecision | None,
-        next_stage: NextExperimentStage,
-        max_stages: int,
+        current_decision: RunSequenceDecision | None,
+        next_run: NextSequenceRun,
+        max_runs: int,
+        max_new_runs: int,
         config: ConfigProfileSnapshot,
         config_source: RunConfigSource | None,
-        completed: tuple[ExperimentStage, ...],
-        events: tuple[RunStageEvent, ...],
+        completed: tuple[SequenceRun, ...],
+        transitions: tuple[RunSequenceTransition, ...],
         name: str | None,
         tags: tuple[str, ...],
         description: str | None,
         metadata: Mapping[str, MetadataValue] | None,
         operator: str | None,
-    ) -> StagedExperiment:
+    ) -> RunSequence:
         selected = list(completed)
-        recorded_events = list(events)
+        recorded_transitions = list(transitions)
         start_index = len(selected)
         previous_run_id = None if not selected else selected[-1].run.id
-        for relative_index in range(max_stages):
-            index = start_index + relative_index
-            lineage = RunStageLineage(
+        remaining_runs = max_runs - start_index
+        for relative_index in range(min(max_new_runs, remaining_runs)):
+            run_index = start_index + relative_index
+            lineage = RunSequenceLineage(
                 sequence_id=sequence_id,
-                index=index,
+                run_index=run_index,
+                max_runs=max_runs,
                 previous_run_id=previous_run_id,
                 decision=current_decision,
             )
@@ -492,101 +520,120 @@ class LabClient:
                 description=description,
                 metadata=metadata,
                 operator=operator,
-                stage=lineage,
-                submission_id=_stage_submission_id(sequence_id, index),
+                sequence=lineage,
+                submission_id=_sequence_submission_id(sequence_id, run_index),
             )
-            stage = ExperimentStage(
+            sequence_run = SequenceRun(
                 sequence_id=sequence_id,
-                index=index,
+                run_index=run_index,
                 run=run,
                 history=(*(item.run for item in selected), run),
             )
-            selected.append(stage)
-            if relative_index == max_stages - 1:
-                recorded_events.append(
-                    _record_stage_event(
-                        stage,
+            selected.append(sequence_run)
+            if len(selected) == max_runs:
+                recorded_transitions.append(
+                    _record_sequence_transition(
+                        sequence_run,
                         ordinal=0,
-                        status="limit",
-                        details={"max_stages": max_stages},
+                        status="budget_exhausted",
+                        details={"max_runs": max_runs},
                     )
                 )
-                break
-            following = _evaluate_next_stage(stage, next_stage, ordinal=0)
-            recorded_events.append(following.event)
-            if following.invocation is None:
-                return StagedExperiment(
+                return RunSequence(
                     sequence_id=sequence_id,
-                    stages=tuple(selected),
-                    events=tuple(recorded_events),
-                    stopped_by_limit=False,
+                    sequence_runs=tuple(selected),
+                    transitions=tuple(recorded_transitions),
+                )
+            if relative_index == max_new_runs - 1:
+                return RunSequence(
+                    sequence_id=sequence_id,
+                    sequence_runs=tuple(selected),
+                    transitions=tuple(recorded_transitions),
+                )
+            following = _evaluate_next_run(sequence_run, next_run, ordinal=0)
+            recorded_transitions.append(following.transition)
+            if following.invocation is None:
+                return RunSequence(
+                    sequence_id=sequence_id,
+                    sequence_runs=tuple(selected),
+                    transitions=tuple(recorded_transitions),
                 )
             current = following.invocation
             current_decision = following.decision
             previous_run_id = run.id
-        return StagedExperiment(
+        return RunSequence(
             sequence_id=sequence_id,
-            stages=tuple(selected),
-            events=tuple(recorded_events),
-            stopped_by_limit=True,
+            sequence_runs=tuple(selected),
+            transitions=tuple(recorded_transitions),
         )
 
-    def _staged_experiment(
+    def _run_sequence(
         self,
         sequence_id: str,
         manifests: list[RunManifest],
-    ) -> StagedExperiment:
+    ) -> RunSequence:
         by_index: dict[int, RunManifest] = {}
         for manifest in manifests:
-            lineage = manifest.stage
+            lineage = manifest.sequence
             assert lineage is not None
-            if lineage.index in by_index:
+            if lineage.run_index in by_index:
                 raise ValueError(
-                    f"staged experiment {sequence_id!r} repeats index {lineage.index}"
+                    f"run sequence {sequence_id!r} repeats run index "
+                    f"{lineage.run_index}"
                 )
-            by_index[lineage.index] = manifest
+            by_index[lineage.run_index] = manifest
         if sorted(by_index) != list(range(len(by_index))):
             raise ValueError(
-                f"staged experiment {sequence_id!r} indices must be contiguous "
-                "from zero"
+                f"run sequence {sequence_id!r} indices must be contiguous from zero"
             )
-        ordered = [by_index[index] for index in range(len(by_index))]
+        ordered = [by_index[run_index] for run_index in range(len(by_index))]
+        first_lineage = ordered[0].sequence
+        assert first_lineage is not None
+        max_runs = first_lineage.max_runs
+        if any(
+            manifest.sequence is None or manifest.sequence.max_runs != max_runs
+            for manifest in ordered[1:]
+        ):
+            raise ValueError(
+                f"run sequence {sequence_id!r} changes its persistent run budget"
+            )
         if any(
             manifest.config_content_hash != ordered[0].config_content_hash
             for manifest in ordered[1:]
         ):
             raise ValueError(
-                f"staged experiment {sequence_id!r} uses multiple configurations"
+                f"run sequence {sequence_id!r} uses multiple configurations"
             )
-        for index, manifest in enumerate(ordered):
-            lineage = manifest.stage
+        for run_index, manifest in enumerate(ordered):
+            lineage = manifest.sequence
             assert lineage is not None
-            expected_previous = None if index == 0 else ordered[index - 1].run_id
+            expected_previous = (
+                None if run_index == 0 else ordered[run_index - 1].run_id
+            )
             if lineage.previous_run_id != expected_previous:
                 raise ValueError(
-                    f"staged experiment {sequence_id!r} has a broken predecessor "
-                    f"at index {index}"
+                    f"run sequence {sequence_id!r} has a broken predecessor "
+                    f"at run index {run_index}"
                 )
         runs = tuple(
             RunHandle(session=self, id=manifest.run_id) for manifest in ordered
         )
-        stages = tuple(
-            ExperimentStage(
+        sequence_runs = tuple(
+            SequenceRun(
                 sequence_id=sequence_id,
-                index=index,
+                run_index=run_index,
                 run=run,
-                history=runs[: index + 1],
+                history=runs[: run_index + 1],
             )
-            for index, run in enumerate(runs)
+            for run_index, run in enumerate(runs)
         )
-        return _staged_result(
+        return _sequence_result(
             sequence_id,
-            stages,
+            sequence_runs,
             manifests=tuple(ordered),
-            stopped_by_limit=None,
         )
 
-    def _staged_manifests(
+    def _sequence_manifests(
         self,
         *,
         sequence_id: str | None = None,
@@ -594,7 +641,7 @@ class LabClient:
         manifests: list[RunManifest] = []
         before: int | None = None
         while True:
-            page = self._control.run_stages(
+            page = self._control.run_sequences(
                 limit=_RUN_PAGE_SIZE,
                 before=before,
                 sequence_id=sequence_id,
@@ -636,7 +683,7 @@ class LabClient:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
-        stage: RunStageLineage | None = None,
+        sequence: RunSequenceLineage | None = None,
         submission_id: str | None = None,
     ) -> RunHandle:
         manifest = self._runner.run(
@@ -648,7 +695,7 @@ class LabClient:
             description=description,
             metadata=metadata,
             operator=operator,
-            stage=stage,
+            sequence=sequence,
             submission_id=submission_id,
         )
         return RunHandle(session=self, id=manifest.run_id)
@@ -658,16 +705,16 @@ def _experiment_invocation(experiment: ExperimentSpec) -> ExperimentInvocation:
     return experiment.bind() if isinstance(experiment, Experiment) else experiment
 
 
-def _next_stage(
-    proposed: ExperimentSpec | StageProposal,
+def _next_run(
+    proposed: ExperimentSpec | SequenceProposal,
     *,
     based_on_run_id: str,
-) -> tuple[ExperimentInvocation, RunStageDecision | None]:
-    if not isinstance(proposed, StageProposal):
+) -> tuple[ExperimentInvocation, RunSequenceDecision | None]:
+    if not isinstance(proposed, SequenceProposal):
         return _experiment_invocation(proposed), None
     return (
         _experiment_invocation(proposed.experiment),
-        RunStageDecision(
+        RunSequenceDecision(
             policy_id=proposed.policy_id,
             policy_version=proposed.policy_version,
             based_on_run_id=based_on_run_id,
@@ -677,22 +724,22 @@ def _next_stage(
     )
 
 
-def _evaluate_next_stage(
-    stage: ExperimentStage,
-    next_stage: NextExperimentStage,
+def _evaluate_next_run(
+    sequence_run: SequenceRun,
+    next_run: NextSequenceRun,
     *,
     ordinal: int,
-) -> _StageEvaluation:
+) -> _SequenceEvaluation:
     try:
-        proposed = next_stage(stage)
+        proposed = next_run(sequence_run)
         normalized = (
             None
             if proposed is None
-            else _next_stage(proposed, based_on_run_id=stage.run.id)
+            else _next_run(proposed, based_on_run_id=sequence_run.run.id)
         )
     except Exception as error:
-        _record_stage_event(
-            stage,
+        _record_sequence_transition(
+            sequence_run,
             ordinal=ordinal,
             status="policy_failed",
             details={
@@ -703,105 +750,114 @@ def _evaluate_next_stage(
         )
         raise
     if normalized is None:
-        event = _record_stage_event(
-            stage,
+        transition = _record_sequence_transition(
+            sequence_run,
             ordinal=ordinal,
             status="stopped",
             details={"reason": "callback-returned-none"},
         )
-        return _StageEvaluation(invocation=None, decision=None, event=event)
+        return _SequenceEvaluation(
+            invocation=None,
+            decision=None,
+            transition=transition,
+        )
     invocation, decision = normalized
-    event = _record_stage_event(
-        stage,
+    transition = _record_sequence_transition(
+        sequence_run,
         ordinal=ordinal,
         status="proposed",
         next_experiment_id=invocation.definition.id,
         decision=decision,
     )
-    return _StageEvaluation(
+    return _SequenceEvaluation(
         invocation=invocation,
         decision=decision,
-        event=event,
+        transition=transition,
     )
 
 
-def _record_stage_event(
-    stage: ExperimentStage,
+def _record_sequence_transition(
+    sequence_run: SequenceRun,
     *,
     ordinal: int,
-    status: Literal["proposed", "stopped", "limit", "policy_failed"],
+    status: Literal[
+        "proposed",
+        "stopped",
+        "budget_exhausted",
+        "policy_failed",
+    ],
     next_experiment_id: str | None = None,
-    decision: RunStageDecision | None = None,
+    decision: RunSequenceDecision | None = None,
     details: Mapping[str, MetadataValue] | None = None,
-) -> RunStageEvent:
-    event = RunStageEvent(
-        sequence_id=stage.sequence_id,
-        stage_index=stage.index,
+) -> RunSequenceTransition:
+    transition = RunSequenceTransition(
+        sequence_id=sequence_run.sequence_id,
+        run_index=sequence_run.run_index,
         ordinal=ordinal,
-        based_on_run_id=stage.run.id,
+        based_on_run_id=sequence_run.run.id,
         status=status,
         next_experiment_id=next_experiment_id,
         decision=decision,
         details=details or {},
     )
-    stage.run.attach(
-        key=f"stage-event-{stage.index}-{ordinal}",
-        kind="stage-sequence-event",
-        text=event.model_dump_json(),
-        filename=f"stage-event-{stage.index}-{ordinal}.json",
+    sequence_run.run.attach(
+        key=f"sequence-transition-{sequence_run.run_index}-{ordinal}",
+        kind="run-sequence-transition",
+        text=transition.model_dump_json(),
+        filename=f"sequence-transition-{sequence_run.run_index}-{ordinal}.json",
         media_type="application/json",
         metadata={
-            "sequence_id": stage.sequence_id,
-            "stage_index": stage.index,
+            "sequence_id": sequence_run.sequence_id,
+            "run_index": sequence_run.run_index,
             "status": status,
         },
     )
-    return event
+    return transition
 
 
-def _staged_result(
+def _sequence_result(
     sequence_id: str,
-    stages: tuple[ExperimentStage, ...],
+    sequence_runs: tuple[SequenceRun, ...],
     *,
     manifests: tuple[RunManifest, ...],
-    stopped_by_limit: bool | None,
-) -> StagedExperiment:
-    events = tuple(
-        RunStageEvent.model_validate(
-            stage.run.artifact_json(
+) -> RunSequence:
+    transitions = tuple(
+        RunSequenceTransition.model_validate(
+            sequence_run.run.artifact_json(
                 artifact.id,
-                expected_kind="stage-sequence-event",
+                expected_kind="run-sequence-transition",
             ).content
         )
-        for stage, manifest in zip(stages, manifests, strict=True)
+        for sequence_run, manifest in zip(sequence_runs, manifests, strict=True)
         for artifact in manifest.artifacts
-        if artifact.kind == "stage-sequence-event"
+        if artifact.kind == "run-sequence-transition"
     )
-    selected_limit = stopped_by_limit
-    if selected_limit is None and events:
-        selected_limit = (
-            True
-            if events[-1].status == "limit"
-            else False
-            if events[-1].status == "stopped"
-            else None
-        )
-    return StagedExperiment(
+    return RunSequence(
         sequence_id=sequence_id,
-        stages=stages,
-        events=events,
-        stopped_by_limit=selected_limit,
+        sequence_runs=sequence_runs,
+        transitions=transitions,
     )
 
 
-def _stage_submission_id(sequence_id: str, index: int) -> str:
-    return f"staged:{sequence_id}:{index}"
+def _validate_run_budget(
+    *,
+    max_runs: int,
+    max_new_runs: int | None,
+) -> None:
+    if max_runs < 1:
+        raise ValueError("max_runs must be positive")
+    if max_new_runs is not None and max_new_runs < 1:
+        raise ValueError("max_new_runs must be positive")
+
+
+def _sequence_submission_id(sequence_id: str, run_index: int) -> str:
+    return f"sequence:{sequence_id}:{run_index}"
 
 
 __all__ = [
-    "ExperimentStage",
     "LabClient",
     "PreparedLabExperiment",
-    "StageProposal",
-    "StagedExperiment",
+    "RunSequence",
+    "SequenceProposal",
+    "SequenceRun",
 ]

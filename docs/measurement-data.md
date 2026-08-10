@@ -155,10 +155,10 @@ Grid axes and explicit point rows cannot be mixed in one experiment because
 they describe two different domain semantics. For an empty explicit domain,
 pass its columns with `experiment.points((), coordinates=(bias, power))`.
 
-Explicit rows are materialized before execution. When each new point depends on
-earlier measurements, use a bounded, resumable
-[staged experiment](adaptive-experiments.md) instead of a hidden intra-run
-control loop.
+Explicit rows are materialized before execution. When each new run depends on
+earlier measurements, use a bounded, resumable [run sequence](run-sequences.md).
+Measurement-dependent points inside one executing run require a separate
+adaptive point-plan abstraction rather than a hidden control loop.
 
 The current planner materializes both explicit rows and product-grid points
 before admission. The [scalability benchmarks](scalability-benchmarks.md) track
@@ -223,8 +223,9 @@ grid. `reset_points()` discards all invocation point-plan edits and restores the
 definition default.
 
 For a deterministic randomized order, shuffle rows with an explicit seed and
-pass them to `.points(...)`. For measurement-dependent point selection, use a
-staged experiment rather than adding another point-plan control language.
+pass them to `.points(...)`. Measurement-dependent point selection inside one
+run is intentionally not modeled as a run sequence or another static point-plan
+control language.
 
 ## Represent variable-length results without padding
 
