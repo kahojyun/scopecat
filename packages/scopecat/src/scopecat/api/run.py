@@ -25,11 +25,15 @@ from scopecat.api.analysis import (
     AnalysisStep,
 )
 from scopecat.api.data import Data
+from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.daemon.views import (
     MeasurementArrowColumn,
     MeasurementArrowQuery,
     MeasurementPage,
+    RunAnalysisListView,
+    RunAnalysisView,
 )
+from scopecat.kernel.ids import artifact_slug
 from scopecat.measurements.datasets import (
     MAX_MEASUREMENT_PAGE_SIZE,
     MEASUREMENT_DATASET_KIND,
@@ -114,6 +118,10 @@ class RunOperations(Protocol):
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis: ...
+
+    def analyses(self, run_id: str) -> RunAnalysisListView: ...
+
+    def analysis(self, run_id: str, selector: str) -> RunAnalysisView: ...
 
     def attach(
         self,
@@ -433,6 +441,32 @@ class RunHandle:
         """Start an exploratory analysis draft that the caller may save."""
 
         return Analysis(run=self, title=title, key=key, step_id=step_id)
+
+    def published_analyses(self) -> tuple[PublishedAnalysis, ...]:
+        """Load every durable analysis publication in manifest order."""
+
+        return tuple(
+            PublishedAnalysis(run=self, view=view)
+            for view in self.session.run_operations.analyses(self.id).items
+        )
+
+    def published_analysis(self, selector: str) -> PublishedAnalysis:
+        """Load an exact analysis record ID or the latest matching logical key."""
+
+        analyses = self.published_analyses()
+        exact = next(
+            (analysis for analysis in analyses if analysis.id == selector),
+            None,
+        )
+        if exact is not None:
+            return exact
+        selected_key = artifact_slug(selector, fallback="analysis")
+        matches = tuple(
+            analysis for analysis in analyses if analysis.key == selected_key
+        )
+        if not matches:
+            raise KeyError(f"run has no published analysis: {selector}")
+        return matches[-1]
 
     def save_analysis(
         self,

@@ -22,18 +22,24 @@ from scopecat.analysis.service import (
     SavedAnalysis,
     save_analysis,
 )
-from scopecat.daemon.views import MeasurementArrowQuery, MeasurementPage
+from scopecat.daemon.views import (
+    MeasurementArrowQuery,
+    MeasurementPage,
+    RunAnalysisListView,
+    RunAnalysisView,
+)
 from scopecat.measurements.datasets import (
     RAW_MEASUREMENTS_DATASET_ID,
 )
 from scopecat.measurements.paging import project_measurement_page
 from scopecat.project_state import ProjectStateServices
+from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.access import require_dataset
+from scopecat.runs.access import list_records, require_dataset
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
     RunArtifactBytesResult,
@@ -167,6 +173,29 @@ class ServiceRunOperations:
             inputs=inputs,
             outputs=outputs,
             parameter_proposals=parameter_proposals,
+        )
+
+    def analyses(self, run_id: str) -> RunAnalysisListView:
+        manifest = self.services.runs.read_manifest(run_id)
+        return RunAnalysisListView(
+            run_id=run_id,
+            items=tuple(
+                self.analysis(run_id, record.id)
+                for record in list_records(manifest, kind="analysis")
+            ),
+        )
+
+    def analysis(self, run_id: str, selector: str) -> RunAnalysisView:
+        result = read_run_record_json(
+            run_id=run_id,
+            selector=selector,
+            expected_kind="analysis",
+            services=self.services,
+        )
+        return RunAnalysisView(
+            run_id=run_id,
+            entry=result.record,
+            analysis=AnalysisRecord.model_validate(result.content),
         )
 
     def attach(

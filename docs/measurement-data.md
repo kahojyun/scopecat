@@ -668,6 +668,20 @@ file or byte sequence produced by the analysis. Both receive stable
 analysis-local IDs; artifacts are stored as content-addressed run entries owned
 by the analysis publication rather than in an external directory convention.
 
+Published output IDs remain the read boundary after the authoring process exits:
+
+```python
+published = run.published_analysis("fit-review")
+resonance = published.fact("resonance")
+fits = published.dataset("fits")
+report = published.artifact("fit-report").text()
+table_preview = published.table("fit-table").preview
+```
+
+The selector may be an exact analysis record ID or a logical analysis key. A
+logical key selects its latest immutable publication; output access rejects a
+kind mismatch instead of returning untyped record JSON.
+
 Dataset compute accepts named inputs like experiment compute. Each dataset input
 records its durable target, content hash, and codec; JSON-safe inline inputs are
 embedded with their own content hash. Merely reading `context.measurements()`

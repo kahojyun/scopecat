@@ -321,6 +321,15 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     }
     assert table_view["columns"] == ["frequency", "score"]
     assert "preview" in table_view
+    published = handle.published_analysis("native-derived-data")
+    assert published.id == "analysis-native-derived-data"
+    assert published.dataset("_derived_signal_frame").table.equals(
+        derived.table,
+        check_metadata=True,
+    )
+    assert published.fact("_derived_score_max").value == 2.0
+    assert published.table("table").source is not None
+    assert published.figure("figure").projection is not None
     manifest_entry = next(
         entry for entry in handle.manifest.datasets if entry.id == dataset_id
     )
@@ -417,6 +426,13 @@ def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> N
     entry = next(item for item in handle.manifest.artifacts if item.id == artifact_id)
     assert entry.filename == "fit-report.md"
     assert entry.produced_by == "analysis-publication"
+    published = handle.published_analysis("publication")
+    assert published.fact("resonance").value == {"value": 5.1, "unit": "GHz"}
+    assert published.artifact("fit-report").text() == ("# Fit report\n\nConverged.\n")
+    assert published.artifact("fit-report").entry == entry
+    assert handle.published_analyses()[-1].id == "analysis-publication"
+    with pytest.raises(TypeError, match="is fact"):
+        published.dataset("resonance")
 
 
 def test_dataset_compute_records_named_inline_inputs(tmp_path: Path) -> None:

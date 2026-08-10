@@ -306,6 +306,7 @@ def test_flux_spectroscopy_notebook_completes_through_the_project_daemon(
     assert summary["analysis_id"] == (
         "analysis-reference_lab-flux_spectroscopy-analysis"
     )
+    assert summary["published_analysis_id"] == summary["analysis_id"]
     assert summary["candidate_config_id"] == "candidate-readout-resonator-fit"
 
 

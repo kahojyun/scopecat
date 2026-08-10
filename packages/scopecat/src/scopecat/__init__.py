@@ -42,6 +42,10 @@ if TYPE_CHECKING:
         AnalysisTableRow,
         analysis_step,
     )
+    from scopecat.api.published_analysis import (
+        PublishedAnalysis,
+        PublishedAnalysisArtifact,
+    )
     from scopecat.authoring import (
         ANY_RESOURCE_ROLE,
         DEFAULT_RESOURCE_ROLE,
@@ -239,6 +243,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "AnalysisTableCell": ("scopecat.api.analysis", "AnalysisTableCell"),
     "AnalysisTableColumn": ("scopecat.api.analysis", "AnalysisTableColumn"),
     "AnalysisTableRow": ("scopecat.api.analysis", "AnalysisTableRow"),
+    "PublishedAnalysis": (
+        "scopecat.api.published_analysis",
+        "PublishedAnalysis",
+    ),
+    "PublishedAnalysisArtifact": (
+        "scopecat.api.published_analysis",
+        "PublishedAnalysisArtifact",
+    ),
     "InstrumentClientFactory": (
         "scopecat.api._instruments",
         "InstrumentClientFactory",
