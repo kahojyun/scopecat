@@ -43,14 +43,10 @@ def _scaled_dataset_size(*, dataset: Dataset, scale: int) -> int:
 
 
 def _derived_signal_frame(dataset: Dataset) -> DerivedDataset:
-    frame = (
-        dataset.project(
-            frequency="drive_frequency",
-            response="signal",
-        )
-        .with_identity(False)
-        .to_pandas()
-    )
+    frame = dataset.project(
+        {"frequency": "drive_frequency", "response": "signal"},
+        identity=False,
+    ).to_pandas()
     frame["score"] = frame["response"] * 2.0
     return sc.derived_dataset(
         frame[["frequency", "response", "score"]],

@@ -159,12 +159,14 @@ def _observations_from_dataset(
     frame = (
         dataset.bind(schema)
         .project(
-            beta_ns=schema.beta,
-            amplification=schema.amplification,
-            probability_1=schema.probabilities.probability_1,
+            {
+                "beta_ns": schema.beta,
+                "amplification": schema.amplification,
+                "probability_1": schema.probabilities.probability_1,
+            },
+            units={"beta_ns": "ns"},
+            identity=False,
         )
-        .with_units(beta_ns="ns")
-        .with_identity(False)
         .to_polars()
     )
     return tuple(

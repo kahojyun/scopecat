@@ -20,7 +20,9 @@ from scopecat.measurements.interop import (
     PandasDTypeBackend,
     ProjectionDiagnostics,
     ProjectionField,
+    ProjectionLayout,
     ProjectionSchema,
+    ProjectionSpec,
 )
 from scopecat.measurements.traces import Trace
 from scopecat.program.measurement_types import MeasurementDType, MeasurementVariableRole
@@ -76,7 +78,9 @@ __all__ = [
     "PointMask",
     "ProjectionDiagnostics",
     "ProjectionField",
+    "ProjectionLayout",
     "ProjectionSchema",
+    "ProjectionSpec",
     "RecordRef",
     "StoredExperimentResultPoint",
     "StoredExperimentResultView",

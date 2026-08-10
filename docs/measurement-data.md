@@ -315,14 +315,14 @@ once with `project(...)`. Selectors may be durable variable ids, typed result
 handles, or persisted result paths:
 
 ```python
-projected = (
-    result.project(
-        bias_v=result.output.dc_bias,
-        temperature_mk=result.output.temperature,
-        s21=result.output.trace.s_parameter,
-    )
-    .with_units(bias_v="V", temperature_mk="mK")
-    .with_diagnostics("reason")
+projected = result.project(
+    {
+        "bias_v": result.output.dc_bias,
+        "temperature_mk": result.output.temperature,
+        "s21": result.output.trace.s_parameter,
+    },
+    units={"bias_v": "V", "temperature_mk": "mK"},
+    diagnostics="reason",
 )
 
 arrow = projected.to_arrow()
@@ -352,8 +352,42 @@ The conversion rules are deliberately fixed:
 dtypes. `with_diagnostics("reason")` always emits one
 `<name>__unavailable_reason` column per selected field, even when the current
 batch has no unavailable values; `"full"` also emits JSON metadata. This keeps
-schemas identical across batches. Identity columns are included by default and
-can be omitted with `with_identity(False)`.
+schemas identical across batches. In normal construction this is spelled
+`diagnostics="reason"`; identity columns are included by default and can be
+omitted with `identity=False`.
+
+Projection configuration is normally supplied atomically, so generated names
+are validated against the final identity, diagnostics, and layout policy:
+
+```python
+observations = result.project(
+    {
+        "bias": result.output.dc_bias,
+        "frequency": result.output.trace.frequency,
+        "s21": result.output.trace.s_parameter,
+    },
+    units={"bias": "V", "frequency": "Hz"},
+    diagnostics="reason",
+    identity=True,
+    layout="observations",
+)
+```
+
+`layout="points"` keeps one row per experiment point and represents local
+arrays as nested Arrow columns or NumPy arrays in pandas. The explicit
+`"observations"` layout expands one aligned local-array group into scalar rows:
+point-scalar fields are broadcast, every local dimension gets a
+`<dimension>_index` column, and array coordinates and observables stay aligned.
+Arrays must use identical local dimensions and one recording group; incompatible
+selections are rejected rather than independently exploded. A usable sibling
+array may supply the local extent for an unavailable ragged value.
+
+For the pandas NumPy backend, scalar `int64`, boolean, and string projections
+always use pandas `Int64`, `boolean`, and `string` extension dtypes, including
+batches that happen to contain no nulls. Floating values use `float64`; the
+diagnostic column distinguishes an unavailable null/NaN from an available
+scientific NaN. Complex values remain native Python/NumPy complex values, with
+`None` retained for unavailable scalar observations.
 
 Exact selection retains every matching row, including duplicate point-cloud
 coordinates. Numeric coordinate selection accepts unit-aware quantities and an
@@ -534,12 +568,11 @@ row dataclasses:
 
 ```python
 def fit_with_polars(measurements):
-    frame = (
-        measurements.project(bias="dc_bias", response="signal")
-        .with_units(bias="V")
-        .with_identity(False)
-        .to_polars()
-    )
+    frame = measurements.project(
+        {"bias": "dc_bias", "response": "signal"},
+        units={"bias": "V"},
+        identity=False,
+    ).to_polars()
     fitted = frame.with_columns(
         (pl.col("response") * 2).alias("score"),
     )

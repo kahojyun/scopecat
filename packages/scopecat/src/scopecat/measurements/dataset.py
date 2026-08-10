@@ -61,7 +61,11 @@ from scopecat.records.measurement import (
 if TYPE_CHECKING:
     import pandas as pd  # pyright: ignore[reportMissingImports]
 
-    from scopecat.measurements.interop import MeasurementDataProjection
+    from scopecat.measurements.interop import (
+        MeasurementDataProjection,
+        ProjectionDiagnostics,
+        ProjectionLayout,
+    )
 
 type NativeScalar = NativeMeasurementScalar
 type NativeAvailableValue = NativeMeasurementValue
@@ -636,11 +640,21 @@ class Dataset:
 
     def project(
         self,
-        **columns: str | ProductRef | RecordRef | ValueRef[object],
+        columns: Mapping[
+            str,
+            str | ProductRef | RecordRef | ValueRef[object],
+        ]
+        | None = None,
+        /,
+        *,
+        units: Mapping[str, str] | None = None,
+        diagnostics: ProjectionDiagnostics = "none",
+        identity: bool = True,
+        layout: ProjectionLayout = "points",
     ) -> MeasurementDataProjection:
         """Bind explicit external names before entering an ecosystem adapter."""
 
-        from scopecat.measurements.interop import bind_projection
+        from scopecat.measurements.interop import ProjectionSpec, bind_projection
 
         selected = (
             tuple(
@@ -653,7 +667,16 @@ class Dataset:
                 for variable in self.variables.values()
             )
         )
-        return bind_projection(self, selected)
+        return bind_projection(
+            self,
+            selected,
+            spec=ProjectionSpec.create(
+                units=units,
+                diagnostics=diagnostics,
+                include_identity=identity,
+                layout=layout,
+            ),
+        )
 
     @property
     def result(self) -> StoredExperimentResultView:
@@ -1716,11 +1739,17 @@ class ExperimentResultView[ResultT](Sequence[ExperimentResultPoint]):
 
     def project(
         self,
-        **columns: ProductRef | RecordRef | ValueRef[object],
+        columns: Mapping[str, ProductRef | RecordRef | ValueRef[object]] | None = None,
+        /,
+        *,
+        units: Mapping[str, str] | None = None,
+        diagnostics: ProjectionDiagnostics = "none",
+        identity: bool = True,
+        layout: ProjectionLayout = "points",
     ) -> MeasurementDataProjection:
         """Project typed result fields under exact user-controlled column names."""
 
-        from scopecat.measurements.interop import bind_projection
+        from scopecat.measurements.interop import ProjectionSpec, bind_projection
 
         selected = (
             tuple(
@@ -1737,7 +1766,16 @@ class ExperimentResultView[ResultT](Sequence[ExperimentResultPoint]):
                 for path, ref in _experiment_result_ref_paths(self.output)
             )
         )
-        return bind_projection(self.dataset, selected)
+        return bind_projection(
+            self.dataset,
+            selected,
+            spec=ProjectionSpec.create(
+                units=units,
+                diagnostics=diagnostics,
+                include_identity=identity,
+                layout=layout,
+            ),
+        )
 
     def where_available(
         self,
@@ -1882,10 +1920,19 @@ class StoredExperimentResultView(Sequence[StoredExperimentResultPoint]):
     ) -> tuple[RowT, ...]:
         return tuple(build(point) for point in self)
 
-    def project(self, **columns: ResultPath) -> MeasurementDataProjection:
+    def project(
+        self,
+        columns: Mapping[str, ResultPath] | None = None,
+        /,
+        *,
+        units: Mapping[str, str] | None = None,
+        diagnostics: ProjectionDiagnostics = "none",
+        identity: bool = True,
+        layout: ProjectionLayout = "points",
+    ) -> MeasurementDataProjection:
         """Project persisted result paths under exact external column names."""
 
-        from scopecat.measurements.interop import bind_projection
+        from scopecat.measurements.interop import ProjectionSpec, bind_projection
 
         selected = (
             tuple(
@@ -1906,7 +1953,16 @@ class StoredExperimentResultView(Sequence[StoredExperimentResultPoint]):
                 for path, variable in self._variables.items()
             )
         )
-        return bind_projection(self.dataset, selected)
+        return bind_projection(
+            self.dataset,
+            selected,
+            spec=ProjectionSpec.create(
+                units=units,
+                diagnostics=diagnostics,
+                include_identity=identity,
+                layout=layout,
+            ),
+        )
 
     def where_available(
         self,

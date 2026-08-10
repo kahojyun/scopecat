@@ -242,10 +242,10 @@ def test_dataset_binds_an_experiment_result_to_typed_points() -> None:
         ("temperature",),
     )
     assert tuple(
-        field.name for field in result.project(voltage=schema.bias).schema.fields
+        field.name for field in result.project({"voltage": schema.bias}).schema.fields
     ) == ("voltage",)
 
-    stored_projection = stored.project(voltage="bias", temp="temperature")
+    stored_projection = stored.project({"voltage": "bias", "temp": "temperature"})
     assert tuple(field.name for field in stored_projection.schema.fields) == (
         "voltage",
         "temp",
@@ -514,11 +514,10 @@ def test_dataset_ecosystem_adapters_preserve_labels_shapes_and_availability() ->
 
 def test_measurement_projection_controls_names_units_and_native_adapters() -> None:
     pd = pytest.importorskip("pandas")
-    projection = (
-        _dataset()
-        .project(voltage="bias", temp="temperature", response="signal")
-        .with_units(voltage="mV", temp="mK")
-        .with_diagnostics("full")
+    projection = _dataset().project(
+        {"voltage": "bias", "temp": "temperature", "response": "signal"},
+        units={"voltage": "mV", "temp": "mK"},
+        diagnostics="full",
     )
 
     assert tuple(field.name for field in projection.schema.fields) == (
@@ -573,7 +572,7 @@ def test_measurement_projection_controls_names_units_and_native_adapters() -> No
         np.array([complex(1.0, 0.0), complex(0.5, -0.1)]),
     )
     assert frame.attrs["scopecat"]["schema_id"] == (
-        "scopecat.measurement-data-projection.v1"
+        "scopecat.measurement-data-projection.v2"
     )
 
     arrow_frame = projection.to_pandas(dtype_backend="pyarrow")
@@ -605,14 +604,18 @@ def test_projection_diagnostics_have_one_schema_across_availability_slices() -> 
 
     available = (
         dataset.isel(point=[0])
-        .project(temp="temperature")
-        .with_diagnostics("reason")
+        .project(
+            {"temp": "temperature"},
+            diagnostics="reason",
+        )
         .to_arrow()
     )
     unavailable = (
         dataset.isel(point=[1])
-        .project(temp="temperature")
-        .with_diagnostics("reason")
+        .project(
+            {"temp": "temperature"},
+            diagnostics="reason",
+        )
         .to_arrow()
     )
 
@@ -621,18 +624,169 @@ def test_projection_diagnostics_have_one_schema_across_availability_slices() -> 
     assert unavailable["temp__unavailable_reason"].to_pylist() == ["invalid"]
 
 
-def test_projection_rejects_ambiguous_generated_names() -> None:
+def test_observations_projection_aligns_ragged_arrays_and_broadcasts_scalars() -> None:
+    pd = pytest.importorskip("pandas")
+    dataset = _ragged_dataset()
+    unavailable = MeasurementUnavailable.create(
+        reason="missing",
+        dtype="complex128",
+        unit="ratio",
+        shape=(None,),
+        metadata={"cause": "fit rejected"},
+    )
+    raw = dataset.raw.model_copy(
+        update={
+            "records": (
+                dataset.records[0],
+                _replace_record_values(
+                    dataset.records[1],
+                    observables={"signal": unavailable},
+                ),
+                dataset.records[2],
+            )
+        }
+    )
+    projection = Dataset(raw, dataset.entry).project(
+        {
+            "voltage": "bias",
+            "frequency": "frequency",
+            "response": "signal",
+        },
+        layout="observations",
+        diagnostics="full",
+    )
+
+    table = projection.to_arrow()
+    assert table.num_rows == 6
+    assert table.column_names == [
+        "point_index",
+        "logical_point_id",
+        "sample_index",
+        "voltage",
+        "voltage__unavailable_reason",
+        "voltage__unavailable_metadata",
+        "frequency",
+        "frequency__unavailable_reason",
+        "frequency__unavailable_metadata",
+        "response",
+        "response__unavailable_reason",
+        "response__unavailable_metadata",
+    ]
+    assert table["point_index"].to_pylist() == [10, 10, 20, 40, 40, 40]
+    assert table["sample_index"].to_pylist() == [0, 1, 0, 0, 1, 2]
+    assert table["voltage"].to_pylist() == [0.0, 0.0, 1.0, 2.0, 2.0, 2.0]
+    assert table["frequency"].to_pylist() == [0.0, 1.0, 10.0, 20.0, 21.0, 22.0]
+    assert table["response__unavailable_reason"].to_pylist() == [
+        None,
+        None,
+        "missing",
+        None,
+        None,
+        None,
+    ]
+
+    frame = projection.to_pandas()
+    assert isinstance(frame, pd.DataFrame)
+    assert frame.loc[2, "response"] is None
+    assert frame.loc[4, "response"] == complex(2.0, 1.0)
+
+
+def test_observations_projection_rejects_unaligned_array_selections() -> None:
     dataset = _dataset()
 
-    with pytest.raises(ValueError, match="generated column names must be unique"):
-        dataset.project(point_index="bias")
+    with pytest.raises(ValueError, match="at least one array field"):
+        dataset.project({"voltage": "bias"}, layout="observations")
+
+    with pytest.raises(ValueError, match="one recording group"):
+        dataset.project(
+            {"frequency": "frequency", "response": "signal"},
+            layout="observations",
+        )
+
+
+@pytest.mark.parametrize(
+    ("dtype", "available", "pandas_dtype"),
+    [
+        ("int64", (1, 3), "Int64"),
+        ("bool", (True, False), "boolean"),
+        ("string", ("one", "three"), "string"),
+    ],
+)
+def test_projection_pandas_nullable_dtypes_are_stable_across_batches(
+    dtype: MeasurementDType,
+    available: tuple[object, object],
+    pandas_dtype: str,
+) -> None:
+    pytest.importorskip("pandas")
+    base = _dataset()
+    variables = tuple(
+        variable.model_copy(update={"dtype": dtype, "unit": None})
+        if variable.id == "temperature"
+        else variable
+        for variable in base.schema.variables
+    )
+    records = tuple(
+        _replace_record_values(
+            record,
+            observables={
+                "temperature": (
+                    MeasurementUnavailable.create(
+                        reason="missing",
+                        dtype=dtype,
+                        unit=None,
+                        shape=(),
+                        metadata={},
+                    )
+                    if position == 1
+                    else MeasurementScalar.create(
+                        value=available[0 if position == 0 else 1],
+                        dtype=dtype,
+                    )
+                )
+            },
+        )
+        for position, record in enumerate(base.records)
+    )
+    dataset = Dataset(
+        base.raw.model_copy(
+            update={
+                "dataset_schema": base.schema.model_copy(
+                    update={"variables": variables}
+                ),
+                "records": records,
+            }
+        ),
+        base.entry,
+    )
+
+    available_frame = (
+        dataset.isel(point=[0]).project({"value": "temperature"}).to_pandas()
+    )
+    missing_frame = (
+        dataset.isel(point=[1]).project({"value": "temperature"}).to_pandas()
+    )
+
+    assert str(available_frame["value"].dtype) == pandas_dtype
+    assert str(missing_frame["value"].dtype) == pandas_dtype
+
+
+def test_atomic_projection_options_resolve_or_reject_generated_names() -> None:
+    dataset = _dataset()
+
+    projection = dataset.project(
+        {"point_index": "bias"},
+        identity=False,
+    )
+    assert projection.to_arrow().column_names == ["point_index"]
 
     with pytest.raises(ValueError, match="generated column names must be unique"):
-        ambiguous = dataset.project(
-            temp="temperature",
-            temp__unavailable_reason="bias",
+        dataset.project(
+            {
+                "temp": "temperature",
+                "temp__unavailable_reason": "bias",
+            },
+            diagnostics="reason",
         )
-        ambiguous.with_diagnostics("reason")
 
 
 def test_empty_arrow_export_keeps_declared_scientific_types() -> None:

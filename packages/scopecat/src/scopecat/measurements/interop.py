@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     import polars as pl
 
 type ProjectionDiagnostics = Literal["none", "reason", "full"]
+type ProjectionLayout = Literal["points", "observations"]
 type PandasDTypeBackend = Literal["numpy", "pyarrow"]
 
 
@@ -105,6 +106,36 @@ class ProjectionField:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectionSpec:
+    """Atomic adapter configuration applied while external names are bound."""
+
+    units: tuple[tuple[str, str], ...] = ()
+    diagnostics: ProjectionDiagnostics = "none"
+    include_identity: bool = True
+    layout: ProjectionLayout = "points"
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        units: Mapping[str, str] | None = None,
+        diagnostics: ProjectionDiagnostics = "none",
+        include_identity: bool = True,
+        layout: ProjectionLayout = "points",
+    ) -> ProjectionSpec:
+        if diagnostics not in {"none", "reason", "full"}:
+            raise ValueError("projection diagnostics must be none, reason, or full")
+        if layout not in {"points", "observations"}:
+            raise ValueError("projection layout must be points or observations")
+        return cls(
+            units=tuple((units or {}).items()),
+            diagnostics=diagnostics,
+            include_identity=include_identity,
+            layout=layout,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectionSchema:
     """Runtime semantic schema retained when data enters an ecosystem library."""
 
@@ -112,7 +143,8 @@ class ProjectionSchema:
     fields: tuple[ProjectionField, ...]
     diagnostics: ProjectionDiagnostics = "none"
     include_identity: bool = True
-    schema_id: str = "scopecat.measurement-data-projection.v1"
+    layout: ProjectionLayout = "points"
+    schema_id: str = "scopecat.measurement-data-projection.v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +184,7 @@ class MeasurementDataProjection:
             self.schema.fields,
             diagnostics=diagnostics,
             include_identity=self.schema.include_identity,
+            layout=self.schema.layout,
         )
         return replace(self, schema=replace(self.schema, diagnostics=diagnostics))
 
@@ -162,10 +195,33 @@ class MeasurementDataProjection:
             self.schema.fields,
             diagnostics=self.schema.diagnostics,
             include_identity=include,
+            layout=self.schema.layout,
         )
         return replace(self, schema=replace(self.schema, include_identity=include))
 
+    def with_layout(self, layout: ProjectionLayout) -> Self:
+        """Choose point rows or aligned point-local observation rows."""
+
+        if layout not in {"points", "observations"}:
+            raise ValueError("projection layout must be points or observations")
+        _validate_external_names(
+            self.schema.fields,
+            diagnostics=self.schema.diagnostics,
+            include_identity=self.schema.include_identity,
+            layout=layout,
+        )
+        if layout == "observations":
+            _observation_dimensions(self.schema.fields)
+        return replace(self, schema=replace(self.schema, layout=layout))
+
     def to_arrow(self) -> pa.Table:
+        """Materialize the selected stable Arrow representation."""
+
+        if self.schema.layout == "observations":
+            return self._to_observations_arrow()
+        return self._to_points_arrow()
+
+    def _to_points_arrow(self) -> pa.Table:
         """Materialize the canonical point-row Arrow representation."""
 
         arrays: list[pa.Array] = []
@@ -233,22 +289,154 @@ class MeasurementDataProjection:
                             },
                         )
                     )
-        schema = pa.schema(
-            arrow_fields,
-            metadata={
-                b"scopecat.dataset_id": self.schema.dataset_id.encode(),
-                b"scopecat.projection": _stable_json(asdict(self.schema)).encode(),
-                b"scopecat.schema": self.dataset.schema.model_dump_json().encode(),
-                b"scopecat.metadata": _stable_json(
-                    {
-                        name: value
-                        for name, value in self.dataset.metadata.items()
-                        if not name.startswith("scopecat_batch_")
-                    }
-                ).encode(),
-            },
-        )
+        schema = pa.schema(arrow_fields, metadata=self._arrow_schema_metadata())
         return pa.Table.from_arrays(arrays, schema=schema)
+
+    def _to_observations_arrow(self) -> pa.Table:
+        local_dimensions = _observation_dimensions(self.schema.fields)
+        projected = {
+            field.name: _projected_values(self.dataset[field.variable_id], field)
+            for field in self.schema.fields
+        }
+        declared_shapes = {
+            field.name: self.dataset[field.variable_id].shape[1:]
+            for field in self.schema.fields
+            if len(field.dims) > 1
+        }
+        values_by_field: dict[str, list[MeasurementValue]] = {
+            field.name: [] for field in self.schema.fields
+        }
+        point_indices: list[int] = []
+        logical_point_ids: list[str | None] = []
+        local_indices: dict[str, list[int]] = {
+            dimension: [] for dimension in local_dimensions
+        }
+        for position, (point_index, logical_point_id) in enumerate(
+            zip(
+                self.dataset.point_indices,
+                self.dataset.logical_point_ids,
+                strict=True,
+            )
+        ):
+            shape = _point_observation_shape(
+                self.schema.fields,
+                projected=projected,
+                declared_shapes=declared_shapes,
+                position=position,
+            )
+            for raw_local_index in np.ndindex(shape):
+                local_index = cast("tuple[int, ...]", raw_local_index)
+                point_indices.append(point_index)
+                logical_point_ids.append(logical_point_id)
+                for dimension, index in zip(
+                    local_dimensions,
+                    local_index,
+                    strict=True,
+                ):
+                    local_indices[dimension].append(index)
+                for field in self.schema.fields:
+                    values_by_field[field.name].append(
+                        _observation_value(
+                            projected[field.name][position],
+                            field=field,
+                            local_index=local_index,
+                        )
+                    )
+
+        arrays: list[pa.Array] = []
+        arrow_fields: list[pa.Field] = []
+        if self.schema.include_identity:
+            arrays.extend(
+                (
+                    pa.array(point_indices, type=pa.int64()),
+                    pa.array(logical_point_ids, type=pa.string()),
+                )
+            )
+            arrow_fields.extend(
+                (
+                    pa.field(
+                        "point_index",
+                        pa.int64(),
+                        nullable=False,
+                        metadata={b"scopecat.role": b"point_identity"},
+                    ),
+                    pa.field(
+                        "logical_point_id",
+                        pa.string(),
+                        metadata={b"scopecat.role": b"logical_point_identity"},
+                    ),
+                )
+            )
+        for dimension in local_dimensions:
+            arrays.append(pa.array(local_indices[dimension], type=pa.int64()))
+            arrow_fields.append(
+                pa.field(
+                    f"{dimension}_index",
+                    pa.int64(),
+                    nullable=False,
+                    metadata={
+                        b"scopecat.role": b"local_dimension_index",
+                        b"scopecat.dimension": dimension.encode(),
+                    },
+                )
+            )
+        for field in self.schema.fields:
+            values = values_by_field[field.name]
+            array = measurement_values_to_arrow_array(
+                values,
+                dtype=field.dtype,
+                shape=(),
+            )
+            arrays.append(array)
+            arrow_fields.append(
+                pa.field(field.name, array.type, metadata=_field_metadata(field))
+            )
+            if self.schema.diagnostics != "none":
+                reasons, metadata = _unavailable_columns(values)
+                arrays.append(pa.array(reasons, type=pa.string()))
+                arrow_fields.append(
+                    pa.field(
+                        f"{field.name}__unavailable_reason",
+                        pa.string(),
+                        metadata={
+                            b"scopecat.role": b"availability",
+                            b"scopecat.source": field.name.encode(),
+                        },
+                    )
+                )
+                if self.schema.diagnostics == "full":
+                    arrays.append(pa.array(metadata, type=pa.large_string()))
+                    arrow_fields.append(
+                        pa.field(
+                            f"{field.name}__unavailable_metadata",
+                            pa.large_string(),
+                            metadata={
+                                b"scopecat.role": b"availability_metadata",
+                                b"scopecat.source": field.name.encode(),
+                            },
+                        )
+                    )
+        return pa.Table.from_arrays(
+            arrays,
+            schema=pa.schema(
+                arrow_fields,
+                metadata=self._arrow_schema_metadata(),
+            ),
+        )
+
+    def _arrow_schema_metadata(self) -> dict[bytes, bytes]:
+        return {
+            b"scopecat.dataset_id": self.schema.dataset_id.encode(),
+            b"scopecat.projection": _stable_json(asdict(self.schema)).encode(),
+            b"scopecat.schema": self.dataset.schema.model_dump_json().encode(),
+            b"scopecat.metadata": _stable_json(
+                {
+                    name: value
+                    for name, value in self.dataset.metadata.items()
+                    if not name.startswith("scopecat_batch_")
+                }
+            ).encode(),
+        }
 
     def to_record_batch_reader(
         self, *, max_chunksize: int = 1024
@@ -338,7 +526,12 @@ class MeasurementDataProjection:
             ),
         )
         if dtype_backend == "numpy":
-            _restore_numpy_columns(frame, table=table, fields=self.schema.fields)
+            _restore_numpy_columns(
+                frame,
+                table=table,
+                fields=self.schema.fields,
+                layout=self.schema.layout,
+            )
         frame.attrs["scopecat"] = thaw_json_value(asdict(self.schema))
         return frame
 
@@ -352,6 +545,8 @@ class MeasurementDataProjection:
 def bind_projection(
     dataset: _ProjectionDataset,
     fields: Sequence[tuple[str, _ProjectionVariable, tuple[str, ...] | None]],
+    *,
+    spec: ProjectionSpec | None = None,
 ) -> MeasurementDataProjection:
     """Bind explicit external names to already validated dataset variables."""
 
@@ -371,11 +566,27 @@ def bind_projection(
     )
     if not selected:
         raise ValueError("measurement projections require at least one field")
-    _validate_external_names(selected, diagnostics="none", include_identity=True)
-    return MeasurementDataProjection(
+    selected_spec = ProjectionSpec() if spec is None else spec
+    projection = MeasurementDataProjection(
         dataset=dataset,
-        schema=ProjectionSchema(dataset_id=dataset.schema.dataset_id, fields=selected),
+        schema=ProjectionSchema(
+            dataset_id=dataset.schema.dataset_id,
+            fields=selected,
+            diagnostics=selected_spec.diagnostics,
+            include_identity=selected_spec.include_identity,
+            layout=selected_spec.layout,
+        ),
     )
+    projection = projection.with_units(**dict(selected_spec.units))
+    _validate_external_names(
+        projection.schema.fields,
+        diagnostics=projection.schema.diagnostics,
+        include_identity=projection.schema.include_identity,
+        layout=projection.schema.layout,
+    )
+    if projection.schema.layout == "observations":
+        _observation_dimensions(projection.schema.fields)
+    return projection
 
 
 def _projected_values(
@@ -438,15 +649,95 @@ def _unavailable_columns(
     return tuple(reasons), tuple(metadata)
 
 
+def _observation_dimensions(fields: Sequence[ProjectionField]) -> tuple[str, ...]:
+    arrays = tuple(field for field in fields if len(field.dims) > 1)
+    if not arrays:
+        raise ValueError("observations layout requires at least one array field")
+    dimensions = arrays[0].dims[1:]
+    if any(field.dims[1:] != dimensions for field in arrays[1:]):
+        raise ValueError(
+            "observations layout requires array fields with identical local dimensions"
+        )
+    groups = {field.recording_group_id for field in arrays}
+    if len(groups) > 1:
+        raise ValueError(
+            "observations layout requires array fields from one recording group"
+        )
+    return dimensions
+
+
+def _point_observation_shape(
+    fields: Sequence[ProjectionField],
+    *,
+    projected: Mapping[str, Sequence[MeasurementValue]],
+    declared_shapes: Mapping[str, tuple[int | None, ...]],
+    position: int,
+) -> tuple[int, ...]:
+    candidates: list[tuple[int | None, ...]] = []
+    for field in fields:
+        if len(field.dims) == 1:
+            continue
+        value = projected[field.name][position]
+        if isinstance(value, MeasurementArray):
+            shape = tuple(np.asarray(value.values).shape)
+        elif isinstance(value, MeasurementUnavailable):
+            shape = tuple(value.shape)
+        else:
+            raise TypeError(f"observation field {field.name!r} is not array-valued")
+        if len(shape) != len(field.dims) - 1:
+            raise ValueError(
+                f"field {field.name!r} has an invalid point-local observation shape"
+            )
+        candidates.extend((shape, declared_shapes[field.name]))
+    known = {
+        cast("tuple[int, ...]", shape)
+        for shape in candidates
+        if all(size is not None for size in shape)
+    }
+    if len(known) > 1:
+        raise ValueError("observation fields have different point-local shapes")
+    if not known:
+        raise ValueError("observation shape is unknown for this measurement point")
+    [selected] = known
+    for candidate in candidates:
+        if any(
+            size is not None and size != selected[index]
+            for index, size in enumerate(candidate)
+        ):
+            raise ValueError("observation fields have incompatible local extents")
+    return selected
+
+
+def _observation_value(
+    value: MeasurementValue,
+    *,
+    field: ProjectionField,
+    local_index: tuple[int, ...],
+) -> MeasurementValue:
+    if len(field.dims) == 1:
+        return value
+    if isinstance(value, MeasurementUnavailable):
+        return value.model_copy(update={"shape": ()})
+    if not isinstance(value, MeasurementArray):
+        raise TypeError(f"observation field {field.name!r} is not array-valued")
+    return MeasurementScalar.create(
+        value=cast("object", value.values[local_index]),
+        dtype=field.dtype,
+        unit=field.unit,
+        metadata=value.metadata,
+    )
+
+
 def _restore_numpy_columns(
     frame: pd.DataFrame,
     *,
     table: pa.Table,
     fields: Sequence[ProjectionField],
+    layout: ProjectionLayout,
 ) -> None:
     for field in fields:
         values = table[field.name].to_pylist()
-        if len(field.dims) > 1:
+        if len(field.dims) > 1 and layout == "points":
             restored = np.empty(len(values), dtype=np.object_)
             restored[:] = tuple(
                 None
@@ -459,8 +750,14 @@ def _restore_numpy_columns(
             )
             frame[field.name] = restored
         elif field.dtype == "complex128":
-            frame[field.name] = tuple(
+            restored = np.empty(len(values), dtype=np.object_)
+            restored[:] = tuple(
                 None if value is None else _complex_scalar(value) for value in values
+            )
+            frame[field.name] = restored
+        elif field.dtype in {"bool", "int64", "string"}:
+            frame[field.name] = frame[field.name].astype(
+                {"bool": "boolean", "int64": "Int64", "string": "string"}[field.dtype]
             )
 
 
@@ -513,6 +810,7 @@ def _validate_external_names(
     *,
     diagnostics: ProjectionDiagnostics,
     include_identity: bool,
+    layout: ProjectionLayout,
 ) -> None:
     names = [field.name for field in fields]
     if any(not name for name in names):
@@ -520,6 +818,10 @@ def _validate_external_names(
     generated = list(names)
     if include_identity:
         generated.extend(("point_index", "logical_point_id"))
+    if layout == "observations":
+        generated.extend(
+            f"{dimension}_index" for dimension in _observation_dimensions(fields)
+        )
     if diagnostics != "none":
         generated.extend(f"{name}__unavailable_reason" for name in names)
     if diagnostics == "full":
@@ -552,5 +854,7 @@ __all__ = [
     "PandasDTypeBackend",
     "ProjectionDiagnostics",
     "ProjectionField",
+    "ProjectionLayout",
     "ProjectionSchema",
+    "ProjectionSpec",
 ]

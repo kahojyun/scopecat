@@ -219,12 +219,14 @@ def fit_flux_spectroscopy(
         projected = (
             dataset.bind(schema)
             .project(
-                dc_bias=schema.dc_bias,
-                temperature=schema.temperature,
-                frequency=schema.trace.frequency,
-                s_parameter=schema.trace.s_parameter,
+                {
+                    "dc_bias": schema.dc_bias,
+                    "temperature": schema.temperature,
+                    "frequency": schema.trace.frequency,
+                    "s_parameter": schema.trace.s_parameter,
+                },
+                units={"dc_bias": "V", "temperature": "K", "frequency": "Hz"},
             )
-            .with_units(dc_bias="V", temperature="K", frequency="Hz")
             .to_xarray()
         )
     except (KeyError, TypeError, ValueError) as error:

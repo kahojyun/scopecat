@@ -35,6 +35,7 @@ from scopecat.measurements.results import (
     ExperimentResultView,
     MeasurementDataset,
     ProjectionDiagnostics,
+    ProjectionLayout,
     StoredExperimentResultView,
 )
 from scopecat.program.products import ProductRef
@@ -278,6 +279,7 @@ class RunHandle:
         units: Mapping[str, str] | None = None,
         diagnostics: ProjectionDiagnostics = "reason",
         include_identity: bool = True,
+        layout: ProjectionLayout = "points",
         batch_size: int = 100,
     ) -> pa.RecordBatchReader:
         """Read a finite run through one stable, page-bounded Arrow schema."""
@@ -289,6 +291,7 @@ class RunHandle:
             units=units,
             diagnostics=diagnostics,
             include_identity=include_identity,
+            layout=layout,
         )
 
         def batches() -> Iterator[pa.RecordBatch]:
@@ -300,6 +303,7 @@ class RunHandle:
                     units=units,
                     diagnostics=diagnostics,
                     include_identity=include_identity,
+                    layout=layout,
                 )
                 if table.schema != first.schema:
                     raise ValueError("measurement pages produced different projections")
@@ -319,15 +323,15 @@ class RunHandle:
         units: Mapping[str, str] | None,
         diagnostics: ProjectionDiagnostics,
         include_identity: bool,
+        layout: ProjectionLayout,
     ) -> pa.Table:
-        projected = dataset.project(**dict(columns or {}))
-        if units:
-            projected = projected.with_units(**dict(units))
-        return (
-            projected.with_diagnostics(diagnostics)
-            .with_identity(include_identity)
-            .to_arrow()
-        )
+        return dataset.project(
+            columns,
+            units=units,
+            diagnostics=diagnostics,
+            identity=include_identity,
+            layout=layout,
+        ).to_arrow()
 
     def data(self) -> Data:
         return Data(run=self)
