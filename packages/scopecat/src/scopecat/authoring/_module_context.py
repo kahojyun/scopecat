@@ -838,8 +838,8 @@ class ModuleContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ProductRef],
-        output_type: ScalarType | ArrayType,
-    ) -> ProductRef: ...
+        output_type: ScalarType | ArrayType | Mapping[str, DataType],
+    ) -> ProductRef | ProductRefs: ...
 
     @overload
     def compute(
@@ -857,8 +857,8 @@ class ModuleContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
-        output_type: ScalarType | ArrayType,
-    ) -> ValueRef | ProductRef:
+        output_type: ScalarType | ArrayType | Mapping[str, DataType],
+    ) -> ValueRef | ProductRef | ProductRefs:
         """Declare a compute at the earliest stage where its inputs exist."""
 
         if any(isinstance(value, ProductRef) for value in (inputs or {}).values()):
@@ -873,6 +873,11 @@ class ModuleContext:
                 fn=fn,
                 inputs=cast("Mapping[str, ProductRef]", inputs),
                 output_type=output_type,
+            )
+
+        if not isinstance(output_type, ScalarType | ArrayType):
+            raise TypeError(
+                "structured compute outputs currently require measured inputs"
             )
 
         selected_inputs = {
@@ -909,19 +914,29 @@ class ModuleContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ProductRef],
-        output_type: DataType,
-    ) -> ProductRef:
+        output_type: DataType | Mapping[str, DataType],
+    ) -> ProductRef | ProductRefs:
         """Lower measured inputs to the point-local observation stage."""
 
         input_names = tuple(inputs)
         validate_compute_function_internal(id, fn, input_names)
-        dtype, unit, axes = _measurement_compute_output_spec(output_type)
-        output = self._product(
-            id,
-            unit=unit,
-            dtype=dtype,
-            axes=axes,
+        output_types = (
+            {"result": output_type}
+            if isinstance(output_type, ScalarType | ArrayType)
+            else dict(output_type)
         )
+        if not output_types or any(not name for name in output_types):
+            raise ValueError("structured compute output names must be non-empty")
+        structured = not isinstance(output_type, ScalarType | ArrayType)
+        outputs: dict[str, ProductRef] = {}
+        for name, value_type in output_types.items():
+            dtype, unit, axes = _measurement_compute_output_spec(value_type)
+            outputs[name] = self._product(
+                name if structured else id,
+                unit=unit,
+                dtype=dtype,
+                axes=axes,
+            )
 
         def kernel(
             values: Mapping[str, MeasurementValue],
@@ -932,17 +947,27 @@ class ModuleContext:
                     for name in input_names
                 }
             )
-            return {"result": _measurement_compute_result(raw, output_type)}
+            raw_outputs = (
+                cast("Mapping[str, object]", raw) if structured else {"result": raw}
+            )
+            if set(raw_outputs) != set(output_types):
+                raise ValueError(
+                    "structured compute result keys must exactly match output_type"
+                )
+            return {
+                name: _measurement_compute_result(raw_outputs[name], value_type)
+                for name, value_type in output_types.items()
+            }
 
         self._measurement_postprocessors.append(
             create_measurement_compute_internal(
                 id,
                 inputs=inputs,
-                outputs={"result": output},
+                outputs=outputs,
                 kernel=kernel,
             )
         )
-        return output
+        return ProductRefs(outputs) if structured else outputs["result"]
 
     def _postprocess(
         self,

@@ -432,7 +432,7 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
         )
 
     [lowered] = discriminate.definition.body.measurement_postprocessors
-    assert lowered.input_binding.qualified_name == "discriminate/iq_shots"
+    assert lowered.input_bindings[0][1].qualified_name == "discriminate/iq_shots"
     assert {product.qualified_id for product in discriminate.definition.products} == {
         "discriminate/iq_shots",
         "probability_0",

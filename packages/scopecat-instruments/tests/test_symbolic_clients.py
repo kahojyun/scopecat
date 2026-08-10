@@ -11,6 +11,7 @@ from scopecat.authoring import (
     ModuleContext,
     PerEntity,
     ProductRef,
+    RecordedProducts,
     RecordRef,
     coordinate,
     each,
@@ -35,7 +36,6 @@ from scopecat_instruments import (
     DCSourceGroupTarget,
     DCSourceTarget,
     NetworkSweepProducts,
-    NetworkSweepRecords,
     NetworkSweepTarget,
     RFOutputGroupTarget,
     RFOutputTarget,
@@ -368,9 +368,9 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
         vna = network_sweep(context)
         vna.ensure(points=11)
         trace = vna.sweep()
-        records = assert_type(context.record(trace), NetworkSweepRecords)
-        assert_type(records.frequency, RecordRef[MeasurementArrayData])
-        assert_type(records.s_parameter, RecordRef[MeasurementArrayData])
+        records = assert_type(context.record(trace), RecordedProducts)
+        assert isinstance(records.frequency, RecordRef)
+        assert isinstance(records.s_parameter, RecordRef)
 
     definition = authored.bind().definition
     assert [product.id for product in definition.body.products] == [

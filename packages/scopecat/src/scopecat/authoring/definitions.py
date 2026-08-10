@@ -34,6 +34,7 @@ from scopecat.authoring._module_invocation import (
 )
 from scopecat.authoring._module_results import (
     ProductBundle,
+    RecordedProducts,
     module_result_value_exports,
 )
 from scopecat.authoring.entity_selection import PerEntity
@@ -83,6 +84,7 @@ from scopecat.program.products import (
     ProductRecording,
     ProductRef,
     ProductRefs,
+    RecordSelection,
     record_coordinate,
     record_product,
     record_ref_from_product,
@@ -109,6 +111,7 @@ from scopecat.program.value_refs import (
 from scopecat.program.value_types import (
     Array,
     Bool,
+    DataType,
     Entity,
     Float,
     Int,
@@ -416,8 +419,8 @@ class ExperimentContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ProductRef],
-        output_type: Scalar | Array,
-    ) -> ProductRef: ...
+        output_type: Scalar | Array | Mapping[str, DataType],
+    ) -> ProductRef | ProductRefs: ...
 
     @overload
     def compute(
@@ -435,8 +438,8 @@ class ExperimentContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
-        output_type: Scalar | Array,
-    ) -> ValueRef | ProductRef:
+        output_type: Scalar | Array | Mapping[str, DataType],
+    ) -> ValueRef | ProductRef | ProductRefs:
         """Declare one experiment-owned compute node and return its result."""
 
         if inputs and any(isinstance(value, ProductRef) for value in inputs.values()):
@@ -445,6 +448,10 @@ class ExperimentContext:
                 fn=fn,
                 inputs=cast("Mapping[str, ProductRef]", inputs),
                 output_type=output_type,
+            )
+        if not isinstance(output_type, Scalar | Array):
+            raise TypeError(
+                "structured compute outputs currently require measured inputs"
             )
         return self._program.compute(
             id,
@@ -656,15 +663,15 @@ class ExperimentContext:
     ) -> RecordRef[T]: ...
 
     @overload
-    def record[RecordsT](
+    def record(
         self,
-        value: ProductBundle[RecordsT],
+        value: ProductBundle,
         /,
         *,
         record_id: None = None,
         namespace: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> RecordsT: ...
+    ) -> RecordedProducts: ...
 
     @overload
     def record[T: NativeMeasurementValue](
@@ -678,15 +685,15 @@ class ExperimentContext:
     ) -> PerEntity[RecordRef[T]]: ...
 
     @overload
-    def record[RecordsT](
+    def record(
         self,
-        value: PerEntity[ProductBundle[RecordsT]],
+        value: PerEntity[ProductBundle],
         /,
         *,
         record_id: None = None,
         namespace: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> PerEntity[RecordsT]: ...
+    ) -> PerEntity[RecordedProducts]: ...
 
     @overload
     def record(
@@ -1178,7 +1185,7 @@ def _experiment_from_function[ResultT, **P](
         if built is None:
             context = ExperimentContext()
             output = cast("ResultT", source(context, **values))
-            _validate_experiment_output(output)
+            _record_experiment_output(context, output)
             definition = context.close_definition_internal(
                 id=selected_id,
                 kind=selected_kind,
@@ -1304,37 +1311,96 @@ def _context_signature(
     return signature.replace(parameters=parameters[1:])
 
 
-def _validate_experiment_output(value: object) -> None:
+def _record_experiment_output(
+    context: ExperimentContext,
+    value: object,
+    *,
+    path: tuple[str, ...] = (),
+) -> None:
+    """Treat returned data as the experiment's durable output selection."""
+
     if value is None or isinstance(value, RecordRef):
         return
     if isinstance(value, ValueRef):
-        if internal_value_ref_point_id(value) is None:
-            raise TypeError(
-                "experiment outputs may expose scan coordinates, but computed "
-                "values must be recorded first"
+        if internal_value_ref_point_id(value) is not None:
+            return
+        if any(
+            isinstance(selection, ValueRecordSelection)
+            and selection.value.id == value.id
+            for selection in context._record_selections
+        ):
+            return
+        context.record(
+            value,
+            record_id=(
+                None
+                if internal_value_ref_source_id(value) is not None
+                else "/".join(path or ("result",))
+            ),
+        )
+        return
+    if isinstance(value, ProductRef):
+        _ensure_product_record(context, value)
+        return
+    if isinstance(value, ProductBundle):
+
+        def record_product_leaf[T: NativeMeasurementValue](
+            product: ProductRef[T],
+        ) -> RecordRef[T]:
+            return _ensure_product_record(context, product)
+
+        value._records_internal(record_product_leaf)
+        return
+    if isinstance(value, PerEntity):
+        for entity, item in value.items():
+            _record_experiment_output(
+                context,
+                item,
+                path=(*path, entity.id),
             )
         return
-    if isinstance(value, ProductRef | ProductBundle):
-        raise TypeError("experiment products must be recorded before being returned")
-    if isinstance(value, PerEntity):
-        for item in value.values():
-            _validate_experiment_output(item)
-        return
     if isinstance(value, tuple):
-        for item in cast("tuple[object, ...]", value):
-            _validate_experiment_output(item)
+        for index, item in enumerate(cast("tuple[object, ...]", value)):
+            _record_experiment_output(
+                context,
+                item,
+                path=(*path, str(index)),
+            )
         return
     if is_dataclass(value) and not isinstance(value, type):
         members = fields(value)
         if not members:
             raise TypeError("experiment output dataclasses must not be empty")
         for member in members:
-            _validate_experiment_output(cast("object", getattr(value, member.name)))
+            _record_experiment_output(
+                context,
+                cast("object", getattr(value, member.name)),
+                path=(*path, member.name),
+            )
         return
     raise TypeError(
         "experiment functions must return None or a tuple/dataclass/PerEntity "
-        "tree of scan coordinates and recorded values"
+        "tree of data references"
     )
+
+
+def _ensure_product_record[T: NativeMeasurementValue](
+    context: ExperimentContext,
+    product: ProductRef[T],
+) -> RecordRef[T]:
+    existing = next(
+        (
+            selection
+            for selection in context._record_selections
+            if isinstance(selection, RecordSelection)
+            and selection.product_id == product.product_id
+            and selection.product_origin == product.origin
+        ),
+        None,
+    )
+    if existing is not None:
+        return record_ref_from_product(product, existing)
+    return context._record_product(product, namespace=None, metadata=None)
 
 
 def _is_runtime_input_annotation(annotation: object) -> bool:

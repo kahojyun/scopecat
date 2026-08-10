@@ -13,7 +13,7 @@ import scopecat as sc
 from scopecat.api.analysis import AnalysisDefinition, AnalysisInvocation
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
-from scopecat.program.products import ProductAxis
+from scopecat.program.products import ProductAxis, RecordSelection
 from scopecat.sdk.instruments import InterfaceRef
 
 _COUNT_TYPE = sc.IntType(minimum=0)
@@ -185,13 +185,14 @@ def test_experiment_returns_a_typed_dataset_schema() -> None:
     assert output.recorded_count.source_value_id == "count"
 
 
-def test_experiment_rejects_unrecorded_output_values_and_products() -> None:
+def test_returned_values_are_durable_without_explicit_record_calls() -> None:
     def computed(experiment: sc.ExperimentContext) -> sc.ValueRef[object]:
         count = experiment.scan("count", (1, 2, 3))
         return count + 1
 
-    with pytest.raises(TypeError, match="computed values must be recorded"):
-        sc.experiment(computed)
+    computed_experiment = sc.experiment(computed)
+    [computed_record] = computed_experiment().definition.record_selections
+    assert computed_record.record_id == "result"
 
     @sc.module
     def product_source(module: sc.ModuleContext) -> sc.ProductRef:
@@ -200,8 +201,24 @@ def test_experiment_rejects_unrecorded_output_values_and_products() -> None:
     def product(experiment: sc.ExperimentContext) -> sc.ProductRef:
         return experiment.use(product_source())
 
-    with pytest.raises(TypeError, match="products must be recorded"):
-        sc.experiment(product)
+    product_experiment = sc.experiment(product)
+    [product_record] = product_experiment().definition.record_selections
+    assert isinstance(product_record, RecordSelection)
+    assert product_record.product_id.local_id == "signal"
+
+
+def test_returned_explicit_record_is_not_selected_twice() -> None:
+    @sc.experiment(id="test.returned-record", kind="return")
+    def definition(experiment: sc.ExperimentContext) -> sc.ValueRef[object]:
+        score = experiment.compute(
+            "score",
+            fn=lambda: 1.0,
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        experiment.record(score)
+        return score
+
+    assert len(definition().definition.record_selections) == 1
 
 
 def test_analysis_decorator_preserves_configuration_signature() -> None:

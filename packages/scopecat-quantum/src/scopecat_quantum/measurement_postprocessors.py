@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal, cast, override
+from typing import Literal, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,17 +14,11 @@ from scopecat import (
     ExperimentContext,
     ModuleContext,
     ProductRef,
-    RecordRef,
+    QuantityType,
+    ScalarType,
 )
-from scopecat.authoring._module_results import ProductBundle, _RecordProduct
-from scopecat.measurements.results import (
-    MeasurementArray,
-    MeasurementScalar,
-    MeasurementValue,
-)
-
-_PROBABILITY_0_ROLE = "probability_0"
-_PROBABILITY_1_ROLE = "probability_1"
+from scopecat.authoring._module_results import ProductBundle
+from scopecat.program.products import ProductRefs
 
 
 class IqCentroid(BaseModel):
@@ -62,30 +56,11 @@ class BinaryIqDiscriminator(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class BinaryIqProbabilityRecords:
-    """Typed durable records selected from binary IQ probabilities."""
-
-    probability_0: RecordRef[float]
-    probability_1: RecordRef[float]
-
-
-@dataclass(frozen=True, slots=True)
-class BinaryIqProbabilityProducts(ProductBundle[BinaryIqProbabilityRecords]):
+class BinaryIqProbabilityProducts(ProductBundle):
     """Typed products emitted by one binary IQ discrimination step."""
 
     probability_0: ProductRef[float]
     probability_1: ProductRef[float]
-
-    @override
-    def _records_internal(
-        self,
-        record: _RecordProduct,
-        /,
-    ) -> BinaryIqProbabilityRecords:
-        return BinaryIqProbabilityRecords(
-            probability_0=record(self.probability_0),
-            probability_1=record(self.probability_1),
-        )
 
 
 def binary_iq_probabilities(
@@ -99,42 +74,34 @@ def binary_iq_probabilities(
 ) -> BinaryIqProbabilityProducts:
     """Declare binary state probabilities independently at each scan point."""
 
-    products = BinaryIqProbabilityProducts(
-        probability_0=cast(
-            "ProductRef[float]",
-            context._product(
-                _output_id(output_prefix, "probability_0"),
-                dtype="float64",
-                unit="ratio",
-            ),
-        ),
-        probability_1=cast(
-            "ProductRef[float]",
-            context._product(
-                _output_id(output_prefix, "probability_1"),
-                dtype="float64",
-                unit="ratio",
-            ),
-        ),
-    )
+    probability_0_id = _output_id(output_prefix, "probability_0")
+    probability_1_id = _output_id(output_prefix, "probability_1")
 
-    def calculate(value: MeasurementValue) -> dict[str, MeasurementValue]:
-        result_0, result_1 = _binary_iq_probability_value(value, discriminator)
+    def calculate(*, iq_shots: object) -> dict[str, float]:
+        result_0, result_1 = _binary_iq_probability_value(
+            np.asarray(iq_shots),
+            discriminator,
+        )
         return {
-            _PROBABILITY_0_ROLE: result_0,
-            _PROBABILITY_1_ROLE: result_1,
+            probability_0_id: result_0,
+            probability_1_id: result_1,
         }
 
-    context._postprocess(
+    computed = context.compute(
         id,
-        input=iq_shots,
-        outputs={
-            _PROBABILITY_0_ROLE: products.probability_0,
-            _PROBABILITY_1_ROLE: products.probability_1,
+        fn=calculate,
+        inputs={"iq_shots": iq_shots},
+        output_type={
+            probability_0_id: ScalarType(QuantityType(unit="ratio")),
+            probability_1_id: ScalarType(QuantityType(unit="ratio")),
         },
-        kernel=calculate,
     )
-    return products
+    if not isinstance(computed, ProductRefs):
+        raise AssertionError("structured measurement compute must return products")
+    return BinaryIqProbabilityProducts(
+        probability_0=cast("ProductRef[float]", computed[probability_0_id]),
+        probability_1=cast("ProductRef[float]", computed[probability_1_id]),
+    )
 
 
 def _output_id(prefix: str | None, name: str) -> str:
@@ -142,15 +109,11 @@ def _output_id(prefix: str | None, name: str) -> str:
 
 
 def _binary_iq_probability_value(
-    value: MeasurementValue,
+    value: NDArray[np.generic],
     discriminator: BinaryIqDiscriminator,
-) -> tuple[MeasurementScalar, MeasurementScalar]:
-    if not isinstance(value, MeasurementArray):
-        raise TypeError("binary IQ postprocessor requires a MeasurementArray")
-    if value.dtype != "complex128" or value.unit != "ratio" or len(value.shape) != 1:
-        raise ValueError(
-            "binary IQ postprocessor requires complex128 ratio [shot] values"
-        )
+) -> tuple[float, float]:
+    if value.dtype != np.dtype("complex128") or value.ndim != 1:
+        raise ValueError("binary IQ compute requires complex128 [shot] values")
     if value.shape[0] <= 0:
         raise ValueError("binary IQ postprocessor requires at least one shot")
 
@@ -162,7 +125,7 @@ def _binary_iq_probability_value(
         discriminator.state_1_centroid.real,
         discriminator.state_1_centroid.imag,
     )
-    shots = cast("NDArray[np.complex128]", value.values)
+    shots = cast("NDArray[np.complex128]", value)
     distance_0 = np.square(np.abs(shots - state_0))
     distance_1 = np.square(np.abs(shots - state_1))
     if discriminator.tie_policy == "state_0":
@@ -170,25 +133,13 @@ def _binary_iq_probability_value(
     else:
         state_0_count = int(np.count_nonzero(distance_0 < distance_1))
 
-    probability_0 = state_0_count / len(value.values)
-    return (
-        MeasurementScalar.create(
-            dtype="float64",
-            value=probability_0,
-            unit="ratio",
-        ),
-        MeasurementScalar.create(
-            dtype="float64",
-            value=1.0 - probability_0,
-            unit="ratio",
-        ),
-    )
+    probability_0 = state_0_count / len(value)
+    return probability_0, 1.0 - probability_0
 
 
 __all__ = [
     "BinaryIqDiscriminator",
     "BinaryIqProbabilityProducts",
-    "BinaryIqProbabilityRecords",
     "IqCentroid",
     "binary_iq_probabilities",
 ]

@@ -16,10 +16,9 @@ from scopecat.authoring import (
     ResourceRoleInput,
     Symbolic,
 )
-from scopecat.authoring._module_results import ProductBundle, _RecordProduct
+from scopecat.authoring._module_results import ProductBundle
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.measurement_types import MeasurementArrayData
-from scopecat.program.record_refs import RecordRef
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import (
     ApplyReceipt,
@@ -429,30 +428,11 @@ class TemperatureReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class TemperatureSampleRecords:
-    """Typed durable records selected from sample."""
-
-    temperature: RecordRef[float]
-    resistance: RecordRef[float]
-
-
-@dataclass(frozen=True, slots=True)
-class TemperatureSampleProducts(ProductBundle[TemperatureSampleRecords]):
+class TemperatureSampleProducts(ProductBundle):
     """Typed logical products produced by sample."""
 
     temperature: ProductRef[float]
     resistance: ProductRef[float]
-
-    @override
-    def _records_internal(
-        self,
-        record: _RecordProduct,
-        /,
-    ) -> TemperatureSampleRecords:
-        return TemperatureSampleRecords(
-            temperature=record(self.temperature),
-            resistance=record(self.resistance),
-        )
 
 
 class TemperatureReadoutClient(InstrumentClientBase):
@@ -716,30 +696,11 @@ class DCBiasReadbackReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class DCBiasReadbackRecords:
-    """Typed durable records selected from readback."""
-
-    actual_voltage: RecordRef[float]
-    settled: RecordRef[bool]
-
-
-@dataclass(frozen=True, slots=True)
-class DCBiasReadbackProducts(ProductBundle[DCBiasReadbackRecords]):
+class DCBiasReadbackProducts(ProductBundle):
     """Typed logical products produced by readback."""
 
     actual_voltage: ProductRef[float]
     settled: ProductRef[bool]
-
-    @override
-    def _records_internal(
-        self,
-        record: _RecordProduct,
-        /,
-    ) -> DCBiasReadbackRecords:
-        return DCBiasReadbackRecords(
-            actual_voltage=record(self.actual_voltage),
-            settled=record(self.settled),
-        )
 
 
 class DCBiasClient(DeclaredStateClientBase[DCBiasPatch]):
@@ -1171,27 +1132,10 @@ class DCMonitorCurrentReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorCurrentRecords:
-    """Typed durable records selected from measure_current."""
-
-    current: RecordRef[float]
-
-
-@dataclass(frozen=True, slots=True)
-class DCMonitorCurrentProducts(ProductBundle[DCMonitorCurrentRecords]):
+class DCMonitorCurrentProducts(ProductBundle):
     """Typed logical products produced by measure_current."""
 
     current: ProductRef[float]
-
-    @override
-    def _records_internal(
-        self,
-        record: _RecordProduct,
-        /,
-    ) -> DCMonitorCurrentRecords:
-        return DCMonitorCurrentRecords(
-            current=record(self.current),
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1203,27 +1147,10 @@ class DCMonitorVoltageReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorVoltageRecords:
-    """Typed durable records selected from measure_voltage."""
-
-    voltage: RecordRef[float]
-
-
-@dataclass(frozen=True, slots=True)
-class DCMonitorVoltageProducts(ProductBundle[DCMonitorVoltageRecords]):
+class DCMonitorVoltageProducts(ProductBundle):
     """Typed logical products produced by measure_voltage."""
 
     voltage: ProductRef[float]
-
-    @override
-    def _records_internal(
-        self,
-        record: _RecordProduct,
-        /,
-    ) -> DCMonitorVoltageRecords:
-        return DCMonitorVoltageRecords(
-            voltage=record(self.voltage),
-        )
 
 
 class DCMonitorClient(DeclaredStateClientBase[DCMonitorPatch]):
@@ -1672,30 +1599,11 @@ class NetworkSweepReadback:
 
 
 @dataclass(frozen=True, slots=True)
-class NetworkSweepRecords:
-    """Typed durable records selected from sweep."""
-
-    frequency: RecordRef[MeasurementArrayData]
-    s_parameter: RecordRef[MeasurementArrayData]
-
-
-@dataclass(frozen=True, slots=True)
-class NetworkSweepProducts(ProductBundle[NetworkSweepRecords]):
+class NetworkSweepProducts(ProductBundle):
     """Typed logical products produced by sweep."""
 
     frequency: ProductRef[MeasurementArrayData]
     s_parameter: ProductRef[MeasurementArrayData]
-
-    @override
-    def _records_internal(
-        self,
-        record: _RecordProduct,
-        /,
-    ) -> NetworkSweepRecords:
-        return NetworkSweepRecords(
-            frequency=record(self.frequency),
-            s_parameter=record(self.s_parameter),
-        )
 
 
 class NetworkSweepClient(DeclaredStateClientBase[NetworkSweepPatch]):
@@ -1889,21 +1797,17 @@ __all__ = [
     "DCBiasClient",
     "DCBiasReadbackProducts",
     "DCBiasReadbackReadback",
-    "DCBiasReadbackRecords",
     "DCMonitorClient",
     "DCMonitorCurrentProducts",
     "DCMonitorCurrentReadback",
-    "DCMonitorCurrentRecords",
     "DCMonitorVoltageProducts",
     "DCMonitorVoltageReadback",
-    "DCMonitorVoltageRecords",
     "DCSourceClient",
     "DCSourceMonitorClient",
     "DCSourceMonitorState",
     "NetworkSweepClient",
     "NetworkSweepProducts",
     "NetworkSweepReadback",
-    "NetworkSweepRecords",
     "RFOutputClient",
     "SymbolicDCBiasClient",
     "SymbolicDCBiasGroup",
@@ -1922,7 +1826,6 @@ __all__ = [
     "TemperatureReadback",
     "TemperatureReadoutClient",
     "TemperatureSampleProducts",
-    "TemperatureSampleRecords",
     "dc_bias",
     "dc_monitor",
     "dc_source",

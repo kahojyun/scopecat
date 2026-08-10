@@ -15,7 +15,6 @@ from scopecat_quantum import authoring
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
     BinaryIqProbabilityProducts,
-    BinaryIqProbabilityRecords,
     IqCentroid,
     binary_iq_probabilities,
 )
@@ -90,10 +89,10 @@ def test_binary_iq_postprocessor_classifies_one_point(
     experiment = sc.ExperimentContext()
     records = assert_type(
         experiment.record(experiment.use(discriminate())),
-        BinaryIqProbabilityRecords,
+        sc.RecordedProducts,
     )
-    assert_type(records.probability_0, sc.RecordRef[float])
-    assert_type(records.probability_1, sc.RecordRef[float])
+    assert isinstance(records.probability_0, sc.RecordRef)
+    assert isinstance(records.probability_1, sc.RecordRef)
     declarations = {
         product.qualified_id: product
         for product in discriminate.definition.body.products
@@ -105,7 +104,7 @@ def test_binary_iq_postprocessor_classifies_one_point(
         assert product.axes == ()
 
     [postprocessor] = discriminate.definition.body.measurement_postprocessors
-    assert postprocessor.input_binding.qualified_name == "kernel/iq_shots"
+    assert postprocessor.input_bindings[0][1].qualified_name == "kernel/iq_shots"
     assert tuple(
         (role, product_id.qualified_name)
         for role, product_id in postprocessor.output_bindings
@@ -115,7 +114,14 @@ def test_binary_iq_postprocessor_classifies_one_point(
     )
 
     outputs = postprocessor.kernel(
-        _iq_shots(-1.0 + 0.0j, -0.8 + 0.0j, 1.0 + 0.0j, 0.0 + 0.0j)
+        {
+            "iq_shots": _iq_shots(
+                -1.0 + 0.0j,
+                -0.8 + 0.0j,
+                1.0 + 0.0j,
+                0.0 + 0.0j,
+            )
+        }
     )
     assert outputs == {
         "probability_0": MeasurementScalar.create(
@@ -148,9 +154,15 @@ def test_binary_iq_postprocessor_rejects_non_iq_input() -> None:
 
     [postprocessor] = discriminate.definition.body.measurement_postprocessors
 
-    with pytest.raises(TypeError, match="MeasurementArray"):
+    with pytest.raises(ValueError, match="complex128"):
         postprocessor.kernel(
-            MeasurementScalar.create(dtype="float64", value=0.0, unit="ratio")
+            {
+                "iq_shots": MeasurementScalar.create(
+                    dtype="float64",
+                    value=0.0,
+                    unit="ratio",
+                )
+            }
         )
 
 

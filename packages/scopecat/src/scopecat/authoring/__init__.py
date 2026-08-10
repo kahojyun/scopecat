@@ -10,6 +10,7 @@ from scopecat.authoring._module_context import ModuleContext
 from scopecat.authoring._module_invocation import (
     ModuleInvocation,
 )
+from scopecat.authoring._module_results import RecordedProducts
 from scopecat.authoring.capability_resources import (
     CapabilityResource,
     capability_resource,
@@ -158,6 +159,7 @@ __all__ = [
     "ProductValueSpec",
     "QuantityType",
     "RecordRef",
+    "RecordedProducts",
     "ResourceRoleInput",
     "ResourceRoleSelector",
     "RuntimeInput",

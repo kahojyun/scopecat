@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import fields, is_dataclass, replace
-from typing import Protocol, cast
+from typing import Protocol, cast, override
 
 from scopecat.authoring.entity_selection import PerEntity
 from scopecat.kernel.graph_identity import ValueId
@@ -26,8 +26,35 @@ class _RecordProduct(Protocol):
     ) -> RecordRef[T]: ...
 
 
-class ProductBundle[RecordsT = object]:
-    """Typed acquisition products paired with their durable record shape."""
+class RecordedProducts(Mapping[str, object]):
+    """Attribute and mapping view of records produced from a product bundle."""
+
+    __slots__ = ("_entries",)
+
+    def __init__(self, entries: Mapping[str, object]) -> None:
+        self._entries = dict(entries)
+
+    @override
+    def __getitem__(self, key: str) -> object:
+        return self._entries[key]
+
+    @override
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._entries)
+
+    @override
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    def __getattr__(self, name: str) -> object:
+        try:
+            return self._entries[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+
+class ProductBundle:
+    """A dataclass-shaped group of products recordable without a twin type."""
 
     __slots__ = ()
 
@@ -35,13 +62,26 @@ class ProductBundle[RecordsT = object]:
         self,
         record: _RecordProduct,
         /,
-    ) -> RecordsT:
-        """Map every product leaf to its generated record companion."""
+    ) -> RecordedProducts:
+        """Map dataclass product fields to records by their declared names."""
 
-        del record
-        raise NotImplementedError(
-            f"{type(self).__qualname__} must define its typed record companion"
-        )
+        if not is_dataclass(self):
+            raise TypeError("product bundles must be dataclasses")
+        members = fields(self)
+        if not members:
+            raise TypeError("product bundle dataclasses must not be empty")
+        entries: dict[str, object] = {}
+        for member in members:
+            value = cast("object", getattr(self, member.name))
+            if isinstance(value, ProductRef):
+                entries[member.name] = record(value)
+            elif isinstance(value, ProductBundle):
+                entries[member.name] = value._records_internal(record)
+            else:
+                raise TypeError(
+                    "product bundle fields must be ProductRef or ProductBundle values"
+                )
+        return RecordedProducts(entries)
 
 
 def module_result_value_exports(result: object) -> tuple[ModuleValueExport, ...]:
