@@ -84,8 +84,8 @@ def test_binary_iq_postprocessor_classifies_one_point(
     )
     assert_type(invocation_products.probability_0, sc.ProductRef[float])
     assert_type(invocation_products.probability_1, sc.ProductRef[float])
-    assert invocation_products.probability_0.id == "kernel/probability_0"
-    assert invocation_products.probability_1.id == "kernel/probability_1"
+    assert invocation_products.probability_0.id == "kernel/discriminate/probability_0"
+    assert invocation_products.probability_1.id == "kernel/discriminate/probability_1"
     experiment = sc.ExperimentContext()
     records = assert_type(
         experiment.record(experiment.use(discriminate())),
@@ -97,7 +97,10 @@ def test_binary_iq_postprocessor_classifies_one_point(
         product.qualified_id: product
         for product in discriminate.definition.body.products
     }
-    for product_id in ("probability_0", "probability_1"):
+    for product_id in (
+        "discriminate/probability_0",
+        "discriminate/probability_1",
+    ):
         product = declarations[product_id]
         assert product.dtype == "float64"
         assert product.unit == "ratio"
@@ -109,8 +112,8 @@ def test_binary_iq_postprocessor_classifies_one_point(
         (role, product_id.qualified_name)
         for role, product_id in postprocessor.output_bindings
     ) == (
-        ("probability_0", "probability_0"),
-        ("probability_1", "probability_1"),
+        ("probability_0", "discriminate/probability_0"),
+        ("probability_1", "discriminate/probability_1"),
     )
 
     outputs = postprocessor.kernel(
@@ -166,7 +169,7 @@ def test_binary_iq_postprocessor_rejects_non_iq_input() -> None:
         )
 
 
-def test_binary_iq_postprocessor_can_namespace_parallel_outputs() -> None:
+def test_binary_iq_postprocessor_uses_compute_identity_for_parallel_outputs() -> None:
     @authoring.program(id="test.binary-iq.namespaced")
     def acquire_iq(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq_shots")
@@ -179,10 +182,10 @@ def test_binary_iq_postprocessor_can_namespace_parallel_outputs() -> None:
             module,
             call.results.iq_shots,
             discriminator=_discriminator(),
-            output_prefix="q0",
+            id="q0",
         )
 
     products = discriminate().result
 
-    assert products.probability_0.id == "namespaced/q0_probability_0"
-    assert products.probability_1.id == "namespaced/q0_probability_1"
+    assert products.probability_0.id == "namespaced/q0/probability_0"
+    assert products.probability_1.id == "namespaced/q0/probability_1"

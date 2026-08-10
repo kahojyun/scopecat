@@ -145,10 +145,39 @@ when that identity is part of a public data contract.
 
 The same spelling accepts measured products. Native scalars or read-only NumPy
 arrays are passed to the function, and its result becomes another recordable
-product. A mapping of output names to types declares a structured measured
-result. The internal execution model still has separate host and observation
-stages, but that distinction is compiler-owned rather than a second authoring
-API.
+product. An annotated product-bundle dataclass declares a typed structured
+result once; `compute` returns that bundle directly, and the kernel can return a
+tuple in field order:
+
+```python
+from dataclasses import dataclass
+from typing import Annotated
+
+
+@dataclass(frozen=True, slots=True)
+class Probabilities(sc.ProductBundle):
+    ground: Annotated[
+        sc.ProductRef[float],
+        sc.ScalarType(sc.QuantityType(unit="ratio")),
+    ]
+    excited: Annotated[
+        sc.ProductRef[float],
+        sc.ScalarType(sc.QuantityType(unit="ratio")),
+    ]
+
+
+probabilities = experiment.compute(
+    fn=lambda *, shots: discriminate(shots),
+    inputs={"shots": acquired.iq_shots},
+    output_type=Probabilities,
+)
+```
+
+Product identities are scoped below the compute identity, so repeated typed
+computes only need distinct compute IDs. A mapping of names to types remains
+available for dynamic schemas. The internal execution model still has separate
+host and observation stages, but that distinction is compiler-owned rather
+than a second authoring API.
 
 Earlier values can be bound directly beside measured products; no closure or
 parallel postprocessing API is required:

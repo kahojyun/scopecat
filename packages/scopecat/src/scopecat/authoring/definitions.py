@@ -421,8 +421,18 @@ class ExperimentContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ProductRef],
-        output_type: Scalar | Array | Mapping[str, DataType],
-    ) -> ProductRef | ProductRefs: ...
+        output_type: Scalar | Array,
+    ) -> ProductRef: ...
+
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ProductRef],
+        output_type: Mapping[str, DataType],
+    ) -> ProductRefs: ...
 
     @overload
     def compute(
@@ -444,14 +454,24 @@ class ExperimentContext:
         output_type: Scalar | Array | Mapping[str, DataType],
     ) -> ValueRef | ProductRef | ProductRefs: ...
 
+    @overload
+    def compute[BundleT: ProductBundle](
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef],
+        output_type: type[BundleT],
+    ) -> BundleT: ...
+
     def compute(
         self,
         id: str | None = None,
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
-        output_type: Scalar | Array | Mapping[str, DataType],
-    ) -> ValueRef | ProductRef | ProductRefs:
+        output_type: (Scalar | Array | Mapping[str, DataType] | type[ProductBundle]),
+    ) -> ValueRef | ProductRef | ProductRefs | ProductBundle:
         """Declare an experiment compute, inferring its id when omitted."""
 
         if inputs and any(isinstance(value, ProductRef) for value in inputs.values()):

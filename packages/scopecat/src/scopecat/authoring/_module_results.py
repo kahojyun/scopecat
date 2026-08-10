@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import fields, is_dataclass, replace
-from typing import Protocol, cast, override
+from typing import (
+    Annotated,
+    Protocol,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+    override,
+)
 
 from scopecat.authoring.entity_selection import PerEntity
 from scopecat.kernel.graph_identity import ValueId
@@ -14,6 +22,7 @@ from scopecat.program.module import ModuleValueExport
 from scopecat.program.products import ProductRef
 from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_refs import ValueRef
+from scopecat.program.value_types import Array, DataType, Scalar
 
 type _ProductKey = tuple[ProductId, tuple[object, ...]]
 
@@ -82,6 +91,57 @@ class ProductBundle:
                     "product bundle fields must be ProductRef or ProductBundle values"
                 )
         return RecordedProducts(entries)
+
+
+def product_bundle_schema_internal(
+    bundle_type: type[ProductBundle],
+) -> tuple[tuple[str, DataType], ...]:
+    """Read a measured-compute schema from an annotated product bundle."""
+
+    if not is_dataclass(bundle_type):
+        raise TypeError("computed product bundle types must be dataclasses")
+    members = fields(bundle_type)
+    if not members:
+        raise TypeError("computed product bundle types must not be empty")
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(bundle_type, include_extras=True),
+    )
+    schema: list[tuple[str, DataType]] = []
+    for member in members:
+        annotation = hints.get(member.name)
+        if get_origin(annotation) is not Annotated:
+            raise TypeError(
+                f"computed product field {member.name!r} must be Annotated with "
+                "a ScalarType or ArrayType"
+            )
+        value_annotation, *metadata = cast(
+            "tuple[object, ...]",
+            get_args(annotation),
+        )
+        if get_origin(value_annotation) is not ProductRef:
+            raise TypeError(
+                f"computed product field {member.name!r} must annotate ProductRef"
+            )
+        value_types = tuple(
+            item for item in metadata if isinstance(item, Scalar | Array)
+        )
+        if len(value_types) != 1:
+            raise TypeError(
+                f"computed product field {member.name!r} requires exactly one "
+                "ScalarType or ArrayType annotation"
+            )
+        schema.append((member.name, value_types[0]))
+    return tuple(schema)
+
+
+def create_product_bundle_internal[BundleT: ProductBundle](
+    bundle_type: type[BundleT],
+    products: Mapping[str, ProductRef],
+) -> BundleT:
+    """Instantiate a trusted computed product bundle from named products."""
+
+    return bundle_type(**products)
 
 
 def module_result_value_exports(result: object) -> tuple[ModuleValueExport, ...]:

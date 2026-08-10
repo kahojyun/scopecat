@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -13,12 +13,11 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from scopecat import (
     ExperimentContext,
     ModuleContext,
+    ProductBundle,
     ProductRef,
     QuantityType,
     ScalarType,
 )
-from scopecat.authoring._module_results import ProductBundle
-from scopecat.program.products import ProductRefs
 
 
 class IqCentroid(BaseModel):
@@ -59,8 +58,14 @@ class BinaryIqDiscriminator(BaseModel):
 class BinaryIqProbabilityProducts(ProductBundle):
     """Typed products emitted by one binary IQ discrimination step."""
 
-    probability_0: ProductRef[float]
-    probability_1: ProductRef[float]
+    probability_0: Annotated[
+        ProductRef[float],
+        ScalarType(QuantityType(unit="ratio")),
+    ]
+    probability_1: Annotated[
+        ProductRef[float],
+        ScalarType(QuantityType(unit="ratio")),
+    ]
 
 
 def binary_iq_probabilities(
@@ -70,42 +75,21 @@ def binary_iq_probabilities(
     *,
     discriminator: BinaryIqDiscriminator,
     id: str = "binary-iq-probability",
-    output_prefix: str | None = None,
 ) -> BinaryIqProbabilityProducts:
     """Declare binary state probabilities independently at each scan point."""
 
-    probability_0_id = _output_id(output_prefix, "probability_0")
-    probability_1_id = _output_id(output_prefix, "probability_1")
-
-    def calculate(*, iq_shots: object) -> dict[str, float]:
-        result_0, result_1 = _binary_iq_probability_value(
+    def calculate(*, iq_shots: object) -> tuple[float, float]:
+        return _binary_iq_probability_value(
             np.asarray(iq_shots),
             discriminator,
         )
-        return {
-            probability_0_id: result_0,
-            probability_1_id: result_1,
-        }
 
-    computed = context.compute(
+    return context.compute(
         id,
         fn=calculate,
         inputs={"iq_shots": iq_shots},
-        output_type={
-            probability_0_id: ScalarType(QuantityType(unit="ratio")),
-            probability_1_id: ScalarType(QuantityType(unit="ratio")),
-        },
+        output_type=BinaryIqProbabilityProducts,
     )
-    if not isinstance(computed, ProductRefs):
-        raise AssertionError("structured measurement compute must return products")
-    return BinaryIqProbabilityProducts(
-        probability_0=cast("ProductRef[float]", computed[probability_0_id]),
-        probability_1=cast("ProductRef[float]", computed[probability_1_id]),
-    )
-
-
-def _output_id(prefix: str | None, name: str) -> str:
-    return name if prefix is None else f"{prefix}_{name}"
 
 
 def _binary_iq_probability_value(

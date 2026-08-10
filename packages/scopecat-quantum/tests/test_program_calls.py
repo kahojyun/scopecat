@@ -435,6 +435,6 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
     assert lowered.input_bindings[0][1].qualified_name == "discriminate/iq_shots"
     assert {product.qualified_id for product in discriminate.definition.products} == {
         "discriminate/iq_shots",
-        "probability_0",
-        "probability_1",
+        "discriminate/probability_0",
+        "discriminate/probability_1",
     }

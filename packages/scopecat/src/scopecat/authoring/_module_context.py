@@ -12,6 +12,11 @@ from scopecat.authoring._module_invocation import (
     domain_use_call,
     module_instance,
 )
+from scopecat.authoring._module_results import (
+    ProductBundle,
+    create_product_bundle_internal,
+    product_bundle_schema_internal,
+)
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.instrument_members import (
@@ -103,6 +108,12 @@ from scopecat.records.measurement import (
 
 type BindingInput = StateBinding
 type InvocationInput = BindingInput | None
+
+
+def _as_product_bundle_type(value: object) -> type[ProductBundle] | None:
+    if not isinstance(value, type) or not issubclass(value, ProductBundle):
+        return None
+    return value
 
 
 def _measurement_compute_output_spec(
@@ -838,8 +849,18 @@ class ModuleContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ProductRef],
-        output_type: ScalarType | ArrayType | Mapping[str, DataType],
-    ) -> ProductRef | ProductRefs: ...
+        output_type: ScalarType | ArrayType,
+    ) -> ProductRef: ...
+
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ProductRef],
+        output_type: Mapping[str, DataType],
+    ) -> ProductRefs: ...
 
     @overload
     def compute(
@@ -861,14 +882,26 @@ class ModuleContext:
         output_type: ScalarType | ArrayType | Mapping[str, DataType],
     ) -> ValueRef | ProductRef | ProductRefs: ...
 
+    @overload
+    def compute[BundleT: ProductBundle](
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef],
+        output_type: type[BundleT],
+    ) -> BundleT: ...
+
     def compute(
         self,
         id: str | None = None,
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
-        output_type: ScalarType | ArrayType | Mapping[str, DataType],
-    ) -> ValueRef | ProductRef | ProductRefs:
+        output_type: (
+            ScalarType | ArrayType | Mapping[str, DataType] | type[ProductBundle]
+        ),
+    ) -> ValueRef | ProductRef | ProductRefs | ProductBundle:
         """Declare a compute where its inputs exist, inferring an id when omitted."""
 
         selected_id = self._allocate_effect_id(
@@ -922,8 +955,8 @@ class ModuleContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef],
-        output_type: DataType | Mapping[str, DataType],
-    ) -> ProductRef | ProductRefs:
+        output_type: (DataType | Mapping[str, DataType] | type[ProductBundle]),
+    ) -> ProductRef | ProductRefs | ProductBundle:
         """Lower measured inputs to the point-local observation stage."""
 
         input_names = tuple(inputs)
@@ -938,11 +971,15 @@ class ModuleContext:
             for name, value in inputs.items()
             if not isinstance(value, ProductRef)
         }
-        output_types = (
-            {"result": output_type}
-            if isinstance(output_type, ScalarType | ArrayType)
-            else dict(output_type)
-        )
+        bundle_type = _as_product_bundle_type(output_type)
+        if bundle_type is not None:
+            output_types = dict(product_bundle_schema_internal(bundle_type))
+        elif isinstance(output_type, ScalarType | ArrayType):
+            output_types = {"result": output_type}
+        elif isinstance(output_type, Mapping):
+            output_types = dict(output_type)
+        else:
+            raise TypeError("structured compute output must be a product bundle type")
         if not output_types or any(not name for name in output_types):
             raise ValueError("structured compute output names must be non-empty")
         structured = not isinstance(output_type, ScalarType | ArrayType)
@@ -951,6 +988,7 @@ class ModuleContext:
             dtype, unit, axes = _measurement_compute_output_spec(value_type)
             outputs[name] = self._product(
                 name if structured else id,
+                scope=(id,) if bundle_type is not None else (),
                 unit=unit,
                 dtype=dtype,
                 axes=axes,
@@ -971,9 +1009,19 @@ class ModuleContext:
                     for name in input_names
                 }
             )
-            raw_outputs = (
-                cast("Mapping[str, object]", raw) if structured else {"result": raw}
-            )
+            if bundle_type is not None and isinstance(raw, tuple):
+                raw_tuple = cast("tuple[object, ...]", raw)
+                if len(raw_tuple) != len(output_types):
+                    raise ValueError(
+                        "structured compute tuple length must match its product bundle"
+                    )
+                raw_outputs: Mapping[str, object] = dict(
+                    zip(output_types, raw_tuple, strict=True)
+                )
+            else:
+                raw_outputs = (
+                    cast("Mapping[str, object]", raw) if structured else {"result": raw}
+                )
             if set(raw_outputs) != set(output_types):
                 raise ValueError(
                     "structured compute result keys must exactly match output_type"
@@ -992,6 +1040,8 @@ class ModuleContext:
                 kernel=kernel,
             )
         )
+        if bundle_type is not None:
+            return create_product_bundle_internal(bundle_type, outputs)
         return ProductRefs(outputs) if structured else outputs["result"]
 
     def _postprocess(

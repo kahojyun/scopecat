@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Annotated, assert_type
+
 import numpy as np
 import pytest
 
@@ -16,6 +19,18 @@ from scopecat.measurements.results import (
 )
 from scopecat.program.domain import domain_program
 from tests.testkit.domain import domain_call
+
+
+@dataclass(frozen=True, slots=True)
+class _ProbabilityProducts(sc.ProductBundle):
+    positive: Annotated[
+        sc.ProductRef[float],
+        sc.ScalarType(sc.QuantityType(unit="ratio")),
+    ]
+    negative: Annotated[
+        sc.ProductRef[float],
+        sc.ScalarType(sc.QuantityType(unit="ratio")),
+    ]
 
 
 def _identity(value: MeasurementValue) -> dict[str, MeasurementValue]:
@@ -177,6 +192,54 @@ def test_compute_joins_measured_products_with_earlier_compute_values() -> None:
         }
     )["result"]
     assert result == MeasurementScalar.create(value=True, dtype="bool")
+
+
+def test_compute_instantiates_an_annotated_product_bundle_schema() -> None:
+    @sc.module(id="test.typed-structured-compute")
+    def module(context: sc.ModuleContext) -> _ProbabilityProducts:
+        signal = context._product("signal", unit="ratio")
+        return assert_type(
+            context.compute(
+                "probabilities",
+                fn=lambda *, signal: (signal, 1.0 - signal),
+                inputs={"signal": signal},
+                output_type=_ProbabilityProducts,
+            ),
+            _ProbabilityProducts,
+        )
+
+    result = module().result
+    assert (
+        result.positive.product_id.qualified_name
+        == "typed-structured-compute/probabilities/positive"
+    )
+    assert (
+        result.negative.product_id.qualified_name
+        == "typed-structured-compute/probabilities/negative"
+    )
+
+    [compute] = compose_module(module.definition).measurement_postprocessors
+    output = compute.kernel(
+        {
+            "signal": MeasurementScalar.create(
+                value=0.25,
+                dtype="float64",
+                unit="ratio",
+            )
+        }
+    )
+    assert output == {
+        "positive": MeasurementScalar.create(
+            value=0.25,
+            dtype="float64",
+            unit="ratio",
+        ),
+        "negative": MeasurementScalar.create(
+            value=0.75,
+            dtype="float64",
+            unit="ratio",
+        ),
+    }
 
 
 def test_postprocessor_chaining_is_sorted_by_dependency() -> None:
