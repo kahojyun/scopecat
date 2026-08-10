@@ -13,6 +13,7 @@ from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.kernel.value_types import (
+    Array,
     Bool,
     Entity,
     Float,
@@ -79,7 +80,7 @@ class Compute:
     id: str
     fn: ComputeFunction
     inputs: tuple[tuple[str, ComputeInput], ...]
-    output_type: Scalar
+    output_type: Scalar | Array
     declaration_key: ComputeDeclarationKey
 
     def __post_init__(self) -> None:
@@ -117,7 +118,7 @@ class Compute:
         )
 
     @property
-    def input_types(self) -> tuple[tuple[str, Scalar], ...]:
+    def input_types(self) -> tuple[tuple[str, Scalar | Array], ...]:
         """Return the declared consumer type of every compute input edge."""
 
         return tuple(
@@ -370,7 +371,7 @@ def compute(
     *,
     fn: ComputeFunction,
     inputs: Mapping[str, ComputeInput] | None = None,
-    output_type: Scalar,
+    output_type: Scalar | Array,
 ) -> Compute:
     """Declare a compute node whose output is a first-class typed value."""
 
@@ -403,7 +404,7 @@ def _capture_compute_input(value: ComputeInput) -> ComputeInput:
 
 def _is_compute_input(value: object) -> bool:
     return (
-        (isinstance(value, ValueRef) and isinstance(value.value_type, Scalar))
+        (isinstance(value, ValueRef) and isinstance(value.value_type, Scalar | Array))
         or value is None
         or isinstance(
             value,
@@ -412,9 +413,9 @@ def _is_compute_input(value: object) -> bool:
     )
 
 
-def _compute_input_value_type(value: ComputeInput) -> Scalar:
+def _compute_input_value_type(value: ComputeInput) -> Scalar | Array:
     if isinstance(value, ValueRef):
-        return cast("Scalar", value.value_type)
+        return cast("Scalar | Array", value.value_type)
     return literal_scalar_type(value)
 
 

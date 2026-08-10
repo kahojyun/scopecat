@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import cast
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
@@ -35,6 +36,7 @@ from scopecat.measurements.values import (
 from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
+    MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementRecord,
     MeasurementValue,
@@ -309,7 +311,7 @@ def _projected_values(
     *,
     role: MeasurementVariableRole,
     product_values: ClosedMeasurementProductValues,
-    value_candidates: Mapping[tuple[LogicalPointId, ValueId], CellValue],
+    value_candidates: Mapping[tuple[LogicalPointId, ValueId], object],
     point: RunPoint,
 ) -> dict[str, MeasurementValue]:
     projected: dict[str, MeasurementValue] = {}
@@ -329,7 +331,15 @@ def _projected_values(
                 f"recorded value {record.id!r} is unavailable for point "
                 f"{point.logical_ordinal}"
             ) from error
-        projected[record.id] = measurement_scalar(value)
+        projected[record.id] = (
+            MeasurementArray.create(
+                values=value,
+                dtype=record.dtype,
+                unit=record.unit,
+            )
+            if record.axes
+            else measurement_scalar(cast("CellValue", value))
+        )
     return projected
 
 

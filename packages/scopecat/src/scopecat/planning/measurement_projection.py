@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import cast
 
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import evaluate_scalar
 from scopecat.compiler.value_resolution import BoundValueResolver
 from scopecat.kernel.value_data import CellValue
+from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.points import RunPoint, RunPointCatalog, RunPointContract
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.planning.point_materialization import MaterializedBoundPoints
-from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
+from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
+    LiteralArrayExpr,
+    ScalarExpr,
+)
 
 
 def project_measurement_catalog(
@@ -99,6 +105,16 @@ def project_static_value_record_candidates(
         if record.requires_execution:
             continue
         expression = values[record.value_id]
+        if isinstance(expression, LiteralArrayExpr):
+            candidates.extend(
+                ValueRecordCandidate(
+                    logical_point_id=point.logical_id,
+                    value_id=record.value_id,
+                    value=expression.value,
+                )
+                for point in bound_points.point_domain.points
+            )
+            continue
         if not isinstance(expression, ScalarExpr) or isinstance(
             expression,
             ComputeResultScalarExpr,
@@ -116,7 +132,7 @@ def project_static_value_record_candidates(
                     value=evaluate_scalar(
                         expression,
                         EvalContext(params=parameters, point_row=point.row),
-                        expected_type=record.value_type,
+                        expected_type=cast("Scalar", record.value_type),
                     ),
                 )
             )

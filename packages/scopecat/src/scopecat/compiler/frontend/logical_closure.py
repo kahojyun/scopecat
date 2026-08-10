@@ -17,7 +17,11 @@ from scopecat.program.bindings import (
     ResourcePort,
 )
 from scopecat.program.domain import DomainExecution
-from scopecat.program.expressions import ComputeResultScalarExpr, lit
+from scopecat.program.expressions import (
+    ComputeResultArrayExpr,
+    ComputeResultScalarExpr,
+    lit,
+)
 from scopecat.program.logical import (
     AcquireEffect,
     ImplementationId,
@@ -348,8 +352,8 @@ class LogicalProgramBuilder:
             # Its definition is owned by the corresponding authored operation.
             return value_id
         lowered = internal_lower_value_ref(value)
-        if isinstance(lowered, ComputeResultScalarExpr):
-            msg = "non-compute logical values must lower to a scalar expression"
+        if isinstance(lowered, ComputeResultScalarExpr | ComputeResultArrayExpr):
+            msg = "non-compute logical values cannot be compute-result expressions"
             raise TypeError(msg)
         self._add_definition(
             ValueDef(

@@ -32,7 +32,10 @@ from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.program.expressions import (
+    ArrayExpr,
+    ComputeResultArrayExpr,
     ComputeResultScalarExpr,
+    InputArrayExpr,
     ScalarExpr,
     as_scalar_expr,
 )
@@ -261,7 +264,11 @@ def _nested_input_dependencies(
 ) -> set[str]:
     if isinstance(value, ValueRef):
         lowered = internal_lower_value_ref(value)
-        if isinstance(lowered, ComputeResultScalarExpr):
+        if isinstance(lowered, ComputeResultScalarExpr | ComputeResultArrayExpr):
+            return set()
+        if isinstance(lowered, InputArrayExpr):
+            return {lowered.name}
+        if isinstance(lowered, ArrayExpr):
             return set()
         if isinstance(lowered, ScalarExpr):
             return set(
@@ -312,6 +319,8 @@ def _value_source_dependencies(source: object) -> tuple[str, ...]:
         return expression_input_refs(source)
     if isinstance(source, InputTableSource):
         return (source.input_id,)
+    if isinstance(source, InputArrayExpr):
+        return (source.name,)
     return ()
 
 

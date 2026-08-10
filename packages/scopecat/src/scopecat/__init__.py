@@ -37,6 +37,8 @@ if TYPE_CHECKING:
     from scopecat.authoring import (
         ANY_RESOURCE_ROLE,
         DEFAULT_RESOURCE_ROLE,
+        ArrayDimension,
+        ArrayType,
         Axis,
         BoolType,
         CapabilityResource,
@@ -113,6 +115,8 @@ if TYPE_CHECKING:
 
 _EXPORTS: dict[str, tuple[str, str]] = {
     "ANY_RESOURCE_ROLE": ("scopecat.authoring", "ANY_RESOURCE_ROLE"),
+    "ArrayDimension": ("scopecat.authoring", "ArrayDimension"),
+    "ArrayType": ("scopecat.authoring", "ArrayType"),
     "Axis": ("scopecat.authoring", "Axis"),
     "BoolType": ("scopecat.authoring", "BoolType"),
     "CapabilityResource": ("scopecat.authoring", "CapabilityResource"),

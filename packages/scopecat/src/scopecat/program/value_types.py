@@ -1,8 +1,11 @@
 """Shared value type and validation APIs for symbolic programs."""
 
 from scopecat.kernel.value_types import (
+    Array,
+    ArrayDimension,
     AtomType,
     Bool,
+    DataType,
     Entity,
     Float,
     Int,
@@ -12,6 +15,7 @@ from scopecat.kernel.value_types import (
     String,
     Table,
     TableColumn,
+    ValueDType,
     ValueType,
 )
 from scopecat.kernel.value_validation import (
@@ -21,8 +25,11 @@ from scopecat.kernel.value_validation import (
 )
 
 __all__ = [
+    "Array",
+    "ArrayDimension",
     "AtomType",
     "Bool",
+    "DataType",
     "Entity",
     "Float",
     "Int",
@@ -32,6 +39,7 @@ __all__ = [
     "String",
     "Table",
     "TableColumn",
+    "ValueDType",
     "ValueType",
     "ValueValidationError",
     "coerce_literal",

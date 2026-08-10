@@ -107,6 +107,7 @@ from scopecat.program.value_refs import (
     internal_value_ref_source_id,
 )
 from scopecat.program.value_types import (
+    Array,
     Bool,
     Entity,
     Float,
@@ -414,7 +415,7 @@ class ExperimentContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput] | None = None,
-        output_type: Scalar,
+        output_type: Scalar | Array,
     ) -> ValueRef:
         """Declare one experiment-owned compute node and return its result."""
 
@@ -817,15 +818,16 @@ class ExperimentContext:
         metadata: Mapping[str, MetadataValue] | None,
     ) -> RecordRef[NativeMeasurementValue]:
         value_type = value.value_type
-        if not isinstance(value_type, Scalar):
-            raise TypeError("dataset value records must be scalar")
-        atom = value_type.atom
-        if isinstance(atom, Payload):
-            raise TypeError("opaque payload values cannot be recorded in a dataset")
-        if isinstance(atom, Quantity) and atom.unit is None:
-            raise TypeError(
-                "recorded quantity values require an explicit declared unit"
-            )
+        if isinstance(value_type, Scalar):
+            atom = value_type.atom
+            if isinstance(atom, Payload):
+                raise TypeError("opaque payload values cannot be recorded in a dataset")
+            if isinstance(atom, Quantity) and atom.unit is None:
+                raise TypeError(
+                    "recorded quantity values require an explicit declared unit"
+                )
+        elif not isinstance(value_type, Array):
+            raise TypeError("dataset value records must be scalar or array values")
         namespace_segments = (
             () if namespace is None else _record_namespace_segments(namespace)
         )
@@ -852,12 +854,17 @@ class ExperimentContext:
                 metadata=freeze_json_mapping(metadata or {}),
             )
         )
-        dtype, unit = measurement_value_spec_from_scalar(value_type)
+        if isinstance(value_type, Scalar):
+            dtype, unit = measurement_value_spec_from_scalar(value_type)
+            dims = ("point",)
+        else:
+            dtype, unit = value_type.dtype, value_type.unit
+            dims = ("point", *(dimension.id for dimension in value_type.dimensions))
         return RecordRef(
             id=selected_id,
             dtype=dtype,
             unit=unit,
-            dims=("point",),
+            dims=dims,
             source_value_id=source_value_id,
         )
 

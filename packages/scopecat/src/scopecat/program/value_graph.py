@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import DataType
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,4 +47,4 @@ class ComputeOutput:
     """One explicitly typed value produced by a compute operation."""
 
     id: ValueId
-    value_type: Scalar
+    value_type: DataType

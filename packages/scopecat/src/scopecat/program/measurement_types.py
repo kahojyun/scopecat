@@ -7,11 +7,19 @@ from typing import Literal
 import numpy as np
 from numpy.typing import NDArray
 
-from scopecat.kernel.value_types import Bool, Entity, Float, Int, Scalar, String
+from scopecat.kernel.value_types import (
+    Bool,
+    Entity,
+    Float,
+    Int,
+    Scalar,
+    String,
+    ValueDType,
+)
 from scopecat.kernel.value_types import Quantity as QuantityType
 
 type MeasurementVariableRole = Literal["coordinate", "observable"]
-type MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
+type MeasurementDType = ValueDType
 type MeasurementArrayElement = (
     np.bool_ | np.int64 | np.float64 | np.complex128 | np.str_
 )

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.json_types import JsonValue
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import DataType
 from scopecat.program.input_capture import empty_program_mapping
 from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.program.products import RecordSelection
@@ -43,7 +43,7 @@ class LogicalValueRecordSelection:
     id: str
     value_id: ValueId
     source_value_id: str
-    value_type: Scalar
+    value_type: DataType
     role: MeasurementVariableRole = "observable"
     metadata: Mapping[str, JsonValue] = field(default_factory=empty_program_mapping)
 

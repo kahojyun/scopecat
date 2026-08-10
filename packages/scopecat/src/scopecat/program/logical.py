@@ -16,13 +16,11 @@ from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Scalar, ValueType
+from scopecat.kernel.value_types import DataType, ValueType
 from scopecat.program.bindings import (
     ResourcePort,
 )
-from scopecat.program.expressions import (
-    ScalarExpr,
-)
+from scopecat.program.expressions import ArrayExpr, ScalarExpr
 from scopecat.program.measurement_contracts import (
     MeasurementPostprocessorKernel,
 )
@@ -79,7 +77,7 @@ class MeasurementPostprocessorId:
         return MeasurementPostprocessorId(self.symbol.prefixed(*scope))
 
 
-type ValueSource = ScalarExpr | TableSource
+type ValueSource = ArrayExpr | ScalarExpr | TableSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,9 +93,9 @@ class ValueDef:
 class LogicalComputeNode:
     id: graph_values.OperationId
     inputs: tuple[tuple[str, ValueId], ...]
-    input_types: tuple[tuple[str, Scalar], ...]
+    input_types: tuple[tuple[str, DataType], ...]
     result_id: ValueId
-    result_type: Scalar
+    result_type: DataType
 
 
 @dataclass(frozen=True, slots=True)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
-from typing import cast
 
 import scopecat.execution.effect_result as effect_result
 from scopecat.execution.effects.compute import ComputeEffectExecutor, PointEffectState
@@ -26,7 +25,6 @@ from scopecat.execution.program import (
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import ProblemPhase
-from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -255,7 +253,7 @@ class RunEffectInterpreter:
             ValueRecordCandidate(
                 logical_point_id=self.logical_points[point_index],
                 value_id=value_id,
-                value=cast("CellValue", state.compute_results[value_id]),
+                value=state.compute_results[value_id],
             )
             for point_index in point_indices
             if (state := self._point_states.get(point_index)) is not None

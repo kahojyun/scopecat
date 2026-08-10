@@ -24,6 +24,8 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import (
+    Array,
+    DataType,
     Entity,
     Scalar,
     TableColumn,
@@ -76,12 +78,12 @@ class RecordUse:
 
 @dataclass(frozen=True, slots=True)
 class ValueRecordUse:
-    """Durable destination for one scalar value in the logical graph."""
+    """Durable destination for one data value in the logical graph."""
 
     id: str
     value_id: ValueId
     source_value_id: str
-    value_type: Scalar
+    value_type: DataType
     requires_execution: bool = False
     role: MeasurementVariableRole = "observable"
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
@@ -152,7 +154,7 @@ class RecordPlan:
 
 @dataclass(frozen=True, slots=True)
 class ValueRecordPlan:
-    """Point-scalar dataset projection for one symbolic program value."""
+    """Dataset projection for one symbolic program value."""
 
     id: str
     value_id: ValueId
@@ -162,7 +164,7 @@ class ValueRecordPlan:
     role: MeasurementVariableRole = "observable"
     unit: str | None = None
     recording_group_id: None = field(default=None, init=False)
-    axes: tuple[RecordAxisPlan, ...] = field(default=(), init=False)
+    axes: tuple[RecordAxisPlan, ...] = ()
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
@@ -182,11 +184,11 @@ class ValueRecordPlan:
 
 @dataclass(frozen=True, slots=True)
 class ValueRecordCandidate:
-    """One point-local scalar value available to dataset projection."""
+    """One point-local data value available to dataset projection."""
 
     logical_point_id: LogicalPointId
     value_id: ValueId
-    value: CellValue
+    value: object
 
 
 type DatasetRecordPlan = RecordPlan | ValueRecordPlan
@@ -229,21 +231,40 @@ def plan_records(
 def plan_value_records(
     record_uses: Sequence[ValueRecordUse],
 ) -> list[ValueRecordPlan]:
-    """Project scalar value record uses into dataset variable plans."""
+    """Project data value record uses into dataset variable plans."""
 
-    return [
-        ValueRecordPlan(
-            id=record.id,
-            value_id=record.value_id,
-            source_value_id=record.source_value_id,
-            dtype=measurement_value_spec_from_scalar(record.value_type)[0],
-            requires_execution=record.requires_execution,
-            role=record.role,
-            unit=measurement_value_spec_from_scalar(record.value_type)[1],
-            metadata=_value_record_metadata(record),
+    plans: list[ValueRecordPlan] = []
+    for record in record_uses:
+        value_type = record.value_type
+        if isinstance(value_type, Scalar):
+            dtype, unit = measurement_value_spec_from_scalar(value_type)
+            axes: tuple[RecordAxisPlan, ...] = ()
+        else:
+            dtype, unit = value_type.dtype, value_type.unit
+            axes = tuple(
+                RecordAxisPlan(
+                    id=dimension.id,
+                    label=None,
+                    kind=dimension.kind or "sample",
+                    size=dimension.size,
+                    unit=dimension.unit,
+                )
+                for dimension in value_type.dimensions
+            )
+        plans.append(
+            ValueRecordPlan(
+                id=record.id,
+                value_id=record.value_id,
+                source_value_id=record.source_value_id,
+                dtype=dtype,
+                requires_execution=record.requires_execution,
+                role=record.role,
+                unit=unit,
+                axes=axes,
+                metadata=_value_record_metadata(record),
+            )
         )
-        for record in record_uses
-    ]
+    return plans
 
 
 def _plan_axis(axis: ProductAxisDef) -> RecordAxisPlan:
@@ -258,7 +279,7 @@ def _plan_axis(axis: ProductAxisDef) -> RecordAxisPlan:
 
 
 def validate_record_axes(
-    records: Sequence[RecordPlan],
+    records: Sequence[DatasetRecordPlan],
     *,
     phase: ProblemPhase = ProblemPhase.PLANNING,
 ) -> list[Problem]:
@@ -338,12 +359,7 @@ def validate_record_plan(
         )
     dimension_ids = {
         "point",
-        *(
-            axis.id
-            for record in records
-            if isinstance(record, RecordPlan)
-            for axis in record.axes
-        ),
+        *(axis.id for record in records for axis in record.axes),
     }
     variable_ids = {*coordinate_ids, *record_ids}
     for variable_id in sorted(dimension_ids & variable_ids):
@@ -358,7 +374,7 @@ def validate_record_plan(
         )
     problems.extend(
         validate_record_axes(
-            tuple(record for record in records if isinstance(record, RecordPlan)),
+            records,
             phase=phase,
         )
     )
@@ -475,8 +491,6 @@ def _record_axes(records: Sequence[DatasetRecordPlan]) -> list[MeasurementDimens
     dimensions: list[MeasurementDimension] = []
     seen: set[str] = set()
     for record in records:
-        if not isinstance(record, RecordPlan):
-            continue
         for axis in record.axes:
             if axis.id in seen:
                 continue
@@ -500,7 +514,7 @@ def _record_variable(record: DatasetRecordPlan) -> MeasurementVariable:
             role=record.role,
             dtype=record.dtype,
             unit=record.unit,
-            dims=["point"],
+            dims=["point", *(axis.id for axis in record.axes)],
             source_value_id=record.source_value_id,
             metadata=_wire_metadata(record.metadata),
         )
@@ -517,6 +531,8 @@ def _record_variable(record: DatasetRecordPlan) -> MeasurementVariable:
 
 
 def _value_record_metadata(record: ValueRecordUse) -> Mapping[str, JsonValue]:
+    if isinstance(record.value_type, Array):
+        return record.metadata
     atom = record.value_type.atom
     if not isinstance(atom, Entity) or atom.entity_kind is None:
         return record.metadata

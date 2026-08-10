@@ -38,7 +38,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.value_data import Row
 from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
-from scopecat.program.expressions import ScalarExpr
+from scopecat.program.expressions import ArrayExpr, LiteralArrayExpr, ScalarExpr
 from scopecat.program.logical import LogicalDomainExecution
 
 
@@ -289,6 +289,10 @@ def _evaluate_domain_input(
             context,
             expected_type=cast("Scalar", expected_type),
         )
+    if isinstance(input_spec, LiteralArrayExpr):
+        return input_spec.value
+    if isinstance(input_spec, ArrayExpr):
+        raise AssertionError("domain array input must be bound before planning")
     return evaluate_table_value(
         input_spec,
         cast("Table", expected_type),

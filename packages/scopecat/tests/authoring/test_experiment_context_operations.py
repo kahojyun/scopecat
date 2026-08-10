@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated
 
+import numpy as np
+
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource
 from scopecat.authoring.state_projection import StateTarget
@@ -259,6 +261,40 @@ def test_experiment_records_a_compute_result_as_a_named_dataset_value() -> None:
     assert record.id == "score"
     assert record.source_value_id == "score"
     assert record.value_id == logical.compute_nodes[0].result_id
+
+
+def test_experiment_composes_and_records_array_compute_results() -> None:
+    trace_type = sc.ArrayType(
+        dtype="float64",
+        dimensions=(sc.ArrayDimension("sample", 3, kind="time", unit="ns"),),
+        unit="V",
+    )
+
+    @sc.experiment(id="test.direct.array-value-record", kind="direct")
+    def direct(experiment: sc.ExperimentContext) -> None:
+        trace = experiment.compute(
+            "trace",
+            fn=lambda: np.asarray([1.0, 2.0, 3.0]),
+            output_type=trace_type,
+        )
+        peak = experiment.compute(
+            "peak",
+            fn=lambda *, values: float(np.max(values)),
+            inputs={"values": trace},
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        trace_record = experiment.record(trace)
+        experiment.record(peak)
+        assert trace_record.dims == ("point", "sample")
+
+    logical = compile_invocation(direct()).program.program
+
+    assert [node.id.local_id for node in logical.compute_nodes] == ["trace", "peak"]
+    assert logical.compute_nodes[1].inputs[0][1] == logical.compute_nodes[0].result_id
+    [trace_record, peak_record] = logical.value_record_selections
+    assert isinstance(trace_record.value_type, sc.ArrayType)
+    assert trace_record.value_type.dimensions[0].id == "sample"
+    assert peak_record.value_type == sc.ScalarType(sc.FloatType())
 
 
 def test_experiment_derives_record_id_from_module_source_identity() -> None:

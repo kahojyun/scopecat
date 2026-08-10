@@ -11,6 +11,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import cast
 
+import numpy as np
+
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.graph_identity import ValueId
@@ -19,7 +21,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue as _CellValue
 from scopecat.kernel.value_data import is_cell_value as _is_cell_value
 from scopecat.kernel.value_type_compatibility import is_assignable, literal_scalar_type
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import Array, Scalar
 from scopecat.program.expression_operators import (
     ScalarOperator,
     scalar_operator_result_type,
@@ -162,6 +164,46 @@ class ComputeResultScalarExpr(ScalarExpr):
     point_dependencies: tuple[tuple[str, Scalar], ...] = ()
 
 
+class ArrayExpr:
+    """Common base for dense point-local array expression nodes."""
+
+    value_type: Array = cast("Array", NotImplemented)
+
+
+@dataclass(frozen=True, slots=True)
+class LiteralArrayExpr(ArrayExpr):
+    """One normalized typed array captured by value."""
+
+    value_type: Array = field()
+    _value: np.ndarray = field(hash=False, repr=False, compare=False)
+
+    def __init__(self, value: np.ndarray, value_type: Array) -> None:
+        snapshot = value.copy(order="C")
+        snapshot.flags.writeable = False
+        object.__setattr__(self, "value_type", value_type)
+        object.__setattr__(self, "_value", snapshot)
+
+    @property
+    def value(self) -> np.ndarray:
+        return self._value
+
+
+@dataclass(frozen=True, slots=True)
+class InputArrayExpr(ArrayExpr):
+    name: str
+    value_type: Array = field()
+
+
+@dataclass(frozen=True, slots=True)
+class ComputeResultArrayExpr(ArrayExpr):
+    """One point-local compute result retained as an opaque array edge."""
+
+    value_id: ValueId
+    value_type: Array = field()
+    origin: tuple[object, ...] = ()
+    point_dependencies: tuple[tuple[str, Scalar], ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class ModuleExportScalarExpr(ScalarExpr):
     """One unresolved scalar projection from a module invocation."""
@@ -169,6 +211,16 @@ class ModuleExportScalarExpr(ScalarExpr):
     invocation_key: InvocationKey
     export_id: str
     value_type: Scalar = field()
+    source_value_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleExportArrayExpr(ArrayExpr):
+    """One unresolved array projection from a module invocation."""
+
+    invocation_key: InvocationKey
+    export_id: str
+    value_type: Array = field()
     source_value_id: str | None = None
 
 

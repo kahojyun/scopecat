@@ -20,7 +20,7 @@ from scopecat.kernel.resource_identity import (
     ResourceRoleSelector,
 )
 from scopecat.kernel.state import StateValue
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import DataType
 from scopecat.program.value_graph import ComputeOutput
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.commands import (
@@ -44,7 +44,7 @@ class OutputInput:
     """Reference an earlier compute result in the same point."""
 
     value_id: ValueId
-    value_type: Scalar
+    value_type: DataType
 
 
 type ComputeInput = BoundInput | OutputInput

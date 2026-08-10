@@ -36,7 +36,7 @@ from scopecat.compiler.frontend.module_scoping import (
 from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
 from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.product_identity import parse_product_id
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import Array, Scalar
 from scopecat.program.bindings import (
     EnsureStateIntent,
     ResourcePort,
@@ -352,8 +352,8 @@ def _resolve_value_record_selection(
     value: ValueRef,
     builder: LogicalProgramBuilder,
 ) -> LogicalValueRecordSelection:
-    if not isinstance(value.value_type, Scalar):
-        raise TypeError("dataset value records must be scalar")
+    if not isinstance(value.value_type, Scalar | Array):
+        raise TypeError("dataset value records must be scalar or array values")
     default_source_id = internal_value_ref_source_id(value)
     if selection.record_id is None and default_source_id is None:
         raise ValueError("recording an unnamed symbolic expression requires record_id")

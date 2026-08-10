@@ -6,6 +6,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import cast
 
+import numpy as np
 from pydantic import ValidationError
 
 from scopecat.kernel.entity import (
@@ -18,6 +19,7 @@ from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.units import compatible_units, unit_kind
 from scopecat.kernel.value_identity import scalar_values_equal
 from scopecat.kernel.value_types import (
+    Array,
     AtomType,
     Bool,
     Entity,
@@ -28,6 +30,7 @@ from scopecat.kernel.value_types import (
     Scalar,
     String,
     Table,
+    ValueDType,
     ValueType,
 )
 
@@ -85,7 +88,55 @@ def coerce_literal(
         raise ValueValidationError(path, "value must not be null")
     if isinstance(value_type, Scalar):
         return _coerce_atom(value_type.atom, value, path=path)
+    if isinstance(value_type, Array):
+        return _coerce_array(value_type, value, path=path)
     return _coerce_table(value_type, value, path=path)
+
+
+def _coerce_array(
+    value_type: Array,
+    value: object,
+    *,
+    path: ValuePath,
+) -> np.ndarray:
+    expected_dtype = _numpy_dtype(value_type.dtype)
+    try:
+        source = np.asarray(value)
+    except (TypeError, ValueError) as error:
+        raise ValueValidationError(path, f"expected array, got {value!r}") from error
+    if not np.can_cast(source.dtype, expected_dtype, casting="safe"):
+        raise ValueValidationError(
+            path,
+            f"array dtype {source.dtype} cannot be safely converted to "
+            f"{expected_dtype}",
+        )
+    selected = np.array(source, dtype=expected_dtype, order="C", copy=True)
+    if selected.ndim != len(value_type.dimensions):
+        raise ValueValidationError(
+            path,
+            f"expected a {len(value_type.dimensions)}D array, got {selected.ndim}D",
+        )
+    for index, dimension in enumerate(value_type.dimensions):
+        if dimension.size is not None and selected.shape[index] != dimension.size:
+            raise ValueValidationError(
+                path,
+                f"dimension {dimension.id!r} must have size {dimension.size}, "
+                f"got {selected.shape[index]}",
+            )
+    selected.flags.writeable = False
+    return selected
+
+
+def _numpy_dtype(dtype: ValueDType) -> np.dtype[np.generic]:
+    return np.dtype(
+        {
+            "float64": np.float64,
+            "int64": np.int64,
+            "complex128": np.complex128,
+            "bool": np.bool_,
+            "string": np.str_,
+        }[dtype]
+    )
 
 
 def validate_literal(

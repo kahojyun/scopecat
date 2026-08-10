@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
+import numpy as np
+
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.scalar_eval import read_path
 from scopecat.compiler.relations.verification import (
@@ -18,6 +20,7 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.kernel.value_data import CellValue, Row, is_cell_value
 from scopecat.kernel.value_types import (
+    Array,
     Scalar,
     Table,
     TableColumn,
@@ -396,7 +399,7 @@ def _referenced_row_columns(
 def _normalize_materialized_result(
     value_type: ValueType,
     value: object,
-) -> CellValue | list[Row]:
+) -> CellValue | np.ndarray | list[Row]:
     """Normalize a result and enforce its runtime carrier contract."""
 
     return _normalize_typed_value(value_type, value, path=("result",))
@@ -407,7 +410,7 @@ def _normalize_typed_value(
     value: object,
     *,
     path: tuple[str | int, ...],
-) -> CellValue | list[Row]:
+) -> CellValue | np.ndarray | list[Row]:
     normalized = _restore_runtime_collection_carriers(
         value_type,
         coerce_literal(value_type, value, path=path),
@@ -419,6 +422,8 @@ def _normalize_typed_value(
                 f"unsupported scalar runtime value {normalized!r}",
             )
         return normalized
+    if isinstance(value_type, Array):
+        return cast("np.ndarray", normalized)
     rows = list(cast("tuple[dict[str, object], ...]", normalized))
     for index, row in enumerate(rows):
         for column_id, item in row.items():
@@ -437,6 +442,8 @@ def _restore_runtime_collection_carriers(
     """Use mutable runtime collections while retaining normalized scalar atoms."""
 
     if isinstance(value_type, Scalar):
+        return value
+    if isinstance(value_type, Array):
         return value
     selected_rows: list[dict[str, object]] = []
     columns = {column.id: column for column in value_type.columns}

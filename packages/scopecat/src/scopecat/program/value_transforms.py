@@ -10,9 +10,13 @@ from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.program.expression_analysis import expression_input_refs
 from scopecat.program.expression_binding import substitute_scalar_input_refs
 from scopecat.program.expressions import (
+    ArrayExpr,
     BinaryScalarExpr,
+    ComputeResultArrayExpr,
     ComputeResultScalarExpr,
+    InputArrayExpr,
     InputScalarExpr,
+    ModuleExportArrayExpr,
     ModuleExportScalarExpr,
     ParameterLookupScalarExpr,
     ScalarExpr,
@@ -56,7 +60,7 @@ def internal_scope_value_ref(
     if not scope and not origin:
         return value
     source = value.source
-    if isinstance(source, ModuleExportScalarExpr):
+    if isinstance(source, ModuleExportScalarExpr | ModuleExportArrayExpr):
         source_value_id = source.source_value_id
         if source_value_id is None:
             return value
@@ -72,11 +76,20 @@ def internal_scope_value_ref(
         )
     if internal_value_ref_module_export(value) is not None:
         return value
-    selected_source = (
-        _scope_scalar_expression(source, scope=scope, origin=origin)
-        if isinstance(source, ScalarExpr)
-        else source
-    )
+    if isinstance(source, ScalarExpr):
+        selected_source = _scope_scalar_expression(
+            source,
+            scope=scope,
+            origin=origin,
+        )
+    elif isinstance(source, ArrayExpr):
+        selected_source = _scope_array_expression(
+            source,
+            scope=scope,
+            origin=origin,
+        )
+    else:
+        selected_source = source
     return ValueRef(
         source=selected_source,
         value_type=value.value_type,
@@ -107,7 +120,7 @@ def internal_bind_value_ref_inputs(
     """Attach one typed module-input environment without lowering the edge."""
 
     source = value.source
-    if isinstance(source, InputScalarExpr):
+    if isinstance(source, InputScalarExpr | InputArrayExpr):
         selected = inputs.get(source.name)
         return value if selected is None else _preserve_bound_value_use(value, selected)
     if isinstance(source, InputTableSource):
@@ -137,6 +150,8 @@ def internal_value_ref_unbound_input_ids(value: ValueRef) -> frozenset[str]:
     """Return lexical input ids that remain free in one typed value edge."""
 
     source = value.source
+    if isinstance(source, InputArrayExpr):
+        return frozenset((source.name,))
     if not isinstance(source, ScalarExpr):
         return frozenset()
     return frozenset(expression_input_refs(source))
@@ -262,5 +277,20 @@ def _scope_scalar_expression(
                 scope=scope,
                 origin=origin,
             ),
+        )
+    return expression
+
+
+def _scope_array_expression(
+    expression: ArrayExpr,
+    *,
+    scope: tuple[str, ...],
+    origin: tuple[object, ...],
+) -> ArrayExpr:
+    if isinstance(expression, ComputeResultArrayExpr):
+        return replace(
+            expression,
+            value_id=expression.value_id.prefixed(*scope),
+            origin=(*origin, *expression.origin),
         )
     return expression

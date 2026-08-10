@@ -9,11 +9,17 @@ from typing import cast, override
 from scopecat.compiler.bound_facts import BoundProgramFacts
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.kernel.graph_identity import ValueId
-from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
+from scopecat.kernel.value_types import Array
+from scopecat.program.expressions import (
+    ArrayExpr,
+    ComputeResultArrayExpr,
+    ComputeResultScalarExpr,
+    ScalarExpr,
+)
 from scopecat.program.table_values import TableSource
 from scopecat.program.value_types import Table
 
-type ProgramValue = ScalarExpr | TableSource
+type ProgramValue = ArrayExpr | ScalarExpr | TableSource
 
 
 def logical_program_value(
@@ -24,6 +30,11 @@ def logical_program_value(
 
     operation = logical.operation_results.get(value_id)
     if operation is not None:
+        if isinstance(operation.result_type, Array):
+            return ComputeResultArrayExpr(
+                value_id=value_id,
+                value_type=operation.result_type,
+            )
         return ComputeResultScalarExpr(
             value_id=value_id,
             value_type=operation.result_type,
@@ -32,9 +43,11 @@ def logical_program_value(
     if scalar is not None:
         return scalar
     value_def = logical.value_defs[value_id]
-    if not isinstance(value_def.value_type, Table):
-        raise AssertionError("verified non-scalar value must be a table")
-    return cast("TableSource", value_def.source)
+    if isinstance(value_def.value_type, Array):
+        return cast("ArrayExpr", value_def.source)
+    if isinstance(value_def.value_type, Table):
+        return cast("TableSource", value_def.source)
+    raise AssertionError("verified value definition has an unsupported source")
 
 
 def resolve_bound_value(

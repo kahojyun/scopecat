@@ -79,6 +79,7 @@ from scopecat.program.value_refs import (
     internal_value_ref_point_dependencies,
     internal_value_ref_scalar_input_ids,
 )
+from scopecat.program.value_types import Array as ArrayType
 from scopecat.program.value_types import Entity as EntityType
 from scopecat.program.value_types import Scalar as ScalarType
 from scopecat.program.value_types import ValueType
@@ -768,7 +769,7 @@ class ModuleContext:
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput] | None = None,
-        output_type: ScalarType,
+        output_type: ScalarType | ArrayType,
     ) -> ValueRef:
         """Declare one compute node and return its typed result."""
 

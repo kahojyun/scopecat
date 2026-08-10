@@ -67,6 +67,15 @@ from scopecat.program.products import (
 )
 from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_types import (
+    Array as ArrayType,
+)
+from scopecat.program.value_types import (
+    ArrayDimension,
+    TableColumn,
+    ValueType,
+    ValueValidationError,
+)
+from scopecat.program.value_types import (
     Bool as BoolType,
 )
 from scopecat.program.value_types import (
@@ -93,11 +102,6 @@ from scopecat.program.value_types import (
 from scopecat.program.value_types import (
     Table as TableType,
 )
-from scopecat.program.value_types import (
-    TableColumn,
-    ValueType,
-    ValueValidationError,
-)
 from scopecat.program.values import (
     ComputeInput,
     CoordinateRef,
@@ -115,6 +119,8 @@ from scopecat.program.values import (
 __all__ = [
     "ANY_RESOURCE_ROLE",
     "DEFAULT_RESOURCE_ROLE",
+    "ArrayDimension",
+    "ArrayType",
     "Axis",
     "BoolType",
     "CapabilityResource",

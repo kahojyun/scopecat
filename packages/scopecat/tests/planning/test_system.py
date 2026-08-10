@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Annotated, Literal, Never
 
+import numpy as np
 import pytest
 
 import scopecat as sc
@@ -651,6 +652,61 @@ def test_recorded_compute_runs_without_an_instrument_provider() -> None:
     assert plan.measurements.runtime_value_ids == (
         bound.program.program.compute_nodes[0].result_id,
     )
+
+
+def test_array_compute_results_are_ordered_and_recordable() -> None:
+    observed: list[list[float]] = []
+
+    def produce() -> np.ndarray:
+        return np.asarray([1.0, 2.0, 3.0])
+
+    def peak(*, trace: np.ndarray) -> float:
+        observed.append(trace.tolist())
+        return float(np.max(trace))
+
+    @sc.experiment(id="test.recorded-array-compute", kind="compute")
+    def definition(experiment: sc.ExperimentContext) -> None:
+        trace = experiment.compute(
+            "trace",
+            fn=produce,
+            output_type=sc.ArrayType(
+                dtype="float64",
+                dimensions=(sc.ArrayDimension("sample", 3),),
+                unit="V",
+            ),
+        )
+        maximum = experiment.compute(
+            "peak",
+            fn=peak,
+            inputs={"trace": trace},
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        experiment.record(trace)
+        experiment.record(maximum)
+
+    bound = bind_program(
+        compile_invocation(definition()).program,
+        build_config_environment(load_config()),
+    )
+    plan = ExperimentSystem(instrument_catalog=_catalog(bound)).compile(bound)
+
+    operations = [
+        effect.operation
+        for effect in plan.coverage
+        if isinstance(effect, RunCoverageEffect)
+        and isinstance(effect.operation, ComputeOperation)
+    ]
+    assert [operation.logical_compute_node_id for operation in operations] == [
+        "trace",
+        "peak",
+    ]
+    assert plan.measurements.runtime_value_ids == tuple(
+        node.result_id for node in bound.program.program.compute_nodes
+    )
+    trace_record, peak_record = plan.measurements.records
+    assert [axis.id for axis in trace_record.axes] == ["sample"]
+    assert peak_record.axes == ()
+    assert observed == []
 
 
 def test_plan_stage_value_record_is_materialized_per_point() -> None:

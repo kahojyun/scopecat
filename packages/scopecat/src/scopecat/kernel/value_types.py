@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Literal
 
 from scopecat.kernel.units import is_supported_unit, unit_kind
 
@@ -122,6 +123,7 @@ class Payload:
 
 
 type AtomType = Bool | Int | Float | String | Quantity | Entity | Payload
+type ValueDType = Literal["float64", "int64", "complex128", "bool", "string"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +131,53 @@ class Scalar:
     """A single atom."""
 
     atom: AtomType
+
+
+@dataclass(frozen=True, slots=True)
+class ArrayDimension:
+    """One local dimension of an array value.
+
+    Local dimensions describe the shape available at one experiment point.
+    They are intentionally distinct from scan axes, which create points.
+    """
+
+    id: str
+    size: int | None
+    kind: str | None = None
+    unit: str | None = None
+
+    def __post_init__(self) -> None:
+        _validate_id(self.id, label="array dimension")
+        if self.size is not None and self.size < 0:
+            msg = "array dimension size must not be negative"
+            raise ValueError(msg)
+        if self.kind is not None and not self.kind:
+            msg = "array dimension kind must be non-empty when provided"
+            raise ValueError(msg)
+        if self.unit is not None and not is_supported_unit(self.unit):
+            msg = f"unsupported array dimension unit: {self.unit}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True, slots=True)
+class Array:
+    """A typed dense array available at one experiment point."""
+
+    dtype: ValueDType
+    dimensions: tuple[ArrayDimension, ...]
+    unit: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.dimensions:
+            msg = "Array requires at least one local dimension"
+            raise ValueError(msg)
+        _validate_unique_ids(
+            (dimension.id for dimension in self.dimensions),
+            label="array dimensions",
+        )
+        if self.unit is not None and not is_supported_unit(self.unit):
+            msg = f"unsupported array unit: {self.unit}"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +231,8 @@ class Table:
                 raise ValueError(msg)
 
 
-type ValueType = Scalar | Table
+type DataType = Scalar | Array
+type ValueType = DataType | Table
 
 
 def _validate_bounds(
