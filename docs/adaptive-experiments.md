@@ -47,8 +47,11 @@ def choose_next(stage):
 ```
 
 The policy identity, decision summary, and JSON checkpoint become part of the
-next run's durable stage lineage. Plain invocation returns remain the short
-path. Arbitrary callback closures and optimizer objects are never serialized.
+next run's durable stage lineage. The completed run that the policy evaluated
+also owns a `stage-sequence-event` artifact recording whether the policy
+proposed work, stopped, reached the execution bound, or failed. Plain
+invocation returns remain the short path. Arbitrary callback closures and
+optimizer objects are never serialized.
 
 Sequences retain their configuration snapshot and typed run lineage. They can
 be rediscovered and continued after restarting a notebook:
@@ -66,11 +69,14 @@ continued = lab.resume_staged(
 
 Resume first calls the callback with the latest successfully completed stage,
 including a callback deferred by an earlier limit, and then executes newly
-proposed stages. Rediscovered sequences report `stopped_by_limit` as `None`
-because run lineage is durable but the previous notebook loop's stop reason is
-not.
+proposed stages. `sequence.events` exposes the durable event log and
+`sequence.status` summarizes its latest event as `proposed`, `stopped`,
+`paused`, or `failed`. Consequently, rediscovered sequences retain whether the
+previous notebook loop stopped normally or reached its bound; legacy sequences
+without an event remain `active` with an unknown `stopped_by_limit` value.
 
-The current boundary deliberately keeps orchestration decisions in Python:
-completed stages, measurements, configuration, and lineage are durable, while
-the callback and optimizer state remain notebook-owned. A sequence can be
-inspected and explicitly resumed after a notebook restart.
+The current boundary deliberately keeps policy execution in Python: completed
+stages, measurements, configuration, lineage, and policy outcomes are durable,
+while the callback implementation and live optimizer object remain
+notebook-owned. A sequence can be inspected and explicitly resumed after a
+notebook restart.

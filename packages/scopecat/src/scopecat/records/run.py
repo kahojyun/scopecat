@@ -6,9 +6,9 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
-from scopecat.kernel.frozen import freeze_json_mapping
+from scopecat.kernel.frozen import freeze_json_mapping, thaw_json_value
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.run_outcome import RunOutcome, RunStatus, utc_now
 from scopecat.records.artifact import RunContentEntry
@@ -71,6 +71,44 @@ class RunStageDecision(BaseModel):
         object.__setattr__(self, "decision", freeze_json_mapping(self.decision))
         object.__setattr__(self, "checkpoint", freeze_json_mapping(self.checkpoint))
         return self
+
+    @field_serializer("decision", "checkpoint")
+    def serialize_payload(self, value: Mapping[str, JsonValue]) -> object:
+        return thaw_json_value(value)
+
+
+class RunStageEvent(BaseModel):
+    """Durable sequence decision owned by the run it evaluated."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    sequence_id: str = Field(min_length=1)
+    stage_index: int = Field(ge=0)
+    ordinal: int = Field(ge=0)
+    based_on_run_id: str = Field(min_length=1)
+    status: Literal["proposed", "stopped", "limit", "policy_failed"]
+    next_experiment_id: str | None = Field(default=None, min_length=1)
+    decision: RunStageDecision | None = None
+    details: Mapping[str, JsonValue] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_event(self) -> RunStageEvent:
+        if self.status == "proposed" and self.next_experiment_id is None:
+            raise ValueError("proposed stage event requires a next experiment id")
+        if self.status != "proposed" and (
+            self.next_experiment_id is not None or self.decision is not None
+        ):
+            raise ValueError("non-proposal stage events cannot select an experiment")
+        if self.decision is not None and (
+            self.decision.based_on_run_id != self.based_on_run_id
+        ):
+            raise ValueError("stage event decision must be based on the same run")
+        object.__setattr__(self, "details", freeze_json_mapping(self.details))
+        return self
+
+    @field_serializer("details")
+    def serialize_details(self, value: Mapping[str, JsonValue]) -> object:
+        return thaw_json_value(value)
 
 
 class RunStageLineage(BaseModel):

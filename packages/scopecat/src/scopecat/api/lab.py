@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from types import TracebackType
-from typing import Self, cast
+from typing import Literal, Self, cast
 from uuid import uuid4
 
 from scopecat.api._config import LabConfigOperations
@@ -28,6 +28,7 @@ from scopecat.records.run import (
     RunConfigSource,
     RunManifest,
     RunStageDecision,
+    RunStageEvent,
     RunStageLineage,
 )
 from scopecat.runs.selectors import RunSelector
@@ -96,6 +97,7 @@ class StagedExperiment:
 
     sequence_id: str
     stages: tuple[ExperimentStage, ...]
+    events: tuple[RunStageEvent, ...] = ()
     stopped_by_limit: bool | None = None
 
     @property
@@ -105,6 +107,27 @@ class StagedExperiment:
     @property
     def latest(self) -> RunHandle:
         return self.stages[-1].run
+
+    @property
+    def status(self) -> Literal["active", "proposed", "stopped", "paused", "failed"]:
+        if not self.events:
+            return "active"
+        match self.events[-1].status:
+            case "proposed":
+                return "proposed"
+            case "stopped":
+                return "stopped"
+            case "limit":
+                return "paused"
+            case "policy_failed":
+                return "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class _StageEvaluation:
+    invocation: ExperimentInvocation | None
+    decision: RunStageDecision | None
+    event: RunStageEvent
 
 
 @dataclass(frozen=True, slots=True)
@@ -362,6 +385,7 @@ class LabClient:
             config=prepared.config,
             config_source=prepared.config_source,
             completed=(),
+            events=(),
             name=name,
             tags=tags,
             description=description,
@@ -392,23 +416,33 @@ class LabClient:
         latest_manifest = existing.latest.manifest
         if latest_manifest.status != "completed":
             raise ValueError("the latest staged run must be completed before resume")
-        following = next_stage(existing.stages[-1])
-        if following is None:
-            return replace(existing, stopped_by_limit=False)
-        current, current_decision = _next_stage(
-            following,
-            based_on_run_id=existing.latest.id,
+        latest_stage = existing.stages[-1]
+        selected = _evaluate_next_stage(
+            latest_stage,
+            next_stage,
+            ordinal=sum(
+                event.stage_index == latest_stage.index for event in existing.events
+            ),
         )
+        events = (*existing.events, selected.event)
+        if selected.invocation is None:
+            return StagedExperiment(
+                sequence_id=sequence_id,
+                stages=existing.stages,
+                events=events,
+                stopped_by_limit=False,
+            )
         latest_request = existing.latest.request
         return self._execute_staged(
             sequence_id=sequence_id,
-            current=current,
-            current_decision=current_decision,
+            current=selected.invocation,
+            current_decision=selected.decision,
             next_stage=next_stage,
             max_stages=max_stages,
             config=existing.latest.config,
             config_source=latest_manifest.config_source,
             completed=existing.stages,
+            events=events,
             name=None,
             tags=(),
             description=None,
@@ -430,6 +464,7 @@ class LabClient:
         config: ConfigProfileSnapshot,
         config_source: RunConfigSource | None,
         completed: tuple[ExperimentStage, ...],
+        events: tuple[RunStageEvent, ...],
         name: str | None,
         tags: tuple[str, ...],
         description: str | None,
@@ -437,6 +472,7 @@ class LabClient:
         operator: str | None,
     ) -> StagedExperiment:
         selected = list(completed)
+        recorded_events = list(events)
         start_index = len(selected)
         previous_run_id = None if not selected else selected[-1].run.id
         for relative_index in range(max_stages):
@@ -467,22 +503,31 @@ class LabClient:
             )
             selected.append(stage)
             if relative_index == max_stages - 1:
+                recorded_events.append(
+                    _record_stage_event(
+                        stage,
+                        ordinal=0,
+                        status="limit",
+                        details={"max_stages": max_stages},
+                    )
+                )
                 break
-            following = next_stage(stage)
-            if following is None:
+            following = _evaluate_next_stage(stage, next_stage, ordinal=0)
+            recorded_events.append(following.event)
+            if following.invocation is None:
                 return StagedExperiment(
                     sequence_id=sequence_id,
                     stages=tuple(selected),
+                    events=tuple(recorded_events),
                     stopped_by_limit=False,
                 )
-            current, current_decision = _next_stage(
-                following,
-                based_on_run_id=run.id,
-            )
+            current = following.invocation
+            current_decision = following.decision
             previous_run_id = run.id
         return StagedExperiment(
             sequence_id=sequence_id,
             stages=tuple(selected),
+            events=tuple(recorded_events),
             stopped_by_limit=True,
         )
 
@@ -525,17 +570,20 @@ class LabClient:
         runs = tuple(
             RunHandle(session=self, id=manifest.run_id) for manifest in ordered
         )
-        return StagedExperiment(
-            sequence_id=sequence_id,
-            stages=tuple(
-                ExperimentStage(
-                    sequence_id=sequence_id,
-                    index=index,
-                    run=run,
-                    history=runs[: index + 1],
-                )
-                for index, run in enumerate(runs)
-            ),
+        stages = tuple(
+            ExperimentStage(
+                sequence_id=sequence_id,
+                index=index,
+                run=run,
+                history=runs[: index + 1],
+            )
+            for index, run in enumerate(runs)
+        )
+        return _staged_result(
+            sequence_id,
+            stages,
+            manifests=tuple(ordered),
+            stopped_by_limit=None,
         )
 
     def _staged_manifests(
@@ -626,6 +674,123 @@ def _next_stage(
             decision=proposed.decision,
             checkpoint=proposed.checkpoint,
         ),
+    )
+
+
+def _evaluate_next_stage(
+    stage: ExperimentStage,
+    next_stage: NextExperimentStage,
+    *,
+    ordinal: int,
+) -> _StageEvaluation:
+    try:
+        proposed = next_stage(stage)
+        normalized = (
+            None
+            if proposed is None
+            else _next_stage(proposed, based_on_run_id=stage.run.id)
+        )
+    except Exception as error:
+        _record_stage_event(
+            stage,
+            ordinal=ordinal,
+            status="policy_failed",
+            details={
+                "exception_type": (
+                    f"{type(error).__module__}.{type(error).__qualname__}"
+                )
+            },
+        )
+        raise
+    if normalized is None:
+        event = _record_stage_event(
+            stage,
+            ordinal=ordinal,
+            status="stopped",
+            details={"reason": "callback-returned-none"},
+        )
+        return _StageEvaluation(invocation=None, decision=None, event=event)
+    invocation, decision = normalized
+    event = _record_stage_event(
+        stage,
+        ordinal=ordinal,
+        status="proposed",
+        next_experiment_id=invocation.definition.id,
+        decision=decision,
+    )
+    return _StageEvaluation(
+        invocation=invocation,
+        decision=decision,
+        event=event,
+    )
+
+
+def _record_stage_event(
+    stage: ExperimentStage,
+    *,
+    ordinal: int,
+    status: Literal["proposed", "stopped", "limit", "policy_failed"],
+    next_experiment_id: str | None = None,
+    decision: RunStageDecision | None = None,
+    details: Mapping[str, MetadataValue] | None = None,
+) -> RunStageEvent:
+    event = RunStageEvent(
+        sequence_id=stage.sequence_id,
+        stage_index=stage.index,
+        ordinal=ordinal,
+        based_on_run_id=stage.run.id,
+        status=status,
+        next_experiment_id=next_experiment_id,
+        decision=decision,
+        details=details or {},
+    )
+    stage.run.attach(
+        key=f"stage-event-{stage.index}-{ordinal}",
+        kind="stage-sequence-event",
+        text=event.model_dump_json(),
+        filename=f"stage-event-{stage.index}-{ordinal}.json",
+        media_type="application/json",
+        metadata={
+            "sequence_id": stage.sequence_id,
+            "stage_index": stage.index,
+            "status": status,
+        },
+    )
+    return event
+
+
+def _staged_result(
+    sequence_id: str,
+    stages: tuple[ExperimentStage, ...],
+    *,
+    manifests: tuple[RunManifest, ...],
+    stopped_by_limit: bool | None,
+) -> StagedExperiment:
+    events = tuple(
+        RunStageEvent.model_validate(
+            stage.run.artifact_json(
+                artifact.id,
+                expected_kind="stage-sequence-event",
+            ).content
+        )
+        for stage, manifest in zip(stages, manifests, strict=True)
+        for artifact in manifest.artifacts
+        if artifact.kind == "stage-sequence-event"
+    )
+    selected_limit = stopped_by_limit
+    if selected_limit is None and events:
+        selected_limit = (
+            True
+            if events[-1].status == "limit"
+            else False
+            if events[-1].status == "stopped"
+            else None
+        )
+    return StagedExperiment(
+        sequence_id=sequence_id,
+        stages=stages,
+        events=events,
+        stopped_by_limit=selected_limit,
     )
 
 

@@ -88,9 +88,11 @@ from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunManifest,
     RunStageDecision,
+    RunStageEvent,
     RunStageLineage,
 )
 from scopecat.records.run_request import RunRequest
+from scopecat.runs.data import RunArtifactJsonResult
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments import InstrumentProviderContext
 from tests.testkit.measurement_models import signal_point_schema, signal_record
@@ -100,6 +102,35 @@ from tests.testkit.workflow_fixtures import (
     load_config,
     load_invocation,
 )
+
+
+def _capture_stage_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[RunStageEvent]:
+    events: list[RunStageEvent] = []
+
+    def attach(
+        _run: RunHandle,
+        *args: object,
+        **kwargs: object,
+    ) -> RunContentEntry:
+        assert not args
+        assert kwargs["kind"] == "stage-sequence-event"
+        text = kwargs["text"]
+        key = kwargs["key"]
+        assert isinstance(text, str)
+        assert isinstance(key, str)
+        events.append(RunStageEvent.model_validate_json(text))
+        return RunContentEntry(
+            role="artifact",
+            id=key,
+            kind="stage-sequence-event",
+            content_hash="sha256:" + "0" * 64,
+        )
+
+    monkeypatch.setattr(RunHandle, "attach", attach)
+    return events
+
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
@@ -241,6 +272,7 @@ def test_lab_preview_and_run_are_direct_prepare_shortcuts(
 def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    persisted_events = _capture_stage_events(monkeypatch)
     config = load_config()
     source = ConfigRegistryRunConfigSource(
         selector="active",
@@ -334,6 +366,13 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
     )
     assert [run.id for run in result.runs] == ["run-1", "run-2", "run-3"]
     assert not result.stopped_by_limit
+    assert result.status == "stopped"
+    assert result.events == tuple(persisted_events)
+    assert [event.status for event in result.events] == [
+        "proposed",
+        "proposed",
+        "stopped",
+    ]
     assert result.latest is result.runs[-1]
     assert stages[0].previous_run is None
     assert stages[1].previous_run is result.runs[0]
@@ -372,12 +411,68 @@ def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
 
     assert len(limited.stages) == 2
     assert limited.stopped_by_limit
+    assert limited.status == "paused"
     with pytest.raises(ValueError, match="sequence_id must be non-empty"):
         lab.run_staged(
             invocations[0],
             next_stage=lambda _stage: None,
             sequence_id="",
         )
+
+
+def test_lab_records_policy_failure_on_the_evaluated_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    persisted_events = _capture_stage_events(monkeypatch)
+    invocation = load_invocation()
+    lab = object.__new__(LabClient)
+    prepared = PreparedLabExperiment(
+        lab=lab,
+        invocation=invocation,
+        config=load_config(),
+    )
+
+    def prepare(
+        _lab: LabClient,
+        _experiment: object,
+        *,
+        config: object = None,
+    ) -> PreparedLabExperiment:
+        del config
+        return prepared
+
+    def execute_invocation(
+        _lab: LabClient,
+        _invocation: object,
+        **_kwargs: object,
+    ) -> RunHandle:
+        return RunHandle(session=lab, id="run-policy-failure")
+
+    def staged_manifests(
+        _lab: LabClient,
+        *,
+        sequence_id: str | None = None,
+    ) -> tuple[RunManifest, ...]:
+        del sequence_id
+        return ()
+
+    monkeypatch.setattr(LabClient, "prepare", prepare)
+    monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
+    monkeypatch.setattr(LabClient, "_staged_manifests", staged_manifests)
+
+    def fail_policy(_stage: ExperimentStage):
+        raise RuntimeError("optimizer failed")
+
+    with pytest.raises(RuntimeError, match="optimizer failed"):
+        lab.run_staged(
+            invocation,
+            next_stage=fail_policy,
+            max_stages=2,
+            sequence_id="failed-sequence",
+        )
+
+    assert [event.status for event in persisted_events] == ["policy_failed"]
+    assert persisted_events[0].details == {"exception_type": "builtins.RuntimeError"}
 
 
 def test_lab_rediscovers_staged_experiments_across_run_pages() -> None:
@@ -453,6 +548,52 @@ def test_lab_rediscovers_staged_experiments_across_run_pages() -> None:
     ]
 
 
+def test_lab_rediscovers_durable_staged_status() -> None:
+    sequence_id = "durable-status"
+    run_id = "run-durable-status"
+    event = RunStageEvent(
+        sequence_id=sequence_id,
+        stage_index=0,
+        ordinal=0,
+        based_on_run_id=run_id,
+        status="limit",
+        details={"max_stages": 1},
+    )
+    artifact = RunContentEntry(
+        role="artifact",
+        id="stage-event-0-0",
+        kind="stage-sequence-event",
+        media_type="application/json",
+        content_hash="sha256:" + "1" * 64,
+    )
+    manifest = RunManifest(
+        run_id=run_id,
+        config_content_hash=config_content_hash(load_config()),
+        stage=RunStageLineage(sequence_id=sequence_id, index=0),
+        contents=(artifact,),
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == "/api/v1/run-stages":
+            return _model(RunSummaryPage(items=(_run_summary(manifest, sequence=1),)))
+        assert request.url.path == (
+            f"/api/v1/runs/{run_id}/artifacts/{artifact.id}/json"
+        )
+        assert request.url.params["expected_kind"] == "stage-sequence-event"
+        return _model(
+            RunArtifactJsonResult(
+                artifact=artifact,
+                content=event.model_dump(mode="json"),
+            )
+        )
+
+    rediscovered = LabClient(_client(handler)).get_staged_experiment(sequence_id)
+
+    assert rediscovered.events == (event,)
+    assert rediscovered.status == "paused"
+    assert rediscovered.stopped_by_limit is True
+
+
 def test_lab_rejects_starting_an_existing_staged_sequence() -> None:
     config_hash = config_content_hash(load_config())
     existing = RunManifest(
@@ -518,6 +659,7 @@ def test_lab_get_staged_experiment_rejects_missing_and_broken_sequences() -> Non
 def test_lab_resumes_latest_stage_with_durable_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    persisted_events = _capture_stage_events(monkeypatch)
     config = load_config()
     source = ConfigRegistryRunConfigSource(
         selector="active",
@@ -613,6 +755,8 @@ def test_lab_resumes_latest_stage_with_durable_context(
         "run-resume-3",
     ]
     assert not resumed.stopped_by_limit
+    assert resumed.status == "stopped"
+    assert resumed.events == tuple(persisted_events)
     assert [kwargs["stage"] for _invocation, kwargs in execute_calls] == [
         RunStageLineage(
             sequence_id="resume-sequence",
@@ -636,6 +780,7 @@ def test_lab_resumes_latest_stage_with_durable_context(
 def test_staged_limit_defers_latest_callback_until_resume(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    persisted_events = _capture_stage_events(monkeypatch)
     config = load_config()
     source = ConfigRegistryRunConfigSource(
         selector="active",
@@ -736,6 +881,7 @@ def test_staged_limit_defers_latest_callback_until_resume(
     assert callback_indices == [0]
     assert [stage.index for stage in limited.stages] == [0, 1]
     assert limited.stopped_by_limit
+    assert limited.status == "paused"
 
     def get_staged_experiment(
         _lab: LabClient,
@@ -753,6 +899,9 @@ def test_staged_limit_defers_latest_callback_until_resume(
     assert callback_indices == [0, 1]
     assert [stage.index for stage in resumed.stages] == [0, 1, 2]
     assert resumed.stopped_by_limit
+    assert resumed.status == "paused"
+    assert resumed.events == tuple(persisted_events)
+    assert [event.ordinal for event in resumed.events] == [0, 0, 1, 0]
     assert [call["stage"] for call in execute_calls] == [
         RunStageLineage(sequence_id="limit-sequence", index=0),
         RunStageLineage(
