@@ -10,9 +10,9 @@ import {
 export function AnalysisOutputView({ output }: { output: RunAnalysisOutput }) {
   let content;
   if (output.kind === "table") {
-    content = <AnalysisTableView content={output.content} title={output.title} />;
+    content = <AnalysisTableView content={output.content.preview} title={output.title} />;
   } else if (output.kind === "figure") {
-    content = <AnalysisFigureView content={output.content} title={output.title} />;
+    content = <AnalysisFigureView content={output.content.preview} title={output.title} />;
   } else if (output.kind === "dataset") {
     content = (
       <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 p-[9px] text-[0.62rem]">
@@ -81,7 +81,7 @@ export function AnalysisOutputView({ output }: { output: RunAnalysisOutput }) {
   );
 }
 
-type TableContent = Extract<RunAnalysisOutput, { kind: "table" }>["content"];
+type TableContent = Extract<RunAnalysisOutput, { kind: "table" }>["content"]["preview"];
 
 function AnalysisTableView({ content, title }: { content: TableContent; title: string }) {
   return (

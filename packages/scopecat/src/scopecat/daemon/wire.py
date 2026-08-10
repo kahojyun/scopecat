@@ -35,8 +35,8 @@ from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
     AnalysisComputeExecution,
     AnalysisFact,
-    AnalysisFigure,
-    AnalysisTable,
+    AnalysisFigureView,
+    AnalysisTableView,
     validate_analysis_output_content_budget,
 )
 from scopecat.records.artifact import RunContentEntry, Sha256ContentHash
@@ -186,7 +186,7 @@ class AnalysisTableOutputPayload(_WireModel):
     kind: Literal["table"]
     id: NonEmptyText
     title: NonEmptyText
-    content: AnalysisTable
+    content: AnalysisTableView
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -211,7 +211,7 @@ class AnalysisFigureOutputPayload(_WireModel):
     kind: Literal["figure"]
     id: NonEmptyText
     title: NonEmptyText
-    content: AnalysisFigure
+    content: AnalysisFigureView
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -298,6 +298,20 @@ class AnalysisSaveCommand(_WireModel):
         output_ids = tuple(output.id for output in self.outputs)
         if len(output_ids) != len(set(output_ids)):
             raise ValueError("analysis output ids must be unique")
+        dataset_ids = {
+            output.id
+            for output in self.outputs
+            if isinstance(output, AnalysisDatasetOutputPayload)
+        }
+        for output in self.outputs:
+            if not isinstance(
+                output,
+                AnalysisTableOutputPayload | AnalysisFigureOutputPayload,
+            ):
+                continue
+            source = output.content.source
+            if source is not None and source.output_id not in dataset_ids:
+                raise ValueError("analysis view source must identify a dataset output")
         return self
 
 

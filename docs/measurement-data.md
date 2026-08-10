@@ -618,6 +618,21 @@ coordinate columns unless `index="drop"` is requested. Tables and figures only
 extract their selected scalar columns, so unrelated array-valued columns remain
 in the durable dataset without making a view invalid.
 
+Xarray normalization is intentionally narrower than `to_dataframe()`: a
+Dataset must have one named dimension and every coordinate and data variable
+must use that dimension exactly. Scopecat records the dimension plus dataset and
+variable attributes and can reconstruct it with `DerivedDataset.to_xarray()`.
+Multi-dimensional or mixed scalar/array datasets are not flattened implicitly;
+publish a deliberate tabular projection, or serialize the native Dataset and
+publish it with `artifact(...)` until a lossless first-party layout exists.
+
+When a table or figure uses `dataset="fits"`, its durable view retains that
+analysis-local dataset ID and the selected column roles. The embedded table or
+figure is a bounded preview cache for immediate rendering, not a second
+authoritative scientific result. Passing rows directly still creates a
+standalone preview; publish a dataset first when the relation should remain
+queryable.
+
 Persistence writes one content-addressed Arrow IPC dataset and keeps only its
 reference in the analysis record. It can be loaded later without losing the
 Arrow schema:

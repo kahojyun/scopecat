@@ -2,7 +2,10 @@ import type { CustomSeriesRenderItem, EChartsCoreOption } from "echarts";
 import type { RunAnalysisOutput } from "../../types";
 import type { MeasurementChartPlan } from "./measurement-visualization";
 
-export type AnalysisFigureContent = Extract<RunAnalysisOutput, { kind: "figure" }>["content"];
+export type AnalysisFigureContent = Extract<
+  RunAnalysisOutput,
+  { kind: "figure" }
+>["content"]["preview"];
 
 const SERIES_COLORS = [
   "#80a3cf",

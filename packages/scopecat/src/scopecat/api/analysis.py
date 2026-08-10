@@ -59,15 +59,19 @@ from scopecat.measurements.results import Dataset, ExperimentResultView
 from scopecat.records.analysis import (
     AnalysisComputeExecution,
     AnalysisComputeInput,
+    AnalysisDatasetViewSource,
     AnalysisFact,
     AnalysisField,
     AnalysisFigure,
     AnalysisFigureAxis,
+    AnalysisFigureProjection,
     AnalysisFigureSeries,
+    AnalysisFigureView,
     AnalysisTable,
     AnalysisTableCell,
     AnalysisTableColumn,
     AnalysisTableRow,
+    AnalysisTableView,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
@@ -303,12 +307,27 @@ class Analysis:
         else:
             assert source is not None
             table = AnalysisTable.from_objects(source)
+        source_ref = (
+            None
+            if dataset is None
+            else AnalysisDatasetViewSource(
+                output_id=artifact_slug(dataset, fallback="data")
+            )
+        )
         return self._append_output(
             AnalysisTableOutput(
                 kind="table",
                 id=_analysis_output_id(id),
                 title=title,
-                content=table,
+                content=AnalysisTableView(
+                    source=source_ref,
+                    columns=(
+                        None
+                        if source_ref is None
+                        else tuple(column.id for column in table.columns)
+                    ),
+                    preview=table,
+                ),
                 metadata=metadata or {},
             )
         )
@@ -399,12 +418,33 @@ class Analysis:
                 series=series,
                 label=label,
             )
+        source_ref = (
+            None
+            if dataset is None
+            else AnalysisDatasetViewSource(
+                output_id=artifact_slug(dataset, fallback="data")
+            )
+        )
         return self._append_output(
             AnalysisFigureOutput(
                 kind="figure",
                 id=_analysis_output_id(id),
                 title=title,
-                content=figure,
+                content=AnalysisFigureView(
+                    source=source_ref,
+                    projection=(
+                        None
+                        if source_ref is None
+                        else AnalysisFigureProjection(
+                            kind=cast("Literal['line', 'scatter']", kind),
+                            x=cast("str", x),
+                            y=cast("str", y),
+                            series=series,
+                            label=label,
+                        )
+                    ),
+                    preview=figure,
+                ),
                 metadata=metadata or {},
             )
         )

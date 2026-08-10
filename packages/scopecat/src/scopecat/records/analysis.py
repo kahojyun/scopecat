@@ -366,6 +366,73 @@ class AnalysisFigure(_AnalysisContentModel):
         )
 
 
+class AnalysisDatasetViewSource(_AnalysisContentModel):
+    """Stable analysis-local dataset referenced by a presentation view."""
+
+    kind: Literal["dataset"] = "dataset"
+    output_id: _NonEmptyText
+
+
+class AnalysisTableView(_AnalysisContentModel):
+    """Bounded table preview plus its optional authoritative dataset source."""
+
+    source: AnalysisDatasetViewSource | None = None
+    columns: Sequence[_NonEmptyText] | None = None
+    preview: AnalysisTable
+
+    @field_validator("columns")
+    @classmethod
+    def freeze_columns(
+        cls,
+        value: Sequence[str] | None,
+    ) -> Sequence[str] | None:
+        return None if value is None else tuple(value)
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> AnalysisTableView:
+        if (self.source is None) != (self.columns is None):
+            raise ValueError(
+                "analysis table source and projected columns must be declared together"
+            )
+        if self.columns is not None and tuple(self.columns) != tuple(
+            column.id for column in self.preview.columns
+        ):
+            raise ValueError(
+                "analysis table projected columns must match its preview columns"
+            )
+        return self
+
+
+class AnalysisFigureProjection(_AnalysisContentModel):
+    """Dataset column roles used to produce a bounded figure preview."""
+
+    kind: Literal["line", "scatter"]
+    x: _NonEmptyText
+    y: _NonEmptyText
+    series: _NonEmptyText | None = None
+    label: _NonEmptyText | None = None
+
+
+class AnalysisFigureView(_AnalysisContentModel):
+    """Bounded figure preview plus its optional authoritative dataset source."""
+
+    source: AnalysisDatasetViewSource | None = None
+    projection: AnalysisFigureProjection | None = None
+    preview: AnalysisFigure
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> AnalysisFigureView:
+        if (self.source is None) != (self.projection is None):
+            raise ValueError(
+                "analysis figure source and projection must be declared together"
+            )
+        if self.projection is not None and self.projection.kind != self.preview.kind:
+            raise ValueError(
+                "analysis figure projection kind must match its preview kind"
+            )
+        return self
+
+
 def _analysis_field(annotation: object) -> AnalysisField | None:
     if get_origin(annotation) is not Annotated:
         return None
@@ -494,12 +561,12 @@ class _AnalysisRecordOutput(BaseModel):
 
 class AnalysisTableRecordOutput(_AnalysisRecordOutput):
     kind: Literal["table"]
-    content: AnalysisTable
+    content: AnalysisTableView
 
 
 class AnalysisFigureRecordOutput(_AnalysisRecordOutput):
     kind: Literal["figure"]
-    content: AnalysisFigure
+    content: AnalysisFigureView
 
 
 class AnalysisParameterProposalRecordOutput(_AnalysisRecordOutput):
@@ -534,17 +601,17 @@ type AnalysisRecordOutput = Annotated[
 
 
 def validate_analysis_output_content_budget(
-    contents: Iterable[AnalysisTable | AnalysisFigure],
+    contents: Iterable[AnalysisTableView | AnalysisFigureView],
 ) -> None:
     """Reject a group of embedded outputs too large for one analysis view."""
 
     table_cells = 0
     figure_points = 0
     for content in contents:
-        if isinstance(content, AnalysisTable):
-            table_cells += len(content.columns) * len(content.rows)
+        if isinstance(content, AnalysisTableView):
+            table_cells += len(content.preview.columns) * len(content.preview.rows)
         else:
-            figure_points += sum(len(series.x) for series in content.series)
+            figure_points += sum(len(series.x) for series in content.preview.series)
     if table_cells > MAX_ANALYSIS_TOTAL_TABLE_CELLS:
         raise ValueError(
             "analysis total table cell count must not exceed "
@@ -572,6 +639,20 @@ class AnalysisRecord(BaseModel):
         output_ids = tuple(output.id for output in self.outputs)
         if len(output_ids) != len(set(output_ids)):
             raise ValueError("analysis output ids must be unique")
+        dataset_ids = {
+            output.id
+            for output in self.outputs
+            if isinstance(output, AnalysisDatasetRecordOutput)
+        }
+        for output in self.outputs:
+            if not isinstance(
+                output,
+                AnalysisTableRecordOutput | AnalysisFigureRecordOutput,
+            ):
+                continue
+            source = output.content.source
+            if source is not None and source.output_id not in dataset_ids:
+                raise ValueError("analysis view source must identify a dataset output")
         validate_analysis_output_content_budget(
             output.content
             for output in self.outputs

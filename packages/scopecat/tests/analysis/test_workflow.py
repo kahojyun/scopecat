@@ -16,7 +16,12 @@ import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
 from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
-from scopecat.analysis.service import AnalysisDatasetOutput, AnalysisFactOutput
+from scopecat.analysis.service import (
+    AnalysisDatasetOutput,
+    AnalysisFactOutput,
+    AnalysisFigureOutput,
+    AnalysisTableOutput,
+)
 from scopecat.config.registry import service as config_registry_service
 from scopecat.measurements.results import Dataset
 from scopecat.records.run import RunManifest
@@ -282,8 +287,16 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     assert derived_input.target == "_derived_signal_frame"
     assert derived_input.codec == DERIVED_DATASET_CODEC
     assert derived_input.value is None
-    assert table_output.kind == "table"
-    assert figure_output.kind == "figure"
+    assert isinstance(table_output, AnalysisTableOutput)
+    assert table_output.content.source is not None
+    assert table_output.content.source.output_id == "_derived_signal_frame"
+    assert table_output.content.columns == ("frequency", "score")
+    assert isinstance(figure_output, AnalysisFigureOutput)
+    assert figure_output.content.source is not None
+    assert figure_output.content.source.output_id == "_derived_signal_frame"
+    assert figure_output.content.projection is not None
+    assert figure_output.content.projection.x == "frequency"
+    assert figure_output.content.projection.y == "score"
 
     stored = handle.record_json(
         "analysis-native-derived-data",
@@ -300,6 +313,14 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     assert content["dataset_id"] == dataset_id
     assert "value" not in content
     assert "arrow_ipc_base64" not in str(stored.content)
+    stored_table = cast("dict[str, object]", outputs[2])
+    table_view = cast("dict[str, object]", stored_table["content"])
+    assert table_view["source"] == {
+        "kind": "dataset",
+        "output_id": "_derived_signal_frame",
+    }
+    assert table_view["columns"] == ["frequency", "score"]
+    assert "preview" in table_view
     manifest_entry = next(
         entry for entry in handle.manifest.datasets if entry.id == dataset_id
     )
@@ -550,9 +571,17 @@ def test_analysis_facade_projects_annotated_results_directly(tmp_path: Path) -> 
         )
     )
 
-    table = analysis.outputs[0].content
-    figure = analysis.outputs[1].content
-    assert isinstance(table, sc.AnalysisTable)
-    assert [row.cells for row in table.rows] == [[100.0, 0.2], [200.0, 0.4]]
-    assert isinstance(figure, sc.AnalysisFigure)
-    assert figure.series[0].x == [100.0, 200.0]
+    table_output, figure_output = analysis.outputs
+    assert isinstance(table_output, AnalysisTableOutput)
+    assert isinstance(figure_output, AnalysisFigureOutput)
+    table_view = table_output.content
+    figure_view = figure_output.content
+    assert table_view.source is None
+    assert isinstance(table_view.preview, sc.AnalysisTable)
+    assert [row.cells for row in table_view.preview.rows] == [
+        [100.0, 0.2],
+        [200.0, 0.4],
+    ]
+    assert figure_view.source is None
+    assert isinstance(figure_view.preview, sc.AnalysisFigure)
+    assert figure_view.preview.series[0].x == [100.0, 200.0]

@@ -18,11 +18,13 @@ from scopecat.records.analysis import (
     MAX_ANALYSIS_TABLE_SAFE_INTEGER,
     MAX_ANALYSIS_TOTAL_FIGURE_POINTS,
     MAX_ANALYSIS_TOTAL_TABLE_CELLS,
+    AnalysisDatasetViewSource,
     AnalysisField,
     AnalysisFigure,
     AnalysisFigureAxis,
     AnalysisFigureRecordOutput,
     AnalysisFigureSeries,
+    AnalysisFigureView,
     AnalysisParameterProposalRecordOutput,
     AnalysisParameterProposalReference,
     AnalysisRecord,
@@ -31,6 +33,7 @@ from scopecat.records.analysis import (
     AnalysisTableColumn,
     AnalysisTableRecordOutput,
     AnalysisTableRow,
+    AnalysisTableView,
 )
 
 
@@ -115,33 +118,37 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
                 kind="table",
                 id="fit-parameters",
                 title="Fit parameters",
-                content=AnalysisTable.from_rows(
-                    [{"frequency": 5.1, "converged": True}],
-                    columns=[
-                        AnalysisTableColumn(
-                            id="frequency",
-                            label="Frequency",
-                            unit="GHz",
-                        ),
-                        AnalysisTableColumn(id="converged", label="Converged"),
-                    ],
+                content=AnalysisTableView(
+                    preview=AnalysisTable.from_rows(
+                        [{"frequency": 5.1, "converged": True}],
+                        columns=[
+                            AnalysisTableColumn(
+                                id="frequency",
+                                label="Frequency",
+                                unit="GHz",
+                            ),
+                            AnalysisTableColumn(id="converged", label="Converged"),
+                        ],
+                    ),
                 ),
             ),
             AnalysisFigureRecordOutput(
                 kind="figure",
                 id="fit-curve",
                 title="Fit curve",
-                content=AnalysisFigure(
-                    kind="line",
-                    x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
-                    y_axis=AnalysisFigureAxis(label="Frequency", unit="GHz"),
-                    series=[
-                        AnalysisFigureSeries(
-                            id="fit",
-                            x=[-0.1, 0.0, 0.1],
-                            y=[5.0, 5.1, 5.0],
-                        )
-                    ],
+                content=AnalysisFigureView(
+                    preview=AnalysisFigure(
+                        kind="line",
+                        x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
+                        y_axis=AnalysisFigureAxis(label="Frequency", unit="GHz"),
+                        series=[
+                            AnalysisFigureSeries(
+                                id="fit",
+                                x=[-0.1, 0.0, 0.1],
+                                y=[5.0, 5.1, 5.0],
+                            )
+                        ],
+                    ),
                 ),
             ),
             AnalysisParameterProposalRecordOutput(
@@ -159,9 +166,9 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
     restored = AnalysisRecord.model_validate_json(record.model_dump_json())
 
     assert isinstance(restored.outputs[0], AnalysisTableRecordOutput)
-    assert restored.outputs[0].content.rows[0].cells == [5.1, True]
+    assert restored.outputs[0].content.preview.rows[0].cells == [5.1, True]
     assert isinstance(restored.outputs[1], AnalysisFigureRecordOutput)
-    assert restored.outputs[1].content.series[0].y == [5.0, 5.1, 5.0]
+    assert restored.outputs[1].content.preview.series[0].y == [5.0, 5.1, 5.0]
     assert isinstance(restored.outputs[2], AnalysisParameterProposalRecordOutput)
     assert restored.outputs[2].content.proposal_id == "readout-fit"
 
@@ -236,7 +243,7 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
         kind="table",
         id="large-table",
         title="large table",
-        content=table,
+        content=AnalysisTableView(preview=table),
     )
     with pytest.raises(ValidationError, match="total table cell count"):
         AnalysisRecord(
@@ -257,11 +264,13 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
         kind="figure",
         id="large-figure",
         title="large figure",
-        content=AnalysisFigure(
-            kind="line",
-            x_axis=AnalysisFigureAxis(label="x"),
-            y_axis=AnalysisFigureAxis(label="y"),
-            series=[AnalysisFigureSeries(id="large", x=values, y=values)],
+        content=AnalysisFigureView(
+            preview=AnalysisFigure(
+                kind="line",
+                x_axis=AnalysisFigureAxis(label="x"),
+                y_axis=AnalysisFigureAxis(label="y"),
+                series=[AnalysisFigureSeries(id="large", x=values, y=values)],
+            ),
         ),
     )
     with pytest.raises(ValidationError, match="total figure point count"):
@@ -308,5 +317,25 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
             kind="table",
             id="table",
             title="",
-            content=AnalysisTable.from_rows([{"value": 1}]),
+            content=AnalysisTableView(preview=AnalysisTable.from_rows([{"value": 1}])),
+        )
+
+
+def test_analysis_record_rejects_view_without_its_dataset_output() -> None:
+    with pytest.raises(ValidationError, match="source must identify a dataset"):
+        AnalysisRecord(
+            run_id="run-analysis",
+            title="Dangling view",
+            outputs=[
+                AnalysisTableRecordOutput(
+                    kind="table",
+                    id="table",
+                    title="Table",
+                    content=AnalysisTableView(
+                        source=AnalysisDatasetViewSource(output_id="missing"),
+                        columns=("value",),
+                        preview=AnalysisTable.from_rows([{"value": 1}]),
+                    ),
+                )
+            ],
         )

@@ -37,15 +37,15 @@ from scopecat.records.analysis import (
     AnalysisDatasetReference,
     AnalysisFact,
     AnalysisFactRecordOutput,
-    AnalysisFigure,
     AnalysisFigureRecordOutput,
+    AnalysisFigureView,
     AnalysisParameterProposalRecordOutput,
     AnalysisParameterProposalReference,
     AnalysisRecord,
     AnalysisRecordInput,
     AnalysisRecordOutput,
-    AnalysisTable,
     AnalysisTableRecordOutput,
+    AnalysisTableView,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -75,7 +75,7 @@ class AnalysisTableOutput:
     kind: Literal["table"]
     id: str
     title: str
-    content: AnalysisTable
+    content: AnalysisTableView
     metadata: Mapping[str, object]
 
 
@@ -84,7 +84,7 @@ class AnalysisFigureOutput:
     kind: Literal["figure"]
     id: str
     title: str
-    content: AnalysisFigure
+    content: AnalysisFigureView
     metadata: Mapping[str, object]
 
 

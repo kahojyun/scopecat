@@ -13,9 +13,17 @@ from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 import pyarrow as pa
 import xarray as xr
-from pydantic import BaseModel, ConfigDict, JsonValue, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 from scopecat.kernel.units import is_supported_unit
+from scopecat.records._metadata import JsonMetadata, validate_json_metadata
 from scopecat.records.analysis import AnalysisTable, AnalysisTableColumn
 
 if TYPE_CHECKING:
@@ -53,6 +61,7 @@ class DerivedDatasetField(BaseModel):
     role: DerivedDatasetRole = "observable"
     unit: str | None = None
     label: str | None = None
+    attributes: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("name", "arrow_type")
     @classmethod
@@ -75,7 +84,10 @@ class DerivedDatasetSchema(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     fields: tuple[DerivedDatasetField, ...]
-    schema_id: Literal["scopecat.derived-dataset.v1"] = "scopecat.derived-dataset.v1"
+    layout: Literal["table", "xarray_1d"] = "table"
+    dimension: str | None = None
+    attributes: JsonMetadata = Field(default_factory=dict)
+    schema_id: Literal["scopecat.derived-dataset.v2"] = "scopecat.derived-dataset.v2"
 
     @field_validator("fields")
     @classmethod
@@ -89,6 +101,14 @@ class DerivedDatasetSchema(BaseModel):
         if len(names) != len(set(names)):
             raise ValueError("derived dataset field names must be unique")
         return value
+
+    @model_validator(mode="after")
+    def validate_layout(self) -> DerivedDatasetSchema:
+        if (self.layout == "xarray_1d") != (self.dimension is not None):
+            raise ValueError(
+                "xarray derived datasets require exactly one named dimension"
+            )
+        return self
 
 
 class DerivedDatasetPayload(BaseModel):
@@ -177,25 +197,43 @@ class DerivedDataset:
         units: Mapping[str, str] | None = None,
         labels: Mapping[str, str] | None = None,
     ) -> DerivedDataset:
-        """Flatten an explicitly selected Xarray result into observation rows."""
+        """Normalize an exactly reversible one-dimensional Xarray dataset."""
 
-        frame = dataset.to_dataframe().reset_index()
+        dimension = _xarray_dimension(dataset)
         inherited_units: dict[str, str] = {}
         inherited_labels: dict[str, str] = {}
+        field_attributes: dict[str, JsonMetadata] = {}
         for raw_name in dataset.variables:
             name = str(cast("object", raw_name))
-            unit = cast("object | None", dataset[raw_name].attrs.get("units"))
-            label = cast("object | None", dataset[raw_name].attrs.get("long_name"))
+            variable = dataset[raw_name]
+            unit = cast("object | None", variable.attrs.get("units"))
+            label = cast("object | None", variable.attrs.get("long_name"))
             if unit is not None:
                 inherited_units[name] = str(unit)
             if label is not None:
                 inherited_labels[name] = str(label)
-        return cls.from_pandas(
-            frame,
+            field_attributes[name] = _xarray_attributes(
+                variable.attrs,
+                owner=f"variable {name!r}",
+            )
+        names = tuple(
+            dict.fromkeys(
+                (
+                    *(str(name) for name in dataset.coords),
+                    *(str(name) for name in dataset.data_vars),
+                )
+            )
+        )
+        table = pa.table({name: pa.array(dataset[name].values) for name in names})
+        return _bind_semantics(
+            table,
             coordinates=coordinates or tuple(str(name) for name in dataset.coords),
             units={**inherited_units, **(units or {})},
             labels={**inherited_labels, **(labels or {})},
-            index="drop",
+            layout="xarray_1d",
+            dimension=dimension,
+            attributes=_xarray_attributes(dataset.attrs, owner="dataset"),
+            field_attributes=field_attributes,
         )
 
     @classmethod
@@ -307,6 +345,30 @@ class DerivedDataset:
         )
         return cast("pl.DataFrame", module.from_arrow(self.table))
 
+    def to_xarray(self) -> xr.Dataset:
+        """Restore a native Xarray dataset when its topology was preserved."""
+
+        if self.schema.layout != "xarray_1d" or self.schema.dimension is None:
+            raise ValueError("only Xarray-authored derived datasets can restore Xarray")
+        dimension = self.schema.dimension
+        coordinates: dict[str, object] = {}
+        data_variables: dict[str, object] = {}
+        for field in self.schema.fields:
+            variable = (
+                dimension,
+                self.table[field.name].combine_chunks().to_numpy(zero_copy_only=False),
+                dict(field.attributes),
+            )
+            if field.role == "coordinate":
+                coordinates[field.name] = variable
+            else:
+                data_variables[field.name] = variable
+        return xr.Dataset(
+            data_vars=data_variables,
+            coords=coordinates,
+            attrs=dict(self.schema.attributes),
+        )
+
 
 def derived_dataset(
     data: object,
@@ -376,6 +438,10 @@ def _bind_semantics(
     inherited_coordinates: Sequence[str] = (),
     inherited_units: Mapping[str, str] | None = None,
     inherited_labels: Mapping[str, str] | None = None,
+    layout: Literal["table", "xarray_1d"] = "table",
+    dimension: str | None = None,
+    attributes: Mapping[str, object] | None = None,
+    field_attributes: Mapping[str, JsonMetadata] | None = None,
 ) -> DerivedDataset:
     names = tuple(table.column_names)
     if not names or len(names) != len(set(names)):
@@ -410,6 +476,19 @@ def _bind_semantics(
             role="coordinate" if field.name in coordinate_names else "observable",
             unit=selected_units.get(field.name),
             label=selected_labels.get(field.name),
+            attributes={
+                **(field_attributes or {}).get(field.name, {}),
+                **(
+                    {}
+                    if selected_units.get(field.name) is None
+                    else {"units": cast("JsonValue", selected_units[field.name])}
+                ),
+                **(
+                    {}
+                    if selected_labels.get(field.name) is None
+                    else {"long_name": cast("JsonValue", selected_labels[field.name])}
+                ),
+            },
         )
         for field in table.schema
     )
@@ -430,12 +509,64 @@ def _bind_semantics(
     )
     schema = pa.schema(
         arrow_fields,
-        metadata={b"scopecat.schema": b"scopecat.derived-dataset.v1"},
+        metadata={b"scopecat.schema": b"scopecat.derived-dataset.v2"},
     )
     return DerivedDataset(
         table=pa.Table.from_arrays(table.columns, schema=schema),
-        schema=DerivedDatasetSchema(fields=semantic_fields),
+        schema=DerivedDatasetSchema(
+            fields=semantic_fields,
+            layout=layout,
+            dimension=dimension,
+            attributes=validate_json_metadata(attributes or {}),
+        ),
     )
+
+
+def _xarray_dimension(dataset: xr.Dataset) -> str:
+    if any(not isinstance(name, str) for name in dataset.sizes):
+        raise TypeError("derived Xarray dimension names must be strings")
+    if any(not isinstance(name, str) for name in dataset.variables):
+        raise TypeError("derived Xarray variable names must be strings")
+    dimensions = tuple(dataset.sizes)
+    if len(dimensions) != 1:
+        raise ValueError(
+            "derived Xarray datasets require exactly one dimension; "
+            "publish a deliberate tabular projection or preserve the native "
+            "dataset as an analysis artifact"
+        )
+    dimension = cast("str", dimensions[0])
+    index = dataset.indexes.get(dimension)
+    if index is not None and cast("int", index.nlevels) != 1:
+        raise ValueError(
+            "derived Xarray datasets do not flatten multi-index dimensions; "
+            "publish a deliberate projection or preserve the native dataset "
+            "as an analysis artifact"
+        )
+    for raw_name in dataset.variables:
+        name = cast("str", raw_name)
+        if tuple(dataset[raw_name].dims) != (dimension,):
+            raise ValueError(
+                f"derived Xarray variable {name!r} must use dimension "
+                f"{dimension!r} exactly; publish a deliberate projection or "
+                "preserve the native dataset as an analysis artifact"
+            )
+    return dimension
+
+
+def _xarray_attributes(
+    value: Mapping[object, object],
+    *,
+    owner: str,
+) -> JsonMetadata:
+    if any(not isinstance(key, str) for key in value):
+        raise TypeError(f"derived Xarray {owner} attributes require string keys")
+    try:
+        return validate_json_metadata(value)
+    except ValueError as error:
+        raise TypeError(
+            f"derived Xarray {owner} attributes must be finite JSON values; "
+            "preserve the native dataset as an analysis artifact"
+        ) from error
 
 
 @dataclass(frozen=True, slots=True)

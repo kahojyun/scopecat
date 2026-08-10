@@ -86,7 +86,9 @@ from scopecat.records.analysis import (
     AnalysisFigure,
     AnalysisFigureAxis,
     AnalysisFigureSeries,
+    AnalysisFigureView,
     AnalysisTable,
+    AnalysisTableView,
 )
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -337,7 +339,9 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
                 kind="table",
                 id="fit-parameters",
                 title="fit parameters",
-                content=AnalysisTable.from_rows([{"frequency": 5.1}]),
+                content=AnalysisTableView(
+                    preview=AnalysisTable.from_rows([{"frequency": 5.1}])
+                ),
             ),
             AnalysisDatasetOutputPayload(
                 kind="dataset",
@@ -352,17 +356,19 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
                 kind="figure",
                 id="fit-curve",
                 title="fit curve",
-                content=AnalysisFigure(
-                    kind="line",
-                    x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
-                    y_axis=AnalysisFigureAxis(label="Signal", unit="ratio"),
-                    series=[
-                        AnalysisFigureSeries(
-                            id="fit",
-                            x=[1.0, 2.0],
-                            y=[3.0, 4.0],
-                        )
-                    ],
+                content=AnalysisFigureView(
+                    preview=AnalysisFigure(
+                        kind="line",
+                        x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
+                        y_axis=AnalysisFigureAxis(label="Signal", unit="ratio"),
+                        series=[
+                            AnalysisFigureSeries(
+                                id="fit",
+                                x=[1.0, 2.0],
+                                y=[3.0, 4.0],
+                            )
+                        ],
+                    ),
                 ),
             ),
             AnalysisParameterProposalOutputPayload(
@@ -1754,7 +1760,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         assert analysis_detail.json()["entry"]["id"] == "analysis-fit"
         assert analysis_record.json()["content"]["title"] == "fit"
         persisted_outputs = analysis_record.json()["content"]["outputs"]
-        assert persisted_outputs[0]["content"] == {
+        assert persisted_outputs[0]["content"]["preview"] == {
             "columns": [{"id": "frequency", "label": None, "unit": None}],
             "rows": [{"cells": [5.1]}],
         }
@@ -1771,7 +1777,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             {"bias": 1.0, "signal": 3.0},
             {"bias": 2.0, "signal": 4.0},
         ]
-        assert persisted_outputs[2]["content"]["series"][0] == {
+        assert persisted_outputs[2]["content"]["preview"]["series"][0] == {
             "id": "fit",
             "label": None,
             "x": [1.0, 2.0],

@@ -2,10 +2,10 @@ import type {
   AnalysisArtifactReference,
   AnalysisDatasetReference,
   AnalysisFact,
-  AnalysisFigure,
+  AnalysisFigureView,
   AnalysisParameterProposalReference,
   AnalysisRecordInput,
-  AnalysisTable,
+  AnalysisTableView,
   MeasurementDatasetSchema,
   MeasurementRecord,
 } from "./api-contract";
@@ -113,8 +113,8 @@ export type RunAnalysisOutput = RunAnalysisOutputBase &
     | { kind: "fact"; content: AnalysisFact }
     | { kind: "dataset"; content: AnalysisDatasetReference }
     | { kind: "artifact"; content: AnalysisArtifactReference }
-    | { kind: "table"; content: AnalysisTable }
-    | { kind: "figure"; content: AnalysisFigure }
+    | { kind: "table"; content: AnalysisTableView }
+    | { kind: "figure"; content: AnalysisFigureView }
     | { kind: "parameter_change_proposal"; content: AnalysisParameterProposalReference }
   );
 

@@ -19,11 +19,13 @@ describe("AnalysisOutputView", () => {
       title: "Fit parameters",
       metadata: { source: "notebook" },
       content: {
-        columns: [
-          { id: "frequency", label: "Frequency", unit: "GHz" },
-          { id: "converged", label: "Converged" },
-        ],
-        rows: [{ cells: [5.1, true] }, { cells: [null, false] }],
+        preview: {
+          columns: [
+            { id: "frequency", label: "Frequency", unit: "GHz" },
+            { id: "converged", label: "Converged" },
+          ],
+          rows: [{ cells: [5.1, true] }, { cells: [null, false] }],
+        },
       },
     };
 
@@ -45,8 +47,10 @@ describe("AnalysisOutputView", () => {
       title: "Counters",
       metadata: {},
       content: {
-        columns: [{ id: "count", label: "Count" }],
-        rows: [{ cells: [5_000_000_001] }, { cells: [5_000_000_002] }],
+        preview: {
+          columns: [{ id: "count", label: "Count" }],
+          rows: [{ cells: [5_000_000_001] }, { cells: [5_000_000_002] }],
+        },
       },
     };
 
@@ -117,13 +121,15 @@ describe("AnalysisOutputView", () => {
       title: "Resonance fit",
       metadata: {},
       content: {
-        kind: "line",
-        x_axis: { label: "Bias", unit: "V" },
-        y_axis: { label: "Frequency", unit: "GHz" },
-        series: [
-          { id: "fit", label: "Fit", x: [-0.1, 0, 0.1], y: [5.0, 5.1, 5.0] },
-          { id: "reference", label: "Reference", x: [-0.1, 0.1], y: [5.05, 5.05] },
-        ],
+        preview: {
+          kind: "line",
+          x_axis: { label: "Bias", unit: "V" },
+          y_axis: { label: "Frequency", unit: "GHz" },
+          series: [
+            { id: "fit", label: "Fit", x: [-0.1, 0, 0.1], y: [5.0, 5.1, 5.0] },
+            { id: "reference", label: "Reference", x: [-0.1, 0.1], y: [5.05, 5.05] },
+          ],
+        },
       },
     };
 
@@ -144,14 +150,16 @@ describe("AnalysisOutputView", () => {
       title: "Extreme range",
       metadata: {},
       content: {
-        kind: "line",
-        x_axis: { label: "x" },
-        y_axis: { label: "y" },
-        series: [{ id: "extreme", x: [-1e308, 1e308], y: [1e308, -1e308] }],
+        preview: {
+          kind: "line",
+          x_axis: { label: "x" },
+          y_axis: { label: "y" },
+          series: [{ id: "extreme", x: [-1e308, 1e308], y: [1e308, -1e308] }],
+        },
       },
     };
 
-    const option = analysisFigureOption(output.content);
+    const option = analysisFigureOption(output.content.preview);
     const [series] = option.series as Array<{ data: number[][]; type: string }>;
 
     expect(series).toMatchObject({ type: "line" });

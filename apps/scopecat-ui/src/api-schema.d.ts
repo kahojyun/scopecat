@@ -902,6 +902,19 @@ export interface components {
             execution?: components["schemas"]["AnalysisComputeExecution-Output"] | null;
         };
         /**
+         * AnalysisDatasetViewSource
+         * @description Stable analysis-local dataset referenced by a presentation view.
+         */
+        AnalysisDatasetViewSource: {
+            /**
+             * Kind
+             * @default dataset
+             * @constant
+             */
+            kind: "dataset";
+            output_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
          * AnalysisFact
          * @description Small typed conclusion retained directly in an analysis record.
          */
@@ -946,9 +959,24 @@ export interface components {
             label: components["schemas"]["_NonEmptyText"];
             unit?: components["schemas"]["_NonEmptyText"] | null;
         };
+        /**
+         * AnalysisFigureProjection
+         * @description Dataset column roles used to produce a bounded figure preview.
+         */
+        AnalysisFigureProjection: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "line" | "scatter";
+            label?: components["schemas"]["_NonEmptyText"] | null;
+            series?: components["schemas"]["_NonEmptyText"] | null;
+            x: components["schemas"]["_NonEmptyText"];
+            y: components["schemas"]["_NonEmptyText"];
+        };
         /** AnalysisFigureRecordOutput */
         AnalysisFigureRecordOutput: {
-            content: components["schemas"]["AnalysisFigure"];
+            content: components["schemas"]["AnalysisFigureView"];
             id: components["schemas"]["_NonEmptyText"];
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -969,6 +997,15 @@ export interface components {
             x: number[];
             /** Y */
             y: number[];
+        };
+        /**
+         * AnalysisFigureView
+         * @description Bounded figure preview plus its optional authoritative dataset source.
+         */
+        AnalysisFigureView: {
+            preview: components["schemas"]["AnalysisFigure"];
+            projection?: components["schemas"]["AnalysisFigureProjection"] | null;
+            source?: components["schemas"]["AnalysisDatasetViewSource"] | null;
         };
         /** AnalysisParameterProposalRecordOutput */
         AnalysisParameterProposalRecordOutput: {
@@ -1037,7 +1074,7 @@ export interface components {
         };
         /** AnalysisTableRecordOutput */
         AnalysisTableRecordOutput: {
-            content: components["schemas"]["AnalysisTable"];
+            content: components["schemas"]["AnalysisTableView"];
             id: components["schemas"]["_NonEmptyText"];
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -1054,6 +1091,16 @@ export interface components {
         AnalysisTableRow: {
             /** Cells */
             cells: components["schemas"]["AnalysisTableCell"][];
+        };
+        /**
+         * AnalysisTableView
+         * @description Bounded table preview plus its optional authoritative dataset source.
+         */
+        AnalysisTableView: {
+            /** Columns */
+            columns?: components["schemas"]["_NonEmptyText"][] | null;
+            preview: components["schemas"]["AnalysisTable"];
+            source?: components["schemas"]["AnalysisDatasetViewSource"] | null;
         };
         /**
          * ApplyReceipt

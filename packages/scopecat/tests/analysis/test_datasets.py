@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pyarrow as pa
 import pytest
 import xarray as xr
@@ -27,7 +28,7 @@ def test_derived_dataset_round_trips_exact_arrow_and_semantic_schema() -> None:
     )
     restored = DerivedDataset.from_json_value(dataset.to_json_value())
 
-    assert dataset.schema.schema_id == "scopecat.derived-dataset.v1"
+    assert dataset.schema.schema_id == "scopecat.derived-dataset.v2"
     assert dataset.schema.fields[0].role == "coordinate"
     assert dataset.schema.fields[0].unit == "V"
     assert dataset.table.schema.field("score").metadata[b"units"] == b"ratio"
@@ -54,8 +55,9 @@ def test_derived_dataset_accepts_familiar_dataframe_and_xarray_results() -> None
     )
     xarray_dataset = sc.derived_dataset(
         xr.Dataset(
-            data_vars={"y": (("x",), [3.0, 4.0])},
-            coords={"x": [1, 2]},
+            data_vars={"y": (("x",), [3.0, 4.0], {"quality": "fit"})},
+            coords={"x": ("x", [1, 2], {"long_name": "Bias index"})},
+            attrs={"model": "linear"},
         ),
         units={"y": "ratio"},
     )
@@ -66,6 +68,27 @@ def test_derived_dataset_accepts_familiar_dataframe_and_xarray_results() -> None
     ]
     assert polars_dataset.table.to_pylist() == pandas_dataset.table.to_pylist()
     assert xarray_dataset.table.to_pylist() == pandas_dataset.table.to_pylist()
+    restored_xarray = xarray_dataset.to_xarray()
+    assert restored_xarray.sizes == {"x": 2}
+    assert restored_xarray.attrs == {"model": "linear"}
+    assert restored_xarray["x"].attrs == {"long_name": "Bias index"}
+    assert restored_xarray["y"].attrs == {
+        "quality": "fit",
+        "units": "ratio",
+    }
+    assert restored_xarray.identical(
+        xr.Dataset(
+            data_vars={
+                "y": (
+                    ("x",),
+                    [3.0, 4.0],
+                    {"quality": "fit", "units": "ratio"},
+                )
+            },
+            coords={"x": ("x", [1, 2], {"long_name": "Bias index"})},
+            attrs={"model": "linear"},
+        )
+    )
     assert isinstance(pandas_dataset.to_pandas(), pd.DataFrame)
     assert isinstance(polars_dataset.to_polars(), pl.DataFrame)
 
@@ -180,6 +203,38 @@ def test_derived_dataset_inherits_arrow_and_xarray_semantics() -> None:
     assert xarray.schema.fields[0].unit == "V"
     assert xarray.schema.fields[1].unit == "ratio"
     assert xarray.schema.fields[1].label == "Fit score"
+
+
+def test_derived_dataset_rejects_implicit_lossy_xarray_flattening() -> None:
+    multidimensional = xr.Dataset(
+        data_vars={"signal": (("bias", "frequency"), [[1.0, 2.0], [3.0, 4.0]])},
+        coords={"bias": [0.0, 1.0], "frequency": [5.0, 6.0]},
+    )
+    mixed_shape = xr.Dataset(
+        data_vars={
+            "signal": (("bias",), [1.0, 2.0]),
+            "fit_quality": 0.9,
+        },
+        coords={"bias": [0.0, 1.0]},
+    )
+
+    with pytest.raises(ValueError, match="exactly one dimension"):
+        sc.derived_dataset(multidimensional)
+    with pytest.raises(ValueError, match="must use dimension"):
+        sc.derived_dataset(mixed_shape)
+
+
+def test_derived_xarray_round_trip_preserves_physical_dtype() -> None:
+    source = xr.Dataset(
+        data_vars={"score": (("bias",), np.asarray([0.2, 0.8], dtype=np.float32))},
+        coords={"bias": np.asarray([1, 2], dtype=np.int32)},
+    )
+
+    restored = sc.derived_dataset(source).to_xarray()
+
+    assert restored["bias"].dtype == np.dtype(np.int32)
+    assert restored["score"].dtype == np.dtype(np.float32)
+    assert restored.identical(source)
 
 
 def test_derived_dataset_round_trips_raw_arrow_content() -> None:

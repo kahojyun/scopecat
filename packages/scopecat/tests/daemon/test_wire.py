@@ -64,9 +64,11 @@ from scopecat.records.analysis import (
     AnalysisFigure,
     AnalysisFigureAxis,
     AnalysisFigureSeries,
+    AnalysisFigureView,
     AnalysisTable,
     AnalysisTableColumn,
     AnalysisTableRow,
+    AnalysisTableView,
 )
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
@@ -267,17 +269,19 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                 kind="figure",
                 id="fit-curve",
                 title="fit curve",
-                content=AnalysisFigure(
-                    kind="line",
-                    x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
-                    y_axis=AnalysisFigureAxis(label="Signal", unit="ratio"),
-                    series=[
-                        AnalysisFigureSeries(
-                            id="fit",
-                            x=[1.0, 2.0],
-                            y=[3.0, 4.0],
-                        )
-                    ],
+                content=AnalysisFigureView(
+                    preview=AnalysisFigure(
+                        kind="line",
+                        x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
+                        y_axis=AnalysisFigureAxis(label="Signal", unit="ratio"),
+                        series=[
+                            AnalysisFigureSeries(
+                                id="fit",
+                                x=[1.0, 2.0],
+                                y=[3.0, 4.0],
+                            )
+                        ],
+                    ),
                 ),
             ),
             AnalysisParameterProposalOutputPayload(
@@ -334,7 +338,7 @@ def test_analysis_save_command_bounds_embedded_output_group() -> None:
         kind="table",
         id="large-table",
         title="large table",
-        content=table,
+        content=AnalysisTableView(preview=table),
     )
 
     with pytest.raises(ValidationError, match="total table cell count"):
