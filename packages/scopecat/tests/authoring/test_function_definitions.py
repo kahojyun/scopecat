@@ -11,6 +11,7 @@ import pytest
 
 import scopecat as sc
 from scopecat.api.analysis import AnalysisDefinition, AnalysisInvocation
+from scopecat.authoring._module_results import ProductBundle
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.program.products import ProductAxis, RecordSelection
@@ -32,6 +33,24 @@ class _StructuralValues:
 class _CountDataset:
     count: sc.CoordinateRef[int]
     recorded_count: sc.RecordRef[int]
+
+
+@dataclass(frozen=True, slots=True)
+class _ReturnedSignals(ProductBundle):
+    signal: sc.ProductRef
+    reference: sc.ProductRef
+
+
+@dataclass(frozen=True, slots=True)
+class _ReturnedDataset:
+    capture: _ReturnedSignals
+    score: sc.ValueRef[float]
+
+
+@dataclass(frozen=True, slots=True)
+class _ReturnedAliases:
+    primary: sc.ProductRef
+    diagnostic: sc.ProductRef
 
 
 def _identity_count(*, value: object) -> object:
@@ -242,6 +261,50 @@ def test_returned_values_are_durable_without_explicit_record_calls() -> None:
     [product_record] = product_experiment().definition.record_selections
     assert isinstance(product_record, RecordSelection)
     assert product_record.product_id.local_id == "signal"
+    assert product_record.record_id == "result"
+
+
+def test_return_paths_name_product_bundles_and_named_values() -> None:
+    @sc.experiment(id="test.return-schema", kind="return")
+    def definition(experiment: sc.ExperimentContext) -> _ReturnedDataset:
+        signal = experiment._product("source/signal")
+        reference = experiment._product("source/reference")
+        score = experiment.compute(
+            "internal-score-operation",
+            fn=lambda: 0.75,
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        return _ReturnedDataset(
+            capture=_ReturnedSignals(signal=signal, reference=reference),
+            score=cast("sc.ValueRef[float]", score),
+        )
+
+    selections = definition().definition.record_selections
+
+    assert [selection.record_id for selection in selections] == [
+        "capture/signal",
+        "capture/reference",
+        "score",
+    ]
+
+
+def test_repeated_return_source_creates_aliases_without_duplicate_product_uses() -> (
+    None
+):
+    @sc.experiment(id="test.return-alias", kind="return")
+    def definition(experiment: sc.ExperimentContext) -> _ReturnedAliases:
+        signal = experiment._product("internal/signal")
+        return _ReturnedAliases(primary=signal, diagnostic=signal)
+
+    primary, diagnostic = definition().definition.record_selections
+
+    assert isinstance(primary, RecordSelection)
+    assert isinstance(diagnostic, RecordSelection)
+    assert [primary.record_id, diagnostic.record_id] == [
+        "primary",
+        "diagnostic",
+    ]
+    assert primary.product_use.id == diagnostic.product_use.id
 
 
 def test_returned_explicit_record_is_not_selected_twice() -> None:

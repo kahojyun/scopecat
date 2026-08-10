@@ -25,9 +25,8 @@ flow through `compute(...)` and both can become durable experiment outputs.
   value and run in the normal host value graph;
 - acquired or domain-produced measurements produce a logical product and run
   point-locally after those measurements arrive;
-- mixing pre-measurement values and measurement products in one call is not yet
-  supported; capture the former in the function closure or make the required
-  join explicit at a higher layer.
+- a call that mixes the two runs after the measurements arrive and receives the
+  earlier values joined by logical point.
 
 The return type follows availability, not shape. Authors normally receive a
 `ValueRef` before measurement and a `ProductRef` after measurement, but they do
@@ -79,9 +78,10 @@ trace = data.traces(schema.trace.s_parameter)
 
 There is no parallel `*Records` dataclass to declare or maintain. Product
 bundles keep their author-facing field names, and returned nested values receive
-hierarchical record names. `RecordRef` remains available for the uncommon case
-that one source is recorded more than once and the notebook must distinguish
-the aliases.
+hierarchical record names. These paths are the durable names: they do not change
+when an internal product or compute operation is renamed. Repeating one source
+at two return paths creates two aliases over the same product use. `PerEntity`
+paths include both entity kind and identity.
 
 Call `experiment.record(...)` only for recording policy that cannot be expressed
 by the return structure: an explicit durable name, namespace, role override, or
@@ -150,6 +150,17 @@ result. The internal execution model still has separate host and observation
 stages, but that distinction is compiler-owned rather than a second authoring
 API.
 
+Earlier values can be bound directly beside measured products; no closure or
+parallel postprocessing API is required:
+
+```python
+classified = experiment.compute(
+    fn=classify,
+    inputs={"trace": acquired.trace, "threshold": threshold},
+    output_type=sc.ScalarType(sc.BoolType()),
+)
+```
+
 ## Deliberate remaining boundaries
 
 Some distinctions should stay visible because removing them would hide real
@@ -162,7 +173,6 @@ experiment semantics:
 - an explicit `record(...)` is recording policy, not ordinary dataflow.
 
 Further convenience should be judged against complete experiments. The most
-useful next candidates are typed structured compute schemas, output-type
-inference from annotated functions, and a concise way to join measured products
-with captured pre-measurement constants. None should introduce another kind of
+useful next candidates are typed structured compute schemas and input/output
+inference from annotated functions. Neither should introduce another kind of
 value or another postprocessing API.

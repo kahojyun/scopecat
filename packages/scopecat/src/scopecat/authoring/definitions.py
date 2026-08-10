@@ -85,6 +85,7 @@ from scopecat.program.products import (
     ProductRef,
     ProductRefs,
     RecordSelection,
+    record_alias,
     record_coordinate,
     record_product,
     record_ref_from_product,
@@ -1325,47 +1326,57 @@ def _record_experiment_output(
     value: object,
     *,
     path: tuple[str, ...] = (),
+    explicit_sources: frozenset[tuple[object, ...]] | None = None,
 ) -> None:
     """Treat returned data as the experiment's durable output selection."""
 
+    if explicit_sources is None:
+        explicit_sources = frozenset(
+            _record_selection_source_key(selection)
+            for selection in context._record_selections
+        )
     if value is None or isinstance(value, RecordRef):
         return
     if isinstance(value, ValueRef):
         if internal_value_ref_point_id(value) is not None:
             return
-        if any(
-            isinstance(selection, ValueRecordSelection)
-            and selection.value.id == value.id
-            for selection in context._record_selections
-        ):
+        if _value_record_source_key(value) in explicit_sources:
             return
         context.record(
             value,
-            record_id=(
-                None
-                if internal_value_ref_source_id(value) is not None
-                else "/".join(path or ("result",))
-            ),
+            record_id="/".join(path or ("result",)),
         )
         return
     if isinstance(value, ProductRef):
-        _ensure_product_record(context, value)
+        if _product_record_source_key(value) in explicit_sources:
+            return
+        _record_product_output(
+            context,
+            value,
+            record_id="/".join(path or ("result",)),
+        )
         return
     if isinstance(value, ProductBundle):
-
-        def record_product_leaf[T: NativeMeasurementValue](
-            product: ProductRef[T],
-        ) -> RecordRef[T]:
-            return _ensure_product_record(context, product)
-
-        value._records_internal(record_product_leaf)
+        if not is_dataclass(value):
+            raise TypeError("experiment output product bundles must be dataclasses")
+        members = fields(value)
+        if not members:
+            raise TypeError("experiment output product bundles must not be empty")
+        for member in members:
+            _record_experiment_output(
+                context,
+                cast("object", getattr(value, member.name)),
+                path=(*path, member.name),
+                explicit_sources=explicit_sources,
+            )
         return
     if isinstance(value, PerEntity):
         for entity, item in value.items():
             _record_experiment_output(
                 context,
                 item,
-                path=(*path, entity.id),
+                path=(*path, entity.kind or "entity", entity.id),
+                explicit_sources=explicit_sources,
             )
         return
     if isinstance(value, tuple):
@@ -1374,6 +1385,7 @@ def _record_experiment_output(
                 context,
                 item,
                 path=(*path, str(index)),
+                explicit_sources=explicit_sources,
             )
         return
     if is_dataclass(value) and not isinstance(value, type):
@@ -1385,6 +1397,7 @@ def _record_experiment_output(
                 context,
                 cast("object", getattr(value, member.name)),
                 path=(*path, member.name),
+                explicit_sources=explicit_sources,
             )
         return
     raise TypeError(
@@ -1393,10 +1406,12 @@ def _record_experiment_output(
     )
 
 
-def _ensure_product_record[T: NativeMeasurementValue](
+def _record_product_output[T: NativeMeasurementValue](
     context: ExperimentContext,
     product: ProductRef[T],
-) -> RecordRef[T]:
+    *,
+    record_id: str,
+) -> None:
     existing = next(
         (
             selection
@@ -1408,8 +1423,34 @@ def _ensure_product_record[T: NativeMeasurementValue](
         None,
     )
     if existing is not None:
-        return record_ref_from_product(product, existing)
-    return context._record_product(product, namespace=None, metadata=None)
+        context._record_selections.append(record_alias(existing, record_id=record_id))
+        return
+    context._record_product(
+        product,
+        record_id=record_id,
+        namespace=None,
+        metadata=None,
+    )
+
+
+def _record_selection_source_key(
+    selection: ProgramRecordSelection,
+) -> tuple[object, ...]:
+    if isinstance(selection, ValueRecordSelection):
+        return _value_record_source_key(selection.value)
+    return (
+        "product",
+        selection.product_id,
+        selection.product_origin,
+    )
+
+
+def _value_record_source_key(value: ValueRef) -> tuple[object, ...]:
+    return "value", value.id
+
+
+def _product_record_source_key(product: ProductRef) -> tuple[object, ...]:
+    return "product", product.product_id, product.origin
 
 
 def _is_runtime_input_annotation(annotation: object) -> bool:
