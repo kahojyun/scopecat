@@ -189,8 +189,8 @@ def test_lab_runner_places_the_reusable_capture_module() -> None:
     [execution] = logical.domain_executions
     assert [name for name, _value_id in execution.compiler_inputs] == ["qubits"]
     assert [record.record_id for record in logical.product_record_selections] == [
-        "capture/probability_0",
-        "capture/probability_1",
+        "probability_0",
+        "probability_1",
     ]
     assert [
         postprocessor.id.qualified_name
@@ -211,7 +211,12 @@ def test_fixed_experiment_and_structural_runner_share_lab_measurement_policy() -
     fixed = compile_invocation(drag_beta_experiment()).program.program
 
     assert [record.record_id for record in direct.product_record_selections] == [
-        record.record_id for record in fixed.product_record_selections
+        "probability_0",
+        "probability_1",
+    ]
+    assert [record.record_id for record in fixed.product_record_selections] == [
+        "probabilities/probability_0",
+        "probabilities/probability_1",
     ]
     assert [
         postprocessor.id.qualified_name

@@ -200,14 +200,14 @@ class XYDriveGroup:
             i_waveform = self._context.compute(
                 f"xy_i_waveform_{entity.id}",
                 fn=_i_waveform,
-                inputs={"if_frequency": frequencies[entity]},
                 output_type=sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
+                if_frequency=frequencies[entity],
             )
             q_waveform = self._context.compute(
                 f"xy_q_waveform_{entity.id}",
                 fn=_q_waveform,
-                inputs={"if_frequency": frequencies[entity]},
                 output_type=sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
+                if_frequency=frequencies[entity],
             )
             self._i[entity].invoke(
                 ANALOG_WAVEFORM_OUTPUT_PLAY,

@@ -87,8 +87,8 @@ def binary_iq_probabilities(
     return context.compute(
         id,
         fn=calculate,
-        inputs={"iq_shots": iq_shots},
         output_type=BinaryIqProbabilityProducts,
+        iq_shots=iq_shots,
     )
 
 

@@ -113,9 +113,9 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
 
     invocation = flux_spectroscopy()
     schema = assert_type(invocation.output, FluxSpectroscopyDataset)
-    frequency_record_id = schema.trace.frequency.id
-    s_parameter_record_id = schema.trace.s_parameter.id
-    temperature_record_id = schema.temperature.id
+    frequency_record_id = "trace/frequency"
+    s_parameter_record_id = "trace/s_parameter"
+    temperature_record_id = "temperature"
     definition = invocation.definition
     success_state = definition.success_state
     assert isinstance(success_state, EnsureStateIntent)

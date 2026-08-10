@@ -124,12 +124,12 @@ A host calculation can return either shape and feed another compute:
 ```python
 samples = experiment.compute(
     fn=make_window,
-    inputs={"length": length},
     output_type=sc.ArrayType(
         dtype="float64",
         dimensions=(sc.ArrayDimension("sample", 128),),
         unit="ratio",
     ),
+    length=length,
 )
 
 
@@ -186,8 +186,8 @@ class Probabilities(sc.ProductBundle):
 
 probabilities = experiment.compute(
     fn=lambda *, shots: discriminate(shots),
-    inputs={"shots": acquired.iq_shots},
     output_type=Probabilities,
+    shots=acquired.iq_shots,
 )
 ```
 

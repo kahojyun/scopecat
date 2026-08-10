@@ -256,14 +256,12 @@ def parallel_two_qubit_ramsey(
         results.q0_iq_shots,
         discriminator=BINARY_IQ_DISCRIMINATOR,
         id="q0-discrimination",
-        output_prefix="q0",
     )
     q1_products = binary_iq_probabilities(
         experiment,
         results.q1_iq_shots,
         discriminator=BINARY_IQ_DISCRIMINATOR,
         id="q1-discrimination",
-        output_prefix="q1",
     )
     return ParallelRamseyDataset(
         delay=delay,
