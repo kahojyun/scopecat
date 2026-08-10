@@ -109,6 +109,10 @@ if TYPE_CHECKING:
     from scopecat.kernel.quantity import Quantity
     from scopecat.planning.system import ExperimentSystem
     from scopecat.project import open_project
+    from scopecat.sdk.compute import (
+        ComputeImplementationContract,
+        ComputeRegistry,
+    )
     from scopecat.sdk.payloads import (
         PayloadCodec,
         PayloadCodecCatalog,
@@ -123,6 +127,11 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "Axis": ("scopecat.authoring", "Axis"),
     "BoolType": ("scopecat.authoring", "BoolType"),
     "CapabilityResource": ("scopecat.authoring", "CapabilityResource"),
+    "ComputeImplementationContract": (
+        "scopecat.sdk.compute",
+        "ComputeImplementationContract",
+    ),
+    "ComputeRegistry": ("scopecat.sdk.compute", "ComputeRegistry"),
     "CoordinateRef": ("scopecat.authoring", "CoordinateRef"),
     "DEFAULT_RESOURCE_ROLE": ("scopecat.authoring", "DEFAULT_RESOURCE_ROLE"),
     "EachEntity": ("scopecat.authoring", "EachEntity"),

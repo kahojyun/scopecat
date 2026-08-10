@@ -56,6 +56,7 @@ from scopecat.program.value_refs import (
     internal_value_ref_operation_id,
 )
 from scopecat.program.values import ComputeFunction
+from scopecat.sdk.compute import compute_implementation_contract_internal
 
 
 def logical_compute_node_id(symbol: SymbolId) -> OperationId:
@@ -106,11 +107,16 @@ class LogicalProgramBuilder:
             result_type=declaration.output_type,
         )
         self._add_compute_node(operation)
+        contract = compute_implementation_contract_internal(implementation)
         self._implementations[operation_id] = LocalPythonImplementation(
             id=ImplementationId(
-                "python:"
-                f"{declaration.declaration_key.value.hex}:"
-                f"{operation_id.qualified_name}"
+                contract.reference
+                if contract is not None
+                else (
+                    "python:"
+                    f"{declaration.declaration_key.value.hex}:"
+                    f"{operation_id.qualified_name}"
+                )
             ),
             kernel=implementation,
         )

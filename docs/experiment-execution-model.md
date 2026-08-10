@@ -89,6 +89,30 @@ registration and deployment select an implementation behind it. Until then,
 preview reports the local implementation identity and placement without
 claiming that the closure is portable.
 
+The local SDK now exposes that explicit registration boundary without claiming
+that a remote worker exists:
+
+```python
+registry = sc.ComputeRegistry()
+
+
+@registry.implementation(
+    "window.peak",
+    "2",
+    input_codecs={"samples": "lab.float64-array.v1"},
+    capabilities=("numpy",),
+    resources={"memory_mb": 64},
+    deterministic=True,
+)
+def peak(*, samples) -> float:
+    return float(samples.max())
+```
+
+Registered functions execute locally through the same `compute(...)` path,
+resolve as `registry:window.peak@2`, and expose that stable identity in preview.
+The contract is the deployable unit a future worker must resolve; unregistered
+closures retain diagnostic `python:` identities.
+
 Logical resource ports describe the interfaces and entities required by a
 reusable definition. The accepted configuration maps those requirements onto a
 finite catalog of physical endpoints. This keeps experiment definitions
