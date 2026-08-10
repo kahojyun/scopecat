@@ -1901,6 +1901,7 @@ def test_analysis_candidate_run_keeps_connection_until_shutdown(
                 outputs=(
                     AnalysisParameterProposalOutputPayload(
                         kind="parameter_change_proposal",
+                        id=proposal.id,
                         title="candidate",
                         content=proposal,
                     ),

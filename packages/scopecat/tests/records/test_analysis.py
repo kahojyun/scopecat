@@ -113,6 +113,7 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
         outputs=[
             AnalysisTableRecordOutput(
                 kind="table",
+                id="fit-parameters",
                 title="Fit parameters",
                 content=AnalysisTable.from_rows(
                     [{"frequency": 5.1, "converged": True}],
@@ -128,6 +129,7 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
             ),
             AnalysisFigureRecordOutput(
                 kind="figure",
+                id="fit-curve",
                 title="Fit curve",
                 content=AnalysisFigure(
                     kind="line",
@@ -144,6 +146,7 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
             ),
             AnalysisParameterProposalRecordOutput(
                 kind="parameter_change_proposal",
+                id="readout-fit",
                 title="readout-fit",
                 content=AnalysisParameterProposalReference(
                     proposal_id="readout-fit",
@@ -231,6 +234,7 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
     )
     table_output = AnalysisTableRecordOutput(
         kind="table",
+        id="large-table",
         title="large table",
         content=table,
     )
@@ -239,8 +243,8 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
             run_id="run-table-budget",
             title="large tables",
             outputs=[
-                table_output
-                for _ in range(
+                table_output.model_copy(update={"id": f"table-{index}"})
+                for index in range(
                     MAX_ANALYSIS_TOTAL_TABLE_CELLS
                     // (MAX_ANALYSIS_TABLE_COLUMNS * MAX_ANALYSIS_TABLE_ROWS)
                     + 1
@@ -251,6 +255,7 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
     values = [float(index) for index in range(MAX_ANALYSIS_FIGURE_POINTS)]
     figure_output = AnalysisFigureRecordOutput(
         kind="figure",
+        id="large-figure",
         title="large figure",
         content=AnalysisFigure(
             kind="line",
@@ -264,8 +269,8 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
             run_id="run-figure-budget",
             title="large figures",
             outputs=[
-                figure_output
-                for _ in range(
+                figure_output.model_copy(update={"id": f"figure-{index}"})
+                for index in range(
                     MAX_ANALYSIS_TOTAL_FIGURE_POINTS // MAX_ANALYSIS_FIGURE_POINTS + 1
                 )
             ],
@@ -275,7 +280,10 @@ def test_analysis_record_bounds_total_embedded_display_content() -> None:
         AnalysisRecord(
             run_id="run-output-budget",
             title="too many outputs",
-            outputs=[table_output] * (MAX_ANALYSIS_OUTPUTS + 1),
+            outputs=[
+                table_output.model_copy(update={"id": f"output-{index}"})
+                for index in range(MAX_ANALYSIS_OUTPUTS + 1)
+            ],
         )
 
 
@@ -298,6 +306,7 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
     with pytest.raises(ValidationError, match="at least 1 character"):
         AnalysisTableRecordOutput(
             kind="table",
+            id="table",
             title="",
             content=AnalysisTable.from_rows([{"value": 1}]),
         )

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import inspect
+import mimetypes
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
+from pathlib import Path, PurePosixPath
 from typing import (
     Concatenate,
     Literal,
@@ -24,8 +26,9 @@ from scopecat.analysis.datasets import (
     derived_dataset,
 )
 from scopecat.analysis.service import (
-    AnalysisDataOutput,
+    AnalysisArtifactOutput,
     AnalysisDatasetOutput,
+    AnalysisFactOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -56,7 +59,7 @@ from scopecat.measurements.results import Dataset, ExperimentResultView
 from scopecat.records.analysis import (
     AnalysisComputeExecution,
     AnalysisComputeInput,
-    AnalysisDerivedData,
+    AnalysisFact,
     AnalysisField,
     AnalysisFigure,
     AnalysisFigureAxis,
@@ -128,7 +131,7 @@ class Analysis:
     outputs: tuple[AnalysisOutput, ...] = ()
     parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
 
-    def data(
+    def dataset(
         self,
         id: str,
         content: object,
@@ -149,15 +152,6 @@ class Analysis:
                 "id",
             )
         selected_id = artifact_slug(id, fallback="data")
-        if any(
-            isinstance(output, AnalysisDatasetOutput) and output.id == selected_id
-            for output in self.outputs
-        ):
-            _raise_analysis_problem(
-                "analysis_dataset_id_duplicated",
-                f"analysis dataset id is duplicated: {selected_id}",
-                "id",
-            )
         dataset = derived_dataset(
             content,
             coordinates=coordinates,
@@ -165,19 +159,102 @@ class Analysis:
             labels=labels,
             index=index,
         )
-        return replace(
-            self,
-            outputs=(
-                *self.outputs,
-                AnalysisDatasetOutput(
-                    kind="dataset",
-                    id=selected_id,
-                    title=title or selected_id,
-                    content=dataset,
-                    execution=None,
-                    metadata=metadata or {},
+        return self._append_output(
+            AnalysisDatasetOutput(
+                kind="dataset",
+                id=selected_id,
+                title=title or selected_id,
+                content=dataset,
+                execution=None,
+                metadata=metadata or {},
+            )
+        )
+
+    def fact(
+        self,
+        id: str,
+        value: object,
+        *,
+        schema_id: str | None = None,
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> Analysis:
+        """Publish one small typed conclusion without inventing a dataset."""
+
+        selected_id = _analysis_output_id(id)
+        if isinstance(value, Quantity):
+            selected_schema = schema_id or "scopecat.quantity.v1"
+        elif value is None or isinstance(value, bool | int | float | str):
+            selected_schema = schema_id or "scopecat.scalar.v1"
+        elif schema_id is None or not schema_id.strip():
+            raise TypeError("structured analysis facts require a schema_id")
+        else:
+            selected_schema = schema_id
+        return self._append_output(
+            AnalysisFactOutput(
+                kind="fact",
+                id=selected_id,
+                title=title or selected_id,
+                content=AnalysisFact(
+                    schema_id=selected_schema,
+                    codec=PYTHON_JSON_CODEC,
+                    value=_analysis_json(value),
                 ),
-            ),
+                metadata=metadata or {},
+            )
+        )
+
+    def artifact(
+        self,
+        id: str,
+        *,
+        path: str | Path | None = None,
+        text: str | None = None,
+        content: bytes | None = None,
+        filename: str | None = None,
+        media_type: str | None = None,
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> Analysis:
+        """Publish exact file or byte content as part of this analysis."""
+
+        selected_id = _analysis_output_id(id)
+        selected_sources = (path is not None, text is not None, content is not None)
+        if sum(selected_sources) != 1:
+            raise TypeError(
+                "analysis artifact requires exactly one path, text, or content"
+            )
+        source_path = None if path is None else Path(path)
+        if source_path is not None and not source_path.is_file():
+            raise FileNotFoundError(source_path)
+        selected_filename = filename or (
+            source_path.name
+            if source_path is not None
+            else f"{selected_id}.{'txt' if text is not None else 'bin'}"
+        )
+        if not _is_artifact_filename(selected_filename):
+            raise ValueError("analysis artifact filename must be a basename")
+        selected_content = (
+            source_path.read_bytes()
+            if source_path is not None
+            else (text.encode() if text is not None else content)
+        )
+        assert selected_content is not None
+        selected_media_type = media_type or mimetypes.guess_type(selected_filename)[0]
+        if selected_media_type is None:
+            selected_media_type = (
+                "text/plain" if text is not None else "application/octet-stream"
+            )
+        return self._append_output(
+            AnalysisArtifactOutput(
+                kind="artifact",
+                id=selected_id,
+                title=title or selected_id,
+                content=selected_content,
+                filename=selected_filename,
+                media_type=selected_media_type,
+                metadata=metadata or {},
+            )
         )
 
     @overload
@@ -185,6 +262,7 @@ class Analysis:
         self,
         content: DerivedDataset | AnalysisTable | Sequence[object],
         *,
+        id: str = "table",
         columns: Sequence[str] | None = None,
         title: str = "table",
         metadata: Mapping[str, object] | None = None,
@@ -194,7 +272,8 @@ class Analysis:
     def table(
         self,
         *,
-        data: str,
+        dataset: str,
+        id: str = "table",
         columns: Sequence[str] | None = None,
         title: str = "table",
         metadata: Mapping[str, object] | None = None,
@@ -204,16 +283,17 @@ class Analysis:
         self,
         content: DerivedDataset | AnalysisTable | Sequence[object] | None = None,
         *,
-        data: str | None = None,
+        dataset: str | None = None,
+        id: str = "table",
         columns: Sequence[str] | None = None,
         title: str = "table",
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
-        if (content is None) == (data is None):
+        if (content is None) == (dataset is None):
             raise TypeError(
-                "analysis table requires exactly one content or data source"
+                "analysis table requires exactly one content or dataset source"
             )
-        source = self._dataset(data) if data is not None else content
+        source = self._dataset(dataset) if dataset is not None else content
         if isinstance(source, DerivedDataset):
             table = source.to_analysis_table(columns=columns)
         elif columns is not None:
@@ -223,17 +303,14 @@ class Analysis:
         else:
             assert source is not None
             table = AnalysisTable.from_objects(source)
-        return replace(
-            self,
-            outputs=(
-                *self.outputs,
-                AnalysisTableOutput(
-                    kind="table",
-                    title=title,
-                    content=table,
-                    metadata=metadata or {},
-                ),
-            ),
+        return self._append_output(
+            AnalysisTableOutput(
+                kind="table",
+                id=_analysis_output_id(id),
+                title=title,
+                content=table,
+                metadata=metadata or {},
+            )
         )
 
     @overload
@@ -241,6 +318,7 @@ class Analysis:
         self,
         content: AnalysisFigure,
         *,
+        id: str = "figure",
         title: str = "figure",
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis: ...
@@ -250,6 +328,7 @@ class Analysis:
         self,
         content: DerivedDataset | AnalysisTable | Sequence[object],
         *,
+        id: str = "figure",
         kind: Literal["line", "scatter"],
         x: str,
         y: str,
@@ -263,7 +342,8 @@ class Analysis:
     def figure(
         self,
         *,
-        data: str,
+        dataset: str,
+        id: str = "figure",
         kind: Literal["line", "scatter"],
         x: str,
         y: str,
@@ -279,7 +359,8 @@ class Analysis:
             DerivedDataset | AnalysisFigure | AnalysisTable | Sequence[object] | None
         ) = None,
         *,
-        data: str | None = None,
+        dataset: str | None = None,
+        id: str = "figure",
         kind: Literal["line", "scatter"] | None = None,
         x: str | None = None,
         y: str | None = None,
@@ -288,11 +369,11 @@ class Analysis:
         title: str = "figure",
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
-        if (content is None) == (data is None):
+        if (content is None) == (dataset is None):
             raise TypeError(
-                "analysis figure requires exactly one content or data source"
+                "analysis figure requires exactly one content or dataset source"
             )
-        source = self._dataset(data) if data is not None else content
+        source = self._dataset(dataset) if dataset is not None else content
         if isinstance(source, AnalysisFigure):
             figure = source
         else:
@@ -318,17 +399,14 @@ class Analysis:
                 series=series,
                 label=label,
             )
-        return replace(
-            self,
-            outputs=(
-                *self.outputs,
-                AnalysisFigureOutput(
-                    kind="figure",
-                    title=title,
-                    content=figure,
-                    metadata=metadata or {},
-                ),
-            ),
+        return self._append_output(
+            AnalysisFigureOutput(
+                kind="figure",
+                id=_analysis_output_id(id),
+                title=title,
+                content=figure,
+                metadata=metadata or {},
+            )
         )
 
     def _dataset(self, id: str) -> DerivedDataset:
@@ -337,6 +415,15 @@ class Analysis:
             if isinstance(output, AnalysisDatasetOutput) and output.id == selected_id:
                 return output.content
         raise KeyError(f"analysis has no dataset output: {selected_id}")
+
+    def _append_output(self, output: AnalysisOutput) -> Analysis:
+        if any(existing.id == output.id for existing in self.outputs):
+            _raise_analysis_problem(
+                "analysis_output_id_duplicated",
+                f"analysis output id is duplicated: {output.id}",
+                "id",
+            )
+        return replace(self, outputs=(*self.outputs, output))
 
     @property
     def analysis_key(self) -> str:
@@ -420,13 +507,14 @@ class Analysis:
             )
         output = AnalysisParameterProposalOutput(
             kind="parameter_change_proposal",
+            id=proposal.id,
             title=selected_id,
             content=proposal,
             metadata={},
         )
+        analysis = self._append_output(output)
         return replace(
-            self,
-            outputs=(*self.outputs, output),
+            analysis,
             parameter_proposals=(*self.parameter_proposals, proposal),
         )
 
@@ -737,10 +825,12 @@ class AnalysisContext:
             self._derived_output_ids_by_hash[output_hash] = dataset_output_id
         else:
             self._compute_outputs.append(
-                AnalysisDataOutput(
-                    kind="data",
+                AnalysisFactOutput(
+                    kind="fact",
+                    id=compute_id,
                     title=compute_id,
-                    content=AnalysisDerivedData(
+                    content=AnalysisFact(
+                        schema_id=output_codec,
                         codec=output_codec,
                         value=encoded,
                         execution=execution,
@@ -751,17 +841,14 @@ class AnalysisContext:
         return result
 
     def _allocate_compute_id(self, requested: str) -> str:
-        count = self._compute_ids.get(requested, 0) + 1
-        self._compute_ids[requested] = count
-        return requested if count == 1 else f"{requested}.{count}"
+        base = artifact_slug(requested, fallback="dataset-compute")
+        count = self._compute_ids.get(base, 0) + 1
+        self._compute_ids[base] = count
+        return base if count == 1 else f"{base}-{count}"
 
     def _allocate_dataset_output_id(self, requested: str) -> str:
         base = artifact_slug(requested, fallback="data")
-        used = {
-            output.id
-            for output in self._compute_outputs
-            if isinstance(output, AnalysisDatasetOutput)
-        }
+        used = {output.id for output in self._compute_outputs}
         if base not in used:
             return base
         suffix = 2
@@ -1053,6 +1140,23 @@ def _analysis_key(key: str | None, title: str) -> str:
             "key",
         )
     return artifact_slug(selected, fallback="analysis")
+
+
+def _analysis_output_id(value: str) -> str:
+    if not value.strip():
+        _raise_analysis_problem(
+            "analysis_output_id_invalid",
+            "analysis output id must be a non-empty string",
+            "id",
+        )
+    return artifact_slug(value, fallback="output")
+
+
+def _is_artifact_filename(filename: str) -> bool:
+    if not filename or "\\" in filename:
+        return False
+    path = PurePosixPath(filename)
+    return path.name == filename and not path.is_absolute() and ".." not in path.parts
 
 
 def _raise_analysis_problem(

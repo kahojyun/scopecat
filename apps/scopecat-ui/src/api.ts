@@ -181,6 +181,7 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
 
 function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
   const shared = {
+    id: output.id,
     title: output.title,
     metadata: output.metadata ?? {},
   };
@@ -190,11 +191,14 @@ function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
   if (output.kind === "figure") {
     return { ...shared, kind: "figure", content: output.content };
   }
-  if (output.kind === "data") {
-    return { ...shared, kind: "data", content: output.content };
+  if (output.kind === "fact") {
+    return { ...shared, kind: "fact", content: output.content };
   }
   if (output.kind === "dataset") {
     return { ...shared, kind: "dataset", content: output.content };
+  }
+  if (output.kind === "artifact") {
+    return { ...shared, kind: "artifact", content: output.content };
   }
   return {
     ...shared,

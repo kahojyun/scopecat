@@ -147,6 +147,7 @@ def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
         outputs=(
             AnalysisParameterProposalOutput(
                 kind="parameter_change_proposal",
+                id=proposal.id,
                 title=proposal.id,
                 content=proposal,
                 metadata={},

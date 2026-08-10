@@ -18,8 +18,9 @@ from scopecat.adapters.sqlite import (
 )
 from scopecat.analysis.datasets import DerivedDataset
 from scopecat.analysis.service import (
-    AnalysisDataOutput,
+    AnalysisArtifactOutput,
     AnalysisDatasetOutput,
+    AnalysisFactOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -64,8 +65,9 @@ from scopecat.daemon.views import (
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
-    AnalysisDataOutputPayload,
+    AnalysisArtifactOutputPayload,
     AnalysisDatasetOutputPayload,
+    AnalysisFactOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
@@ -124,9 +126,10 @@ from .errors import BackendConflict, BackendNotFound
 
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
-    if isinstance(item, AnalysisDataOutputPayload):
-        return AnalysisDataOutput(
-            kind="data",
+    if isinstance(item, AnalysisFactOutputPayload):
+        return AnalysisFactOutput(
+            kind="fact",
+            id=item.id,
             title=item.title,
             content=item.content,
             metadata=item.metadata,
@@ -143,6 +146,7 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
     if isinstance(item, AnalysisTableOutputPayload):
         return AnalysisTableOutput(
             kind="table",
+            id=item.id,
             title=item.title,
             content=item.content,
             metadata=item.metadata,
@@ -150,12 +154,24 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
     if isinstance(item, AnalysisFigureOutputPayload):
         return AnalysisFigureOutput(
             kind="figure",
+            id=item.id,
             title=item.title,
             content=item.content,
             metadata=item.metadata,
         )
+    if isinstance(item, AnalysisArtifactOutputPayload):
+        return AnalysisArtifactOutput(
+            kind="artifact",
+            id=item.id,
+            title=item.title,
+            content=item.content_bytes(),
+            filename=item.filename,
+            media_type=item.media_type,
+            metadata=item.metadata,
+        )
     return AnalysisParameterProposalOutput(
         kind="parameter_change_proposal",
+        id=item.id,
         title=item.title,
         content=item.content,
         metadata=item.metadata,

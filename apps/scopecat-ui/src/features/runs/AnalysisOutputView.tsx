@@ -30,14 +30,33 @@ export function AnalysisOutputView({ output }: { output: RunAnalysisOutput }) {
         </dd>
       </dl>
     );
-  } else if (output.kind === "data") {
+  } else if (output.kind === "fact") {
     content = (
       <div className="p-[9px] text-[0.62rem] text-text-soft">
-        <div className="mb-1 text-[0.58rem] font-bold text-text-dim">{output.content.codec}</div>
+        <div className="mb-1 text-[0.58rem] font-bold text-text-dim">
+          {output.content.schema_id}
+        </div>
         <pre className="m-0 max-h-36 overflow-auto whitespace-pre-wrap">
           {JSON.stringify(output.content.value, null, 2)}
         </pre>
       </div>
+    );
+  } else if (output.kind === "artifact") {
+    content = (
+      <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 p-[9px] text-[0.62rem]">
+        <dt className="font-bold text-text-dim">Artifact</dt>
+        <dd className="m-0 min-w-0 text-text-soft">
+          <code>{output.content.artifact_id}</code>
+        </dd>
+        <dt className="font-bold text-text-dim">File</dt>
+        <dd className="m-0 min-w-0 text-text-soft">
+          <code>{output.content.filename}</code>
+        </dd>
+        <dt className="font-bold text-text-dim">Media type</dt>
+        <dd className="m-0 min-w-0 text-text-soft">
+          <code>{output.content.media_type}</code>
+        </dd>
+      </dl>
     );
   } else {
     content = (

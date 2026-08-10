@@ -13,8 +13,9 @@ import pyarrow as pa
 from pydantic import JsonValue
 
 from scopecat.analysis.service import (
-    AnalysisDataOutput,
+    AnalysisArtifactOutput,
     AnalysisDatasetOutput,
+    AnalysisFactOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -30,8 +31,9 @@ from scopecat.daemon.views import (
     RunAnalysisView,
 )
 from scopecat.daemon.wire import (
-    AnalysisDataOutputPayload,
+    AnalysisArtifactOutputPayload,
     AnalysisDatasetOutputPayload,
+    AnalysisFactOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisInputPayload,
     AnalysisOutputPayload,
@@ -258,9 +260,10 @@ def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
 
 def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
     metadata = validate_json_metadata(value.metadata)
-    if isinstance(value, AnalysisDataOutput):
-        return AnalysisDataOutputPayload(
-            kind="data",
+    if isinstance(value, AnalysisFactOutput):
+        return AnalysisFactOutputPayload(
+            kind="fact",
+            id=value.id,
             title=value.title,
             content=value.content,
             metadata=metadata,
@@ -277,6 +280,7 @@ def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
     if isinstance(value, AnalysisTableOutput):
         return AnalysisTableOutputPayload(
             kind="table",
+            id=value.id,
             title=value.title,
             content=value.content,
             metadata=metadata,
@@ -284,13 +288,25 @@ def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
     if isinstance(value, AnalysisFigureOutput):
         return AnalysisFigureOutputPayload(
             kind="figure",
+            id=value.id,
             title=value.title,
             content=value.content,
+            metadata=metadata,
+        )
+    if isinstance(value, AnalysisArtifactOutput):
+        return AnalysisArtifactOutputPayload(
+            kind="artifact",
+            id=value.id,
+            title=value.title,
+            content_base64=b64encode(value.content).decode("ascii"),
+            filename=value.filename,
+            media_type=value.media_type,
             metadata=metadata,
         )
     assert isinstance(value, AnalysisParameterProposalOutput)
     return AnalysisParameterProposalOutputPayload(
         kind="parameter_change_proposal",
+        id=value.id,
         title=value.title,
         content=value.content,
         metadata=metadata,

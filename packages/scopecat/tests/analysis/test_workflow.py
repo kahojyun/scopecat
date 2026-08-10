@@ -16,7 +16,7 @@ import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
 from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
-from scopecat.analysis.service import AnalysisDataOutput, AnalysisDatasetOutput
+from scopecat.analysis.service import AnalysisDatasetOutput, AnalysisFactOutput
 from scopecat.config.registry import service as config_registry_service
 from scopecat.measurements.results import Dataset
 from scopecat.records.run import RunManifest
@@ -176,21 +176,23 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
         "binding": "dataset",
     }
     [data_output, table_output] = analysis.outputs
-    assert isinstance(data_output, AnalysisDataOutput)
+    assert isinstance(data_output, AnalysisFactOutput)
     assert data_output.content.value == 3
-    assert data_output.content.execution.id == "_dataset_size"
-    assert data_output.content.execution.placement == "dataset"
-    assert data_output.content.execution.implementation == "python:_dataset_size"
-    assert not data_output.content.execution.deterministic
-    assert data_output.content.execution.inputs == ("dataset",)
-    assert data_output.content.execution.outputs == ("_dataset_size",)
-    assert data_output.content.execution.captures == ()
-    [input_binding] = data_output.content.execution.input_bindings
+    execution = data_output.content.execution
+    assert execution is not None
+    assert execution.id == "_dataset_size"
+    assert execution.placement == "dataset"
+    assert execution.implementation == "python:_dataset_size"
+    assert not execution.deterministic
+    assert execution.inputs == ("dataset",)
+    assert execution.outputs == ("_dataset_size",)
+    assert execution.captures == ()
+    [input_binding] = execution.input_bindings
     assert input_binding.name == "dataset"
     assert input_binding.target == "raw-measurements"
     assert input_binding.content_hash == handle.measurements().entry.content_hash
     assert input_binding.codec == "scopecat.measurement-dataset.v8"
-    assert data_output.content.execution.output_content_hash.startswith("sha256:")
+    assert execution.output_content_hash.startswith("sha256:")
     assert table_output.kind == "table"
     stored = handle.record_json(
         "analysis-dataset-compute",
@@ -200,7 +202,8 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
     assert isinstance(stored_outputs, list)
     [stored_output, _stored_table] = stored_outputs
     assert isinstance(stored_output, dict)
-    assert stored_output["kind"] == "data"
+    assert stored_output["kind"] == "fact"
+    assert stored_output["id"] == "_dataset_size"
 
 
 def test_registered_dataset_compute_can_reduce_bounded_batches(tmp_path: Path) -> None:
@@ -220,11 +223,11 @@ def test_registered_dataset_compute_can_reduce_bounded_batches(tmp_path: Path) -
 
     assert count == 3
     [output] = analysis.outputs
-    assert isinstance(output, AnalysisDataOutput)
-    assert output.content.execution.access == "batches"
-    assert output.content.execution.implementation == (
-        "registry:test.dataset-size-batches@1"
-    )
+    assert isinstance(output, AnalysisFactOutput)
+    execution = output.content.execution
+    assert execution is not None
+    assert execution.access == "batches"
+    assert execution.implementation == ("registry:test.dataset-size-batches@1")
 
 
 def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
@@ -246,12 +249,12 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     outcome = (
         context.result("Native derived data", key="native-derived-data")
         .table(
-            data="_derived_signal_frame",
+            dataset="_derived_signal_frame",
             columns=("frequency", "score"),
             title="Derived rows",
         )
         .figure(
-            data="_derived_signal_frame",
+            dataset="_derived_signal_frame",
             kind="line",
             x="frequency",
             y="score",
@@ -270,9 +273,11 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     dataset_id = "analysis-native-derived-data-_derived_signal_frame"
     restored = handle.derived_dataset(dataset_id)
     assert restored.table.equals(derived.table, check_metadata=True)
-    assert isinstance(maximum_output, AnalysisDataOutput)
+    assert isinstance(maximum_output, AnalysisFactOutput)
     assert maximum_output.content.value == 2.0
-    [derived_input] = maximum_output.content.execution.input_bindings
+    execution = maximum_output.content.execution
+    assert execution is not None
+    [derived_input] = execution.input_bindings
     assert derived_input.kind == "derived_dataset"
     assert derived_input.target == "_derived_signal_frame"
     assert derived_input.codec == DERIVED_DATASET_CODEC
@@ -291,7 +296,7 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     content = persisted["content"]
     assert isinstance(content, dict)
     assert content["codec"] == DERIVED_DATASET_CODEC
-    assert content["output_id"] == "_derived_signal_frame"
+    assert persisted["id"] == "_derived_signal_frame"
     assert content["dataset_id"] == dataset_id
     assert "value" not in content
     assert "arrow_ipc_base64" not in str(stored.content)
@@ -302,7 +307,7 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     assert manifest_entry.content_hash == content["content_hash"]
 
 
-def test_analysis_data_publishes_a_native_frame_once(tmp_path: Path) -> None:
+def test_analysis_dataset_publishes_a_native_frame_once(tmp_path: Path) -> None:
     run = execute_signal_run(
         config=load_config(),
         experiment=load_invocation(),
@@ -321,7 +326,7 @@ def test_analysis_data_publishes_a_native_frame_once(tmp_path: Path) -> None:
 
     outcome = (
         handle.analysis("Native fits", key="native-fits")
-        .data(
+        .dataset(
             "fits",
             frame[["frequency", "score"]],
             labels={"score": "Fit score"},
@@ -345,6 +350,54 @@ def test_analysis_data_publishes_a_native_frame_once(tmp_path: Path) -> None:
     assert restored.schema.fields[1].label == "Fit score"
 
 
+def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+
+    outcome = (
+        handle.analysis("Publication", key="publication")
+        .fact(
+            "resonance",
+            sc.Quantity(5.1, "GHz"),
+            title="Fitted resonance",
+        )
+        .artifact(
+            "fit-report",
+            text="# Fit report\n\nConverged.\n",
+            filename="fit-report.md",
+            media_type="text/markdown",
+        )
+        .save()
+    )
+
+    fact, artifact = outcome.outputs
+    assert isinstance(fact, AnalysisFactOutput)
+    assert fact.id == "resonance"
+    assert fact.content.schema_id == "scopecat.quantity.v1"
+    assert fact.content.value == {"value": 5.1, "unit": "GHz"}
+    assert artifact.id == "fit-report"
+    stored = handle.record_json("analysis-publication", expected_kind="analysis")
+    stored_outputs = cast("list[object]", stored.content["outputs"])
+    artifact_output = cast("dict[str, object]", stored_outputs[1])
+    assert artifact_output["id"] == "fit-report"
+    assert artifact_output["kind"] == "artifact"
+    artifact_ref = cast("dict[str, object]", artifact_output["content"])
+    artifact_id = "analysis-publication-fit-report"
+    assert artifact_ref["artifact_id"] == artifact_id
+    restored = handle.artifact_text(
+        artifact_id,
+        expected_kind="analysis_artifact",
+    )
+    assert restored.content == "# Fit report\n\nConverged.\n"
+    entry = next(item for item in handle.manifest.artifacts if item.id == artifact_id)
+    assert entry.filename == "fit-report.md"
+    assert entry.produced_by == "analysis-publication"
+
+
 def test_dataset_compute_records_named_inline_inputs(tmp_path: Path) -> None:
     run = execute_signal_run(
         config=load_config(),
@@ -362,9 +415,11 @@ def test_dataset_compute_records_named_inline_inputs(tmp_path: Path) -> None:
 
     assert count == 6
     [output] = context.result().outputs
-    assert isinstance(output, AnalysisDataOutput)
-    assert output.content.execution.inputs == ("dataset", "scale")
-    dataset_input, scale_input = output.content.execution.input_bindings
+    assert isinstance(output, AnalysisFactOutput)
+    execution = output.content.execution
+    assert execution is not None
+    assert execution.inputs == ("dataset", "scale")
+    dataset_input, scale_input = execution.input_bindings
     assert dataset_input.kind == "measurement_dataset"
     assert scale_input.kind == "value"
     assert scale_input.codec == "scopecat.python-json.v1"
@@ -387,7 +442,7 @@ def test_dataset_compute_uses_its_registered_output_encoder(tmp_path: Path) -> N
 
     assert count == 3
     [output] = context.result().outputs
-    assert isinstance(output, AnalysisDataOutput)
+    assert isinstance(output, AnalysisFactOutput)
     assert output.content.codec == "test.dataset-size.v1"
     assert output.content.value == {"points": 3}
 

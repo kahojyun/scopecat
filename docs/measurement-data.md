@@ -599,18 +599,18 @@ def fit_with_polars(measurements):
 fits = fit_with_polars(measurements)
 review = (
     context.result("Fit review")
-    .data(
+    .dataset(
         "fits",
         fits,
         coordinates=("bias",),
         units={"bias": "V", "response": "ratio", "score": "ratio"},
     )
-    .table(data="fits", columns=("bias", "score"), title="Fit rows")
-    .figure(data="fits", kind="line", x="bias", y="score")
+    .table(dataset="fits", columns=("bias", "score"), title="Fit rows")
+    .figure(dataset="fits", kind="line", x="bias", y="score")
 )
 ```
 
-`data(...)` accepts the native object and normalizes it once. Explicit
+`dataset(...)` accepts the native object and normalizes it once. Explicit
 `coordinates`, `units`, and `labels` override metadata inherited from a
 measurement projection, Arrow fields, or Xarray variables. A pandas default
 `RangeIndex` is dropped; a named or otherwise meaningful index becomes
@@ -648,6 +648,10 @@ Use `run.analysis(...).save()` only for an exploratory notebook analysis assembl
 directly rather than through a reusable analysis step. Both paths return the same
 `AnalysisOutcome`, so tables, figures, derived data, proposals, and candidate
 configuration all come from an analysis that already exists in the source run.
+Use `fact(...)` for a small typed conclusion and `artifact(...)` for an exact
+file or byte sequence produced by the analysis. Both receive stable
+analysis-local IDs; artifacts are stored as content-addressed run entries owned
+by the analysis publication rather than in an external directory convention.
 
 Dataset compute accepts named inputs like experiment compute. Each dataset input
 records its durable target, content hash, and codec; JSON-safe inline inputs are

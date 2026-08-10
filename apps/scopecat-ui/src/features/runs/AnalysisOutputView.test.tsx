@@ -15,6 +15,7 @@ describe("AnalysisOutputView", () => {
   it("renders a typed table with authored labels, units, and scalar cells", () => {
     const output: RunAnalysisOutput = {
       kind: "table",
+      id: "fit-parameters",
       title: "Fit parameters",
       metadata: { source: "notebook" },
       content: {
@@ -40,6 +41,7 @@ describe("AnalysisOutputView", () => {
   it("preserves neighboring large table numbers instead of tick-formatting them", () => {
     const output: RunAnalysisOutput = {
       kind: "table",
+      id: "counters",
       title: "Counters",
       metadata: {},
       content: {
@@ -57,10 +59,10 @@ describe("AnalysisOutputView", () => {
   it("renders a content-addressed analysis dataset reference", () => {
     const output: RunAnalysisOutput = {
       kind: "dataset",
+      id: "fits",
       title: "Fit data",
       metadata: {},
       content: {
-        output_id: "fits",
         dataset_id: "analysis-fit-fits",
         codec: "scopecat.derived-dataset.arrow-ipc.v1",
         content_hash: `sha256:${"a".repeat(64)}`,
@@ -73,9 +75,45 @@ describe("AnalysisOutputView", () => {
     expect(screen.getByText("scopecat.derived-dataset.arrow-ipc.v1")).toBeVisible();
   });
 
+  it("renders typed facts and analysis-owned artifact references", () => {
+    const fact: RunAnalysisOutput = {
+      kind: "fact",
+      id: "resonance",
+      title: "Fitted resonance",
+      metadata: {},
+      content: {
+        schema_id: "scopecat.quantity.v1",
+        codec: "scopecat.python-json.v1",
+        value: { value: 5.1, unit: "GHz" },
+      },
+    };
+    const artifact: RunAnalysisOutput = {
+      kind: "artifact",
+      id: "fit-report",
+      title: "Fit report",
+      metadata: {},
+      content: {
+        artifact_id: "analysis-fit-fit-report",
+        content_hash: `sha256:${"b".repeat(64)}`,
+        filename: "fit-report.md",
+        media_type: "text/markdown",
+      },
+    };
+
+    const { rerender } = render(<AnalysisOutputView output={fact} />);
+    expect(screen.getByText("scopecat.quantity.v1")).toBeVisible();
+    expect(screen.getByText(/"unit": "GHz"/)).toBeVisible();
+
+    rerender(<AnalysisOutputView output={artifact} />);
+    expect(screen.getByText("analysis-fit-fit-report")).toBeVisible();
+    expect(screen.getByText("fit-report.md")).toBeVisible();
+    expect(screen.getByText("text/markdown")).toBeVisible();
+  });
+
   it("renders embedded multi-series figure data as an accessible ECharts figure", () => {
     const output: RunAnalysisOutput = {
       kind: "figure",
+      id: "resonance-fit",
       title: "Resonance fit",
       metadata: {},
       content: {
@@ -102,6 +140,7 @@ describe("AnalysisOutputView", () => {
   it("preserves opposite finite float extremes in the ECharts option", () => {
     const output: RunAnalysisOutput = {
       kind: "figure",
+      id: "extreme-range",
       title: "Extreme range",
       metadata: {},
       content: {

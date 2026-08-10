@@ -265,6 +265,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
             ),
             AnalysisFigureOutputPayload(
                 kind="figure",
+                id="fit-curve",
                 title="fit curve",
                 content=AnalysisFigure(
                     kind="line",
@@ -281,6 +282,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
             ),
             AnalysisParameterProposalOutputPayload(
                 kind="parameter_change_proposal",
+                id=proposal.id,
                 title=proposal.id,
                 content=proposal,
             ),
@@ -307,6 +309,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
             outputs=(
                 AnalysisParameterProposalOutputPayload(
                     kind="parameter_change_proposal",
+                    id=proposal.id,
                     title=proposal.id,
                     content=proposal.model_copy(
                         update={"analysis_record_id": "analysis-other"}
@@ -329,6 +332,7 @@ def test_analysis_save_command_bounds_embedded_output_group() -> None:
     )
     output = AnalysisTableOutputPayload(
         kind="table",
+        id="large-table",
         title="large table",
         content=table,
     )
@@ -337,13 +341,19 @@ def test_analysis_save_command_bounds_embedded_output_group() -> None:
         AnalysisSaveCommand(
             title="large tables",
             analysis_key="large-tables",
-            outputs=(output,) * 5,
+            outputs=tuple(
+                output.model_copy(update={"id": f"large-table-{index}"})
+                for index in range(5)
+            ),
         )
     with pytest.raises(ValidationError, match=f"at most {MAX_ANALYSIS_OUTPUTS} items"):
         AnalysisSaveCommand(
             title="too many outputs",
             analysis_key="too-many-outputs",
-            outputs=(output,) * (MAX_ANALYSIS_OUTPUTS + 1),
+            outputs=tuple(
+                output.model_copy(update={"id": f"output-{index}"})
+                for index in range(MAX_ANALYSIS_OUTPUTS + 1)
+            ),
         )
 
 

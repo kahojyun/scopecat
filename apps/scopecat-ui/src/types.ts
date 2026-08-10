@@ -1,6 +1,7 @@
 import type {
+  AnalysisArtifactReference,
   AnalysisDatasetReference,
-  AnalysisDerivedData,
+  AnalysisFact,
   AnalysisFigure,
   AnalysisParameterProposalReference,
   AnalysisRecordInput,
@@ -102,14 +103,16 @@ export interface MeasurementSlicePreview {
 }
 
 interface RunAnalysisOutputBase {
+  id: string;
   title: string;
   metadata: Record<string, unknown>;
 }
 
 export type RunAnalysisOutput = RunAnalysisOutputBase &
   (
-    | { kind: "data"; content: AnalysisDerivedData }
+    | { kind: "fact"; content: AnalysisFact }
     | { kind: "dataset"; content: AnalysisDatasetReference }
+    | { kind: "artifact"; content: AnalysisArtifactReference }
     | { kind: "table"; content: AnalysisTable }
     | { kind: "figure"; content: AnalysisFigure }
     | { kind: "parameter_change_proposal"; content: AnalysisParameterProposalReference }

@@ -30,11 +30,13 @@ from scopecat.kernel.problems import (
 from scopecat.project_state import ProjectStateServices
 from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
+    AnalysisArtifactRecordOutput,
+    AnalysisArtifactReference,
     AnalysisComputeExecution,
-    AnalysisDataRecordOutput,
     AnalysisDatasetRecordOutput,
     AnalysisDatasetReference,
-    AnalysisDerivedData,
+    AnalysisFact,
+    AnalysisFactRecordOutput,
     AnalysisFigure,
     AnalysisFigureRecordOutput,
     AnalysisParameterProposalRecordOutput,
@@ -47,7 +49,11 @@ from scopecat.records.analysis import (
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.runs.refs import dataset_content_ref, record_content_ref
+from scopecat.runs.refs import (
+    artifact_content_ref,
+    dataset_content_ref,
+    record_content_ref,
+)
 from scopecat.runs.repository import (
     RunBytesWrite,
     RunContentPublication,
@@ -67,6 +73,7 @@ class AnalysisInput:
 @dataclass(frozen=True)
 class AnalysisTableOutput:
     kind: Literal["table"]
+    id: str
     title: str
     content: AnalysisTable
     metadata: Mapping[str, object]
@@ -75,6 +82,7 @@ class AnalysisTableOutput:
 @dataclass(frozen=True)
 class AnalysisFigureOutput:
     kind: Literal["figure"]
+    id: str
     title: str
     content: AnalysisFigure
     metadata: Mapping[str, object]
@@ -83,16 +91,18 @@ class AnalysisFigureOutput:
 @dataclass(frozen=True)
 class AnalysisParameterProposalOutput:
     kind: Literal["parameter_change_proposal"]
+    id: str
     title: str
     content: ParameterChangeProposal
     metadata: Mapping[str, object]
 
 
 @dataclass(frozen=True)
-class AnalysisDataOutput:
-    kind: Literal["data"]
+class AnalysisFactOutput:
+    kind: Literal["fact"]
+    id: str
     title: str
-    content: AnalysisDerivedData
+    content: AnalysisFact
     metadata: Mapping[str, object]
 
 
@@ -106,9 +116,21 @@ class AnalysisDatasetOutput:
     metadata: Mapping[str, object]
 
 
+@dataclass(frozen=True)
+class AnalysisArtifactOutput:
+    kind: Literal["artifact"]
+    id: str
+    title: str
+    content: bytes
+    filename: str
+    media_type: str
+    metadata: Mapping[str, object]
+
+
 type AnalysisOutput = (
-    AnalysisDataOutput
+    AnalysisFactOutput
     | AnalysisDatasetOutput
+    | AnalysisArtifactOutput
     | AnalysisTableOutput
     | AnalysisFigureOutput
     | AnalysisParameterProposalOutput
@@ -169,6 +191,7 @@ def prepare_analysis(
     """Prepare analysis content for publication in a caller-owned unit."""
 
     selected_record_id = f"analysis-{analysis_key}"
+    _validate_analysis_output_ids(outputs)
     if any(
         proposal.analysis_record_id != selected_record_id
         for proposal in parameter_proposals
@@ -184,6 +207,10 @@ def prepare_analysis(
         analysis_record_id=selected_record_id,
         outputs=outputs,
     )
+    prepared_artifacts = _prepare_analysis_artifacts(
+        analysis_record_id=selected_record_id,
+        outputs=outputs,
+    )
     analysis_record = AnalysisRecord(
         run_id=run_id,
         title=title,
@@ -193,6 +220,7 @@ def prepare_analysis(
         outputs=_analysis_record_outputs(
             outputs,
             dataset_references=prepared_datasets.references,
+            artifact_references=prepared_artifacts.references,
         ),
     )
     record = RunContentEntry(
@@ -219,13 +247,14 @@ def prepare_analysis(
             entries=(
                 *prepared_proposals.entries,
                 *prepared_datasets.entries,
+                *prepared_artifacts.entries,
                 record,
             ),
             models=(
                 *prepared_proposals.writes,
                 RunModelWrite(ref=ref, value=analysis_record),
             ),
-            bytes=prepared_datasets.writes,
+            bytes=(*prepared_datasets.writes, *prepared_artifacts.writes),
         ),
     )
 
@@ -254,14 +283,16 @@ def _analysis_record_outputs(
     outputs: Sequence[AnalysisOutput],
     *,
     dataset_references: Mapping[str, AnalysisDatasetReference],
+    artifact_references: Mapping[str, AnalysisArtifactReference],
 ) -> list[AnalysisRecordOutput]:
     selected: list[AnalysisRecordOutput] = []
     for output in outputs:
         metadata = validate_json_metadata(output.metadata)
-        if isinstance(output, AnalysisDataOutput):
+        if isinstance(output, AnalysisFactOutput):
             selected.append(
-                AnalysisDataRecordOutput(
-                    kind="data",
+                AnalysisFactRecordOutput(
+                    kind="fact",
+                    id=output.id,
                     title=output.title,
                     content=output.content,
                     metadata=metadata,
@@ -271,8 +302,19 @@ def _analysis_record_outputs(
             selected.append(
                 AnalysisDatasetRecordOutput(
                     kind="dataset",
+                    id=output.id,
                     title=output.title,
                     content=dataset_references[output.id],
+                    metadata=metadata,
+                )
+            )
+        elif isinstance(output, AnalysisArtifactOutput):
+            selected.append(
+                AnalysisArtifactRecordOutput(
+                    kind="artifact",
+                    id=output.id,
+                    title=output.title,
+                    content=artifact_references[output.id],
                     metadata=metadata,
                 )
             )
@@ -280,6 +322,7 @@ def _analysis_record_outputs(
             selected.append(
                 AnalysisTableRecordOutput(
                     kind="table",
+                    id=output.id,
                     title=output.title,
                     content=output.content,
                     metadata=metadata,
@@ -289,6 +332,7 @@ def _analysis_record_outputs(
             selected.append(
                 AnalysisFigureRecordOutput(
                     kind="figure",
+                    id=output.id,
                     title=output.title,
                     content=output.content,
                     metadata=metadata,
@@ -298,6 +342,7 @@ def _analysis_record_outputs(
             selected.append(
                 AnalysisParameterProposalRecordOutput(
                     kind="parameter_change_proposal",
+                    id=output.id,
                     title=output.title,
                     content=AnalysisParameterProposalReference(
                         proposal_id=output.content.id,
@@ -379,7 +424,6 @@ def _prepare_analysis_datasets(
             )
         )
         references[output.id] = AnalysisDatasetReference(
-            output_id=output.id,
             dataset_id=dataset_id,
             content_hash=content_hash,
             codec=DERIVED_DATASET_CODEC,
@@ -390,6 +434,81 @@ def _prepare_analysis_datasets(
         writes=tuple(writes),
         references=references,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedAnalysisArtifacts:
+    entries: tuple[RunContentEntry, ...]
+    writes: tuple[RunBytesWrite, ...]
+    references: Mapping[str, AnalysisArtifactReference]
+
+
+def _prepare_analysis_artifacts(
+    *,
+    analysis_record_id: str,
+    outputs: Sequence[AnalysisOutput],
+) -> _PreparedAnalysisArtifacts:
+    entries: list[RunContentEntry] = []
+    writes: list[RunBytesWrite] = []
+    references: dict[str, AnalysisArtifactReference] = {}
+    for output in outputs:
+        if not isinstance(output, AnalysisArtifactOutput):
+            continue
+        artifact_id = f"{analysis_record_id}-{output.id}"
+        content_hash = sha256_content_hash(output.content)
+        metadata = validate_json_metadata(output.metadata)
+        entries.append(
+            RunContentEntry(
+                role="artifact",
+                id=artifact_id,
+                kind="analysis_artifact",
+                title=output.title,
+                media_type=output.media_type,
+                filename=output.filename,
+                content_hash=content_hash,
+                produced_by=analysis_record_id,
+                metadata=metadata,
+            )
+        )
+        writes.append(
+            RunBytesWrite(
+                ref=artifact_content_ref(
+                    artifact_id=artifact_id,
+                    kind="analysis_artifact",
+                ),
+                content=output.content,
+            )
+        )
+        references[output.id] = AnalysisArtifactReference(
+            artifact_id=artifact_id,
+            content_hash=content_hash,
+            media_type=output.media_type,
+            filename=output.filename,
+        )
+    return _PreparedAnalysisArtifacts(
+        entries=tuple(entries),
+        writes=tuple(writes),
+        references=references,
+    )
+
+
+def _validate_analysis_output_ids(outputs: Sequence[AnalysisOutput]) -> None:
+    ids: list[str] = []
+    for output in outputs:
+        selected_id = artifact_slug(output.id, fallback="output")
+        if output.id != selected_id:
+            _raise_analysis_problem(
+                "analysis_output_id_invalid",
+                f"analysis output id is not normalized: {output.id}",
+                "outputs",
+            )
+        ids.append(output.id)
+    if len(ids) != len(set(ids)):
+        _raise_analysis_problem(
+            "analysis_output_id_duplicated",
+            "analysis output ids must be unique",
+            "outputs",
+        )
 
 
 def _raise_analysis_problem(

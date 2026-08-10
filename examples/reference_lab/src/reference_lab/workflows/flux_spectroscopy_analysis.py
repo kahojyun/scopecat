@@ -267,15 +267,18 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
         context.result("Resonator flux spectroscopy")
         .table(
             fits,
+            id="fit-by-bias",
             title="Resonator fit by DC bias",
         )
         .table(
             (sweet_spot,),
+            id="selected-sweet-spot",
             title="Selected readout sweet spot",
             metadata={"selection": "maximum fitted resonance frequency"},
         )
         .figure(
             fits,
+            id="resonance-versus-bias",
             kind="line",
             x="dc_bias_v",
             y="resonance_frequency_ghz",

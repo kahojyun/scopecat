@@ -438,19 +438,20 @@ class AnalysisComputeExecution(_AnalysisContentModel):
         return self
 
 
-class AnalysisDerivedData(_AnalysisContentModel):
-    """JSON-safe compute output retained as an analysis fact."""
+class AnalysisFact(_AnalysisContentModel):
+    """Small typed conclusion retained directly in an analysis record."""
 
+    schema_id: _NonEmptyText
     codec: _NonEmptyText
     value: JsonValue
-    execution: AnalysisComputeExecution
+    execution: AnalysisComputeExecution | None = None
 
     @model_validator(mode="after")
-    def validate_budget(self) -> AnalysisDerivedData:
+    def validate_budget(self) -> AnalysisFact:
         size = len(canonical_json(self.value).encode("utf-8"))
         if size > MAX_ANALYSIS_DATA_BYTES:
             raise ValueError(
-                f"analysis derived data must not exceed {MAX_ANALYSIS_DATA_BYTES} bytes"
+                f"analysis fact must not exceed {MAX_ANALYSIS_DATA_BYTES} bytes"
             )
         return self
 
@@ -458,11 +459,19 @@ class AnalysisDerivedData(_AnalysisContentModel):
 class AnalysisDatasetReference(_AnalysisContentModel):
     """Reference to one separately stored, content-addressed derived dataset."""
 
-    output_id: _NonEmptyText
     dataset_id: _NonEmptyText
     content_hash: _NonEmptyText
     codec: _NonEmptyText
     execution: AnalysisComputeExecution | None = None
+
+
+class AnalysisArtifactReference(_AnalysisContentModel):
+    """Reference to exact bytes published as an analysis-owned artifact."""
+
+    artifact_id: _NonEmptyText
+    content_hash: _NonEmptyText
+    media_type: _NonEmptyText
+    filename: _NonEmptyText
 
 
 class AnalysisRecordInput(BaseModel):
@@ -478,6 +487,7 @@ class AnalysisRecordInput(BaseModel):
 class _AnalysisRecordOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    id: _NonEmptyText
     title: _NonEmptyText
     metadata: JsonMetadata = Field(default_factory=dict)
 
@@ -497,9 +507,9 @@ class AnalysisParameterProposalRecordOutput(_AnalysisRecordOutput):
     content: AnalysisParameterProposalReference
 
 
-class AnalysisDataRecordOutput(_AnalysisRecordOutput):
-    kind: Literal["data"]
-    content: AnalysisDerivedData
+class AnalysisFactRecordOutput(_AnalysisRecordOutput):
+    kind: Literal["fact"]
+    content: AnalysisFact
 
 
 class AnalysisDatasetRecordOutput(_AnalysisRecordOutput):
@@ -507,9 +517,15 @@ class AnalysisDatasetRecordOutput(_AnalysisRecordOutput):
     content: AnalysisDatasetReference
 
 
+class AnalysisArtifactRecordOutput(_AnalysisRecordOutput):
+    kind: Literal["artifact"]
+    content: AnalysisArtifactReference
+
+
 type AnalysisRecordOutput = Annotated[
-    AnalysisDataRecordOutput
+    AnalysisFactRecordOutput
     | AnalysisDatasetRecordOutput
+    | AnalysisArtifactRecordOutput
     | AnalysisTableRecordOutput
     | AnalysisFigureRecordOutput
     | AnalysisParameterProposalRecordOutput,
@@ -553,6 +569,9 @@ class AnalysisRecord(BaseModel):
 
     @model_validator(mode="after")
     def validate_output_budget(self) -> AnalysisRecord:
+        output_ids = tuple(output.id for output in self.outputs)
+        if len(output_ids) != len(set(output_ids)):
+            raise ValueError("analysis output ids must be unique")
         validate_analysis_output_content_budget(
             output.content
             for output in self.outputs

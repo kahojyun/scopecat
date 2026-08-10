@@ -47,6 +47,7 @@ from scopecat.daemon.views import (
     RunDetail,
 )
 from scopecat.daemon.wire import (
+    AnalysisArtifactOutputPayload,
     AnalysisDatasetOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisParameterProposalOutputPayload,
@@ -334,6 +335,7 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
         outputs=(
             AnalysisTableOutputPayload(
                 kind="table",
+                id="fit-parameters",
                 title="fit parameters",
                 content=AnalysisTable.from_rows([{"frequency": 5.1}]),
             ),
@@ -348,6 +350,7 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
             ),
             AnalysisFigureOutputPayload(
                 kind="figure",
+                id="fit-curve",
                 title="fit curve",
                 content=AnalysisFigure(
                     kind="line",
@@ -364,8 +367,17 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
             ),
             AnalysisParameterProposalOutputPayload(
                 kind="parameter_change_proposal",
+                id=proposal.id,
                 title=proposal.id,
                 content=proposal,
+            ),
+            AnalysisArtifactOutputPayload(
+                kind="artifact",
+                id="fit-report",
+                title="Fit report",
+                content_base64="IyBGaXQgcmVwb3J0Cg==",
+                filename="fit-report.md",
+                media_type="text/markdown",
             ),
         ),
     )
@@ -1688,6 +1700,10 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
                 params={"expected_kind": "analysis_dataset"},
             ).json()
         )
+        analysis_artifact = client.get(
+            f"/api/v1/runs/{admission.run_id}/artifacts/analysis-fit-fit-report/text",
+            params={"expected_kind": "analysis_artifact"},
+        )
         attachment_command = RunAttachmentCommand(
             key="notebook-notes",
             text="operator notes",
@@ -1762,6 +1778,10 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             "y": [3.0, 4.0],
         }
         assert persisted_outputs[3]["content"]["proposal_id"] == proposal.id
+        assert persisted_outputs[4]["content"]["artifact_id"] == (
+            "analysis-fit-fit-report"
+        )
+        assert analysis_artifact.json()["content"] == "# Fit report\n"
         assert attachment.json()["filename"] == "notes.md"
         assert attachment_text.json()["content"] == "operator notes\n"
         assert config.config == _config()

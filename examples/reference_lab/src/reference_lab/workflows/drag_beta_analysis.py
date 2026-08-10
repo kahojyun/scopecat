@@ -126,14 +126,17 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
         context.result("DRAG beta calibration")
         .table(
             observations,
+            id="observations",
             title="DRAG beta observations",
         )
         .table(
             (fit,),
+            id="quadratic-fit",
             title="DRAG beta quadratic fit",
         )
         .figure(
             observations,
+            id="observations-by-amplification",
             kind="scatter",
             x="beta_ns",
             y="probability_1",

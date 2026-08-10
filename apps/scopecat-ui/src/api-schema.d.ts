@@ -788,6 +788,28 @@ export interface components {
             config: components["schemas"]["ConfigProfileSnapshot-Output"];
             entry: components["schemas"]["ConfigRegistryEntry"];
         };
+        /** AnalysisArtifactRecordOutput */
+        AnalysisArtifactRecordOutput: {
+            content: components["schemas"]["AnalysisArtifactReference"];
+            id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "artifact";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            title: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisArtifactReference
+         * @description Reference to exact bytes published as an analysis-owned artifact.
+         */
+        AnalysisArtifactReference: {
+            artifact_id: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            filename: components["schemas"]["_NonEmptyText"];
+            media_type: components["schemas"]["_NonEmptyText"];
+        };
         /**
          * AnalysisCandidateRunConfigSource
          * @description Analysis candidate resolved for one run without becoming the default.
@@ -857,20 +879,10 @@ export interface components {
             target: components["schemas"]["_NonEmptyText"];
             value?: components["schemas"]["pydantic__types__JsonValue"] | null;
         };
-        /** AnalysisDataRecordOutput */
-        AnalysisDataRecordOutput: {
-            content: components["schemas"]["AnalysisDerivedData-Output"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "data";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
-            title: components["schemas"]["_NonEmptyText"];
-        };
         /** AnalysisDatasetRecordOutput */
         AnalysisDatasetRecordOutput: {
             content: components["schemas"]["AnalysisDatasetReference"];
+            id: components["schemas"]["_NonEmptyText"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -888,16 +900,28 @@ export interface components {
             content_hash: components["schemas"]["_NonEmptyText"];
             dataset_id: components["schemas"]["_NonEmptyText"];
             execution?: components["schemas"]["AnalysisComputeExecution-Output"] | null;
-            output_id: components["schemas"]["_NonEmptyText"];
         };
         /**
-         * AnalysisDerivedData
-         * @description JSON-safe compute output retained as an analysis fact.
+         * AnalysisFact
+         * @description Small typed conclusion retained directly in an analysis record.
          */
-        "AnalysisDerivedData-Output": {
+        "AnalysisFact-Output": {
             codec: components["schemas"]["_NonEmptyText"];
-            execution: components["schemas"]["AnalysisComputeExecution-Output"];
+            execution?: components["schemas"]["AnalysisComputeExecution-Output"] | null;
+            schema_id: components["schemas"]["_NonEmptyText"];
             value: components["schemas"]["pydantic__types__JsonValue"];
+        };
+        /** AnalysisFactRecordOutput */
+        AnalysisFactRecordOutput: {
+            content: components["schemas"]["AnalysisFact-Output"];
+            id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "fact";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            title: components["schemas"]["_NonEmptyText"];
         };
         /**
          * AnalysisFigure
@@ -925,6 +949,7 @@ export interface components {
         /** AnalysisFigureRecordOutput */
         AnalysisFigureRecordOutput: {
             content: components["schemas"]["AnalysisFigure"];
+            id: components["schemas"]["_NonEmptyText"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -948,6 +973,7 @@ export interface components {
         /** AnalysisParameterProposalRecordOutput */
         AnalysisParameterProposalRecordOutput: {
             content: components["schemas"]["AnalysisParameterProposalReference"];
+            id: components["schemas"]["_NonEmptyText"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -988,7 +1014,7 @@ export interface components {
             /** Title */
             title?: string | null;
         };
-        AnalysisRecordOutput: components["schemas"]["AnalysisDataRecordOutput"] | components["schemas"]["AnalysisDatasetRecordOutput"] | components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
+        AnalysisRecordOutput: components["schemas"]["AnalysisFactRecordOutput"] | components["schemas"]["AnalysisDatasetRecordOutput"] | components["schemas"]["AnalysisArtifactRecordOutput"] | components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
         /**
          * AnalysisTable
          * @description A bounded, display-ready scalar table with an explicit column schema.
@@ -1012,6 +1038,7 @@ export interface components {
         /** AnalysisTableRecordOutput */
         AnalysisTableRecordOutput: {
             content: components["schemas"]["AnalysisTable"];
+            id: components["schemas"]["_NonEmptyText"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}

@@ -6,7 +6,7 @@ The models contain durable data only. In particular, execution keeps
 
 from __future__ import annotations
 
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
 from datetime import datetime
 from typing import Annotated, Literal
@@ -34,7 +34,7 @@ from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
     AnalysisComputeExecution,
-    AnalysisDerivedData,
+    AnalysisFact,
     AnalysisFigure,
     AnalysisTable,
     validate_analysis_output_content_budget,
@@ -184,15 +184,17 @@ class AnalysisInputPayload(_WireModel):
 
 class AnalysisTableOutputPayload(_WireModel):
     kind: Literal["table"]
+    id: NonEmptyText
     title: NonEmptyText
     content: AnalysisTable
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
-class AnalysisDataOutputPayload(_WireModel):
-    kind: Literal["data"]
+class AnalysisFactOutputPayload(_WireModel):
+    kind: Literal["fact"]
+    id: NonEmptyText
     title: NonEmptyText
-    content: AnalysisDerivedData
+    content: AnalysisFact
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -207,6 +209,7 @@ class AnalysisDatasetOutputPayload(_WireModel):
 
 class AnalysisFigureOutputPayload(_WireModel):
     kind: Literal["figure"]
+    id: NonEmptyText
     title: NonEmptyText
     content: AnalysisFigure
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
@@ -214,14 +217,42 @@ class AnalysisFigureOutputPayload(_WireModel):
 
 class AnalysisParameterProposalOutputPayload(_WireModel):
     kind: Literal["parameter_change_proposal"]
+    id: NonEmptyText
     title: NonEmptyText
     content: ParameterChangeProposal
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+class AnalysisArtifactOutputPayload(_WireModel):
+    kind: Literal["artifact"]
+    id: NonEmptyText
+    title: NonEmptyText
+    content_base64: str
+    filename: NonEmptyText
+    media_type: NonEmptyText
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("content_base64")
+    @classmethod
+    def validate_content_base64(cls, value: str) -> str:
+        try:
+            decoded = b64decode(value, validate=True)
+        except (BinasciiError, ValueError) as error:
+            raise ValueError(
+                "analysis artifact content must be valid base64"
+            ) from error
+        if b64encode(decoded).decode("ascii") != value:
+            raise ValueError("analysis artifact content must use canonical base64")
+        return value
+
+    def content_bytes(self) -> bytes:
+        return b64decode(self.content_base64, validate=True)
+
+
 type AnalysisOutputPayload = Annotated[
-    AnalysisDataOutputPayload
+    AnalysisFactOutputPayload
     | AnalysisDatasetOutputPayload
+    | AnalysisArtifactOutputPayload
     | AnalysisTableOutputPayload
     | AnalysisFigureOutputPayload
     | AnalysisParameterProposalOutputPayload,
@@ -264,6 +295,9 @@ class AnalysisSaveCommand(_WireModel):
         ids = tuple(proposal.id for proposal in proposals)
         if len(ids) != len(set(ids)):
             raise ValueError("analysis proposal ids must be unique")
+        output_ids = tuple(output.id for output in self.outputs)
+        if len(output_ids) != len(set(output_ids)):
+            raise ValueError("analysis output ids must be unique")
         return self
 
 
@@ -712,8 +746,9 @@ def _validated_base64(value: str) -> str:
 
 
 __all__ = [
-    "AnalysisDataOutputPayload",
+    "AnalysisArtifactOutputPayload",
     "AnalysisDatasetOutputPayload",
+    "AnalysisFactOutputPayload",
     "AnalysisFigureOutputPayload",
     "AnalysisInputPayload",
     "AnalysisOutputPayload",
