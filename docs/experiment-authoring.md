@@ -72,20 +72,19 @@ def spectrum(experiment: sc.ExperimentContext) -> Spectrum:
 The same logical handles select variables from the completed dataset:
 
 ```python
-schema = spectrum().output
-data = run.measurements()
-trace = data.traces(schema.trace.s_parameter)
+result = run.result(spectrum().output)
+trace = result.dataset.traces(result.output.trace.s_parameter)
 ```
 
-For row-oriented fitting, bind the complete returned schema once. Binding
-validates every leaf up front, and each point preserves the Python type carried
-by its symbolic reference:
+For row-oriented fitting, load the complete returned schema once. The typed
+result validates every leaf up front, and each point preserves the Python type
+carried by its symbolic reference:
 
 ```python
-observations = data.bind(schema).rows(
+observations = result.rows(
     lambda point: Observation(
-        bias=point.value(schema.bias),
-        response=point.value(schema.trace.response),
+        bias=point.value(result.output.bias),
+        response=point.value(result.output.trace.response),
     )
 )
 ```
@@ -99,14 +98,17 @@ code can therefore inspect return paths without rebuilding the invocation that
 created the run:
 
 ```python
-result = data.result
+result = run.result()
 print(result.contract.id, result.contract.version, result.paths)
 value = result[0].value("probabilities/probability_1")
 ```
 
-`bind(schema)` remains the statically typed convenience when the originating
-symbolic output is already available; `result` is the durable interpretation
-boundary.
+`run.result(authored_output)` is the statically typed path when the originating
+symbolic output is available. `run.result()` uses only the persisted contract and
+is the durable historical interpretation boundary. Both expose their underlying
+`dataset` for labeled slicing and ecosystem export; call `run.measurements()`
+directly when the task starts from dataset variables rather than the experiment's
+returned result.
 
 There is no parallel `*Records` dataclass to declare or maintain. Product
 bundles keep their author-facing field names, and returned nested values receive

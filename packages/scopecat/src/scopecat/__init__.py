@@ -29,6 +29,7 @@ if TYPE_CHECKING:
         AnalysisFigure,
         AnalysisFigureAxis,
         AnalysisFigureSeries,
+        AnalysisOutcome,
         AnalysisTable,
         AnalysisTableCell,
         AnalysisTableColumn,

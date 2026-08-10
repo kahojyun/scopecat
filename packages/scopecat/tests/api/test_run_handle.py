@@ -189,6 +189,8 @@ def test_in_process_lab_records_compute_value_without_instruments(
 
     run = lab.prepare(compute_only).run()
     dataset = run.measurements()
+    stored_result = run.result()
+    typed_result = run.result(compute_only().output)
 
     assert run.manifest.status == "completed"
     assert isinstance(dataset, Dataset)
@@ -200,9 +202,10 @@ def test_in_process_lab_records_compute_value_without_instruments(
     )
     variable = next(item for item in dataset.schema.variables if item.id == "score")
     assert variable.source_value_id == "calculate_score"
-    assert dataset.result.contract.id == "test.session.compute-only"
-    assert dataset.result.paths == (("score",),)
-    assert dataset.result[0].value("score") == 2.5
+    assert stored_result.contract.id == "test.session.compute-only"
+    assert stored_result.paths == (("score",),)
+    assert stored_result[0].value("score") == 2.5
+    assert typed_result[0].value(typed_result.output.score) == 2.5
     content = run.data()
     assert content.datasets == ("raw-measurements",)
     assert content.dataset("raw-measurements") == dataset.entry

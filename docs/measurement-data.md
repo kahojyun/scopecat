@@ -27,15 +27,16 @@ it in each variable's dimension list. Symbolic values default to observables;
 use an explicit `record(..., role="coordinate")` only when an expression derives
 an independent physical coordinate.
 
-The completed `Dataset` accepts the same returned `ProductRef`, `ValueRef`, and
-coordinate handles used during authoring. `RecordRef` is only needed to select
-one of several explicitly recorded aliases. See the
+`run.result(authored_output)` binds the same returned `ProductRef`, `ValueRef`,
+and coordinate handles used during authoring. `run.result()` instead reads the
+persisted return paths without rebuilding the original experiment. Both retain
+the completed `Dataset` as `.dataset`; `RecordRef` is only needed to select one
+of several explicitly recorded aliases. See the
 [authoring dataflow](experiment-authoring.md) for the complete model.
 
-The persisted dataset schema also carries a versioned result contract mapping
-each return path to its variable. `dataset.result` reads this mapping without
-importing or rebuilding the original experiment; symbolic handles are an
-optional typed convenience rather than historical schema authority.
+The persisted dataset schema carries the versioned result contract mapping each
+return path to its variable. Symbolic handles are an optional typed convenience
+rather than historical schema authority.
 
 A specialized LO scan can return its physical RF coordinate with coordinate
 policy, making the dataset immediately plot-ready. A signed IF keeps the lab

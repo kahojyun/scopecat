@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, overload
 
 from pydantic import JsonValue
 
@@ -27,7 +27,12 @@ from scopecat.measurements.datasets import (
     MEASUREMENT_DATASET_KIND,
     RAW_MEASUREMENTS_DATASET_ID,
 )
-from scopecat.measurements.results import Dataset, MeasurementDataset
+from scopecat.measurements.results import (
+    Dataset,
+    ExperimentResultView,
+    MeasurementDataset,
+    StoredExperimentResultView,
+)
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -175,6 +180,37 @@ class RunHandle:
             selector=selector,
         )
         return Dataset(raw=loaded.dataset, entry=loaded.dataset_entry)
+
+    @overload
+    def result(
+        self,
+        /,
+        *,
+        selector: str = "raw-measurements",
+    ) -> StoredExperimentResultView: ...
+
+    @overload
+    def result[ResultT](
+        self,
+        output: ResultT,
+        /,
+        *,
+        selector: str = "raw-measurements",
+    ) -> ExperimentResultView[ResultT]: ...
+
+    def result[ResultT](
+        self,
+        output: ResultT | None = None,
+        /,
+        *,
+        selector: str = "raw-measurements",
+    ) -> StoredExperimentResultView | ExperimentResultView[ResultT]:
+        """Load the experiment return value as a historical or typed result."""
+
+        dataset = self.measurements(selector=selector)
+        if output is None:
+            return dataset.result
+        return dataset.bind(output)
 
     def measurement_batches(self, *, batch_size: int = 100) -> Iterator[Dataset]:
         """Iterate over raw measurements without loading the complete dataset.
