@@ -433,6 +433,16 @@ class ExperimentContext:
         output_type: Scalar | Array,
     ) -> ValueRef: ...
 
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef],
+        output_type: Scalar | Array | Mapping[str, DataType],
+    ) -> ValueRef | ProductRef | ProductRefs: ...
+
     def compute(
         self,
         id: str | None = None,
@@ -447,7 +457,7 @@ class ExperimentContext:
             return self._program.compute(
                 id,
                 fn=fn,
-                inputs=cast("Mapping[str, ProductRef]", inputs),
+                inputs=inputs,
                 output_type=output_type,
             )
         if not isinstance(output_type, Scalar | Array):

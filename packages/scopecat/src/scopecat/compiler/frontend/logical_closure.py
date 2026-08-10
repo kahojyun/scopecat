@@ -256,6 +256,21 @@ class LogicalProgramBuilder:
             LogicalMeasurementPostprocessor(
                 id=MeasurementPostprocessorId(declaration.symbol_id),
                 inputs=declaration.input_bindings,
+                value_inputs=tuple(
+                    (
+                        name,
+                        self._add_effect_value(
+                            value,
+                            scope=(
+                                *declaration.scope,
+                                declaration.id,
+                                "inputs",
+                            ),
+                            local_id=name,
+                        ),
+                    )
+                    for name, value in declaration.value_input_bindings
+                ),
                 outputs=declaration.output_bindings,
                 kernel=declaration.kernel,
             )

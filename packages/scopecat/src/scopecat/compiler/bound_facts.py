@@ -70,6 +70,14 @@ class BoundMeasurementPostprocessorInput:
 
 
 @dataclass(frozen=True, slots=True)
+class BoundMeasurementPostprocessorValueInput:
+    """One named early value consumed after measurements become available."""
+
+    id: str
+    value_id: ValueId
+
+
+@dataclass(frozen=True, slots=True)
 class BoundMeasurementPostprocessor:
     """One live point-local postprocessor retained by record demand."""
 
@@ -77,6 +85,7 @@ class BoundMeasurementPostprocessor:
     inputs: tuple[BoundMeasurementPostprocessorInput, ...]
     outputs: tuple[BoundMeasurementPostprocessorOutput, ...]
     kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
+    value_inputs: tuple[BoundMeasurementPostprocessorValueInput, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

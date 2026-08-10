@@ -231,7 +231,14 @@ def _compile_system_program(
     measurements = select_measurement_projection(
         measurement_catalog,
         bound.bindings.record_uses,
-        static_value_candidates=project_static_value_record_candidates(bound_points),
+        static_value_candidates=project_static_value_record_candidates(
+            bound_points,
+            tuple(
+                binding.value_id
+                for postprocessor in bound.bindings.measurement_postprocessors
+                for binding in postprocessor.value_inputs
+            ),
+        ),
     )
     local_target = (
         prepare_local_target(

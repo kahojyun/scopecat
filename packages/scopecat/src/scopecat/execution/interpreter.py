@@ -120,6 +120,10 @@ def _execute_run(
             candidates,
             points=points,
             catalog=program.measurements.catalog,
+            value_candidates=(
+                *program.measurements.static_value_candidates,
+                *value_candidates,
+            ),
         )
         values = seal_measurement_values(
             program.measurements.catalog,
@@ -469,7 +473,7 @@ def _execute_instrument_effects(
         instruments=instruments,
         journal=session.journal,
         coverage_observer=coverage_observer,
-        recorded_value_ids=program.measurements.runtime_value_ids,
+        recorded_value_ids=program.runtime_value_ids,
         payload_codecs=(
             EMPTY_PAYLOAD_CODECS
             if program.host is None

@@ -92,7 +92,12 @@ def localize_measurement_postprocessor(
 ) -> MeasurementPostprocessor:
     selected = postprocessor
     for boundary in boundaries:
-        selected = _scope_measurement_postprocessor(selected, scope=boundary.scope)
+        selected = _scope_measurement_postprocessor(
+            selected,
+            boundary.inputs,
+            scope=boundary.scope,
+            origin=boundary.origin,
+        )
     return selected
 
 
@@ -398,8 +403,10 @@ def _scope_operation(
 
 def _scope_measurement_postprocessor(
     postprocessor: MeasurementPostprocessor,
+    inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
+    origin: tuple[object, ...],
 ) -> MeasurementPostprocessor:
     return replace(
         postprocessor,
@@ -407,6 +414,18 @@ def _scope_measurement_postprocessor(
         input_bindings=tuple(
             (name, product_id.prefixed(*scope))
             for name, product_id in postprocessor.input_bindings
+        ),
+        value_input_bindings=tuple(
+            (
+                name,
+                _scope_operation_input(
+                    value,
+                    inputs,
+                    scope=scope,
+                    origin=origin,
+                ),
+            )
+            for name, value in postprocessor.value_input_bindings
         ),
         output_bindings=tuple(
             (role, product_id.prefixed(*scope))

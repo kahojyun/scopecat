@@ -11,6 +11,7 @@ from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.measurements.contracts import measurement_value_contract_issues
 from scopecat.measurements.points import RunPoint
+from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
     MeasurementValueCatalog,
@@ -27,6 +28,7 @@ def execute_measurement_postprocessors(
     *,
     points: Sequence[RunPoint],
     catalog: MeasurementValueCatalog,
+    value_candidates: Sequence[ValueRecordCandidate] = (),
 ) -> tuple[MeasurementValueCandidate, ...]:
     """Run each live postprocessor in dependency order per logical point."""
 
@@ -38,6 +40,10 @@ def execute_measurement_postprocessors(
             (candidate.logical_point_id, candidate.product_use_id),
             [],
         ).append(candidate)
+    values_by_key = {
+        (candidate.logical_point_id, candidate.value_id): candidate.value
+        for candidate in value_candidates
+    }
 
     derived: list[MeasurementValueCandidate] = []
     for postprocessor in postprocessors:
@@ -92,8 +98,34 @@ def execute_measurement_postprocessors(
                 }
             else:
                 try:
+                    early_values = {
+                        binding.id: values_by_key[(point.logical_id, binding.value_id)]
+                        for binding in postprocessor.value_inputs
+                    }
+                except KeyError as error:
+                    missing = next(
+                        binding
+                        for binding in postprocessor.value_inputs
+                        if (point.logical_id, binding.value_id) not in values_by_key
+                    )
+                    raise MeasurementPostprocessorExecutionError(
+                        (
+                            _execution_problem(
+                                "measurement_postprocessor_value_input_missing",
+                                "measurement postprocessor requires one value for "
+                                "each early input and logical point",
+                                postprocessor=postprocessor,
+                                point_index=point.logical_ordinal,
+                                path=("value_inputs", missing.id),
+                            ),
+                        )
+                    ) from error
+                try:
                     outputs = postprocessor.kernel(
-                        {name: source.value for name, source in sources.items()}
+                        {
+                            **{name: source.value for name, source in sources.items()},
+                            **early_values,
+                        }
                     )
                 except Exception as error:
                     raise MeasurementPostprocessorExecutionError(

@@ -67,6 +67,11 @@ def verify_logical_graph(
             for result_id, operation in operation_results.items()
         }
     )
+    _verify_measurement_postprocessor_values(
+        declared_postprocessors,
+        value_types,
+        problems,
+    )
     for execution_index, execution in enumerate(domain_executions):
         _verify_domain_execution(
             execution,
@@ -106,6 +111,28 @@ def verify_logical_graph(
         ordered_operations,
         ordered_measurement_postprocessors,
     )
+
+
+def _verify_measurement_postprocessor_values(
+    postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
+    value_types: Mapping[ValueId, ValueType],
+    problems: list[Problem],
+) -> None:
+    for postprocessor in postprocessors:
+        for name, value_id in postprocessor.value_inputs:
+            if value_id in value_types:
+                continue
+            problems.append(
+                _problem(
+                    "logical_measurement_postprocessor_value_missing",
+                    f"measurement postprocessor value input {name!r} references "
+                    f"unknown value {value_id.qualified_name!r}",
+                    "measurement_postprocessors",
+                    postprocessor.id.qualified_name,
+                    "value_inputs",
+                    name,
+                )
+            )
 
 
 def _measurement_postprocessors_by_id(

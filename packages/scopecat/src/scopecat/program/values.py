@@ -387,14 +387,17 @@ def compute(
         id=id,
         fn=fn,
         inputs=tuple(
-            (name, _capture_compute_input(value)) for name, value in selected_inputs
+            (name, capture_compute_input_internal(value))
+            for name, value in selected_inputs
         ),
         output_type=output_type,
         declaration_key=ComputeDeclarationKey.fresh(),
     )
 
 
-def _capture_compute_input(value: ComputeInput) -> ComputeInput:
+def capture_compute_input_internal(value: ComputeInput) -> ComputeInput:
+    """Snapshot one trusted compute input for another program declaration."""
+
     if isinstance(value, ValueRef):
         return value
     if isinstance(value, PayloadValue):

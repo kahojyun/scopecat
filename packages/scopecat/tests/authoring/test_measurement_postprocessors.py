@@ -144,6 +144,41 @@ def test_compute_lowers_multiple_measured_inputs_to_the_observation_stage() -> N
     assert output.unit == "V"
 
 
+def test_compute_joins_measured_products_with_earlier_compute_values() -> None:
+    @sc.module(id="test.mixed-availability-compute")
+    def module(context: sc.ModuleContext) -> sc.ProductRef:
+        threshold = context.compute(
+            "threshold",
+            fn=lambda *, base: base * 2.0,
+            inputs={"base": 1.5},
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        signal = context._product("signal", unit="V")
+        return context.compute(
+            "classify",
+            fn=lambda *, signal, threshold: signal > threshold,
+            inputs={"signal": signal, "threshold": threshold},
+            output_type=sc.ScalarType(sc.BoolType()),
+        )
+
+    logical = compose_module(module.definition)
+
+    [threshold] = logical.compute_nodes
+    [classify] = logical.measurement_postprocessors
+    assert classify.value_inputs == (("threshold", threshold.result_id),)
+    result = classify.kernel(
+        {
+            "signal": MeasurementScalar.create(
+                value=4.0,
+                dtype="float64",
+                unit="V",
+            ),
+            "threshold": 3.0,
+        }
+    )["result"]
+    assert result == MeasurementScalar.create(value=True, dtype="bool")
+
+
 def test_postprocessor_chaining_is_sorted_by_dependency() -> None:
     @sc.module(id="test.postprocessor.chain")
     def module(context: sc.ModuleContext) -> None:

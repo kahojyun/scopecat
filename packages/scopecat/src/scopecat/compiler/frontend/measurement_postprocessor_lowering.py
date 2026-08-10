@@ -9,6 +9,7 @@ from scopecat.compiler.bound_facts import (
     BoundMeasurementPostprocessor,
     BoundMeasurementPostprocessorInput,
     BoundMeasurementPostprocessorOutput,
+    BoundMeasurementPostprocessorValueInput,
 )
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.kernel.product_identity import (
@@ -103,6 +104,13 @@ def lower_measurement_postprocessor_graph(
                         product_use_id=use.id,
                     )
                     for name, use in inputs
+                ),
+                value_inputs=tuple(
+                    BoundMeasurementPostprocessorValueInput(
+                        id=name,
+                        value_id=value_id,
+                    )
+                    for name, value_id in postprocessor.value_inputs
                 ),
                 outputs=tuple(outputs),
                 kernel=postprocessor.kernel,

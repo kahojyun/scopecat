@@ -117,6 +117,7 @@ class LogicalMeasurementPostprocessor:
     inputs: tuple[tuple[str, ProductId], ...]
     outputs: tuple[tuple[str, ProductId], ...]
     kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
+    value_inputs: tuple[tuple[str, ValueId], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -10,13 +10,16 @@ from scopecat.compiler.bound_facts import (
     BoundMeasurementPostprocessor,
     BoundMeasurementPostprocessorInput,
     BoundMeasurementPostprocessorOutput,
+    BoundMeasurementPostprocessorValueInput,
 )
 from scopecat.execution.measurement_postprocessors import (
     execute_measurement_postprocessors,
 )
 from scopecat.kernel.errors import MeasurementPostprocessorExecutionError
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.products import ProductAxisDef
+from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.results import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
@@ -181,6 +184,67 @@ def test_postprocessor_joins_multiple_named_inputs_per_point() -> None:
         dtype="float64",
         unit="ratio",
         value=1.0,
+    )
+
+
+def test_postprocessor_joins_an_early_value_by_logical_point() -> None:
+    scenario = measurement_assembly_scenario(point_values=(2.0,), use_count=2)
+    source, output = scenario.uses
+    threshold_id = ValueId(SymbolId(local_id="threshold"))
+    postprocessor = BoundMeasurementPostprocessor(
+        id=MeasurementPostprocessorId(SymbolId(local_id="classify")),
+        inputs=(
+            BoundMeasurementPostprocessorInput(
+                id="signal",
+                product_id=source.product_id,
+                product_use_id=source.id,
+            ),
+        ),
+        value_inputs=(
+            BoundMeasurementPostprocessorValueInput(
+                id="threshold",
+                value_id=threshold_id,
+            ),
+        ),
+        outputs=(
+            BoundMeasurementPostprocessorOutput(
+                id="result",
+                product_id=output.product_id,
+                product_use_ids=(output.id,),
+            ),
+        ),
+        kernel=lambda values: {
+            "result": MeasurementScalar.create(
+                dtype="float64",
+                unit="ratio",
+                value=float(values["threshold"]),
+            )
+        },
+    )
+
+    completed = execute_measurement_postprocessors(
+        (postprocessor,),
+        measurement_value_candidates(scenario, (source,)),
+        points=scenario.points,
+        catalog=scenario.catalog,
+        value_candidates=(
+            ValueRecordCandidate(
+                logical_point_id=scenario.points[0].logical_id,
+                value_id=threshold_id,
+                value=0.25,
+            ),
+        ),
+    )
+
+    result = next(
+        candidate.value
+        for candidate in completed
+        if candidate.product_use_id == output.id
+    )
+    assert result == MeasurementScalar.create(
+        dtype="float64",
+        unit="ratio",
+        value=0.25,
     )
 
 

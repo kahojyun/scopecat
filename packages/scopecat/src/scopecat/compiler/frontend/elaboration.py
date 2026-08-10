@@ -157,8 +157,10 @@ class _LogicalProgramComposer:
             )
             self.dependency_roots.extend(value for _name, value in localized.inputs)
         for postprocessor in module.body.measurement_postprocessors:
-            self.logical.add_measurement_postprocessor(
-                localize_measurement_postprocessor(postprocessor, boundaries)
+            localized = localize_measurement_postprocessor(postprocessor, boundaries)
+            self.logical.add_measurement_postprocessor(localized)
+            self.dependency_roots.extend(
+                value for _name, value in localized.value_input_bindings
             )
         self.product_declarations.extend(
             localize_product_declaration(

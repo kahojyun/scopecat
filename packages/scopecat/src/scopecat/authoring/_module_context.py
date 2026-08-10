@@ -851,6 +851,16 @@ class ModuleContext:
         output_type: ScalarType | ArrayType,
     ) -> ValueRef: ...
 
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef],
+        output_type: ScalarType | ArrayType | Mapping[str, DataType],
+    ) -> ValueRef | ProductRef | ProductRefs: ...
+
     def compute(
         self,
         id: str | None = None,
@@ -866,16 +876,10 @@ class ModuleContext:
             explicit=id is not None,
         )
         if any(isinstance(value, ProductRef) for value in (inputs or {}).values()):
-            if not inputs or not all(
-                isinstance(value, ProductRef) for value in inputs.values()
-            ):
-                raise TypeError(
-                    "measurement-derived compute inputs must all be measured products"
-                )
             return self._compute_measurements(
                 selected_id,
                 fn=fn,
-                inputs=cast("Mapping[str, ProductRef]", inputs),
+                inputs=inputs or {},
                 output_type=output_type,
             )
 
@@ -917,13 +921,23 @@ class ModuleContext:
         id: str,
         *,
         fn: ComputeFunction,
-        inputs: Mapping[str, ProductRef],
+        inputs: Mapping[str, ComputeInput | ProductRef],
         output_type: DataType | Mapping[str, DataType],
     ) -> ProductRef | ProductRefs:
         """Lower measured inputs to the point-local observation stage."""
 
         input_names = tuple(inputs)
         validate_compute_function_internal(id, fn, input_names)
+        product_inputs = {
+            name: value
+            for name, value in inputs.items()
+            if isinstance(value, ProductRef)
+        }
+        value_inputs = {
+            name: cast("ComputeInput", self._capture_domain_value(value))
+            for name, value in inputs.items()
+            if not isinstance(value, ProductRef)
+        }
         output_types = (
             {"result": output_type}
             if isinstance(output_type, ScalarType | ArrayType)
@@ -943,11 +957,17 @@ class ModuleContext:
             )
 
         def kernel(
-            values: Mapping[str, MeasurementValue],
+            values: Mapping[str, object],
         ) -> Mapping[str, MeasurementValue]:
             raw = fn(
                 **{
-                    name: _native_measurement_value(values[name])
+                    name: (
+                        _native_measurement_value(
+                            cast("MeasurementValue", values[name])
+                        )
+                        if name in product_inputs
+                        else values[name]
+                    )
                     for name in input_names
                 }
             )
@@ -966,7 +986,8 @@ class ModuleContext:
         self._measurement_postprocessors.append(
             create_measurement_compute_internal(
                 id,
-                inputs=inputs,
+                inputs=product_inputs,
+                value_inputs=value_inputs,
                 outputs=outputs,
                 kernel=kernel,
             )
