@@ -137,30 +137,23 @@ class SummaryStatsAnalysisStep:
             input_ref=input_ref,
             measurements=measurements,
         )
-        return (
-            context.result("summary stats")
-            .input(
-                measurements.entry.id,
-                title="raw measurements",
-            )
-            .table(
-                sc.AnalysisTable.from_rows(
-                    [
-                        {
-                            "observable": observable_id,
-                            "count": summary.count,
-                            "min": summary.min,
-                            "max": summary.max,
-                            "mean": summary.mean,
-                            "unit": summary.unit,
-                        }
-                        for observable_id, summary in result.observables.items()
-                    ],
-                    columns=_SUMMARY_TABLE_COLUMNS,
-                ),
-                title="summary stats result",
-                metadata=TEST_STEP_METADATA,
-            )
+        return context.result("summary stats").table(
+            sc.AnalysisTable.from_rows(
+                [
+                    {
+                        "observable": observable_id,
+                        "count": summary.count,
+                        "min": summary.min,
+                        "max": summary.max,
+                        "mean": summary.mean,
+                        "unit": summary.unit,
+                    }
+                    for observable_id, summary in result.observables.items()
+                ],
+                columns=_SUMMARY_TABLE_COLUMNS,
+            ),
+            title="summary stats result",
+            metadata=TEST_STEP_METADATA,
         )
 
 
@@ -198,10 +191,6 @@ class BestSignalAnalysisStep:
         )
         return (
             context.result("best signal analysis")
-            .input(
-                measurements.entry.id,
-                title="raw measurements",
-            )
             .table(
                 sc.AnalysisTable.from_rows(
                     [

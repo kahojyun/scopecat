@@ -385,6 +385,17 @@ class AnalysisParameterProposalReference(_AnalysisContentModel):
     record_ref: _NonEmptyText
 
 
+class AnalysisComputeInput(_AnalysisContentModel):
+    """One named, content-identified input consumed by dataset compute."""
+
+    name: _NonEmptyText
+    kind: Literal["measurement_dataset", "value"]
+    target: _NonEmptyText
+    content_hash: _NonEmptyText
+    codec: _NonEmptyText
+    value: JsonValue | None = None
+
+
 class AnalysisComputeExecution(_AnalysisContentModel):
     """Content-addressed provenance for one successful dataset compute."""
 
@@ -394,15 +405,20 @@ class AnalysisComputeExecution(_AnalysisContentModel):
     deterministic: bool
     inputs: Sequence[_NonEmptyText]
     outputs: Sequence[_NonEmptyText]
+    input_bindings: Sequence[AnalysisComputeInput]
     access: Literal["full", "batches"] = "full"
-    input_target: _NonEmptyText
-    input_content_hash: _NonEmptyText
     output_content_hash: _NonEmptyText
 
-    @field_validator("inputs", "outputs")
+    @field_validator("inputs", "outputs", "input_bindings")
     @classmethod
     def freeze_edges[T](cls, value: Sequence[T]) -> Sequence[T]:
         return tuple(value)
+
+    @model_validator(mode="after")
+    def validate_input_bindings(self) -> AnalysisComputeExecution:
+        if tuple(self.inputs) != tuple(binding.name for binding in self.input_bindings):
+            raise ValueError("analysis compute inputs must match its input bindings")
+        return self
 
 
 class AnalysisDerivedData(_AnalysisContentModel):

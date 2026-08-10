@@ -239,7 +239,10 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit the resonator curve and propose reviewed readout parameters."""
 
     measurements = context.measurements()
-    fits = fit_flux_spectroscopy(measurements)
+    fits = context.compute(
+        fn=fit_flux_spectroscopy,
+        dataset=measurements,
+    )
     sweet_spot = max(
         fits,
         key=lambda fit: _quantity_value(fit.resonance_frequency, "Hz"),
@@ -251,11 +254,6 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     }
     return (
         context.result("Resonator flux spectroscopy")
-        .input(
-            measurements.entry.id,
-            role="fit-input",
-            title="Flux spectroscopy measurements",
-        )
         .table(
             sc.AnalysisTable.from_rows(fit_rows, columns=_FIT_TABLE_COLUMNS),
             title="Resonator fit by DC bias",

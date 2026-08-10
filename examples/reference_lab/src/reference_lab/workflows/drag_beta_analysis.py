@@ -118,8 +118,8 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
 
     measurements = context.measurements()
     observations, fit = context.compute(
-        measurements,
         fn=_fit_drag_beta_dataset,
+        dataset=measurements,
     )
     observation_table = sc.AnalysisTable.from_objects(observations)
 
@@ -172,7 +172,6 @@ def _observations_from_dataset(
     "reference-lab.drag-beta-fit",
     "1",
     input_codecs={"dataset": "scopecat.measurement-dataset.v8"},
-    output_codec="reference-lab.drag-beta-fit.v1",
     capabilities=("numpy",),
     deterministic=True,
 )

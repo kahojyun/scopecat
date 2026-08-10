@@ -442,7 +442,7 @@ class FitPoint:
     ]
 
 
-fits = context.compute(measurements, fn=fit_resonator)
+fits = context.compute(fn=fit_resonator, measurements=measurements)
 fit_table = sc.AnalysisTable.from_objects(fits)
 result = (
     context.result("Resonator fit")
@@ -476,6 +476,14 @@ Use `run.analysis(...).save()` only for an exploratory notebook analysis assembl
 directly rather than through a reusable analysis step. Both paths return the same
 `AnalysisOutcome`, so tables, figures, derived data, proposals, and candidate
 configuration all come from an analysis that already exists in the source run.
+
+Dataset compute accepts named inputs like experiment compute. Each dataset input
+records its durable target, content hash, and codec; JSON-safe inline inputs are
+embedded with their own content hash. Merely reading `context.measurements()`
+also makes that dataset an analysis input, so ordinary Python inspection does
+not require a matching manual `.input(...)` call. Registered custom output
+codecs require an encoder and persist the encoder's JSON value rather than
+labeling the generic Python encoding with a different codec name.
 
 `AnalysisTable.from_rows(...)` remains available for dynamic schemas. The
 durable models enforce finite, GUI-safe scalar, derived-data, and point budgets.

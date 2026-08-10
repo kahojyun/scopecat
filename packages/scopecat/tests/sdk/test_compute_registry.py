@@ -46,3 +46,14 @@ def test_registered_compute_has_a_resolvable_stable_implementation() -> None:
 
     with pytest.raises(KeyError, match="is not registered"):
         registry.resolve("registry:missing@1")
+
+
+def test_custom_compute_output_codec_requires_an_encoder() -> None:
+    registry = sc.ComputeRegistry()
+
+    with pytest.raises(ValueError, match="require an encode_output"):
+        registry.implementation(
+            "test.missing-encoder",
+            "1",
+            output_codec="test.custom.v1",
+        )

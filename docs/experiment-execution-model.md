@@ -114,7 +114,7 @@ The contract is the deployable unit a future worker must resolve; unregistered
 closures retain diagnostic `python:` identities.
 
 The same availability rule extends to completed datasets. Inside an analysis
-step, `context.compute(dataset, fn=fit)` runs only after the complete dataset is
+step, `context.compute(fn=fit, dataset=dataset)` runs only after the complete dataset is
 durable and automatically records that dataset plus the registered or local
 implementation identity as an analysis dependency. Its JSON-safe output is a
 durable analysis data output with input and output content hashes, codec,
@@ -123,10 +123,15 @@ calculations share the `compute` concept; their inputs determine placement.
 Dataset compute does not run inside acquisition or silently mutate the source
 measurement dataset.
 
+Every dataset compute input is named and content-identified independently;
+JSON-safe inline values are retained beside dataset targets. A registered
+custom output codec must provide its actual encoder, so the recorded codec and
+durable value always describe the same representation.
+
 Implementations that cannot load the complete dataset declare
 `data_access="batches"` and a bounded `batch_size` in their registry contract.
 The function then receives an iterator of `Dataset` batches through the same
-`context.compute(dataset, fn=...)` call. Full-dataset Python remains the short
+named `context.compute(fn=..., batches=dataset)` call. Full-dataset Python remains the short
 path; bounded access is an implementation property rather than a second
 analysis API.
 

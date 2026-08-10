@@ -47,6 +47,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import Dataset, ExperimentResultView
 from scopecat.records.analysis import (
     AnalysisComputeExecution,
+    AnalysisComputeInput,
     AnalysisDerivedData,
     AnalysisField,
     AnalysisFigure,
@@ -60,7 +61,11 @@ from scopecat.records.analysis import (
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.sdk.compute import compute_implementation_contract_internal
+from scopecat.sdk.compute import (
+    PYTHON_JSON_CODEC,
+    compute_implementation_contract_internal,
+    compute_output_encoder_internal,
+)
 
 
 class _AnalysisRun(Protocol):
@@ -311,6 +316,16 @@ class AnalysisContext:
         repr=False,
         compare=False,
     )
+    _accessed_inputs: dict[str, AnalysisInput] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
+    _compute_input_targets: set[str] = field(
+        default_factory=set,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def config(self) -> ConfigProfileSnapshot:
@@ -322,61 +337,63 @@ class AnalysisContext:
     ) -> Dataset:
         """Load a labeled measurement dataset for this analysis step."""
 
-        return self.run.measurements(selector=selector)
+        dataset = self.run.measurements(selector=selector)
+        self._accessed_inputs.setdefault(
+            dataset.entry.id,
+            AnalysisInput(
+                target=dataset.entry.id,
+                kind="measurement_dataset",
+                role="data",
+                title=dataset.entry.id,
+            ),
+        )
+        return dataset
 
     @overload
     def compute[ResultT](
         self,
-        data: Dataset,
-        /,
-        *,
-        fn: Callable[[Dataset], ResultT],
         id: str | None = None,
-    ) -> ResultT: ...
-
-    @overload
-    def compute[ResultT](
-        self,
-        data: Dataset,
-        /,
-        *,
-        fn: Callable[[Iterator[Dataset]], ResultT],
-        id: str | None = None,
-    ) -> ResultT: ...
-
-    @overload
-    def compute[SchemaT, ResultT](
-        self,
-        data: ExperimentResultView[SchemaT],
-        /,
-        *,
-        fn: Callable[[ExperimentResultView[SchemaT]], ResultT],
-        id: str | None = None,
-    ) -> ResultT: ...
-
-    @overload
-    def compute[SchemaT, ResultT](
-        self,
-        data: ExperimentResultView[SchemaT],
-        /,
-        *,
-        fn: Callable[[Iterator[ExperimentResultView[SchemaT]]], ResultT],
-        id: str | None = None,
-    ) -> ResultT: ...
-
-    def compute[ResultT](
-        self,
-        data: object,
-        /,
         *,
         fn: Callable[..., ResultT],
+        inputs: None = None,
+        **input_bindings: object,
+    ) -> ResultT: ...
+
+    @overload
+    def compute[ResultT](
+        self,
         id: str | None = None,
-    ) -> ResultT:
+        *,
+        fn: Callable[..., ResultT],
+        inputs: Mapping[str, object],
+        **input_bindings: object,
+    ) -> ResultT: ...
+
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: Callable[..., object],
+        inputs: Mapping[str, object] | None = None,
+        **input_bindings: object,
+    ) -> object:
         """Run one dataset-available compute and retain its durable dependency."""
 
-        dataset = data.dataset if isinstance(data, ExperimentResultView) else data
-        if not isinstance(dataset, Dataset):
-            raise TypeError("analysis compute requires a Dataset or bound result")
+        duplicate_inputs = set(inputs or {}) & set(input_bindings)
+        if duplicate_inputs:
+            rendered = ", ".join(sorted(duplicate_inputs))
+            raise TypeError(f"analysis compute inputs were bound twice: {rendered}")
+        selected_inputs = {**(inputs or {}), **input_bindings}
+        if not selected_inputs:
+            raise TypeError("analysis compute requires at least one named input")
+        dataset_inputs: dict[str, Dataset | ExperimentResultView[object]] = {}
+        for name, value in selected_inputs.items():
+            if isinstance(value, Dataset):
+                dataset_inputs[name] = value
+            elif isinstance(value, ExperimentResultView):
+                dataset_inputs[name] = cast("ExperimentResultView[object]", value)
+        if not dataset_inputs:
+            raise TypeError("analysis compute requires at least one dataset input")
         contract = compute_implementation_contract_internal(fn)
         compute_id = self._allocate_compute_id(
             id or getattr(fn, "__name__", "dataset-compute")
@@ -385,43 +402,72 @@ class AnalysisContext:
             contract.reference if contract is not None else f"python:{compute_id}"
         )
         deterministic = False if contract is None else contract.deterministic
-        self._compute_inputs.append(
-            AnalysisInput(
-                target=dataset.entry.id,
-                kind="measurement_dataset",
-                role="compute-input",
-                title=compute_id,
-                metadata={
-                    "compute": {
-                        "id": compute_id,
-                        "implementation": implementation,
-                        "placement": "dataset",
-                        "deterministic": deterministic,
-                        "inputs": ["data"],
-                        "outputs": [compute_id],
-                        "access": "full" if contract is None else contract.data_access,
-                        **(
-                            {}
-                            if contract is None
-                            else {
-                                "runtime": contract.runtime,
-                                "capabilities": list(contract.capabilities),
-                            }
-                        ),
-                    }
-                },
+        if (
+            contract is not None
+            and contract.input_codecs
+            and set(contract.input_codecs) != set(selected_inputs)
+        ):
+            raise ValueError(
+                "registered analysis compute input codecs must exactly match "
+                "its named inputs"
             )
+        input_provenance = tuple(
+            _analysis_compute_input(
+                name,
+                value,
+                codec=(None if contract is None else contract.input_codecs.get(name)),
+            )
+            for name, value in selected_inputs.items()
         )
-        selected_data: object = cast("object", data)
+        input_names = tuple(selected_inputs)
+        output_names = (compute_id,)
+        compute_metadata: dict[str, object] = {
+            "id": compute_id,
+            "implementation": implementation,
+            "placement": "dataset",
+            "deterministic": deterministic,
+            "inputs": list(input_names),
+            "outputs": list(output_names),
+            "access": "full" if contract is None else contract.data_access,
+        }
+        if contract is not None:
+            compute_metadata.update(
+                runtime=contract.runtime,
+                capabilities=list(contract.capabilities),
+            )
+        for provenance in input_provenance:
+            if provenance.kind != "measurement_dataset":
+                continue
+            self._compute_inputs.append(
+                AnalysisInput(
+                    target=provenance.target,
+                    kind="measurement_dataset",
+                    role="compute-input",
+                    title=f"{compute_id}:{provenance.name}",
+                    metadata={
+                        "compute": compute_metadata,
+                        "binding": provenance.name,
+                    },
+                )
+            )
+            self._compute_input_targets.add(provenance.target)
+
+        call_inputs = dict(selected_inputs)
         if contract is not None and contract.data_access == "batches":
+            if len(dataset_inputs) != 1:
+                raise ValueError(
+                    "batched analysis compute requires exactly one dataset input"
+                )
+            dataset_name, data = next(iter(dataset_inputs.items()))
             batches = self.run.measurement_batches(batch_size=contract.batch_size)
-            selected_data = (
-                (batch.bind(cast("object", data.output)) for batch in batches)
+            call_inputs[dataset_name] = (
+                (batch.bind(data.output) for batch in batches)
                 if isinstance(data, ExperimentResultView)
                 else batches
             )
-        result = fn(selected_data)
-        encoded = _analysis_json(result)
+        result = fn(**call_inputs)
+        encoder = compute_output_encoder_internal(fn)
+        encoded = _analysis_json(result if encoder is None else encoder(result))
         output_hash = f"sha256:{stable_content_hash(encoded)}"
         self._compute_outputs.append(
             AnalysisDataOutput(
@@ -429,20 +475,17 @@ class AnalysisContext:
                 title=compute_id,
                 content=AnalysisDerivedData(
                     codec=(
-                        "scopecat.python-json.v1"
-                        if contract is None
-                        else contract.output_codec
+                        PYTHON_JSON_CODEC if contract is None else contract.output_codec
                     ),
                     value=encoded,
                     execution=AnalysisComputeExecution(
                         id=compute_id,
                         implementation=implementation,
                         deterministic=deterministic,
-                        inputs=("data",),
-                        outputs=(compute_id,),
+                        inputs=input_names,
+                        outputs=output_names,
+                        input_bindings=input_provenance,
                         access=("full" if contract is None else contract.data_access),
-                        input_target=dataset.entry.id,
-                        input_content_hash=dataset.entry.content_hash,
                         output_content_hash=output_hash,
                     ),
                 ),
@@ -465,15 +508,53 @@ class AnalysisContext:
         return requested if count == 1 else f"{requested}.{count}"
 
     def result(self, title: str = "analysis", *, key: str | None = None) -> Analysis:
+        accessed_inputs = tuple(
+            input
+            for target, input in self._accessed_inputs.items()
+            if target not in self._compute_input_targets
+        )
         return replace(
             self.run.analysis(
                 title,
                 key=key or self.default_key,
                 step_id=self.step_id,
             ),
-            inputs=tuple(self._compute_inputs),
+            inputs=(*accessed_inputs, *self._compute_inputs),
             outputs=tuple(self._compute_outputs),
         )
+
+
+def _analysis_compute_input(
+    name: str,
+    value: object,
+    *,
+    codec: str | None,
+) -> AnalysisComputeInput:
+    dataset = (
+        cast("ExperimentResultView[object]", value).dataset
+        if isinstance(value, ExperimentResultView)
+        else value
+    )
+    if isinstance(dataset, Dataset):
+        return AnalysisComputeInput(
+            name=name,
+            kind="measurement_dataset",
+            target=dataset.entry.id,
+            content_hash=dataset.entry.content_hash,
+            codec=codec or "scopecat.measurement-dataset.v8",
+        )
+    if codec is not None and codec != PYTHON_JSON_CODEC:
+        raise ValueError("inline analysis compute inputs require the Python JSON codec")
+    encoded = _analysis_json(cast("object", value))
+    content_hash = f"sha256:{stable_content_hash(encoded)}"
+    return AnalysisComputeInput(
+        name=name,
+        kind="value",
+        target=f"inline:{name}:{content_hash}",
+        content_hash=content_hash,
+        codec=PYTHON_JSON_CODEC,
+        value=encoded,
+    )
 
 
 def _analysis_json(value: object) -> JsonValue:

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.json_types import JsonValue
 from scopecat.program.values import ComputeFunction
 
 _CONTRACT_ATTRIBUTE = "__scopecat_compute_implementation__"
+_OUTPUT_ENCODER_ATTRIBUTE = "__scopecat_compute_output_encoder__"
+PYTHON_JSON_CODEC = "scopecat.python-json.v1"
 
 
 def _empty_codecs() -> dict[str, str]:
@@ -28,7 +30,7 @@ class ComputeImplementationContract:
     id: str
     version: str
     input_codecs: Mapping[str, str] = field(default_factory=_empty_codecs)
-    output_codec: str = "scopecat.value.v1"
+    output_codec: str = PYTHON_JSON_CODEC
     runtime: str = "python"
     capabilities: tuple[str, ...] = ()
     resources: Mapping[str, JsonValue] = field(default_factory=_empty_resources)
@@ -72,7 +74,8 @@ class ComputeRegistry:
         version: str,
         *,
         input_codecs: Mapping[str, str] | None = None,
-        output_codec: str = "scopecat.value.v1",
+        output_codec: str = PYTHON_JSON_CODEC,
+        encode_output: Callable[..., JsonValue] | None = None,
         runtime: str = "python",
         capabilities: tuple[str, ...] = (),
         resources: Mapping[str, JsonValue] | None = None,
@@ -80,6 +83,10 @@ class ComputeRegistry:
         data_access: Literal["full", "batches"] = "full",
         batch_size: int = 100,
     ) -> Callable[[Callable[P, ResultT]], Callable[P, ResultT]]:
+        if output_codec != PYTHON_JSON_CODEC and encode_output is None:
+            raise ValueError(
+                "custom compute output codecs require an encode_output function"
+            )
         contract = ComputeImplementationContract(
             id=id,
             version=version,
@@ -100,6 +107,8 @@ class ComputeRegistry:
                     f"{contract.reference}"
                 )
             setattr(fn, _CONTRACT_ATTRIBUTE, contract)
+            if encode_output is not None:
+                setattr(fn, _OUTPUT_ENCODER_ATTRIBUTE, encode_output)
             self._implementations[contract.reference] = (contract, fn)
             return fn
 
@@ -129,6 +138,18 @@ def compute_implementation_contract_internal(
 
     value = getattr(fn, _CONTRACT_ATTRIBUTE, None)
     return value if isinstance(value, ComputeImplementationContract) else None
+
+
+def compute_output_encoder_internal(
+    fn: ComputeFunction,
+) -> Callable[[object], JsonValue] | None:
+    """Read the runtime encoder paired with a custom output codec."""
+
+    value = getattr(fn, _OUTPUT_ENCODER_ATTRIBUTE, None)
+    return cast(
+        "Callable[[object], JsonValue] | None",
+        value if callable(value) else None,
+    )
 
 
 __all__ = ["ComputeImplementationContract", "ComputeRegistry"]

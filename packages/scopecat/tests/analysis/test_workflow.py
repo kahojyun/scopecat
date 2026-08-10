@@ -32,6 +32,10 @@ def _dataset_size(dataset: Dataset) -> int:
     return len(dataset)
 
 
+def _scaled_dataset_size(*, dataset: Dataset, scale: int) -> int:
+    return len(dataset) * scale
+
+
 _COMPUTES = sc.ComputeRegistry()
 
 
@@ -45,12 +49,27 @@ def _batch_dataset_size(batches: Iterator[Dataset]) -> int:
     return sum(len(batch) for batch in batches)
 
 
+def _encode_dataset_size(result: int) -> dict[str, int]:
+    return {"points": result}
+
+
+@_COMPUTES.implementation(
+    "test.encoded-dataset-size",
+    "1",
+    input_codecs={"dataset": "scopecat.measurement-dataset.v8"},
+    output_codec="test.dataset-size.v1",
+    encode_output=_encode_dataset_size,
+)
+def _encoded_dataset_size(*, dataset: Dataset) -> int:
+    return len(dataset)
+
+
 class _DatasetComputeStep:
     id = "dataset-compute"
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
         measurements = context.measurements()
-        count = context.compute(measurements, fn=_dataset_size)
+        count = context.compute(fn=_dataset_size, dataset=measurements)
         return context.result("Dataset compute").table(
             sc.AnalysisTable.from_rows([{"points": count}])
         )
@@ -117,10 +136,11 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
             "implementation": "python:_dataset_size",
             "placement": "dataset",
             "deterministic": False,
-            "inputs": ["data"],
+            "inputs": ["dataset"],
             "outputs": ["_dataset_size"],
             "access": "full",
-        }
+        },
+        "binding": "dataset",
     }
     [data_output, table_output] = analysis.outputs
     assert isinstance(data_output, AnalysisDataOutput)
@@ -129,11 +149,13 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
     assert data_output.content.execution.placement == "dataset"
     assert data_output.content.execution.implementation == "python:_dataset_size"
     assert not data_output.content.execution.deterministic
-    assert data_output.content.execution.inputs == ("data",)
+    assert data_output.content.execution.inputs == ("dataset",)
     assert data_output.content.execution.outputs == ("_dataset_size",)
-    assert data_output.content.execution.input_content_hash == (
-        handle.measurements().entry.content_hash
-    )
+    [input_binding] = data_output.content.execution.input_bindings
+    assert input_binding.name == "dataset"
+    assert input_binding.target == "raw-measurements"
+    assert input_binding.content_hash == handle.measurements().entry.content_hash
+    assert input_binding.codec == "scopecat.measurement-dataset.v8"
     assert data_output.content.execution.output_content_hash.startswith("sha256:")
     assert table_output.kind == "table"
     stored = handle.record_json(
@@ -156,7 +178,10 @@ def test_registered_dataset_compute_can_reduce_bounded_batches(tmp_path: Path) -
     handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
     context = sc.AnalysisContext(run=handle)
 
-    count = context.compute(context.measurements(), fn=_batch_dataset_size)
+    count = context.compute(
+        fn=_batch_dataset_size,
+        batches=context.measurements(),
+    )
     analysis = context.result("Batch compute")
 
     assert count == 3
@@ -166,6 +191,53 @@ def test_registered_dataset_compute_can_reduce_bounded_batches(tmp_path: Path) -
     assert output.content.execution.implementation == (
         "registry:test.dataset-size-batches@1"
     )
+
+
+def test_dataset_compute_records_named_inline_inputs(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    context = sc.AnalysisContext(run=handle)
+
+    count = context.compute(
+        fn=_scaled_dataset_size,
+        dataset=context.measurements(),
+        scale=2,
+    )
+
+    assert count == 6
+    [output] = context.result().outputs
+    assert isinstance(output, AnalysisDataOutput)
+    assert output.content.execution.inputs == ("dataset", "scale")
+    dataset_input, scale_input = output.content.execution.input_bindings
+    assert dataset_input.kind == "measurement_dataset"
+    assert scale_input.kind == "value"
+    assert scale_input.codec == "scopecat.python-json.v1"
+    assert scale_input.value == 2
+
+
+def test_dataset_compute_uses_its_registered_output_encoder(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    context = sc.AnalysisContext(run=handle)
+
+    count = context.compute(
+        fn=_encoded_dataset_size,
+        dataset=context.measurements(),
+    )
+
+    assert count == 3
+    [output] = context.result().outputs
+    assert isinstance(output, AnalysisDataOutput)
+    assert output.content.codec == "test.dataset-size.v1"
+    assert output.content.value == {"points": 3}
 
 
 def test_analysis_save_rolls_back_refs_after_manifest_failure(
