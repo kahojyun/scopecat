@@ -861,12 +861,22 @@ def test_staged_run_is_rediscovered_and_resumed_by_a_new_daemon_client(
 
     assert [stage.index for stage in initial.stages] == [0]
     assert initial.stopped_by_limit
+    assert initial.status == "paused"
     assert [stage.index for stage in discovered.stages] == [0]
-    assert discovered.stopped_by_limit is None
+    assert discovered.stopped_by_limit is True
+    assert discovered.status == "paused"
+    assert [event.status for event in discovered.events] == ["limit"]
     assert callback_indices == [0, 1]
     assert [stage.index for stage in resumed.stages] == [0, 1]
     assert not resumed.stopped_by_limit
+    assert resumed.status == "stopped"
     assert [stage.index for stage in rediscovered.stages] == [0, 1]
+    assert rediscovered.status == "stopped"
+    assert [event.status for event in rediscovered.events] == [
+        "limit",
+        "proposed",
+        "stopped",
+    ]
 
     control = SQLiteControlPlane(
         SQLiteDatabase(tmp_path / ".scopecat" / "control.sqlite3")
