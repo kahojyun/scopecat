@@ -393,6 +393,8 @@ class RunService:
             AnalysisInput(
                 target=item.target,
                 kind=item.kind,
+                content_hash=item.content_hash,
+                codec=item.codec,
                 role=item.role,
                 title=item.title,
                 metadata=item.metadata,

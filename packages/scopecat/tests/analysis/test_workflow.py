@@ -32,6 +32,7 @@ from tests.testkit.runtime import (
     sqlite_project_services,
 )
 from tests.testkit.signal_testkit import (
+    SUMMARY_STATS_STEP,
     BestSignalAnalysisStep,
     SummaryStatsAnalysisStep,
     execute_signal_run,
@@ -149,6 +150,10 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
 
     assert isinstance(summary, sc.AnalysisOutcome)
     assert summary.outputs[0].kind == "table"
+    [summary_input] = run_handle.published_analysis(SUMMARY_STATS_STEP).inputs
+    assert summary_input.target == "raw-measurements"
+    assert summary_input.content_hash == run_handle.measurements().entry.content_hash
+    assert summary_input.codec == "scopecat.measurement-dataset.v8"
     assert candidate.parameter_proposal.deltas[0].parameter_id == "drive_frequency"
     assert activation.entry.id == "candidate-best-signal"
     assert next_run.status == "completed"
@@ -166,6 +171,8 @@ def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None
 
     [dependency] = analysis.inputs
     assert dependency.target == "raw-measurements"
+    assert dependency.content_hash == handle.measurements().entry.content_hash
+    assert dependency.codec == "scopecat.measurement-dataset.v8"
     assert dependency.role == "compute-input"
     assert dependency.metadata == {
         "compute": {

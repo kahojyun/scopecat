@@ -16,6 +16,7 @@ from scopecat.records.analysis import (
     AnalysisFigureView,
     AnalysisParameterProposalRecordOutput,
     AnalysisParameterProposalReference,
+    AnalysisRecordInput,
     AnalysisRecordOutput,
     AnalysisTableRecordOutput,
     AnalysisTableView,
@@ -117,6 +118,10 @@ class PublishedAnalysis:
     @property
     def outputs(self) -> tuple[AnalysisRecordOutput, ...]:
         return tuple(self.view.analysis.outputs)
+
+    @property
+    def inputs(self) -> tuple[AnalysisRecordInput, ...]:
+        return tuple(self.view.analysis.inputs)
 
     def output(self, id: str) -> AnalysisRecordOutput:
         try:

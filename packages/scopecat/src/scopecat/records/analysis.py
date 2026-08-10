@@ -546,6 +546,8 @@ class AnalysisRecordInput(BaseModel):
 
     target: _NonEmptyText
     kind: Literal["measurement_dataset"]
+    content_hash: _NonEmptyText
+    codec: _NonEmptyText
     role: _NonEmptyText
     title: str | None = None
     metadata: JsonMetadata | None = None

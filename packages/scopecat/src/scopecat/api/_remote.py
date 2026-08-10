@@ -250,6 +250,8 @@ def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
     return AnalysisInputPayload(
         target=value.target,
         kind=value.kind,
+        content_hash=value.content_hash,
+        codec=value.codec,
         role=value.role,
         title=value.title,
         metadata=(

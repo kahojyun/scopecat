@@ -690,6 +690,12 @@ not require a matching manual `.input(...)` call. Registered custom output
 codecs require an encoder and persist the encoder's JSON value rather than
 labeling the generic Python encoding with a different codec name.
 
+The analysis-level input reference itself retains the measurement dataset's
+content hash and codec, whether or not managed compute is used. For completed
+runs that immutable dataset hash is the snapshot boundary. Compute execution
+adds named binding and implementation provenance; it is not a separate, stronger
+class of input identity.
+
 `AnalysisTable.from_rows(...)` remains available for dynamic schemas. The
 durable models enforce finite, GUI-safe scalar, derived-data, and point budgets.
 The run view renders tables and SVG figures while retaining the content-addressed

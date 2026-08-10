@@ -310,6 +310,8 @@ def test_analysis_record_rejects_empty_required_text_like_the_wire_contract() ->
         AnalysisRecordInput(
             target="",
             kind="measurement_dataset",
+            content_hash=f"sha256:{'0' * 64}",
+            codec="scopecat.measurement-dataset.v8",
             role="data",
         )
     with pytest.raises(ValidationError, match="at least 1 character"):

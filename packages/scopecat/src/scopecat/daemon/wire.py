@@ -177,6 +177,8 @@ class AnalysisInputPayload(_WireModel):
 
     target: NonEmptyText
     kind: Literal["measurement_dataset"]
+    content_hash: NonEmptyText
+    codec: NonEmptyText
     role: NonEmptyText
     title: str | None = None
     metadata: dict[str, JsonValue] | None = None

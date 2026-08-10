@@ -65,6 +65,8 @@ from scopecat.runs.repository import (
 class AnalysisInput:
     target: str
     kind: Literal["measurement_dataset"]
+    content_hash: str
+    codec: str
     role: str
     title: str | None = None
     metadata: Mapping[str, object] | None = None
@@ -269,6 +271,8 @@ def _analysis_record_inputs(
             AnalysisRecordInput(
                 target=input_ref.target,
                 kind=input_ref.kind,
+                content_hash=input_ref.content_hash,
+                codec=input_ref.codec,
                 role=input_ref.role,
                 title=input_ref.title,
                 metadata=(

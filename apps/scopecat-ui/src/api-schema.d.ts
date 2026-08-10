@@ -1040,6 +1040,8 @@ export interface components {
         };
         /** AnalysisRecordInput */
         AnalysisRecordInput: {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
             /**
              * Kind
              * @constant

@@ -55,6 +55,7 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.datasets import MEASUREMENT_DATASET_CODEC
 from scopecat.measurements.results import Dataset, ExperimentResultView
 from scopecat.records.analysis import (
     AnalysisComputeExecution,
@@ -490,6 +491,8 @@ class Analysis:
         analysis_input = AnalysisInput(
             target=dataset.id,
             kind="measurement_dataset",
+            content_hash=dataset.content_hash,
+            codec=MEASUREMENT_DATASET_CODEC,
             role=role,
             title=title or dataset.id,
             metadata=metadata,
@@ -655,6 +658,8 @@ class AnalysisContext:
             AnalysisInput(
                 target=dataset.entry.id,
                 kind="measurement_dataset",
+                content_hash=dataset.entry.content_hash,
+                codec=MEASUREMENT_DATASET_CODEC,
                 role="data",
                 title=dataset.entry.id,
             ),
@@ -786,6 +791,8 @@ class AnalysisContext:
                 AnalysisInput(
                     target=provenance.target,
                     kind="measurement_dataset",
+                    content_hash=provenance.content_hash,
+                    codec=provenance.codec,
                     role="compute-input",
                     title=f"{compute_id}:{provenance.name}",
                     metadata={
@@ -946,7 +953,7 @@ def _analysis_compute_input(
             kind="measurement_dataset",
             target=dataset.entry.id,
             content_hash=dataset.entry.content_hash,
-            codec=codec or "scopecat.measurement-dataset.v8",
+            codec=codec or MEASUREMENT_DATASET_CODEC,
         )
     if codec is not None and codec != PYTHON_JSON_CODEC:
         raise ValueError("inline analysis compute inputs require the Python JSON codec")
