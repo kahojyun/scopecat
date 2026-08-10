@@ -311,6 +311,41 @@ nonlocal values, but preview exposes their names in `captures` and makes no
 replay promise. A registered compute implementation must express every
 nonlocal value as an input; hidden nonlocal captures are rejected.
 
+Completed-data analysis keeps its derived result model as the presentation
+schema. Annotate scalar dataclass fields once, then pass those objects directly
+to `table(...)` or `figure(...)`:
+
+```python
+@dataclass(frozen=True, slots=True)
+class FitPoint:
+    bias: Annotated[
+        sc.Quantity,
+        sc.AnalysisField(id="bias_v", label="Bias", unit="V"),
+    ]
+    resonance: Annotated[
+        sc.Quantity,
+        sc.AnalysisField(id="resonance_ghz", label="Resonance", unit="GHz"),
+    ]
+
+
+analysis = (
+    context.result("Resonator fit")
+    .table(fits)
+    .figure(
+        fits,
+        kind="line",
+        x="bias_v",
+        y="resonance_ghz",
+    )
+)
+```
+
+The presentation layer converts quantities to the declared display units and
+persists the same canonical table and figure records as the explicit
+`AnalysisTable` and `AnalysisFigure` constructors. Those constructors remain
+available for dynamic schemas; ordinary typed fit code does not maintain a
+second column declaration or rebuild aligned x/y arrays.
+
 ## Inspect placement and liveness before running
 
 `lab.preview(...)` exposes the compiler's decision without leaking compiler IR:

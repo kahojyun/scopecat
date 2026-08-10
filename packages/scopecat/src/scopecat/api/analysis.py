@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from typing import (
     Concatenate,
+    Literal,
     NoReturn,
     Protocol,
     cast,
@@ -122,11 +123,16 @@ class Analysis:
 
     def table(
         self,
-        content: AnalysisTable,
+        content: AnalysisTable | Sequence[object],
         *,
         title: str = "table",
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
+        table = (
+            content
+            if isinstance(content, AnalysisTable)
+            else AnalysisTable.from_objects(content)
+        )
         return replace(
             self,
             outputs=(
@@ -134,19 +140,67 @@ class Analysis:
                 AnalysisTableOutput(
                     kind="table",
                     title=title,
-                    content=content,
+                    content=table,
                     metadata=metadata or {},
                 ),
             ),
         )
 
+    @overload
     def figure(
         self,
         content: AnalysisFigure,
         *,
         title: str = "figure",
         metadata: Mapping[str, object] | None = None,
+    ) -> Analysis: ...
+
+    @overload
+    def figure(
+        self,
+        content: AnalysisTable | Sequence[object],
+        *,
+        kind: Literal["line", "scatter"],
+        x: str,
+        y: str,
+        series: str | None = None,
+        label: str | None = None,
+        title: str = "figure",
+        metadata: Mapping[str, object] | None = None,
+    ) -> Analysis: ...
+
+    def figure(
+        self,
+        content: AnalysisFigure | AnalysisTable | Sequence[object],
+        *,
+        kind: Literal["line", "scatter"] | None = None,
+        x: str | None = None,
+        y: str | None = None,
+        series: str | None = None,
+        label: str | None = None,
+        title: str = "figure",
+        metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
+        if isinstance(content, AnalysisFigure):
+            figure = content
+        else:
+            if kind is None or x is None or y is None:
+                raise TypeError(
+                    "analysis figures projected from rows require kind, x, and y"
+                )
+            table = (
+                content
+                if isinstance(content, AnalysisTable)
+                else AnalysisTable.from_objects(content)
+            )
+            figure = AnalysisFigure.from_table(
+                table,
+                kind=kind,
+                x=x,
+                y=y,
+                series=series,
+                label=label,
+            )
         return replace(
             self,
             outputs=(
@@ -154,7 +208,7 @@ class Analysis:
                 AnalysisFigureOutput(
                     kind="figure",
                     title=title,
-                    content=content,
+                    content=figure,
                     metadata=metadata or {},
                 ),
             ),

@@ -23,15 +23,6 @@ _DRAG_BETA_FIT_MODEL_ID = "reference_lab.drag_beta.shared_n2_quadratic.v1"
 _DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
 _DRAG_BETA_PROPOSAL_ID = "q0-drag-beta"
 _COMPUTES = sc.ComputeRegistry()
-_FIT_COLUMNS = (
-    sc.AnalysisTableColumn(id="model_id", label="Fit model"),
-    sc.AnalysisTableColumn(id="beta_hat", label="Selected beta", unit="ns"),
-    sc.AnalysisTableColumn(id="baseline", label="Baseline"),
-    sc.AnalysisTableColumn(id="quadratic", label="Quadratic coefficient"),
-    sc.AnalysisTableColumn(id="linear", label="Linear coefficient"),
-    sc.AnalysisTableColumn(id="scaled_offset", label="Scaled offset"),
-    sc.AnalysisTableColumn(id="rmse", label="RMSE"),
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,12 +44,21 @@ class DragBetaObservation:
 class DragBetaFit:
     """Fit of ``p1 = baseline + N²(a beta² + b beta + c)``."""
 
-    beta_hat: Quantity
-    baseline: float
-    quadratic: float
-    linear: float
-    scaled_offset: float
-    rmse: float
+    beta_hat: Annotated[
+        Quantity,
+        sc.AnalysisField(label="Selected beta", unit="ns"),
+    ]
+    baseline: Annotated[float, sc.AnalysisField(label="Baseline")]
+    quadratic: Annotated[
+        float,
+        sc.AnalysisField(label="Quadratic coefficient"),
+    ]
+    linear: Annotated[float, sc.AnalysisField(label="Linear coefficient")]
+    scaled_offset: Annotated[float, sc.AnalysisField(label="Scaled offset")]
+    rmse: Annotated[float, sc.AnalysisField(label="RMSE")]
+    model_id: Annotated[str, sc.AnalysisField(label="Fit model")] = (
+        _DRAG_BETA_FIT_MODEL_ID
+    )
 
 
 def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
@@ -121,26 +121,23 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
         fn=_fit_drag_beta_dataset,
         dataset=measurements,
     )
-    observation_table = sc.AnalysisTable.from_objects(observations)
 
     return (
         context.result("DRAG beta calibration")
         .table(
-            observation_table,
+            observations,
             title="DRAG beta observations",
         )
         .table(
-            sc.AnalysisTable.from_rows([_fit_summary(fit)], columns=_FIT_COLUMNS),
+            (fit,),
             title="DRAG beta quadratic fit",
         )
         .figure(
-            sc.AnalysisFigure.from_table(
-                observation_table,
-                kind="scatter",
-                x="beta_ns",
-                y="probability_1",
-                series="amplification",
-            ),
+            observations,
+            kind="scatter",
+            x="beta_ns",
+            y="probability_1",
+            series="amplification",
             title="DRAG beta observations by amplification",
         )
         .propose(
@@ -180,18 +177,6 @@ def _fit_drag_beta_dataset(
 ) -> tuple[tuple[DragBetaObservation, ...], DragBetaFit]:
     observations = _observations_from_dataset(dataset)
     return observations, fit_drag_beta(observations)
-
-
-def _fit_summary(fit: DragBetaFit) -> dict[str, sc.AnalysisTableCell]:
-    return {
-        "model_id": _DRAG_BETA_FIT_MODEL_ID,
-        "beta_hat": _beta_ns(fit.beta_hat),
-        "baseline": fit.baseline,
-        "quadratic": fit.quadratic,
-        "linear": fit.linear,
-        "scaled_offset": fit.scaled_offset,
-        "rmse": fit.rmse,
-    }
 
 
 def _beta_ns(value: Quantity) -> float:

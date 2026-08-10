@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Protocol, SupportsFloat, cast
+from typing import Annotated, Protocol, SupportsFloat, cast
 
 import numpy as np
 import scopecat as sc
@@ -24,41 +24,40 @@ FLUX_SPECTROSCOPY_ANALYSIS_ID = "reference_lab.flux_spectroscopy.analysis"
 FLUX_SPECTROSCOPY_PROPOSAL_ID = "readout-resonator-fit"
 _FIT_MODEL_ID = "reference_lab.complex_s21_notch.v1"
 _FREQUENCY_SCALE_HZ = 1.0e6
-_FIT_TABLE_COLUMNS = (
-    sc.AnalysisTableColumn(id="model_id", label="Fit model"),
-    sc.AnalysisTableColumn(id="dc_bias_v", label="DC bias", unit="V"),
-    sc.AnalysisTableColumn(id="temperature_mK", label="Temperature", unit="mK"),
-    sc.AnalysisTableColumn(
-        id="resonance_frequency_hz",
-        label="Resonance frequency",
-        unit="Hz",
-    ),
-    sc.AnalysisTableColumn(id="linewidth_hz", label="Linewidth", unit="Hz"),
-    sc.AnalysisTableColumn(id="quality_factor", label="Quality factor"),
-    sc.AnalysisTableColumn(id="baseline_power", label="Baseline power"),
-    sc.AnalysisTableColumn(id="minimum_power", label="Minimum power"),
-    sc.AnalysisTableColumn(id="complex_rmse", label="Complex RMSE", unit="ratio"),
-)
 
 
 @dataclass(frozen=True, slots=True)
 class ResonatorTraceFit:
     """One complex S21 notch fit at a fixed DC bias."""
 
-    dc_bias: sc.Quantity
-    temperature: sc.Quantity
-    resonance_frequency: sc.Quantity
-    linewidth: sc.Quantity
-    baseline_power: float
-    minimum_power: float
-    complex_rmse: float
-
-    @property
-    def quality_factor(self) -> float:
-        return _quantity_value(self.resonance_frequency, "Hz") / _quantity_value(
-            self.linewidth,
-            "Hz",
-        )
+    dc_bias: Annotated[
+        sc.Quantity,
+        sc.AnalysisField(id="dc_bias_v", label="DC bias", unit="V"),
+    ]
+    temperature: Annotated[
+        sc.Quantity,
+        sc.AnalysisField(id="temperature_mK", label="Temperature", unit="mK"),
+    ]
+    resonance_frequency: Annotated[
+        sc.Quantity,
+        sc.AnalysisField(
+            id="resonance_frequency_ghz",
+            label="Resonance frequency",
+            unit="GHz",
+        ),
+    ]
+    linewidth: Annotated[
+        sc.Quantity,
+        sc.AnalysisField(id="linewidth_mhz", label="Linewidth", unit="MHz"),
+    ]
+    quality_factor: Annotated[float, sc.AnalysisField(label="Quality factor")]
+    baseline_power: Annotated[float, sc.AnalysisField(label="Baseline power")]
+    minimum_power: Annotated[float, sc.AnalysisField(label="Minimum power")]
+    complex_rmse: Annotated[
+        float,
+        sc.AnalysisField(label="Complex RMSE", unit="ratio"),
+    ]
+    model_id: Annotated[str, sc.AnalysisField(label="Fit model")] = _FIT_MODEL_ID
 
 
 class _LeastSquaresResult(Protocol):
@@ -201,6 +200,7 @@ def fit_resonator_trace(
         temperature=temperature.to("K"),
         resonance_frequency=sc.Quantity(resonance_hz, "Hz"),
         linewidth=sc.Quantity(linewidth_hz, "Hz"),
+        quality_factor=resonance_hz / linewidth_hz,
         baseline_power=float(fitted_amplitude**2),
         minimum_power=float((fitted_amplitude * (1.0 - fitted_depth)) ** 2),
         complex_rmse=complex_rmse,
@@ -247,47 +247,23 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
         fits,
         key=lambda fit: _quantity_value(fit.resonance_frequency, "Hz"),
     )
-    fit_rows = [_fit_row(fit) for fit in fits]
-    selected_row = {
-        **_fit_row(sweet_spot),
-        "selection": "maximum fitted resonance frequency",
-    }
     return (
         context.result("Resonator flux spectroscopy")
         .table(
-            sc.AnalysisTable.from_rows(fit_rows, columns=_FIT_TABLE_COLUMNS),
+            fits,
             title="Resonator fit by DC bias",
         )
         .table(
-            sc.AnalysisTable.from_rows(
-                [selected_row],
-                columns=(
-                    *_FIT_TABLE_COLUMNS,
-                    sc.AnalysisTableColumn(id="selection", label="Selection"),
-                ),
-            ),
+            (sweet_spot,),
             title="Selected readout sweet spot",
+            metadata={"selection": "maximum fitted resonance frequency"},
         )
         .figure(
-            sc.AnalysisFigure(
-                kind="line",
-                x_axis=sc.AnalysisFigureAxis(label="DC bias", unit="V"),
-                y_axis=sc.AnalysisFigureAxis(
-                    label="Fitted resonance frequency",
-                    unit="GHz",
-                ),
-                series=[
-                    sc.AnalysisFigureSeries(
-                        id="fitted-resonance",
-                        label="Notch fit",
-                        x=[_quantity_value(fit.dc_bias, "V") for fit in fits],
-                        y=[
-                            _quantity_value(fit.resonance_frequency, "GHz")
-                            for fit in fits
-                        ],
-                    )
-                ],
-            ),
+            fits,
+            kind="line",
+            x="dc_bias_v",
+            y="resonance_frequency_ghz",
+            label="Notch fit",
             title="Resonator frequency versus flux bias",
         )
         .propose(
@@ -319,20 +295,6 @@ def _fit_point(
         dc_bias=dc_bias,
         temperature=temperature,
     )
-
-
-def _fit_row(fit: ResonatorTraceFit) -> dict[str, sc.AnalysisTableCell]:
-    return {
-        "model_id": _FIT_MODEL_ID,
-        "dc_bias_v": _quantity_value(fit.dc_bias, "V"),
-        "temperature_mK": _quantity_value(fit.temperature, "mK"),
-        "resonance_frequency_hz": _quantity_value(fit.resonance_frequency, "Hz"),
-        "linewidth_hz": _quantity_value(fit.linewidth, "Hz"),
-        "quality_factor": fit.quality_factor,
-        "baseline_power": fit.baseline_power,
-        "minimum_power": fit.minimum_power,
-        "complex_rmse": fit.complex_rmse,
-    }
 
 
 def _smooth_power(power: NDArray[np.float64]) -> NDArray[np.float64]:

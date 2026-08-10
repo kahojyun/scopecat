@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
 import pytest
 from pydantic import ValidationError
@@ -37,6 +39,15 @@ def _scaled_dataset_size(*, dataset: Dataset, scale: int) -> int:
 
 
 _COMPUTES = sc.ComputeRegistry()
+
+
+@dataclass(frozen=True, slots=True)
+class _PresentedObservation:
+    bias: Annotated[
+        sc.Quantity,
+        sc.AnalysisField(id="bias_mv", label="Bias", unit="mV"),
+    ]
+    response: Annotated[float, sc.AnalysisField(label="Response")]
 
 
 @_COMPUTES.implementation(
@@ -319,3 +330,35 @@ def test_local_analysis_rejects_metadata_outside_the_remote_json_contract(
 
     with pytest.raises(ValidationError):
         analysis.save()
+
+
+def test_analysis_facade_projects_annotated_results_directly(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    observations = (
+        _PresentedObservation(sc.Quantity(0.1, "V"), 0.2),
+        _PresentedObservation(sc.Quantity(0.2, "V"), 0.4),
+    )
+
+    analysis = (
+        in_process_lab(tmp_path, config=load_config())
+        .get_run(run.run_id)
+        .analysis("Direct presentation")
+        .table(observations)
+        .figure(
+            observations,
+            kind="line",
+            x="bias_mv",
+            y="response",
+        )
+    )
+
+    table = analysis.outputs[0].content
+    figure = analysis.outputs[1].content
+    assert isinstance(table, sc.AnalysisTable)
+    assert [row.cells for row in table.rows] == [[100.0, 0.2], [200.0, 0.4]]
+    assert isinstance(figure, sc.AnalysisFigure)
+    assert figure.series[0].x == [100.0, 200.0]
