@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from itertools import islice, product
 
-from scopecat.records.measurement import MeasurementProductGridPointDomain
+from scopecat.records.measurement import (
+    MeasurementDatasetSchema,
+    MeasurementProductGridPointDomain,
+)
 
 MEASUREMENT_DATASET_KIND = "measurement_dataset"
 RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
@@ -13,6 +16,36 @@ MAX_MEASUREMENT_PAGE_SIZE = 500
 MAX_MEASUREMENT_SLICE_SIZE = 4096
 MAX_MEASUREMENT_TRACE_SERIES = 32
 MAX_MEASUREMENT_TRACE_SAMPLES = 4096
+
+
+def select_measurement_schema(
+    schema: MeasurementDatasetSchema,
+    variable_ids: Sequence[str],
+) -> MeasurementDatasetSchema:
+    """Retain selected durable variables while preserving dataset semantics."""
+
+    selected = set(variable_ids)
+    available = {variable.id for variable in schema.variables}
+    unknown = selected - available
+    if unknown:
+        raise ValueError(f"unknown measurement variables: {', '.join(sorted(unknown))}")
+    return schema.model_copy(
+        update={
+            "variables": tuple(
+                variable for variable in schema.variables if variable.id in selected
+            ),
+            "primary_coordinates": tuple(
+                variable_id
+                for variable_id in schema.primary_coordinates
+                if variable_id in selected
+            ),
+            "primary_observables": tuple(
+                variable_id
+                for variable_id in schema.primary_observables
+                if variable_id in selected
+            ),
+        }
+    )
 
 
 def product_grid_slice_indices(

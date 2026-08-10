@@ -24,7 +24,11 @@ from scopecat.api.analysis import (
     AnalysisStep,
 )
 from scopecat.api.data import Data
-from scopecat.daemon.views import MeasurementPage
+from scopecat.daemon.views import (
+    MeasurementArrowColumn,
+    MeasurementArrowQuery,
+    MeasurementPage,
+)
 from scopecat.measurements.datasets import (
     MAX_MEASUREMENT_PAGE_SIZE,
     MEASUREMENT_DATASET_KIND,
@@ -34,6 +38,7 @@ from scopecat.measurements.results import (
     Dataset,
     ExperimentResultView,
     MeasurementDataset,
+    MeasurementDatasetSchema,
     ProjectionDiagnostics,
     ProjectionLayout,
     StoredExperimentResultView,
@@ -80,6 +85,13 @@ class RunOperations(Protocol):
         limit: int,
         offset: int,
     ) -> MeasurementPage: ...
+
+    def load_measurement_arrow_page(
+        self,
+        run_id: str,
+        *,
+        query: MeasurementArrowQuery,
+    ) -> tuple[pa.Table, int | None]: ...
 
     def save_analysis(
         self,
@@ -282,38 +294,49 @@ class RunHandle:
         layout: ProjectionLayout = "points",
         batch_size: int = 100,
     ) -> pa.RecordBatchReader:
-        """Read a finite run through one stable, page-bounded Arrow schema."""
+        """Read a finite run through one server-projected Arrow stream."""
 
-        datasets = self.measurement_batches(batch_size=batch_size)
-        first = self._project_measurement_batch(
-            next(datasets),
+        if not 1 <= batch_size <= MAX_MEASUREMENT_PAGE_SIZE:
+            raise ValueError(
+                "measurement batch_size must be between 1 and "
+                f"{MAX_MEASUREMENT_PAGE_SIZE}"
+            )
+        query = self._measurement_arrow_query(
             columns=columns,
             units=units,
             diagnostics=diagnostics,
             include_identity=include_identity,
             layout=layout,
+            batch_size=batch_size,
+        )
+        first, next_offset = self.session.run_operations.load_measurement_arrow_page(
+            self.id,
+            query=query,
         )
 
         def batches() -> Iterator[pa.RecordBatch]:
             yield from first.to_batches(max_chunksize=batch_size)
-            for dataset in datasets:
-                table = self._project_measurement_batch(
-                    dataset,
-                    columns=columns,
-                    units=units,
-                    diagnostics=diagnostics,
-                    include_identity=include_identity,
-                    layout=layout,
+            offset = next_offset
+            previous_offset = query.offset
+            while offset is not None:
+                if offset <= previous_offset:
+                    raise ValueError("measurement Arrow page next_offset must advance")
+                table, following_offset = (
+                    self.session.run_operations.load_measurement_arrow_page(
+                        self.id,
+                        query=query.model_copy(update={"offset": offset}),
+                    )
                 )
                 if table.schema != first.schema:
                     raise ValueError("measurement pages produced different projections")
                 yield from table.to_batches(max_chunksize=batch_size)
+                previous_offset = offset
+                offset = following_offset
 
         return pa.RecordBatchReader.from_batches(first.schema, batches())
 
-    @staticmethod
-    def _project_measurement_batch(
-        dataset: Dataset,
+    def _measurement_arrow_query(
+        self,
         *,
         columns: Mapping[
             str,
@@ -324,14 +347,44 @@ class RunHandle:
         diagnostics: ProjectionDiagnostics,
         include_identity: bool,
         layout: ProjectionLayout,
-    ) -> pa.Table:
-        return dataset.project(
+        batch_size: int,
+    ) -> MeasurementArrowQuery:
+        entry = require_dataset(
+            manifest=self.manifest,
+            selector=RAW_MEASUREMENTS_DATASET_ID,
+            expected_kind=MEASUREMENT_DATASET_KIND,
+        )
+        if entry.data_schema is None:
+            raise ValueError("measurement dataset has no registered schema")
+        schema = MeasurementDatasetSchema.model_validate(entry.data_schema)
+        projection = Dataset(
+            raw=MeasurementDataset(
+                dataset_schema=schema,
+                records=(),
+                metadata=entry.metadata,
+            ),
+            entry=entry,
+        ).project(
             columns,
             units=units,
             diagnostics=diagnostics,
             identity=include_identity,
             layout=layout,
-        ).to_arrow()
+        )
+        return MeasurementArrowQuery(
+            columns=tuple(
+                MeasurementArrowColumn(
+                    name=field.name,
+                    variable_id=field.variable_id,
+                )
+                for field in projection.schema.fields
+            ),
+            units=dict(units or {}),
+            diagnostics=diagnostics,
+            include_identity=include_identity,
+            layout=layout,
+            limit=batch_size,
+        )
 
     def data(self) -> Data:
         return Data(run=self)

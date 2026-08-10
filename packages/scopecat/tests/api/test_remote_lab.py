@@ -1,5 +1,8 @@
+# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import replace
@@ -9,6 +12,7 @@ from threading import Event
 from typing import cast
 
 import httpx2
+import pyarrow as pa
 import pytest
 from pydantic import BaseModel
 
@@ -87,6 +91,7 @@ from scopecat.records.config import (
     instrument_bindings,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunManifest,
@@ -138,7 +143,7 @@ _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 _PROPOSAL_ID = "sha256:" + "0" * 64
 
 
-def test_remote_run_measurement_batches_use_typed_page_endpoint() -> None:
+def test_remote_run_measurement_batches_use_typed_and_arrow_page_endpoints() -> None:
     schema = signal_point_schema(size=3)
     dataset_entry = RunContentEntry(
         role="dataset",
@@ -192,6 +197,34 @@ def test_remote_run_measurement_batches_use_typed_page_endpoint() -> None:
                     dataset_schema=schema,
                 )
             )
+        if request.url.path == "/api/v1/runs/run-batches/measurements/arrow":
+            query = json.loads(request.content)
+            offset = query["offset"]
+            items = records[offset : offset + query["limit"]]
+            table = pa.table(
+                {
+                    "point_index": [record.point_index for record in items],
+                    "logical_point_id": [record.logical_point_id for record in items],
+                    "signal": [
+                        cast("MeasurementScalar", record.observables["signal"]).value
+                        for record in items
+                    ],
+                    "signal__unavailable_reason": [None] * len(items),
+                }
+            )
+            sink = pa.BufferOutputStream()
+            with pa.ipc.new_stream(sink, table.schema) as writer:
+                writer.write_table(table)
+            next_offset = offset + len(items)
+            return httpx2.Response(
+                200,
+                content=sink.getvalue().to_pybytes(),
+                headers=(
+                    {"X-Scopecat-Next-Offset": str(next_offset)}
+                    if next_offset < len(records)
+                    else {}
+                ),
+            )
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     lab = LabClient(_client(handler))
@@ -217,22 +250,32 @@ def test_remote_run_measurement_batches_use_typed_page_endpoint() -> None:
     requests.clear()
     reader = cast(
         "Iterator[object]",
-        run.measurement_record_batches(  # pyright: ignore[reportUnknownMemberType]
+        run.measurement_record_batches(
             columns={"signal": "signal"},
             batch_size=2,
         ),
     )
     assert [request.url.path for request in requests] == [
         "/api/v1/runs/run-batches",
-        "/api/v1/runs/run-batches/measurements",
+        "/api/v1/runs/run-batches/measurements/arrow",
     ]
 
     assert len(list(reader)) == 2
     assert [request.url.path for request in requests] == [
         "/api/v1/runs/run-batches",
-        "/api/v1/runs/run-batches/measurements",
-        "/api/v1/runs/run-batches/measurements",
+        "/api/v1/runs/run-batches/measurements/arrow",
+        "/api/v1/runs/run-batches/measurements/arrow",
     ]
+    queries = [
+        json.loads(request.content)
+        for request in requests
+        if request.url.path.endswith("/measurements/arrow")
+    ]
+    assert [query["offset"] for query in queries] == [0, 2]
+    assert all(
+        query["columns"] == [{"name": "signal", "variable_id": "signal"}]
+        for query in queries
+    )
 
 
 def test_lab_preview_and_run_are_direct_prepare_shortcuts(

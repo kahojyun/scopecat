@@ -1,3 +1,5 @@
+# pyright: reportUnknownMemberType=false, reportUnknownParameterType=false
+# pyright: reportUnknownVariableType=false
 """Run records and read-side application service."""
 
 from __future__ import annotations
@@ -6,6 +8,7 @@ from base64 import b64decode, b64encode
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 
+import pyarrow as pa
 from scopecat.adapters.sqlite import (
     ControlPlaneNotFound,
     SQLiteControlPlane,
@@ -34,6 +37,7 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.daemon.views import (
+    MeasurementArrowQuery,
     MeasurementPage,
     MeasurementSlice,
     MeasurementSliceQuery,
@@ -75,7 +79,9 @@ from scopecat.kernel.errors import (
 from scopecat.measurements.datasets import (
     RAW_MEASUREMENTS_DATASET_ID,
     product_grid_slice_indices,
+    select_measurement_schema,
 )
+from scopecat.measurements.paging import project_measurement_page
 from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.measurements.traces import (
     MeasurementTraceProjection,
@@ -573,6 +579,55 @@ class RunService:
             dataset_schema=terminal_schema or live_schema,
         )
 
+    def measurement_arrow(
+        self,
+        run_id: str,
+        query: MeasurementArrowQuery,
+    ) -> tuple[pa.Table, int | None]:
+        """Read and project one finite page from Arrow-backed measurement chunks."""
+
+        variable_ids = tuple(column.variable_id for column in query.columns)
+        with self._config_errors():
+            manifest = self._runs.read_manifest(run_id)
+            items, next_offset, schema = SQLiteMeasurementDatasetRepository(
+                self._runs,
+                run_id=run_id,
+            ).measurement_page(
+                limit=query.limit,
+                offset=query.offset,
+                variable_ids=variable_ids,
+            )
+        if schema is None:
+            raise BackendConflict("measurement dataset has no registered schema")
+        entry = next(
+            (
+                candidate
+                for candidate in manifest.datasets
+                if candidate.id == RAW_MEASUREMENTS_DATASET_ID
+            ),
+            RunContentEntry(
+                role="dataset",
+                id=RAW_MEASUREMENTS_DATASET_ID,
+                kind="measurement_dataset",
+                schema=schema.model_dump(mode="json"),
+                content_hash="live-measurement-dataset",
+            ),
+        )
+        try:
+            table = project_measurement_page(
+                items,
+                schema=schema,
+                entry=entry,
+                columns={column.name: column.variable_id for column in query.columns},
+                units=query.units,
+                diagnostics=query.diagnostics,
+                include_identity=query.include_identity,
+                layout=query.layout,
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise BackendConflict(str(error)) from error
+        return table, next_offset
+
     def measurement_slice(
         self,
         run_id: str,
@@ -600,7 +655,7 @@ class RunService:
         response_schema = schema
         if query.variable_ids is not None:
             try:
-                response_schema = _select_measurement_schema(
+                response_schema = select_measurement_schema(
                     response_schema,
                     query.variable_ids,
                 )
@@ -798,34 +853,6 @@ def _domain_execution_views(
             }
         )
     return tuple(projected)
-
-
-def _select_measurement_schema(
-    schema: MeasurementDatasetSchema,
-    variable_ids: list[str],
-) -> MeasurementDatasetSchema:
-    selected = set(variable_ids)
-    available = {variable.id for variable in schema.variables}
-    unknown = selected - available
-    if unknown:
-        raise ValueError(f"unknown measurement variables: {', '.join(sorted(unknown))}")
-    return schema.model_copy(
-        update={
-            "variables": [
-                variable for variable in schema.variables if variable.id in selected
-            ],
-            "primary_coordinates": [
-                variable_id
-                for variable_id in schema.primary_coordinates
-                if variable_id in selected
-            ],
-            "primary_observables": [
-                variable_id
-                for variable_id in schema.primary_observables
-                if variable_id in selected
-            ],
-        }
-    )
 
 
 def _trace_preview_point_indices(

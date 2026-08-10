@@ -1,3 +1,5 @@
+# pyright: reportUnknownMemberType=false, reportUnknownParameterType=false
+# pyright: reportUnknownVariableType=false
 """Remote run operations backed by the daemon HTTP transport."""
 
 from __future__ import annotations
@@ -7,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+import pyarrow as pa
 from pydantic import JsonValue
 
 from scopecat.analysis.service import (
@@ -19,7 +22,12 @@ from scopecat.analysis.service import (
     SavedAnalysis,
 )
 from scopecat.daemon.client import DaemonClient
-from scopecat.daemon.views import MeasurementPage, RunAnalysisListView, RunAnalysisView
+from scopecat.daemon.views import (
+    MeasurementArrowQuery,
+    MeasurementPage,
+    RunAnalysisListView,
+    RunAnalysisView,
+)
 from scopecat.daemon.wire import (
     AnalysisDataOutputPayload,
     AnalysisFigureOutputPayload,
@@ -76,6 +84,14 @@ class RemoteRunOperations:
         offset: int,
     ) -> MeasurementPage:
         return self.client.measurements(run_id, limit=limit, offset=offset)
+
+    def load_measurement_arrow_page(
+        self,
+        run_id: str,
+        *,
+        query: MeasurementArrowQuery,
+    ) -> tuple[pa.Table, int | None]:
+        return self.client.measurement_arrow(run_id, query)
 
     def save_analysis(
         self,

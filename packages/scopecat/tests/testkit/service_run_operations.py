@@ -1,3 +1,5 @@
+# pyright: reportUnknownMemberType=false, reportUnknownParameterType=false
+# pyright: reportUnknownVariableType=false
 """In-process run operations for repository tests."""
 
 from __future__ import annotations
@@ -7,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+import pyarrow as pa
 from pydantic import JsonValue
 
 from scopecat.adapters.sqlite import (
@@ -19,13 +22,18 @@ from scopecat.analysis.service import (
     SavedAnalysis,
     save_analysis,
 )
-from scopecat.daemon.views import MeasurementPage
+from scopecat.daemon.views import MeasurementArrowQuery, MeasurementPage
+from scopecat.measurements.datasets import (
+    RAW_MEASUREMENTS_DATASET_ID,
+)
+from scopecat.measurements.paging import project_measurement_page
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.runs.access import require_dataset
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
     RunArtifactBytesResult,
@@ -85,6 +93,40 @@ class ServiceRunOperations:
             next_offset=next_offset,
             dataset_schema=dataset_schema,
         )
+
+    def load_measurement_arrow_page(
+        self,
+        run_id: str,
+        *,
+        query: MeasurementArrowQuery,
+    ) -> tuple[pa.Table, int | None]:
+        manifest = self.services.runs.read_manifest(run_id)
+        entry = require_dataset(
+            manifest=manifest,
+            selector=RAW_MEASUREMENTS_DATASET_ID,
+        )
+        variable_ids = tuple(column.variable_id for column in query.columns)
+        items, next_offset, schema = SQLiteMeasurementDatasetRepository(
+            cast("SQLiteRunRepository", self.services.runs),
+            run_id=run_id,
+        ).measurement_page(
+            limit=query.limit,
+            offset=query.offset,
+            variable_ids=variable_ids,
+        )
+        if schema is None:
+            raise ValueError("measurement dataset has no registered schema")
+        table = project_measurement_page(
+            items,
+            schema=schema,
+            entry=entry,
+            columns={column.name: column.variable_id for column in query.columns},
+            units=query.units,
+            diagnostics=query.diagnostics,
+            include_identity=query.include_identity,
+            layout=query.layout,
+        )
+        return table, next_offset
 
     def save_analysis(
         self,

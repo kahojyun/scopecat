@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Barrier, Event, Thread
 from typing import Literal, Never, cast
 
+import pyarrow as pa
 import pytest
 from fastapi.testclient import TestClient
 from scopecat.adapters.sqlite import (
@@ -2369,6 +2370,18 @@ def test_effect_is_fenced_and_terminal_updates_control(
             f"/api/v1/runs/{run_id}/measurements",
             params={"limit": 100},
         )
+        measurement_arrow = client.post(
+            f"/api/v1/runs/{run_id}/measurements/arrow",
+            json={
+                "columns": [
+                    {"name": "sample_hz", "variable_id": "frequency"},
+                    {"name": "response", "variable_id": "trace"},
+                ],
+                "limit": 2,
+                "diagnostics": "reason",
+                "layout": "observations",
+            },
+        )
         measurement_slice = client.post(
             f"/api/v1/runs/{run_id}/measurements/query",
             json={
@@ -2469,6 +2482,29 @@ def test_effect_is_fenced_and_terminal_updates_control(
         assert detail.json()["resources"][0]["status"] == "active"
         assert measurements.json()["items"][0]["point_index"] == 0
         assert measurements.json()["dataset_schema"]["dataset_id"] == "raw-measurements"
+        assert measurement_arrow.status_code == 200
+        assert measurement_arrow.headers["x-scopecat-next-offset"] == "2"
+        arrow_table = pa.ipc.open_stream(measurement_arrow.content).read_all()
+        assert arrow_table.schema.names == [
+            "point_index",
+            "logical_point_id",
+            "sample_index",
+            "sample_hz",
+            "sample_hz__unavailable_reason",
+            "response",
+            "response__unavailable_reason",
+        ]
+        assert arrow_table.num_rows == 10
+        assert arrow_table["sample_index"].to_pylist() == [0, 1, 2, 3, 4] * 2
+        assert arrow_table["sample_hz"].to_pylist() == [0.0, 1.0, 2.0, 3.0, 4.0] * 2
+        assert (
+            arrow_table["response__unavailable_reason"].to_pylist()
+            == [
+                "overload",
+            ]
+            * 5
+            + [None] * 5
+        )
         assert measurement_slice.status_code == 200
         assert missing_schema_slice.status_code == 409
         assert missing_schema_trace.status_code == 409

@@ -1,3 +1,5 @@
+# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false
 """FastAPI boundary for a daemon application service."""
 
 from __future__ import annotations
@@ -7,6 +9,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path, PurePosixPath
 from typing import Annotated, cast, override
 
+import pyarrow as pa
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi import Path as ApiPath
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -25,6 +28,7 @@ from scopecat.daemon.views import (
     DaemonHealth,
     InstrumentListView,
     InstrumentView,
+    MeasurementArrowQuery,
     MeasurementPage,
     MeasurementSlice,
     MeasurementSliceQuery,
@@ -119,6 +123,8 @@ from .payload_service import (
 )
 
 _API_PREFIX = "/api/v1"
+_ARROW_STREAM_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
+_NEXT_OFFSET_HEADER = "X-Scopecat-Next-Offset"
 _SSE_PAGE_SIZE = 100
 _SSE_POLL_SECONDS = 0.5
 DEFAULT_MAX_COMMAND_BODY_BYTES = 8 * 1024 * 1024
@@ -498,6 +504,22 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
             limit=limit,
             offset=offset,
             include_schema=include_schema,
+        )
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/arrow")
+    def measurement_arrow(
+        run_id: str,
+        query: MeasurementArrowQuery,
+    ) -> Response:
+        table, next_offset = application.runs.measurement_arrow(run_id, query)
+        sink = pa.BufferOutputStream()
+        with pa.ipc.new_stream(sink, table.schema) as writer:
+            writer.write_table(table)
+        headers = {} if next_offset is None else {_NEXT_OFFSET_HEADER: str(next_offset)}
+        return Response(
+            content=sink.getvalue().to_pybytes(),
+            media_type=_ARROW_STREAM_MEDIA_TYPE,
+            headers=headers,
         )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/query")

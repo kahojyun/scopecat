@@ -507,6 +507,65 @@ def test_measurement_page_reads_intersecting_chunks_and_live_schema(
     assert later_schema is None
 
 
+def test_measurement_page_pushes_variable_selection_into_arrow_chunks(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-columns")
+    base = _header("run-columns")
+    header = base.model_copy(
+        update={
+            "dataset_schema": base.dataset_schema.model_copy(
+                update={
+                    "variables": (
+                        MeasurementVariable(
+                            id="frequency",
+                            role="coordinate",
+                            dtype="float64",
+                            unit="Hz",
+                            dims=("point",),
+                        ),
+                        *base.dataset_schema.variables,
+                    ),
+                    "primary_coordinates": ("frequency",),
+                }
+            )
+        }
+    )
+    _commit_header(runs, repository, header)
+    append = _append(header).model_copy(
+        update={
+            "records": (
+                _append(header)
+                .records[0]
+                .model_copy(
+                    update={
+                        "coordinates": {
+                            "frequency": MeasurementScalar.create(
+                                dtype="float64",
+                                value=5e9,
+                                unit="Hz",
+                            )
+                        }
+                    }
+                ),
+            )
+        }
+    )
+    _commit_append(runs, repository, append)
+
+    items, next_offset, schema = repository.measurement_page(
+        limit=1,
+        offset=0,
+        variable_ids=("signal",),
+    )
+
+    assert next_offset is None
+    assert schema == header.dataset_schema
+    assert items[0].coordinates == {}
+    assert tuple(items[0].observables) == ("signal",)
+
+
 def test_measurement_records_at_reads_only_selected_durable_points(
     tmp_path: Path,
 ) -> None:

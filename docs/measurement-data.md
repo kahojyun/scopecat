@@ -433,12 +433,26 @@ schema-bearing batch so callers can still inspect variables and initialize
 downstream tables.
 
 `measurement_record_batches(...)` is the Arrow-native form of the same paged
-read. It reads the first page to establish one `RecordBatchReader.schema`, then
-fetches and converts later pages only as the reader advances. An empty run has a
-schema and no record batches. This is a finite read of a run's durable dataset,
-not a live subscription; run-progress triggers, watermarks, retries, and
-workflow-owned analysis state remain part of a future workflow streaming
-contract.
+read. Typed refs and external names are resolved once against the manifest, and
+the aliases, units, diagnostics, identity columns, and layout travel as one
+projection request. The daemon decodes only the selected durable variables from
+the stored Arrow append chunks, performs the projection, and returns Arrow IPC
+streams rather than JSON measurement models. The first page establishes one
+`RecordBatchReader.schema`; later pages are fetched only as the reader advances.
+An empty run has a schema and no record batches.
+
+Column pushdown currently stops at the immutable append-blob boundary: an
+intersecting IPC blob is read as a unit, while unselected variables skip model
+decoding and never cross the daemon transport. Physical per-column object-store
+I/O would require a seekable file or a different chunk layout and should be
+chosen from measured run sizes rather than added to the authoring model now.
+
+`batch_size` bounds stored experiment points. With `layout="observations"`, one
+point can expand into multiple observation rows; the returned reader still
+splits those rows into bounded Arrow record batches. This API is a finite,
+non-following read of the currently durable dataset, not a live subscription.
+Run-progress triggers, snapshot/watermark semantics, retries, and workflow-owned
+analysis state remain part of a future workflow streaming contract.
 
 Xarray and Arrow are core dependencies and are available on every measurement
 view. Install `scopecat[pandas]` or `scopecat[polars]` for the corresponding

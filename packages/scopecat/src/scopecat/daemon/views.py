@@ -21,6 +21,7 @@ from scopecat.control.models import (
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.datasets import (
+    MAX_MEASUREMENT_PAGE_SIZE,
     MAX_MEASUREMENT_SLICE_SIZE,
     MAX_MEASUREMENT_TRACE_SAMPLES,
     MAX_MEASUREMENT_TRACE_SERIES,
@@ -344,6 +345,38 @@ class MeasurementPage(_ViewModel):
     dataset_schema: MeasurementDatasetSchema | None = None
 
 
+class MeasurementArrowColumn(_ViewModel):
+    """One external Arrow column bound to a durable measurement variable."""
+
+    name: Annotated[str, Field(min_length=1)]
+    variable_id: Annotated[str, Field(min_length=1)]
+
+
+class MeasurementArrowQuery(_ViewModel):
+    """Atomic projection and finite page requested from the Arrow read path."""
+
+    columns: tuple[MeasurementArrowColumn, ...] = Field(min_length=1)
+    units: dict[str, Annotated[str, Field(min_length=1)]] = Field(default_factory=dict)
+    diagnostics: Literal["none", "reason", "full"] = "reason"
+    include_identity: bool = True
+    layout: Literal["points", "observations"] = "points"
+    limit: Annotated[int, Field(ge=1, le=MAX_MEASUREMENT_PAGE_SIZE)] = 100
+    offset: Annotated[int, Field(ge=0)] = 0
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> MeasurementArrowQuery:
+        names = tuple(column.name for column in self.columns)
+        if len(names) != len(set(names)):
+            raise ValueError("measurement Arrow column names must be unique")
+        unknown_units = set(self.units) - set(names)
+        if unknown_units:
+            raise ValueError(
+                "measurement Arrow units reference unknown columns: "
+                + ", ".join(sorted(unknown_units))
+            )
+        return self
+
+
 class MeasurementSliceQuery(_ViewModel):
     """One bounded product-grid slice selected by authored axis indices."""
 
@@ -498,6 +531,8 @@ __all__ = [
     "InstrumentConnectionSummary",
     "InstrumentListView",
     "InstrumentView",
+    "MeasurementArrowColumn",
+    "MeasurementArrowQuery",
     "MeasurementPage",
     "MeasurementSlice",
     "MeasurementSliceQuery",
