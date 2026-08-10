@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -212,6 +212,26 @@ def test_remote_run_measurement_batches_use_typed_page_endpoint() -> None:
     assert [dict(request.url.params) for request in requests[1:]] == [
         {"limit": "2", "offset": "0"},
         {"limit": "2", "offset": "2"},
+    ]
+
+    requests.clear()
+    reader = cast(
+        "Iterator[object]",
+        run.measurement_record_batches(  # pyright: ignore[reportUnknownMemberType]
+            columns={"signal": "signal"},
+            batch_size=2,
+        ),
+    )
+    assert [request.url.path for request in requests] == [
+        "/api/v1/runs/run-batches",
+        "/api/v1/runs/run-batches/measurements",
+    ]
+
+    assert len(list(reader)) == 2
+    assert [request.url.path for request in requests] == [
+        "/api/v1/runs/run-batches",
+        "/api/v1/runs/run-batches/measurements",
+        "/api/v1/runs/run-batches/measurements",
     ]
 
 

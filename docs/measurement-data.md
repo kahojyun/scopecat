@@ -376,6 +376,18 @@ Large runs can be consumed without materializing every record at once:
 ```python
 for batch in run.measurement_batches(batch_size=500):
     analyze(batch)
+
+reader = run.measurement_record_batches(
+    columns={
+        "bias_v": result.output.dc_bias,
+        "s21": result.output.trace.s_parameter,
+    },
+    units={"bias_v": "V"},
+    diagnostics="reason",
+    batch_size=500,
+)
+for record_batch in reader:
+    analyze_arrow(record_batch)
 ```
 
 Each batch is the same labeled `Dataset` facade, so slicing and ecosystem
@@ -385,6 +397,14 @@ batch, while durable `point_index` values remain absolute. Metadata exposes
 planned point domain and its point count. An empty run yields one zero-row,
 schema-bearing batch so callers can still inspect variables and initialize
 downstream tables.
+
+`measurement_record_batches(...)` is the Arrow-native form of the same paged
+read. It reads the first page to establish one `RecordBatchReader.schema`, then
+fetches and converts later pages only as the reader advances. An empty run has a
+schema and no record batches. This is a finite read of a run's durable dataset,
+not a live subscription; run-progress triggers, watermarks, retries, and
+workflow-owned analysis state remain part of a future workflow streaming
+contract.
 
 Xarray and Arrow are core dependencies and are available on every measurement
 view. Install `scopecat[pandas]` or `scopecat[polars]` for the corresponding

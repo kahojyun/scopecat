@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Protocol, cast
@@ -42,6 +43,28 @@ class _ArrowTable(Protocol):
     def num_rows(self) -> int: ...
 
     def __getitem__(self, name: str) -> _ArrowColumn: ...
+
+
+class _ArrowSchema(Protocol):
+    @property
+    def names(self) -> list[str]: ...
+
+
+class _ArrowRecordBatch(Protocol):
+    @property
+    def num_rows(self) -> int: ...
+
+    @property
+    def schema(self) -> _ArrowSchema: ...
+
+    def __getitem__(self, name: str) -> _ArrowColumn: ...
+
+
+class _ArrowRecordBatchReader(Protocol):
+    @property
+    def schema(self) -> _ArrowSchema: ...
+
+    def __iter__(self) -> Iterator[_ArrowRecordBatch]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,6 +399,21 @@ def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
         == 0
     )
 
+    reader = cast(
+        "_ArrowRecordBatchReader",
+        run.measurement_record_batches(  # pyright: ignore[reportUnknownMemberType]
+            columns={"frequency": "drive_frequency"},
+            batch_size=2,
+        ),
+    )
+    assert reader.schema.names == [
+        "point_index",
+        "logical_point_id",
+        "frequency",
+        "frequency__unavailable_reason",
+    ]
+    assert list(reader) == []
+
 
 def test_measurement_batch_converts_directly_to_arrow(tmp_path: Path) -> None:
     [first, second] = _run_signal_scan(tmp_path).measurement_batches(batch_size=2)
@@ -393,6 +431,41 @@ def test_measurement_batch_converts_directly_to_arrow(tmp_path: Path) -> None:
     assert second_table.num_rows == 1
     assert first_table["point_index"].to_pylist() == [0, 1]
     assert second_table["point_index"].to_pylist() == [2]
+
+
+def test_run_projects_paged_measurements_into_one_arrow_reader(tmp_path: Path) -> None:
+    run = _run_signal_scan(tmp_path)
+
+    reader = cast(
+        "_ArrowRecordBatchReader",
+        run.measurement_record_batches(  # pyright: ignore[reportUnknownMemberType]
+            columns={
+                "frequency": "drive_frequency",
+                "response": "signal",
+            },
+            batch_size=2,
+        ),
+    )
+    batches = list(reader)
+
+    assert reader.schema.names == [
+        "point_index",
+        "logical_point_id",
+        "frequency",
+        "frequency__unavailable_reason",
+        "response",
+        "response__unavailable_reason",
+    ]
+    assert [batch.num_rows for batch in batches] == [2, 1]
+    assert all(batch.schema.names == reader.schema.names for batch in batches)
+    assert [
+        point for batch in batches for point in batch["point_index"].to_pylist()
+    ] == [0, 1, 2]
+    assert all(
+        reason is None
+        for batch in batches
+        for reason in batch["response__unavailable_reason"].to_pylist()
+    )
 
 
 def _run_signal_scan(tmp_path: Path) -> RunHandle:

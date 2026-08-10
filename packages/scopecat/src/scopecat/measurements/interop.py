@@ -239,7 +239,13 @@ class MeasurementDataProjection:
                 b"scopecat.dataset_id": self.schema.dataset_id.encode(),
                 b"scopecat.projection": _stable_json(asdict(self.schema)).encode(),
                 b"scopecat.schema": self.dataset.schema.model_dump_json().encode(),
-                b"scopecat.metadata": _stable_json(self.dataset.metadata).encode(),
+                b"scopecat.metadata": _stable_json(
+                    {
+                        name: value
+                        for name, value in self.dataset.metadata.items()
+                        if not name.startswith("scopecat_batch_")
+                    }
+                ).encode(),
             },
         )
         return pa.Table.from_arrays(arrays, schema=schema)

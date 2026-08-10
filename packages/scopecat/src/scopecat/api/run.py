@@ -1,3 +1,5 @@
+# pyright: reportUnknownMemberType=false, reportUnknownParameterType=false
+# pyright: reportUnknownVariableType=false
 """Run facade handles for notebook workflows."""
 
 from __future__ import annotations
@@ -7,6 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol, overload
 
+import pyarrow as pa
 from pydantic import JsonValue
 
 from scopecat.analysis.service import (
@@ -31,8 +34,12 @@ from scopecat.measurements.results import (
     Dataset,
     ExperimentResultView,
     MeasurementDataset,
+    ProjectionDiagnostics,
     StoredExperimentResultView,
 )
+from scopecat.program.products import ProductRef
+from scopecat.program.record_refs import RecordRef
+from scopecat.program.value_refs import ValueRef
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -259,6 +266,68 @@ class RunHandle:
             if page.next_offset <= offset:
                 raise ValueError("measurement page next_offset must advance")
             offset = page.next_offset
+
+    def measurement_record_batches(
+        self,
+        *,
+        columns: Mapping[
+            str,
+            str | ProductRef | RecordRef | ValueRef[object],
+        ]
+        | None = None,
+        units: Mapping[str, str] | None = None,
+        diagnostics: ProjectionDiagnostics = "reason",
+        include_identity: bool = True,
+        batch_size: int = 100,
+    ) -> pa.RecordBatchReader:
+        """Read a finite run through one stable, page-bounded Arrow schema."""
+
+        datasets = self.measurement_batches(batch_size=batch_size)
+        first = self._project_measurement_batch(
+            next(datasets),
+            columns=columns,
+            units=units,
+            diagnostics=diagnostics,
+            include_identity=include_identity,
+        )
+
+        def batches() -> Iterator[pa.RecordBatch]:
+            yield from first.to_batches(max_chunksize=batch_size)
+            for dataset in datasets:
+                table = self._project_measurement_batch(
+                    dataset,
+                    columns=columns,
+                    units=units,
+                    diagnostics=diagnostics,
+                    include_identity=include_identity,
+                )
+                if table.schema != first.schema:
+                    raise ValueError("measurement pages produced different projections")
+                yield from table.to_batches(max_chunksize=batch_size)
+
+        return pa.RecordBatchReader.from_batches(first.schema, batches())
+
+    @staticmethod
+    def _project_measurement_batch(
+        dataset: Dataset,
+        *,
+        columns: Mapping[
+            str,
+            str | ProductRef | RecordRef | ValueRef[object],
+        ]
+        | None,
+        units: Mapping[str, str] | None,
+        diagnostics: ProjectionDiagnostics,
+        include_identity: bool,
+    ) -> pa.Table:
+        projected = dataset.project(**dict(columns or {}))
+        if units:
+            projected = projected.with_units(**dict(units))
+        return (
+            projected.with_diagnostics(diagnostics)
+            .with_identity(include_identity)
+            .to_arrow()
+        )
 
     def data(self) -> Data:
         return Data(run=self)
