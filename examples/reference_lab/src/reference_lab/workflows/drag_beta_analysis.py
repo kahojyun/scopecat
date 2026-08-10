@@ -22,6 +22,7 @@ from reference_lab.workflows.drag_beta_experiment import DRAG_BETA_EXPERIMENT
 _DRAG_BETA_FIT_MODEL_ID = "reference_lab.drag_beta.shared_n2_quadratic.v1"
 _DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
 _DRAG_BETA_PROPOSAL_ID = "q0-drag-beta"
+_COMPUTES = sc.ComputeRegistry()
 _OBSERVATION_COLUMNS = (
     sc.AnalysisTableColumn(id="beta_ns", label="DRAG beta", unit="ns"),
     sc.AnalysisTableColumn(id="amplification", label="Amplification"),
@@ -115,16 +116,13 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit one DRAG run and author its table, figure, and proposal."""
 
     measurements = context.measurements()
-    observations = _observations_from_dataset(measurements)
-    fit = fit_drag_beta(observations)
+    observations, fit = context.compute(
+        measurements,
+        fn=_fit_drag_beta_dataset,
+    )
 
     return (
         context.result("DRAG beta calibration")
-        .input(
-            measurements.entry.id,
-            role="fit-input",
-            title="DRAG beta measurements",
-        )
         .table(
             sc.AnalysisTable.from_rows(
                 [
@@ -193,6 +191,21 @@ def _observations_from_dataset(
             p1=point.value(schema.probabilities.probability_1),
         )
     )
+
+
+@_COMPUTES.implementation(
+    "reference-lab.drag-beta-fit",
+    "1",
+    input_codecs={"dataset": "scopecat.measurement-dataset.v8"},
+    output_codec="reference-lab.drag-beta-fit.v1",
+    capabilities=("numpy",),
+    deterministic=True,
+)
+def _fit_drag_beta_dataset(
+    dataset: Dataset,
+) -> tuple[tuple[DragBetaObservation, ...], DragBetaFit]:
+    observations = _observations_from_dataset(dataset)
+    return observations, fit_drag_beta(observations)
 
 
 def _fit_summary(fit: DragBetaFit) -> dict[str, sc.AnalysisTableCell]:

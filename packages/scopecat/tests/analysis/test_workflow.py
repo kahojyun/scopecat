@@ -10,6 +10,7 @@ import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
 from scopecat.config.registry import service as config_registry_service
+from scopecat.measurements.results import Dataset
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
 from tests.testkit.config_registry import activate_candidate_config
@@ -23,6 +24,21 @@ from tests.testkit.signal_testkit import (
     execute_signal_run,
 )
 from tests.testkit.workflow_fixtures import load_config, load_invocation
+
+
+def _dataset_size(dataset: Dataset) -> int:
+    return len(dataset)
+
+
+class _DatasetComputeStep:
+    id = "dataset-compute"
+
+    def run(self, context: sc.AnalysisContext) -> sc.Analysis:
+        measurements = context.measurements()
+        count = context.compute(measurements, fn=_dataset_size)
+        return context.result("Dataset compute").table(
+            sc.AnalysisTable.from_rows([{"points": count}])
+        )
 
 
 def test_workflow_analysis_review_activate_and_rerun_active_config(
@@ -67,6 +83,30 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     assert activation.entry.id == "candidate-best-signal"
     assert next_run.status == "completed"
     assert next_run.config_source == active_source
+
+
+def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    analysis = (
+        in_process_lab(tmp_path, config=load_config())
+        .get_run(run.run_id)
+        .analyze(_DatasetComputeStep())
+    )
+
+    [dependency] = analysis.inputs
+    assert dependency.target == "raw-measurements"
+    assert dependency.role == "compute-input"
+    assert dependency.metadata == {
+        "compute": {
+            "id": "_dataset_size",
+            "implementation": "local:_dataset_size",
+            "placement": "dataset",
+        }
+    }
 
 
 def test_analysis_save_rolls_back_refs_after_manifest_failure(

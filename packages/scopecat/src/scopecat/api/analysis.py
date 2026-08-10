@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import (
     Concatenate,
     NoReturn,
@@ -39,7 +39,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.measurements.results import Dataset
+from scopecat.measurements.results import Dataset, ExperimentResultView
 from scopecat.records.analysis import (
     AnalysisFigure,
     AnalysisFigureAxis,
@@ -51,6 +51,7 @@ from scopecat.records.analysis import (
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
+from scopecat.sdk.compute import compute_implementation_contract_internal
 
 
 class _AnalysisRun(Protocol):
@@ -262,6 +263,11 @@ class AnalysisContext:
     run: _AnalysisRun
     default_key: str | None = None
     step_id: str | None = None
+    _compute_inputs: list[AnalysisInput] = field(
+        default_factory=list,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def config(self) -> ConfigProfileSnapshot:
@@ -275,11 +281,78 @@ class AnalysisContext:
 
         return self.run.measurements(selector=selector)
 
+    @overload
+    def compute[ResultT](
+        self,
+        data: Dataset,
+        /,
+        *,
+        fn: Callable[[Dataset], ResultT],
+        id: str | None = None,
+    ) -> ResultT: ...
+
+    @overload
+    def compute[SchemaT, ResultT](
+        self,
+        data: ExperimentResultView[SchemaT],
+        /,
+        *,
+        fn: Callable[[ExperimentResultView[SchemaT]], ResultT],
+        id: str | None = None,
+    ) -> ResultT: ...
+
+    def compute[ResultT](
+        self,
+        data: object,
+        /,
+        *,
+        fn: Callable[..., ResultT],
+        id: str | None = None,
+    ) -> ResultT:
+        """Run one dataset-available compute and retain its durable dependency."""
+
+        dataset = data.dataset if isinstance(data, ExperimentResultView) else data
+        if not isinstance(dataset, Dataset):
+            raise TypeError("analysis compute requires a Dataset or bound result")
+        contract = compute_implementation_contract_internal(fn)
+        compute_id = id or getattr(fn, "__name__", "dataset-compute")
+        implementation = (
+            contract.reference if contract is not None else f"local:{compute_id}"
+        )
+        self._compute_inputs.append(
+            AnalysisInput(
+                target=dataset.entry.id,
+                kind="measurement_dataset",
+                role="compute-input",
+                title=compute_id,
+                metadata={
+                    "compute": {
+                        "id": compute_id,
+                        "implementation": implementation,
+                        "placement": "dataset",
+                        **(
+                            {}
+                            if contract is None
+                            else {
+                                "deterministic": contract.deterministic,
+                                "runtime": contract.runtime,
+                                "capabilities": list(contract.capabilities),
+                            }
+                        ),
+                    }
+                },
+            )
+        )
+        return fn(data)
+
     def result(self, title: str = "analysis", *, key: str | None = None) -> Analysis:
-        return self.run.analysis(
-            title,
-            key=key or self.default_key,
-            step_id=self.step_id,
+        return replace(
+            self.run.analysis(
+                title,
+                key=key or self.default_key,
+                step_id=self.step_id,
+            ),
+            inputs=tuple(self._compute_inputs),
         )
 
 

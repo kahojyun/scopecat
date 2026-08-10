@@ -113,6 +113,14 @@ resolve as `registry:window.peak@2`, and expose that stable identity in preview.
 The contract is the deployable unit a future worker must resolve; unregistered
 closures retain diagnostic `python:` identities.
 
+The same availability rule extends to completed datasets. Inside an analysis
+step, `context.compute(dataset, fn=fit)` runs only after the complete dataset is
+durable and automatically records that dataset plus the registered or local
+implementation identity as an analysis dependency. Thus point-local and
+dataset-level calculations share the `compute` concept; their inputs determine
+placement. Dataset compute does not run inside acquisition or silently mutate
+the source measurement dataset.
+
 Logical resource ports describe the interfaces and entities required by a
 reusable definition. The accepted configuration maps those requirements onto a
 finite catalog of physical endpoints. This keeps experiment definitions
