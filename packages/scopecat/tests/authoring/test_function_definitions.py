@@ -38,6 +38,10 @@ def _identity_count(*, value: object) -> object:
     return value
 
 
+def _default_count() -> int:
+    return 1
+
+
 def test_symbolic_factories_preserve_python_value_types() -> None:
     assert_type(
         sc.coordinate("enabled", sc.BoolType()),
@@ -119,6 +123,32 @@ def test_module_definition_rejects_global_symbolic_values() -> None:
         sc.module(captured)
 
 
+def test_compute_infers_stable_ids_from_functions_and_allocates_lambda_ids() -> None:
+    @sc.module
+    def computed(
+        module: sc.ModuleContext,
+    ) -> tuple[sc.ValueRef, sc.ValueRef, sc.ValueRef]:
+        named = module.compute(
+            fn=_default_count,
+            output_type=sc.ScalarType(_COUNT_TYPE),
+        )
+        first_lambda = module.compute(
+            fn=lambda: 2,
+            output_type=sc.ScalarType(_COUNT_TYPE),
+        )
+        second_lambda = module.compute(
+            fn=lambda: 3,
+            output_type=sc.ScalarType(_COUNT_TYPE),
+        )
+        return named, first_lambda, second_lambda
+
+    assert [operation.id for operation in computed.definition.body.operations] == [
+        "default_count",
+        "compute",
+        "compute.2",
+    ]
+
+
 def test_experiment_infers_identity_description_and_runtime_defaults() -> None:
     elaborations = 0
 
@@ -191,8 +221,15 @@ def test_returned_values_are_durable_without_explicit_record_calls() -> None:
         return count + 1
 
     computed_experiment = sc.experiment(computed)
-    [computed_record] = computed_experiment().definition.record_selections
+    computed_invocation = computed_experiment()
+    [computed_record] = computed_invocation.definition.record_selections
     assert computed_record.record_id == "result"
+    [logical_record] = compile_invocation(
+        computed_invocation
+    ).program.program.value_record_selections
+    assert (
+        logical_record.source_value_id == computed_invocation.output.id.qualified_name
+    )
 
     @sc.module
     def product_source(module: sc.ModuleContext) -> sc.ProductRef:

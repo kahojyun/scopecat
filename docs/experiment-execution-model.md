@@ -48,9 +48,11 @@ The public model has four boundaries:
 2. `@experiment` defines a complete invocation. `Input[T]` parameters become
    typed runtime values; ordinary Python parameters rebuild the structure.
 3. A domain call is an ordered experiment effect. It returns products owned by
-   that occurrence and may coexist with host-device work and postprocessing.
-4. `record(...)` selects the values and products projected into the dataset.
-   Demanded record roots determine the live compute and postprocessor graph.
+   that occurrence and may coexist with host-device work and derived-measurement
+   compute.
+4. The `@experiment` return value selects ordinary durable results. An explicit
+   `record(...)` adds naming, namespace, role, or metadata policy. These demanded
+   roots determine the live compute and observation-stage graph.
 
 A bare experiment uses its Python function name as its project-scoped technical
 identity. An explicit `id=` distinguishes definitions when needed, while
@@ -70,12 +72,13 @@ finite catalog of physical endpoints. This keeps experiment definitions
 independent of instrument names and channels while making every physical
 selection deterministic and reviewable.
 
-Product declaration, production, and recording remain distinct:
+Product declaration, production, and durable selection remain distinct:
 
 1. A module or domain call declares product identity, type, and shape.
 2. An acquisition or domain execution produces those products at an exact
    effect position.
-3. The experiment chooses which products and values become dataset records.
+3. The experiment return structure chooses which products and values become
+   dataset records; explicit recording only refines that policy.
 
 ## Specialization and lowering
 

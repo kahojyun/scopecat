@@ -105,6 +105,7 @@ from scopecat.program.value_refs import (
     ValueRef,
     internal_value_ref_point_dependencies,
     internal_value_ref_point_id,
+    internal_value_ref_record_source_id,
     internal_value_ref_requires_execution,
     internal_value_ref_source_id,
 )
@@ -415,7 +416,7 @@ class ExperimentContext:
     @overload
     def compute(
         self,
-        id: str,
+        id: str | None = None,
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ProductRef],
@@ -425,7 +426,7 @@ class ExperimentContext:
     @overload
     def compute(
         self,
-        id: str,
+        id: str | None = None,
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput] | None = None,
@@ -434,13 +435,13 @@ class ExperimentContext:
 
     def compute(
         self,
-        id: str,
+        id: str | None = None,
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: Scalar | Array | Mapping[str, DataType],
     ) -> ValueRef | ProductRef | ProductRefs:
-        """Declare one experiment-owned compute node and return its result."""
+        """Declare an experiment compute, inferring its id when omitted."""
 
         if inputs and any(isinstance(value, ProductRef) for value in inputs.values()):
             return self._program.compute(
@@ -870,9 +871,7 @@ class ExperimentContext:
             raise ValueError(
                 "recording an unnamed symbolic expression requires record_id"
             )
-        source_value_id = default_source_id or record_id
-        if source_value_id is None:
-            raise AssertionError("value record identity was not resolved")
+        source_value_id = internal_value_ref_record_source_id(value)
         selected_id = (
             record_id
             or parse_product_id(source_value_id)

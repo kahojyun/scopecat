@@ -7,6 +7,9 @@ reveal a clearer or more scalable way to serve the charter.
 
 - [Project charter](project-charter.md): current product priorities, principles,
   and scope boundaries.
+- [Experiment authoring dataflow](experiment-authoring.md): scalar and array
+  shape, availability-based compute placement, return-as-record, and the
+  remaining deliberate authoring boundaries.
 - [Experiment execution semantics](experiment-execution-model.md): current
   compiler, domain-lowering, effect, and logical-result design.
 - [Lab daemon](lab-daemon.md): current durable ownership and client boundary.

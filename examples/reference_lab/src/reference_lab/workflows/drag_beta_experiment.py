@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import scopecat as sc
 from scopecat import Quantity
-from scopecat_quantum.measurement_postprocessors import BinaryIqProbabilityRecords
+from scopecat_quantum.measurement_postprocessors import BinaryIqProbabilityProducts
 
 from reference_lab.parameters import Q0_DRAG_BETA
 from reference_lab.quantum_runner import quantum_capture
@@ -26,7 +26,7 @@ class DragBetaDataset:
 
     beta: sc.CoordinateRef[Quantity]
     amplification: sc.CoordinateRef[int]
-    probabilities: BinaryIqProbabilityRecords
+    probabilities: BinaryIqProbabilityProducts
 
 
 @sc.experiment
@@ -40,15 +40,13 @@ def drag_beta_experiment(experiment: sc.ExperimentContext) -> DragBetaDataset:
         points=DRAG_BETA_POINTS,
     )
     amplification = experiment.scan("amplification", DEFAULT_AMPLIFICATIONS)
-    probabilities = experiment.record(
-        experiment.use(
-            quantum_capture(
-                drag_beta_program(
-                    qubit="q0",
-                    amplification=amplification,
-                    beta=beta,
-                ).with_shots(DRAG_BETA_SHOTS)
-            )
+    probabilities = experiment.use(
+        quantum_capture(
+            drag_beta_program(
+                qubit="q0",
+                amplification=amplification,
+                beta=beta,
+            ).with_shots(DRAG_BETA_SHOTS)
         )
     )
     return DragBetaDataset(

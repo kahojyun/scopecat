@@ -88,7 +88,8 @@ provenance, rather than duplicated in the daemon architecture.
 Observed, baseline, and final instrument snapshots are durable run evidence.
 Run summaries expose neutral change counts, affected instruments, and missing
 readbacks; full snapshots are loaded for diagnosis or provenance. Scientific
-datasets contain only values selected by `record(...)`.
+datasets contain only values selected by the experiment return value or an
+explicit `record(...)` policy call.
 
 ## Notebook execution and durable commands
 

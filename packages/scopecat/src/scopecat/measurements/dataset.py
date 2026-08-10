@@ -33,8 +33,15 @@ from scopecat.program.measurement_types import (
     NativeMeasurementValue,
     measurement_value_spec_from_scalar,
 )
+from scopecat.program.products import ProductRef, _product_axis_dimension_id
 from scopecat.program.record_refs import RecordRef
-from scopecat.program.value_refs import CoordinateRef, internal_coordinate_ref_id
+from scopecat.program.value_refs import (
+    CoordinateRef,
+    ValueRef,
+    internal_coordinate_ref_id,
+    internal_value_ref_record_source_id,
+)
+from scopecat.program.value_types import Array, Payload, Scalar
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -563,24 +570,30 @@ class Dataset:
     ) -> Variable[T]: ...
 
     @overload
-    def __getitem__(self, variable_id: CoordinateRef[Quantity]) -> Variable[float]: ...
+    def __getitem__[T: NativeAvailableValue](
+        self,
+        variable_id: ProductRef[T],
+    ) -> Variable[T]: ...
+
+    @overload
+    def __getitem__(self, variable_id: ValueRef[Quantity]) -> Variable[float]: ...
 
     @overload
     def __getitem__(
         self,
-        variable_id: CoordinateRef[EntityRef | str],
+        variable_id: ValueRef[EntityRef | str],
     ) -> Variable[str]: ...
 
     @overload
     def __getitem__[T: bool | int | float | str](
         self,
-        variable_id: CoordinateRef[T],
+        variable_id: ValueRef[T],
     ) -> Variable[T]: ...
 
     @overload
     def __getitem__(
         self,
-        variable_id: CoordinateRef[object],
+        variable_id: ValueRef[object],
     ) -> Variable[NativeAvailableValue]: ...
 
     @overload
@@ -588,12 +601,18 @@ class Dataset:
 
     def __getitem__(
         self,
-        variable_id: str | RecordRef[NativeAvailableValue] | CoordinateRef[object],
+        variable_id: (
+            str | RecordRef[NativeAvailableValue] | ProductRef | ValueRef[object]
+        ),
     ) -> Variable[object]:
         if isinstance(variable_id, CoordinateRef):
             return self._variable_from_point_ref(variable_id)
-        if not isinstance(variable_id, str):
+        if isinstance(variable_id, RecordRef):
             return self._variable_from_record_ref(variable_id)
+        if isinstance(variable_id, ProductRef):
+            return self._variable_from_product_ref(variable_id)
+        if isinstance(variable_id, ValueRef):
+            return self._variable_from_value_ref(variable_id)
         try:
             return self.variables[variable_id]
         except KeyError as error:
@@ -611,6 +630,52 @@ class Dataset:
             raise KeyError(f"measurement dataset has no variable {ref.id!r}") from error
         _require_record_ref_matches(ref, variable.definition)
         return cast("Variable[T]", variable)
+
+    def _variable_from_product_ref[T: NativeAvailableValue](
+        self,
+        ref: ProductRef[T],
+    ) -> Variable[T]:
+        variable = self._variable_from_source(
+            "product",
+            ref.id,
+            field="source_product_id",
+        )
+        _require_product_ref_matches(ref, variable.definition)
+        return cast("Variable[T]", variable)
+
+    def _variable_from_value_ref(self, ref: ValueRef[object]) -> Variable[object]:
+        source_id = internal_value_ref_record_source_id(ref)
+        variable = self._variable_from_source(
+            "value",
+            source_id,
+            field="source_value_id",
+        )
+        _require_value_ref_matches(ref, variable.definition)
+        return cast("Variable[object]", variable)
+
+    def _variable_from_source(
+        self,
+        source: str,
+        source_id: str,
+        *,
+        field: Literal["source_product_id", "source_value_id"],
+    ) -> Variable[NativeAvailableValue]:
+        matches = tuple(
+            variable
+            for variable in self.variables.values()
+            if getattr(variable.definition, field) == source_id
+        )
+        if not matches:
+            raise KeyError(
+                f"measurement dataset has no variable from {source} {source_id!r}"
+            )
+        if len(matches) > 1:
+            ids = ", ".join(repr(variable.id) for variable in matches)
+            raise KeyError(
+                f"measurement dataset has multiple variables from {source} "
+                f"{source_id!r}: {ids}; select one by name or RecordRef"
+            )
+        return next(iter(matches))
 
     def _variable_from_point_ref(self, ref: CoordinateRef[object]) -> Variable[object]:
         point_id = internal_coordinate_ref_id(ref)
@@ -878,26 +943,38 @@ class Dataset:
 
     def traces(
         self,
-        observable: str | RecordRef[MeasurementArrayData] | None = None,
+        observable: (
+            str
+            | RecordRef[MeasurementArrayData]
+            | ProductRef[MeasurementArrayData]
+            | ValueRef[MeasurementArrayData]
+            | None
+        ) = None,
         *,
-        coordinate: str | RecordRef[MeasurementArrayData] | None = None,
+        coordinate: (
+            str
+            | RecordRef[MeasurementArrayData]
+            | ProductRef[MeasurementArrayData]
+            | ValueRef[MeasurementArrayData]
+            | None
+        ) = None,
         group: str | None = None,
     ) -> tuple[Trace, ...]:
-        """Select traces by typed record handle, variable id, or recording group."""
+        """Select traces by logical result, durable handle, id, or group."""
 
         reference_groups: set[str] = set()
-        if isinstance(observable, RecordRef):
-            _ = self[observable]
-            selected_observable = observable.id
-            if observable.recording_group_id is not None:
-                reference_groups.add(observable.recording_group_id)
+        if observable is not None and not isinstance(observable, str):
+            observable_variable = self[observable]
+            selected_observable = observable_variable.id
+            if observable_variable.recording_group_id is not None:
+                reference_groups.add(observable_variable.recording_group_id)
         else:
             selected_observable = observable
-        if isinstance(coordinate, RecordRef):
-            _ = self[coordinate]
-            selected_coordinate = coordinate.id
-            if coordinate.recording_group_id is not None:
-                reference_groups.add(coordinate.recording_group_id)
+        if coordinate is not None and not isinstance(coordinate, str):
+            coordinate_variable = self[coordinate]
+            selected_coordinate = coordinate_variable.id
+            if coordinate_variable.recording_group_id is not None:
+                reference_groups.add(coordinate_variable.recording_group_id)
         else:
             selected_coordinate = coordinate
         if group is not None:
@@ -1495,6 +1572,82 @@ def _require_record_ref_matches(
     )
     raise TypeError(
         f"record reference {ref.id!r} does not match the dataset schema: {rendered}"
+    )
+
+
+def _require_product_ref_matches(
+    ref: ProductRef[NativeAvailableValue],
+    definition: MeasurementVariable,
+) -> None:
+    expected = {
+        "dtype": ref.value_spec.dtype,
+        "unit": ref.value_spec.unit,
+        "dims": (
+            "point",
+            *(
+                _product_axis_dimension_id(ref.product_id, axis)
+                for axis in ref.value_spec.axes
+            ),
+        ),
+        "source_product_id": ref.id,
+    }
+    actual = {
+        "dtype": definition.dtype,
+        "unit": definition.unit,
+        "dims": tuple(definition.dims),
+        "source_product_id": definition.source_product_id,
+    }
+    _require_logical_ref_matches("product", ref.id, expected, actual)
+
+
+def _require_value_ref_matches(
+    ref: ValueRef[object],
+    definition: MeasurementVariable,
+) -> None:
+    value_type = ref.value_type
+    if isinstance(value_type, Scalar):
+        if isinstance(value_type.atom, Payload):
+            raise TypeError("opaque payload values cannot identify dataset variables")
+        dtype, unit = measurement_value_spec_from_scalar(value_type)
+        dims = ("point",)
+    elif isinstance(value_type, Array):
+        dtype, unit = value_type.dtype, value_type.unit
+        dims = ("point", *(dimension.id for dimension in value_type.dimensions))
+    else:
+        raise TypeError("only scalar or array values can identify dataset variables")
+    source_id = internal_value_ref_record_source_id(ref)
+    expected = {
+        "dtype": dtype,
+        "unit": unit,
+        "dims": dims,
+        "source_value_id": source_id,
+    }
+    actual = {
+        "dtype": definition.dtype,
+        "unit": definition.unit,
+        "dims": tuple(definition.dims),
+        "source_value_id": definition.source_value_id,
+    }
+    _require_logical_ref_matches("value", source_id, expected, actual)
+
+
+def _require_logical_ref_matches(
+    source: str,
+    source_id: str,
+    expected: Mapping[str, object],
+    actual: Mapping[str, object],
+) -> None:
+    mismatches = tuple(
+        name for name, value in expected.items() if actual[name] != value
+    )
+    if not mismatches:
+        return
+    rendered = ", ".join(
+        f"{name}={actual[name]!r} (expected {expected[name]!r})" for name in mismatches
+    )
+    raise TypeError(
+        f"{source} reference {source_id!r} does not match the dataset schema: "
+        f"{rendered}"
     )
 
 

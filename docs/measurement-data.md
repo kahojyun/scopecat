@@ -5,27 +5,32 @@ analysis view connected by one labeled schema. Users declare what a result
 means once, at the instrument or experiment boundary; recording, the GUI, and
 dataframe or array exports consume that same information.
 
-## Define what should be recorded
+## Return what should be recorded
 
 Acquisition result declarations own field roles, data types, units, and local
-axes. Recording the typed result bundle preserves those relationships:
+axes. Returning the typed result bundle preserves those relationships:
 
 ```python
 trace = vna.sweep()
-experiment.record(trace)
+return trace
 ```
 
 The declared frequency coordinate and response observable remain separate
 dataset variables, share their recording group and sample dimension, and retain
-their units. Use `record(...)` on one bundle member only when that member alone
-is the intended durable data. Experiment authors should not repeat a schema or
-manually join coordinate and observable names.
+their units. Return one bundle member when that member alone is the intended
+durable data. Experiment authors should not repeat a schema or manually join
+coordinate and observable names.
 
-Scalar inputs, parameters, and point coordinates may also be recorded. The
+Scalar inputs, parameters, and point coordinates may also be returned. The
 resulting schema always has a `point` dimension; acquisition-local axes follow
 it in each variable's dimension list. Symbolic values default to observables;
-pass `role="coordinate"` when an expression derives an independent physical
-coordinate.
+use an explicit `record(..., role="coordinate")` only when an expression derives
+an independent physical coordinate.
+
+The completed `Dataset` accepts the same returned `ProductRef`, `ValueRef`, and
+coordinate handles used during authoring. `RecordRef` is only needed to select
+one of several explicitly recorded aliases. See the
+[authoring dataflow](experiment-authoring.md) for the complete model.
 
 A specialized LO scan can record its physical RF coordinate at authoring time,
 making the dataset immediately plot-ready. A signed IF keeps the lab convention
@@ -238,7 +243,7 @@ complex leaves use `{real, imag}` objects.
 `complex128` is a native `complex` at runtime and the same `{real, imag}` object
 on the wire.
 
-If an unavailable value propagates through a postprocessor before a ragged
+If an unavailable value propagates through measured-data compute before a ragged
 extent can be observed, its shape keeps `None` for that unknown axis rather
 than inventing a length. Xarray can recover the point-local layout from an
 available coordinate or observable in the same recording group. When no

@@ -35,13 +35,12 @@ Interactive closures may execute in the notebook process:
 
 ```python
 @sc.experiment
-def local_value(experiment: sc.ExperimentContext) -> None:
-    value = experiment.compute(
+def local_value(experiment: sc.ExperimentContext) -> sc.ValueRef:
+    return experiment.compute(
         "value",
         fn=lambda: 1.0,
         output_type=sc.ScalarType(sc.FloatType()),
     )
-    experiment.record(value)
 
 
 with project.connect() as lab:
@@ -59,6 +58,10 @@ available through `run.measurement_batches(...)`; selections and exports can be
 applied to each yielded batch. See the
 [measurement workflow](../../docs/measurement-data.md) for details; install
 `scopecat[pandas]` only for pandas conversion.
+
+See the [authoring dataflow](../../docs/experiment-authoring.md) for how scalar
+and array shape, compute placement, returned results, and explicit recording fit
+together.
 
 See the [repository README](../../README.md) for setup and development commands,
 and the [daemon model](../../docs/lab-daemon.md) for durable ownership and

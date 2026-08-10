@@ -8,7 +8,7 @@ from typing import cast
 import scopecat as sc
 from scopecat.kernel.entity import EntityRef
 from scopecat_instruments import (
-    DCBiasReadbackRecords,
+    DCBiasReadbackProducts,
     DCSourceGroupTarget,
     dc_bias,
     dc_source,
@@ -66,9 +66,9 @@ def _physical_bias_profile(
 
 @dataclass(frozen=True, slots=True)
 class MultiChannelBiasDataset:
-    temperature: sc.RecordRef[float]
-    physical_bias: sc.PerEntity[sc.RecordRef[float]]
-    readback: sc.PerEntity[DCBiasReadbackRecords]
+    temperature: sc.ProductRef[float]
+    physical_bias: sc.PerEntity[sc.ValueRef[sc.Quantity]]
+    readback: sc.PerEntity[DCBiasReadbackProducts]
 
 
 @sc.experiment(id="reference_lab.multichannel_dc_bias")
@@ -101,14 +101,11 @@ def multichannel_dc_bias(
         for_=sc.one(CRYOSTAT),
     )
     sample = thermometer.sample()
-    readback = experiment.record(bias_ramps.readback(id="operate-readback"))
+    readback = bias_ramps.readback(id="operate-readback")
     physical_bias = sc.PerEntity(
         (
             qubit,
-            experiment.record(
-                operate[qubit],
-                record_id=f"physical_bias_{qubit.id}",
-            ),
+            operate[qubit],
         )
         for qubit in QUBIT_SELECTION
     )
@@ -120,7 +117,7 @@ def multichannel_dc_bias(
     biases.ensure(output_enabled=False)
     experiment.on_success(biases, DCSourceGroupTarget(output_enabled=False))
     return MultiChannelBiasDataset(
-        temperature=experiment.record(sample.temperature),
+        temperature=sample.temperature,
         physical_bias=physical_bias,
         readback=readback,
     )

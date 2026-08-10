@@ -48,8 +48,8 @@ SAMPLE_RATE = sc.Quantity(1.0, "GHz")
 @dataclass(frozen=True, slots=True)
 class RaggedScopeDataset:
     record_length: sc.CoordinateRef[int]
-    time: sc.RecordRef[MeasurementArrayData]
-    voltage: sc.RecordRef[MeasurementArrayData]
+    time: sc.ProductRef[MeasurementArrayData]
+    voltage: sc.ProductRef[MeasurementArrayData]
 
 
 def _repeating_probe_waveform() -> dict[str, object]:
@@ -136,12 +136,12 @@ def ragged_scope_capture(
     return RaggedScopeDataset(
         record_length=RECORD_LENGTH,
         time=cast(
-            "sc.RecordRef[MeasurementArrayData]",
-            experiment.record(time),
+            "sc.ProductRef[MeasurementArrayData]",
+            time,
         ),
         voltage=cast(
-            "sc.RecordRef[MeasurementArrayData]",
-            experiment.record(voltage),
+            "sc.ProductRef[MeasurementArrayData]",
+            voltage,
         ),
     )
 

@@ -69,7 +69,11 @@ from scopecat.program.scans import (
     RepeatMode,
     axis_parameter_contracts,
 )
-from scopecat.program.value_refs import ValueRef, internal_value_ref_source_id
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_value_ref_record_source_id,
+    internal_value_ref_source_id,
+)
 from scopecat.program.value_transforms import internal_bind_value_ref_inputs
 
 
@@ -357,9 +361,7 @@ def _resolve_value_record_selection(
     default_source_id = internal_value_ref_source_id(value)
     if selection.record_id is None and default_source_id is None:
         raise ValueError("recording an unnamed symbolic expression requires record_id")
-    source_value_id = default_source_id or selection.record_id
-    if source_value_id is None:
-        raise AssertionError("value record identity was not resolved")
+    source_value_id = internal_value_ref_record_source_id(value)
     selected_id = (
         selection.record_id
         or parse_product_id(source_value_id)

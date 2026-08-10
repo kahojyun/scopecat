@@ -266,7 +266,7 @@ def xy_drive(
 @dataclass(frozen=True, slots=True)
 class XYLoSweepDataset:
     requested_lo_frequency: sc.CoordinateRef[Quantity]
-    requested_carrier_frequency: PerEntity[sc.RecordRef[float]]
+    requested_carrier_frequency: PerEntity[sc.ValueRef[Quantity]]
 
 
 def _i_waveform(if_frequency: Quantity) -> dict[str, object]:
@@ -322,12 +322,9 @@ def xy_lo_sweep(experiment: sc.ExperimentContext) -> XYLoSweepDataset:
         requested_carrier_frequency=PerEntity(
             (
                 entity,
-                experiment.record(
-                    cast(
-                        "ValueRef[Quantity]",
-                        frequencies.requested_carrier_frequency[entity],
-                    ),
-                    record_id=f"requested_carrier_frequency_{entity.id}",
+                cast(
+                    "ValueRef[Quantity]",
+                    frequencies.requested_carrier_frequency[entity],
                 ),
             )
             for entity in XY_QUBITS

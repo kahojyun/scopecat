@@ -149,6 +149,15 @@ def _relocate_result_value(
                 value_replacements=value_replacements,
             )
         )
+    if isinstance(value, tuple):
+        return tuple(
+            _relocate_result_value(
+                item,
+                product_replacements=product_replacements,
+                value_replacements=value_replacements,
+            )
+            for item in cast("tuple[object, ...]", value)
+        )
     if is_dataclass(value) and not isinstance(value, type):
         members = fields(value)
         if not members:
@@ -166,7 +175,7 @@ def _relocate_result_value(
         )
     raise TypeError(
         "module functions must return None, ValueRef, ProductRef, or a "
-        "dataclass/PerEntity tree of references"
+        "tuple/dataclass/PerEntity tree of references"
     )
 
 
@@ -181,6 +190,10 @@ def _append_result_values(selected: list[ValueRef], value: object) -> None:
         for item in value.values():
             _append_result_values(selected, item)
         return
+    if isinstance(value, tuple):
+        for item in cast("tuple[object, ...]", value):
+            _append_result_values(selected, item)
+        return
     if is_dataclass(value) and not isinstance(value, type):
         members = fields(value)
         if not members:
@@ -193,7 +206,7 @@ def _append_result_values(selected: list[ValueRef], value: object) -> None:
         return
     raise TypeError(
         "module functions must return None, ValueRef, ProductRef, or a "
-        "dataclass/PerEntity tree of references"
+        "tuple/dataclass/PerEntity tree of references"
     )
 
 

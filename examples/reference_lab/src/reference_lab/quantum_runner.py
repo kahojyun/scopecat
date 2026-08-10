@@ -122,7 +122,7 @@ def _prepare_reviewed_los(
 def run_quantum(
     experiment: sc.ExperimentContext,
     call: quantum.QuantumProgramCall,
-) -> None:
+) -> BinaryIqProbabilityProducts:
     """Run an integrated-IQ program through the lab-owned experiment skeleton.
 
     Independent local-device work, including external LO preparation, belongs
@@ -130,7 +130,7 @@ def run_quantum(
     part of the quantum target/compiler contract.
     """
 
-    experiment.record(experiment.use(quantum_capture(call)))
+    return experiment.use(quantum_capture(call))
 
 
 __all__ = [

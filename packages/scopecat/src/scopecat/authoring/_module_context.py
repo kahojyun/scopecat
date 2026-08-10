@@ -834,7 +834,7 @@ class ModuleContext:
     @overload
     def compute(
         self,
-        id: str,
+        id: str | None = None,
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ProductRef],
@@ -844,7 +844,7 @@ class ModuleContext:
     @overload
     def compute(
         self,
-        id: str,
+        id: str | None = None,
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput] | None = None,
@@ -853,14 +853,18 @@ class ModuleContext:
 
     def compute(
         self,
-        id: str,
+        id: str | None = None,
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
         output_type: ScalarType | ArrayType | Mapping[str, DataType],
     ) -> ValueRef | ProductRef | ProductRefs:
-        """Declare a compute at the earliest stage where its inputs exist."""
+        """Declare a compute where its inputs exist, inferring an id when omitted."""
 
+        selected_id = self._allocate_effect_id(
+            _compute_name_hint(fn) if id is None else id,
+            explicit=id is not None,
+        )
         if any(isinstance(value, ProductRef) for value in (inputs or {}).values()):
             if not inputs or not all(
                 isinstance(value, ProductRef) for value in inputs.values()
@@ -869,7 +873,7 @@ class ModuleContext:
                     "measurement-derived compute inputs must all be measured products"
                 )
             return self._compute_measurements(
-                id,
+                selected_id,
                 fn=fn,
                 inputs=cast("Mapping[str, ProductRef]", inputs),
                 output_type=output_type,
@@ -885,7 +889,7 @@ class ModuleContext:
             for name, value in (inputs or {}).items()
         }
         definition = define_compute(
-            id,
+            selected_id,
             fn=fn,
             inputs=selected_inputs,
             output_type=output_type,
@@ -1018,6 +1022,12 @@ def _capture_binding_literal(value: object) -> object:
     if isinstance(value, ValueRef):
         return value
     return capture_runtime_input(value)
+
+
+def _compute_name_hint(fn: ComputeFunction) -> str:
+    name = cast("str", getattr(fn, "__name__", ""))
+    selected = name.lstrip("_")
+    return selected if selected and selected != "<lambda>" else "compute"
 
 
 def _is_payload_binding_input(value: object) -> bool:

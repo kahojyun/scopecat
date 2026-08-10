@@ -48,8 +48,8 @@ RECORD_LENGTH = 16
 
 @dataclass(frozen=True, slots=True)
 class AwgOutputMonitorDataset:
-    time: sc.RecordRef[MeasurementArrayData]
-    voltage: sc.RecordRef[MeasurementArrayData]
+    time: sc.ProductRef[MeasurementArrayData]
+    voltage: sc.ProductRef[MeasurementArrayData]
 
 
 def _diagnostic_waveform() -> dict[str, object]:
@@ -160,12 +160,12 @@ def awg_output_monitor(
     )
     return AwgOutputMonitorDataset(
         time=cast(
-            "sc.RecordRef[MeasurementArrayData]",
-            experiment.record(time),
+            "sc.ProductRef[MeasurementArrayData]",
+            time,
         ),
         voltage=cast(
-            "sc.RecordRef[MeasurementArrayData]",
-            experiment.record(voltage),
+            "sc.ProductRef[MeasurementArrayData]",
+            voltage,
         ),
     )
 

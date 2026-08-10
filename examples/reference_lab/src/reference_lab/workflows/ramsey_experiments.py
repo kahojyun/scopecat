@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import scopecat as sc
 from scopecat.kernel.entity import EntityRef
+from scopecat.program.measurement_types import MeasurementArrayData
 from scopecat_instruments import DCSourceTarget, dc_source, rf_output
 from scopecat_quantum.measurement_postprocessors import (
-    BinaryIqProbabilityRecords,
+    BinaryIqProbabilityProducts,
     binary_iq_probabilities,
 )
 
@@ -43,15 +45,15 @@ Q0_LO_FREQUENCIES = tuple(sc.Quantity(value, "GHz") for value in (4.84, 4.85, 4.
 @dataclass(frozen=True, slots=True)
 class RamseyDataset:
     delay: sc.CoordinateRef[sc.Quantity]
-    probabilities: BinaryIqProbabilityRecords
+    probabilities: BinaryIqProbabilityProducts
 
 
 @dataclass(frozen=True, slots=True)
 class FixedIfLoSweepDataset:
     lo_frequency: sc.CoordinateRef[sc.Quantity]
-    signed_if_frequency: sc.RecordRef[float]
-    carrier_frequency: sc.RecordRef[float]
-    probabilities: BinaryIqProbabilityRecords
+    signed_if_frequency: sc.ValueRef[sc.Quantity]
+    carrier_frequency: sc.ValueRef[sc.Quantity]
+    probabilities: BinaryIqProbabilityProducts
 
 
 @sc.experiment(id="reference_lab.q0_fixed_if_lo_sweep")
@@ -75,33 +77,23 @@ def q0_fixed_if_lo_sweep(
         output_enabled=True,
         reference_source="external",
     )
-    probabilities = experiment.record(
-        experiment.use(
-            quantum_capture(
-                ramsey_program(
-                    qubit="q0",
-                    delay=sc.Quantity(88, "ns"),
-                    phase=sc.Quantity(0.0, "rad"),
-                ).with_shots(RAMSEY_SHOTS),
-                prepare_los=False,
-            )
+    probabilities = experiment.use(
+        quantum_capture(
+            ramsey_program(
+                qubit="q0",
+                delay=sc.Quantity(88, "ns"),
+                phase=sc.Quantity(0.0, "rad"),
+            ).with_shots(RAMSEY_SHOTS),
+            prepare_los=False,
         )
     )
     signed_if = (
         lab_parameters.Q0[DRIVE_CARRIER_FREQUENCY].ref - DRIVE_LO_A[LO_FREQUENCY].ref
     )
-    signed_if_frequency = experiment.record(
-        signed_if,
-        record_id="signed_if_frequency",
-    )
-    carrier_frequency = experiment.record(
-        lo_frequency + signed_if,
-        record_id="requested_carrier_frequency",
-    )
     return FixedIfLoSweepDataset(
         lo_frequency=lo_frequency,
-        signed_if_frequency=signed_if_frequency,
-        carrier_frequency=carrier_frequency,
+        signed_if_frequency=signed_if,
+        carrier_frequency=lo_frequency + signed_if,
         probabilities=probabilities,
     )
 
@@ -121,15 +113,13 @@ def q0_ramsey(experiment: sc.ExperimentContext) -> RamseyDataset:
     """Run a delay scan on q0 through its configured drive/readout channels."""
 
     delay = experiment.scan("delay", RAMSEY_DELAYS)
-    probabilities = experiment.record(
-        experiment.use(
-            quantum_capture(
-                ramsey_program(
-                    qubit="q0",
-                    delay=delay,
-                    phase=sc.Quantity(0.0, "rad"),
-                ).with_shots(RAMSEY_SHOTS)
-            )
+    probabilities = experiment.use(
+        quantum_capture(
+            ramsey_program(
+                qubit="q0",
+                delay=delay,
+                phase=sc.Quantity(0.0, "rad"),
+            ).with_shots(RAMSEY_SHOTS)
         )
     )
     return RamseyDataset(delay=delay, probabilities=probabilities)
@@ -139,7 +129,7 @@ def q0_ramsey(experiment: sc.ExperimentContext) -> RamseyDataset:
 class FluxRamseyDataset:
     dc_bias: sc.CoordinateRef[sc.Quantity]
     delay: sc.CoordinateRef[sc.Quantity]
-    probabilities: BinaryIqProbabilityRecords
+    probabilities: BinaryIqProbabilityProducts
 
 
 @sc.experiment(id="reference_lab.flux_ramsey")
@@ -155,15 +145,13 @@ def flux_ramsey(experiment: sc.ExperimentContext) -> FluxRamseyDataset:
     )
     source.source_voltage(range=sc.Quantity(1.0, "V"), level=dc_bias)
     source.ensure(output_enabled=True)
-    probabilities = experiment.record(
-        experiment.use(
-            quantum_capture(
-                ramsey_program(
-                    qubit="q0",
-                    delay=delay,
-                    phase=sc.Quantity(0.0, "rad"),
-                ).with_shots(RAMSEY_SHOTS)
-            )
+    probabilities = experiment.use(
+        quantum_capture(
+            ramsey_program(
+                qubit="q0",
+                delay=delay,
+                phase=sc.Quantity(0.0, "rad"),
+            ).with_shots(RAMSEY_SHOTS)
         )
     )
     experiment.on_success(source, DCSourceTarget(output_enabled=False))
@@ -178,7 +166,7 @@ def flux_ramsey(experiment: sc.ExperimentContext) -> FluxRamseyDataset:
 class EntityRamseyDataset:
     qubit: sc.CoordinateRef[EntityRef]
     delay: sc.CoordinateRef[sc.Quantity]
-    probabilities: BinaryIqProbabilityRecords
+    probabilities: BinaryIqProbabilityProducts
 
 
 @sc.experiment(id="reference_lab.entity_routed_ramsey")
@@ -187,15 +175,13 @@ def entity_routed_ramsey(experiment: sc.ExperimentContext) -> EntityRamseyDatase
 
     qubit = experiment.scan("qubit", (Q0, Q1))
     delay = experiment.scan("delay", RAMSEY_DELAYS[:3])
-    probabilities = experiment.record(
-        experiment.use(
-            quantum_capture(
-                ramsey_program(
-                    qubit=qubit,
-                    delay=delay,
-                    phase=sc.Quantity(0.0, "rad"),
-                ).with_shots(RAMSEY_SHOTS)
-            )
+    probabilities = experiment.use(
+        quantum_capture(
+            ramsey_program(
+                qubit=qubit,
+                delay=delay,
+                phase=sc.Quantity(0.0, "rad"),
+            ).with_shots(RAMSEY_SHOTS)
         )
     )
     return EntityRamseyDataset(
@@ -208,15 +194,15 @@ def entity_routed_ramsey(experiment: sc.ExperimentContext) -> EntityRamseyDatase
 @dataclass(frozen=True, slots=True)
 class ParallelRamseyDataset:
     delay: sc.CoordinateRef[sc.Quantity]
-    q0: BinaryIqProbabilityRecords
-    q1: BinaryIqProbabilityRecords
+    q0: BinaryIqProbabilityProducts
+    q1: BinaryIqProbabilityProducts
 
 
 @dataclass(frozen=True, slots=True)
 class ParallelRawRamseyDataset:
     delay: sc.CoordinateRef[sc.Quantity]
-    q0_iq: sc.RecordRef
-    q1_iq: sc.RecordRef
+    q0_iq: sc.ProductRef[MeasurementArrayData]
+    q1_iq: sc.ProductRef[MeasurementArrayData]
 
 
 @sc.experiment(id="reference_lab.parallel_raw_ramsey")
@@ -238,8 +224,14 @@ def parallel_raw_ramsey(experiment: sc.ExperimentContext) -> ParallelRawRamseyDa
     results = experiment.use(call.with_compiler_inputs(qubits=QUBITS.ref))
     return ParallelRawRamseyDataset(
         delay=delay,
-        q0_iq=experiment.record(results.q0_iq_shots),
-        q1_iq=experiment.record(results.q1_iq_shots),
+        q0_iq=cast(
+            "sc.ProductRef[MeasurementArrayData]",
+            results.q0_iq_shots,
+        ),
+        q1_iq=cast(
+            "sc.ProductRef[MeasurementArrayData]",
+            results.q1_iq_shots,
+        ),
     )
 
 
@@ -275,8 +267,8 @@ def parallel_two_qubit_ramsey(
     )
     return ParallelRamseyDataset(
         delay=delay,
-        q0=experiment.record(q0_products),
-        q1=experiment.record(q1_products),
+        q0=q0_products,
+        q1=q1_products,
     )
 
 

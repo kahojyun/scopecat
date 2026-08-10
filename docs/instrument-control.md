@@ -80,7 +80,7 @@ from scopecat_instruments import network_sweep
 
 
 @sc.experiment
-def capture(experiment: sc.ExperimentContext) -> None:
+def capture(experiment: sc.ExperimentContext):
     vna = network_sweep(experiment)
     vna.ensure(
         start_frequency=sc.Quantity(4.9, "GHz"),
@@ -88,8 +88,7 @@ def capture(experiment: sc.ExperimentContext) -> None:
         points=751,
         s_parameter="S21",
     )
-    trace = vna.sweep()
-    experiment.record(trace)
+    return vna.sweep()
 ```
 
 `ensure(...)` records coherent desired state. Fixed values, inputs, parameters,
@@ -103,10 +102,10 @@ reused or composed, rather than a prerequisite for device use.
 
 Product namespaces derive from the capability and effect occurrence. Supply an
 explicit acquisition `id=` when an occurrence is part of a durable data
-contract. Recording a complete result bundle preserves its declared coordinate,
+contract. Returning a complete result bundle preserves its declared coordinate,
 observable, axis, and acquisition-group relationships. The
-[measurement data guide](measurement-data.md#define-what-should-be-recorded) is the
-canonical recording reference.
+[measurement data guide](measurement-data.md#return-what-should-be-recorded) is
+the canonical durable-result reference.
 
 ### Select equivalent resources by role
 
@@ -235,7 +234,7 @@ many.ensure(
     s_parameter="S21",
 )
 traces = many.sweep()
-experiment.record(traces)
+return traces
 ```
 
 Alignment is an identity join, so mapping order is irrelevant and missing,

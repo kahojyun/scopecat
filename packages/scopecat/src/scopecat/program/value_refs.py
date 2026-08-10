@@ -426,6 +426,17 @@ def internal_value_ref_source_id(value: ValueRef) -> str | None:
     return None
 
 
+def internal_value_ref_record_source_id(value: ValueRef) -> str:
+    """Return the durable provenance identity for any recordable value.
+
+    Directly named values retain their public source identity. Pure expressions
+    use their graph identity, keeping the source distinct from whichever
+    human-facing record name selected them.
+    """
+
+    return internal_value_ref_source_id(value) or value.id.qualified_name
+
+
 def internal_value_ref_module_export(
     value: ValueRef,
 ) -> tuple[InvocationKey, str] | None:

@@ -7,7 +7,7 @@ import json
 import math
 from collections.abc import Mapping
 from pathlib import Path
-from typing import assert_type
+from typing import assert_type, cast
 
 import numpy as np
 import pyarrow as pa
@@ -17,9 +17,12 @@ import xarray as xr
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import Dataset, PointMask, Variable
 from scopecat.program.measurement_types import MeasurementArrayData, MeasurementDType
+from scopecat.program.products import ModuleProductDecl, ProductRef, ProductValueSpec
 from scopecat.program.record_refs import RecordRef
+from scopecat.program.value_refs import ValueRef
 from scopecat.program.value_types import Quantity as QuantityType
-from scopecat.program.values import CoordinateRef, coordinate
+from scopecat.program.value_types import Scalar
+from scopecat.program.values import CoordinateRef, compute, coordinate
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -124,6 +127,46 @@ def test_coordinate_handle_narrows_a_dataset_coordinate() -> None:
 
     assert_type(bias, Variable[float])
     assert bias.require_quantities("mV")[1] == Quantity(1000.0, "mV")
+
+
+def test_logical_product_handle_selects_its_durable_variable() -> None:
+    dataset = _dataset_with_record_sources()
+    temperature_ref = ProductRef.from_declaration(
+        ModuleProductDecl(
+            id="temperature",
+            scope=("thermometer",),
+            value_spec=ProductValueSpec[float](dtype="float64", unit="K"),
+        )
+    )
+
+    temperature = dataset[temperature_ref]
+
+    assert_type(temperature, Variable[float])
+    assert temperature.quantities("mK") == (
+        Quantity(50.0, "mK"),
+        None,
+        Quantity(200.0, "mK"),
+    )
+
+
+def test_logical_value_handle_selects_by_source_independently_of_record_name() -> None:
+    temperature_ref = cast(
+        "ValueRef[Quantity]",
+        compute(
+            "analysis-temperature",
+            fn=lambda: Quantity(0.0, "K"),
+            output_type=Scalar(QuantityType(unit="K")),
+        ).output,
+    )
+    dataset = _dataset_with_value_source(
+        variable_id="temperature",
+        source_value_id="analysis-temperature",
+    )
+
+    temperature = dataset[temperature_ref]
+
+    assert_type(temperature, Variable[float])
+    assert temperature.unit == "K"
 
 
 def test_variable_require_helpers_reject_unavailable_rows() -> None:
@@ -1167,6 +1210,28 @@ def _dataset_with_record_sources() -> Dataset:
     }
     variables = tuple(
         variable.model_copy(update=source_fields.get(variable.id, {}))
+        for variable in dataset.schema.variables
+    )
+    schema = dataset.schema.model_copy(update={"variables": variables})
+    raw = dataset.raw.model_copy(update={"dataset_schema": schema})
+    return Dataset(raw, dataset.entry)
+
+
+def _dataset_with_value_source(
+    *,
+    variable_id: str,
+    source_value_id: str,
+) -> Dataset:
+    dataset = _dataset()
+    variables = tuple(
+        variable.model_copy(
+            update={
+                "source_product_id": None,
+                "source_value_id": source_value_id,
+            }
+        )
+        if variable.id == variable_id
+        else variable
         for variable in dataset.schema.variables
     )
     schema = dataset.schema.model_copy(update={"variables": variables})
