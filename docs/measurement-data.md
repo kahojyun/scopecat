@@ -658,8 +658,14 @@ Arrow schema:
 ```python
 fits = run.derived_dataset("analysis-fit-review-fits")
 pandas_frame = fits.to_pandas()
+lossless_pandas_frame = fits.to_pandas(dtype_backend="pyarrow")
 polars_frame = fits.to_polars()
 ```
+
+The default pandas view favors familiar NumPy-backed dtypes. Select the
+`pyarrow` backend when nullable integers, dictionary values, or other exact
+Arrow dtype identity must survive the in-memory pandas conversion. The durable
+dataset itself keeps the Arrow type either way.
 
 Use `context.trace(...)` when an analysis execution needs retained runtime
 metadata, registered codecs, deterministic provenance, or bounded batch access:

@@ -162,6 +162,36 @@ def test_derived_dataset_retains_only_meaningful_pandas_indexes() -> None:
     assert dropped.table.column_names == ["score"]
 
 
+def test_derived_dataset_pandas_backend_can_preserve_arrow_dtypes() -> None:
+    pd = pytest.importorskip("pandas")
+    frame = pd.DataFrame(
+        {
+            "category": pd.Categorical(
+                ["low", "high"],
+                categories=["low", "high"],
+                ordered=True,
+            ),
+            "timestamp": pd.to_datetime(
+                ["2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z"],
+                utc=True,
+            ),
+            "nullable_int": pd.Series([1, None], dtype="Int64"),
+        }
+    )
+
+    dataset = sc.derived_dataset(frame)
+    familiar = dataset.to_pandas()
+    lossless = dataset.to_pandas(dtype_backend="pyarrow")
+
+    assert str(dataset.table.schema.field("category").type).startswith("dictionary<")
+    assert str(dataset.table.schema.field("timestamp").type) == "timestamp[us, tz=UTC]"
+    assert str(dataset.table.schema.field("nullable_int").type) == "int64"
+    assert str(familiar["nullable_int"].dtype) == "float64"
+    assert str(lossless["nullable_int"].dtype) == "int64[pyarrow]"
+    assert lossless["nullable_int"].iloc[0] == 1
+    assert pd.isna(lossless["nullable_int"].iloc[1])
+
+
 def test_derived_dataset_rejects_ambiguous_pandas_column_names() -> None:
     pd = pytest.importorskip("pandas")
 

@@ -100,6 +100,23 @@ An unsupported native shape must not be flattened implicitly merely because a
 dataframe conversion is available. Adding a first-party mapping requires a
 round-trip contract and tests against the native library.
 
+### Native dataset contract
+
+The first-party adapter intentionally supports a small, explicit matrix:
+
+| Source | Accepted boundary | Durable guarantees | Explicit limit |
+| --- | --- | --- | --- |
+| PyArrow | A `Table` with unique, non-empty field names | Arrow types, nulls, nested column values, schema metadata, and recognized role/unit/label metadata | A table view must deliberately select scalar columns; nested values are not stringified |
+| pandas | A two-dimensional `DataFrame` with string column names | Values enter the same Arrow schema; categorical, timezone, and nullable numeric identities remain durable there; meaningful indexes become coordinate columns | The default `RangeIndex` is dropped; index/column collisions and non-string columns are rejected |
+| Polars | A `DataFrame` through its Arrow representation | Column order, Arrow-representable physical types, nulls, and explicit `AnalysisField` semantics | Polars-only metadata with no Arrow representation is not promised |
+| Xarray | Exactly one named dimension, with every coordinate and data variable using that dimension | Coordinate roles, physical dtypes, dimension identity, and finite JSON dataset/variable attributes round-trip | Multi-dimensional, scalar-mixed, or multi-index layouts must be projected deliberately or stored as artifacts |
+| NumPy | Arrays inside an explicitly named dataframe/Xarray field | The owning container supplies field identity and topology | A bare ndarray is not a dataset because it has no durable field names or coordinate meaning |
+
+`DerivedDataset.to_pandas()` defaults to familiar pandas/NumPy dtypes. Use
+`dtype_backend="pyarrow"` when nullable integer and other exact Arrow dtype
+identity matters more than NumPy-native behavior. This choice affects only the
+in-memory pandas view; the durable dataset always retains its Arrow schema.
+
 ## Provenance and scope
 
 The record identifies exact input snapshots and every published output. A

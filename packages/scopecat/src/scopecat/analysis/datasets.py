@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from base64 import b64decode, b64encode
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from importlib import import_module
@@ -37,10 +37,15 @@ DERIVED_DATASET_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
 
 type DerivedDatasetRole = Literal["coordinate", "observable"]
 type PandasIndexPolicy = Literal["auto", "columns", "drop"]
+type PandasDTypeBackend = Literal["numpy", "pyarrow"]
 
 
 class _FrameModule(Protocol):
     DataFrame: type[object]
+
+
+class _PandasModule(_FrameModule, Protocol):
+    ArrowDtype: Callable[[pa.DataType], object]
 
 
 class _PolarsModule(_FrameModule, Protocol):
@@ -320,11 +325,22 @@ class DerivedDataset:
             ),
         )
 
-    def to_pandas(self) -> pd.DataFrame:
-        """Return a normal pandas frame for further analysis."""
+    def to_pandas(
+        self,
+        *,
+        dtype_backend: PandasDTypeBackend = "numpy",
+    ) -> pd.DataFrame:
+        """Return pandas-native values or preserve Arrow extension dtypes."""
 
-        _optional_module("pandas", extra="pandas")
-        return cast("pd.DataFrame", self.table.to_pandas())
+        if dtype_backend not in {"numpy", "pyarrow"}:
+            raise ValueError("pandas dtype_backend must be numpy or pyarrow")
+        module = cast("_PandasModule", _optional_module("pandas", extra="pandas"))
+        return cast(
+            "pd.DataFrame",
+            self.table.to_pandas(
+                types_mapper=(None if dtype_backend == "numpy" else module.ArrowDtype)
+            ),
+        )
 
     def to_polars(self) -> pl.DataFrame:
         """Return a normal Polars frame for further analysis."""
@@ -748,6 +764,7 @@ __all__ = [
     "DerivedDatasetPayload",
     "DerivedDatasetRole",
     "DerivedDatasetSchema",
+    "PandasDTypeBackend",
     "PandasIndexPolicy",
     "derived_dataset",
 ]

@@ -6,6 +6,7 @@ from scopecat.analysis.datasets import (
     DerivedDataset,
     DerivedDatasetField,
     DerivedDatasetSchema,
+    PandasDTypeBackend,
     derived_dataset,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "DerivedDataset",
     "DerivedDatasetField",
     "DerivedDatasetSchema",
+    "PandasDTypeBackend",
     "derived_dataset",
 ]
