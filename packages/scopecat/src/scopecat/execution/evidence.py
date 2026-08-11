@@ -9,12 +9,12 @@ from scopecat.measurements.datasets import (
     MEASUREMENT_DATASET_KIND,
     RAW_MEASUREMENTS_DATASET_ID,
 )
-from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution import (
     InstrumentStateEvidence,
     summarize_instrument_state_evidence,
 )
+from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.runs.refs import record_content_ref
 
 INSTRUMENT_STATE_EVIDENCE_ID = "instrument-state-evidence"

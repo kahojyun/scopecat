@@ -8,16 +8,18 @@ from collections.abc import Mapping, Sequence
 
 import pyarrow as pa
 
+from scopecat.measurements.dataset import Dataset
 from scopecat.measurements.datasets import select_measurement_schema
-from scopecat.measurements.results import (
-    Dataset,
-    MeasurementDataset,
-    MeasurementDatasetSchema,
+from scopecat.measurements.interop import (
     ProjectionDiagnostics,
     ProjectionLayout,
 )
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement import (
+    MeasurementDataset,
+    MeasurementDatasetSchema,
+    MeasurementRecord,
+)
 
 
 def project_measurement_page(

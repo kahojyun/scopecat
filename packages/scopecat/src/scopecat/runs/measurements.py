@@ -11,13 +11,15 @@ from scopecat.kernel.problems import (
     StorageLocation,
     problem,
 )
-from scopecat.measurements.results import (
-    MeasurementDataset,
-    MeasurementDatasetSchema,
-    MeasurementRecord,
+from scopecat.measurements.contracts import (
     validate_measurement_records_against_schema,
 )
 from scopecat.records.artifact import RunContentEntry
+from scopecat.records.measurement import (
+    MeasurementDataset,
+    MeasurementDatasetSchema,
+    MeasurementRecord,
+)
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import RunRepository
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.program.measurement_types import MeasurementVariableRole
+from scopecat.records.measurement import MeasurementDatasetSchema
 
 
 @dataclass(frozen=True)

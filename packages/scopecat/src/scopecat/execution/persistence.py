@@ -11,7 +11,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.measurements.results import MeasurementRecord
+from scopecat.records.measurement import MeasurementRecord
 
 
 def validate_run_measurements(
