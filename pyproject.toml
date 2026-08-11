@@ -277,12 +277,9 @@ addopts = [
   "-n",
   "auto",
   "--maxprocesses=4",
+  "--import-mode=importlib",
 ]
 minversion = "9.0"
-pythonpath = [
-  "packages/scopecat",
-  "packages/scopecat-instruments/src",
-]
 strict_config = true
 strict_markers = true
 testpaths = [

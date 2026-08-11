@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.records.config import (
+    ConfigProfileSnapshot,
     ResourceRoleSpec,
     ResourceRoute,
     RoutingEndpoint,
     RoutingGraph,
 )
+
+from scopecat_testkit.authoring import load_config
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,3 +86,44 @@ def routing_graph(
             for (instrument_id, role_id), route_endpoints in grouped.items()
         ],
     )
+
+
+def routing_config(
+    *,
+    instruments: Mapping[str, str],
+    bindings: Sequence[RoutingEndpointSpec],
+    extra_entities: Sequence[EntityRef] = (),
+) -> ConfigProfileSnapshot:
+    """Build a test config with explicit instruments, entities, and routes."""
+
+    seed = load_config()
+    seed_instrument = seed.instrument_registry.instruments[0]
+    known_entity_ids = {entity.id for entity in seed.topology.entities}
+    selected_entities = [
+        entity for entity in extra_entities if entity.id not in known_entity_ids
+    ]
+    system = seed.system.model_copy(
+        update={
+            "topology": seed.topology.model_copy(
+                update={
+                    "entities": [*seed.topology.entities, *selected_entities],
+                }
+            ),
+            "instrument_registry": seed.instrument_registry.model_copy(
+                update={
+                    "instruments": [
+                        seed_instrument.model_copy(
+                            update={
+                                "id": instrument_id,
+                                "exclusivity_key": instrument_id,
+                                "kind": kind,
+                            }
+                        )
+                        for instrument_id, kind in instruments.items()
+                    ]
+                }
+            ),
+            "routing": routing_graph(bindings=bindings),
+        }
+    )
+    return seed.model_copy(update={"system": system})

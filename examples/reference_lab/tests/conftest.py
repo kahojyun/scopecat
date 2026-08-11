@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,8 +13,6 @@ from scopecat_server.lifecycle import start_project, stop_project
 from scopecat_testkit.project_loading import isolated_project_imports
 
 EXAMPLE_ROOT = Path(__file__).parents[1]
-if str(EXAMPLE_ROOT) not in sys.path:
-    sys.path.insert(0, str(EXAMPLE_ROOT))
 
 
 @dataclass(frozen=True, slots=True)
