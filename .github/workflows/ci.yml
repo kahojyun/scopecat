@@ -65,6 +65,29 @@ jobs:
       - name: Check generated instrument clients
         run: uv run --locked python scripts/generate_instrument_clients.py --check
 
+      - name: Build and import isolated package wheels
+        run: |
+          wheel_dir="${RUNNER_TEMP}/scopecat-wheels"
+          uv build --package scopecat --no-sources --out-dir "${wheel_dir}"
+          uv build --package scopecat-server --no-sources --out-dir "${wheel_dir}"
+          uv build --package scopecat-instruments --no-sources --out-dir "${wheel_dir}"
+          uv build --package scopecat-quantum --no-sources --out-dir "${wheel_dir}"
+          uv run --isolated --no-project \
+            --with "${wheel_dir}"/scopecat-*.whl \
+            -- python -c "import scopecat"
+          uv run --isolated --no-project \
+            --with "${wheel_dir}"/scopecat-*.whl \
+            --with "${wheel_dir}"/scopecat_server-*.whl \
+            -- python -c "import scopecat_server"
+          uv run --isolated --no-project \
+            --with "${wheel_dir}"/scopecat-*.whl \
+            --with "${wheel_dir}"/scopecat_instruments-*.whl \
+            -- python -c "import scopecat_instruments"
+          uv run --isolated --no-project \
+            --with "${wheel_dir}"/scopecat-*.whl \
+            --with "${wheel_dir}"/scopecat_quantum-*.whl \
+            -- python -c "import scopecat_quantum"
+
       - name: Run type check
         run: uv run --locked basedpyright
 
