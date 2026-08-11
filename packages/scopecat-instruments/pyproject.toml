@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
   "numpy>=2",
-  "pydantic>=2,<3",
+  "pydantic>=2",
   "scopecat",
 ]
 
@@ -17,7 +17,7 @@ test = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.11.20,<0.12.0"]
+requires = ["uv_build>=0.12.3,<0.13"]
 build-backend = "uv_build"
 
 [tool.pytest]

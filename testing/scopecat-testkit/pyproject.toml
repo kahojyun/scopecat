@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Private shared test support for the Scopecat workspace."
 requires-python = ">=3.14"
 dependencies = [
-  "pydantic>=2,<3",
+  "pydantic>=2",
   "scopecat",
 ]
 
@@ -14,7 +14,7 @@ server = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.11.20,<0.12.0"]
+requires = ["uv_build>=0.12.3,<0.13"]
 build-backend = "uv_build"
 
 [tool.ruff]
