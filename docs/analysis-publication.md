@@ -81,7 +81,11 @@ Column names in a native object remain the default durable IDs. A sparse
 `fields={source_name: AnalysisField(...)}` publication mapping may rename them
 once at the boundary and assign role, unit, and label together. The durable
 schema records both source names and stable IDs rather than letting every
-downstream adapter infer them differently.
+downstream adapter infer them differently. `AnalysisField.unit` is the durable
+target unit, matching its meaning for typed table rows. A source field with a
+known compatible unit is numerically converted; a field without unit metadata
+treats it as the author's explicit declaration. Incompatible units and units on
+non-numeric fields are rejected rather than relabeling values silently.
 
 There are three intentional outcomes:
 

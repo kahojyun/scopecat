@@ -626,8 +626,11 @@ review = (
 `fields` mapping overrides metadata inherited from a measurement projection,
 Arrow fields, or Xarray variables. Each `AnalysisField` can assign one stable
 `id`, coordinate/observable `role`, `unit`, and `label`; unlisted fields keep
-their native names and inherited semantics. The durable schema retains the
-source-to-stable name mapping. A pandas default
+their native names and inherited semantics. A specified unit is a target unit:
+known compatible source units are converted numerically, while a unit on a
+source without unit metadata is an explicit author declaration. Incompatible
+units and units on non-numeric fields are rejected. The durable schema retains
+the source-to-stable name mapping. A pandas default
 `RangeIndex` is dropped; a named or otherwise meaningful index becomes
 coordinate columns unless `index="drop"` is requested. Tables and figures only
 extract their selected scalar columns, so unrelated array-valued columns remain

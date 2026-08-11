@@ -503,7 +503,7 @@ class AnalysisDatasetDerivation(_AnalysisContentModel):
     source_kind: Literal["arrow", "pandas", "polars", "xarray"]
     fields: dict[str, AnalysisField] = Field(default_factory=dict)
     index: Literal["auto", "columns", "drop"] = "auto"
-    adapter: Literal["scopecat.native-dataset.v1"] = "scopecat.native-dataset.v1"
+    adapter: Literal["scopecat.native-dataset.v2"] = "scopecat.native-dataset.v2"
 
 
 class AnalysisExecution(_AnalysisContentModel):

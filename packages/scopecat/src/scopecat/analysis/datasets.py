@@ -12,6 +12,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import xarray as xr
 from pydantic import (
     BaseModel,
@@ -22,7 +23,8 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.kernel.units import is_supported_unit
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.units import compatible_units, is_supported_unit
 from scopecat.records._metadata import JsonMetadata, validate_json_metadata
 from scopecat.records.analysis import AnalysisField, AnalysisTable, AnalysisTableColumn
 
@@ -452,6 +454,11 @@ def _bind_semantics(
     unknown = configured - set(source_names)
     if unknown:
         raise KeyError("derived dataset has no columns: " + ", ".join(sorted(unknown)))
+    table = _convert_field_units(
+        table,
+        policies=policies,
+        source_units=selected_units,
+    )
     semantic_fields: list[DerivedDatasetField] = []
     for field, source_name, name in zip(
         table.schema,
@@ -507,6 +514,59 @@ def _bind_semantics(
             ),
             attributes=validate_json_metadata(attributes or {}),
         ),
+    )
+
+
+def _convert_field_units(
+    table: pa.Table,
+    *,
+    policies: Mapping[str, AnalysisField],
+    source_units: Mapping[str, str],
+) -> pa.Table:
+    columns: list[pa.ChunkedArray] = []
+    fields: list[pa.Field] = []
+    for field, column in zip(table.schema, table.columns, strict=True):
+        source_unit = source_units.get(field.name)
+        target_unit = policies[field.name].unit or source_unit
+        if target_unit is not None and not _is_numeric_arrow_type(field.type):
+            raise TypeError(
+                f"derived dataset field {field.name!r} cannot assign unit "
+                f"{target_unit!r} to non-numeric Arrow type {field.type}"
+            )
+        if source_unit is None or target_unit is None or source_unit == target_unit:
+            columns.append(column)
+            fields.append(field)
+            continue
+        if not compatible_units(source_unit, target_unit):
+            raise ValueError(
+                f"derived dataset field {field.name!r} cannot convert "
+                f"{source_unit!r} to {target_unit!r}"
+            )
+        factor = Quantity(value=1.0, unit=source_unit).to(target_unit).value
+        converted = cast(
+            "pa.ChunkedArray",
+            pc.call_function("multiply", [column, pa.scalar(factor)]),
+        )
+        columns.append(converted)
+        fields.append(
+            pa.field(
+                field.name,
+                converted.type,
+                nullable=field.nullable,
+                metadata=field.metadata,
+            )
+        )
+    return pa.Table.from_arrays(
+        columns,
+        schema=pa.schema(fields, metadata=table.schema.metadata),
+    )
+
+
+def _is_numeric_arrow_type(value: pa.DataType) -> bool:
+    return (
+        pa.types.is_integer(value)
+        or pa.types.is_floating(value)
+        or pa.types.is_decimal(value)
     )
 
 

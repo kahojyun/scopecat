@@ -207,8 +207,29 @@ def test_derived_dataset_inherits_and_overrides_pandas_semantics() -> None:
     assert dataset.schema.fields[0].role == "coordinate"
     assert dataset.schema.fields[0].unit == "mV"
     assert dataset.schema.fields[0].label == "Bias"
+    assert dataset.table["bias"].to_pylist() == [0.0, 1000.0]
     assert dataset.schema.fields[1].unit == "ratio"
     assert dataset.schema.fields[1].label == "Fit score"
+
+
+def test_derived_dataset_rejects_incompatible_or_non_numeric_units() -> None:
+    pd = pytest.importorskip("pandas")
+    frame = pd.DataFrame({"bias": [0.0], "label": ["origin"]})
+    frame.attrs["scopecat"] = {
+        "fields": [{"name": "bias", "unit": "V"}],
+    }
+
+    with pytest.raises(ValueError, match="cannot convert 'V' to 'Hz'"):
+        sc.derived_dataset(
+            frame,
+            fields={"bias": sc.AnalysisField(unit="Hz")},
+        )
+
+    with pytest.raises(TypeError, match="cannot assign unit 'V' to non-numeric"):
+        sc.derived_dataset(
+            frame,
+            fields={"label": sc.AnalysisField(unit="V")},
+        )
 
 
 def test_derived_dataset_inherits_arrow_and_xarray_semantics() -> None:

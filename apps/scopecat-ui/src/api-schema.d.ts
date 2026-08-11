@@ -837,10 +837,10 @@ export interface components {
         AnalysisDatasetDerivation: {
             /**
              * Adapter
-             * @default scopecat.native-dataset.v1
+             * @default scopecat.native-dataset.v2
              * @constant
              */
-            adapter: "scopecat.native-dataset.v1";
+            adapter: "scopecat.native-dataset.v2";
             /** Fields */
             fields?: {
                 [key: string]: components["schemas"]["AnalysisField"];
