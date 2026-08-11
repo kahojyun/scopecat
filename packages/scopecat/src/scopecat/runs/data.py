@@ -39,6 +39,12 @@ class RunArtifactBytesResult:
     content: bytes
 
 
+@dataclass(frozen=True)
+class RunDatasetBytesResult:
+    dataset: RunContentEntry
+    content: bytes
+
+
 class RunMeasurementDatasetResult(_RunDataResult):
     """Internal dataset-loading payload wrapped by the public run facade."""
 

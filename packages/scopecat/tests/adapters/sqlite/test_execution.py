@@ -485,26 +485,103 @@ def test_measurement_page_reads_intersecting_chunks_and_live_schema(
 ) -> None:
     runs = _runs(tmp_path)
     repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-page")
-    header = _header("run-page", point_count=2)
+    header = _header("run-page", point_count=3)
     _commit_header(runs, repository, header)
     first = _append(header, point_index=0, value=1)
     second = _append(header, point_index=1, value=2)
     _commit_append(runs, repository, first)
     _commit_append(runs, repository, second)
 
-    items, next_offset, schema = repository.measurement_page(limit=1, offset=0)
-    later, later_offset, later_schema = repository.measurement_page(
-        limit=1,
-        offset=1,
-        include_schema=False,
+    items, next_offset, schema, snapshot_size = repository.measurement_page(
+        limit=1, offset=0
+    )
+    _commit_append(
+        runs,
+        repository,
+        _append(header, point_index=2, value=3),
+    )
+    later, later_offset, later_schema, later_snapshot_size = (
+        repository.measurement_page(
+            limit=1,
+            offset=1,
+            snapshot_size=snapshot_size,
+            include_schema=False,
+        )
+    )
+    current, current_offset, _current_schema, current_snapshot_size = (
+        repository.measurement_page(limit=10, offset=0)
     )
 
     assert [record.point_index for record in items] == [0]
     assert next_offset == 1
     assert [record.point_index for record in later] == [1]
     assert later_offset is None
+    assert snapshot_size == later_snapshot_size == 2
+    assert [record.point_index for record in current] == [0, 1, 2]
+    assert current_offset is None
+    assert current_snapshot_size == 3
     assert schema == header.dataset_schema
     assert later_schema is None
+
+
+def test_measurement_page_pushes_variable_selection_into_arrow_chunks(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-columns")
+    base = _header("run-columns")
+    header = base.model_copy(
+        update={
+            "dataset_schema": base.dataset_schema.model_copy(
+                update={
+                    "variables": (
+                        MeasurementVariable(
+                            id="frequency",
+                            role="coordinate",
+                            dtype="float64",
+                            unit="Hz",
+                            dims=("point",),
+                        ),
+                        *base.dataset_schema.variables,
+                    ),
+                    "primary_coordinates": ("frequency",),
+                }
+            )
+        }
+    )
+    _commit_header(runs, repository, header)
+    append = _append(header).model_copy(
+        update={
+            "records": (
+                _append(header)
+                .records[0]
+                .model_copy(
+                    update={
+                        "coordinates": {
+                            "frequency": MeasurementScalar.create(
+                                dtype="float64",
+                                value=5e9,
+                                unit="Hz",
+                            )
+                        }
+                    }
+                ),
+            )
+        }
+    )
+    _commit_append(runs, repository, append)
+
+    items, next_offset, schema, snapshot_size = repository.measurement_page(
+        limit=1,
+        offset=0,
+        variable_ids=("signal",),
+    )
+
+    assert next_offset is None
+    assert snapshot_size == 1
+    assert schema == header.dataset_schema
+    assert items[0].coordinates == {}
+    assert tuple(items[0].observables) == ("signal",)
 
 
 def test_measurement_records_at_reads_only_selected_durable_points(
@@ -555,10 +632,13 @@ def test_measurement_header_makes_an_empty_dataset_readable(tmp_path: Path) -> N
     )
     _commit_seal(runs, repository, seal)
 
-    items, next_offset, schema = repository.measurement_page(limit=10, offset=0)
+    items, next_offset, schema, snapshot_size = repository.measurement_page(
+        limit=10, offset=0
+    )
 
     assert items == ()
     assert next_offset is None
+    assert snapshot_size == 0
     assert schema == header.dataset_schema
     assert repository.measurements() == ()
 

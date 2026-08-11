@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.program.measurement_types import MeasurementVariableRole
@@ -26,6 +27,47 @@ class ExperimentPreviewRecord:
 
 
 @dataclass(frozen=True)
+class ExperimentPreviewCompute:
+    """Why one live compute runs at its compiler-selected placement."""
+
+    id: str
+    placement: Literal["host", "observation"]
+    implementation: str
+    deterministic: bool
+    inputs: tuple[str, ...]
+    outputs: tuple[str, ...]
+    demanded_by: tuple[str, ...]
+    captures: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ExperimentPreviewBinding:
+    """One user value classified by ownership rather than authoring syntax."""
+
+    id: str
+    kind: Literal["input", "coordinate", "parameter"]
+    owner: Literal["invocation", "point-plan", "configuration"]
+    origin: Literal["default", "override", "values", "range", "around"] | None
+
+
+@dataclass(frozen=True)
+class ExperimentPreviewBindingRef:
+    """Typed identity of one value in the preview binding graph."""
+
+    id: str
+    kind: Literal["input", "coordinate", "parameter"]
+
+
+@dataclass(frozen=True)
+class ExperimentPreviewBindingEdge:
+    """One parameter relationship without delimiter-encoded provenance."""
+
+    source: ExperimentPreviewBindingRef
+    target: ExperimentPreviewBindingRef
+    relation: Literal["centers", "overlays"]
+
+
+@dataclass(frozen=True)
 class ExperimentPreview:
     """Stable experiment shape that a user can review before execution."""
 
@@ -35,6 +77,9 @@ class ExperimentPreview:
     coordinate_ids: tuple[str, ...]
     points: tuple[ExperimentPreviewPoint, ...]
     records: tuple[ExperimentPreviewRecord, ...]
+    computes: tuple[ExperimentPreviewCompute, ...] = ()
+    bindings: tuple[ExperimentPreviewBinding, ...] = ()
+    binding_edges: tuple[ExperimentPreviewBindingEdge, ...] = ()
 
     @property
     def point_count(self) -> int:
@@ -46,4 +91,18 @@ class ExperimentPreview:
             return tuple(self.schema.primary_observables)
         return tuple(
             record.id for record in self.records if record.role == "observable"
+        )
+
+    @property
+    def host_compute_ids(self) -> tuple[str, ...]:
+        return tuple(
+            compute.id for compute in self.computes if compute.placement == "host"
+        )
+
+    @property
+    def observation_compute_ids(self) -> tuple[str, ...]:
+        return tuple(
+            compute.id
+            for compute in self.computes
+            if compute.placement == "observation"
         )

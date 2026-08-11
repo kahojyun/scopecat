@@ -75,7 +75,7 @@ def test_synthetic_repeat_satisfies_an_authored_point_dependency() -> None:
     @sc.experiment(id="test.repeat-dependency", kind="point_plan")
     def repeated(experiment: sc.ExperimentContext) -> None:
         experiment.grid(repeat=2)
-        experiment.record(repeat, record_id="observed_repeat")
+        experiment.alias(repeat, record_id="observed_repeat")
 
     compiled = compile_invocation(repeated())
     request_domain = compiled.request.point_plan.domain

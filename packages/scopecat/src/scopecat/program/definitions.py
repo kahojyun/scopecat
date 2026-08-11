@@ -18,7 +18,7 @@ from scopecat.program.module import (
     ModuleInterface,
     ModulePythonImplementation,
 )
-from scopecat.program.recording import ProgramRecordSelection
+from scopecat.program.recording import ExperimentResultField, ProgramRecordSelection
 from scopecat.program.scans import (
     AxisSpec,
     GridSpec,
@@ -87,6 +87,7 @@ class ExperimentDef:
     inputs: tuple[ExperimentInputDef, ...] = ()
     default_point_plan: PointPlan = field(default_factory=PointPlan)
     record_selections: tuple[ProgramRecordSelection, ...] = ()
+    result_fields: tuple[ExperimentResultField, ...] = ()
     success_state: EnsureStateIntent | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_program_mapping)
 
@@ -257,6 +258,7 @@ def create_experiment_def(
     body: ModuleBody,
     python_implementations: Sequence[ModulePythonImplementation] = (),
     record_selections: Sequence[ProgramRecordSelection] = (),
+    result_fields: Sequence[ExperimentResultField] = (),
     input_defaults: Mapping[str, RuntimeInput] | None = None,
     required_inputs: Sequence[str] = (),
     default_point_plan: PointPlan | None = None,
@@ -272,6 +274,10 @@ def create_experiment_def(
         msg = "experiment definition requires kind"
         raise ValueError(msg)
     selected_records = tuple(record_selections)
+    selected_result_fields = tuple(result_fields)
+    result_paths = tuple(field.path for field in selected_result_fields)
+    if len(result_paths) != len(set(result_paths)):
+        raise ValueError("experiment result paths must be unique")
     selected_point_plan = (
         default_point_plan if default_point_plan is not None else PointPlan()
     )
@@ -311,6 +317,7 @@ def create_experiment_def(
         inputs=normalized_inputs,
         default_point_plan=selected_point_plan,
         record_selections=selected_records,
+        result_fields=selected_result_fields,
         success_state=(
             EnsureStateIntent(tuple(success_state_bindings))
             if success_state_bindings

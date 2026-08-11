@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
-  ArrowLeft,
   Atom,
   Box,
   CheckCircle2,
@@ -41,8 +40,6 @@ export function RunDetail({
   measurements,
   measurementsError,
   measurementsPending,
-  measurementsHasMore,
-  measurementsLoadingMore,
   measurementSlice,
   measurementSliceError,
   measurementSlicePending,
@@ -54,13 +51,11 @@ export function RunDetail({
   onTracePlanChange,
   measurementFixedAxisIndices,
   onMeasurementFixedAxisIndexChange,
-  onLoadMoreMeasurements,
   analyses,
   analysesError,
   analysesPending,
   attentionError,
   attentionPending,
-  onSelectRun,
   onResolveAttention,
 }: {
   run: ProjectRun;
@@ -70,8 +65,6 @@ export function RunDetail({
   measurements?: MeasurementPreview;
   measurementsError: Error | null;
   measurementsPending: boolean;
-  measurementsHasMore: boolean;
-  measurementsLoadingMore: boolean;
   measurementSlice?: MeasurementSlicePreview;
   measurementSliceError: Error | null;
   measurementSlicePending: boolean;
@@ -83,16 +76,13 @@ export function RunDetail({
   onTracePlanChange: (planId: string) => void;
   measurementFixedAxisIndices: Record<string, number>;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
-  onLoadMoreMeasurements: () => void;
   analyses?: RunAnalysis[];
   analysesError: Error | null;
   analysesPending: boolean;
   attentionError: Error | null;
   attentionPending: boolean;
-  onSelectRun: (runId: string) => void;
   onResolveAttention: () => void;
 }) {
-  const previousRunId = run.stage?.previousRunId;
   return (
     <>
       <header
@@ -111,31 +101,6 @@ export function RunDetail({
               <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
               {run.stateLabel}
             </span>
-            {run.stage && (
-              <span
-                className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-[rgb(128_163_207_/_18%)] bg-accent-soft px-2 py-1 text-[0.62rem] font-bold text-accent"
-                data-testid="run-stage-lineage"
-                title={`Sequence ${run.stage.sequenceId}, stage ${run.stage.index + 1}`}
-              >
-                <span>Sequence</span>
-                <code className="max-w-40 overflow-hidden text-ellipsis whitespace-nowrap">
-                  {shorten(run.stage.sequenceId, 18)}
-                </code>
-                <span aria-hidden="true">·</span>
-                <span>Stage {run.stage.index + 1}</span>
-              </span>
-            )}
-            {previousRunId && (
-              <button
-                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-[7px] border border-line bg-transparent px-2 text-[0.62rem] font-bold text-text-soft hover:border-line-strong hover:bg-panel-strong hover:text-text"
-                type="button"
-                title={`Open previous stage ${previousRunId}`}
-                onClick={() => onSelectRun(previousRunId)}
-              >
-                <ArrowLeft size={13} aria-hidden="true" />
-                Previous stage
-              </button>
-            )}
           </div>
           <h2 className="mb-[7px] text-[clamp(1.2rem,1.8vw,1.55rem)] font-[650] tracking-[-0.035em] [overflow-wrap:anywhere]">
             {run.displayName ?? run.experimentId}
@@ -219,7 +184,12 @@ export function RunDetail({
       <div className="mt-[18px] grid grid-cols-[minmax(0,1.55fr)_minmax(250px,0.85fr)] gap-3 max-[1100px]:grid-cols-[minmax(0,1.25fr)_minmax(230px,0.9fr)] max-[680px]:grid-cols-[minmax(0,1fr)]">
         <ProgressCard run={run} events={events} />
         <RunProposals key={run.runId} runId={run.runId} />
-        <AnalysisCard analyses={analyses} error={analysesError} pending={analysesPending} />
+        <AnalysisCard
+          analyses={analyses}
+          error={analysesError}
+          pending={analysesPending}
+          runId={run.runId}
+        />
         <ResourceCard run={run} />
         <TimelineCard events={events} error={eventsError} pending={eventsPending} />
         <DataCard
@@ -227,8 +197,6 @@ export function RunDetail({
           measurements={measurements}
           error={measurementsError}
           pending={measurementsPending}
-          hasMoreMeasurements={measurementsHasMore}
-          loadingMoreMeasurements={measurementsLoadingMore}
           measurementSlice={measurementSlice}
           measurementSliceError={measurementSliceError}
           measurementSlicePending={measurementSlicePending}
@@ -240,7 +208,6 @@ export function RunDetail({
           onTracePlanChange={onTracePlanChange}
           measurementFixedAxisIndices={measurementFixedAxisIndices}
           onMeasurementFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
-          onLoadMoreMeasurements={onLoadMoreMeasurements}
         />
       </div>
     </>
@@ -321,10 +288,12 @@ function AnalysisCard({
   analyses,
   error,
   pending,
+  runId,
 }: {
   analyses?: RunAnalysis[];
   error: Error | null;
   pending: boolean;
+  runId: string;
 }) {
   return (
     <article className={detailCard} data-testid="resource-card">
@@ -360,6 +329,9 @@ function AnalysisCard({
                   <small className="text-[0.6rem] text-text-dim">
                     {analysis.key ?? analysis.id}
                     {analysis.stepId ? ` · ${analysis.stepId}` : ""}
+                    {analysis.executions.length > 0
+                      ? ` · ${analysis.executions.length} traced`
+                      : ""}
                   </small>
                 </span>
                 <span className={countBadge}>{analysis.outputs.length}</span>
@@ -378,8 +350,18 @@ function AnalysisCard({
                         >
                           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                             <strong>{input.title ?? input.target}</strong>
-                            <span className="text-text-dim">{input.role}</span>
+                            <span className="text-text-dim">
+                              {input.role} · {titleCase(input.kind)}
+                            </span>
                           </div>
+                          {input.source ? (
+                            <code
+                              className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
+                              title={`${input.source.analysis_record_id}:${input.source.output_id}`}
+                            >
+                              {input.source.analysis_record_id}:{input.source.output_id}
+                            </code>
+                          ) : null}
                           <code
                             className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
                             title={input.target}
@@ -392,18 +374,56 @@ function AnalysisCard({
                     </ul>
                   </section>
                 ) : null}
+                {analysis.executions.length > 0 ? (
+                  <section className="rounded-[7px] border border-line bg-panel p-[9px]">
+                    <h4 className="mt-0 mb-2 text-[0.58rem] font-extrabold tracking-[0.06em] text-text-dim uppercase">
+                      Execution evidence
+                    </h4>
+                    <ul className="m-0 grid list-none gap-2 p-0">
+                      {analysis.executions.map((execution) => (
+                        <li className="min-w-0 text-[0.61rem] text-text-soft" key={execution.id}>
+                          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                            <strong>{execution.id}</strong>
+                            <span className="text-text-dim">
+                              {titleCase(execution.access)} · {execution.outputs.length} result
+                              {execution.outputs.length === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                          <code
+                            className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
+                            title={execution.implementation}
+                          >
+                            {execution.implementation}
+                          </code>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
                 {analysis.outputs.map((output, index) => (
                   <section
                     className="overflow-hidden rounded-[7px] border border-line bg-panel"
                     key={`${output.kind}:${output.title}:${index}`}
                   >
                     <header className="flex items-center justify-between gap-2.5 border-b border-line px-[9px] py-[7px]">
-                      <strong className="text-[0.65rem]">{output.title}</strong>
+                      <span className="grid min-w-0 gap-0.5">
+                        <strong className="text-[0.65rem]">{output.title}</strong>
+                        {output.producedBy ? (
+                          <small className="text-[0.55rem] text-text-dim">
+                            Produced by {formatExecutionOutput(output.producedBy)}
+                          </small>
+                        ) : output.derivedFrom ? (
+                          <small className="text-[0.55rem] text-text-dim">
+                            Derived from {formatExecutionOutput(output.derivedFrom.source)} via{" "}
+                            {output.derivedFrom.adapter}
+                          </small>
+                        ) : null}
+                      </span>
                       <span className="text-[0.56rem] font-[750] text-text-dim uppercase">
                         {titleCase(output.kind)}
                       </span>
                     </header>
-                    <AnalysisOutputView output={output} />
+                    <AnalysisOutputView output={output} runId={runId} />
                   </section>
                 ))}
               </div>
@@ -544,8 +564,6 @@ function DataCard({
   measurements,
   error,
   pending,
-  hasMoreMeasurements,
-  loadingMoreMeasurements,
   measurementSlice,
   measurementSliceError,
   measurementSlicePending,
@@ -557,14 +575,11 @@ function DataCard({
   onTracePlanChange,
   measurementFixedAxisIndices,
   onMeasurementFixedAxisIndexChange,
-  onLoadMoreMeasurements,
 }: {
   run: ProjectRun;
   measurements?: MeasurementPreview;
   error: Error | null;
   pending: boolean;
-  hasMoreMeasurements: boolean;
-  loadingMoreMeasurements: boolean;
   measurementSlice?: MeasurementSlicePreview;
   measurementSliceError: Error | null;
   measurementSlicePending: boolean;
@@ -576,7 +591,6 @@ function DataCard({
   onTracePlanChange: (planId: string) => void;
   measurementFixedAxisIndices: Record<string, number>;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
-  onLoadMoreMeasurements: () => void;
 }) {
   const [selectedContentKey, setSelectedContentKey] = useState<string>();
   useEffect(() => {
@@ -686,8 +700,6 @@ function DataCard({
         preview={measurements}
         error={error}
         pending={pending}
-        hasMore={hasMoreMeasurements}
-        loadingMore={loadingMoreMeasurements}
         slice={measurementSlice}
         sliceError={measurementSliceError}
         slicePending={measurementSlicePending}
@@ -699,7 +711,6 @@ function DataCard({
         onTracePlanChange={onTracePlanChange}
         fixedAxisIndices={measurementFixedAxisIndices}
         onFixedAxisIndexChange={onMeasurementFixedAxisIndexChange}
-        onLoadMore={onLoadMoreMeasurements}
       />
     </article>
   );
@@ -776,9 +787,6 @@ function MeasurementRecords({
   onFixedAxisIndexChange,
   error,
   pending,
-  hasMore,
-  loadingMore,
-  onLoadMore,
 }: {
   preview?: MeasurementPreview;
   slice?: MeasurementSlicePreview;
@@ -794,9 +802,6 @@ function MeasurementRecords({
   onFixedAxisIndexChange: (axisId: string, index: number) => void;
   error: Error | null;
   pending: boolean;
-  hasMore: boolean;
-  loadingMore: boolean;
-  onLoadMore: () => void;
 }) {
   if (error) {
     return (
@@ -833,9 +838,6 @@ function MeasurementRecords({
       onTracePlanChange={onTracePlanChange}
       fixedAxisIndices={fixedAxisIndices}
       onFixedAxisIndexChange={onFixedAxisIndexChange}
-      hasMore={hasMore}
-      loadingMore={loadingMore}
-      onLoadMore={onLoadMore}
     />
   );
 }
@@ -1030,6 +1032,10 @@ function humanizeEvent(kind: string): string {
 
 function contentKey(entry: ContentEntry): string {
   return `${entry.role}:${entry.id}`;
+}
+
+function formatExecutionOutput(source: { execution_id: string; output_name: string }): string {
+  return `${source.execution_id}:${source.output_name}`;
 }
 
 function formatPreviewContent(value: unknown): string {

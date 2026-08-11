@@ -4,13 +4,28 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
-from typing import cast, overload
+from typing import (
+    Annotated,
+    TypeAliasType,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+    overload,
+)
 
 from scopecat.authoring._module_invocation import (
     DomainCallProvider,
     ModuleInvocation,
     domain_use_call,
     module_instance,
+)
+from scopecat.authoring._module_results import (
+    ProductBundle,
+    ProductBundleKernel,
+    create_product_bundle_internal,
+    product_bundle_kernel_type_internal,
+    product_bundle_schema_internal,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
@@ -22,7 +37,7 @@ from scopecat.kernel.instrument_members import (
     PropertyRef,
 )
 from scopecat.kernel.interface_identity import InterfaceId
-from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.payloads import PayloadValue, unwrap_payload_values
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
@@ -30,7 +45,24 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
     normalize_resource_role,
 )
-from scopecat.kernel.value_types import Payload
+from scopecat.kernel.units import compatible_units
+from scopecat.kernel.value_type_compatibility import (
+    describe_value_type,
+    is_assignable,
+    literal_scalar_type,
+)
+from scopecat.kernel.value_types import (
+    Array,
+    ArrayDimension,
+    Bool,
+    DataType,
+    Float,
+    Int,
+    Payload,
+    String,
+)
+from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.kernel.value_validation import coerce_literal
 from scopecat.program.bindings import (
     BindingIntent,
     EnsureStateIntent,
@@ -42,11 +74,15 @@ from scopecat.program.bindings import (
 from scopecat.program.bindings import bind_property as binding_property
 from scopecat.program.domain import DomainCall
 from scopecat.program.input_capture import capture_runtime_input
-from scopecat.program.measurement_contracts import MeasurementPostprocessorKernel
-from scopecat.program.measurement_types import MeasurementDType
+from scopecat.program.measurement_contracts import SingleMeasurementComputeKernel
+from scopecat.program.measurement_types import (
+    MeasurementDType,
+    measurement_value_spec_from_scalar,
+)
 from scopecat.program.measurements import (
-    MeasurementPostprocessor,
-    create_measurement_postprocessor_internal,
+    MeasurementCompute,
+    create_measurement_compute_internal,
+    create_single_measurement_compute_internal,
 )
 from scopecat.program.module import (
     ModuleAcquireEffect,
@@ -79,6 +115,7 @@ from scopecat.program.value_refs import (
     internal_value_ref_point_dependencies,
     internal_value_ref_scalar_input_ids,
 )
+from scopecat.program.value_types import Array as ArrayType
 from scopecat.program.value_types import Entity as EntityType
 from scopecat.program.value_types import Scalar as ScalarType
 from scopecat.program.value_types import ValueType
@@ -86,11 +123,283 @@ from scopecat.program.values import (
     ComputeFunction,
     ComputeInput,
     MetadataValue,
+    validate_compute_function_internal,
 )
 from scopecat.program.values import compute as define_compute
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementScalar,
+    MeasurementValue,
+)
+from scopecat.sdk.compute import (
+    compute_capture_names_internal,
+    compute_implementation_internal,
+    mark_compute_implementation_internal,
+)
 
 type BindingInput = StateBinding
 type InvocationInput = BindingInput | None
+
+_BUNDLE_FIELD_IMPLEMENTATION = "scopecat.bundle-field"
+
+
+@mark_compute_implementation_internal(_BUNDLE_FIELD_IMPLEMENTATION, "1")
+def _bundle_field(
+    *,
+    bundle: object,
+    field: str,
+    index: int,
+) -> object:
+    if isinstance(bundle, Mapping):
+        return bundle[field]
+    if isinstance(bundle, tuple):
+        return cast("object", bundle[index])
+    if is_dataclass(bundle) and not isinstance(bundle, type):
+        return cast("object", getattr(bundle, field))
+    raise TypeError("structured compute must return a mapping, tuple, or dataclass")
+
+
+def _as_product_bundle_type(value: object) -> type[ProductBundle] | None:
+    if not isinstance(value, type) or not issubclass(value, ProductBundle):
+        return None
+    return value
+
+
+def _infer_compute_output_type(
+    fn: ComputeFunction,
+) -> DataType | type[ProductBundle]:
+    bundle_type = product_bundle_kernel_type_internal(fn)
+    if bundle_type is not None:
+        return bundle_type
+    hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
+    annotation = hints.get("return")
+    while isinstance(annotation, TypeAliasType):
+        annotation = cast("object", annotation.__value__)
+    if get_origin(annotation) is Annotated:
+        _native_type, *metadata = cast(
+            "tuple[object, ...]",
+            get_args(annotation),
+        )
+        declared = tuple(
+            item for item in metadata if isinstance(item, ScalarType | ArrayType)
+        )
+        if len(declared) == 1:
+            return declared[0]
+    if annotation is bool:
+        return ScalarType(Bool())
+    if annotation is int:
+        return ScalarType(Int())
+    if annotation is float:
+        return ScalarType(Float())
+    if annotation is str:
+        return ScalarType(String())
+    raise TypeError(
+        "compute output_type is required unless the function return annotation "
+        "is bool, int, float, str, or Annotated with ScalarType/ArrayType, or "
+        "the function is decorated with ProductBundle.kernel"
+    )
+
+
+def _compute_parameter_contracts(fn: ComputeFunction) -> dict[str, DataType]:
+    hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
+    contracts: dict[str, DataType] = {}
+    for name, annotation in hints.items():
+        if name == "return" or get_origin(annotation) is not Annotated:
+            if name == "return":
+                continue
+            while isinstance(annotation, TypeAliasType):
+                annotation = cast("object", annotation.__value__)
+            if get_origin(annotation) is not Annotated:
+                continue
+        _native_type, *metadata = cast(
+            "tuple[object, ...]",
+            get_args(annotation),
+        )
+        declared = tuple(
+            item for item in metadata if isinstance(item, ScalarType | ArrayType)
+        )
+        if len(declared) > 1:
+            raise TypeError(
+                f"compute parameter {name!r} has multiple value type annotations"
+            )
+        if declared:
+            contracts[name] = declared[0]
+    return contracts
+
+
+def _validate_compute_input_contracts(
+    compute_id: str,
+    fn: ComputeFunction,
+    inputs: Mapping[str, ComputeInput | ProductRef],
+) -> None:
+    for name, expected in _compute_parameter_contracts(fn).items():
+        value = inputs.get(name)
+        if value is None and name not in inputs:
+            continue
+        actual = _compute_input_data_type(value)
+        if _compute_contract_assignable(actual, expected):
+            continue
+        raise TypeError(
+            f"compute {compute_id!r} input {name!r} expects "
+            f"{describe_value_type(expected)}, got {describe_value_type(actual)}"
+        )
+
+
+def _compute_input_data_type(value: object) -> DataType:
+    if isinstance(value, ProductRef):
+        spec = value.value_spec
+        if spec.axes:
+            return ArrayType(
+                dtype=spec.dtype,
+                unit=spec.unit,
+                dimensions=tuple(
+                    ArrayDimension(
+                        id=axis.id,
+                        size=(
+                            axis.size
+                            if isinstance(axis.size, int)
+                            and not isinstance(axis.size, bool)
+                            else None
+                        ),
+                        kind=axis.kind,
+                        unit=axis.unit,
+                    )
+                    for axis in spec.axes
+                ),
+            )
+        if spec.dtype == "bool":
+            return ScalarType(Bool())
+        if spec.dtype == "int64" and spec.unit is None:
+            return ScalarType(Int())
+        if spec.dtype == "float64":
+            return ScalarType(
+                Float() if spec.unit is None else QuantityType(unit=spec.unit)
+            )
+        if spec.dtype == "string" and spec.unit is None:
+            return ScalarType(String())
+        raise TypeError(
+            f"product {value.id!r} scalar schema cannot be expressed as a compute "
+            "parameter contract"
+        )
+    if isinstance(value, ValueRef):
+        if not isinstance(value.value_type, ScalarType | ArrayType):
+            raise TypeError(
+                "compute parameter contracts require scalar or array values"
+            )
+        return value.value_type
+    return literal_scalar_type(value)
+
+
+def _compute_contract_assignable(actual: DataType, expected: DataType) -> bool:
+    if (
+        isinstance(actual, ScalarType)
+        and isinstance(expected, ScalarType)
+        and isinstance(actual.atom, QuantityType)
+        and isinstance(expected.atom, QuantityType)
+        and actual.atom.unit != expected.atom.unit
+    ):
+        return False
+    return is_assignable(actual, expected)
+
+
+def _measurement_compute_output_spec(
+    value_type: DataType,
+) -> tuple[MeasurementDType, str | None, tuple[ProductAxis, ...]]:
+    if isinstance(value_type, Array):
+        return (
+            value_type.dtype,
+            value_type.unit,
+            tuple(
+                ProductAxis(
+                    id=dimension.id,
+                    size=dimension.size,
+                    kind=dimension.kind,
+                    unit=dimension.unit,
+                    shared_as=dimension.id,
+                )
+                for dimension in value_type.dimensions
+            ),
+        )
+    dtype, unit = measurement_value_spec_from_scalar(value_type)
+    return dtype, unit, ()
+
+
+def _native_measurement_value(value: MeasurementValue) -> object:
+    if isinstance(value, MeasurementArray):
+        return value.values
+    if isinstance(value, MeasurementScalar):
+        return value.value
+    raise AssertionError(
+        "unavailable measurement values must not reach compute kernels"
+    )
+
+
+def _converted_unit_type(value_type: DataType, unit: str) -> DataType:
+    if isinstance(value_type, ArrayType):
+        source_unit = value_type.unit
+        if source_unit is None:
+            raise TypeError("unit conversion requires a unit-bearing array")
+        if not compatible_units(source_unit, unit):
+            raise ValueError(f"cannot convert {source_unit!r} to {unit!r}")
+        return replace(value_type, unit=unit)
+    if not isinstance(value_type.atom, QuantityType):
+        raise TypeError("unit conversion requires a quantity value")
+    source_unit = value_type.atom.unit
+    if source_unit is None:
+        raise TypeError("unit conversion requires a quantity with a declared unit")
+    if not compatible_units(source_unit, unit):
+        raise ValueError(f"cannot convert {source_unit!r} to {unit!r}")
+
+    def convert_bound(value: float | None) -> float | None:
+        if value is None:
+            return None
+        return float(Quantity(value, source_unit).to(unit).value)
+
+    return ScalarType(
+        replace(
+            value_type.atom,
+            unit=unit,
+            minimum=convert_bound(value_type.atom.minimum),
+            maximum=convert_bound(value_type.atom.maximum),
+        )
+    )
+
+
+def _convert_unit_value(
+    *,
+    value: object,
+    source_unit: str,
+    target_unit: str,
+) -> object:
+    if isinstance(value, Quantity):
+        return value.to(target_unit)
+    scale = Quantity(1.0, source_unit).to(target_unit).value
+    return cast("object", value * scale)  # pyright: ignore[reportOperatorIssue]
+
+
+def _measurement_compute_result(
+    value: object,
+    value_type: DataType,
+) -> MeasurementValue:
+    selected = coerce_literal(value_type, value, path=("measurement_compute", "output"))
+    if isinstance(value_type, Array):
+        return MeasurementArray.create(
+            values=selected,
+            dtype=value_type.dtype,
+            unit=value_type.unit,
+        )
+    dtype, unit = measurement_value_spec_from_scalar(value_type)
+    if isinstance(selected, Quantity):
+        scalar_value: object = selected.value
+    elif isinstance(selected, EntityRef):
+        scalar_value = selected.id
+    else:
+        scalar_value = selected
+    return MeasurementScalar.create(
+        value=scalar_value,
+        dtype=dtype,
+        unit=unit,
+    )
 
 
 def _is_entity_input_type(value_type: ValueType) -> bool:
@@ -152,7 +461,7 @@ class ModuleContext:
         "_effect_namespaces",
         "_effects",
         "_local_value_ids",
-        "_measurement_postprocessors",
+        "_measurement_computes",
         "_operations",
         "_owner",
         "_product_declarations",
@@ -181,7 +490,7 @@ class ModuleContext:
         self._effects: list[ModuleEffect] = []
         self._operations: list[ModuleOperationDecl] = []
         self._python_implementations: list[ModulePythonImplementation] = []
-        self._measurement_postprocessors: list[MeasurementPostprocessor] = []
+        self._measurement_computes: list[MeasurementCompute] = []
         self._product_declarations: list[ModuleProductDecl] = []
 
     def append_invocation_internal[ResultT](
@@ -434,7 +743,7 @@ class ModuleContext:
         return ModuleBody(
             effects=tuple(self._effects),
             operations=tuple(self._operations),
-            measurement_postprocessors=tuple(self._measurement_postprocessors),
+            measurement_computes=tuple(self._measurement_computes),
             products=tuple(self._product_declarations),
         )
 
@@ -762,25 +1071,197 @@ class ModuleContext:
 
         self._require_owned_resource(resource)
 
+    @overload
+    def convert[T](
+        self,
+        value: ValueRef[T],
+        unit: str,
+        *,
+        id: str | None = None,
+    ) -> ValueRef[T]: ...
+
+    @overload
+    def convert(
+        self,
+        value: ProductRef,
+        unit: str,
+        *,
+        id: str | None = None,
+    ) -> ProductRef: ...
+
+    def convert(
+        self,
+        value: ValueRef | ProductRef,
+        unit: str,
+        *,
+        id: str | None = None,
+    ) -> ValueRef | ProductRef:
+        """Convert a unit-bearing reference without changing its availability."""
+
+        source_type = _compute_input_data_type(value)
+        output_type = _converted_unit_type(source_type, unit)
+        source_unit = (
+            source_type.unit
+            if isinstance(source_type, ArrayType)
+            else cast("QuantityType", source_type.atom).unit
+        )
+        if source_unit is None:
+            raise AssertionError("converted unit types must have a source unit")
+        return cast(
+            "ValueRef | ProductRef",
+            self.compute(
+                id,
+                fn=_convert_unit_value,
+                value=value,
+                source_unit=source_unit,
+                target_unit=unit,
+                output_type=output_type,
+            ),
+        )
+
+    @overload
     def compute(
         self,
-        id: str,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ProductRef],
+        output_type: ScalarType | ArrayType,
+    ) -> ProductRef: ...
+
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ProductRef],
+        output_type: Mapping[str, DataType],
+    ) -> ProductRefs: ...
+
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
         *,
         fn: ComputeFunction,
         inputs: Mapping[str, ComputeInput] | None = None,
-        output_type: ScalarType,
-    ) -> ValueRef:
-        """Declare one compute node and return its typed result."""
+        output_type: ScalarType | ArrayType,
+    ) -> ValueRef: ...
 
-        selected_inputs = {
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef],
+        output_type: ScalarType | ArrayType,
+    ) -> ProductRef: ...
+
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef],
+        output_type: Mapping[str, DataType],
+    ) -> ProductRefs: ...
+
+    @overload
+    def compute[BundleT: ProductBundle](
+        self,
+        id: str | None = None,
+        *,
+        fn: ProductBundleKernel[BundleT],
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
+        output_type: None = None,
+        **input_bindings: ComputeInput | ProductRef,
+    ) -> BundleT: ...
+
+    @overload
+    def compute[BundleT: ProductBundle](
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
+        output_type: type[BundleT],
+        **input_bindings: ComputeInput | ProductRef,
+    ) -> BundleT: ...
+
+    @overload
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
+        output_type: ScalarType | ArrayType | Mapping[str, DataType] | None = None,
+        **input_bindings: ComputeInput | ProductRef,
+    ) -> ValueRef | ProductRef | ProductRefs: ...
+
+    def compute(
+        self,
+        id: str | None = None,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef] | None = None,
+        output_type: (
+            ScalarType | ArrayType | Mapping[str, DataType] | type[ProductBundle] | None
+        ) = None,
+        **input_bindings: ComputeInput | ProductRef,
+    ) -> ValueRef | ProductRef | ProductRefs | ProductBundle:
+        """Declare a compute where its inputs exist, inferring an id when omitted."""
+
+        duplicate_inputs = set(inputs or {}) & set(input_bindings)
+        if duplicate_inputs:
+            rendered = ", ".join(sorted(duplicate_inputs))
+            raise TypeError(f"compute inputs were bound more than once: {rendered}")
+        selected_inputs = {**(inputs or {}), **input_bindings}
+        declared_bundle_type = product_bundle_kernel_type_internal(fn)
+        if declared_bundle_type is not None and output_type is not None:
+            raise TypeError(
+                "compute output_type must be omitted when ProductBundle.kernel "
+                "declares the structured schema"
+            )
+        selected_output_type = (
+            _infer_compute_output_type(fn) if output_type is None else output_type
+        )
+        selected_id = self._allocate_effect_id(
+            _compute_name_hint(fn) if id is None else id,
+            explicit=id is not None,
+        )
+        _validate_compute_input_contracts(selected_id, fn, selected_inputs)
+        if any(isinstance(value, ProductRef) for value in selected_inputs.values()):
+            return self._compute_measurements(
+                selected_id,
+                fn=fn,
+                inputs=selected_inputs,
+                output_type=selected_output_type,
+            )
+
+        bundle_type = _as_product_bundle_type(selected_output_type)
+        if bundle_type is not None:
+            return self._compute_values_bundle(
+                selected_id,
+                fn=fn,
+                inputs=selected_inputs,
+                bundle_type=bundle_type,
+            )
+        if not isinstance(selected_output_type, ScalarType | ArrayType):
+            raise TypeError("structured compute output must be a product bundle type")
+
+        captured_inputs = {
             name: cast("ComputeInput", self._capture_domain_value(value))
-            for name, value in (inputs or {}).items()
+            for name, value in selected_inputs.items()
         }
         definition = define_compute(
-            id,
+            selected_id,
             fn=fn,
-            inputs=selected_inputs,
-            output_type=output_type,
+            inputs=captured_inputs,
+            output_type=selected_output_type,
         )
         self._operations.append(
             ModuleOperationDecl(
@@ -800,18 +1281,201 @@ class ModuleContext:
         self._local_value_ids.add(definition.output.id)
         return definition.output
 
-    def _postprocess(
+    def _compute_values_bundle[BundleT: ProductBundle](
+        self,
+        id: str,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef],
+        bundle_type: type[BundleT],
+    ) -> BundleT:
+        """Lower one structured host compute to an opaque result plus projections."""
+
+        output_types = dict(product_bundle_schema_internal(bundle_type))
+        captured_inputs = {
+            name: cast("ComputeInput", self._capture_domain_value(value))
+            for name, value in inputs.items()
+        }
+        definition = define_compute(
+            id,
+            fn=fn,
+            inputs=captured_inputs,
+            output_type=ScalarType(Payload("scopecat.compute-bundle.v1")),
+        )
+        self._operations.append(
+            ModuleOperationDecl(
+                id=definition.id,
+                declaration_key=definition.declaration_key,
+                input_types=definition.input_types,
+                inputs=definition.inputs,
+                output_type=definition.output_type,
+            )
+        )
+        self._python_implementations.append(
+            ModulePythonImplementation(
+                declaration_key=definition.declaration_key,
+                fn=definition.fn,
+            )
+        )
+        self._local_value_ids.add(definition.output.id)
+
+        outputs: dict[str, ValueRef] = {}
+        for index, (name, output_type) in enumerate(output_types.items()):
+            projection_id = self._allocate_effect_id(
+                f"{id}.outputs.{name}",
+                explicit=False,
+            )
+            projection = define_compute(
+                projection_id,
+                fn=_bundle_field,
+                inputs={
+                    "bundle": definition.output,
+                    "field": name,
+                    "index": index,
+                },
+                output_type=output_type,
+            )
+            self._operations.append(
+                ModuleOperationDecl(
+                    id=projection.id,
+                    declaration_key=projection.declaration_key,
+                    input_types=projection.input_types,
+                    inputs=projection.inputs,
+                    output_type=projection.output_type,
+                )
+            )
+            self._python_implementations.append(
+                ModulePythonImplementation(
+                    declaration_key=projection.declaration_key,
+                    fn=projection.fn,
+                )
+            )
+            self._local_value_ids.add(projection.output.id)
+            outputs[name] = projection.output
+        return create_product_bundle_internal(bundle_type, outputs)
+
+    def _compute_measurements(
+        self,
+        id: str,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput | ProductRef],
+        output_type: (DataType | Mapping[str, DataType] | type[ProductBundle]),
+    ) -> ProductRef | ProductRefs | ProductBundle:
+        """Lower measured inputs to the point-local observation stage."""
+
+        input_names = tuple(inputs)
+        validate_compute_function_internal(id, fn, input_names)
+        product_inputs = {
+            name: value
+            for name, value in inputs.items()
+            if isinstance(value, ProductRef)
+        }
+        value_inputs = {
+            name: cast("ComputeInput", self._capture_domain_value(value))
+            for name, value in inputs.items()
+            if not isinstance(value, ProductRef)
+        }
+        bundle_type = _as_product_bundle_type(output_type)
+        if bundle_type is not None:
+            output_types = dict(product_bundle_schema_internal(bundle_type))
+        elif isinstance(output_type, ScalarType | ArrayType):
+            output_types = {"result": output_type}
+        elif isinstance(output_type, Mapping):
+            output_types = dict(output_type)
+        else:
+            raise TypeError("structured compute output must be a product bundle type")
+        if not output_types or any(not name for name in output_types):
+            raise ValueError("structured compute output names must be non-empty")
+        structured = not isinstance(output_type, ScalarType | ArrayType)
+        outputs: dict[str, ProductRef] = {}
+        for name, value_type in output_types.items():
+            dtype, unit, axes = _measurement_compute_output_spec(value_type)
+            outputs[name] = self._product(
+                name if structured else id,
+                scope=(id,) if bundle_type is not None else (),
+                unit=unit,
+                dtype=dtype,
+                axes=axes,
+            )
+
+        def kernel(
+            values: Mapping[str, object],
+        ) -> Mapping[str, MeasurementValue]:
+            raw = fn(
+                **{
+                    name: (
+                        _native_measurement_value(
+                            cast("MeasurementValue", values[name])
+                        )
+                        if name in product_inputs
+                        else unwrap_payload_values(values[name])
+                    )
+                    for name in input_names
+                }
+            )
+            raw_outputs: Mapping[str, object]
+            if (
+                bundle_type is not None
+                and is_dataclass(raw)
+                and not isinstance(raw, type)
+            ):
+                raw_outputs = {
+                    name: cast("object", getattr(raw, name)) for name in output_types
+                }
+            elif bundle_type is not None and isinstance(raw, tuple):
+                raw_tuple = cast("tuple[object, ...]", raw)
+                if len(raw_tuple) != len(output_types):
+                    raise ValueError(
+                        "structured compute tuple length must match its product bundle"
+                    )
+                raw_outputs = dict(zip(output_types, raw_tuple, strict=True))
+            else:
+                raw_outputs = (
+                    cast("Mapping[str, object]", raw) if structured else {"result": raw}
+                )
+            if set(raw_outputs) != set(output_types):
+                raise ValueError(
+                    "structured compute result keys must exactly match output_type"
+                )
+            return {
+                name: _measurement_compute_result(raw_outputs[name], value_type)
+                for name, value_type in output_types.items()
+            }
+
+        implementation = compute_implementation_internal(fn)
+        self._measurement_computes.append(
+            create_measurement_compute_internal(
+                id,
+                inputs=product_inputs,
+                value_inputs=value_inputs,
+                outputs=outputs,
+                kernel=kernel,
+                implementation=(
+                    None if implementation is None else implementation.reference
+                ),
+                deterministic=(
+                    False if implementation is None else implementation.deterministic
+                ),
+                captures=compute_capture_names_internal(fn),
+            )
+        )
+        if bundle_type is not None:
+            return create_product_bundle_internal(bundle_type, outputs)
+        return ProductRefs(outputs) if structured else outputs["result"]
+
+    def _measurement_compute(
         self,
         id: str,
         *,
         input: ProductRef,
         outputs: Mapping[str, ProductRef],
-        kernel: MeasurementPostprocessorKernel,
+        kernel: SingleMeasurementComputeKernel,
     ) -> None:
         """Register a typed producer's point-local measurement calculation."""
 
-        self._measurement_postprocessors.append(
-            create_measurement_postprocessor_internal(
+        self._measurement_computes.append(
+            create_single_measurement_compute_internal(
                 id,
                 input=input,
                 outputs=outputs,
@@ -849,6 +1513,12 @@ def _capture_binding_literal(value: object) -> object:
     if isinstance(value, ValueRef):
         return value
     return capture_runtime_input(value)
+
+
+def _compute_name_hint(fn: ComputeFunction) -> str:
+    name = cast("str", getattr(fn, "__name__", ""))
+    selected = name.lstrip("_")
+    return selected if selected and selected != "<lambda>" else "compute"
 
 
 def _is_payload_binding_input(value: object) -> bool:

@@ -447,6 +447,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/artifacts/{selector}/bytes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Artifact Bytes */
+        get: operations["get_run_artifact_bytes_api_v1_runs__run_id__artifacts__selector__bytes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/artifacts/{selector}/json": {
         parameters: {
             query?: never;
@@ -515,15 +532,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/runs/{run_id}/measurements": {
+    "/api/v1/runs/{run_id}/measurements/preview": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Measurements */
-        get: operations["measurements_api_v1_runs__run_id__measurements_get"];
+        /** Measurement Preview */
+        get: operations["measurement_preview_api_v1_runs__run_id__measurements_preview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -788,6 +805,29 @@ export interface components {
             config: components["schemas"]["ConfigProfileSnapshot-Output"];
             entry: components["schemas"]["ConfigRegistryEntry"];
         };
+        /** AnalysisArtifactRecordOutput */
+        AnalysisArtifactRecordOutput: {
+            content: components["schemas"]["AnalysisArtifactReference"];
+            id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "artifact";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            produced_by?: components["schemas"]["AnalysisExecutionOutputReference"] | null;
+            title: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisArtifactReference
+         * @description Reference to exact bytes published as an analysis-owned artifact.
+         */
+        AnalysisArtifactReference: {
+            artifact_id: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            filename: components["schemas"]["_NonEmptyText"];
+            media_type: components["schemas"]["_NonEmptyText"];
+        };
         /**
          * AnalysisCandidateRunConfigSource
          * @description Analysis candidate resolved for one run without becoming the default.
@@ -806,6 +846,175 @@ export interface components {
             proposal_id: string;
             /** Source Run Id */
             source_run_id: string;
+        };
+        /**
+         * AnalysisDatasetDerivation
+         * @description First-party normalization from one traced native dataset result.
+         */
+        AnalysisDatasetDerivation: {
+            /**
+             * Adapter
+             * @default scopecat.native-dataset.v2
+             * @constant
+             */
+            adapter: "scopecat.native-dataset.v2";
+            /** Fields */
+            fields?: {
+                [key: string]: components["schemas"]["AnalysisField"];
+            };
+            /**
+             * Index
+             * @default auto
+             * @enum {string}
+             */
+            index: "auto" | "columns" | "drop";
+            source: components["schemas"]["AnalysisExecutionOutputReference"];
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "arrow" | "pandas" | "polars" | "xarray";
+        };
+        /** AnalysisDatasetRecordOutput */
+        AnalysisDatasetRecordOutput: {
+            content: components["schemas"]["AnalysisDatasetReference"];
+            derived_from?: components["schemas"]["AnalysisDatasetDerivation"] | null;
+            id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "dataset";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            produced_by?: components["schemas"]["AnalysisExecutionOutputReference"] | null;
+            title: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisDatasetReference
+         * @description Reference to one separately stored, content-addressed derived dataset.
+         */
+        AnalysisDatasetReference: {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            dataset_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisDatasetViewSource
+         * @description Stable analysis-local dataset referenced by a presentation view.
+         */
+        AnalysisDatasetViewSource: {
+            /**
+             * Kind
+             * @default dataset
+             * @constant
+             */
+            kind: "dataset";
+            output_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisExecution
+         * @description Optional execution evidence retained by an analysis publication.
+         */
+        "AnalysisExecution-Output": {
+            /**
+             * Access
+             * @default full
+             * @enum {string}
+             */
+            access: "full" | "batches";
+            /**
+             * Captures
+             * @default []
+             */
+            captures: components["schemas"]["_NonEmptyText"][];
+            /** Deterministic */
+            deterministic: boolean;
+            id: components["schemas"]["_NonEmptyText"];
+            implementation: components["schemas"]["_NonEmptyText"];
+            /** Input Bindings */
+            input_bindings: components["schemas"]["AnalysisExecutionInput-Output"][];
+            /** Inputs */
+            inputs: components["schemas"]["_NonEmptyText"][];
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /** Outputs */
+            outputs: components["schemas"]["AnalysisExecutionOutput"][];
+        };
+        /**
+         * AnalysisExecutionInput
+         * @description One named, content-identified input consumed by an analysis execution.
+         */
+        "AnalysisExecutionInput-Output": {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "measurement_dataset" | "derived_dataset" | "artifact" | "value";
+            name: components["schemas"]["_NonEmptyText"];
+            target: components["schemas"]["_NonEmptyText"];
+            value?: components["schemas"]["pydantic__types__JsonValue"] | null;
+        };
+        /**
+         * AnalysisExecutionOutput
+         * @description The content identity produced by one successful analysis execution.
+         */
+        AnalysisExecutionOutput: {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "derived_dataset" | "artifact" | "value";
+            name: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisExecutionOutputReference
+         * @description Exact named result of one analysis execution.
+         */
+        AnalysisExecutionOutputReference: {
+            execution_id: components["schemas"]["_NonEmptyText"];
+            output_name: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisFact
+         * @description Small typed conclusion retained directly in an analysis record.
+         */
+        "AnalysisFact-Output": {
+            codec: components["schemas"]["_NonEmptyText"];
+            /**
+             * Schema Codec
+             * @constant
+             */
+            schema_codec: "scopecat.analysis-fact-schema.v1";
+            schema_hash: components["schemas"]["Sha256ContentHash"];
+            schema_id: components["schemas"]["_NonEmptyText"];
+            value: components["schemas"]["pydantic__types__JsonValue"];
+        };
+        /** AnalysisFactRecordOutput */
+        AnalysisFactRecordOutput: {
+            content: components["schemas"]["AnalysisFact-Output"];
+            id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "fact";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            produced_by?: components["schemas"]["AnalysisExecutionOutputReference"] | null;
+            title: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisField
+         * @description Stable identity and semantics for one analysis data field.
+         */
+        AnalysisField: {
+            id?: components["schemas"]["_NonEmptyText"] | null;
+            label?: components["schemas"]["_NonEmptyText"] | null;
+            /** Role */
+            role?: ("coordinate" | "observable") | null;
+            unit?: components["schemas"]["_NonEmptyText"] | null;
         };
         /**
          * AnalysisFigure
@@ -830,9 +1039,25 @@ export interface components {
             label: components["schemas"]["_NonEmptyText"];
             unit?: components["schemas"]["_NonEmptyText"] | null;
         };
+        /**
+         * AnalysisFigureProjection
+         * @description Dataset column roles used to produce a bounded figure preview.
+         */
+        AnalysisFigureProjection: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "line" | "scatter";
+            label?: components["schemas"]["_NonEmptyText"] | null;
+            series?: components["schemas"]["_NonEmptyText"] | null;
+            x: components["schemas"]["_NonEmptyText"];
+            y: components["schemas"]["_NonEmptyText"];
+        };
         /** AnalysisFigureRecordOutput */
         AnalysisFigureRecordOutput: {
-            content: components["schemas"]["AnalysisFigure"];
+            content: components["schemas"]["AnalysisFigureView"];
+            id: components["schemas"]["_NonEmptyText"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -853,9 +1078,23 @@ export interface components {
             /** Y */
             y: number[];
         };
+        /**
+         * AnalysisFigureView
+         * @description Server-generated bounded figure preview of an authoritative dataset.
+         */
+        AnalysisFigureView: {
+            preview: components["schemas"]["AnalysisFigure"];
+            projection: components["schemas"]["AnalysisFigureProjection"];
+            source: components["schemas"]["AnalysisDatasetViewSource"];
+            /** Total Points */
+            total_points: number;
+            /** Truncated */
+            truncated: boolean;
+        };
         /** AnalysisParameterProposalRecordOutput */
         AnalysisParameterProposalRecordOutput: {
             content: components["schemas"]["AnalysisParameterProposalReference"];
+            id: components["schemas"]["_NonEmptyText"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -872,31 +1111,47 @@ export interface components {
             proposal_id: components["schemas"]["_NonEmptyText"];
             record_ref: components["schemas"]["_NonEmptyText"];
         };
+        /**
+         * AnalysisPublishedOutputReference
+         * @description Exact output revision consumed from an earlier analysis on this run.
+         */
+        AnalysisPublishedOutputReference: {
+            analysis_record_id: components["schemas"]["_NonEmptyText"];
+            output_id: components["schemas"]["_NonEmptyText"];
+        };
         /** AnalysisRecord */
         AnalysisRecord: {
+            /** Executions */
+            executions?: components["schemas"]["AnalysisExecution-Output"][];
             /** Inputs */
             inputs?: components["schemas"]["AnalysisRecordInput"][];
             key?: components["schemas"]["_NonEmptyText"] | null;
             /** Outputs */
             outputs: components["schemas"]["AnalysisRecordOutput"][];
+            publication_hash: components["schemas"]["_NonEmptyText"];
+            /** Revision */
+            revision: number;
             run_id: components["schemas"]["_NonEmptyText"];
             step_id?: components["schemas"]["_NonEmptyText"] | null;
             title: components["schemas"]["_NonEmptyText"];
         };
         /** AnalysisRecordInput */
         AnalysisRecordInput: {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
             /**
              * Kind
-             * @constant
+             * @enum {string}
              */
-            kind: "measurement_dataset";
+            kind: "measurement_dataset" | "analysis_dataset";
             metadata?: components["schemas"]["JsonMetadata-Output"] | null;
             role: components["schemas"]["_NonEmptyText"];
+            source?: components["schemas"]["AnalysisPublishedOutputReference"] | null;
             target: components["schemas"]["_NonEmptyText"];
             /** Title */
             title?: string | null;
         };
-        AnalysisRecordOutput: components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
+        AnalysisRecordOutput: components["schemas"]["AnalysisFactRecordOutput"] | components["schemas"]["AnalysisDatasetRecordOutput"] | components["schemas"]["AnalysisArtifactRecordOutput"] | components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
         /**
          * AnalysisTable
          * @description A bounded, display-ready scalar table with an explicit column schema.
@@ -919,7 +1174,8 @@ export interface components {
         };
         /** AnalysisTableRecordOutput */
         AnalysisTableRecordOutput: {
-            content: components["schemas"]["AnalysisTable"];
+            content: components["schemas"]["AnalysisTableView"];
+            id: components["schemas"]["_NonEmptyText"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -935,6 +1191,20 @@ export interface components {
         AnalysisTableRow: {
             /** Cells */
             cells: components["schemas"]["AnalysisTableCell"][];
+        };
+        /**
+         * AnalysisTableView
+         * @description Server-generated bounded table preview of an authoritative dataset.
+         */
+        AnalysisTableView: {
+            /** Columns */
+            columns: components["schemas"]["_NonEmptyText"][];
+            preview: components["schemas"]["AnalysisTable"];
+            source: components["schemas"]["AnalysisDatasetViewSource"];
+            /** Total Rows */
+            total_rows: number;
+            /** Truncated */
+            truncated: boolean;
         };
         /**
          * ApplyReceipt
@@ -2058,6 +2328,7 @@ export interface components {
              * @constant
              */
             record_schema: "scopecat.measurement_record.v4";
+            result?: components["schemas"]["MeasurementResultContract"] | null;
             /** Variables */
             variables?: components["schemas"]["MeasurementVariable-Output"][];
         };
@@ -2080,20 +2351,6 @@ export interface components {
         MeasurementDType: "float64" | "int64" | "complex128" | "bool" | "string";
         "MeasurementMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
-        };
-        /**
-         * MeasurementPage
-         * @description Bounded typed-record preview for interactive browsing.
-         */
-        MeasurementPage: {
-            dataset_schema?: components["schemas"]["MeasurementDatasetSchema-Output"] | null;
-            /**
-             * Items
-             * @default []
-             */
-            items: components["schemas"]["MeasurementRecord-Output"][];
-            /** Next Offset */
-            next_offset?: number | null;
         };
         /**
          * MeasurementPointCloudPointDomain
@@ -2130,6 +2387,23 @@ export interface components {
             id: string;
         };
         /**
+         * MeasurementPreview
+         * @description One bounded JSON preview for the operator UI, not a data paging API.
+         */
+        MeasurementPreview: {
+            dataset_schema?: components["schemas"]["MeasurementDatasetSchema-Output"] | null;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["MeasurementRecord-Output"][];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /**
          * MeasurementProductGridPointDomain
          * @description A point domain formed from the ordered product of independent axes.
          */
@@ -2157,6 +2431,28 @@ export interface components {
             point_index: number;
             /** Run Id */
             run_id: string;
+        };
+        /**
+         * MeasurementResultContract
+         * @description Self-describing experiment return contract persisted with a dataset.
+         */
+        MeasurementResultContract: {
+            /** Fields */
+            fields: components["schemas"]["MeasurementResultField"][];
+            /** Id */
+            id: string;
+            /** Version */
+            version: string;
+        };
+        /**
+         * MeasurementResultField
+         * @description One experiment return path resolved to a durable dataset variable.
+         */
+        MeasurementResultField: {
+            /** Path */
+            path: string[];
+            /** Variable Id */
+            variable_id: string;
         };
         /**
          * MeasurementScalar
@@ -2463,6 +2759,11 @@ export interface components {
             confidence?: number | null;
             /** Deltas */
             deltas: components["schemas"]["ParameterValueDelta-Output"][];
+            /**
+             * Evidence Output Ids
+             * @default []
+             */
+            evidence_output_ids: string[];
             /** Id */
             id: string;
             /**
@@ -2715,6 +3016,14 @@ export interface components {
             /** Run Id */
             run_id: string;
         };
+        /** RunArtifactBytesView */
+        RunArtifactBytesView: {
+            artifact: components["schemas"]["RunContentEntry-Output"];
+            /** Content Base64 */
+            content_base64: string;
+            /** Run Id */
+            run_id: string;
+        };
         /** RunArtifactJsonResult */
         RunArtifactJsonResult: {
             artifact: components["schemas"]["RunContentEntry-Output"];
@@ -2867,7 +3176,6 @@ export interface components {
             outcome?: components["schemas"]["RunOutcome-Output"] | null;
             /** Run Id */
             run_id: string;
-            stage?: components["schemas"]["RunStageLineage"] | null;
         };
         /**
          * RunMeasurementDatasetResult
@@ -2963,18 +3271,6 @@ export interface components {
              * @enum {string}
              */
             status: "required" | "active" | "quarantined" | "released";
-        };
-        /**
-         * RunStageLineage
-         * @description Durable identity of one run within a notebook-driven sequence.
-         */
-        RunStageLineage: {
-            /** Index */
-            index: number;
-            /** Previous Run Id */
-            previous_run_id?: string | null;
-            /** Sequence Id */
-            sequence_id: string;
         };
         /**
          * RunSummary
@@ -4109,6 +4405,40 @@ export interface operations {
             };
         };
     };
+    get_run_artifact_bytes_api_v1_runs__run_id__artifacts__selector__bytes_get: {
+        parameters: {
+            query?: {
+                expected_kind?: string | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+                selector: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunArtifactBytesView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_run_artifact_json_api_v1_runs__run_id__artifacts__selector__json_get: {
         parameters: {
             query?: {
@@ -4240,12 +4570,10 @@ export interface operations {
             };
         };
     };
-    measurements_api_v1_runs__run_id__measurements_get: {
+    measurement_preview_api_v1_runs__run_id__measurements_preview_get: {
         parameters: {
             query?: {
-                include_schema?: boolean;
                 limit?: number;
-                offset?: number;
             };
             header?: never;
             path: {
@@ -4261,7 +4589,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MeasurementPage"];
+                    "application/json": components["schemas"]["MeasurementPreview"];
                 };
             };
             /** @description Validation Error */

@@ -69,7 +69,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     def experiment(experiment: sc.ExperimentContext) -> None:
         results = experiment.use(authored_call)
         experiment.grid(sc.axis(count, (1, 3, 5)))
-        experiment.record(results.counts, record_id="counts")
+        experiment.alias(results.counts, record_id="counts")
 
     resolved = bind_invocation(
         experiment.bind(),

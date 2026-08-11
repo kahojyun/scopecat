@@ -144,9 +144,11 @@ def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
         analysis_key="best-signal-fixture",
         step_id=None,
         inputs=(),
+        executions=(),
         outputs=(
             AnalysisParameterProposalOutput(
                 kind="parameter_change_proposal",
+                id=proposal.id,
                 title=proposal.id,
                 content=proposal,
                 metadata={},

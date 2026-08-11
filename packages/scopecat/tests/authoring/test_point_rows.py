@@ -35,7 +35,7 @@ def test_point_rows_compile_materialize_and_persist_layout() -> None:
                 {x: 3, y: 30},
             )
         )
-        experiment.record(x, record_id="observed_x")
+        experiment.alias(x, record_id="observed_x")
 
     invocation = experiment()
     compiled = compile_invocation(invocation)
@@ -83,7 +83,7 @@ def test_empty_point_rows_are_a_zero_point_domain() -> None:
     @sc.experiment(id="test.empty-point-rows", kind="point_rows")
     def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.points((), coordinates=(x, y))
-        experiment.record(x, record_id="observed_x")
+        experiment.alias(x, record_id="observed_x")
 
     invocation = experiment()
     compiled = compile_invocation(invocation)

@@ -8,7 +8,7 @@ import scopecat as sc
 from scopecat.kernel.entity import EntityRef
 from scopecat_instruments import (
     DCSourceTarget,
-    NetworkSweepRecords,
+    NetworkSweepProducts,
     dc_source,
     network_sweep,
     temperature_readout,
@@ -30,8 +30,8 @@ class FluxSpectroscopyDataset:
     """Typed handles for the durable flux-spectroscopy dataset."""
 
     dc_bias: sc.CoordinateRef[sc.Quantity]
-    trace: NetworkSweepRecords
-    temperature: sc.RecordRef[float]
+    trace: NetworkSweepProducts
+    temperature: sc.ProductRef[float]
 
 
 @sc.experiment
@@ -73,14 +73,14 @@ def flux_spectroscopy(
         source_power=sc.Quantity(-35.0, "dBm"),
         s_parameter="S21",
     )
-    trace = experiment.record(readout.sweep())
+    trace = readout.sweep()
     sample = temperature.sample()
     experiment.on_success(flux_source, DCSourceTarget(output_enabled=False))
 
     return FluxSpectroscopyDataset(
         dc_bias=dc_bias,
         trace=trace,
-        temperature=experiment.record(sample.temperature),
+        temperature=sample.temperature,
     )
 
 

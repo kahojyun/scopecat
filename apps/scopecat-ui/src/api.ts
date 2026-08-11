@@ -90,14 +90,13 @@ export async function getRun(runId: string, signal?: AbortSignal): Promise<Proje
 
 export async function getMeasurementPreview(
   runId: string,
-  offset = 0,
   signal?: AbortSignal,
 ): Promise<MeasurementPreview> {
   const response = await apiData(
-    apiClient.GET("/api/v1/runs/{run_id}/measurements", {
+    apiClient.GET("/api/v1/runs/{run_id}/measurements/preview", {
       params: {
         path: { run_id: runId },
-        query: { limit: 100, offset, include_schema: offset === 0 },
+        query: { limit: 100 },
       },
       signal,
     }),
@@ -105,7 +104,7 @@ export async function getMeasurementPreview(
   return {
     items: response.items ?? [],
     schema: response.dataset_schema ?? undefined,
-    nextOffset: response.next_offset ?? undefined,
+    truncated: response.truncated ?? false,
   };
 }
 
@@ -175,13 +174,50 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
     key: analysis.key ?? undefined,
     stepId: analysis.step_id ?? undefined,
     inputs: analysis.inputs ?? [],
+    executions: analysis.executions ?? [],
     outputs: analysis.outputs.map(runAnalysisOutput),
   }));
 }
 
+export async function getRunArtifactDownload(
+  runId: string,
+  selector: string,
+  signal?: AbortSignal,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await apiData(
+    apiClient.GET("/api/v1/runs/{run_id}/artifacts/{selector}/bytes", {
+      params: {
+        path: { run_id: runId, selector },
+        query: { expected_kind: "analysis_artifact" },
+      },
+      signal,
+    }),
+  );
+  const binary = atob(response.content_base64);
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return {
+    blob: new Blob([buffer], {
+      type: response.artifact.media_type ?? "application/octet-stream",
+    }),
+    filename: response.artifact.filename ?? selector,
+  };
+}
+
 function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
+  const producedBy =
+    output.kind === "fact" || output.kind === "dataset" || output.kind === "artifact"
+      ? (output.produced_by ?? undefined)
+      : undefined;
+  const derivedFrom = output.kind === "dataset" ? (output.derived_from ?? undefined) : undefined;
   const shared = {
+    id: output.id,
     title: output.title,
+    producedBy,
+    derivedFrom,
     metadata: output.metadata ?? {},
   };
   if (output.kind === "table") {
@@ -189,6 +225,15 @@ function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
   }
   if (output.kind === "figure") {
     return { ...shared, kind: "figure", content: output.content };
+  }
+  if (output.kind === "fact") {
+    return { ...shared, kind: "fact", content: output.content };
+  }
+  if (output.kind === "dataset") {
+    return { ...shared, kind: "dataset", content: output.content };
+  }
+  if (output.kind === "artifact") {
+    return { ...shared, kind: "artifact", content: output.content };
   }
   return {
     ...shared,
@@ -324,13 +369,6 @@ function normalizeRun(
     attentionReason: control.attention_reason ?? undefined,
     result: outcome?.result,
     certainty: outcome?.certainty,
-    stage: manifest.stage
-      ? {
-          sequenceId: manifest.stage.sequence_id,
-          index: manifest.stage.index,
-          previousRunId: manifest.stage.previous_run_id ?? undefined,
-        }
-      : undefined,
     plan: {
       pointCount: plan.point_count,
       coordinateIds: plan.coordinate_ids ?? [],

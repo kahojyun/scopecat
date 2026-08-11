@@ -293,20 +293,6 @@ def test_one_unavailable_demod_channel_preserves_the_other_channel(
     }
 
 
-def test_adaptive_tuneup_rediscovers_and_resumes(
-    reference_lab_daemon: _ReferenceLabDaemon,
-) -> None:
-    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
-    namespace = run_path(str(NOTEBOOKS / "31_adaptive_tuneup.py"))
-    summary = cast("dict[str, object]", namespace["adaptive_summary"])
-
-    assert summary["initial_stages"] == 2
-    assert summary["stopped_by_limit"] is True
-    assert summary["rediscovered_stages"] == 2
-    assert summary["completed_stages"] == 3
-    assert summary["resumed_to_completion"] is True
-
-
 def test_quantum_program_is_inspectable_without_hardware() -> None:
     namespace = run_path(str(NOTEBOOKS / "32_quantum_program_inspection.py"))
     summary = cast("dict[str, object]", namespace["program_inspection_summary"])
@@ -328,6 +314,17 @@ def test_drag_calibration_closes_the_reviewed_config_loop(
 
     assert summary["status"] == "completed"
     assert summary["point_count"] == 15
+    assert summary["output_kinds"] == [
+        "dataset",
+        "fact",
+        "table",
+        "figure",
+        "artifact",
+        "parameter_change_proposal",
+    ]
+    assert summary["execution_evidence"] == 0
+    assert summary["fit_report"] == "drag-beta-fit.md"
+    assert summary["proposal_evidence"] == ("quadratic-fit", "observations")
     assert summary["candidate_run_uses_analysis"]
     assert summary["accepted_as_default"]
     assert summary["default_restored"]
@@ -347,7 +344,6 @@ def test_measurement_workbench_uses_real_durable_data(
     assert summary["groups"] == 3
     assert summary["arrow_rows"] == 3
     assert summary["batch_sizes"] == [2, 1]
-    assert summary["batch_offsets"] == [0, 2]
 
 
 def test_ragged_scope_data_survives_daemon_boundaries(

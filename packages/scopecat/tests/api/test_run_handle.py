@@ -1,5 +1,9 @@
+# pyright: reportUnknownMemberType=false
+
 from __future__ import annotations
 
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Protocol, cast
 
@@ -36,11 +40,47 @@ class _ArrowColumn(Protocol):
     def to_pylist(self) -> list[object]: ...
 
 
-class _ArrowTable(Protocol):
+class _ArrowSchema(Protocol):
+    @property
+    def names(self) -> list[str]: ...
+
+
+class _ArrowRecordBatch(Protocol):
     @property
     def num_rows(self) -> int: ...
 
+    @property
+    def schema(self) -> _ArrowSchema: ...
+
     def __getitem__(self, name: str) -> _ArrowColumn: ...
+
+
+class _ArrowRecordBatchReader(Protocol):
+    @property
+    def schema(self) -> _ArrowSchema: ...
+
+    def __iter__(self) -> Iterator[_ArrowRecordBatch]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _ComputeOnlyResult:
+    score: sc.ValueRef[float]
+
+
+@dataclass(frozen=True, slots=True)
+class _ConvertedQuantityResult:
+    voltage: sc.ValueRef[sc.Quantity]
+
+
+@dataclass(frozen=True, slots=True)
+class _StructuredComputeResult(sc.ProductBundle):
+    doubled: Annotated[sc.DataRef[int], sc.ScalarType(sc.IntType())]
+    label: Annotated[sc.DataRef[str], sc.ScalarType(sc.StringType())]
+
+
+@_StructuredComputeResult.kernel
+def _structured_compute(*, value: int) -> tuple[int, str]:
+    return value * 2, f"value-{value}"
 
 
 @authoring.module(id="test.session.simple_frequency_scan")
@@ -103,7 +143,7 @@ def simple_frequency_scan_experiment() -> Experiment[...]:
                 points=3,
             ),
         )
-        experiment.record(signal, record_id="signal")
+        experiment.alias(signal, record_id="signal")
 
     return authoring.experiment(
         id="test.session.simple_frequency_scan",
@@ -128,19 +168,41 @@ def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
 
     assert preview.point_count == 3
     assert preview.primary_observables == ("signal",)
+    assert [
+        (binding.id, binding.kind, binding.owner, binding.origin)
+        for binding in preview.bindings
+    ] == [
+        ("subject", "input", "invocation", "override"),
+        ("drive_frequency", "coordinate", "point-plan", "around"),
+        ("drive_frequency", "parameter", "configuration", None),
+    ]
+    [edge] = preview.binding_edges
+    assert (edge.source.kind, edge.source.id) == (
+        "parameter",
+        "drive_frequency",
+    )
+    assert (edge.relation, edge.target.kind, edge.target.id) == (
+        "centers",
+        "coordinate",
+        "drive_frequency",
+    )
 
 
 def test_in_process_lab_records_compute_value_without_instruments(
     tmp_path: Path,
 ) -> None:
     @sc.experiment(id="test.session.compute-only", kind="compute-only")
-    def compute_only(experiment: sc.ExperimentContext) -> None:
-        score = experiment.compute(
-            "score",
-            fn=lambda: 2.5,
-            output_type=sc.ScalarType(sc.FloatType()),
+    def compute_only(experiment: sc.ExperimentContext) -> _ComputeOnlyResult:
+        selected_score = 2.5
+
+        def calculate_score() -> float:
+            return selected_score
+
+        score = cast(
+            "sc.ValueRef[float]",
+            experiment.compute(fn=calculate_score),
         )
-        experiment.record(score)
+        return _ComputeOnlyResult(score=score)
 
     config = load_config()
     lab = in_process_lab(
@@ -153,8 +215,21 @@ def test_in_process_lab_records_compute_value_without_instruments(
         ),
     )
 
+    preview = lab.prepare(compute_only).preview()
+    assert preview.host_compute_ids == ("calculate_score",)
+    assert preview.observation_compute_ids == ()
+    [compute] = preview.computes
+    assert compute.inputs == ()
+    assert compute.outputs == ("calculate_score",)
+    assert compute.demanded_by == ("record:score",)
+    assert compute.implementation.startswith("python:")
+    assert not compute.deterministic
+    assert compute.captures == ("selected_score",)
+
     run = lab.prepare(compute_only).run()
     dataset = run.measurements()
+    stored_result = run.result()
+    typed_result = run.result(compute_only().output)
 
     assert run.manifest.status == "completed"
     assert isinstance(dataset, Dataset)
@@ -165,51 +240,141 @@ def test_in_process_lab_records_compute_value_without_instruments(
         value=2.5,
     )
     variable = next(item for item in dataset.schema.variables if item.id == "score")
-    assert variable.source_value_id == "score"
-    content = run.data()
-    assert content.datasets == ("raw-measurements",)
-    assert content.dataset("raw-measurements") == dataset.entry
+    assert variable.source_value_id == "calculate_score"
+    assert stored_result.contract.id == "test.session.compute-only"
+    assert stored_result.paths == (("score",),)
+    assert stored_result[0].value("score") == 2.5
+    assert typed_result[0].value(typed_result.output.score) == 2.5
+    assert run.datasets == ("raw-measurements",)
+    assert run.manifest.datasets == (dataset.entry,)
 
 
-def test_measurement_batches_page_a_real_run_and_preserve_point_identity(
+def test_in_process_lab_records_returned_scan_without_instruments(
     tmp_path: Path,
 ) -> None:
-    run = _run_signal_scan(tmp_path)
+    @sc.experiment(id="test.session.coordinate-only", kind="coordinate-only")
+    def coordinate_only(
+        experiment: sc.ExperimentContext,
+    ) -> sc.CoordinateRef[int]:
+        return experiment.scan("value", (1, 2, 3))
 
-    batches = list(run.measurement_batches(batch_size=2))
+    config = load_config()
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=ExperimentSystem(
+            instrument_catalog=InstrumentContractCatalog(
+                config_content_hash=config_content_hash(config)
+            )
+        ),
+    )
 
-    assert [len(batch) for batch in batches] == [2, 1]
-    assert [record.point_index for batch in batches for record in batch.records] == [
-        0,
+    run = lab.prepare(coordinate_only).run()
+    dataset = run.measurements()
+    records = dataset.records
+    stored_result = run.result()
+    typed_result = run.result(coordinate_only().output)
+
+    assert run.manifest.status == "completed"
+    assert dataset.schema.primary_coordinates == ("value",)
+    assert dataset.schema.primary_observables == ()
+    assert tuple(record.coordinates["value"] for record in records) == (
+        MeasurementScalar.create(dtype="int64", value=1),
+        MeasurementScalar.create(dtype="int64", value=2),
+        MeasurementScalar.create(dtype="int64", value=3),
+    )
+    assert stored_result.paths == (("result",),)
+    assert tuple(point.value("result") for point in stored_result) == (1, 2, 3)
+    assert tuple(point.value(typed_result.output) for point in typed_result) == (
         1,
         2,
-    ]
-    assert [batch.dims["point"] for batch in batches] == [2, 1]
-    assert [batch.metadata["scopecat_batch_offset"] for batch in batches] == [0, 2]
-    assert all(
-        next(
-            dimension.size
-            for dimension in batch.schema.dimensions
-            if dimension.id == "point"
-        )
-        == 3
-        for batch in batches
+        3,
     )
-    assert tuple(batches[0].coords) == ("drive_frequency",)
-    assert tuple(batches[0].data_vars) == ("signal",)
-    with pytest.raises(ValueError, match="between 1 and 500"):
-        run.measurement_batches(batch_size=0)
-    with pytest.raises(ValueError, match="between 1 and 500"):
-        run.measurement_batches(batch_size=501)
 
 
-def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
+def test_structured_host_compute_is_one_public_compute(tmp_path: Path) -> None:
+    @sc.experiment(id="test.session.structured-compute")
+    def structured(experiment: sc.ExperimentContext) -> _StructuredComputeResult:
+        return experiment.compute(fn=_structured_compute, value=3)
+
+    config = load_config()
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=ExperimentSystem(
+            instrument_catalog=InstrumentContractCatalog(
+                config_content_hash=config_content_hash(config)
+            )
+        ),
+    )
+
+    prepared = lab.prepare(structured())
+    preview = prepared.preview()
+    [compute] = preview.computes
+    assert compute.id == "structured_compute"
+    assert compute.placement == "host"
+    assert compute.inputs == ("value",)
+    assert compute.outputs == ("doubled", "label")
+    assert compute.demanded_by == ("record:doubled", "record:label")
+
+    run = prepared.run()
+    result = run.result(structured().output)
+    [point] = result
+    assert point.value(result.output.doubled) == 6
+    assert point.value(result.output.label) == "value-3"
+
+
+def test_host_unit_conversion_is_recordable_and_visible_in_preview(
+    tmp_path: Path,
+) -> None:
+    def source_voltage() -> Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="V")),
+    ]:
+        return sc.Quantity(0.125, "V")
+
+    @sc.experiment(id="test.session.converted-quantity")
+    def converted(experiment: sc.ExperimentContext) -> _ConvertedQuantityResult:
+        voltage = cast(
+            "sc.ValueRef[sc.Quantity]",
+            experiment.compute(fn=source_voltage),
+        )
+        return _ConvertedQuantityResult(
+            voltage=experiment.convert(voltage, "mV"),
+        )
+
+    config = load_config()
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=ExperimentSystem(
+            instrument_catalog=InstrumentContractCatalog(
+                config_content_hash=config_content_hash(config)
+            )
+        ),
+    )
+
+    prepared = lab.prepare(converted())
+    preview = prepared.preview()
+    assert preview.host_compute_ids == ("source_voltage", "convert_unit_value")
+    assert preview.observation_compute_ids == ()
+    assert preview.computes[1].inputs == (
+        "value",
+        "source_unit",
+        "target_unit",
+    )
+
+    result = prepared.run().result(converted().output)
+    assert result[0].value(result.output.voltage) == sc.Quantity(125.0, "mV")
+
+
+def test_empty_measurement_reader_preserves_the_projected_schema(
     tmp_path: Path,
 ) -> None:
     @sc.experiment(id="test.session.empty-points", kind="empty-points")
     def empty_points(experiment: sc.ExperimentContext) -> None:
         experiment.points((), coordinates=(DRIVE_FREQUENCY_POINT,))
-        experiment.record(DRIVE_FREQUENCY_POINT, record_id="observed_frequency")
+        experiment.alias(DRIVE_FREQUENCY_POINT, record_id="observed_frequency")
 
     config = load_config()
     lab = in_process_lab(
@@ -223,39 +388,63 @@ def test_empty_measurement_batches_yield_one_schema_bearing_dataset(
     )
     run = lab.prepare(empty_points).run()
 
-    [batch] = run.measurement_batches(batch_size=2)
-
-    assert batch.records == ()
-    assert batch.dims["point"] == 0
-    assert tuple(batch.coords) == ("drive_frequency",)
-    assert tuple(batch.data_vars) == ("observed_frequency",)
-    assert batch.metadata["scopecat_batch_offset"] == 0
-    assert (
-        next(
-            dimension.size
-            for dimension in batch.schema.dimensions
-            if dimension.id == "point"
+    reader = cast(
+        "_ArrowRecordBatchReader",
+        run.measurements()
+        .project(
+            {"frequency": "drive_frequency"},
+            diagnostics="reason",
         )
-        == 0
+        .to_record_batch_reader(batch_size=2),
     )
+    assert reader.schema.names == [
+        "point_index",
+        "logical_point_id",
+        "frequency",
+        "frequency__unavailable_reason",
+    ]
+    assert list(reader) == []
 
 
-def test_measurement_batch_converts_directly_to_arrow(tmp_path: Path) -> None:
-    [first, second] = _run_signal_scan(tmp_path).measurement_batches(batch_size=2)
+def test_run_projects_paged_measurements_into_one_arrow_reader(tmp_path: Path) -> None:
+    run = _run_signal_scan(tmp_path)
 
-    first_table = cast(
-        "_ArrowTable",
-        first.to_arrow(),  # pyright: ignore[reportUnknownMemberType]
+    reader = cast(
+        "_ArrowRecordBatchReader",
+        run.measurements()
+        .project(
+            {
+                "frequency": "drive_frequency",
+                "response": "signal",
+            },
+            diagnostics="reason",
+        )
+        .to_record_batch_reader(batch_size=2),
     )
-    second_table = cast(
-        "_ArrowTable",
-        second.to_arrow(),  # pyright: ignore[reportUnknownMemberType]
-    )
+    batches = list(reader)
 
-    assert first_table.num_rows == 2
-    assert second_table.num_rows == 1
-    assert first_table["point_index"].to_pylist() == [0, 1]
-    assert second_table["point_index"].to_pylist() == [2]
+    assert reader.schema.names == [
+        "point_index",
+        "logical_point_id",
+        "frequency",
+        "frequency__unavailable_reason",
+        "response",
+        "response__unavailable_reason",
+    ]
+    assert [batch.num_rows for batch in batches] == [2, 1]
+    assert all(batch.schema.names == reader.schema.names for batch in batches)
+    assert [
+        point for batch in batches for point in batch["point_index"].to_pylist()
+    ] == [0, 1, 2]
+    assert all(
+        reason is None
+        for batch in batches
+        for reason in batch["response__unavailable_reason"].to_pylist()
+    )
+    with pytest.raises(ValueError, match="between 1 and 500"):
+        run.measurements().project().to_record_batch_reader(batch_size=0)
+    with pytest.raises(ValueError, match="between 1 and 500"):
+        run.measurements().project().to_record_batch_reader(batch_size=501)
 
 
 def _run_signal_scan(tmp_path: Path) -> RunHandle:
@@ -290,29 +479,26 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     experiment = load_invocation()
 
     baseline = lab.prepare(experiment).run()
-    dataset = baseline.measurements()
-    analysis = (
-        baseline.analysis("manual best signal")
-        .input("raw-measurements")
-        .propose(
+    context = baseline.analysis("manual best signal")
+    dataset = context.measurements()
+    analysis = context.result().propose(
+        "drive_frequency",
+        sc.replace_scalar_parameter(
             "drive_frequency",
-            sc.replace_scalar_parameter(
+            _quantity_coordinate(
+                dataset.records[2],
                 "drive_frequency",
-                _quantity_coordinate(
-                    dataset.records[2],
-                    "drive_frequency",
-                ),
             ),
-            reason="manual notebook pick",
-        )
+        ),
+        reason="manual notebook pick",
     )
-    saved = analysis.save()
-    candidate_config = analysis.candidate_config()
+    outcome = analysis.save()
+    candidate_config = outcome.candidate_config()
     candidate = lab.prepare(experiment, config=candidate_config).run()
 
     assert baseline.id.startswith("run_")
     assert dataset.entry.id == "raw-measurements"
-    assert [input_ref.target for input_ref in saved.inputs] == ["raw-measurements"]
+    assert [input_ref.target for input_ref in outcome.inputs] == ["raw-measurements"]
     assert not any(
         record.kind == "candidate_config" for record in baseline.manifest.records
     )
@@ -320,7 +506,7 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     source = candidate.manifest.config_source
     assert isinstance(source, AnalysisCandidateRunConfigSource)
     assert source.source_run_id == baseline.id
-    assert source.analysis_record_id == saved.record.id
+    assert source.analysis_record_id == outcome.id
     assert source.proposal_id == candidate_config.proposal_id
 
 
@@ -341,8 +527,9 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     experiment = load_invocation()
 
     baseline = lab.prepare(experiment).run()
-    dataset = baseline.measurements()
-    analysis = baseline.analysis("manual center point").propose(
+    context = baseline.analysis("manual center point")
+    dataset = context.measurements()
+    analysis = context.result().propose(
         "drive_frequency",
         sc.replace_scalar_parameter(
             "drive_frequency",
@@ -353,8 +540,8 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
         ),
         reason="manual center point",
     )
-    saved = analysis.save()
-    candidate_config = analysis.candidate_config()
+    outcome = analysis.save()
+    candidate_config = outcome.candidate_config()
     candidate = lab.prepare(experiment, config=candidate_config).run()
 
     assert baseline.manifest.status == "completed"
@@ -366,4 +553,4 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     assert candidate.manifest.status == "completed"
     source = candidate.manifest.config_source
     assert isinstance(source, AnalysisCandidateRunConfigSource)
-    assert source.analysis_record_id == saved.record.id
+    assert source.analysis_record_id == outcome.id

@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from importlib.util import find_spec
@@ -83,6 +84,11 @@ class _ArrowTable(Protocol):
     def __getitem__(self, name: str) -> _ArrowColumn: ...
 
 
+class _ArrowRecordBatch(_ArrowTable, Protocol):
+    @property
+    def num_rows(self) -> int: ...
+
+
 @module(id="tests.worker.ragged_capture")
 def _ragged_capture(
     context: ModuleContext,
@@ -113,7 +119,7 @@ def _ragged_point_cloud(experiment: ExperimentContext) -> None:
         )
     )
     capture = experiment.use(_ragged_capture(gain=_RAGGED_GAIN))
-    experiment.record(capture, record_id="trace")
+    experiment.alias(capture, record_id="trace")
 
 
 def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
@@ -290,7 +296,13 @@ def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
         persisted = lab.get_run(run_id)
         persisted_status = persisted.manifest.status
         dataset = persisted.measurements()
-        batches = list(persisted.measurement_batches(batch_size=2))
+        assert len(dataset) == 3
+        batches = list(
+            cast(
+                "Iterator[_ArrowRecordBatch]",
+                persisted.measurements().project().to_record_batch_reader(batch_size=2),
+            )
+        )
 
     assert persisted_status == "completed"
     point_domain = dataset.schema.point_domain
@@ -305,20 +317,17 @@ def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
         for value in dataset.data_vars["trace"].raw_values
         if isinstance(value, MeasurementArray)
     ] == [(2,), (4,), (1,)]
-    assert [len(batch) for batch in batches] == [2, 1]
-    assert [record.point_index for batch in batches for record in batch.records] == [
-        0,
-        1,
-        2,
-    ]
-    assert all(batch.dims[sample_dimension] is None for batch in batches)
+    assert [batch.num_rows for batch in batches] == [2, 1]
+    assert [
+        point for batch in batches for point in batch["point_index"].to_pylist()
+    ] == [0, 1, 2]
     assert all(
         record.acquisition_evidence["trace"].instrument_id == "source-0"
         for record in dataset.records
     )
 
     if find_spec("pyarrow") is not None:
-        table = cast("_ArrowTable", dataset.to_arrow())
+        table = cast("_ArrowTable", dataset.project().to_arrow())
         assert table["trace"].to_pylist() == [
             [2.0, 2.1],
             [4.0, 4.1, 4.2, 4.3],
@@ -356,7 +365,9 @@ def test_worker_rejects_changed_contract_and_foreign_generation(
     second.shutdown()
 
 
-def test_worker_crash_is_permanent_and_never_restarts(tmp_path: Path) -> None:
+def test_worker_crash_fails_requests_and_marks_the_endpoint_unhealthy(
+    tmp_path: Path,
+) -> None:
     project = _copy_project(tmp_path)
     endpoint = SubprocessInstrumentBackendEndpoint(project, _BACKEND)
     config = load_config()
@@ -367,9 +378,6 @@ def test_worker_crash_is_permanent_and_never_restarts(tmp_path: Path) -> None:
     with pytest.raises(InstrumentBackendUnavailable, match="unavailable"):
         endpoint.describe(bindings)
     assert not endpoint.healthy
-    with pytest.raises(InstrumentBackendUnavailable, match="unavailable"):
-        endpoint.describe(bindings)
-    assert endpoint.worker_pid == worker_pid
 
     endpoint.shutdown()
     assert not psutil.pid_exists(worker_pid)
@@ -389,15 +397,6 @@ def test_worker_start_failure_leaves_no_process(tmp_path: Path) -> None:
 
     failed_pid = int((project / "failed-worker.pid").read_text(encoding="utf-8"))
     assert not psutil.pid_exists(failed_pid)
-
-
-def test_worker_operation_timeout_must_be_positive(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="timeouts must be positive"):
-        SubprocessInstrumentBackendEndpoint(
-            tmp_path,
-            _BACKEND,
-            operation_timeout=0,
-        )
 
 
 def test_runtime_releases_project_lock_after_worker_start_failure(

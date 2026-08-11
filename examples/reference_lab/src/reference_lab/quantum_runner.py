@@ -6,7 +6,7 @@ import scopecat as sc
 from scopecat.kernel.entity import EntityRef
 from scopecat_instruments import rf_output
 from scopecat_quantum import authoring as quantum
-from scopecat_quantum.measurement_postprocessors import (
+from scopecat_quantum.measurement_computes import (
     BinaryIqDiscriminator,
     BinaryIqProbabilityProducts,
     IqCentroid,
@@ -122,7 +122,7 @@ def _prepare_reviewed_los(
 def run_quantum(
     experiment: sc.ExperimentContext,
     call: quantum.QuantumProgramCall,
-) -> None:
+) -> BinaryIqProbabilityProducts:
     """Run an integrated-IQ program through the lab-owned experiment skeleton.
 
     Independent local-device work, including external LO preparation, belongs
@@ -130,7 +130,7 @@ def run_quantum(
     part of the quantum target/compiler contract.
     """
 
-    experiment.record(experiment.use(quantum_capture(call)))
+    return experiment.use(quantum_capture(call))
 
 
 __all__ = [

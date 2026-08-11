@@ -5,9 +5,10 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import SupportsFloat, cast
+from typing import Annotated, SupportsFloat, cast
 
 import numpy as np
+import polars as pl
 import scopecat as sc
 from scopecat import Quantity
 from scopecat.measurements.results import Dataset
@@ -22,19 +23,20 @@ from reference_lab.workflows.drag_beta_experiment import DRAG_BETA_EXPERIMENT
 _DRAG_BETA_FIT_MODEL_ID = "reference_lab.drag_beta.shared_n2_quadratic.v1"
 _DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
 _DRAG_BETA_PROPOSAL_ID = "q0-drag-beta"
-_OBSERVATION_COLUMNS = (
-    sc.AnalysisTableColumn(id="beta_ns", label="DRAG beta", unit="ns"),
-    sc.AnalysisTableColumn(id="amplification", label="Amplification"),
-    sc.AnalysisTableColumn(id="probability_1", label="P(1)", unit="ratio"),
+_BETA_FIELD = sc.AnalysisField(
+    id="beta_ns",
+    role="coordinate",
+    label="DRAG beta",
+    unit="ns",
 )
-_FIT_COLUMNS = (
-    sc.AnalysisTableColumn(id="model_id", label="Fit model"),
-    sc.AnalysisTableColumn(id="beta_hat", label="Selected beta", unit="ns"),
-    sc.AnalysisTableColumn(id="baseline", label="Baseline"),
-    sc.AnalysisTableColumn(id="quadratic", label="Quadratic coefficient"),
-    sc.AnalysisTableColumn(id="linear", label="Linear coefficient"),
-    sc.AnalysisTableColumn(id="scaled_offset", label="Scaled offset"),
-    sc.AnalysisTableColumn(id="rmse", label="RMSE"),
+_AMPLIFICATION_FIELD = sc.AnalysisField(
+    role="coordinate",
+    label="Amplification",
+)
+_PROBABILITY_FIELD = sc.AnalysisField(
+    id="probability_1",
+    label="P(1)",
+    unit="ratio",
 )
 
 
@@ -42,21 +44,42 @@ _FIT_COLUMNS = (
 class DragBetaObservation:
     """One measured probability at a beta and amplification count."""
 
-    beta: Quantity
-    amplification: int
-    p1: float
+    beta: Annotated[
+        Quantity,
+        _BETA_FIELD,
+    ]
+    amplification: Annotated[int, _AMPLIFICATION_FIELD]
+    p1: Annotated[
+        float,
+        _PROBABILITY_FIELD,
+    ]
 
 
 @dataclass(frozen=True, slots=True)
 class DragBetaFit:
     """Fit of ``p1 = baseline + N²(a beta² + b beta + c)``."""
 
-    beta_hat: Quantity
-    baseline: float
-    quadratic: float
-    linear: float
-    scaled_offset: float
-    rmse: float
+    beta_hat: Annotated[
+        Quantity,
+        sc.AnalysisField(label="Selected beta", unit="ns"),
+    ]
+    baseline: Annotated[float, sc.AnalysisField(label="Baseline")]
+    quadratic: Annotated[
+        float,
+        sc.AnalysisField(label="Quadratic coefficient"),
+    ]
+    linear: Annotated[float, sc.AnalysisField(label="Linear coefficient")]
+    scaled_offset: Annotated[float, sc.AnalysisField(label="Scaled offset")]
+    rmse: Annotated[float, sc.AnalysisField(label="RMSE")]
+    model_id: Annotated[str, sc.AnalysisField(label="Fit model")] = (
+        _DRAG_BETA_FIT_MODEL_ID
+    )
+
+
+DRAG_BETA_FIT_SCHEMA = sc.AnalysisFactSchema(
+    _DRAG_BETA_FIT_MODEL_ID,
+    DragBetaFit,
+)
 
 
 def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
@@ -114,61 +137,42 @@ def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
 def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit one DRAG run and author its table, figure, and proposal."""
 
-    measurements = context.measurements()
-    observations = _observations_from_dataset(measurements)
+    observations = _observations_from_frame(_observation_frame(context.measurements()))
     fit = fit_drag_beta(observations)
 
     return (
         context.result("DRAG beta calibration")
-        .input(
-            measurements.entry.id,
-            role="fit-input",
-            title="DRAG beta measurements",
-        )
-        .table(
-            sc.AnalysisTable.from_rows(
-                [
-                    {
-                        "beta_ns": _beta_ns(observation.beta),
-                        "amplification": observation.amplification,
-                        "probability_1": observation.p1,
-                    }
-                    for observation in observations
-                ],
-                columns=_OBSERVATION_COLUMNS,
-            ),
+        .dataset(
+            "observations",
+            observations,
             title="DRAG beta observations",
         )
-        .table(
-            sc.AnalysisTable.from_rows([_fit_summary(fit)], columns=_FIT_COLUMNS),
+        .fact(
+            "quadratic-fit",
+            fit,
+            schema=DRAG_BETA_FIT_SCHEMA,
             title="DRAG beta quadratic fit",
         )
+        .table(
+            dataset="observations",
+            id="observations-table",
+            title="DRAG beta observations",
+        )
         .figure(
-            sc.AnalysisFigure(
-                kind="scatter",
-                x_axis=sc.AnalysisFigureAxis(label="DRAG beta", unit="ns"),
-                y_axis=sc.AnalysisFigureAxis(label="P(1)", unit="ratio"),
-                series=[
-                    sc.AnalysisFigureSeries(
-                        id=f"amplification-{amplification}",
-                        label=f"N={amplification}",
-                        x=[
-                            _beta_ns(observation.beta)
-                            for observation in observations
-                            if observation.amplification == amplification
-                        ],
-                        y=[
-                            observation.p1
-                            for observation in observations
-                            if observation.amplification == amplification
-                        ],
-                    )
-                    for amplification in sorted(
-                        {observation.amplification for observation in observations}
-                    )
-                ],
-            ),
+            dataset="observations",
+            id="observations-by-amplification",
+            kind="scatter",
+            x="beta_ns",
+            y="probability_1",
+            series="amplification",
             title="DRAG beta observations by amplification",
+        )
+        .artifact(
+            "fit-report",
+            text=_drag_beta_report(observations, fit),
+            filename="drag-beta-fit.md",
+            media_type="text/markdown",
+            title="DRAG beta fit report",
         )
         .propose(
             _DRAG_BETA_PROPOSAL_ID,
@@ -178,49 +182,56 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
                 f"{POSITIVE_CANDIDATE_ID!r} and {NEGATIVE_CANDIDATE_ID!r}; "
                 f"RMSE={fit.rmse:.6g}."
             ),
+            evidence=("quadratic-fit", "observations"),
         )
     )
 
 
-def _observations_from_dataset(
-    dataset: Dataset,
-) -> tuple[DragBetaObservation, ...]:
+def _observation_frame(dataset: Dataset) -> pl.DataFrame:
     schema = DRAG_BETA_EXPERIMENT.output
-    try:
-        beta = dataset[schema.beta].require_quantities("ns")
-        amplification = dataset[schema.amplification].require_values()
-        probability_one = dataset[
-            schema.probabilities.probability_1
-        ].require_quantities("ratio")
-    except KeyError as error:
-        raise ValueError(
-            "run does not contain the DRAG-beta measurement schema"
-        ) from error
+    frame = (
+        dataset.bind(schema)
+        .project(
+            {
+                "beta_ns": schema.beta,
+                "amplification": schema.amplification,
+                "probability_1": schema.probabilities.probability_1,
+            },
+            units={"beta_ns": "ns"},
+            identity=False,
+        )
+        .to_polars()
+    )
+    return frame
+
+
+def _observations_from_frame(
+    frame: pl.DataFrame,
+) -> tuple[DragBetaObservation, ...]:
     return tuple(
         DragBetaObservation(
-            beta=beta_value,
-            amplification=amplification_value,
-            p1=float(probability_one_value.value),
+            beta=Quantity(beta_ns, "ns"),
+            amplification=amplification,
+            p1=probability_1,
         )
-        for beta_value, amplification_value, probability_one_value in zip(
-            beta,
-            amplification,
-            probability_one,
-            strict=True,
+        for beta_ns, amplification, probability_1 in cast(
+            "list[tuple[float, int, float]]",
+            frame.select(("beta_ns", "amplification", "probability_1")).rows(),
         )
     )
 
 
-def _fit_summary(fit: DragBetaFit) -> dict[str, sc.AnalysisTableCell]:
-    return {
-        "model_id": _DRAG_BETA_FIT_MODEL_ID,
-        "beta_hat": _beta_ns(fit.beta_hat),
-        "baseline": fit.baseline,
-        "quadratic": fit.quadratic,
-        "linear": fit.linear,
-        "scaled_offset": fit.scaled_offset,
-        "rmse": fit.rmse,
-    }
+def _drag_beta_report(
+    observations: Sequence[DragBetaObservation],
+    fit: DragBetaFit,
+) -> str:
+    return (
+        "# DRAG beta quadratic fit\n\n"
+        f"Observations: {len(observations)}\n\n"
+        f"- Selected beta: {_beta_ns(fit.beta_hat):.9g} ns\n"
+        f"- RMSE: {fit.rmse:.9g}\n"
+        f"- Model: {fit.model_id}\n"
+    )
 
 
 def _beta_ns(value: Quantity) -> float:

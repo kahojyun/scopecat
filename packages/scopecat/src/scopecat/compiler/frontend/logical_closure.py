@@ -17,7 +17,11 @@ from scopecat.program.bindings import (
     ResourcePort,
 )
 from scopecat.program.domain import DomainExecution
-from scopecat.program.expressions import ComputeResultScalarExpr, lit
+from scopecat.program.expressions import (
+    ComputeResultArrayExpr,
+    ComputeResultScalarExpr,
+    lit,
+)
 from scopecat.program.logical import (
     AcquireEffect,
     ImplementationId,
@@ -27,13 +31,13 @@ from scopecat.program.logical import (
     LogicalEnsureState,
     LogicalInvocation,
     LogicalInvocationArgument,
-    LogicalMeasurementPostprocessor,
+    LogicalMeasurementCompute,
     LogicalProgram,
     LogicalStateAssignment,
-    MeasurementPostprocessorId,
+    MeasurementComputeId,
     ValueDef,
 )
-from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.measurements import MeasurementCompute
 from scopecat.program.operations import (
     ComputeNodeInputValue,
     ModuleInputPort,
@@ -42,7 +46,7 @@ from scopecat.program.operations import (
 from scopecat.program.parameters import ParameterContract
 from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl
-from scopecat.program.recording import LogicalRecordSelection
+from scopecat.program.recording import ExperimentResultField, LogicalRecordSelection
 from scopecat.program.scans import AxisSpec, PointTraversal, RepeatMode
 from scopecat.program.value_graph import OperationId, operation_result_id
 from scopecat.program.value_refs import (
@@ -52,6 +56,7 @@ from scopecat.program.value_refs import (
     internal_value_ref_operation_id,
 )
 from scopecat.program.values import ComputeFunction
+from scopecat.sdk.compute import compute_implementation_internal
 
 
 def logical_compute_node_id(symbol: SymbolId) -> OperationId:
@@ -73,7 +78,7 @@ class LogicalProgramBuilder:
     def __init__(self) -> None:
         self._definitions: dict[ValueId, ValueDef] = {}
         self._compute_nodes: dict[OperationId, LogicalComputeNode] = {}
-        self._measurement_postprocessors: list[LogicalMeasurementPostprocessor] = []
+        self._measurement_computes: list[LogicalMeasurementCompute] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
 
     def add_authored_operation(
@@ -102,13 +107,19 @@ class LogicalProgramBuilder:
             result_type=declaration.output_type,
         )
         self._add_compute_node(operation)
+        marker = compute_implementation_internal(implementation)
         self._implementations[operation_id] = LocalPythonImplementation(
             id=ImplementationId(
-                "python:"
-                f"{declaration.declaration_key.value.hex}:"
-                f"{operation_id.qualified_name}"
+                marker.reference
+                if marker is not None
+                else (
+                    "python:"
+                    f"{declaration.declaration_key.value.hex}:"
+                    f"{operation_id.qualified_name}"
+                )
             ),
             kernel=implementation,
+            deterministic=False if marker is None else marker.deterministic,
         )
 
     def add_domain_execution(
@@ -244,16 +255,34 @@ class LogicalProgramBuilder:
         self._add_literal(value_id, value)
         return value_id
 
-    def add_measurement_postprocessor(
+    def add_measurement_compute(
         self,
-        declaration: MeasurementPostprocessor,
+        declaration: MeasurementCompute,
     ) -> None:
-        self._measurement_postprocessors.append(
-            LogicalMeasurementPostprocessor(
-                id=MeasurementPostprocessorId(declaration.symbol_id),
-                input=declaration.input_binding,
+        self._measurement_computes.append(
+            LogicalMeasurementCompute(
+                id=MeasurementComputeId(declaration.symbol_id),
+                inputs=declaration.input_bindings,
+                value_inputs=tuple(
+                    (
+                        name,
+                        self._add_effect_value(
+                            value,
+                            scope=(
+                                *declaration.scope,
+                                declaration.id,
+                                "inputs",
+                            ),
+                            local_id=name,
+                        ),
+                    )
+                    for name, value in declaration.value_input_bindings
+                ),
                 outputs=declaration.output_bindings,
                 kernel=declaration.kernel,
+                implementation=declaration.implementation,
+                deterministic=declaration.deterministic,
+                captures=declaration.captures,
             )
         )
 
@@ -273,6 +302,7 @@ class LogicalProgramBuilder:
         parameter_overlays: Sequence[AxisSpec],
         product_declarations: Sequence[ModuleProductDecl],
         record_selections: Sequence[LogicalRecordSelection],
+        result_fields: Sequence[ExperimentResultField],
         parameter_contracts: Sequence[ParameterContract],
         point_domain: PointAxes[ValueRef],
         point_domain_layout: PointDomainLayout,
@@ -300,6 +330,7 @@ class LogicalProgramBuilder:
             parameter_overlays=tuple(parameter_overlays),
             product_declarations=tuple(product_declarations),
             record_selections=tuple(record_selections),
+            result_fields=tuple(result_fields),
             parameter_contracts=tuple(parameter_contracts),
             point_domain=point_domain,
             point_domain_layout=point_domain_layout,
@@ -308,7 +339,7 @@ class LogicalProgramBuilder:
             point_traversal=point_traversal,
             value_defs=tuple(self._definitions.values()),
             compute_nodes=tuple(self._compute_nodes.values()),
-            measurement_postprocessors=tuple(self._measurement_postprocessors),
+            measurement_computes=tuple(self._measurement_computes),
             implementations=MappingProxyType(dict(self._implementations)),
             effects=effects,
             success_state=success_state,
@@ -348,8 +379,8 @@ class LogicalProgramBuilder:
             # Its definition is owned by the corresponding authored operation.
             return value_id
         lowered = internal_lower_value_ref(value)
-        if isinstance(lowered, ComputeResultScalarExpr):
-            msg = "non-compute logical values must lower to a scalar expression"
+        if isinstance(lowered, ComputeResultScalarExpr | ComputeResultArrayExpr):
+            msg = "non-compute logical values cannot be compute-result expressions"
             raise TypeError(msg)
         self._add_definition(
             ValueDef(

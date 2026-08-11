@@ -34,10 +34,10 @@ from scopecat.measurements.products import (
 from scopecat.measurements.records import BoundRecordUse, RecordUse, ValueRecordUse
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
-    MeasurementPostprocessorId,
+    MeasurementComputeId,
 )
 from scopecat.program.measurement_contracts import (
-    MeasurementPostprocessorKernel,
+    MeasurementComputeKernel,
 )
 from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.program.value_graph import OperationId
@@ -52,7 +52,7 @@ def _empty_domain_result_use_ids() -> dict[tuple[str, str], tuple[ProductUseId, 
 
 
 @dataclass(frozen=True, slots=True)
-class BoundMeasurementPostprocessorOutput:
+class BoundMeasurementComputeOutput:
     """One calculated product and all of its downstream use slots."""
 
     id: str
@@ -61,14 +61,34 @@ class BoundMeasurementPostprocessorOutput:
 
 
 @dataclass(frozen=True, slots=True)
-class BoundMeasurementPostprocessor:
-    """One live point-local postprocessor retained by record demand."""
+class BoundMeasurementComputeInput:
+    """One named measured product consumed by a point-local computation."""
 
-    id: MeasurementPostprocessorId
-    input_product_id: ProductId
-    input_product_use_id: ProductUseId
-    outputs: tuple[BoundMeasurementPostprocessorOutput, ...]
-    kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
+    id: str
+    product_id: ProductId
+    product_use_id: ProductUseId
+
+
+@dataclass(frozen=True, slots=True)
+class BoundMeasurementComputeValueInput:
+    """One named early value consumed after measurements become available."""
+
+    id: str
+    value_id: ValueId
+
+
+@dataclass(frozen=True, slots=True)
+class BoundMeasurementCompute:
+    """One live point-local compute retained by record demand."""
+
+    id: MeasurementComputeId
+    inputs: tuple[BoundMeasurementComputeInput, ...]
+    outputs: tuple[BoundMeasurementComputeOutput, ...]
+    kernel: MeasurementComputeKernel = field(repr=False, compare=False)
+    value_inputs: tuple[BoundMeasurementComputeValueInput, ...] = ()
+    implementation: str | None = None
+    deterministic: bool = False
+    captures: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +126,7 @@ class BoundProgramFacts:
     domain_result_use_ids: Mapping[tuple[str, str], tuple[ProductUseId, ...]] = field(
         default_factory=_empty_domain_result_use_ids
     )
-    measurement_postprocessors: tuple[BoundMeasurementPostprocessor, ...] = ()
+    measurement_computes: tuple[BoundMeasurementCompute, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[BoundRecordUse, ...] = ()

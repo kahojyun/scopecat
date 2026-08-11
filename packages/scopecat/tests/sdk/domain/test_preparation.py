@@ -94,12 +94,12 @@ def _preparation_context(
     def selected(experiment: sc.ExperimentContext) -> None:
         results = experiment.use(authored_call)
         experiment.grid(sc.axis(count, (1, 3)))
-        experiment.record(
+        experiment.alias(
             results.raw,
             record_id="raw-first" if shared_product_uses else "raw",
         )
         if shared_product_uses:
-            experiment.record(
+            experiment.alias(
                 results.raw,
                 record_id="raw-second",
             )

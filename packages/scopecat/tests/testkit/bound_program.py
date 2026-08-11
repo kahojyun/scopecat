@@ -10,7 +10,7 @@ from scopecat.compiler.bind import (
     _make_bound_plan,
 )
 from scopecat.compiler.bound_facts import (
-    BoundMeasurementPostprocessor,
+    BoundMeasurementCompute,
     BoundProgramFacts,
     LogicalResourceRequirement,
 )
@@ -285,7 +285,7 @@ def program_fixture(
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     compute_nodes: Sequence[ComputeNodeFixture] = (),
     domain_execution: DomainExecutionFixture | None = None,
-    measurement_postprocessors: Sequence[BoundMeasurementPostprocessor] = (),
+    measurement_computes: Sequence[BoundMeasurementCompute] = (),
     state: Sequence[StateAssignmentFixture] = (),
     invocations: Sequence[InvocationFixture] = (),
     product_defs: Sequence[ProductDef] = (),
@@ -483,7 +483,7 @@ def program_fixture(
             for execution in selected_domains
             for result in execution.results
         },
-        measurement_postprocessors=tuple(measurement_postprocessors),
+        measurement_computes=tuple(measurement_computes),
         product_defs=tuple(product_defs),
         product_uses=tuple(product_uses),
         record_uses=tuple(record_uses),

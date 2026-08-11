@@ -111,7 +111,7 @@ def test_duplicate_result_id_within_acquisition_is_rejected() -> None:
         )
 
 
-def test_run_measurements_have_expected_unique_points_and_observables() -> None:
+def test_run_measurements_have_expected_unique_points_and_values() -> None:
     records = [
         MeasurementRecord(
             run_id="run-1",
@@ -129,10 +129,10 @@ def test_run_measurements_have_expected_unique_points_and_observables() -> None:
 
     assert [item.code for item in problems] == [
         "execution_plan_measurement_point_unknown",
-        "execution_plan_measurement_observables_missing",
+        "execution_plan_measurement_values_missing",
         "execution_plan_measurement_point_duplicate",
         "execution_plan_measurement_point_unknown",
-        "execution_plan_measurement_observables_missing",
+        "execution_plan_measurement_values_missing",
     ]
 
 

@@ -45,8 +45,8 @@ def test_xy_drive_declares_physical_i_and_q_resources_per_entity() -> None:
     assert all(port.selector.role.role_id == "drive-q" for port in q_ports)
     assert len(logical.compute_nodes) == 4
     assert [record.id for record in logical.value_record_selections] == [
-        "requested_carrier_frequency_q0",
-        "requested_carrier_frequency_q1",
+        "requested_carrier_frequency/logical_qubit/q0",
+        "requested_carrier_frequency/logical_qubit/q1",
     ]
 
 

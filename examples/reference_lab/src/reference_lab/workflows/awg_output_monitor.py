@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
+from typing import Annotated, cast
 
 import scopecat as sc
 from scopecat.kernel.payloads import PayloadValue
@@ -42,17 +42,22 @@ from reference_lab.bench_interfaces import (
 )
 from reference_lab.payloads import SAMPLED_WAVEFORM_SCHEMA_ID
 
+type SampledWaveform = Annotated[
+    dict[str, object],
+    sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
+]
+
 SAMPLE_RATE = sc.Quantity(1.0, "GHz")
 RECORD_LENGTH = 16
 
 
 @dataclass(frozen=True, slots=True)
 class AwgOutputMonitorDataset:
-    time: sc.RecordRef[MeasurementArrayData]
-    voltage: sc.RecordRef[MeasurementArrayData]
+    time: sc.ProductRef[MeasurementArrayData]
+    voltage: sc.ProductRef[MeasurementArrayData]
 
 
-def _diagnostic_waveform() -> dict[str, object]:
+def _diagnostic_waveform() -> SampledWaveform:
     return {
         "samples": [
             0.0,
@@ -129,7 +134,6 @@ def awg_output_monitor(
     waveform = experiment.compute(
         "diagnostic_waveform",
         fn=_diagnostic_waveform,
-        output_type=sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
     )
 
     monitor.invoke(OSCILLOSCOPE_ARM)
@@ -160,12 +164,12 @@ def awg_output_monitor(
     )
     return AwgOutputMonitorDataset(
         time=cast(
-            "sc.RecordRef[MeasurementArrayData]",
-            experiment.record(time),
+            "sc.ProductRef[MeasurementArrayData]",
+            time,
         ),
         voltage=cast(
-            "sc.RecordRef[MeasurementArrayData]",
-            experiment.record(voltage),
+            "sc.ProductRef[MeasurementArrayData]",
+            voltage,
         ),
     )
 

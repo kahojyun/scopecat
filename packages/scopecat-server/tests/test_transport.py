@@ -18,7 +18,6 @@ from scopecat.daemon.views import (
     MeasurementTracePreviewQuery,
     MeasurementTraceSeries,
     RunDetail,
-    RunSummaryPage,
 )
 from scopecat.daemon.wire import (
     ExecutorLease,
@@ -107,21 +106,10 @@ class FakeRuns:
     def __init__(self, *, events: tuple[DurableEvent, ...]) -> None:
         self.events = events
         self.event_afters: list[int | None] = []
-        self.run_stage_query: tuple[int, int | None, str | None] | None = None
         self.trace_preview_query: tuple[str, MeasurementTracePreviewQuery] | None = None
 
     def get_run(self, run_id: str) -> RunDetail:
         raise BackendNotFound(f"run was not found: {run_id}")
-
-    def list_run_stages(
-        self,
-        *,
-        limit: int,
-        before: int | None,
-        sequence_id: str | None,
-    ) -> RunSummaryPage:
-        self.run_stage_query = (limit, before, sequence_id)
-        return RunSummaryPage()
 
     def measurement_trace_preview(
         self,
@@ -273,20 +261,6 @@ def test_run_submission_and_backend_error_mapping() -> None:
     assert conflict.json() == {"detail": "submission already exists"}
     assert missing.status_code == 404
     assert invalid.status_code == 422
-
-
-def test_run_stage_query_forwards_sequence_filter() -> None:
-    backend = FakeApplication()
-    client = TestClient(_create_test_app(backend))
-
-    response = client.get(
-        "/api/v1/run-stages",
-        params={"limit": 25, "before": 9, "sequence_id": "adaptive"},
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {"items": [], "next_cursor": None}
-    assert backend.runs.run_stage_query == (25, 9, "adaptive")
 
 
 def test_trace_preview_route_forwards_typed_query_and_validates_selection() -> None:

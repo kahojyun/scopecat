@@ -7,6 +7,8 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import cast
 
+import numpy as np
+
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
@@ -22,7 +24,12 @@ from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location
 from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.program.expression_analysis import expression_point_refs
-from scopecat.program.expressions import ScalarExpr
+from scopecat.program.expressions import (
+    ArrayExpr,
+    InputArrayExpr,
+    LiteralArrayExpr,
+    ScalarExpr,
+)
 from scopecat.program.logical import LogicalComputeNode, LogicalProgram, ValueDef
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.point_domain import analyze_point_domain
@@ -35,6 +42,22 @@ def bind_value_definition_inputs(
     source = definition.source
     if isinstance(source, ScalarExpr):
         return replace(definition, source=bind_scalar_input_refs(source, inputs))
+    if isinstance(source, InputArrayExpr):
+        if source.name not in inputs:
+            return definition
+        from scopecat.kernel.value_validation import coerce_literal
+
+        value = coerce_literal(
+            source.value_type,
+            inputs[source.name],
+            path=("inputs", source.name),
+        )
+        return replace(
+            definition,
+            source=LiteralArrayExpr(cast("np.ndarray", value), source.value_type),
+        )
+    if isinstance(source, ArrayExpr):
+        return definition
     return replace(definition, source=bind_table_source(source, inputs))
 
 

@@ -21,6 +21,7 @@ from scopecat.control.models import (
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.datasets import (
+    MAX_MEASUREMENT_PAGE_SIZE,
     MAX_MEASUREMENT_SLICE_SIZE,
     MAX_MEASUREMENT_TRACE_SAMPLES,
     MAX_MEASUREMENT_TRACE_SERIES,
@@ -309,6 +310,21 @@ class RunArtifactBytesView(_ViewModel):
         return b64decode(self.content_base64, validate=True)
 
 
+class RunDatasetBytesView(_ViewModel):
+    run_id: str
+    dataset: RunContentEntry
+    content_base64: str
+
+    @model_validator(mode="after")
+    def validate_content(self) -> RunDatasetBytesView:
+        _require_entry_role(self.dataset, "dataset")
+        _validate_base64(self.content_base64)
+        return self
+
+    def content_bytes(self) -> bytes:
+        return b64decode(self.content_base64, validate=True)
+
+
 class ParameterProposalView(_ViewModel):
     """One proposal and its optional immutable operator approval."""
 
@@ -336,12 +352,45 @@ class ParameterProposalListView(_ViewModel):
         return self
 
 
-class MeasurementPage(_ViewModel):
-    """Bounded typed-record preview for interactive browsing."""
+class MeasurementArrowColumn(_ViewModel):
+    """One external Arrow column bound to a durable measurement variable."""
+
+    name: Annotated[str, Field(min_length=1)]
+    variable_id: Annotated[str, Field(min_length=1)]
+
+
+class MeasurementArrowQuery(_ViewModel):
+    """Atomic projection and finite page requested from the Arrow read path."""
+
+    columns: tuple[MeasurementArrowColumn, ...] = Field(min_length=1)
+    units: dict[str, Annotated[str, Field(min_length=1)]] = Field(default_factory=dict)
+    diagnostics: Literal["none", "reason", "full"] = "reason"
+    include_identity: bool = True
+    layout: Literal["points", "observations"] = "points"
+    limit: Annotated[int, Field(ge=1, le=MAX_MEASUREMENT_PAGE_SIZE)] = 100
+    offset: Annotated[int, Field(ge=0)] = 0
+    snapshot_size: Annotated[int, Field(ge=0)] | None = None
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> MeasurementArrowQuery:
+        names = tuple(column.name for column in self.columns)
+        if len(names) != len(set(names)):
+            raise ValueError("measurement Arrow column names must be unique")
+        unknown_units = set(self.units) - set(names)
+        if unknown_units:
+            raise ValueError(
+                "measurement Arrow units reference unknown columns: "
+                + ", ".join(sorted(unknown_units))
+            )
+        return self
+
+
+class MeasurementPreview(_ViewModel):
+    """One bounded JSON preview for the operator UI, not a data paging API."""
 
     items: tuple[MeasurementRecord, ...] = ()
-    next_offset: int | None = Field(default=None, ge=0)
     dataset_schema: MeasurementDatasetSchema | None = None
+    truncated: bool = False
 
 
 class MeasurementSliceQuery(_ViewModel):
@@ -498,7 +547,9 @@ __all__ = [
     "InstrumentConnectionSummary",
     "InstrumentListView",
     "InstrumentView",
-    "MeasurementPage",
+    "MeasurementArrowColumn",
+    "MeasurementArrowQuery",
+    "MeasurementPreview",
     "MeasurementSlice",
     "MeasurementSliceQuery",
     "MeasurementTracePreview",
@@ -512,6 +563,7 @@ __all__ = [
     "RunArtifactBytesView",
     "RunConfigView",
     "RunControlView",
+    "RunDatasetBytesView",
     "RunDetail",
     "RunDomainExecutionView",
     "RunPlanView",

@@ -27,7 +27,7 @@ from scopecat.compiler.frontend.module_scoping import (
     DefinitionEffect,
     InstanceBoundary,
     localize_effect,
-    localize_measurement_postprocessor,
+    localize_measurement_compute,
     localize_operation,
     localize_product_declaration,
     localize_resource_port,
@@ -36,7 +36,7 @@ from scopecat.compiler.frontend.module_scoping import (
 from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
 from scopecat.kernel.point_identity import PointDomainLayout
 from scopecat.kernel.product_identity import parse_product_id
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import Array, Scalar
 from scopecat.program.bindings import (
     EnsureStateIntent,
     ResourcePort,
@@ -58,6 +58,7 @@ from scopecat.program.products import (
     ModuleProductDecl,
 )
 from scopecat.program.recording import (
+    ExperimentResultField,
     LogicalRecordSelection,
     LogicalValueRecordSelection,
     ProgramRecordSelection,
@@ -69,7 +70,11 @@ from scopecat.program.scans import (
     RepeatMode,
     axis_parameter_contracts,
 )
-from scopecat.program.value_refs import ValueRef, internal_value_ref_source_id
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_value_ref_record_source_id,
+    internal_value_ref_source_id,
+)
 from scopecat.program.value_transforms import internal_bind_value_ref_inputs
 
 
@@ -152,9 +157,11 @@ class _LogicalProgramComposer:
                 implementations[operation.declaration_key],
             )
             self.dependency_roots.extend(value for _name, value in localized.inputs)
-        for postprocessor in module.body.measurement_postprocessors:
-            self.logical.add_measurement_postprocessor(
-                localize_measurement_postprocessor(postprocessor, boundaries)
+        for compute in module.body.measurement_computes:
+            localized = localize_measurement_compute(compute, boundaries)
+            self.logical.add_measurement_compute(localized)
+            self.dependency_roots.extend(
+                value for _name, value in localized.value_input_bindings
             )
         self.product_declarations.extend(
             localize_product_declaration(
@@ -211,6 +218,7 @@ def compose_experiment(
         logical_inputs=inputs,
         parameter_overlays=tuple(axis for axis in scans if axis.overlay is not None),
         record_selections=definition.record_selections,
+        result_fields=definition.result_fields,
         additional_parameter_contracts=merge_parameter_contracts(
             *(axis_parameter_contracts(axis) for axis in scans),
         ),
@@ -232,6 +240,7 @@ def _elaborate_hierarchy(
     logical_inputs: Mapping[str, object] | None = None,
     parameter_overlays: Sequence[AxisSpec] = (),
     record_selections: Sequence[ProgramRecordSelection] = (),
+    result_fields: Sequence[ExperimentResultField] = (),
     additional_parameter_contracts: tuple[ParameterContract, ...] = (),
     point_domain: PointAxes[ValueRef] = (),
     point_domain_layout: PointDomainLayout = "product_grid",
@@ -325,6 +334,7 @@ def _elaborate_hierarchy(
         parameter_overlays=parameter_overlays,
         product_declarations=tuple(composer.product_declarations),
         record_selections=logical_record_selections,
+        result_fields=result_fields,
         parameter_contracts=merge_parameter_contracts(
             dependencies.parameters,
             additional_parameter_contracts,
@@ -352,14 +362,12 @@ def _resolve_value_record_selection(
     value: ValueRef,
     builder: LogicalProgramBuilder,
 ) -> LogicalValueRecordSelection:
-    if not isinstance(value.value_type, Scalar):
-        raise TypeError("dataset value records must be scalar")
+    if not isinstance(value.value_type, Scalar | Array):
+        raise TypeError("dataset value records must be scalar or array values")
     default_source_id = internal_value_ref_source_id(value)
     if selection.record_id is None and default_source_id is None:
         raise ValueError("recording an unnamed symbolic expression requires record_id")
-    source_value_id = default_source_id or selection.record_id
-    if source_value_id is None:
-        raise AssertionError("value record identity was not resolved")
+    source_value_id = internal_value_ref_record_source_id(value)
     selected_id = (
         selection.record_id
         or parse_product_id(source_value_id)

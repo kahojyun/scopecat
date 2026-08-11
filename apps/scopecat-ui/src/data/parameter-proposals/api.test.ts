@@ -21,6 +21,7 @@ describe("parameter proposal reads", () => {
                 base_config_id: "baseline",
                 base_config_content_hash: "sha256:base",
                 reason: "Peak moved",
+                evidence_output_ids: ["selected-fit", "fit-quality"],
                 confidence: 0.92,
                 proposed_at: "2026-07-23T10:00:00Z",
                 deltas: [
@@ -60,6 +61,7 @@ describe("parameter proposal reads", () => {
           baseConfigId: "baseline",
           baseContentHash: "sha256:base",
           reason: "Peak moved",
+          evidenceOutputIds: ["selected-fit", "fit-quality"],
           confidence: 0.92,
           proposedAt: "2026-07-23T10:00:00Z",
           deltas: [

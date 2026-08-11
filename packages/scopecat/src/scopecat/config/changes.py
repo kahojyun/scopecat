@@ -68,6 +68,7 @@ def parameter_change_proposal_from_updates(
     updates: Sequence[ParameterUpdate],
     reason: str,
     confidence: float | None,
+    evidence_output_ids: Sequence[str] = (),
 ) -> ParameterChangeProposal:
     selected_id = artifact_slug(proposal_id, fallback="analysis")
     if not is_safe_parameter_change_id(selected_id):
@@ -105,6 +106,7 @@ def parameter_change_proposal_from_updates(
         base_config_content_hash=config_content_hash(source_config),
         reason=selected_reason,
         confidence=confidence,
+        evidence_output_ids=tuple(evidence_output_ids),
         deltas=deltas,
     )
 

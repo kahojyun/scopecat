@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from scopecat.config.changes import is_safe_parameter_change_id
@@ -42,6 +43,57 @@ class CandidateConfig:
     @property
     def analysis_record_id(self) -> str:
         return self.parameter_proposal.analysis_record_id
+
+
+def candidate_config_from_proposals(
+    proposals: Sequence[ParameterChangeProposal],
+    *,
+    selection: CandidateSelection = None,
+) -> CandidateConfig:
+    """Select one durable proposal exposed by an analysis publication."""
+
+    if not proposals:
+        raise CheckFailed(
+            [
+                _candidate_problem(
+                    "candidate_config_no_parameter_proposals",
+                    "candidate config requires at least one parameter proposal",
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location("parameter_proposals"),
+                )
+            ]
+        )
+    if selection is None:
+        if len(proposals) == 1:
+            return CandidateConfig(parameter_proposal=proposals[0])
+        raise CheckFailed(
+            [
+                _candidate_problem(
+                    "candidate_config_selection_required",
+                    "candidate config selection is required when analysis has "
+                    "multiple parameter proposals",
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location("selection"),
+                )
+            ]
+        )
+    proposal_id = artifact_slug(selection, fallback="analysis")
+    try:
+        selected = next(
+            proposal for proposal in proposals if proposal.id == proposal_id
+        )
+    except StopIteration:
+        raise CheckFailed(
+            [
+                _candidate_problem(
+                    "candidate_config_selection_not_found",
+                    f"candidate config selection was not found: {proposal_id}",
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location("selection"),
+                )
+            ]
+        ) from None
+    return CandidateConfig(parameter_proposal=selected)
 
 
 def resolve_candidate_config_snapshot(

@@ -12,10 +12,9 @@ from scopecat.measurements.results import (
 )
 
 from scopecat_quantum import authoring
-from scopecat_quantum.measurement_postprocessors import (
+from scopecat_quantum.measurement_computes import (
     BinaryIqDiscriminator,
     BinaryIqProbabilityProducts,
-    BinaryIqProbabilityRecords,
     IqCentroid,
     binary_iq_probabilities,
 )
@@ -57,7 +56,7 @@ def test_binary_iq_discriminator_requires_finite_distinct_centroids() -> None:
         ("state_1", (0.5, 0.5)),
     ],
 )
-def test_binary_iq_postprocessor_classifies_one_point(
+def test_binary_iq_compute_classifies_one_point(
     tie_policy: Literal["state_0", "state_1"],
     expected: tuple[float, float],
 ) -> None:
@@ -85,37 +84,50 @@ def test_binary_iq_postprocessor_classifies_one_point(
     )
     assert_type(invocation_products.probability_0, sc.ProductRef[float])
     assert_type(invocation_products.probability_1, sc.ProductRef[float])
-    assert invocation_products.probability_0.id == "kernel/probability_0"
-    assert invocation_products.probability_1.id == "kernel/probability_1"
+    assert invocation_products.probability_0.id == "kernel/discriminate/probability_0"
+    assert invocation_products.probability_1.id == "kernel/discriminate/probability_1"
     experiment = sc.ExperimentContext()
     records = assert_type(
-        experiment.record(experiment.use(discriminate())),
-        BinaryIqProbabilityRecords,
+        experiment.alias(experiment.use(discriminate())),
+        sc.RecordedProducts,
     )
-    assert_type(records.probability_0, sc.RecordRef[float])
-    assert_type(records.probability_1, sc.RecordRef[float])
+    assert isinstance(records.probability_0, sc.RecordRef)
+    assert isinstance(records.probability_1, sc.RecordRef)
     declarations = {
         product.qualified_id: product
         for product in discriminate.definition.body.products
     }
-    for product_id in ("probability_0", "probability_1"):
+    for product_id in (
+        "discriminate/probability_0",
+        "discriminate/probability_1",
+    ):
         product = declarations[product_id]
         assert product.dtype == "float64"
         assert product.unit == "ratio"
         assert product.axes == ()
 
-    [postprocessor] = discriminate.definition.body.measurement_postprocessors
-    assert postprocessor.input_binding.qualified_name == "kernel/iq_shots"
+    [compute] = discriminate.definition.body.measurement_computes
+    assert compute.input_bindings[0][1].qualified_name == "kernel/iq_shots"
+    assert [name for name, _value in compute.value_input_bindings] == ["discriminator"]
+    assert compute.captures == ()
     assert tuple(
         (role, product_id.qualified_name)
-        for role, product_id in postprocessor.output_bindings
+        for role, product_id in compute.output_bindings
     ) == (
-        ("probability_0", "probability_0"),
-        ("probability_1", "probability_1"),
+        ("probability_0", "discriminate/probability_0"),
+        ("probability_1", "discriminate/probability_1"),
     )
 
-    outputs = postprocessor.kernel(
-        _iq_shots(-1.0 + 0.0j, -0.8 + 0.0j, 1.0 + 0.0j, 0.0 + 0.0j)
+    outputs = compute.kernel(
+        {
+            "iq_shots": _iq_shots(
+                -1.0 + 0.0j,
+                -0.8 + 0.0j,
+                1.0 + 0.0j,
+                0.0 + 0.0j,
+            ),
+            "discriminator": _discriminator(tie_policy=tie_policy),
+        }
     )
     assert outputs == {
         "probability_0": MeasurementScalar.create(
@@ -131,7 +143,7 @@ def test_binary_iq_postprocessor_classifies_one_point(
     }
 
 
-def test_binary_iq_postprocessor_rejects_non_iq_input() -> None:
+def test_binary_iq_compute_rejects_non_iq_input() -> None:
     @authoring.program(id="test.binary-iq.invalid-input")
     def acquire_iq(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq_shots")
@@ -146,15 +158,22 @@ def test_binary_iq_postprocessor_rejects_non_iq_input() -> None:
             discriminator=_discriminator(),
         )
 
-    [postprocessor] = discriminate.definition.body.measurement_postprocessors
+    [compute] = discriminate.definition.body.measurement_computes
 
-    with pytest.raises(TypeError, match="MeasurementArray"):
-        postprocessor.kernel(
-            MeasurementScalar.create(dtype="float64", value=0.0, unit="ratio")
+    with pytest.raises(ValueError, match="complex128"):
+        compute.kernel(
+            {
+                "iq_shots": MeasurementScalar.create(
+                    dtype="float64",
+                    value=0.0,
+                    unit="ratio",
+                ),
+                "discriminator": _discriminator(),
+            }
         )
 
 
-def test_binary_iq_postprocessor_can_namespace_parallel_outputs() -> None:
+def test_binary_iq_compute_uses_compute_identity_for_parallel_outputs() -> None:
     @authoring.program(id="test.binary-iq.namespaced")
     def acquire_iq(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq_shots")
@@ -167,10 +186,10 @@ def test_binary_iq_postprocessor_can_namespace_parallel_outputs() -> None:
             module,
             call.results.iq_shots,
             discriminator=_discriminator(),
-            output_prefix="q0",
+            id="q0",
         )
 
     products = discriminate().result
 
-    assert products.probability_0.id == "namespaced/q0_probability_0"
-    assert products.probability_1.id == "namespaced/q0_probability_1"
+    assert products.probability_0.id == "namespaced/q0/probability_0"
+    assert products.probability_1.id == "namespaced/q0/probability_1"

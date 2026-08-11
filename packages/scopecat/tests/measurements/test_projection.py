@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 
+import numpy as np
 import pytest
 
 from scopecat.kernel.entity import EntityRef
@@ -10,6 +11,8 @@ from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
+    Array,
+    ArrayDimension,
     Float,
     Scalar,
     TableColumn,
@@ -41,6 +44,7 @@ from scopecat.measurements.values import (
 from scopecat.planning.measurement_projection import (
     project_run_point_catalog,
 )
+from scopecat.records.measurement import MeasurementArray
 from tests.testkit.measurement_assembly import (
     assembled_measurement_values_for_all_uses,
     measurement_assembly_scenario,
@@ -101,6 +105,59 @@ def test_projection_records_symbolic_scalar_values_without_product_provenance() 
     variable = next(item for item in schema.variables if item.id == "score")
     assert variable.source_product_id is None
     assert variable.source_value_id == "analysis/score"
+
+
+def test_projection_records_symbolic_array_values_with_local_dimensions() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=0)
+    value_id = ValueId(SymbolId(local_id="trace"))
+    value_record = ValueRecordUse(
+        id="trace",
+        value_id=value_id,
+        source_value_id="analysis/trace",
+        value_type=Array(
+            dtype="float64",
+            dimensions=(ArrayDimension("sample", 3, kind="time", unit="ns"),),
+            unit="V",
+        ),
+        requires_execution=True,
+    )
+    [point] = scenario.points
+    projection = select_measurement_projection(
+        scenario.catalog,
+        (value_record,),
+    )
+    values = seal_measurement_values(scenario.catalog, (), points=scenario.points)
+
+    projected = project_measurement_records(
+        projection,
+        values,
+        run_id="array-value-record-run",
+        points=scenario.points,
+        value_candidates=(
+            ValueRecordCandidate(
+                logical_point_id=point.logical_id,
+                value_id=value_id,
+                value=np.asarray([1.0, 2.0, 3.0]),
+            ),
+        ),
+    )
+
+    trace = projected.records[0].observables["trace"]
+    assert isinstance(trace, MeasurementArray)
+    assert trace.unit == "V"
+    assert trace.values.tolist() == [1.0, 2.0, 3.0]
+    schema = projection.schema
+    assert schema is not None
+    dimensions = [
+        (dimension.id, dimension.kind, dimension.size)
+        for dimension in schema.dimensions
+    ]
+    assert dimensions == [
+        ("point", "point", 1),
+        ("sample", "time", 3),
+    ]
+    variable = next(item for item in schema.variables if item.id == "trace")
+    assert variable.dims == ("point", "sample")
 
 
 def test_projection_schema_persists_ordered_product_grid_axes() -> None:

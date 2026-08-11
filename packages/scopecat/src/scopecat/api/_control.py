@@ -8,7 +8,6 @@ from scopecat.control.models import ControlRunState, EventPage
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
     DaemonHealth,
-    MeasurementPage,
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     RunDetail,
@@ -42,19 +41,6 @@ class LabControlOperations:
             state=state,
         )
 
-    def run_stages(
-        self,
-        *,
-        limit: int = 50,
-        before: int | None = None,
-        sequence_id: str | None = None,
-    ) -> RunSummaryPage:
-        return self.client.list_run_stages(
-            limit=limit,
-            before=before,
-            sequence_id=sequence_id,
-        )
-
     def run_detail(self, run_id: str) -> RunDetail:
         return self.client.get_run(run_id)
 
@@ -77,15 +63,6 @@ class LabControlOperations:
             run_id=run_id,
             latest=latest,
         )
-
-    def measurements(
-        self,
-        run_id: str,
-        *,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> MeasurementPage:
-        return self.client.measurements(run_id, limit=limit, offset=offset)
 
     def measurement_trace_preview(
         self,

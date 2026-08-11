@@ -7,6 +7,7 @@ from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.units import compatible_units, unit_kind
 from scopecat.kernel.value_types import (
+    Array,
     AtomType,
     Bool,
     Entity,
@@ -44,6 +45,8 @@ def is_assignable(source: ValueType, target: ValueType) -> bool:
 
     if isinstance(source, Scalar) and isinstance(target, Scalar):
         return _scalar_assignable(source, target)
+    if isinstance(source, Array) and isinstance(target, Array):
+        return _array_assignable(source, target)
     if isinstance(source, Table) and isinstance(target, Table):
         return _table_assignable(source, target)
     return False
@@ -52,6 +55,13 @@ def is_assignable(source: ValueType, target: ValueType) -> bool:
 def describe_value_type(value_type: ValueType) -> str:
     if isinstance(value_type, Scalar):
         return f"Scalar[{_describe_atom(value_type.atom)}]"
+    if isinstance(value_type, Array):
+        dimensions = ", ".join(
+            f"{dimension.id}={dimension.size if dimension.size is not None else '*'}"
+            for dimension in value_type.dimensions
+        )
+        unit = f", unit={value_type.unit!r}" if value_type.unit is not None else ""
+        return f"Array[{value_type.dtype}; {dimensions}{unit}]"
     columns = ", ".join(
         f"{column.id}: {describe_value_type(column.value_type)}"
         for column in value_type.columns
@@ -67,6 +77,27 @@ def literal_scalar_type(value: object) -> Scalar:
 
 def _scalar_assignable(source: Scalar, target: Scalar) -> bool:
     return _atom_assignable(source.atom, target.atom)
+
+
+def _array_assignable(source: Array, target: Array) -> bool:
+    if source.dtype != target.dtype or source.unit != target.unit:
+        return False
+    if len(source.dimensions) != len(target.dimensions):
+        return False
+    return all(
+        source_dimension.id == target_dimension.id
+        and source_dimension.kind == target_dimension.kind
+        and source_dimension.unit == target_dimension.unit
+        and (
+            target_dimension.size is None
+            or source_dimension.size == target_dimension.size
+        )
+        for source_dimension, target_dimension in zip(
+            source.dimensions,
+            target.dimensions,
+            strict=True,
+        )
+    )
 
 
 def _atom_assignable(source: AtomType, target: AtomType) -> bool:

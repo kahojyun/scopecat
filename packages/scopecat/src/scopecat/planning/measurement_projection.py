@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import cast
 
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import evaluate_scalar
 from scopecat.compiler.value_resolution import BoundValueResolver
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.value_data import CellValue
+from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.points import RunPoint, RunPointCatalog, RunPointContract
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.planning.point_materialization import MaterializedBoundPoints
-from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
+from scopecat.program.expressions import (
+    ComputeResultArrayExpr,
+    ComputeResultScalarExpr,
+    LiteralArrayExpr,
+    ScalarExpr,
+)
 
 
 def project_measurement_catalog(
@@ -89,16 +97,35 @@ def _product_grid_axis_values(
 
 def project_static_value_record_candidates(
     bound_points: MaterializedBoundPoints,
+    additional_value_ids: Sequence[ValueId] = (),
 ) -> tuple[ValueRecordCandidate, ...]:
-    """Evaluate plan-stage value records once for every materialized point."""
+    """Evaluate demanded plan-stage values once for every materialized point."""
 
     bound = bound_points.bound_plan
     values = BoundValueResolver(bound.program, bound.bindings)
     candidates: list[ValueRecordCandidate] = []
-    for record in bound.bindings.value_record_uses:
-        if record.requires_execution:
+    selected_value_ids = tuple(
+        dict.fromkeys(
+            (
+                *(record.value_id for record in bound.bindings.value_record_uses),
+                *additional_value_ids,
+            )
+        )
+    )
+    for value_id in selected_value_ids:
+        expression = values[value_id]
+        if isinstance(expression, ComputeResultScalarExpr | ComputeResultArrayExpr):
             continue
-        expression = values[record.value_id]
+        if isinstance(expression, LiteralArrayExpr):
+            candidates.extend(
+                ValueRecordCandidate(
+                    logical_point_id=point.logical_id,
+                    value_id=value_id,
+                    value=expression.value,
+                )
+                for point in bound_points.point_domain.points
+            )
+            continue
         if not isinstance(expression, ScalarExpr) or isinstance(
             expression,
             ComputeResultScalarExpr,
@@ -112,11 +139,14 @@ def project_static_value_record_candidates(
             candidates.append(
                 ValueRecordCandidate(
                     logical_point_id=point.logical_id,
-                    value_id=record.value_id,
+                    value_id=value_id,
                     value=evaluate_scalar(
                         expression,
                         EvalContext(params=parameters, point_row=point.row),
-                        expected_type=record.value_type,
+                        expected_type=cast(
+                            "Scalar",
+                            bound.program.value_types[value_id],
+                        ),
                     ),
                 )
             )

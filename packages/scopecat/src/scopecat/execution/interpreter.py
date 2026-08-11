@@ -16,10 +16,10 @@ from scopecat.execution.evidence import (
     build_terminal_contents,
     instrument_state_evidence_ref,
 )
-from scopecat.execution.measurement_ordering import CanonicalMeasurementBuffer
-from scopecat.execution.measurement_postprocessors import (
-    execute_measurement_postprocessors,
+from scopecat.execution.measurement_computes import (
+    execute_measurement_computes,
 )
+from scopecat.execution.measurement_ordering import CanonicalMeasurementBuffer
 from scopecat.execution.measurement_recording import (
     append_measurement_dataset,
     initialize_measurement_dataset,
@@ -115,11 +115,15 @@ def _execute_run(
         value_candidates: tuple[ValueRecordCandidate, ...],
     ) -> None:
         nonlocal committed_measurement_count
-        completed_candidates = execute_measurement_postprocessors(
-            program.measurement_postprocessors,
+        completed_candidates = execute_measurement_computes(
+            program.measurement_computes,
             candidates,
             points=points,
             catalog=program.measurements.catalog,
+            value_candidates=(
+                *program.measurements.static_value_candidates,
+                *value_candidates,
+            ),
         )
         values = seal_measurement_values(
             program.measurements.catalog,
@@ -279,7 +283,7 @@ def _execute_run(
             None if seal_receipt is None else seal_receipt.dataset_content_hash
         ),
         dataset_schema=dataset_schema,
-        expected_record_count=(point_count if projection.records else None),
+        expected_record_count=(point_count if projection.has_dataset else None),
         instrument_state=instrument_state,
     )
     models: list[RunModelWrite] = []
@@ -469,7 +473,7 @@ def _execute_instrument_effects(
         instruments=instruments,
         journal=session.journal,
         coverage_observer=coverage_observer,
-        recorded_value_ids=program.measurements.runtime_value_ids,
+        recorded_value_ids=program.runtime_value_ids,
         payload_codecs=(
             EMPTY_PAYLOAD_CODECS
             if program.host is None

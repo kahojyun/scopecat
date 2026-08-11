@@ -59,7 +59,7 @@ Program inputs may bind directly to Scopecat values such as
 occurrence that owns its effect, execution options, and named result products.
 Place it with `context.use(call)` inside either `@sc.module` or
 `@sc.experiment`. A lab can own a fixed experiment that
-injects compiler inputs, measurement postprocessing, recording policy, and
+injects compiler inputs, measurement measurement computing, recording policy, and
 independent auxiliary-device work; the program call remains one domain effect
 rather than becoming the whole experiment. The
 [reference lab runner](../../examples/reference_lab/README.md) shows that path.

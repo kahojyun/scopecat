@@ -1,15 +1,21 @@
+# pyright: reportUnknownMemberType=false, reportUnknownParameterType=false
+# pyright: reportUnknownVariableType=false
 """Remote run operations backed by the daemon HTTP transport."""
 
 from __future__ import annotations
 
 from base64 import b64encode
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+import pyarrow as pa
 from pydantic import JsonValue
 
 from scopecat.analysis.service import (
+    AnalysisArtifactOutput,
+    AnalysisDatasetOutput,
+    AnalysisFactOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -18,8 +24,15 @@ from scopecat.analysis.service import (
     SavedAnalysis,
 )
 from scopecat.daemon.client import DaemonClient
-from scopecat.daemon.views import MeasurementPage, RunAnalysisListView, RunAnalysisView
+from scopecat.daemon.views import (
+    MeasurementArrowQuery,
+    RunAnalysisListView,
+    RunAnalysisView,
+)
 from scopecat.daemon.wire import (
+    AnalysisArtifactOutputPayload,
+    AnalysisDatasetOutputPayload,
+    AnalysisFactOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisInputPayload,
     AnalysisOutputPayload,
@@ -29,6 +42,7 @@ from scopecat.daemon.wire import (
     RunAttachmentCommand,
 )
 from scopecat.records._metadata import validate_json_metadata
+from scopecat.records.analysis import AnalysisExecution
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -38,6 +52,7 @@ from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
+    RunDatasetBytesResult,
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
@@ -66,14 +81,30 @@ class RemoteRunOperations:
     ) -> RunMeasurementDatasetResult:
         return self.client.dataset_content(run_id, selector)
 
-    def load_measurement_page(
+    def load_dataset_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunDatasetBytesResult:
+        view = self.client.dataset_bytes(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+        return RunDatasetBytesResult(
+            dataset=view.dataset,
+            content=view.content_bytes(),
+        )
+
+    def load_measurement_arrow_page(
         self,
         run_id: str,
         *,
-        limit: int,
-        offset: int,
-    ) -> MeasurementPage:
-        return self.client.measurements(run_id, limit=limit, offset=offset)
+        query: MeasurementArrowQuery,
+    ) -> tuple[pa.Table, int | None, int]:
+        return self.client.measurement_arrow(run_id, query)
 
     def save_analysis(
         self,
@@ -83,6 +114,7 @@ class RemoteRunOperations:
         analysis_key: str,
         step_id: str | None,
         inputs: Sequence[AnalysisInput],
+        executions: Sequence[AnalysisExecution],
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis:
@@ -101,13 +133,24 @@ class RemoteRunOperations:
                 analysis_key=analysis_key,
                 step_id=step_id,
                 inputs=tuple(_analysis_input_payload(item) for item in inputs),
+                executions=tuple(executions),
                 outputs=payloads,
             ),
+        )
+        saved_proposals = iter(receipt.parameter_proposals)
+        saved_outputs = tuple(
+            replace(output, content=next(saved_proposals))
+            if isinstance(output, AnalysisParameterProposalOutput)
+            else output
+            for output in outputs
         )
         return SavedAnalysis(
             record=receipt.record,
             analysis_key=receipt.analysis_key,
             inputs=tuple(inputs),
+            executions=tuple(executions),
+            outputs=saved_outputs,
+            parameter_proposals=receipt.parameter_proposals,
         )
 
     def analyses(self, run_id: str) -> RunAnalysisListView:
@@ -210,19 +253,42 @@ def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
     return AnalysisInputPayload(
         target=value.target,
         kind=value.kind,
+        content_hash=value.content_hash,
+        codec=value.codec,
         role=value.role,
         title=value.title,
         metadata=(
             None if value.metadata is None else validate_json_metadata(value.metadata)
         ),
+        source=value.source,
     )
 
 
 def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
     metadata = validate_json_metadata(value.metadata)
+    if isinstance(value, AnalysisFactOutput):
+        return AnalysisFactOutputPayload(
+            kind="fact",
+            id=value.id,
+            title=value.title,
+            content=value.content,
+            produced_by=value.produced_by,
+            metadata=metadata,
+        )
+    if isinstance(value, AnalysisDatasetOutput):
+        return AnalysisDatasetOutputPayload(
+            kind="dataset",
+            id=value.id,
+            title=value.title,
+            content=value.content.to_payload(),
+            produced_by=value.produced_by,
+            derived_from=value.derived_from,
+            metadata=metadata,
+        )
     if isinstance(value, AnalysisTableOutput):
         return AnalysisTableOutputPayload(
             kind="table",
+            id=value.id,
             title=value.title,
             content=value.content,
             metadata=metadata,
@@ -230,13 +296,26 @@ def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
     if isinstance(value, AnalysisFigureOutput):
         return AnalysisFigureOutputPayload(
             kind="figure",
+            id=value.id,
             title=value.title,
             content=value.content,
+            metadata=metadata,
+        )
+    if isinstance(value, AnalysisArtifactOutput):
+        return AnalysisArtifactOutputPayload(
+            kind="artifact",
+            id=value.id,
+            title=value.title,
+            content_base64=b64encode(value.content).decode("ascii"),
+            filename=value.filename,
+            media_type=value.media_type,
+            produced_by=value.produced_by,
             metadata=metadata,
         )
     assert isinstance(value, AnalysisParameterProposalOutput)
     return AnalysisParameterProposalOutputPayload(
         kind="parameter_change_proposal",
+        id=value.id,
         title=value.title,
         content=value.content,
         metadata=metadata,

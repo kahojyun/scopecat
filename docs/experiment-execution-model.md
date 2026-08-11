@@ -48,9 +48,12 @@ The public model has four boundaries:
 2. `@experiment` defines a complete invocation. `Input[T]` parameters become
    typed runtime values; ordinary Python parameters rebuild the structure.
 3. A domain call is an ordered experiment effect. It returns products owned by
-   that occurrence and may coexist with host-device work and postprocessing.
-4. `record(...)` selects the values and products projected into the dataset.
-   Demanded record roots determine the live compute and postprocessor graph.
+   that occurrence and may coexist with host-device work and derived-measurement
+   compute.
+4. The `@experiment` return value selects ordinary durable results. `Result(...)`
+   annotations add stable identity, namespace, role, or metadata policy, while
+   `alias(...)` handles the uncommon additional destination. These demanded
+   roots determine the live compute and observation-stage graph.
 
 A bare experiment uses its Python function name as its project-scoped technical
 identity. An explicit `id=` distinguishes definitions when needed, while
@@ -59,10 +62,38 @@ identity. An explicit `id=` distinguishes definitions when needed, while
 Every invocation resolves to one `PointPlan`: a grid or ordered point cloud,
 plus repeat and traversal policy. Invocation edits replace or adjust that plan
 without changing the experiment definition. The
-[measurement data guide](measurement-data.md#repeat-traverse-and-edit-a-point-plan)
+[experiment authoring guide](experiment-authoring.md#choose-and-edit-the-point-domain)
 is the canonical task guide; the `PointPlan` docstring defines its exact local
-contract. Adaptive selection uses bounded stages whose next invocation depends
-on earlier results.
+contract. Point plans are static for an admitted run; measurement-dependent
+selection across runs belongs to a future workflow model.
+
+### Local compute boundary
+
+Python compute functions currently remain local closures owned by the runner
+that planned the invocation. Preview reports a local diagnostic identity,
+placement, and captured nonlocal names; none is a durable replay or remote
+execution contract. Scopecat does not pickle closures or infer portability from
+a function's module and qualified name, because either choice silently captures
+environment and dependency state. Scientific dependencies should instead enter
+the explicit typed input graph.
+
+Completed-run analysis deliberately has a different authoring boundary. Inside
+an analysis step, `context.trace(fn=fit, dataset=dataset)` eagerly runs ordinary
+Python over the durable snapshot and optionally retains execution evidence. It
+returns the native value; the author separately chooses whether to publish it
+as a fact, dataset, table, figure, or artifact. If the published content exactly
+matches the traced result's content and codec, a fact, dataset, or artifact is
+linked to that execution automatically. A first-party native-dataset
+normalization with field mapping instead records a typed derivation from that
+result. Views remain explicit projections of a published dataset.
+
+Every traced input is named and content-identified independently; JSON-safe
+inline values are retained beside dataset targets. Analysis executions have no
+experiment placement: they are not nodes in acquisition and do not mutate the
+source measurement dataset. Full-dataset ordinary Python is the current
+analysis path. A future streaming workflow may reuse publication and execution
+evidence, but must own its cursors, checkpoints, and finalization state
+explicitly.
 
 Logical resource ports describe the interfaces and entities required by a
 reusable definition. The accepted configuration maps those requirements onto a
@@ -70,12 +101,13 @@ finite catalog of physical endpoints. This keeps experiment definitions
 independent of instrument names and channels while making every physical
 selection deterministic and reviewable.
 
-Product declaration, production, and recording remain distinct:
+Product declaration, production, and durable selection remain distinct:
 
 1. A module or domain call declares product identity, type, and shape.
 2. An acquisition or domain execution produces those products at an exact
    effect position.
-3. The experiment chooses which products and values become dataset records.
+3. The experiment return structure chooses which products and values become
+   dataset records; explicit recording only refines that policy.
 
 ## Specialization and lowering
 
@@ -200,8 +232,8 @@ for final run status and operator reconciliation.
 - A run uses one accepted request and identifiable configuration snapshot.
 - Logical point identity and coordinates are independent of physical batching.
 - Host and domain placement observe the same inputs and parameter overlays.
-- Pure computation may be folded, shared, hoisted, or placed on a target without
-  changing its value.
+- Pure computation may be folded, shared, or hoisted without changing its value
+  or its host-versus-observation availability semantics.
 - Consequential effect stages retain their declared order.
 - Stable state may reconcile once per region; observable or varying effects
   remain boundaries.

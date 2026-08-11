@@ -10,6 +10,7 @@ from scopecat.authoring._module_context import ModuleContext
 from scopecat.authoring._module_invocation import (
     ModuleInvocation,
 )
+from scopecat.authoring._module_results import DataRef, ProductBundle, RecordedProducts
 from scopecat.authoring.capability_resources import (
     CapabilityResource,
     capability_resource,
@@ -19,6 +20,7 @@ from scopecat.authoring.definitions import (
     Experiment,
     ExperimentContext,
     Input,
+    Result,
     Symbolic,
     experiment,
     input_ref,
@@ -67,6 +69,15 @@ from scopecat.program.products import (
 )
 from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_types import (
+    Array as ArrayType,
+)
+from scopecat.program.value_types import (
+    ArrayDimension,
+    TableColumn,
+    ValueType,
+    ValueValidationError,
+)
+from scopecat.program.value_types import (
     Bool as BoolType,
 )
 from scopecat.program.value_types import (
@@ -93,11 +104,6 @@ from scopecat.program.value_types import (
 from scopecat.program.value_types import (
     Table as TableType,
 )
-from scopecat.program.value_types import (
-    TableColumn,
-    ValueType,
-    ValueValidationError,
-)
 from scopecat.program.values import (
     ComputeInput,
     CoordinateRef,
@@ -107,6 +113,7 @@ from scopecat.program.values import (
     RuntimeInput,
     ScalarInput,
     ValueRef,
+    constant,
     coordinate,
     parameter,
     parameter_lookup,
@@ -115,12 +122,15 @@ from scopecat.program.values import (
 __all__ = [
     "ANY_RESOURCE_ROLE",
     "DEFAULT_RESOURCE_ROLE",
+    "ArrayDimension",
+    "ArrayType",
     "Axis",
     "BoolType",
     "CapabilityResource",
     "ComputeInput",
     "ConcreteEntityInput",
     "CoordinateRef",
+    "DataRef",
     "EachEntity",
     "EntityInput",
     "EntitySelection",
@@ -148,12 +158,15 @@ __all__ = [
     "PayloadType",
     "PerEntity",
     "PointRow",
+    "ProductBundle",
     "ProductRef",
     "ProductValueSpec",
     "QuantityType",
     "RecordRef",
+    "RecordedProducts",
     "ResourceRoleInput",
     "ResourceRoleSelector",
+    "Result",
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",
@@ -168,6 +181,7 @@ __all__ = [
     "ValueValidationError",
     "axis",
     "capability_resource",
+    "constant",
     "coordinate",
     "each",
     "ensure_state_targets",

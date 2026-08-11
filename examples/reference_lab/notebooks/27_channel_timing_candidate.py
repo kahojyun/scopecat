@@ -17,13 +17,17 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
         name="Channel timing source",
         tags=("gallery", "channel-calibration"),
     )
-    analysis = source_run.analysis("q1 channel timing review").propose(
-        "q1-channel-delay",
-        Q1_CHANNEL_CALIBRATION.update(CHANNEL_DELAY.value(1.0)),
-        reason="align q1 acquisition with the shared readout window",
+    analysis = (
+        source_run.analysis("q1 channel timing review")
+        .result()
+        .propose(
+            "q1-channel-delay",
+            Q1_CHANNEL_CALIBRATION.update(CHANNEL_DELAY.value(1.0)),
+            reason="align q1 acquisition with the shared readout window",
+        )
     )
-    saved = analysis.save()
-    candidate = analysis.candidate_config()
+    published = analysis.save()
+    candidate = published.candidate_config()
     candidate_run = lab.run(
         parallel_two_qubit_ramsey(),
         config=candidate,
@@ -34,7 +38,7 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     candidate_status = candidate_run.manifest.status
 
 channel_candidate_summary = {
-    "analysis": saved.record.id,
+    "analysis": published.id,
     "proposal_id": candidate.proposal_id,
     "candidate_status": candidate_status,
     "candidate_provenance": (

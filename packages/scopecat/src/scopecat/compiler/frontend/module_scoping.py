@@ -16,7 +16,7 @@ from scopecat.program.bindings import (
 from scopecat.program.domain import DomainExecution
 from scopecat.program.identities import InvocationKey
 from scopecat.program.logical import AcquireEffect
-from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.measurements import MeasurementCompute
 from scopecat.program.operations import ComputeNodeInputValue, ModuleOperationDecl
 from scopecat.program.products import (
     ModuleProductDecl,
@@ -86,13 +86,18 @@ def localize_operation(
     return selected
 
 
-def localize_measurement_postprocessor(
-    postprocessor: MeasurementPostprocessor,
+def localize_measurement_compute(
+    compute: MeasurementCompute,
     boundaries: Sequence[InstanceBoundary],
-) -> MeasurementPostprocessor:
-    selected = postprocessor
+) -> MeasurementCompute:
+    selected = compute
     for boundary in boundaries:
-        selected = _scope_measurement_postprocessor(selected, scope=boundary.scope)
+        selected = _scope_measurement_compute(
+            selected,
+            boundary.inputs,
+            scope=boundary.scope,
+            origin=boundary.origin,
+        )
     return selected
 
 
@@ -396,18 +401,35 @@ def _scope_operation(
     )
 
 
-def _scope_measurement_postprocessor(
-    postprocessor: MeasurementPostprocessor,
+def _scope_measurement_compute(
+    compute: MeasurementCompute,
+    inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
-) -> MeasurementPostprocessor:
+    origin: tuple[object, ...],
+) -> MeasurementCompute:
     return replace(
-        postprocessor,
-        scope=(*scope, *postprocessor.scope),
-        input_binding=postprocessor.input_binding.prefixed(*scope),
+        compute,
+        scope=(*scope, *compute.scope),
+        input_bindings=tuple(
+            (name, product_id.prefixed(*scope))
+            for name, product_id in compute.input_bindings
+        ),
+        value_input_bindings=tuple(
+            (
+                name,
+                _scope_operation_input(
+                    value,
+                    inputs,
+                    scope=scope,
+                    origin=origin,
+                ),
+            )
+            for name, value in compute.value_input_bindings
+        ),
         output_bindings=tuple(
             (role, product_id.prefixed(*scope))
-            for role, product_id in postprocessor.output_bindings
+            for role, product_id in compute.output_bindings
         ),
     )
 

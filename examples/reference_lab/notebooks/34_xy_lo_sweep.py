@@ -12,14 +12,13 @@ from reference_lab.workflows.xy_drive import XY_LO_SWEEP
 with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     run = lab.run(XY_LO_SWEEP)
     data = run.measurements()
+    requested_carrier_frequency_ghz = {
+        entity.id: [
+            round(value.value, 6) for value in data[record].require_quantities("GHz")
+        ]
+        for entity, record in XY_LO_SWEEP.output.requested_carrier_frequency.items()
+    }
     status = run.manifest.status
-
-requested_carrier_frequency_ghz = {
-    entity.id: [
-        round(value.value, 6) for value in data[record].require_quantities("GHz")
-    ]
-    for entity, record in XY_LO_SWEEP.output.requested_carrier_frequency.items()
-}
 
 xy_lo_sweep_summary = {
     "requested_lo_ghz": [4.90, 4.91, 4.92],

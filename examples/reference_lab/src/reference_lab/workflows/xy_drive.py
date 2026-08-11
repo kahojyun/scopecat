@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
 import scopecat as sc
 from scopecat.authoring import (
@@ -48,6 +48,11 @@ from reference_lab.interfaces import (
     CLOCK_REFERENCE_SOURCE,
 )
 from reference_lab.payloads import SAMPLED_WAVEFORM_SCHEMA_ID
+
+type SampledWaveform = Annotated[
+    dict[str, object],
+    sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
+]
 
 Q0 = EntityRef(id="q0", kind="logical_qubit")
 Q1 = EntityRef(id="q1", kind="logical_qubit")
@@ -200,14 +205,12 @@ class XYDriveGroup:
             i_waveform = self._context.compute(
                 f"xy_i_waveform_{entity.id}",
                 fn=_i_waveform,
-                inputs={"if_frequency": frequencies[entity]},
-                output_type=sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
+                if_frequency=frequencies[entity],
             )
             q_waveform = self._context.compute(
                 f"xy_q_waveform_{entity.id}",
                 fn=_q_waveform,
-                inputs={"if_frequency": frequencies[entity]},
-                output_type=sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
+                if_frequency=frequencies[entity],
             )
             self._i[entity].invoke(
                 ANALOG_WAVEFORM_OUTPUT_PLAY,
@@ -266,14 +269,14 @@ def xy_drive(
 @dataclass(frozen=True, slots=True)
 class XYLoSweepDataset:
     requested_lo_frequency: sc.CoordinateRef[Quantity]
-    requested_carrier_frequency: PerEntity[sc.RecordRef[float]]
+    requested_carrier_frequency: PerEntity[sc.ValueRef[Quantity]]
 
 
-def _i_waveform(if_frequency: Quantity) -> dict[str, object]:
+def _i_waveform(if_frequency: Quantity) -> SampledWaveform:
     return _sampled_if_waveform(if_frequency, quadrature=False)
 
 
-def _q_waveform(if_frequency: Quantity) -> dict[str, object]:
+def _q_waveform(if_frequency: Quantity) -> SampledWaveform:
     return _sampled_if_waveform(if_frequency, quadrature=True)
 
 
@@ -322,12 +325,9 @@ def xy_lo_sweep(experiment: sc.ExperimentContext) -> XYLoSweepDataset:
         requested_carrier_frequency=PerEntity(
             (
                 entity,
-                experiment.record(
-                    cast(
-                        "ValueRef[Quantity]",
-                        frequencies.requested_carrier_frequency[entity],
-                    ),
-                    record_id=f"requested_carrier_frequency_{entity.id}",
+                cast(
+                    "ValueRef[Quantity]",
+                    frequencies.requested_carrier_frequency[entity],
                 ),
             )
             for entity in XY_QUBITS

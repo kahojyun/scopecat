@@ -7,6 +7,7 @@ import {
   getOlderRuns,
   getRun,
   getRunAnalyses,
+  getRunArtifactDownload,
   getRunContent,
   getRunEvents,
   getRuns,
@@ -43,6 +44,36 @@ describe("project daemon reads", () => {
     });
   });
 
+  it("loads exact analysis artifact bytes for browser download", async () => {
+    const fetchMock = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(
+        jsonResponse({
+          run_id: "run/1",
+          artifact: {
+            role: "artifact",
+            id: "analysis-fit-fit-report",
+            kind: "analysis_artifact",
+            filename: "fit-report.md",
+            media_type: "text/markdown",
+            content_hash: `sha256:${"b".repeat(64)}`,
+          },
+          content_base64: btoa("# Fit report\n"),
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const download = await getRunArtifactDownload("run/1", "analysis-fit-fit-report");
+
+    expect(download.filename).toBe("fit-report.md");
+    expect(download.blob.type).toBe("text/markdown");
+    await expect(download.blob.text()).resolves.toBe("# Fit report\n");
+    expect(requestPath(fetchMock.mock.calls[0]![0])).toBe(
+      "/api/v1/runs/run%2F1/artifacts/analysis-fit-fit-report/bytes" +
+        "?expected_kind=analysis_artifact",
+    );
+  });
+
   it("normalizes current manifest contents for the run browser", async () => {
     vi.stubGlobal(
       "fetch",
@@ -66,11 +97,6 @@ describe("project daemon reads", () => {
             manifest: {
               run_id: "run/1",
               config_content_hash: "sha256:config",
-              stage: {
-                sequence_id: "adaptive-sequence",
-                index: 1,
-                previous_run_id: "run/0",
-              },
               outcome: { result: "succeeded", certainty: "known" },
               contents: [
                 {
@@ -106,11 +132,6 @@ describe("project daemon reads", () => {
       status: "succeeded",
       result: "succeeded",
       certainty: "known",
-      stage: {
-        sequenceId: "adaptive-sequence",
-        index: 1,
-        previousRunId: "run/0",
-      },
     });
     expect(run.contents).toEqual([
       {
@@ -191,66 +212,6 @@ describe("project daemon reads", () => {
     });
   });
 
-  it("reads staged lineage from the run page without per-run request reads", async () => {
-    const fetchMock = vi.fn((_input: string | URL | Request) =>
-      Promise.resolve(
-        jsonResponse({
-          items: [
-            {
-              ...runSummary("run/stage-2", "leased"),
-              manifest: {
-                run_id: "run/stage-2",
-                contents: [],
-                stage: {
-                  sequence_id: "adaptive-sequence",
-                  index: 1,
-                  previous_run_id: "run/stage-1",
-                },
-              },
-            },
-            {
-              ...runSummary("run/stage-1", "queued"),
-              manifest: {
-                run_id: "run/stage-1",
-                contents: [],
-                stage: {
-                  sequence_id: "adaptive-sequence",
-                  index: 0,
-                  previous_run_id: null,
-                },
-              },
-            },
-          ],
-          next_cursor: null,
-        }),
-      ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getRuns()).resolves.toMatchObject({
-      items: [
-        {
-          runId: "run/stage-2",
-          stage: {
-            sequenceId: "adaptive-sequence",
-            index: 1,
-            previousRunId: "run/stage-1",
-          },
-        },
-        {
-          runId: "run/stage-1",
-          stage: {
-            sequenceId: "adaptive-sequence",
-            index: 0,
-            previousRunId: undefined,
-          },
-        },
-      ],
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/runs?limit=100");
-  });
-
   it("reads persisted analyses and typed run content", async () => {
     const fetchMock = vi.fn((input: string | URL | Request) => {
       const path = requestPath(input);
@@ -273,13 +234,49 @@ describe("project daemon reads", () => {
                       metadata: { selector: "raw-measurements" },
                     },
                   ],
+                  executions: [
+                    {
+                      id: "fit",
+                      implementation: "python:fit",
+                      deterministic: false,
+                      inputs: ["dataset"],
+                      input_bindings: [
+                        {
+                          name: "dataset",
+                          kind: "measurement_dataset",
+                          target: "measurement-dataset",
+                          content_hash: "sha256:measurements",
+                          codec: "scopecat.measurement-dataset.v8",
+                        },
+                      ],
+                      outputs: [
+                        {
+                          name: "fit",
+                          kind: "value",
+                          content_hash: "sha256:fitted-frequency",
+                          codec: "scopecat.python-json.v1",
+                        },
+                      ],
+                      captures: [],
+                      access: "full",
+                      metadata: {},
+                    },
+                  ],
                   outputs: [
                     {
-                      kind: "table",
-                      title: "Fit parameters",
+                      kind: "fact",
+                      id: "fitted-frequency",
+                      title: "Fitted frequency",
+                      produced_by: {
+                        execution_id: "fit",
+                        output_name: "fit",
+                      },
                       content: {
-                        columns: [{ id: "converged", label: "Converged" }],
-                        rows: [{ cells: [true] }],
+                        schema_id: "scopecat.scalar.v1",
+                        schema_codec: "scopecat.analysis-fact-schema.v1",
+                        schema_hash: `sha256:${"c".repeat(64)}`,
+                        codec: "scopecat.python-json.v1",
+                        value: 5.1,
                       },
                     },
                   ],
@@ -343,13 +340,33 @@ describe("project daemon reads", () => {
           metadata: { selector: "raw-measurements" },
         },
       ],
+      executions: [
+        {
+          id: "fit",
+          implementation: "python:fit",
+          outputs: [
+            {
+              name: "fit",
+              kind: "value",
+              content_hash: "sha256:fitted-frequency",
+            },
+          ],
+        },
+      ],
       outputs: [
         {
-          kind: "table",
-          title: "Fit parameters",
+          kind: "fact",
+          title: "Fitted frequency",
           content: {
-            columns: [{ id: "converged", label: "Converged" }],
-            rows: [{ cells: [true] }],
+            schema_id: "scopecat.scalar.v1",
+            schema_codec: "scopecat.analysis-fact-schema.v1",
+            schema_hash: `sha256:${"c".repeat(64)}`,
+            codec: "scopecat.python-json.v1",
+            value: 5.1,
+          },
+          producedBy: {
+            execution_id: "fit",
+            output_name: "fit",
           },
           metadata: {},
         },
@@ -435,25 +452,25 @@ describe("project daemon reads", () => {
     ]);
   });
 
-  it("requests measurement pages by their returned offset", async () => {
+  it("requests one bounded measurement preview", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL) =>
       Promise.resolve(
         jsonResponse({
           items: [measurementRecord("run/1", 100)],
           dataset_schema: measurementSchema(),
-          next_offset: 200,
+          truncated: true,
         }),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getMeasurementPreview("run/1", 100)).resolves.toEqual({
+    await expect(getMeasurementPreview("run/1")).resolves.toEqual({
       items: [measurementRecord("run/1", 100)],
       schema: measurementSchema(),
-      nextOffset: 200,
+      truncated: true,
     });
     expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
-      "/api/v1/runs/run%2F1/measurements?limit=100&offset=100&include_schema=false",
+      "/api/v1/runs/run%2F1/measurements/preview?limit=100",
     );
   });
 

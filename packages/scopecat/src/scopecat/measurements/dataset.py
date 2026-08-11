@@ -11,11 +11,10 @@ import math
 import operator
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass, field
-from importlib import import_module
+from dataclasses import dataclass, field, fields, is_dataclass
 from itertools import product as cartesian_product
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal, Protocol, Self, cast, overload, override
+from typing import TYPE_CHECKING, Literal, Self, cast, overload, override
 
 import numpy as np
 import pyarrow as pa
@@ -24,7 +23,6 @@ import xarray as xr
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.arrow_values import measurement_values_to_arrow_array
 from scopecat.measurements.traces import Trace, measurement_traces
 from scopecat.program.measurement_types import (
     MeasurementArrayData,
@@ -33,8 +31,16 @@ from scopecat.program.measurement_types import (
     NativeMeasurementValue,
     measurement_value_spec_from_scalar,
 )
+from scopecat.program.products import ProductRef, _product_axis_dimension_id
 from scopecat.program.record_refs import RecordRef
-from scopecat.program.value_refs import CoordinateRef, internal_coordinate_ref_id
+from scopecat.program.value_refs import (
+    CoordinateRef,
+    ValueRef,
+    internal_coordinate_ref_id,
+    internal_value_ref_record_source_id,
+)
+from scopecat.program.value_types import Array, Payload, Scalar
+from scopecat.program.value_types import Quantity as QuantityType
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -42,6 +48,7 @@ from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
+    MeasurementResultContract,
     MeasurementScalar,
     MeasurementUnavailable,
     MeasurementUnavailableReason,
@@ -50,7 +57,12 @@ from scopecat.records.measurement import (
 )
 
 if TYPE_CHECKING:
-    import pandas as pd  # pyright: ignore[reportMissingImports]
+    from scopecat.measurements.interop import (
+        MeasurementDataProjection,
+        ProjectionDiagnostics,
+        ProjectionLayout,
+        ProjectionSchema,
+    )
 
 type NativeScalar = NativeMeasurementScalar
 type NativeAvailableValue = NativeMeasurementValue
@@ -60,16 +72,7 @@ type DimensionIndexer = int | slice | Sequence[int] | Sequence[bool]
 type PointIndexer = DimensionIndexer
 type PointCondition = PointMask | xr.DataArray | Sequence[bool]
 type SelectionMethod = Literal["exact", "nearest"]
-type PandasLayout = Literal["points", "long"]
 type XarrayLayout = Literal["points", "grid"]
-
-
-class _PandasFrameFactory(Protocol):
-    def __call__(self, data: object = ...) -> pd.DataFrame: ...
-
-
-class _PandasModule(Protocol):
-    DataFrame: _PandasFrameFactory
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +115,7 @@ class PointMask(Sequence[bool]):
             else xr.DataArray(
                 np.asarray(values, dtype=np.bool_),
                 dims=("point",),
-                coords={"point": dataset._xarray.coords["point"]},
+                coords={"point": dataset._loaded_xarray.coords["point"]},
             )
         )
         if data.dims != ("point",) or data.sizes["point"] != len(dataset):
@@ -228,7 +231,7 @@ class Variable[T = NativeAvailableValue]:
     def xarray(self) -> xr.DataArray:
         """Return an independent Xarray copy of this variable."""
 
-        return self._dataset._xarray[self.id].copy(deep=True)
+        return self._dataset._loaded_xarray[self.id].copy(deep=True)
 
     @property
     def raw_values(self) -> tuple[MeasurementValue, ...]:
@@ -316,7 +319,7 @@ class Variable[T = NativeAvailableValue]:
         )
 
     def is_available(self) -> PointMask:
-        source = self._dataset._xarray
+        source = self._dataset._loaded_xarray
         reason_name = _unavailable_reason_name(self.id)
         reason = source.get(reason_name)
         if reason is None:
@@ -330,7 +333,7 @@ class Variable[T = NativeAvailableValue]:
         self,
         reason: MeasurementUnavailableReason | None = None,
     ) -> PointMask:
-        source = self._dataset._xarray
+        source = self._dataset._loaded_xarray
         reason_name = _unavailable_reason_name(self.id)
         availability = source.get(reason_name)
         if availability is None:
@@ -406,7 +409,7 @@ class Variable[T = NativeAvailableValue]:
         query = _selection_value(other, self)
         selected = cast(
             "xr.DataArray",
-            comparison(self._dataset._xarray[self.id], query),
+            comparison(self._dataset._loaded_xarray[self.id], query),
         )
         return PointMask(self._dataset, selected.fillna(False))
 
@@ -422,19 +425,27 @@ class Variable[T = NativeAvailableValue]:
 class Dataset:
     """A labeled, sliceable measurement dataset for notebook workflows.
 
-    The durable Pydantic dataset remains available through :attr:`raw`; this
-    facade adds labeled variables and ecosystem adapters without changing the
-    persisted representation.
+    Durable persistence models stay behind this facade; labeled variables,
+    records, result contracts, and ecosystem projections form the notebook API.
     """
 
-    _raw: MeasurementDataset
+    _raw: MeasurementDataset | None
     _entry: RunContentEntry
+    _load_raw: Callable[[], MeasurementDataset] | None = field(
+        repr=False,
+    )
+    _load_projected_batches: (
+        Callable[[ProjectionSchema, int], pa.RecordBatchReader] | None
+    ) = field(
+        repr=False,
+    )
+    _schema_value: MeasurementDatasetSchema = field(repr=False)
     _view_dimensions: Mapping[str, int | None] = field(init=False, repr=False)
     _variables: Mapping[str, Variable[NativeAvailableValue]] = field(
         init=False,
         repr=False,
     )
-    _xarray: xr.Dataset = field(init=False, repr=False)
+    _xarray: xr.Dataset | None = field(init=False, repr=False)
 
     def __init__(
         self,
@@ -443,13 +454,54 @@ class Dataset:
         *,
         view_dimensions: Mapping[str, int | None] | None = None,
     ) -> None:
+        self._initialize(
+            raw=raw,
+            entry=entry,
+            schema=raw.dataset_schema,
+            load_raw=None,
+            load_projected_batches=None,
+            view_dimensions=view_dimensions,
+        )
+
+    @classmethod
+    def _from_source(
+        cls,
+        *,
+        schema: MeasurementDatasetSchema,
+        entry: RunContentEntry,
+        load_raw: Callable[[], MeasurementDataset],
+        load_projected_batches: Callable[[ProjectionSchema, int], pa.RecordBatchReader],
+    ) -> Self:
+        dataset = cls.__new__(cls)
+        dataset._initialize(
+            raw=None,
+            entry=entry,
+            schema=schema,
+            load_raw=load_raw,
+            load_projected_batches=load_projected_batches,
+            view_dimensions=None,
+        )
+        return dataset
+
+    def _initialize(
+        self,
+        *,
+        raw: MeasurementDataset | None,
+        entry: RunContentEntry,
+        schema: MeasurementDatasetSchema,
+        load_raw: Callable[[], MeasurementDataset] | None,
+        load_projected_batches: (
+            Callable[[ProjectionSchema, int], pa.RecordBatchReader] | None
+        ),
+        view_dimensions: Mapping[str, int | None] | None,
+    ) -> None:
         object.__setattr__(self, "_raw", raw)
         object.__setattr__(self, "_entry", entry.model_copy(deep=True))
-        dimensions = {
-            dimension.id: dimension.size
-            for dimension in self._raw.dataset_schema.dimensions
-        }
-        dimensions["point"] = len(self._raw.records)
+        object.__setattr__(self, "_load_raw", load_raw)
+        object.__setattr__(self, "_load_projected_batches", load_projected_batches)
+        object.__setattr__(self, "_schema_value", schema)
+        dimensions = {dimension.id: dimension.size for dimension in schema.dimensions}
+        dimensions["point"] = None if raw is None else len(raw.records)
         if view_dimensions is not None:
             unknown = set(view_dimensions) - set(dimensions)
             if unknown:
@@ -458,33 +510,59 @@ class Dataset:
                     + ", ".join(sorted(unknown))
                 )
             dimensions.update(view_dimensions)
-            dimensions["point"] = len(self._raw.records)
+            dimensions["point"] = 0 if raw is None else len(raw.records)
         object.__setattr__(
             self,
             "_view_dimensions",
             MappingProxyType(dimensions),
         )
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
         variables = {
-            definition.id: Variable(self, definition)
-            for definition in self._raw.dataset_schema.variables
+            definition.id: Variable(self, definition) for definition in schema.variables
         }
         object.__setattr__(self, "_variables", MappingProxyType(variables))
+        object.__setattr__(
+            self, "_xarray", None if raw is None else self._build_xarray()
+        )
+
+    def _materialize(self) -> MeasurementDataset:
+        raw = self._raw
+        if raw is not None:
+            return raw
+        load_raw = self._load_raw
+        if load_raw is None:
+            raise RuntimeError("measurement dataset has no content loader")
+        raw = load_raw()
+        object.__setattr__(self, "_raw", raw)
+        object.__setattr__(self, "_load_raw", None)
+        object.__setattr__(
+            self,
+            "_view_dimensions",
+            MappingProxyType(
+                {
+                    **{
+                        dimension.id: dimension.size
+                        for dimension in self._schema_value.dimensions
+                    },
+                    "point": len(raw.records),
+                }
+            ),
+        )
         object.__setattr__(self, "_xarray", self._build_xarray())
+        return raw
+
+    @property
+    def _loaded_xarray(self) -> xr.Dataset:
+        self._materialize()
+        xarray = self._xarray
+        if xarray is None:
+            raise RuntimeError("measurement dataset has no Xarray view")
+        return xarray
 
     @property
     def entry(self) -> RunContentEntry:
         """Return detached run-entry provenance for this snapshot."""
 
         return self._entry.model_copy(deep=True)
-
-    @property
-    def raw(self) -> MeasurementDataset:
-        """Return the deeply immutable durable snapshot."""
-
-        return self._raw
 
     @property
     def schema(self) -> MeasurementDatasetSchema:
@@ -498,21 +576,15 @@ class Dataset:
 
     @property
     def metadata(self) -> Mapping[str, object]:
-        return self._raw.metadata
-
-    @property
-    def xarray(self) -> xr.Dataset:
-        """Return an independent copy of the cached Xarray snapshot."""
-
-        return self._xarray.copy(deep=True)
+        return self._materialize().metadata
 
     @property
     def _schema(self) -> MeasurementDatasetSchema:
-        return self._raw.dataset_schema
+        return self._schema_value
 
     @property
     def _records(self) -> tuple[MeasurementRecord, ...]:
-        return cast("tuple[MeasurementRecord, ...]", self._raw.records)
+        return cast("tuple[MeasurementRecord, ...]", self._materialize().records)
 
     @property
     def point_indices(self) -> tuple[int, ...]:
@@ -528,9 +600,22 @@ class Dataset:
 
     @property
     def dims(self) -> Mapping[str, int | None]:
-        """Return dimensions of this view, independent of the planned schema."""
+        """Return known view dimensions without forcing source materialization."""
 
         return self._view_dimensions
+
+    def _read_projection_batches(
+        self,
+        projection: ProjectionSchema,
+        *,
+        batch_size: int,
+    ) -> pa.RecordBatchReader | None:
+        """Use the source's bounded Arrow reader when this view is unsliced."""
+
+        load_projected_batches = self._load_projected_batches
+        if self._raw is not None or load_projected_batches is None:
+            return None
+        return load_projected_batches(projection, batch_size)
 
     @property
     def variables(self) -> Mapping[str, Variable[NativeAvailableValue]]:
@@ -563,24 +648,30 @@ class Dataset:
     ) -> Variable[T]: ...
 
     @overload
-    def __getitem__(self, variable_id: CoordinateRef[Quantity]) -> Variable[float]: ...
+    def __getitem__[T: NativeAvailableValue](
+        self,
+        variable_id: ProductRef[T],
+    ) -> Variable[T]: ...
+
+    @overload
+    def __getitem__(self, variable_id: ValueRef[Quantity]) -> Variable[float]: ...
 
     @overload
     def __getitem__(
         self,
-        variable_id: CoordinateRef[EntityRef | str],
+        variable_id: ValueRef[EntityRef | str],
     ) -> Variable[str]: ...
 
     @overload
     def __getitem__[T: bool | int | float | str](
         self,
-        variable_id: CoordinateRef[T],
+        variable_id: ValueRef[T],
     ) -> Variable[T]: ...
 
     @overload
     def __getitem__(
         self,
-        variable_id: CoordinateRef[object],
+        variable_id: ValueRef[object],
     ) -> Variable[NativeAvailableValue]: ...
 
     @overload
@@ -588,18 +679,83 @@ class Dataset:
 
     def __getitem__(
         self,
-        variable_id: str | RecordRef[NativeAvailableValue] | CoordinateRef[object],
+        variable_id: (
+            str | RecordRef[NativeAvailableValue] | ProductRef | ValueRef[object]
+        ),
     ) -> Variable[object]:
         if isinstance(variable_id, CoordinateRef):
             return self._variable_from_point_ref(variable_id)
-        if not isinstance(variable_id, str):
+        if isinstance(variable_id, RecordRef):
             return self._variable_from_record_ref(variable_id)
+        if isinstance(variable_id, ProductRef):
+            return self._variable_from_product_ref(variable_id)
+        if isinstance(variable_id, ValueRef):
+            return self._variable_from_value_ref(variable_id)
         try:
             return self.variables[variable_id]
         except KeyError as error:
             raise KeyError(
                 f"measurement dataset has no variable {variable_id!r}"
             ) from error
+
+    def bind[ResultT](self, output: ResultT, /) -> ExperimentResultView[ResultT]:
+        """Bind an experiment's returned schema to this dataset.
+
+        Every returned data reference is validated immediately. The resulting
+        point views preserve each reference's native Python type without making
+        callers manually align independent variable tuples.
+        """
+
+        return ExperimentResultView(self, output)
+
+    def project(
+        self,
+        columns: Mapping[
+            str,
+            str | ProductRef | RecordRef | ValueRef[object],
+        ]
+        | None = None,
+        /,
+        *,
+        units: Mapping[str, str] | None = None,
+        diagnostics: ProjectionDiagnostics = "none",
+        identity: bool = True,
+        layout: ProjectionLayout = "points",
+    ) -> MeasurementDataProjection:
+        """Bind explicit external names before entering an ecosystem adapter."""
+
+        from scopecat.measurements.interop import ProjectionSpec, bind_projection
+
+        selected = (
+            tuple(
+                (name, cast("Variable[object]", self[ref]), None)
+                for name, ref in columns.items()
+            )
+            if columns
+            else tuple(
+                (variable.id, cast("Variable[object]", variable), None)
+                for variable in self.variables.values()
+            )
+        )
+        return bind_projection(
+            self,
+            selected,
+            spec=ProjectionSpec.create(
+                units=units,
+                diagnostics=diagnostics,
+                include_identity=identity,
+                layout=layout,
+            ),
+        )
+
+    @property
+    def result(self) -> StoredExperimentResultView:
+        """Return the self-describing result view persisted with this dataset."""
+
+        contract = self.schema.result
+        if contract is None:
+            raise ValueError("measurement dataset has no experiment result contract")
+        return StoredExperimentResultView(self, contract)
 
     def _variable_from_record_ref[T: NativeAvailableValue](
         self,
@@ -611,6 +767,52 @@ class Dataset:
             raise KeyError(f"measurement dataset has no variable {ref.id!r}") from error
         _require_record_ref_matches(ref, variable.definition)
         return cast("Variable[T]", variable)
+
+    def _variable_from_product_ref[T: NativeAvailableValue](
+        self,
+        ref: ProductRef[T],
+    ) -> Variable[T]:
+        variable = self._variable_from_source(
+            "product",
+            ref.id,
+            field="source_product_id",
+        )
+        _require_product_ref_matches(ref, variable.definition)
+        return cast("Variable[T]", variable)
+
+    def _variable_from_value_ref(self, ref: ValueRef[object]) -> Variable[object]:
+        source_id = internal_value_ref_record_source_id(ref)
+        variable = self._variable_from_source(
+            "value",
+            source_id,
+            field="source_value_id",
+        )
+        _require_value_ref_matches(ref, variable.definition)
+        return cast("Variable[object]", variable)
+
+    def _variable_from_source(
+        self,
+        source: str,
+        source_id: str,
+        *,
+        field: Literal["source_product_id", "source_value_id"],
+    ) -> Variable[NativeAvailableValue]:
+        matches = tuple(
+            variable
+            for variable in self.variables.values()
+            if getattr(variable.definition, field) == source_id
+        )
+        if not matches:
+            raise KeyError(
+                f"measurement dataset has no variable from {source} {source_id!r}"
+            )
+        if len(matches) > 1:
+            ids = ", ".join(repr(variable.id) for variable in matches)
+            raise KeyError(
+                f"measurement dataset has multiple variables from {source} "
+                f"{source_id!r}: {ids}; select one by name or RecordRef"
+            )
+        return next(iter(matches))
 
     def _variable_from_point_ref(self, ref: CoordinateRef[object]) -> Variable[object]:
         point_id = internal_coordinate_ref_id(ref)
@@ -633,8 +835,10 @@ class Dataset:
     def __repr__(self) -> str:
         coordinates = ", ".join(self.coords)
         observables = ", ".join(self.data_vars)
+        point_count = self._view_dimensions["point"]
+        rendered_count = "?" if point_count is None else str(point_count)
         return (
-            f"Dataset(id={self._schema.dataset_id!r}, points={len(self)}, "
+            f"Dataset(id={self._schema.dataset_id!r}, points={rendered_count}, "
             f"coords=[{coordinates}], data_vars=[{observables}])"
         )
 
@@ -669,7 +873,7 @@ class Dataset:
                 "recording group or variable"
             )
 
-        selected_xarray = self._xarray.isel(
+        selected_xarray = self._loaded_xarray.isel(
             {
                 dimension_id: _preserving_xarray_indexer(indexer)
                 for dimension_id, indexer in selected.items()
@@ -799,7 +1003,7 @@ class Dataset:
         elif tolerance is not None:
             raise ValueError("sel tolerance is only valid with method='nearest'")
 
-        selected_xarray = self._xarray
+        selected_xarray = self._loaded_xarray
         for variable_id, query in selected.items():
             if variable_id == "point" and isinstance(query, str):
                 coordinate_id = "logical_point_id"
@@ -832,10 +1036,10 @@ class Dataset:
         """Keep point rows selected by an Xarray-aligned boolean condition."""
 
         if callable(condition):
-            source = self.xarray
+            source = self.to_xarray()
             selected = condition(source)
         else:
-            source = self._xarray
+            source = self._loaded_xarray
             selected = condition
         if isinstance(selected, PointMask):
             if not selected.belongs_to(self):
@@ -865,7 +1069,7 @@ class Dataset:
         variable.require_point_scalar()
         groups = cast(
             "Mapping[object, Sequence[int] | slice]",
-            cast("object", self._xarray.groupby(variable_id).groups),
+            cast("object", self._loaded_xarray.groupby(variable_id).groups),
         )
         return MappingProxyType(
             {
@@ -878,26 +1082,38 @@ class Dataset:
 
     def traces(
         self,
-        observable: str | RecordRef[MeasurementArrayData] | None = None,
+        observable: (
+            str
+            | RecordRef[MeasurementArrayData]
+            | ProductRef[MeasurementArrayData]
+            | ValueRef[MeasurementArrayData]
+            | None
+        ) = None,
         *,
-        coordinate: str | RecordRef[MeasurementArrayData] | None = None,
+        coordinate: (
+            str
+            | RecordRef[MeasurementArrayData]
+            | ProductRef[MeasurementArrayData]
+            | ValueRef[MeasurementArrayData]
+            | None
+        ) = None,
         group: str | None = None,
     ) -> tuple[Trace, ...]:
-        """Select traces by typed record handle, variable id, or recording group."""
+        """Select traces by logical result, durable handle, id, or group."""
 
         reference_groups: set[str] = set()
-        if isinstance(observable, RecordRef):
-            _ = self[observable]
-            selected_observable = observable.id
-            if observable.recording_group_id is not None:
-                reference_groups.add(observable.recording_group_id)
+        if observable is not None and not isinstance(observable, str):
+            observable_variable = self[observable]
+            selected_observable = observable_variable.id
+            if observable_variable.recording_group_id is not None:
+                reference_groups.add(observable_variable.recording_group_id)
         else:
             selected_observable = observable
-        if isinstance(coordinate, RecordRef):
-            _ = self[coordinate]
-            selected_coordinate = coordinate.id
-            if coordinate.recording_group_id is not None:
-                reference_groups.add(coordinate.recording_group_id)
+        if coordinate is not None and not isinstance(coordinate, str):
+            coordinate_variable = self[coordinate]
+            selected_coordinate = coordinate_variable.id
+            if coordinate_variable.recording_group_id is not None:
+                reference_groups.add(coordinate_variable.recording_group_id)
         else:
             selected_coordinate = coordinate
         if group is not None:
@@ -907,7 +1123,7 @@ class Dataset:
         selected_group = next(iter(reference_groups), None)
 
         return measurement_traces(
-            self._raw,
+            self._materialize(),
             selected_observable,
             coordinate=selected_coordinate,
             group=selected_group,
@@ -917,7 +1133,7 @@ class Dataset:
         """Return a point-row or complete product-grid Xarray snapshot."""
 
         if layout == "points":
-            return self._xarray.copy(deep=True)
+            return self._loaded_xarray.copy(deep=True)
         if layout == "grid":
             return self._product_grid_xarray()
         raise ValueError("Xarray layout must be 'points' or 'grid'")
@@ -952,7 +1168,7 @@ class Dataset:
                 key=operator.itemgetter(1),
             )
         )
-        source = self._xarray.isel(point=list(ordered_positions))
+        source = self._loaded_xarray.isel(point=list(ordered_positions))
 
         axis_coordinates: dict[str, object] = {}
         for axis_index, axis in enumerate(domain.axes):
@@ -1240,59 +1456,6 @@ class Dataset:
             attrs=_dataset_attrs(self),
         )
 
-    def to_arrow(self) -> pa.Table:
-        """Convert to a point-row Arrow table with nested point-local arrays."""
-
-        columns: dict[str, pa.Array] = {
-            "point_index": pa.array(
-                (record.point_index for record in self._records),
-                type=pa.int64(),
-            ),
-            "logical_point_id": pa.array(
-                (record.logical_point_id for record in self._records),
-                type=pa.string(),
-            ),
-        }
-        for variable in self.variables.values():
-            columns[variable.id] = measurement_values_to_arrow_array(
-                variable._raw_values,
-                dtype=variable.dtype,
-                shape=variable.shape[1:],
-            )
-            if any(reason is not None for reason in variable.availability):
-                columns[_unavailable_reason_name(variable.id)] = pa.array(
-                    variable.availability,
-                    type=pa.string(),
-                )
-        table = pa.table(columns)
-        metadata = dict(table.schema.metadata or {})
-        metadata.update(
-            {
-                b"scopecat.dataset_id": self._schema.dataset_id.encode(),
-                b"scopecat.schema": self._schema.model_dump_json().encode(),
-                b"scopecat.metadata": _stable_json(self.metadata).encode(),
-            }
-        )
-        return table.replace_schema_metadata(metadata)
-
-    def to_pandas(self, *, layout: PandasLayout = "points") -> pd.DataFrame:
-        """Convert to a point-row or universal long-form pandas DataFrame."""
-
-        pd_module = cast("_PandasModule", _optional_module("pandas"))
-        if layout == "points":
-            frame = pd_module.DataFrame(self._point_columns())
-        elif layout == "long":
-            frame = pd_module.DataFrame(self._long_rows())
-        else:
-            raise ValueError("pandas layout must be 'points' or 'long'")
-        frame.attrs["scopecat"] = {
-            "dataset_id": self._schema.dataset_id,
-            "schema": self._schema.model_dump(mode="json"),
-            "metadata": thaw_json_value(self.metadata),
-            "layout": layout,
-        }
-        return frame
-
     def _require_scalar_coordinate(self, variable_id: str) -> Variable:
         try:
             variable = self.coords[variable_id]
@@ -1304,11 +1467,12 @@ class Dataset:
         return variable
 
     def _select_indices(self, indices: Sequence[int]) -> Self:
-        selected_records = [self._raw.records[index] for index in indices]
+        raw_source = self._materialize()
+        selected_records = [raw_source.records[index] for index in indices]
         raw = MeasurementDataset(
             dataset_schema=self._schema,
             records=tuple(selected_records),
-            metadata=self._raw.metadata,
+            metadata=raw_source.metadata,
         )
         return type(self)(
             raw,
@@ -1406,49 +1570,466 @@ class Dataset:
         raw = MeasurementDataset(
             dataset_schema=self._schema,
             records=tuple(records),
-            metadata=self._raw.metadata,
+            metadata=self._materialize().metadata,
         )
         return type(self)(raw, self._entry, view_dimensions=view_dimensions)
 
-    def _point_columns(self) -> Mapping[str, Sequence[object]]:
-        columns: dict[str, Sequence[object]] = {
-            "point_index": tuple(record.point_index for record in self._records),
-            "logical_point_id": tuple(
-                record.logical_point_id for record in self._records
-            ),
-        }
-        for variable in self.variables.values():
-            columns[variable.id] = variable.values
-            if any(reason is not None for reason in variable.availability):
-                columns[_unavailable_reason_name(variable.id)] = variable.availability
-        return columns
 
-    def _long_rows(self) -> list[dict[str, object]]:
-        rows: list[dict[str, object]] = []
-        for record_position, record in enumerate(self._records):
-            for variable in self.variables.values():
-                value = variable._raw_values[record_position]
-                reason = (
-                    value.reason if isinstance(value, MeasurementUnavailable) else None
+@dataclass(frozen=True, slots=True)
+class ExperimentResultPoint:
+    """One complete typed point from a schema-bound experiment result."""
+
+    _dataset: Dataset = field(repr=False)
+    index: int
+
+    def availability(
+        self,
+        ref: ProductRef | RecordRef | ValueRef[object],
+        /,
+    ) -> MeasurementUnavailableReason | None:
+        """Return the typed unavailability reason for one result field."""
+
+        unavailable = self.unavailable(ref)
+        return None if unavailable is None else unavailable.reason
+
+    def unavailable(
+        self,
+        ref: ProductRef | RecordRef | ValueRef[object],
+        /,
+    ) -> MeasurementUnavailable | None:
+        """Return the complete unavailable diagnostic for one result field."""
+
+        value = self._dataset[ref]._raw_values[self.index]
+        return value if isinstance(value, MeasurementUnavailable) else None
+
+    def is_available(
+        self,
+        ref: ProductRef | RecordRef | ValueRef[object],
+        /,
+    ) -> bool:
+        """Return whether one result field has a usable value at this point."""
+
+        return self.availability(ref) is None
+
+    @overload
+    def value(self, ref: ValueRef[Quantity], /) -> Quantity: ...
+
+    @overload
+    def value[T: NativeAvailableValue](
+        self,
+        ref: ProductRef[T] | RecordRef[T] | ValueRef[T],
+        /,
+    ) -> T: ...
+
+    def value(
+        self,
+        ref: ProductRef | RecordRef | ValueRef[object],
+        /,
+    ) -> object:
+        """Return one available native value, preserving Quantity semantics."""
+
+        variable = self._dataset[ref]
+        value = variable[self.index]
+        if value is None:
+            reason = self.availability(ref)
+            raise ValueError(
+                f"variable {variable.id!r} is unavailable at row position "
+                f"{self.index}: {reason}"
+            )
+        if (
+            isinstance(ref, ValueRef)
+            and isinstance(ref.value_type, Scalar)
+            and isinstance(ref.value_type.atom, QuantityType)
+        ):
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise TypeError(
+                    f"quantity variable {variable.id!r} must contain numbers"
                 )
-                if isinstance(value, MeasurementArray):
-                    flattened = _flatten_native_array(value.values)
-                else:
-                    flattened = (((), _native_value(value)),)
-                for local_index, native in flattened:
-                    rows.append(
-                        {
-                            "point_index": record.point_index,
-                            "logical_point_id": record.logical_point_id,
-                            "variable": variable.id,
-                            "role": variable.role,
-                            "unit": variable.unit,
-                            "local_index": local_index or None,
-                            "value": native,
-                            "unavailable_reason": reason,
-                        }
-                    )
-        return rows
+            if variable.unit is None:
+                raise TypeError(
+                    f"quantity variable {variable.id!r} must declare a unit"
+                )
+            return Quantity(float(value), variable.unit)
+        return value
+
+    def quantity(
+        self,
+        ref: ProductRef | RecordRef | ValueRef[object],
+        /,
+        unit: str | None = None,
+    ) -> Quantity:
+        """Return one available point scalar as a quantity."""
+
+        variable = self._dataset[ref]
+        value = variable.quantities(unit)[self.index]
+        if value is None:
+            reason = self.availability(ref)
+            raise ValueError(
+                f"variable {variable.id!r} is unavailable at row position "
+                f"{self.index}: {reason}"
+            )
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentResultView[ResultT](Sequence[ExperimentResultPoint]):
+    """A dataset validated against one experiment's returned result schema."""
+
+    dataset: Dataset
+    output: ResultT
+
+    def __post_init__(self) -> None:
+        refs = tuple(_experiment_result_refs(self.output))
+        if not refs:
+            raise TypeError("experiment result schemas must contain data references")
+        for ref in refs:
+            self.dataset[ref]
+
+    @override
+    def __len__(self) -> int:
+        return len(self.dataset)
+
+    @overload
+    def __getitem__(self, index: int) -> ExperimentResultPoint: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[ExperimentResultPoint, ...]: ...
+
+    @override
+    def __getitem__(
+        self,
+        index: int | slice,
+    ) -> ExperimentResultPoint | tuple[ExperimentResultPoint, ...]:
+        if isinstance(index, slice):
+            return tuple(
+                ExperimentResultPoint(self.dataset, position)
+                for position in range(*index.indices(len(self)))
+            )
+        position = _normalize_index(index, size=len(self), label="result point")
+        return ExperimentResultPoint(self.dataset, position)
+
+    def rows[RowT](
+        self,
+        build: Callable[[ExperimentResultPoint], RowT],
+        /,
+    ) -> tuple[RowT, ...]:
+        """Materialize typed rows without independently aligning columns."""
+
+        return tuple(build(point) for point in self)
+
+    def project(
+        self,
+        columns: Mapping[str, ProductRef | RecordRef | ValueRef[object]] | None = None,
+        /,
+        *,
+        units: Mapping[str, str] | None = None,
+        diagnostics: ProjectionDiagnostics = "none",
+        identity: bool = True,
+        layout: ProjectionLayout = "points",
+    ) -> MeasurementDataProjection:
+        """Project typed result fields under exact user-controlled column names."""
+
+        from scopecat.measurements.interop import ProjectionSpec, bind_projection
+
+        selected = (
+            tuple(
+                (name, cast("Variable[object]", self.dataset[ref]), None)
+                for name, ref in columns.items()
+            )
+            if columns
+            else tuple(
+                (
+                    ".".join(path),
+                    cast("Variable[object]", self.dataset[ref]),
+                    path,
+                )
+                for path, ref in _experiment_result_ref_paths(self.output)
+            )
+        )
+        return bind_projection(
+            self.dataset,
+            selected,
+            spec=ProjectionSpec.create(
+                units=units,
+                diagnostics=diagnostics,
+                include_identity=identity,
+                layout=layout,
+            ),
+        )
+
+    def where_available(
+        self,
+        *refs: ProductRef | RecordRef | ValueRef[object],
+    ) -> ExperimentResultView[ResultT]:
+        """Keep points where the selected result fields all have usable values."""
+
+        selected = tuple(refs) or tuple(_experiment_result_refs(self.output))
+        mask = self.dataset[selected[0]].is_available()
+        for ref in selected[1:]:
+            mask &= self.dataset[ref].is_available()
+        return ExperimentResultView(self.dataset.where(mask), self.output)
+
+    def partition_available(
+        self,
+        *refs: ProductRef | RecordRef | ValueRef[object],
+    ) -> tuple[ExperimentResultView[ResultT], ExperimentResultView[ResultT]]:
+        """Split usable and unavailable points while preserving the result schema."""
+
+        selected = tuple(refs) or tuple(_experiment_result_refs(self.output))
+        mask = self.dataset[selected[0]].is_available()
+        for ref in selected[1:]:
+            mask &= self.dataset[ref].is_available()
+        return (
+            ExperimentResultView(self.dataset.where(mask), self.output),
+            ExperimentResultView(self.dataset.where(~mask), self.output),
+        )
+
+
+type ResultPath = str | tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class StoredExperimentResultPoint:
+    """One point addressed through a dataset's persisted return paths."""
+
+    _view: StoredExperimentResultView = field(repr=False)
+    index: int
+
+    def availability(
+        self,
+        path: ResultPath,
+        /,
+    ) -> MeasurementUnavailableReason | None:
+        """Return the typed unavailability reason for one persisted result field."""
+
+        unavailable = self.unavailable(path)
+        return None if unavailable is None else unavailable.reason
+
+    def unavailable(
+        self,
+        path: ResultPath,
+        /,
+    ) -> MeasurementUnavailable | None:
+        """Return the complete unavailable diagnostic for one persisted field."""
+
+        value = self._view.variable(path)._raw_values[self.index]
+        return value if isinstance(value, MeasurementUnavailable) else None
+
+    def is_available(self, path: ResultPath, /) -> bool:
+        return self.availability(path) is None
+
+    def value(self, path: ResultPath, /) -> NativeAvailableValue:
+        variable = self._view.variable(path)
+        value = variable[self.index]
+        if value is None:
+            raise ValueError(
+                f"result field {_normalize_result_path(path)!r} is unavailable at "
+                f"row position {self.index}: {self.availability(path)}"
+            )
+        return value
+
+    def quantity(self, path: ResultPath, /, unit: str | None = None) -> Quantity:
+        variable = self._view.variable(path)
+        value = variable.quantities(unit)[self.index]
+        if value is None:
+            raise ValueError(
+                f"result field {_normalize_result_path(path)!r} is unavailable at "
+                f"row position {self.index}: {self.availability(path)}"
+            )
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class StoredExperimentResultView(Sequence[StoredExperimentResultPoint]):
+    """Historical result paths resolved without rebuilding symbolic Python refs."""
+
+    dataset: Dataset
+    contract: MeasurementResultContract
+    _variables: Mapping[tuple[str, ...], Variable[NativeAvailableValue]] = field(
+        init=False,
+        repr=False,
+    )
+
+    def __post_init__(self) -> None:
+        variables = {
+            tuple(result_field.path): self.dataset[result_field.variable_id]
+            for result_field in self.contract.fields
+        }
+        object.__setattr__(self, "_variables", MappingProxyType(variables))
+
+    @property
+    def paths(self) -> tuple[tuple[str, ...], ...]:
+        return tuple(self._variables)
+
+    def variable(self, path: ResultPath, /) -> Variable[NativeAvailableValue]:
+        selected = _normalize_result_path(path)
+        try:
+            return self._variables[selected]
+        except KeyError:
+            raise KeyError(
+                f"experiment result has no field {'/'.join(selected)!r}"
+            ) from None
+
+    @override
+    def __len__(self) -> int:
+        return len(self.dataset)
+
+    @overload
+    def __getitem__(self, index: int) -> StoredExperimentResultPoint: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[StoredExperimentResultPoint, ...]: ...
+
+    @override
+    def __getitem__(
+        self,
+        index: int | slice,
+    ) -> StoredExperimentResultPoint | tuple[StoredExperimentResultPoint, ...]:
+        if isinstance(index, slice):
+            return tuple(
+                StoredExperimentResultPoint(self, position)
+                for position in range(*index.indices(len(self)))
+            )
+        position = _normalize_index(index, size=len(self), label="result point")
+        return StoredExperimentResultPoint(self, position)
+
+    def rows[RowT](
+        self,
+        build: Callable[[StoredExperimentResultPoint], RowT],
+        /,
+    ) -> tuple[RowT, ...]:
+        return tuple(build(point) for point in self)
+
+    def project(
+        self,
+        columns: Mapping[str, ResultPath] | None = None,
+        /,
+        *,
+        units: Mapping[str, str] | None = None,
+        diagnostics: ProjectionDiagnostics = "none",
+        identity: bool = True,
+        layout: ProjectionLayout = "points",
+    ) -> MeasurementDataProjection:
+        """Project persisted result paths under exact external column names."""
+
+        from scopecat.measurements.interop import ProjectionSpec, bind_projection
+
+        selected = (
+            tuple(
+                (
+                    name,
+                    cast("Variable[object]", self.variable(path)),
+                    _normalize_result_path(path),
+                )
+                for name, path in columns.items()
+            )
+            if columns
+            else tuple(
+                (
+                    ".".join(path),
+                    cast("Variable[object]", variable),
+                    path,
+                )
+                for path, variable in self._variables.items()
+            )
+        )
+        return bind_projection(
+            self.dataset,
+            selected,
+            spec=ProjectionSpec.create(
+                units=units,
+                diagnostics=diagnostics,
+                include_identity=identity,
+                layout=layout,
+            ),
+        )
+
+    def where_available(
+        self,
+        *paths: ResultPath,
+    ) -> StoredExperimentResultView:
+        """Keep points where the selected persisted result paths are available."""
+
+        selected = tuple(paths) or self.paths
+        mask = self.variable(selected[0]).is_available()
+        for path in selected[1:]:
+            mask &= self.variable(path).is_available()
+        return StoredExperimentResultView(self.dataset.where(mask), self.contract)
+
+    def partition_available(
+        self,
+        *paths: ResultPath,
+    ) -> tuple[StoredExperimentResultView, StoredExperimentResultView]:
+        """Split usable and unavailable points addressed by persisted paths."""
+
+        selected = tuple(paths) or self.paths
+        mask = self.variable(selected[0]).is_available()
+        for path in selected[1:]:
+            mask &= self.variable(path).is_available()
+        return (
+            StoredExperimentResultView(self.dataset.where(mask), self.contract),
+            StoredExperimentResultView(self.dataset.where(~mask), self.contract),
+        )
+
+
+def _normalize_result_path(path: ResultPath) -> tuple[str, ...]:
+    selected = tuple(path.split("/")) if isinstance(path, str) else tuple(path)
+    if not selected or any(not segment for segment in selected):
+        raise ValueError("experiment result paths must contain non-empty segments")
+    return selected
+
+
+def _experiment_result_refs(
+    value: object,
+) -> Iterator[ProductRef | RecordRef | ValueRef[object]]:
+    if isinstance(value, ProductRef | RecordRef | ValueRef):
+        yield value
+        return
+    if is_dataclass(value) and not isinstance(value, type):
+        for member in fields(value):
+            yield from _experiment_result_refs(
+                cast("object", getattr(value, member.name))
+            )
+        return
+    if isinstance(value, Mapping):
+        for item in value.values():
+            yield from _experiment_result_refs(item)
+        return
+    if isinstance(value, tuple):
+        for item in value:
+            yield from _experiment_result_refs(item)
+        return
+
+
+def _experiment_result_ref_paths(
+    value: object,
+    path: tuple[str, ...] = (),
+) -> Iterator[tuple[tuple[str, ...], ProductRef | RecordRef | ValueRef[object]]]:
+    if isinstance(value, ProductRef | RecordRef | ValueRef):
+        yield path or ("result",), value
+        return
+    if is_dataclass(value) and not isinstance(value, type):
+        for member in fields(value):
+            yield from _experiment_result_ref_paths(
+                cast("object", getattr(value, member.name)),
+                (*path, member.name),
+            )
+        return
+    if isinstance(value, Mapping):
+        for name, item in value.items():
+            yield from _experiment_result_ref_paths(
+                item,
+                (*path, str(name)),
+            )
+        return
+    if isinstance(value, tuple):
+        for index, item in enumerate(value):
+            yield from _experiment_result_ref_paths(item, (*path, str(index)))
+        return
+    raise TypeError(
+        "experiment result schemas must be tuple/dataclass/mapping trees of "
+        "data references"
+    )
 
 
 def _native_value(value: MeasurementValue) -> NativeValue:
@@ -1495,6 +2076,82 @@ def _require_record_ref_matches(
     )
     raise TypeError(
         f"record reference {ref.id!r} does not match the dataset schema: {rendered}"
+    )
+
+
+def _require_product_ref_matches(
+    ref: ProductRef[NativeAvailableValue],
+    definition: MeasurementVariable,
+) -> None:
+    expected = {
+        "dtype": ref.value_spec.dtype,
+        "unit": ref.value_spec.unit,
+        "dims": (
+            "point",
+            *(
+                _product_axis_dimension_id(ref.product_id, axis)
+                for axis in ref.value_spec.axes
+            ),
+        ),
+        "source_product_id": ref.id,
+    }
+    actual = {
+        "dtype": definition.dtype,
+        "unit": definition.unit,
+        "dims": tuple(definition.dims),
+        "source_product_id": definition.source_product_id,
+    }
+    _require_logical_ref_matches("product", ref.id, expected, actual)
+
+
+def _require_value_ref_matches(
+    ref: ValueRef[object],
+    definition: MeasurementVariable,
+) -> None:
+    value_type = ref.value_type
+    if isinstance(value_type, Scalar):
+        if isinstance(value_type.atom, Payload):
+            raise TypeError("opaque payload values cannot identify dataset variables")
+        dtype, unit = measurement_value_spec_from_scalar(value_type)
+        dims = ("point",)
+    elif isinstance(value_type, Array):
+        dtype, unit = value_type.dtype, value_type.unit
+        dims = ("point", *(dimension.id for dimension in value_type.dimensions))
+    else:
+        raise TypeError("only scalar or array values can identify dataset variables")
+    source_id = internal_value_ref_record_source_id(ref)
+    expected = {
+        "dtype": dtype,
+        "unit": unit,
+        "dims": dims,
+        "source_value_id": source_id,
+    }
+    actual = {
+        "dtype": definition.dtype,
+        "unit": definition.unit,
+        "dims": tuple(definition.dims),
+        "source_value_id": definition.source_value_id,
+    }
+    _require_logical_ref_matches("value", source_id, expected, actual)
+
+
+def _require_logical_ref_matches(
+    source: str,
+    source_id: str,
+    expected: Mapping[str, object],
+    actual: Mapping[str, object],
+) -> None:
+    mismatches = tuple(
+        name for name, value in expected.items() if actual[name] != value
+    )
+    if not mismatches:
+        return
+    rendered = ", ".join(
+        f"{name}={actual[name]!r} (expected {expected[name]!r})" for name in mismatches
+    )
+    raise TypeError(
+        f"{source} reference {source_id!r} does not match the dataset schema: "
+        f"{rendered}"
     )
 
 
@@ -1625,15 +2282,6 @@ def _array_values_equal(left: np.ndarray, right: np.ndarray) -> bool:
         return bool(np.array_equal(left, right, equal_nan=True))
     except TypeError:
         return bool(np.array_equal(left, right))
-
-
-def _flatten_native_array(
-    value: MeasurementArrayData,
-) -> tuple[tuple[tuple[int, ...], NativeValue], ...]:
-    return tuple(
-        (tuple(index), cast("NativeValue", _native_leaf(item)))
-        for index, item in np.ndenumerate(value)
-    )
 
 
 def _slice_record_local_values(
@@ -2142,7 +2790,7 @@ def _dataset_attrs(dataset: Dataset) -> dict[str, object]:
         "scopecat_entry_kind": dataset._entry.kind,
         "scopecat_content_hash": dataset._entry.content_hash,
         "scopecat_schema_json": _stable_json(dataset._schema.model_dump(mode="json")),
-        "scopecat_metadata_json": _stable_json(dataset._raw.metadata),
+        "scopecat_metadata_json": _stable_json(dataset._materialize().metadata),
     }
 
 
@@ -2156,17 +2804,6 @@ def _stable_json(value: object) -> str:
 
 def _unavailable_reason_name(variable_id: str) -> str:
     return f"{variable_id}__unavailable_reason"
-
-
-def _optional_module(name: str) -> object:
-    try:
-        return import_module(name)
-    except ModuleNotFoundError as error:
-        if error.name != name:
-            raise
-        raise ModuleNotFoundError(
-            f"{name} is required for this conversion; install scopecat[pandas]"
-        ) from error
 
 
 __all__ = ["Dataset", "NativeAvailableValue", "PointMask", "Variable"]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import cast
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
@@ -33,8 +34,10 @@ from scopecat.measurements.values import (
     MeasurementValueCatalog,
 )
 from scopecat.program.measurement_types import MeasurementVariableRole
+from scopecat.program.recording import ExperimentResultField
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
+    MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementRecord,
     MeasurementValue,
@@ -51,6 +54,10 @@ class MeasurementProjection:
         repr=False,
         compare=False,
     )
+    _result_fields: tuple[ExperimentResultField, ...] = field(
+        repr=False,
+        compare=False,
+    )
     contract_fingerprint: str
 
     def __init__(
@@ -59,6 +66,7 @@ class MeasurementProjection:
         records: tuple[DatasetRecordPlan, ...],
         *,
         static_value_candidates: Sequence[ValueRecordCandidate] = (),
+        result_fields: Sequence[ExperimentResultField] = (),
     ) -> None:
         object.__setattr__(self, "catalog", catalog)
         object.__setattr__(self, "_records", records)
@@ -67,6 +75,7 @@ class MeasurementProjection:
             "_static_value_candidates",
             tuple(static_value_candidates),
         )
+        object.__setattr__(self, "_result_fields", tuple(result_fields))
         object.__setattr__(
             self,
             "contract_fingerprint",
@@ -100,10 +109,19 @@ class MeasurementProjection:
         return self.catalog.point_contract.coordinate_ids
 
     @property
+    def has_dataset(self) -> bool:
+        """Whether selected records or returned point coordinates require data."""
+
+        coordinate_ids = frozenset(self.coordinate_ids)
+        return bool(self.records) or any(
+            field.variable_id in coordinate_ids for field in self._result_fields
+        )
+
+    @property
     def schema(self) -> MeasurementDatasetSchema | None:
         """Return the complete planned dataset schema for this projection."""
 
-        if not self.records:
+        if not self.has_dataset:
             return None
         return expected_dataset_schema(
             experiment_id=self.catalog.point_contract.experiment_id,
@@ -111,6 +129,7 @@ class MeasurementProjection:
             records=self.records,
             point_coordinate_columns=self.catalog.point_contract.coordinate_columns,
             point_domain_layout=self.catalog.point_contract.domain_layout,
+            result_fields=self._result_fields,
             point_domain_axis_sizes=self.catalog.point_contract.domain_axis_sizes,
             point_domain_axis_values=self.catalog.point_contract.domain_axis_values,
         )
@@ -150,6 +169,7 @@ def select_measurement_projection(
     record_uses: Sequence[BoundRecordUse],
     *,
     static_value_candidates: Sequence[ValueRecordCandidate] = (),
+    result_fields: Sequence[ExperimentResultField] = (),
 ) -> MeasurementProjection:
     """Close every record projection against one value catalog."""
 
@@ -203,6 +223,7 @@ def select_measurement_projection(
         catalog,
         record_plans,
         static_value_candidates=static_value_candidates,
+        result_fields=result_fields,
     )
 
 
@@ -232,7 +253,7 @@ def project_measurement_records(
             *value_candidates,
         )
     }
-    if not record_plans:
+    if not projection.has_dataset:
         records: tuple[MeasurementRecord, ...] = ()
     else:
         records = tuple(
@@ -309,7 +330,7 @@ def _projected_values(
     *,
     role: MeasurementVariableRole,
     product_values: ClosedMeasurementProductValues,
-    value_candidates: Mapping[tuple[LogicalPointId, ValueId], CellValue],
+    value_candidates: Mapping[tuple[LogicalPointId, ValueId], object],
     point: RunPoint,
 ) -> dict[str, MeasurementValue]:
     projected: dict[str, MeasurementValue] = {}
@@ -329,7 +350,15 @@ def _projected_values(
                 f"recorded value {record.id!r} is unavailable for point "
                 f"{point.logical_ordinal}"
             ) from error
-        projected[record.id] = measurement_scalar(value)
+        projected[record.id] = (
+            MeasurementArray.create(
+                values=value,
+                dtype=record.dtype,
+                unit=record.unit,
+            )
+            if record.axes
+            else measurement_scalar(cast("CellValue", value))
+        )
     return projected
 
 

@@ -16,6 +16,7 @@ from scopecat.runs.access import (
     read_artifact_bytes,
     read_artifact_json,
     read_artifact_text,
+    read_dataset_bytes,
     read_record_json,
     require_artifact,
     require_dataset,
@@ -25,6 +26,7 @@ from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
+    RunDatasetBytesResult,
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
@@ -176,6 +178,29 @@ def read_run_artifact_bytes(
             storage=storage,
             run_id=run_id,
             artifact=artifact,
+        ),
+    )
+
+
+def read_run_dataset_bytes(
+    *,
+    run_id: str,
+    selector: str,
+    services: ProjectStateServices,
+    expected_kind: str | None = None,
+) -> RunDatasetBytesResult:
+    storage = services.runs
+    dataset = require_dataset(
+        manifest=storage.read_manifest(run_id),
+        selector=selector,
+        expected_kind=expected_kind,
+    )
+    return RunDatasetBytesResult(
+        dataset=dataset,
+        content=read_dataset_bytes(
+            storage=storage,
+            run_id=run_id,
+            dataset=dataset,
         ),
     )
 

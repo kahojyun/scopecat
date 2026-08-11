@@ -6,6 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated
 
+import numpy as np
+from numpy.typing import NDArray
+
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource
 from scopecat.authoring.state_projection import StateTarget
@@ -98,14 +101,14 @@ def test_experiment_authors_root_device_operations_without_a_module() -> None:
             results={_DEVICE_SIGNAL: raw},
             metadata={"mode": "fast"},
         )
-        experiment._postprocess(
+        experiment._measurement_compute(
             "derive",
             input=raw,
             outputs={"derived": derived},
             kernel=_derive_signal,
         )
-        experiment.record(raw)
-        experiment.record(derived)
+        experiment.alias(raw)
+        experiment.alias(derived)
         experiment.on_success(
             _TypedDevice(device),
             _DeviceTarget(level=0.0, enabled=False),
@@ -129,11 +132,10 @@ def test_experiment_authors_root_device_operations_without_a_module() -> None:
         "derived",
     ]
     assert [node.id.local_id for node in logical.compute_nodes] == ["build-trigger"]
-    postprocessor_ids = [
-        postprocessor.id.qualified_name
-        for postprocessor in logical.measurement_postprocessors
+    compute_ids = [
+        compute.id.qualified_name for compute in logical.measurement_computes
     ]
-    assert postprocessor_ids == ["derive"]
+    assert compute_ids == ["derive"]
     assert [type(effect) for effect in logical.effects] == [
         LogicalEnsureState,
         LogicalStateAssignment,
@@ -162,7 +164,7 @@ def test_experiment_supports_direct_root_authoring() -> None:
             resource=device,
             results={_DEVICE_SIGNAL: signal},
         )
-        experiment.record(signal)
+        experiment.alias(signal)
 
     program = compile_invocation(direct()).program.program
 
@@ -232,7 +234,7 @@ def test_public_capability_resource_supports_lab_owned_acquisition() -> None:
         )
         signal = experiment._product("signal")
         monitor.acquire({_DEVICE_SIGNAL: signal})
-        experiment.record(signal)
+        experiment.alias(signal)
 
     logical = compile_invocation(direct()).program.program
 
@@ -250,7 +252,7 @@ def test_experiment_records_a_compute_result_as_a_named_dataset_value() -> None:
             fn=lambda: 2.5,
             output_type=sc.ScalarType(sc.FloatType()),
         )
-        experiment.record(score)
+        experiment.alias(score)
 
     logical = compile_invocation(direct()).program.program
 
@@ -259,6 +261,43 @@ def test_experiment_records_a_compute_result_as_a_named_dataset_value() -> None:
     assert record.id == "score"
     assert record.source_value_id == "score"
     assert record.value_id == logical.compute_nodes[0].result_id
+
+
+def test_experiment_composes_and_records_array_compute_results() -> None:
+    trace_type = sc.ArrayType(
+        dtype="float64",
+        dimensions=(sc.ArrayDimension("sample", 3, kind="time", unit="ns"),),
+        unit="V",
+    )
+
+    def peak_value(*, values: NDArray[np.float64]) -> float:
+        return float(np.max(values))
+
+    @sc.experiment(id="test.direct.array-value-record", kind="direct")
+    def direct(experiment: sc.ExperimentContext) -> None:
+        trace = experiment.compute(
+            "trace",
+            fn=lambda: np.asarray([1.0, 2.0, 3.0]),
+            output_type=trace_type,
+        )
+        peak = experiment.compute(
+            "peak",
+            fn=peak_value,
+            inputs={"values": trace},
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        trace_record = experiment.alias(trace)
+        experiment.alias(peak)
+        assert trace_record.dims == ("point", "sample")
+
+    logical = compile_invocation(direct()).program.program
+
+    assert [node.id.local_id for node in logical.compute_nodes] == ["trace", "peak"]
+    assert logical.compute_nodes[1].inputs[0][1] == logical.compute_nodes[0].result_id
+    [trace_record, peak_record] = logical.value_record_selections
+    assert isinstance(trace_record.value_type, sc.ArrayType)
+    assert trace_record.value_type.dimensions[0].id == "sample"
+    assert peak_record.value_type == sc.ScalarType(sc.FloatType())
 
 
 def test_experiment_derives_record_id_from_module_source_identity() -> None:
@@ -274,8 +313,8 @@ def test_experiment_derives_record_id_from_module_source_identity() -> None:
     def direct(experiment: sc.ExperimentContext) -> None:
         score = experiment.use(value_source())
         trace = experiment._product("trace")
-        experiment.record(score)
-        experiment.record(trace)
+        experiment.alias(score)
+        experiment.alias(trace)
 
     logical = compile_invocation(direct()).program.program
 
@@ -295,8 +334,8 @@ def test_value_record_namespaces_preserve_segment_identity() -> None:
             fn=lambda: 2.5,
             output_type=sc.ScalarType(sc.FloatType()),
         )
-        experiment.record(score, namespace="analysis%2Fdaily")
-        experiment.record(score, namespace="analysis/daily")
+        experiment.alias(score, namespace="analysis%2Fdaily")
+        experiment.alias(score, namespace="analysis/daily")
 
     logical = compile_invocation(direct()).program.program
 

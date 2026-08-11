@@ -1,4 +1,5 @@
 # pyright: reportUnnecessaryTypeIgnoreComment=true
+# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
 
 from __future__ import annotations
 
@@ -7,13 +8,15 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, assert_type, cast
 
+import pyarrow as pa
 import pytest
 
 import scopecat as sc
 from scopecat.api.analysis import AnalysisDefinition, AnalysisInvocation
+from scopecat.authoring._module_results import ProductBundle
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
-from scopecat.program.products import ProductAxis
+from scopecat.program.products import ProductAxis, RecordSelection
 from scopecat.sdk.instruments import InterfaceRef
 
 _COUNT_TYPE = sc.IntType(minimum=0)
@@ -34,8 +37,46 @@ class _CountDataset:
     recorded_count: sc.RecordRef[int]
 
 
+@dataclass(frozen=True, slots=True)
+class _ReturnedSignals(ProductBundle):
+    signal: sc.ProductRef
+    reference: sc.ProductRef
+
+
+@dataclass(frozen=True, slots=True)
+class _ReturnedDataset:
+    capture: _ReturnedSignals
+    score: sc.ValueRef[float]
+
+
+@dataclass(frozen=True, slots=True)
+class _PolicyDataset:
+    capture: Annotated[
+        _ReturnedSignals,
+        sc.Result(
+            namespace="science",
+            role="coordinate",
+            metadata={"reviewed": True},
+        ),
+    ]
+    score: Annotated[
+        sc.ValueRef[float],
+        sc.Result(id="quality", metadata={"metric": "quality"}),
+    ]
+
+
+@dataclass(frozen=True, slots=True)
+class _ReturnedAliases:
+    primary: sc.ProductRef
+    diagnostic: sc.ProductRef
+
+
 def _identity_count(*, value: object) -> object:
     return value
+
+
+def _default_count() -> int:
+    return 1
 
 
 def test_symbolic_factories_preserve_python_value_types() -> None:
@@ -119,6 +160,69 @@ def test_module_definition_rejects_global_symbolic_values() -> None:
         sc.module(captured)
 
 
+def test_compute_infers_stable_ids_from_functions_and_allocates_lambda_ids() -> None:
+    @sc.module
+    def computed(
+        module: sc.ModuleContext,
+    ) -> tuple[sc.ValueRef, sc.ValueRef, sc.ValueRef]:
+        named = module.compute(
+            fn=_default_count,
+            output_type=sc.ScalarType(_COUNT_TYPE),
+        )
+        first_lambda = module.compute(
+            fn=lambda: 2,
+            output_type=sc.ScalarType(_COUNT_TYPE),
+        )
+        second_lambda = module.compute(
+            fn=lambda: 3,
+            output_type=sc.ScalarType(_COUNT_TYPE),
+        )
+        return named, first_lambda, second_lambda
+
+    assert [operation.id for operation in computed.definition.body.operations] == [
+        "default_count",
+        "compute",
+        "compute.2",
+    ]
+
+
+def test_compute_binds_keyword_inputs_and_infers_scalar_return_type() -> None:
+    def add(*, left: int, right: int) -> int:
+        return left + right
+
+    @sc.module
+    def computed(module: sc.ModuleContext) -> sc.ValueRef:
+        result = module.compute(fn=add, left=1, right=2)
+        assert isinstance(result, sc.ValueRef)
+        return result
+
+    [operation] = computed.definition.body.operations
+    assert [name for name, _value in operation.inputs] == ["left", "right"]
+    assert operation.output_type == sc.ScalarType(sc.IntType())
+
+
+def test_convert_preserves_host_availability_and_changes_the_unit_contract() -> None:
+    @sc.module
+    def converted(module: sc.ModuleContext) -> sc.ValueRef[sc.Quantity]:
+        voltage = cast(
+            "sc.ValueRef[sc.Quantity]",
+            module.compute(
+                "voltage",
+                fn=lambda: sc.Quantity(0.125, "V"),
+                output_type=sc.ScalarType(sc.QuantityType(unit="V")),
+            ),
+        )
+        return assert_type(
+            module.convert(voltage, "mV"),
+            sc.ValueRef[sc.Quantity],
+        )
+
+    _voltage, conversion = converted.definition.body.operations
+    assert conversion.id == "convert_unit_value"
+    assert conversion.output_type == sc.ScalarType(sc.QuantityType(unit="mV"))
+    assert conversion.inputs[0][0] == "value"
+
+
 def test_experiment_infers_identity_description_and_runtime_defaults() -> None:
     elaborations = 0
 
@@ -171,7 +275,7 @@ def test_experiment_returns_a_typed_dataset_schema() -> None:
         count = experiment.scan("count", (1, 2, 3))
         return _CountDataset(
             count=count,
-            recorded_count=experiment.record(count, record_id="count_copy"),
+            recorded_count=experiment.alias(count, record_id="count_copy"),
         )
 
     invocation = assert_type(
@@ -185,13 +289,21 @@ def test_experiment_returns_a_typed_dataset_schema() -> None:
     assert output.recorded_count.source_value_id == "count"
 
 
-def test_experiment_rejects_unrecorded_output_values_and_products() -> None:
+def test_returned_values_are_durable_without_explicit_record_calls() -> None:
     def computed(experiment: sc.ExperimentContext) -> sc.ValueRef[object]:
         count = experiment.scan("count", (1, 2, 3))
         return count + 1
 
-    with pytest.raises(TypeError, match="computed values must be recorded"):
-        sc.experiment(computed)
+    computed_experiment = sc.experiment(computed)
+    computed_invocation = computed_experiment()
+    [computed_record] = computed_invocation.definition.record_selections
+    assert computed_record.record_id == "result"
+    [logical_record] = compile_invocation(
+        computed_invocation
+    ).program.program.value_record_selections
+    assert (
+        logical_record.source_value_id == computed_invocation.output.id.qualified_name
+    )
 
     @sc.module
     def product_source(module: sc.ModuleContext) -> sc.ProductRef:
@@ -200,8 +312,95 @@ def test_experiment_rejects_unrecorded_output_values_and_products() -> None:
     def product(experiment: sc.ExperimentContext) -> sc.ProductRef:
         return experiment.use(product_source())
 
-    with pytest.raises(TypeError, match="products must be recorded"):
-        sc.experiment(product)
+    product_experiment = sc.experiment(product)
+    [product_record] = product_experiment().definition.record_selections
+    assert isinstance(product_record, RecordSelection)
+    assert product_record.product_id.local_id == "signal"
+    assert product_record.record_id == "result"
+
+
+def test_return_paths_name_product_bundles_and_named_values() -> None:
+    @sc.experiment(id="test.return-schema", kind="return")
+    def definition(experiment: sc.ExperimentContext) -> _ReturnedDataset:
+        signal = experiment._product("source/signal")
+        reference = experiment._product("source/reference")
+        score = experiment.compute(
+            "internal-score-operation",
+            fn=lambda: 0.75,
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        return _ReturnedDataset(
+            capture=_ReturnedSignals(signal=signal, reference=reference),
+            score=cast("sc.ValueRef[float]", score),
+        )
+
+    selections = definition().definition.record_selections
+
+    assert [selection.record_id for selection in selections] == [
+        "capture/signal",
+        "capture/reference",
+        "score",
+    ]
+
+
+def test_return_annotations_refine_durable_record_policy() -> None:
+    def score_value() -> float:
+        return 0.75
+
+    @sc.experiment(id="test.return-policy", kind="return")
+    def definition(experiment: sc.ExperimentContext) -> _PolicyDataset:
+        score = experiment.compute(fn=score_value)
+        return _PolicyDataset(
+            capture=_ReturnedSignals(
+                signal=experiment._product("source/signal"),
+                reference=experiment._product("source/reference"),
+            ),
+            score=cast("sc.ValueRef[float]", score),
+        )
+
+    signal, reference, score = definition().definition.record_selections
+
+    assert [selection.record_id for selection in (signal, reference, score)] == [
+        "science/capture/signal",
+        "science/capture/reference",
+        "quality",
+    ]
+    assert signal.role == reference.role == "coordinate"
+    assert signal.metadata == reference.metadata == {"reviewed": True}
+    assert score.metadata == {"metric": "quality"}
+
+
+def test_repeated_return_source_creates_aliases_without_duplicate_product_uses() -> (
+    None
+):
+    @sc.experiment(id="test.return-alias", kind="return")
+    def definition(experiment: sc.ExperimentContext) -> _ReturnedAliases:
+        signal = experiment._product("internal/signal")
+        return _ReturnedAliases(primary=signal, diagnostic=signal)
+
+    primary, diagnostic = definition().definition.record_selections
+
+    assert isinstance(primary, RecordSelection)
+    assert isinstance(diagnostic, RecordSelection)
+    assert [primary.record_id, diagnostic.record_id] == [
+        "primary",
+        "diagnostic",
+    ]
+    assert primary.product_use.id == diagnostic.product_use.id
+
+
+def test_returned_explicit_record_is_not_selected_twice() -> None:
+    @sc.experiment(id="test.returned-record", kind="return")
+    def definition(experiment: sc.ExperimentContext) -> sc.ValueRef[object]:
+        score = experiment.compute(
+            "score",
+            fn=lambda: 1.0,
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        experiment.alias(score)
+        return score
+
+    assert len(definition().definition.record_selections) == 1
 
 
 def test_analysis_decorator_preserves_configuration_signature() -> None:
@@ -216,8 +415,10 @@ def test_analysis_decorator_preserves_configuration_signature() -> None:
     ) -> sc.Analysis:
         nonlocal evaluations
         evaluations += 1
-        return context.result(f"readout fit for {qubit}").table(
-            sc.AnalysisTable.from_rows([{"attempts": attempts}])
+        return (
+            context.result(f"readout fit for {qubit}")
+            .dataset("attempts", pa.table({"attempts": [attempts]}))
+            .table(dataset="attempts")
         )
 
     assert evaluations == 0
@@ -373,7 +574,7 @@ def test_symbolic_structural_argument_becomes_a_private_module_import() -> None:
     @sc.experiment(id="test.function.structural-value")
     def authored(experiment: sc.ExperimentContext) -> None:
         experiment.grid(sc.axis(point, (1, 2)))
-        experiment.record(
+        experiment.alias(
             experiment.use(invocation),
             record_id="selected_result",
         )
@@ -487,7 +688,7 @@ def test_use_returns_typed_results_and_requires_an_occurrence() -> None:
     @sc.experiment(id="test.use.experiment", kind="use")
     def authored(experiment: sc.ExperimentContext) -> None:
         value = assert_type(experiment.use(parent()), sc.ValueRef)
-        experiment.record(value)
+        experiment.alias(value)
 
     compile_invocation(authored())
 

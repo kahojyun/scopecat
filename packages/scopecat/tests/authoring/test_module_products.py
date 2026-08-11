@@ -197,7 +197,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
     @sc.experiment(id="test.products.metadata", kind="module_products")
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
-        experiment.record(call.result)
+        experiment.alias(call.result)
 
     resolved = bind_invocation(
         experiment_definition(),
@@ -493,9 +493,9 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
     @sc.experiment(id="test.products.result-mapping", kind="module_products")
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
-        experiment.record(call.result.first)
-        experiment.record(call.result.second)
-        experiment.record(call.result.default)
+        experiment.alias(call.result.first)
+        experiment.alias(call.result.second)
+        experiment.alias(call.result.default)
 
     resolved = bind_invocation(
         experiment_definition(),
@@ -610,11 +610,11 @@ def test_explicit_instances_select_same_named_products_independently(
     @sc.experiment(id="test.products.root", kind="module_products")
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
-        experiment.record(
+        experiment.alias(
             call.result.left,
             record_id="left_signal",
         )
-        experiment.record(
+        experiment.alias(
             call.result.right,
             record_id="right_signal",
         )
@@ -701,7 +701,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     @sc.experiment(id="test.products.nested", kind="module_products")
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
-        experiment.record(
+        experiment.alias(
             nested_product,
             record_id="nested_signal",
         )
@@ -749,11 +749,11 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
     @sc.experiment(id="test.products.repeated-use", kind="module_products")
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
-        experiment.record(
+        experiment.alias(
             call.result,
             record_id="first",
         )
-        experiment.record(
+        experiment.alias(
             call.result,
             record_id="second",
         )
@@ -777,7 +777,7 @@ def test_root_module_products_are_typed_experiment_refs() -> None:
     @sc.experiment(id="test.products.root-ref", kind="module_products")
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(call)
-        experiment.record(call.result)
+        experiment.alias(call.result)
 
     [selection] = experiment_definition.bind().definition.record_selections
     assert isinstance(selection, RecordSelection)
@@ -795,7 +795,7 @@ def test_product_refs_are_nominally_owned_by_the_selected_instance() -> None:
 
     def experiment_definition(experiment: sc.ExperimentContext) -> None:
         experiment.use(selected)
-        experiment.record(foreign.result)
+        experiment.alias(foreign.result)
 
     experiment = sc.experiment(id="test.products.nominal", kind="module_products")(
         experiment_definition

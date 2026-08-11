@@ -54,6 +54,7 @@ describe("RunProposals", () => {
       name: "Accept as default",
     });
     expect(screen.getAllByTestId("proposal-state")).toHaveLength(2);
+    expect(screen.getAllByText("selected-fit")).toHaveLength(2);
     expect(setDefault).toHaveLength(2);
     await waitFor(() => expect(setDefault[1]).toBeEnabled());
     fireEvent.click(setDefault[1]!);
@@ -134,6 +135,7 @@ function pendingProposal(overrides: Partial<ParameterProposal> = {}): ParameterP
     baseConfigId: "baseline",
     baseContentHash: "sha256:base",
     reason: "Peak moved",
+    evidenceOutputIds: ["selected-fit"],
     confidence: 0.94,
     proposedAt: "2026-07-23T10:00:00Z",
     deltas: [

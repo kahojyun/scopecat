@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from typing import Self, cast, overload, override
 from uuid import uuid4
 
+import numpy as np
+
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import PayloadValue
@@ -14,7 +16,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_data import Row
 from scopecat.kernel.value_type_compatibility import is_assignable
-from scopecat.kernel.value_types import Scalar, Table, ValueType
+from scopecat.kernel.value_types import Array, DataType, Scalar, Table, ValueType
 from scopecat.kernel.value_validation import (
     ValuePath,
     coerce_literal,
@@ -27,10 +29,15 @@ from scopecat.program.expression_analysis import (
 )
 from scopecat.program.expression_operators import ScalarOperator
 from scopecat.program.expressions import (
+    ArrayExpr,
     BinaryScalarExpr,
+    ComputeResultArrayExpr,
     ComputeResultScalarExpr,
+    InputArrayExpr,
     InputScalarExpr,
+    LiteralArrayExpr,
     LiteralScalarExpr,
+    ModuleExportArrayExpr,
     ModuleExportScalarExpr,
     ParameterLookupScalarExpr,
     ParameterLookupUse,
@@ -74,7 +81,9 @@ class _ModuleExportTableSource:
     value_type: Table
 
 
-type _ValueSource = ScalarExpr | _ModuleExportTableSource | TableSource
+type _ValueSource = ArrayExpr | ScalarExpr | _ModuleExportTableSource | TableSource
+type ComputeResultExpr = ComputeResultScalarExpr | ComputeResultArrayExpr
+type ModuleExportExpr = ModuleExportScalarExpr | ModuleExportArrayExpr
 
 
 def _fresh_value_id() -> ValueId:
@@ -115,6 +124,14 @@ class ValueRef[T = object]:
                 self.value_type,
             ):
                 msg = "scalar value source must be assignable to its value type"
+                raise TypeError(msg)
+            return
+        if isinstance(source, ArrayExpr):
+            if not isinstance(self.value_type, Array) or not is_assignable(
+                source.value_type,
+                self.value_type,
+            ):
+                msg = "array value source must be assignable to its value type"
                 raise TypeError(msg)
             return
         if not isinstance(self.value_type, Table):
@@ -203,19 +220,21 @@ class CoordinateRef[T = object](ValueRef[T]):
 
 
 def internal_input_value_ref(input_id: str, value_type: ValueType) -> ValueRef:
+    if isinstance(value_type, Scalar):
+        source: _ValueSource = input_ref(input_id, value_type)
+    elif isinstance(value_type, Array):
+        source = InputArrayExpr(name=input_id, value_type=value_type)
+    else:
+        source = InputTableSource(input_id)
     return ValueRef(
-        source=(
-            input_ref(input_id, value_type)
-            if isinstance(value_type, Scalar)
-            else InputTableSource(input_id)
-        ),
+        source=source,
         value_type=value_type,
     )
 
 
 def internal_operation_result_value_ref(
     operation_id: SymbolId | str,
-    value_type: Scalar,
+    value_type: DataType,
     *,
     origin: tuple[object, ...] = (),
     point_dependencies: tuple[PointValueDependency, ...] = (),
@@ -226,16 +245,27 @@ def internal_operation_result_value_ref(
         else SymbolId(local_id=operation_id)
     )
     result_id = operation_result_id(OperationId(selected_operation_id))
-    return ValueRef(
-        source=ComputeResultScalarExpr(
+    dependencies = tuple(
+        (dependency.id, dependency.value_type)
+        for dependency in _merge_point_dependencies(point_dependencies)
+    )
+    source: _ValueSource
+    if isinstance(value_type, Scalar):
+        source = ComputeResultScalarExpr(
             value_id=result_id,
             value_type=value_type,
             origin=origin,
-            point_dependencies=tuple(
-                (dependency.id, dependency.value_type)
-                for dependency in _merge_point_dependencies(point_dependencies)
-            ),
-        ),
+            point_dependencies=dependencies,
+        )
+    else:
+        source = ComputeResultArrayExpr(
+            value_id=result_id,
+            value_type=value_type,
+            origin=origin,
+            point_dependencies=dependencies,
+        )
+    return ValueRef(
+        source=source,
         value_type=value_type,
     )
 
@@ -324,6 +354,13 @@ def internal_module_export_value_ref(
             source_value_id=source_value_id,
             value_type=value_type,
         )
+    elif isinstance(value_type, Array):
+        source = ModuleExportArrayExpr(
+            invocation_key=invocation_key,
+            export_id=export_id,
+            source_value_id=source_value_id,
+            value_type=value_type,
+        )
     else:
         source = _ModuleExportTableSource(
             invocation_key=invocation_key,
@@ -335,7 +372,7 @@ def internal_module_export_value_ref(
 
 def internal_value_ref_input_id(value: ValueRef) -> str | None:
     source = value.source
-    if isinstance(source, InputScalarExpr):
+    if isinstance(source, InputScalarExpr | InputArrayExpr):
         return source.name
     return source.input_id if isinstance(source, InputTableSource) else None
 
@@ -349,7 +386,7 @@ def internal_value_ref_point_id(value: ValueRef) -> str | None:
 
 def internal_value_ref_operation_id(value: ValueRef) -> SymbolId | None:
     source = value.source
-    if not isinstance(source, ComputeResultScalarExpr):
+    if not isinstance(source, ComputeResultScalarExpr | ComputeResultArrayExpr):
         return None
     result_id = source.value_id
     scope = result_id.scope
@@ -360,7 +397,11 @@ def internal_value_ref_operation_id(value: ValueRef) -> SymbolId | None:
 
 def internal_value_ref_operation_origin(value: ValueRef) -> tuple[object, ...]:
     source = value.source
-    return source.origin if isinstance(source, ComputeResultScalarExpr) else ()
+    return (
+        source.origin
+        if isinstance(source, ComputeResultScalarExpr | ComputeResultArrayExpr)
+        else ()
+    )
 
 
 def internal_value_ref_source_id(value: ValueRef) -> str | None:
@@ -380,9 +421,20 @@ def internal_value_ref_source_id(value: ValueRef) -> str | None:
             scope=(source.use.table_id,),
             local_id=source.use.column_id,
         ).qualified_name
-    if isinstance(source, ModuleExportScalarExpr):
+    if isinstance(source, ModuleExportScalarExpr | ModuleExportArrayExpr):
         return source.source_value_id
     return None
+
+
+def internal_value_ref_record_source_id(value: ValueRef) -> str:
+    """Return the durable provenance identity for any recordable value.
+
+    Directly named values retain their public source identity. Pure expressions
+    use their graph identity, keeping the source distinct from whichever
+    human-facing record name selected them.
+    """
+
+    return internal_value_ref_source_id(value) or value.id.qualified_name
 
 
 def internal_value_ref_module_export(
@@ -391,7 +443,10 @@ def internal_value_ref_module_export(
     """Return the invocation and export identity for a direct export use."""
 
     source = value.source
-    if isinstance(source, ModuleExportScalarExpr | _ModuleExportTableSource):
+    if isinstance(
+        source,
+        ModuleExportScalarExpr | ModuleExportArrayExpr | _ModuleExportTableSource,
+    ):
         return source.invocation_key, source.export_id
     return None
 
@@ -450,6 +505,11 @@ def internal_value_ref_point_dependencies(
     """Return point ids and types consumed by the canonical expression."""
 
     source = value.source
+    if isinstance(source, ComputeResultArrayExpr):
+        return tuple(
+            PointValueDependency(point_id, value_type)
+            for point_id, value_type in source.point_dependencies
+        )
     if not isinstance(source, ScalarExpr):
         return ()
     groups: list[tuple[PointValueDependency, ...]] = []
@@ -470,6 +530,8 @@ def internal_value_ref_scalar_input_ids(value: ValueRef) -> frozenset[str]:
     """Return scalar imports remaining after authored input bindings."""
 
     source = value.source
+    if isinstance(source, InputArrayExpr):
+        return frozenset((source.name,))
     if not isinstance(source, ScalarExpr):
         return frozenset()
     return frozenset(expression_input_refs(source))
@@ -484,12 +546,14 @@ def internal_value_ref_requires_execution(value: ValueRef) -> bool:
         msg = f"cannot determine dependencies of unresolved module export {export_id!r}"
         raise ValueError(msg)
     source = value.source
-    return isinstance(source, ScalarExpr) and expression_requires_execution(source)
+    return isinstance(source, ComputeResultArrayExpr) or (
+        isinstance(source, ScalarExpr) and expression_requires_execution(source)
+    )
 
 
 def internal_lower_value_ref(
     value: ValueRef,
-) -> ScalarExpr | TableSource:
+) -> ArrayExpr | ScalarExpr | TableSource:
     """Expose a value's canonical source at the private compiler boundary."""
 
     source = value.source
@@ -501,7 +565,7 @@ def internal_lower_value_ref(
             "module elaboration must resolve exports first"
         )
         raise ValueError(msg)
-    if isinstance(source, ScalarExpr):
+    if isinstance(source, ScalarExpr | ArrayExpr):
         return source
     if isinstance(
         source,
@@ -566,6 +630,11 @@ def internal_literal_value_ref(
         return internal_table_value_ref(
             literal_table_source(cast("tuple[Row, ...]", coerced)),
             value_type,
+        )
+    if isinstance(value_type, Array):
+        return ValueRef(
+            source=LiteralArrayExpr(cast("np.ndarray", coerced), value_type),
+            value_type=value_type,
         )
     return internal_value_ref_from_expression(
         lit(input_cell(coerced), value_type),

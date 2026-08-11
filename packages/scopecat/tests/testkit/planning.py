@@ -92,6 +92,7 @@ def check_experiment(
         return ExperimentCheckResult(problems=error.problems, preview=None)
     return _check_compiled_experiment(
         compiled,
+        invocation=experiment,
         services=services,
         config=config,
         system=system,
@@ -102,6 +103,7 @@ def check_experiment(
 def _check_compiled_experiment(
     experiment: CompiledInvocation,
     *,
+    invocation: ExperimentInvocation,
     services: ProjectStateServices,
     config: str | ConfigProfileSnapshot | CandidateConfig,
     system: ExperimentSystem | None,
@@ -126,7 +128,8 @@ def _check_compiled_experiment(
     try:
         bound = bind_program(experiment.program, environment)
         preview = build_run_program_preview(
-            compile_run_program(selected_system, bound=bound)
+            compile_run_program(selected_system, bound=bound),
+            invocation=invocation,
         )
         problems: tuple[Problem, ...] = ()
     except ProblemFailure as error:

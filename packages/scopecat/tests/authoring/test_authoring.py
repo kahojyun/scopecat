@@ -416,7 +416,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
                 ),
             )
         )
-        experiment.record(signal)
+        experiment.alias(signal)
 
     resolved = bind_invocation(
         experiment.bind().with_axis(
@@ -545,7 +545,7 @@ def test_bound_entity_input_can_select_a_default_parameter_lookup_center() -> No
                 points=3,
             ),
         )
-        experiment.record(signal)
+        experiment.alias(signal)
 
     resolved = bind_invocation(experiment(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
@@ -906,7 +906,7 @@ def test_experiment_invocation_runs_composed_modules_directly() -> None:
     def experiment(experiment: sc.ExperimentContext) -> None:
         experiment.use(prelude())
         signal = experiment.use(scan(DRIVE_FREQUENCY_POINT))
-        experiment.record(signal)
+        experiment.alias(signal)
 
     resolved = bind_invocation(
         experiment().with_axis(

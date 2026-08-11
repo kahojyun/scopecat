@@ -88,7 +88,8 @@ provenance, rather than duplicated in the daemon architecture.
 Observed, baseline, and final instrument snapshots are durable run evidence.
 Run summaries expose neutral change counts, affected instruments, and missing
 readbacks; full snapshots are loaded for diagnosis or provenance. Scientific
-datasets contain only values selected by `record(...)`.
+datasets contain only values selected by the experiment return value or an
+explicit returned `alias(...)`.
 
 ## Notebook execution and durable commands
 
@@ -105,9 +106,19 @@ compute client rather than a second durable writer.
 The same client exposes replayable events, cancellation, and attention
 resolution through `lab.control`. Analysis records, parameter proposals,
 acceptance decisions, and default changes also use daemon commands. Local Python
-may calculate arbitrary candidates, while `Analysis.save()`,
-`lab.config.accept(...)`, and `lab.config.set_default(...)` establish durable
-state.
+may calculate arbitrary candidates. Reusable `run.analyze(...)` steps and the
+exploratory path below establish durable analysis publications; configuration
+changes remain explicit daemon commands.
+
+```python
+context = run.analysis("fit")
+dataset = context.measurements()
+fit = fit_dataset(dataset)
+published = context.result().fact("fit-score", fit.score).save()
+```
+
+`lab.config.accept(...)` can accept a proposal from that saved publication,
+while `lab.config.set_default(...)` records an explicit default change.
 
 A candidate may be used for one run without changing the default. That run
 retains its producing run, analysis, proposal, base configuration hash, and

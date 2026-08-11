@@ -67,8 +67,8 @@ class ProviderContractError(OperationFailure):
     """A provider violates or cannot satisfy its declared contract."""
 
 
-class MeasurementPostprocessorExecutionError(OperationFailure):
-    """A point-local measurement postprocessor could not execute its contract."""
+class ComputeExecutionError(OperationFailure):
+    """A point-local compute could not execute its declared contract."""
 
 
 class RunFailure(ProblemFailure):

@@ -68,12 +68,19 @@ export type InstrumentState =
   GetResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state">;
 export type InstrumentStateValue = components["schemas"]["StateValue"];
 export type InstrumentView = GetResponse<"/api/v1/instruments/{instrument_id}">;
-export type AnalysisFigure = components["schemas"]["AnalysisFigure"];
+export type AnalysisFigureView = components["schemas"]["AnalysisFigureView"];
+export type AnalysisArtifactReference = components["schemas"]["AnalysisArtifactReference"];
+export type AnalysisDatasetReference = components["schemas"]["AnalysisDatasetReference"];
+export type AnalysisDatasetDerivation = components["schemas"]["AnalysisDatasetDerivation"];
+export type AnalysisExecution = components["schemas"]["AnalysisExecution-Output"];
+export type AnalysisExecutionOutputReference =
+  components["schemas"]["AnalysisExecutionOutputReference"];
+export type AnalysisFact = components["schemas"]["AnalysisFact-Output"];
 export type AnalysisRecordInput = components["schemas"]["AnalysisRecordInput"];
 export type AnalysisRecordOutput = components["schemas"]["AnalysisRecordOutput"];
 export type AnalysisParameterProposalReference =
   components["schemas"]["AnalysisParameterProposalReference"];
-export type AnalysisTable = components["schemas"]["AnalysisTable"];
+export type AnalysisTableView = components["schemas"]["AnalysisTableView"];
 export type MeasurementDatasetSchema = components["schemas"]["MeasurementDatasetSchema-Output"];
 export type MeasurementRecord = components["schemas"]["MeasurementRecord-Output"];
 export type MeasurementSlice = components["schemas"]["MeasurementSlice"];

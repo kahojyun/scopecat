@@ -349,14 +349,14 @@ def test_one_provider_result_fans_out_to_every_use_of_the_product() -> None:
         result_id="raw-signal",
     )
     direct_use = ProductUse(product_id=product.id, id=ProductUseId("direct"))
-    postprocessor_use = ProductUse(
+    compute_use = ProductUse(
         product_id=product.id,
-        id=ProductUseId("postprocessor"),
+        id=ProductUseId("compute"),
     )
     program = _program(
         products=(product,),
         acquisitions=(acquisition,),
-        uses=(direct_use, postprocessor_use),
+        uses=(direct_use, compute_use),
         records=(RecordUse(id="direct", product_use_id=direct_use.id),),
     )
 
@@ -368,7 +368,7 @@ def test_one_provider_result_fans_out_to_every_use_of_the_product() -> None:
     assert [request.id for request in operation.command.requests] == ["raw-signal"]
     assert operation.result_bindings[0].product_use_ids == (
         direct_use.id,
-        postprocessor_use.id,
+        compute_use.id,
     )
 
 

@@ -1,8 +1,14 @@
 import type {
-  AnalysisFigure,
+  AnalysisArtifactReference,
+  AnalysisDatasetDerivation,
+  AnalysisDatasetReference,
+  AnalysisExecution,
+  AnalysisExecutionOutputReference,
+  AnalysisFact,
+  AnalysisFigureView,
   AnalysisParameterProposalReference,
   AnalysisRecordInput,
-  AnalysisTable,
+  AnalysisTableView,
   MeasurementDatasetSchema,
   MeasurementRecord,
 } from "./api-contract";
@@ -37,12 +43,6 @@ export interface RunPlanSummary {
   recordIds: string[];
 }
 
-export interface RunStageLineage {
-  sequenceId: string;
-  index: number;
-  previousRunId?: string;
-}
-
 export interface ProjectRun {
   sequence?: number;
   runId: string;
@@ -59,7 +59,6 @@ export interface ProjectRun {
   result?: string;
   certainty?: string;
   progressCompleted?: number;
-  stage?: RunStageLineage;
   plan: RunPlanSummary;
   resources: RunResource[];
   contents: ContentEntry[];
@@ -89,7 +88,7 @@ export interface ProjectHealth {
 export interface MeasurementPreview {
   items: MeasurementRecord[];
   schema?: MeasurementDatasetSchema;
-  nextOffset?: number;
+  truncated?: boolean;
 }
 
 export interface MeasurementSlicePreview {
@@ -100,14 +99,20 @@ export interface MeasurementSlicePreview {
 }
 
 interface RunAnalysisOutputBase {
+  id: string;
   title: string;
+  producedBy?: AnalysisExecutionOutputReference;
+  derivedFrom?: AnalysisDatasetDerivation;
   metadata: Record<string, unknown>;
 }
 
 export type RunAnalysisOutput = RunAnalysisOutputBase &
   (
-    | { kind: "table"; content: AnalysisTable }
-    | { kind: "figure"; content: AnalysisFigure }
+    | { kind: "fact"; content: AnalysisFact }
+    | { kind: "dataset"; content: AnalysisDatasetReference }
+    | { kind: "artifact"; content: AnalysisArtifactReference }
+    | { kind: "table"; content: AnalysisTableView }
+    | { kind: "figure"; content: AnalysisFigureView }
     | { kind: "parameter_change_proposal"; content: AnalysisParameterProposalReference }
   );
 
@@ -117,6 +122,7 @@ export interface RunAnalysis {
   key?: string;
   stepId?: string;
   inputs: AnalysisRecordInput[];
+  executions: AnalysisExecution[];
   outputs: RunAnalysisOutput[];
 }
 

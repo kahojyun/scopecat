@@ -24,8 +24,8 @@ from scopecat.compiler.frontend.logical_lowering import (
     validate_entity_inputs,
 )
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
-from scopecat.compiler.frontend.measurement_postprocessor_lowering import (
-    lower_measurement_postprocessor_graph,
+from scopecat.compiler.frontend.measurement_compute_lowering import (
+    lower_measurement_compute_graph,
 )
 from scopecat.compiler.frontend.parameter_contract_validation import (
     validate_parameter_contracts,
@@ -154,13 +154,13 @@ def _lower_logical_program(
         input_row=input_row,
     )
     record_product_uses = products.product_uses
-    measurement_postprocessors = lower_measurement_postprocessor_graph(
+    measurement_computes = lower_measurement_compute_graph(
         verified,
         record_product_uses,
     )
     product_uses = (
         *record_product_uses,
-        *measurement_postprocessors.input_product_uses,
+        *measurement_computes.input_product_uses,
     )
     uses_by_product = {
         product_id: tuple(
@@ -198,7 +198,7 @@ def _lower_logical_program(
             for execution in logical.domain_executions
             for result_id, product_id in execution.results
         },
-        measurement_postprocessors=measurement_postprocessors.postprocessors,
+        measurement_computes=measurement_computes.computes,
         parameter_overlays=tuple(
             lower_parameter_overlay_intent(
                 parameter_catalog,

@@ -10,7 +10,6 @@ from pathlib import Path
 
 import httpx2
 import pytest
-from scopecat.config.documents import parse_config_snapshot_document
 from scopecat.config.resolution import validate_config_profile
 from scopecat.daemon.endpoint import (
     DAEMON_URL_ENV,
@@ -277,49 +276,6 @@ def test_cli_daemon_first_use_loop_uses_dynamic_port_and_cleans_record(
         assert first_run.returncode == 0, first_run.stderr
         assert "'status': 'completed'" in first_run.stdout
 
-        in_sync = _run_cli("config", "diff", str(tmp_path), cwd=tmp_path)
-        assert in_sync.returncode == 0, in_sync.stderr
-        assert "in sync" in in_sync.stdout
-
-        configuration = tmp_path / "src/scopecat_lab/configuration.py"
-        configuration.write_text(
-            configuration.read_text(encoding="utf-8").replace(
-                "DEFAULT_REPETITIONS = 128",
-                "DEFAULT_REPETITIONS = 256",
-            ),
-            encoding="utf-8",
-        )
-        different = _run_cli("config", "diff", str(tmp_path), cwd=tmp_path)
-        assert different.returncode == 0, different.stderr
-        assert "different" in different.stdout
-        assert '"value": 128' in different.stdout
-        assert '"value": 256' in different.stdout
-
-        applied = _run_cli("config", "apply", str(tmp_path), cwd=tmp_path)
-        assert applied.returncode == 0, applied.stderr
-        assert "applied" in applied.stdout
-        reconciled = _run_cli("config", "diff", str(tmp_path), cwd=tmp_path)
-        assert reconciled.returncode == 0, reconciled.stderr
-        assert "in sync" in reconciled.stdout
-
-        exported_path = tmp_path / "active-config.json"
-        exported = _run_cli(
-            "config",
-            "export",
-            str(tmp_path),
-            "--output",
-            str(exported_path),
-            cwd=tmp_path,
-        )
-        assert exported.returncode == 0, exported.stderr
-        assert "exported" in exported.stdout
-        exported_config = parse_config_snapshot_document(
-            exported_path.read_text(encoding="utf-8")
-        )
-        assert exported_config.parameter_snapshot.get(
-            "repetitions"
-        ) == ScalarParameterValue(id="repetitions", value=256)
-
         status = runner.invoke(app, ["status", str(tmp_path)])
         assert status.exit_code == 0, status.output
         assert "running" in status.output
@@ -384,17 +340,6 @@ def test_cli_start_explains_missing_source_gui_bundle(
     assert "--static-dir" in output
     assert "--api-only" in output
     assert read_daemon_endpoint_record(tmp_path) is None
-
-
-def _run_cli(*arguments: str, cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603
-        [sys.executable, "-m", "scopecat_server.cli", *arguments],
-        cwd=cwd,
-        check=False,
-        capture_output=True,
-        text=True,
-        env=_project_subprocess_environment(),
-    )
 
 
 def _project_subprocess_environment() -> dict[str, str]:

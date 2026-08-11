@@ -1,24 +1,25 @@
+# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false
 from __future__ import annotations
 
+import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event
+from typing import cast
 
 import httpx2
+import pyarrow as pa
 import pytest
 from pydantic import BaseModel
 
 import scopecat.api._runner as runner_module
 from scopecat.api._runner import _DaemonRunner
-from scopecat.api.lab import (
-    ExperimentStage,
-    LabClient,
-    PreparedLabExperiment,
-    StagedExperiment,
-)
+from scopecat.api.analysis import AnalysisContext
+from scopecat.api.lab import LabClient
 from scopecat.api.run import RunHandle
 from scopecat.config.drafts import ConfigDraft
 from scopecat.config.inventory import InstrumentInventoryRekey
@@ -40,15 +41,10 @@ from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigDraftPreview,
     ConfigRegistryView,
-    MeasurementPage,
     RunAdmissionView,
-    RunConfigView,
     RunControlView,
     RunDetail,
     RunPlanView,
-    RunRequestView,
-    RunSummary,
-    RunSummaryPage,
 )
 from scopecat.daemon.wire import (
     ConfigActivationReceipt,
@@ -72,6 +68,7 @@ from scopecat.execution.services import ExecutionSession
 from scopecat.kernel.errors import RunCancelled
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.measurements.results import MeasurementDataset
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.service import PlannedRun
@@ -83,12 +80,9 @@ from scopecat.records.config import (
     instrument_bindings,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.run import (
-    ConfigRegistryRunConfigSource,
-    RunManifest,
-    RunStageLineage,
-)
-from scopecat.records.run_request import RunRequest
+from scopecat.records.measurement import MeasurementScalar
+from scopecat.records.run import ConfigRegistryRunConfigSource, RunManifest
+from scopecat.runs.data import RunMeasurementDatasetResult
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments import InstrumentProviderContext
 from tests.testkit.measurement_models import signal_point_schema, signal_record
@@ -102,7 +96,7 @@ from tests.testkit.workflow_fixtures import (
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
 
-def test_remote_run_measurement_batches_use_typed_page_endpoint() -> None:
+def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> None:
     schema = signal_point_schema(size=3)
     dataset_entry = RunContentEntry(
         role="dataset",
@@ -144,39 +138,82 @@ def test_remote_run_measurement_batches_use_typed_page_endpoint() -> None:
         requests.append(request)
         if request.url.path == "/api/v1/runs/run-batches":
             return _model(detail)
-        if request.url.path == "/api/v1/runs/run-batches/measurements":
-            offset = int(request.url.params["offset"])
-            limit = int(request.url.params["limit"])
-            items = records[offset : offset + limit]
-            next_offset = offset + len(items)
+        if request.url.path == ("/api/v1/runs/run-batches/datasets/raw-measurements"):
             return _model(
-                MeasurementPage(
-                    items=items,
-                    next_offset=next_offset if next_offset < len(records) else None,
-                    dataset_schema=schema,
+                RunMeasurementDatasetResult(
+                    dataset_entry=dataset_entry,
+                    dataset=MeasurementDataset(
+                        dataset_schema=schema,
+                        records=records,
+                        metadata=dataset_entry.metadata,
+                    ),
                 )
+            )
+        if request.url.path == "/api/v1/runs/run-batches/measurements/arrow":
+            query = json.loads(request.content)
+            offset = query["offset"]
+            items = records[offset : offset + query["limit"]]
+            table = pa.table(
+                {
+                    "point_index": [record.point_index for record in items],
+                    "logical_point_id": [record.logical_point_id for record in items],
+                    "signal": [
+                        cast("MeasurementScalar", record.observables["signal"]).value
+                        for record in items
+                    ],
+                    "signal__unavailable_reason": [None] * len(items),
+                }
+            )
+            sink = pa.BufferOutputStream()
+            with pa.ipc.new_stream(sink, table.schema) as writer:
+                writer.write_table(table)
+            next_offset = offset + len(items)
+            return httpx2.Response(
+                200,
+                content=sink.getvalue().to_pybytes(),
+                headers={
+                    "X-Scopecat-Snapshot-Size": str(len(records)),
+                    **(
+                        {"X-Scopecat-Next-Offset": str(next_offset)}
+                        if next_offset < len(records)
+                        else {}
+                    ),
+                },
             )
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     lab = LabClient(_client(handler))
     run = RunHandle(session=lab, id=manifest.run_id)
 
-    batches = list(run.measurement_batches(batch_size=2))
-
-    assert [[record.point_index for record in batch.records] for batch in batches] == [
-        [0, 1],
-        [2],
-    ]
-    assert [batch.dims["point"] for batch in batches] == [2, 1]
+    reader = cast(
+        "Iterator[object]",
+        AnalysisContext(run=run)
+        .measurements()
+        .project({"signal": "signal"}, diagnostics="reason")
+        .to_record_batch_reader(batch_size=2),
+    )
     assert [request.url.path for request in requests] == [
         "/api/v1/runs/run-batches",
-        "/api/v1/runs/run-batches/measurements",
-        "/api/v1/runs/run-batches/measurements",
+        "/api/v1/runs/run-batches/measurements/arrow",
     ]
-    assert [dict(request.url.params) for request in requests[1:]] == [
-        {"limit": "2", "offset": "0"},
-        {"limit": "2", "offset": "2"},
+
+    assert len(list(reader)) == 2
+    assert [request.url.path for request in requests] == [
+        "/api/v1/runs/run-batches",
+        "/api/v1/runs/run-batches/measurements/arrow",
+        "/api/v1/runs/run-batches/measurements/arrow",
     ]
+    queries = [
+        json.loads(request.content)
+        for request in requests
+        if request.url.path.endswith("/measurements/arrow")
+    ]
+    assert [query["offset"] for query in queries] == [0, 2]
+    assert [query["snapshot_size"] for query in queries] == [None, 3]
+    assert all(
+        query["columns"] == [{"name": "signal", "variable_id": "signal"}]
+        for query in queries
+    )
 
 
 def test_lab_preview_and_run_are_direct_prepare_shortcuts(
@@ -233,507 +270,6 @@ def test_lab_preview_and_run_are_direct_prepare_shortcuts(
                 "operator": None,
             },
         ),
-    ]
-
-
-def test_lab_staged_run_uses_one_config_and_records_durable_lineage(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config = load_config()
-    source = ConfigRegistryRunConfigSource(
-        selector="active",
-        entry_id="baseline",
-        config_ref="config-registry/entries/baseline/config.json",
-        content_hash=config_content_hash(config),
-        registry_generation=1,
-    )
-    invocations = [load_invocation() for _ in range(3)]
-    lab = object.__new__(LabClient)
-    prepared = PreparedLabExperiment(
-        lab=lab,
-        invocation=invocations[0],
-        config=config,
-        config_source=source,
-    )
-    prepare_calls: list[tuple[object, object]] = []
-    execute_calls: list[tuple[object, dict[str, object]]] = []
-
-    def prepare(
-        _lab: LabClient,
-        experiment: object,
-        *,
-        config: object = None,
-    ) -> PreparedLabExperiment:
-        prepare_calls.append((experiment, config))
-        return prepared
-
-    def execute_invocation(
-        _lab: LabClient,
-        invocation: object,
-        **kwargs: object,
-    ) -> RunHandle:
-        execute_calls.append((invocation, kwargs))
-        return RunHandle(session=lab, id=f"run-{len(execute_calls)}")
-
-    def staged_manifests(
-        _lab: LabClient,
-        *,
-        sequence_id: str | None = None,
-    ) -> tuple[RunManifest, ...]:
-        del _lab, sequence_id
-        return ()
-
-    monkeypatch.setattr(LabClient, "prepare", prepare)
-    monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
-    monkeypatch.setattr(LabClient, "_staged_manifests", staged_manifests)
-    stages: list[ExperimentStage] = []
-
-    def choose_next(stage: ExperimentStage):
-        stages.append(stage)
-        return None if stage.index == 2 else invocations[stage.index + 1]
-
-    result = lab.run_staged(
-        invocations[0],
-        next_stage=choose_next,
-        max_stages=5,
-        sequence_id="adaptive-sequence",
-        config="active",
-        metadata={"campaign": "notebook-demo"},
-    )
-
-    assert prepare_calls == [(invocations[0], "active")]
-    assert [invocation for invocation, _kwargs in execute_calls] == invocations
-    assert all(kwargs["config"] is config for _invocation, kwargs in execute_calls)
-    assert all(
-        kwargs["config_source"] == source for _invocation, kwargs in execute_calls
-    )
-    assert [run.id for run in result.runs] == ["run-1", "run-2", "run-3"]
-    assert not result.stopped_by_limit
-    assert result.latest is result.runs[-1]
-    assert stages[0].previous_run is None
-    assert stages[1].previous_run is result.runs[0]
-    assert stages[2].history == result.runs
-    assert [kwargs["metadata"] for _invocation, kwargs in execute_calls] == [
-        {"campaign": "notebook-demo"},
-    ] * 3
-    assert [kwargs["stage"] for _invocation, kwargs in execute_calls] == [
-        RunStageLineage(
-            sequence_id="adaptive-sequence",
-            index=index,
-            previous_run_id=None if index == 0 else f"run-{index}",
-        )
-        for index in range(3)
-    ]
-    assert [kwargs["submission_id"] for _invocation, kwargs in execute_calls] == [
-        f"staged:adaptive-sequence:{index}" for index in range(3)
-    ]
-
-    limited = lab.run_staged(
-        invocations[0],
-        next_stage=lambda _stage: invocations[0],
-        max_stages=2,
-    )
-
-    assert len(limited.stages) == 2
-    assert limited.stopped_by_limit
-    with pytest.raises(ValueError, match="sequence_id must be non-empty"):
-        lab.run_staged(
-            invocations[0],
-            next_stage=lambda _stage: None,
-            sequence_id="",
-        )
-
-
-def test_lab_rediscovers_staged_experiments_across_run_pages() -> None:
-    config_hash = config_content_hash(load_config())
-    new_first = RunManifest(
-        run_id="run-new-0",
-        config_content_hash=config_hash,
-        stage=RunStageLineage(sequence_id="new-sequence", index=0),
-    )
-    new_latest = RunManifest(
-        run_id="run-new-1",
-        config_content_hash=config_hash,
-        stage=RunStageLineage(
-            sequence_id="new-sequence",
-            index=1,
-            previous_run_id=new_first.run_id,
-        ),
-    )
-    old_first = RunManifest(
-        run_id="run-old-0",
-        config_content_hash=config_hash,
-        stage=RunStageLineage(sequence_id="old-sequence", index=0),
-    )
-    old_latest = RunManifest(
-        run_id="run-old-1",
-        config_content_hash=config_hash,
-        stage=RunStageLineage(
-            sequence_id="old-sequence",
-            index=1,
-            previous_run_id=old_first.run_id,
-        ),
-    )
-    requests: list[httpx2.Request] = []
-
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        requests.append(request)
-        assert request.url.path == "/api/v1/run-stages"
-        before = request.url.params.get("before")
-        if before is None:
-            return _model(
-                RunSummaryPage(
-                    items=(_run_summary(new_latest, sequence=5),),
-                    next_cursor=4,
-                )
-            )
-        assert before == "4"
-        return _model(
-            RunSummaryPage(
-                items=(
-                    _run_summary(old_latest, sequence=3),
-                    _run_summary(new_first, sequence=2),
-                    _run_summary(old_first, sequence=1),
-                )
-            )
-        )
-
-    lab = LabClient(_client(handler))
-
-    experiments = lab.staged_experiments()
-
-    assert [item.sequence_id for item in experiments] == [
-        "new-sequence",
-        "old-sequence",
-    ]
-    assert [[run.id for run in item.runs] for item in experiments] == [
-        ["run-new-0", "run-new-1"],
-        ["run-old-0", "run-old-1"],
-    ]
-    assert experiments[0].stages[1].previous_run is experiments[0].runs[0]
-    assert [dict(request.url.params) for request in requests] == [
-        {"limit": "500"},
-        {"limit": "500", "before": "4"},
-    ]
-
-
-def test_lab_rejects_starting_an_existing_staged_sequence() -> None:
-    config_hash = config_content_hash(load_config())
-    existing = RunManifest(
-        run_id="run-existing-0",
-        config_content_hash=config_hash,
-        stage=RunStageLineage(sequence_id="existing-sequence", index=0),
-    )
-
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        assert request.url.path == "/api/v1/run-stages"
-        assert dict(request.url.params) == {
-            "limit": "500",
-            "sequence_id": "existing-sequence",
-        }
-        return _model(RunSummaryPage(items=(_run_summary(existing, sequence=1),)))
-
-    lab = LabClient(_client(handler))
-
-    with pytest.raises(ValueError, match="use resume_staged"):
-        lab.run_staged(
-            load_invocation(),
-            next_stage=lambda _stage: None,
-            sequence_id="existing-sequence",
-        )
-
-
-def test_lab_get_staged_experiment_rejects_missing_and_broken_sequences() -> None:
-    config_hash = config_content_hash(load_config())
-    first = RunManifest(
-        run_id="run-broken-0",
-        config_content_hash=config_hash,
-        stage=RunStageLineage(sequence_id="broken", index=0),
-    )
-    broken = RunManifest(
-        run_id="run-broken-1",
-        config_content_hash=config_hash,
-        stage=RunStageLineage(
-            sequence_id="broken",
-            index=1,
-            previous_run_id="run-wrong",
-        ),
-    )
-    page = RunSummaryPage(
-        items=(_run_summary(broken, sequence=2), _run_summary(first, sequence=1))
-    )
-
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        assert request.url.path == "/api/v1/run-stages"
-        assert request.url.params["sequence_id"] == "broken"
-        return _model(page)
-
-    lab = LabClient(_client(handler))
-
-    with pytest.raises(ValueError, match="broken predecessor"):
-        lab.get_staged_experiment("broken")
-
-    empty = LabClient(_client(lambda _request: _model(RunSummaryPage())))
-    assert empty.staged_experiments() == ()
-    with pytest.raises(KeyError, match="not found"):
-        empty.get_staged_experiment("missing")
-
-
-def test_lab_resumes_latest_stage_with_durable_context(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config = load_config()
-    source = ConfigRegistryRunConfigSource(
-        selector="active",
-        entry_id="baseline",
-        config_ref="config-registry/entries/baseline/config.json",
-        content_hash=config_content_hash(config),
-        registry_generation=1,
-    )
-    first = _terminal_manifest(
-        RunManifest(
-            run_id="run-resume-0",
-            config_content_hash=source.content_hash,
-            config_source=source,
-            stage=RunStageLineage(sequence_id="resume-sequence", index=0),
-        )
-    )
-    latest = _terminal_manifest(
-        RunManifest(
-            run_id="run-resume-1",
-            config_content_hash=source.content_hash,
-            config_source=source,
-            stage=RunStageLineage(
-                sequence_id="resume-sequence",
-                index=1,
-                previous_run_id=first.run_id,
-            ),
-        )
-    )
-    latest_request = RunRequest(
-        experiment_id="test.workflow_scan",
-        operator="alice",
-        metadata={"campaign": "persisted"},
-        stage=latest.stage,
-    )
-
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        path = request.url.path
-        if path == "/api/v1/run-stages":
-            assert request.url.params["sequence_id"] == "resume-sequence"
-            return _model(
-                RunSummaryPage(
-                    items=(
-                        _run_summary(latest, sequence=2),
-                        _run_summary(first, sequence=1),
-                    )
-                )
-            )
-        if path == f"/api/v1/runs/{latest.run_id}":
-            summary = _run_summary(latest, sequence=2)
-            return _model(RunDetail(control=summary.control, manifest=summary.manifest))
-        if path == f"/api/v1/runs/{latest.run_id}/config":
-            return _model(
-                RunConfigView(
-                    run_id=latest.run_id,
-                    config_content_hash=source.content_hash,
-                    config=config,
-                )
-            )
-        if path == f"/api/v1/runs/{latest.run_id}/request":
-            return _model(RunRequestView(run_id=latest.run_id, request=latest_request))
-        raise AssertionError(f"unexpected request: {request.method} {path}")
-
-    lab = LabClient(_client(handler))
-    invocations = [load_invocation(), load_invocation()]
-    execute_calls: list[tuple[object, dict[str, object]]] = []
-
-    def execute_invocation(
-        _lab: LabClient,
-        invocation: object,
-        **kwargs: object,
-    ) -> RunHandle:
-        execute_calls.append((invocation, kwargs))
-        return RunHandle(session=lab, id=f"run-resume-{len(execute_calls) + 1}")
-
-    monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
-    callback_stages: list[ExperimentStage] = []
-
-    def choose_next(stage: ExperimentStage):
-        callback_stages.append(stage)
-        return None if stage.index == 3 else invocations[stage.index - 1]
-
-    resumed = lab.resume_staged(
-        "resume-sequence",
-        next_stage=choose_next,
-        max_stages=4,
-    )
-
-    assert [stage.index for stage in callback_stages] == [1, 2, 3]
-    assert [run.id for run in resumed.runs] == [
-        "run-resume-0",
-        "run-resume-1",
-        "run-resume-2",
-        "run-resume-3",
-    ]
-    assert not resumed.stopped_by_limit
-    assert [kwargs["stage"] for _invocation, kwargs in execute_calls] == [
-        RunStageLineage(
-            sequence_id="resume-sequence",
-            index=2,
-            previous_run_id="run-resume-1",
-        ),
-        RunStageLineage(
-            sequence_id="resume-sequence",
-            index=3,
-            previous_run_id="run-resume-2",
-        ),
-    ]
-    assert all(kwargs["config"] == config for _invocation, kwargs in execute_calls)
-    assert all(kwargs["config_source"] == source for _, kwargs in execute_calls)
-    assert all(
-        kwargs["metadata"] == {"campaign": "persisted"} for _, kwargs in execute_calls
-    )
-    assert all(kwargs["operator"] == "alice" for _, kwargs in execute_calls)
-
-
-def test_staged_limit_defers_latest_callback_until_resume(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config = load_config()
-    source = ConfigRegistryRunConfigSource(
-        selector="active",
-        entry_id="baseline",
-        config_ref="config-registry/entries/baseline/config.json",
-        content_hash=config_content_hash(config),
-        registry_generation=1,
-    )
-    first = _terminal_manifest(
-        RunManifest(
-            run_id="run-limit-0",
-            config_content_hash=source.content_hash,
-            config_source=source,
-            stage=RunStageLineage(sequence_id="limit-sequence", index=0),
-        )
-    )
-    latest = _terminal_manifest(
-        RunManifest(
-            run_id="run-limit-1",
-            config_content_hash=source.content_hash,
-            config_source=source,
-            stage=RunStageLineage(
-                sequence_id="limit-sequence",
-                index=1,
-                previous_run_id=first.run_id,
-            ),
-        )
-    )
-    latest_request = RunRequest(
-        operator="alice",
-        metadata={"campaign": "limited"},
-        stage=latest.stage,
-    )
-
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        path = request.url.path
-        if path == "/api/v1/run-stages":
-            assert request.url.params["sequence_id"] == "limit-sequence"
-            return _model(RunSummaryPage())
-        if path == f"/api/v1/runs/{latest.run_id}":
-            summary = _run_summary(latest, sequence=2)
-            return _model(RunDetail(control=summary.control, manifest=summary.manifest))
-        if path == f"/api/v1/runs/{latest.run_id}/config":
-            return _model(
-                RunConfigView(
-                    run_id=latest.run_id,
-                    config_content_hash=source.content_hash,
-                    config=config,
-                )
-            )
-        if path == f"/api/v1/runs/{latest.run_id}/request":
-            return _model(RunRequestView(run_id=latest.run_id, request=latest_request))
-        raise AssertionError(f"unexpected request: {request.method} {path}")
-
-    lab = LabClient(_client(handler))
-    invocation = load_invocation()
-    prepared = PreparedLabExperiment(
-        lab=lab,
-        invocation=invocation,
-        config=config,
-        config_source=source,
-    )
-    execute_calls: list[dict[str, object]] = []
-
-    def prepare(
-        _lab: LabClient,
-        _experiment: object,
-        *,
-        config: object = None,
-    ) -> PreparedLabExperiment:
-        del config
-        return prepared
-
-    monkeypatch.setattr(LabClient, "prepare", prepare)
-
-    def execute_invocation(
-        _lab: LabClient,
-        _invocation: object,
-        **kwargs: object,
-    ) -> RunHandle:
-        execute_calls.append(kwargs)
-        return RunHandle(session=lab, id=f"run-limit-{len(execute_calls) - 1}")
-
-    monkeypatch.setattr(LabClient, "execute_invocation", execute_invocation)
-    callback_indices: list[int] = []
-
-    def choose_next(stage: ExperimentStage):
-        callback_indices.append(stage.index)
-        return invocation
-
-    limited = lab.run_staged(
-        invocation,
-        next_stage=choose_next,
-        max_stages=2,
-        sequence_id="limit-sequence",
-    )
-
-    assert callback_indices == [0]
-    assert [stage.index for stage in limited.stages] == [0, 1]
-    assert limited.stopped_by_limit
-
-    def get_staged_experiment(
-        _lab: LabClient,
-        _sequence_id: str,
-    ) -> StagedExperiment:
-        return limited
-
-    monkeypatch.setattr(LabClient, "get_staged_experiment", get_staged_experiment)
-    resumed = lab.resume_staged(
-        "limit-sequence",
-        next_stage=choose_next,
-        max_stages=1,
-    )
-
-    assert callback_indices == [0, 1]
-    assert [stage.index for stage in resumed.stages] == [0, 1, 2]
-    assert resumed.stopped_by_limit
-    assert [call["stage"] for call in execute_calls] == [
-        RunStageLineage(sequence_id="limit-sequence", index=0),
-        RunStageLineage(
-            sequence_id="limit-sequence",
-            index=1,
-            previous_run_id="run-limit-0",
-        ),
-        RunStageLineage(
-            sequence_id="limit-sequence",
-            index=2,
-            previous_run_id="run-limit-1",
-        ),
-    ]
-    assert [call["submission_id"] for call in execute_calls] == [
-        "staged:limit-sequence:0",
-        "staged:limit-sequence:1",
-        "staged:limit-sequence:2",
     ]
 
 
@@ -1193,7 +729,6 @@ def test_run_invocation_plans_against_explicit_snapshot_without_local_storage(
     catalog = _instrument_catalog(config)
     system = ExperimentSystem(instrument_catalog=catalog)
     captured: dict[str, object] = {}
-    stage = RunStageLineage(sequence_id="scratch-sequence", index=0)
 
     def execute_run(
         self: _DaemonRunner,
@@ -1235,7 +770,6 @@ def test_run_invocation_plans_against_explicit_snapshot_without_local_storage(
         description="fit one trace",
         metadata={"sample": "q0"},
         operator="alice",
-        stage=stage,
         executor_id="notebook-1",
         submission_id="scratch-submission",
     )
@@ -1244,7 +778,6 @@ def test_run_invocation_plans_against_explicit_snapshot_without_local_storage(
     assert isinstance(planned, PlannedRun)
     assert planned.config == config
     assert planned.request.operator == "alice"
-    assert planned.request.stage == stage
     assert planned.request.display_name == "scratch fit"
     assert planned.request.tags == ("calibration", "demo")
     assert planned.request.description == "fit one trace"
@@ -1397,26 +930,6 @@ def test_preview_invocation_uses_active_config_without_admission() -> None:
         "/api/v1/config-registry/active",
         "/api/v1/instrument-contracts/resolve",
     ]
-
-
-def _run_summary(manifest: RunManifest, *, sequence: int) -> RunSummary:
-    return RunSummary(
-        control=RunControlView(
-            sequence=sequence,
-            admission=RunAdmissionView(
-                run_id=manifest.run_id,
-                plan=RunPlanView(
-                    experiment_id="staged-test",
-                    experiment_kind="test",
-                    point_count=1,
-                ),
-                admitted_at=manifest.created_at,
-            ),
-            state="closed",
-            updated_at=manifest.created_at,
-        ),
-        manifest=manifest,
-    )
 
 
 def _planned(tmp_path: Path) -> PlannedRun:

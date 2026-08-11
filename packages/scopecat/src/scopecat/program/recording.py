@@ -8,11 +8,26 @@ from dataclasses import dataclass, field
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.json_types import JsonValue
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import DataType
 from scopecat.program.input_capture import empty_program_mapping
 from scopecat.program.measurement_types import MeasurementVariableRole
 from scopecat.program.products import RecordSelection
 from scopecat.program.value_refs import ValueRef
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentResultField:
+    """One returned data leaf mapped to its durable dataset variable."""
+
+    path: tuple[str, ...]
+    variable_id: str
+
+    def __post_init__(self) -> None:
+        if not self.path or any(not segment for segment in self.path):
+            raise ValueError("experiment result paths must contain non-empty segments")
+        if not self.variable_id:
+            raise ValueError("experiment result variable id must be non-empty")
+        object.__setattr__(self, "path", tuple(self.path))
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +58,7 @@ class LogicalValueRecordSelection:
     id: str
     value_id: ValueId
     source_value_id: str
-    value_type: Scalar
+    value_type: DataType
     role: MeasurementVariableRole = "observable"
     metadata: Mapping[str, JsonValue] = field(default_factory=empty_program_mapping)
 
@@ -60,6 +75,7 @@ type LogicalRecordSelection = RecordSelection | LogicalValueRecordSelection
 
 
 __all__ = [
+    "ExperimentResultField",
     "LogicalRecordSelection",
     "LogicalValueRecordSelection",
     "ProgramRecordSelection",

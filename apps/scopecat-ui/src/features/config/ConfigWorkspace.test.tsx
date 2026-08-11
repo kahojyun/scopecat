@@ -186,6 +186,7 @@ describe("ConfigWorkspace", () => {
           baseConfigId: "baseline",
           baseContentHash: "sha256:baseline",
           reason: "Peak moved",
+          evidenceOutputIds: ["selected-fit"],
           confidence: 0.98,
           deltas: [],
           approval: {
@@ -201,6 +202,7 @@ describe("ConfigWorkspace", () => {
           baseConfigId: "baseline",
           baseContentHash: "sha256:baseline",
           reason: "Not part of this candidate",
+          evidenceOutputIds: [],
           confidence: 0.9,
           deltas: [],
         },
@@ -212,6 +214,7 @@ describe("ConfigWorkspace", () => {
         title: "Frequency fit",
         key: "fit",
         inputs: [],
+        executions: [],
         outputs: [],
       },
     ]);

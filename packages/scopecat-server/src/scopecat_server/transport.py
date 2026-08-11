@@ -1,3 +1,5 @@
+# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false
 """FastAPI boundary for a daemon application service."""
 
 from __future__ import annotations
@@ -7,6 +9,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path, PurePosixPath
 from typing import Annotated, cast, override
 
+import pyarrow as pa
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi import Path as ApiPath
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -25,7 +28,8 @@ from scopecat.daemon.views import (
     DaemonHealth,
     InstrumentListView,
     InstrumentView,
-    MeasurementPage,
+    MeasurementArrowQuery,
+    MeasurementPreview,
     MeasurementSlice,
     MeasurementSliceQuery,
     MeasurementTracePreview,
@@ -35,6 +39,7 @@ from scopecat.daemon.views import (
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
+    RunDatasetBytesView,
     RunDetail,
     RunRequestView,
     RunSummaryPage,
@@ -79,7 +84,6 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
-from scopecat.measurements.datasets import MAX_MEASUREMENT_PAGE_SIZE
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
@@ -119,6 +123,9 @@ from .payload_service import (
 )
 
 _API_PREFIX = "/api/v1"
+_ARROW_STREAM_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
+_NEXT_OFFSET_HEADER = "X-Scopecat-Next-Offset"
+_SNAPSHOT_SIZE_HEADER = "X-Scopecat-Snapshot-Size"
 _SSE_PAGE_SIZE = 100
 _SSE_POLL_SECONDS = 0.5
 DEFAULT_MAX_COMMAND_BODY_BYTES = 8 * 1024 * 1024
@@ -367,18 +374,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
             state=state,
         )
 
-    @app.get(f"{_API_PREFIX}/run-stages")
-    def list_run_stages(
-        limit: Annotated[int, Query(ge=1, le=500)] = 50,
-        before: Annotated[int | None, Query(ge=1)] = None,
-        sequence_id: Annotated[str | None, Query(min_length=1)] = None,
-    ) -> RunSummaryPage:
-        return application.runs.list_run_stages(
-            limit=limit,
-            before=before,
-            sequence_id=sequence_id,
-        )
-
     @app.post(f"{_API_PREFIX}/runs", status_code=201)
     def submit_run(submission: RunSubmission) -> RunAdmission:
         return application.submit_run(submission)
@@ -469,6 +464,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> RunMeasurementDatasetResult:
         return application.runs.get_run_dataset_content(run_id, selector)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/datasets/{{selector}}/bytes")
+    def get_run_dataset_bytes(
+        run_id: str,
+        selector: str,
+        expected_kind: str | None = None,
+    ) -> RunDatasetBytesView:
+        return application.runs.get_run_dataset_bytes(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/attachments", status_code=201)
     def attach_run_content(
         run_id: str,
@@ -486,19 +493,32 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> AttentionResolutionReceipt:
         return application.resolve_attention(run_id)
 
-    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/measurements")
-    def measurements(
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/arrow")
+    def measurement_arrow(
         run_id: str,
-        limit: Annotated[int, Query(ge=1, le=MAX_MEASUREMENT_PAGE_SIZE)] = 100,
-        offset: Annotated[int, Query(ge=0)] = 0,
-        include_schema: bool = True,
-    ) -> MeasurementPage:
-        return application.runs.measurements(
-            run_id,
-            limit=limit,
-            offset=offset,
-            include_schema=include_schema,
+        query: MeasurementArrowQuery,
+    ) -> Response:
+        table, next_offset, snapshot_size = application.runs.measurement_arrow(
+            run_id, query
         )
+        sink = pa.BufferOutputStream()
+        with pa.ipc.new_stream(sink, table.schema) as writer:
+            writer.write_table(table)
+        headers = {_SNAPSHOT_SIZE_HEADER: str(snapshot_size)}
+        if next_offset is not None:
+            headers[_NEXT_OFFSET_HEADER] = str(next_offset)
+        return Response(
+            content=sink.getvalue().to_pybytes(),
+            media_type=_ARROW_STREAM_MEDIA_TYPE,
+            headers=headers,
+        )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/measurements/preview")
+    def measurement_preview(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    ) -> MeasurementPreview:
+        return application.runs.measurement_preview(run_id, limit=limit)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/query")
     def query_measurements(

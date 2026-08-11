@@ -7,9 +7,22 @@ from scopecat.measurements.contracts import (
 )
 from scopecat.measurements.dataset import (
     Dataset,
+    ExperimentResultPoint,
+    ExperimentResultView,
     NativeAvailableValue,
     PointMask,
+    StoredExperimentResultPoint,
+    StoredExperimentResultView,
     Variable,
+)
+from scopecat.measurements.interop import (
+    MeasurementDataProjection,
+    PandasDTypeBackend,
+    ProjectionDiagnostics,
+    ProjectionField,
+    ProjectionLayout,
+    ProjectionSchema,
+    ProjectionSpec,
 )
 from scopecat.measurements.traces import Trace
 from scopecat.program.measurement_types import MeasurementDType, MeasurementVariableRole
@@ -26,6 +39,8 @@ from scopecat.records.measurement import (
     MeasurementPointDomainColumn,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
+    MeasurementResultContract,
+    MeasurementResultField,
     MeasurementScalar,
     MeasurementUnavailable,
     MeasurementUnavailableReason,
@@ -35,9 +50,12 @@ from scopecat.records.measurement import (
 
 __all__ = [
     "Dataset",
+    "ExperimentResultPoint",
+    "ExperimentResultView",
     "InstrumentAcquisitionEvidence",
     "MeasurementArray",
     "MeasurementDType",
+    "MeasurementDataProjection",
     "MeasurementDataset",
     "MeasurementDatasetSchema",
     "MeasurementDimension",
@@ -47,6 +65,8 @@ __all__ = [
     "MeasurementPointDomainColumn",
     "MeasurementProductGridPointDomain",
     "MeasurementRecord",
+    "MeasurementResultContract",
+    "MeasurementResultField",
     "MeasurementScalar",
     "MeasurementUnavailable",
     "MeasurementUnavailableReason",
@@ -54,8 +74,16 @@ __all__ = [
     "MeasurementVariable",
     "MeasurementVariableRole",
     "NativeAvailableValue",
+    "PandasDTypeBackend",
     "PointMask",
+    "ProjectionDiagnostics",
+    "ProjectionField",
+    "ProjectionLayout",
+    "ProjectionSchema",
+    "ProjectionSpec",
     "RecordRef",
+    "StoredExperimentResultPoint",
+    "StoredExperimentResultView",
     "Trace",
     "Variable",
     "validate_measurement_records_against_schema",

@@ -22,8 +22,8 @@ baseline_run = prepared.run(
 
 # %%
 analysis = baseline_run.analyze(drag_beta_analysis())
-saved_analysis = analysis.save()
 candidate = analysis.candidate_config()
+fit_report = baseline_run.published_analysis(analysis.id).artifact("fit-report")
 [proposal] = analysis.parameter_proposals
 
 # A candidate run records its analysis provenance without changing the default.
@@ -36,7 +36,7 @@ candidate_run = lab.run(
 
 # %%
 accepted = lab.config.accept(
-    candidate,
+    analysis,
     actor="nightly-calibration",
     note="accept the reviewed DRAG fit",
 )
@@ -58,8 +58,12 @@ production_source = production_run.manifest.config_source
 drag_beta_summary = {
     "status": baseline_run.manifest.status,
     "point_count": preview.point_count,
-    "analysis": saved_analysis.record.id,
+    "analysis": analysis.id,
     "proposal_id": proposal.id,
+    "output_kinds": [output.kind for output in analysis.outputs],
+    "execution_evidence": len(analysis.executions),
+    "fit_report": fit_report.entry.filename,
+    "proposal_evidence": proposal.evidence_output_ids,
     "candidate_run_uses_analysis": (
         candidate_source is not None
         and candidate_source.kind == "analysis_candidate"

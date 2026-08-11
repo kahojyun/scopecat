@@ -17,10 +17,15 @@ from scopecat.execution.local.program import (
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import unwrap_payload_values
 from scopecat.kernel.problems import Problem, model_location
-from scopecat.kernel.value_types import Payload, Scalar
+from scopecat.kernel.value_types import Array, Payload, Scalar
 from scopecat.kernel.value_validation import coerce_literal
 from scopecat.planning.local_values import evaluate_scalar_value
-from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
+from scopecat.program.expressions import (
+    ComputeResultArrayExpr,
+    ComputeResultScalarExpr,
+    LiteralArrayExpr,
+    ScalarExpr,
+)
 from scopecat.program.logical import LocalPythonImplementation, LogicalComputeNode
 from scopecat.program.value_graph import ComputeOutput, OperationId
 
@@ -47,11 +52,12 @@ def bind_compute_operations(
         input_types = dict(node.input_types)
         for name, value_id in node.inputs:
             input_spec = values[value_id]
-            if not isinstance(input_spec, ScalarExpr):
-                raise AssertionError("compute inputs must be scalar")
             expected_type = input_types[name]
             try:
-                if isinstance(input_spec, ComputeResultScalarExpr):
+                if isinstance(
+                    input_spec,
+                    ComputeResultScalarExpr | ComputeResultArrayExpr,
+                ):
                     if input_spec.value_id not in available_results:
                         msg = (
                             f"compute result "
@@ -62,7 +68,26 @@ def bind_compute_operations(
                         value_id=input_spec.value_id,
                         value_type=expected_type,
                     )
-                else:
+                elif isinstance(input_spec, LiteralArrayExpr) and isinstance(
+                    expected_type,
+                    Array,
+                ):
+                    inputs[name] = BoundInput(
+                        coerce_literal(
+                            expected_type,
+                            input_spec.value,
+                            path=(
+                                "compute",
+                                *node.id.scope,
+                                node.id.local_id,
+                                name,
+                            ),
+                        )
+                    )
+                elif isinstance(input_spec, ScalarExpr) and isinstance(
+                    expected_type,
+                    Scalar,
+                ):
                     value = unwrap_payload_values(
                         coerce_literal(
                             expected_type,
@@ -75,6 +100,8 @@ def bind_compute_operations(
                         )
                     )
                     inputs[name] = BoundInput(value)
+                else:
+                    raise AssertionError("compute input source does not match its type")
             except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                 failed = True
                 problems.append(
@@ -112,6 +139,7 @@ def bind_compute_operations(
                     id=node.result_id,
                     value_type=node.result_type,
                 ),
+                deterministic=implementation.deterministic,
                 payload_slot=(
                     PayloadSlot(id=payload_id, schema_id=schema_id)
                     if payload_id is not None and schema_id is not None

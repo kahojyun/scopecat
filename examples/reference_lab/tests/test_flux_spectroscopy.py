@@ -10,6 +10,11 @@ import pytest
 import scopecat as sc
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.program.bindings import EnsureStateIntent
+from scopecat.records.analysis import (
+    AnalysisDatasetRecordOutput,
+    AnalysisFactRecordOutput,
+    AnalysisPublishedOutputReference,
+)
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -41,9 +46,12 @@ from reference_lab.workflows.flux_spectroscopy import (
     flux_spectroscopy,
 )
 from reference_lab.workflows.flux_spectroscopy_analysis import (
+    FLUX_SPECTROSCOPY_FIT_REVIEW_SCHEMA,
+    RESONATOR_TRACE_FIT_SCHEMA,
     fit_flux_spectroscopy,
     fit_resonator_trace,
     flux_spectroscopy_analysis,
+    flux_spectroscopy_fit_review,
 )
 
 
@@ -56,6 +64,10 @@ class _FluxNotebookSummary(TypedDict):
     point_count: int
     measurement_records: int
     analysis_id: str
+    analysis_revision: int
+    fit_review_id: str
+    fit_review_accepted: bool
+    fit_report: str
     candidate_config_id: str
 
 
@@ -113,9 +125,9 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
 
     invocation = flux_spectroscopy()
     schema = assert_type(invocation.output, FluxSpectroscopyDataset)
-    frequency_record_id = schema.trace.frequency.id
-    s_parameter_record_id = schema.trace.s_parameter.id
-    temperature_record_id = schema.temperature.id
+    frequency_record_id = "trace/frequency"
+    s_parameter_record_id = "trace/s_parameter"
+    temperature_record_id = "temperature"
     definition = invocation.definition
     success_state = definition.success_state
     assert isinstance(success_state, EnsureStateIntent)
@@ -255,21 +267,70 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     )
 
     analysis = run.analyze(flux_spectroscopy_analysis())
-    saved = analysis.save()
     candidate = lab.resolve_config(config=analysis.candidate_config())
-    assert saved.record.id == "analysis-reference_lab-flux_spectroscopy-analysis"
+    assert analysis.id == "analysis-reference_lab-flux_spectroscopy-analysis"
     assert [output.kind for output in analysis.outputs] == [
-        "table",
+        "dataset",
+        "fact",
         "table",
         "figure",
+        "artifact",
         "parameter_change_proposal",
     ]
+    assert analysis.executions == ()
+    fit_output = analysis.output("fit-by-bias")
+    assert isinstance(fit_output, AnalysisDatasetRecordOutput)
+    assert fit_output.produced_by is None
+    assert fit_output.derived_from is None
+    fit_dataset = analysis.dataset("fit-by-bias")
+    assert [field.name for field in fit_dataset.schema.fields[:4]] == [
+        "dc_bias_v",
+        "temperature_mK",
+        "resonance_frequency_ghz",
+        "linewidth_mhz",
+    ]
+    selected_output = analysis.output("selected-sweet-spot")
+    assert isinstance(selected_output, AnalysisFactRecordOutput)
+    assert selected_output.produced_by is None
+    selected_fit = analysis.fact_as(
+        "selected-sweet-spot",
+        RESONATOR_TRACE_FIT_SCHEMA,
+    )
+    assert selected_fit.model_id == "reference_lab.complex_s21_notch.v1"
+    fit_table = analysis.table("fit-by-bias-table")
+    assert fit_table.source is not None
+    assert fit_table.source.output_id == "fit-by-bias"
+    [proposal] = analysis.parameter_proposals
+    assert proposal.evidence_output_ids == (
+        "selected-sweet-spot",
+        "fit-by-bias",
+    )
+    report = run.published_analysis(analysis.id).artifact("fit-report")
+    assert report.entry.filename == "flux-spectroscopy-fit.md"
+    assert report.text().startswith("# Resonator flux spectroscopy fit\n")
+    assert f"Fitted bias points: {BIAS_POINTS}" in report.text()
     fitted_frequency = _readout_quantity(candidate, RESONANCE_FREQUENCY.id)
     fitted_linewidth = _readout_quantity(candidate, RESONATOR_LINEWIDTH.id)
     assert float(fitted_frequency.to("GHz").value) == pytest.approx(5.06, abs=0.001)
     assert float(fitted_linewidth.to("MHz").value) == pytest.approx(1.0, rel=0.2)
     active_frequency = _readout_quantity(lab.resolve_config(), RESONANCE_FREQUENCY.id)
     assert float(active_frequency.to("GHz").value) == pytest.approx(5.0)
+
+    review = run.analyze(flux_spectroscopy_fit_review())
+    assert review.id == "analysis-reference_lab-flux_spectroscopy-fit-review"
+    quality = review.fact_as(
+        "quality-review",
+        FLUX_SPECTROSCOPY_FIT_REVIEW_SCHEMA,
+    )
+    assert quality.accepted
+    assert quality.worst_complex_rmse < 0.02
+    [review_input] = review.inputs
+    assert review_input.source == AnalysisPublishedOutputReference(
+        analysis_record_id=analysis.id,
+        output_id="fit-by-bias",
+    )
+    assert review_input.target == fit_output.content.dataset_id
+    assert review.executions == ()
 
 
 def test_direct_control_notebook_completes_through_the_project_daemon(
@@ -306,6 +367,12 @@ def test_flux_spectroscopy_notebook_completes_through_the_project_daemon(
     assert summary["analysis_id"] == (
         "analysis-reference_lab-flux_spectroscopy-analysis"
     )
+    assert summary["analysis_revision"] == 1
+    assert summary["fit_review_id"] == (
+        "analysis-reference_lab-flux_spectroscopy-fit-review"
+    )
+    assert summary["fit_review_accepted"]
+    assert summary["fit_report"] == "flux-spectroscopy-fit.md"
     assert summary["candidate_config_id"] == "candidate-readout-resonator-fit"
 
 

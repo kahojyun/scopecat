@@ -25,7 +25,6 @@ from scopecat.records._run_request_values import (
     normalize_json_value,
     normalize_run_request_value,
 )
-from scopecat.records.run import RunStageLineage
 
 type RunRequestJsonValue = Annotated[
     str
@@ -278,7 +277,6 @@ class RunRequest(_RunRequestModel):
     inputs: dict[str, RunRequestValue] = Field(default_factory=dict)
     operator: str | None = None
     point_plan: PointPlanRecord = Field(default_factory=PointPlanRecord)
-    stage: RunStageLineage | None = None
     metadata: dict[str, RunRequestJsonValue] = Field(default_factory=dict)
 
 

@@ -16,7 +16,7 @@ from scopecat.planning.compilation import compile_run_program
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
-from scopecat_quantum.measurement_postprocessors import (
+from scopecat_quantum.measurement_computes import (
     BinaryIqProbabilityProducts,
 )
 from tests.testkit.in_process_lab import in_process_lab
@@ -65,7 +65,7 @@ def _reset_guard_before_quantum(experiment: sc.ExperimentContext) -> None:
         .with_shots(7)
         .with_compiler_inputs(qubits=QUBITS.ref)
     )
-    experiment.record(results.iq_shots)
+    experiment.alias(results.iq_shots)
 
 
 def _configured_target(
@@ -189,13 +189,12 @@ def test_lab_runner_places_the_reusable_capture_module() -> None:
     [execution] = logical.domain_executions
     assert [name for name, _value_id in execution.compiler_inputs] == ["qubits"]
     assert [record.record_id for record in logical.product_record_selections] == [
-        "capture/probability_0",
-        "capture/probability_1",
+        "probability_0",
+        "probability_1",
     ]
-    assert [
-        postprocessor.id.qualified_name
-        for postprocessor in logical.measurement_postprocessors
-    ] == ["capture/binary-iq-probability"]
+    assert [compute.id.qualified_name for compute in logical.measurement_computes] == [
+        "capture/binary-iq-probability"
+    ]
 
 
 def test_fixed_experiment_and_structural_runner_share_lab_measurement_policy() -> None:
@@ -211,14 +210,15 @@ def test_fixed_experiment_and_structural_runner_share_lab_measurement_policy() -
     fixed = compile_invocation(drag_beta_experiment()).program.program
 
     assert [record.record_id for record in direct.product_record_selections] == [
-        record.record_id for record in fixed.product_record_selections
+        "probability_0",
+        "probability_1",
     ]
-    assert [
-        postprocessor.id.qualified_name
-        for postprocessor in direct.measurement_postprocessors
-    ] == [
-        postprocessor.id.qualified_name
-        for postprocessor in fixed.measurement_postprocessors
+    assert [record.record_id for record in fixed.product_record_selections] == [
+        "probabilities/probability_0",
+        "probabilities/probability_1",
+    ]
+    assert [compute.id.qualified_name for compute in direct.measurement_computes] == [
+        compute.id.qualified_name for compute in fixed.measurement_computes
     ]
 
 

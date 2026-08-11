@@ -479,6 +479,7 @@ def record_alias(
     selection: RecordSelection,
     *,
     record_id: str,
+    role: MeasurementVariableRole | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> RecordSelection:
     """Add an ungrouped projection without creating another product use.
@@ -495,7 +496,7 @@ def record_alias(
         product_use=selection.product_use,
         product_origin=selection.product_origin,
         record_id=record_id,
-        role=selection.role,
+        role=selection.role if role is None else role,
         recording_group_id=None,
         metadata=freeze_json_mapping(metadata or {}),
     )

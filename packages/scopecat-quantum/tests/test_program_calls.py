@@ -14,7 +14,7 @@ from scopecat.program.products import RecordSelection
 
 from scopecat_quantum import authoring
 from scopecat_quantum.gates import GateCall, GateParameterKind
-from scopecat_quantum.measurement_postprocessors import (
+from scopecat_quantum.measurement_computes import (
     BinaryIqDiscriminator,
     BinaryIqProbabilityProducts,
     IqCentroid,
@@ -293,7 +293,7 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
     @sc.experiment(id="test.quantum.call-template", kind="x_count")
     def experiment(context: sc.ExperimentContext) -> None:
         results = context.use(call)
-        context.record(results.iq_shots)
+        context.alias(results.iq_shots)
 
     invocation = experiment()
     [selection] = invocation.definition.record_selections
@@ -328,8 +328,8 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
     @sc.experiment(id="test.quantum.multi-result", kind="quantum")
     def experiment(context: sc.ExperimentContext) -> None:
         context.use(call)
-        context.record(call.results.first_iq)
-        context.record(call.results.second_iq)
+        context.alias(call.results.first_iq)
+        context.alias(call.results.second_iq)
 
     compiled = compile_invocation(experiment())
     bound = bind_program(
@@ -409,7 +409,7 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
     assert right.results.iq.id == "right/iq"
 
 
-def test_parent_postprocessor_consumes_program_call_result() -> None:
+def test_parent_compute_consumes_program_call_result() -> None:
     @authoring.program(id="test.quantum.discriminate")
     def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq_shots")
@@ -431,10 +431,10 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
             BinaryIqProbabilityProducts,
         )
 
-    [lowered] = discriminate.definition.body.measurement_postprocessors
-    assert lowered.input_binding.qualified_name == "discriminate/iq_shots"
+    [lowered] = discriminate.definition.body.measurement_computes
+    assert lowered.input_bindings[0][1].qualified_name == "discriminate/iq_shots"
     assert {product.qualified_id for product in discriminate.definition.products} == {
         "discriminate/iq_shots",
-        "probability_0",
-        "probability_1",
+        "discriminate/probability_0",
+        "discriminate/probability_1",
     }

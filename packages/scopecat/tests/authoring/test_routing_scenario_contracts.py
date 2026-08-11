@@ -114,7 +114,7 @@ def test_typed_each_resources_route_to_different_instruments() -> None:
         )
         analyzers.ensure(NetworkSweepGroupTarget(points=points))
         traces = analyzers.sweep()
-        context.record(traces)
+        context.alias(traces)
 
     record_ids = tuple(
         selection.record_id
@@ -174,8 +174,8 @@ def test_resource_roles_route_one_entity_to_two_equivalent_instruments() -> None
         )
         drive.ensure(points=3)
         readout.ensure(points=3)
-        context.record(drive.sweep())
-        context.record(readout.sweep())
+        context.alias(drive.sweep())
+        context.alias(readout.sweep())
 
     invocation = experiment()
     assert [
@@ -348,7 +348,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
     def experiment(experiment: authoring.ExperimentContext) -> None:
         result = experiment.use(module(qubit))
         experiment.grid(axis(qubit, ("q0", "q1", "q0")))
-        experiment.record(result)
+        experiment.alias(result)
 
     resolved = bind_invocation(experiment(), config_profile=config)
     preview = materialized_effects_contract(
@@ -448,7 +448,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         ],
     ) -> None:
         result = experiment.use(module(qubit))
-        experiment.record(result)
+        experiment.alias(result)
 
     resolved = bind_invocation(experiment(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(

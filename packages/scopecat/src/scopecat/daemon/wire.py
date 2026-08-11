@@ -6,7 +6,7 @@ The models contain durable data only. In particular, execution keeps
 
 from __future__ import annotations
 
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
 from datetime import datetime
 from typing import Annotated, Literal
@@ -20,6 +20,7 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.analysis.datasets import DerivedDatasetPayload
 from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
@@ -32,9 +33,13 @@ from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
-    AnalysisFigure,
-    AnalysisTable,
-    validate_analysis_output_content_budget,
+    AnalysisDatasetDerivation,
+    AnalysisExecution,
+    AnalysisExecutionOutputReference,
+    AnalysisFact,
+    AnalysisFigureViewSpec,
+    AnalysisPublishedOutputReference,
+    AnalysisTableViewSpec,
 )
 from scopecat.records.artifact import RunContentEntry, Sha256ContentHash
 from scopecat.records.config import (
@@ -173,35 +178,98 @@ class AnalysisInputPayload(_WireModel):
     """JSON-safe reference consumed by a durable analysis record."""
 
     target: NonEmptyText
-    kind: Literal["measurement_dataset"]
+    kind: Literal["measurement_dataset", "analysis_dataset"]
+    content_hash: NonEmptyText
+    codec: NonEmptyText
     role: NonEmptyText
     title: str | None = None
     metadata: dict[str, JsonValue] | None = None
+    source: AnalysisPublishedOutputReference | None = None
+
+    @model_validator(mode="after")
+    def validate_source(self) -> AnalysisInputPayload:
+        if (self.kind == "analysis_dataset") != (self.source is not None):
+            raise ValueError(
+                "analysis dataset inputs require one published analysis output source"
+            )
+        return self
 
 
 class AnalysisTableOutputPayload(_WireModel):
     kind: Literal["table"]
+    id: NonEmptyText
     title: NonEmptyText
-    content: AnalysisTable
+    content: AnalysisTableViewSpec
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class AnalysisFactOutputPayload(_WireModel):
+    kind: Literal["fact"]
+    id: NonEmptyText
+    title: NonEmptyText
+    content: AnalysisFact
+    produced_by: AnalysisExecutionOutputReference | None = None
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class AnalysisDatasetOutputPayload(_WireModel):
+    kind: Literal["dataset"]
+    id: NonEmptyText
+    title: NonEmptyText
+    content: DerivedDatasetPayload
+    produced_by: AnalysisExecutionOutputReference | None = None
+    derived_from: AnalysisDatasetDerivation | None = None
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class AnalysisFigureOutputPayload(_WireModel):
     kind: Literal["figure"]
+    id: NonEmptyText
     title: NonEmptyText
-    content: AnalysisFigure
+    content: AnalysisFigureViewSpec
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class AnalysisParameterProposalOutputPayload(_WireModel):
     kind: Literal["parameter_change_proposal"]
+    id: NonEmptyText
     title: NonEmptyText
     content: ParameterChangeProposal
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+class AnalysisArtifactOutputPayload(_WireModel):
+    kind: Literal["artifact"]
+    id: NonEmptyText
+    title: NonEmptyText
+    content_base64: str
+    filename: NonEmptyText
+    media_type: NonEmptyText
+    produced_by: AnalysisExecutionOutputReference | None = None
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("content_base64")
+    @classmethod
+    def validate_content_base64(cls, value: str) -> str:
+        try:
+            decoded = b64decode(value, validate=True)
+        except (BinasciiError, ValueError) as error:
+            raise ValueError(
+                "analysis artifact content must be valid base64"
+            ) from error
+        if b64encode(decoded).decode("ascii") != value:
+            raise ValueError("analysis artifact content must use canonical base64")
+        return value
+
+    def content_bytes(self) -> bytes:
+        return b64decode(self.content_base64, validate=True)
+
+
 type AnalysisOutputPayload = Annotated[
-    AnalysisTableOutputPayload
+    AnalysisFactOutputPayload
+    | AnalysisDatasetOutputPayload
+    | AnalysisArtifactOutputPayload
+    | AnalysisTableOutputPayload
     | AnalysisFigureOutputPayload
     | AnalysisParameterProposalOutputPayload,
     Field(discriminator="kind"),
@@ -215,6 +283,7 @@ class AnalysisSaveCommand(_WireModel):
     analysis_key: NonEmptyText
     step_id: NonEmptyText | None = None
     inputs: tuple[AnalysisInputPayload, ...] = ()
+    executions: tuple[AnalysisExecution, ...] = ()
     outputs: tuple[AnalysisOutputPayload, ...] = Field(
         default=(),
         max_length=MAX_ANALYSIS_OUTPUTS,
@@ -222,13 +291,6 @@ class AnalysisSaveCommand(_WireModel):
 
     @model_validator(mode="after")
     def validate_outputs(self) -> AnalysisSaveCommand:
-        validate_analysis_output_content_budget(
-            output.content
-            for output in self.outputs
-            if isinstance(
-                output, AnalysisTableOutputPayload | AnalysisFigureOutputPayload
-            )
-        )
         proposals = tuple(
             output.content
             for output in self.outputs
@@ -243,6 +305,76 @@ class AnalysisSaveCommand(_WireModel):
         ids = tuple(proposal.id for proposal in proposals)
         if len(ids) != len(set(ids)):
             raise ValueError("analysis proposal ids must be unique")
+        output_ids = tuple(output.id for output in self.outputs)
+        if len(output_ids) != len(set(output_ids)):
+            raise ValueError("analysis output ids must be unique")
+        execution_ids = tuple(execution.id for execution in self.executions)
+        if len(execution_ids) != len(set(execution_ids)):
+            raise ValueError("analysis execution ids must be unique")
+        materialized_outputs = tuple(
+            output
+            for output in self.outputs
+            if isinstance(
+                output,
+                AnalysisFactOutputPayload
+                | AnalysisDatasetOutputPayload
+                | AnalysisArtifactOutputPayload,
+            )
+        )
+        if any(
+            isinstance(output, AnalysisDatasetOutputPayload)
+            and output.produced_by is not None
+            and output.derived_from is not None
+            for output in materialized_outputs
+        ):
+            raise ValueError(
+                "analysis dataset output cannot be both produced and derived"
+            )
+        output_sources = tuple(
+            (
+                output.derived_from.source
+                if isinstance(output, AnalysisDatasetOutputPayload)
+                and output.derived_from is not None
+                else output.produced_by
+            )
+            for output in materialized_outputs
+        )
+        if any(
+            source is not None and source.execution_id not in execution_ids
+            for source in output_sources
+        ):
+            raise ValueError("analysis output producer must identify an execution")
+        execution_outputs = {
+            (execution.id, output.name)
+            for execution in self.executions
+            for output in execution.outputs
+        }
+        if any(
+            source is not None
+            and (
+                source.execution_id,
+                source.output_name,
+            )
+            not in execution_outputs
+            for source in output_sources
+        ):
+            raise ValueError(
+                "analysis output producer must identify an execution output"
+            )
+        dataset_ids = {
+            output.id
+            for output in self.outputs
+            if isinstance(output, AnalysisDatasetOutputPayload)
+        }
+        for output in self.outputs:
+            if not isinstance(
+                output,
+                AnalysisTableOutputPayload | AnalysisFigureOutputPayload,
+            ):
+                continue
+            source = output.content.source
+            if source.output_id not in dataset_ids:
+                raise ValueError("analysis view source must identify a dataset output")
         return self
 
 
@@ -250,6 +382,7 @@ class AnalysisSaveReceipt(_WireModel):
     record: RunContentEntry
     analysis_key: NonEmptyText
     inputs: tuple[AnalysisInputPayload, ...] = ()
+    parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
 
 
 class RunAttachmentCommand(_WireModel):
@@ -691,6 +824,9 @@ def _validated_base64(value: str) -> str:
 
 
 __all__ = [
+    "AnalysisArtifactOutputPayload",
+    "AnalysisDatasetOutputPayload",
+    "AnalysisFactOutputPayload",
     "AnalysisFigureOutputPayload",
     "AnalysisInputPayload",
     "AnalysisOutputPayload",

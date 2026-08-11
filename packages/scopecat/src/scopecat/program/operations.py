@@ -22,7 +22,7 @@ from scopecat.program.value_refs import (
     internal_input_value_ref,
     internal_operation_result_value_ref,
 )
-from scopecat.program.value_types import Scalar, ValueType
+from scopecat.program.value_types import DataType, ValueType
 
 type ComputeNodeInputValue = (
     ValueRef | Quantity | str | int | float | bool | EntityRef | PayloadValue | None
@@ -35,8 +35,8 @@ class ModuleOperationDecl:
 
     id: str
     declaration_key: ComputeDeclarationKey
-    output_type: Scalar
-    input_types: tuple[tuple[str, Scalar], ...]
+    output_type: DataType
+    input_types: tuple[tuple[str, DataType], ...]
     inputs: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     scope: tuple[str, ...] = ()
     instance_path: tuple[InvocationKey, ...] = ()

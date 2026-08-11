@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Annotated, Literal, Never
+from typing import Annotated, Literal, Never, cast
 
+import numpy as np
 import pytest
 
 import scopecat as sc
 from scopecat.compiler.bind import BoundPlan, bind_program
 from scopecat.compiler.bound_facts import (
-    BoundMeasurementPostprocessor,
-    BoundMeasurementPostprocessorOutput,
+    BoundMeasurementCompute,
+    BoundMeasurementComputeInput,
+    BoundMeasurementComputeOutput,
     LogicalResourceRequirement,
     record_product,
 )
@@ -53,6 +55,7 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, Table, TableColumn
 from scopecat.measurements.results import MeasurementValue
 from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.provider_binding import (
     resolve_instrument_contract_catalog,
 )
@@ -64,7 +67,7 @@ from scopecat.program.expressions import (
     point_col,
 )
 from scopecat.program.logical import (
-    MeasurementPostprocessorId,
+    MeasurementComputeId,
 )
 from scopecat.program.point_domain import point_axis_values
 from scopecat.records.config import (
@@ -467,45 +470,59 @@ def _bound_program(
     return bind_program_facts(program, environment)
 
 
-def _postprocess_identity(
+def _measurement_compute_identity(
     value: MeasurementValue,
 ) -> dict[str, MeasurementValue]:
     return {"result": value}
 
 
-def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
+def _bound_instrument_fed_compute_program() -> BoundPlan:
     source = observable_product("source", unit="ratio")
     middle = observable_product("middle", unit="ratio")
     derived = observable_product("derived", unit="ratio")
     source_use = product_use(source.id)
     middle_use = product_use(middle.id)
     derived_use, derived_record = record_product(derived)
-    postprocessors = (
-        BoundMeasurementPostprocessor(
-            id=MeasurementPostprocessorId(SymbolId(local_id="normalize")),
-            input_product_id=source.id,
-            input_product_use_id=source_use.id,
+    computes = (
+        BoundMeasurementCompute(
+            id=MeasurementComputeId(SymbolId(local_id="normalize")),
+            inputs=(
+                BoundMeasurementComputeInput(
+                    id="input",
+                    product_id=source.id,
+                    product_use_id=source_use.id,
+                ),
+            ),
             outputs=(
-                BoundMeasurementPostprocessorOutput(
+                BoundMeasurementComputeOutput(
                     id="result",
                     product_id=middle.id,
                     product_use_ids=(middle_use.id,),
                 ),
             ),
-            kernel=_postprocess_identity,
+            kernel=lambda values: _measurement_compute_identity(
+                cast("MeasurementValue", values["input"])
+            ),
         ),
-        BoundMeasurementPostprocessor(
-            id=MeasurementPostprocessorId(SymbolId(local_id="summarize")),
-            input_product_id=middle.id,
-            input_product_use_id=middle_use.id,
+        BoundMeasurementCompute(
+            id=MeasurementComputeId(SymbolId(local_id="summarize")),
+            inputs=(
+                BoundMeasurementComputeInput(
+                    id="input",
+                    product_id=middle.id,
+                    product_use_id=middle_use.id,
+                ),
+            ),
             outputs=(
-                BoundMeasurementPostprocessorOutput(
+                BoundMeasurementComputeOutput(
                     id="result",
                     product_id=derived.id,
                     product_use_ids=(derived_use.id,),
                 ),
             ),
-            kernel=_postprocess_identity,
+            kernel=lambda values: _measurement_compute_identity(
+                cast("MeasurementValue", values["input"])
+            ),
         ),
     )
     program = program_fixture(
@@ -523,7 +540,7 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
                 result_id="signal",
             ),
         ),
-        measurement_postprocessors=postprocessors,
+        measurement_computes=computes,
         product_defs=(source, middle, derived),
         product_uses=(source_use, middle_use, derived_use),
         record_uses=(derived_record,),
@@ -631,7 +648,7 @@ def test_recorded_compute_runs_without_an_instrument_provider() -> None:
             fn=lambda: 2.5,
             output_type=sc.ScalarType(sc.FloatType()),
         )
-        experiment.record(score)
+        experiment.alias(score)
 
     bound = bind_program(
         compile_invocation(definition()).program,
@@ -653,6 +670,61 @@ def test_recorded_compute_runs_without_an_instrument_provider() -> None:
     )
 
 
+def test_array_compute_results_are_ordered_and_recordable() -> None:
+    observed: list[list[float]] = []
+
+    def produce() -> np.ndarray:
+        return np.asarray([1.0, 2.0, 3.0])
+
+    def peak(*, trace: np.ndarray) -> float:
+        observed.append(trace.tolist())
+        return float(np.max(trace))
+
+    @sc.experiment(id="test.recorded-array-compute", kind="compute")
+    def definition(experiment: sc.ExperimentContext) -> None:
+        trace = experiment.compute(
+            "trace",
+            fn=produce,
+            output_type=sc.ArrayType(
+                dtype="float64",
+                dimensions=(sc.ArrayDimension("sample", 3),),
+                unit="V",
+            ),
+        )
+        maximum = experiment.compute(
+            "peak",
+            fn=peak,
+            inputs={"trace": trace},
+            output_type=sc.ScalarType(sc.FloatType()),
+        )
+        experiment.alias(trace)
+        experiment.alias(maximum)
+
+    bound = bind_program(
+        compile_invocation(definition()).program,
+        build_config_environment(load_config()),
+    )
+    plan = ExperimentSystem(instrument_catalog=_catalog(bound)).compile(bound)
+
+    operations = [
+        effect.operation
+        for effect in plan.coverage
+        if isinstance(effect, RunCoverageEffect)
+        and isinstance(effect.operation, ComputeOperation)
+    ]
+    assert [operation.logical_compute_node_id for operation in operations] == [
+        "trace",
+        "peak",
+    ]
+    assert plan.measurements.runtime_value_ids == tuple(
+        node.result_id for node in bound.program.program.compute_nodes
+    )
+    trace_record, peak_record = plan.measurements.records
+    assert [axis.id for axis in trace_record.axes] == ["sample"]
+    assert peak_record.axes == ()
+    assert observed == []
+
+
 def test_plan_stage_value_record_is_materialized_per_point() -> None:
     @sc.experiment(id="test.recorded-input", kind="compute")
     def definition(
@@ -662,7 +734,7 @@ def test_plan_stage_value_record_is_materialized_per_point() -> None:
             sc.ScalarType(sc.FloatType()),
         ] = 1.5,
     ) -> None:
-        experiment.record(sc.input_ref(threshold))
+        experiment.alias(sc.input_ref(threshold))
 
     bound = bind_program(
         compile_invocation(definition()).program,
@@ -820,27 +892,38 @@ def test_system_builder_cannot_replace_daemon_catalog() -> None:
         )
 
 
-def test_planning_keeps_postprocessor_outputs_out_of_local_acquisition() -> None:
-    bound = _bound_instrument_fed_postprocessor_program()
+def test_planning_keeps_compute_outputs_out_of_local_acquisition() -> None:
+    bound = _bound_instrument_fed_compute_program()
 
     plan = ExperimentSystem(
         instrument_catalog=_catalog(bound, TestSignalInstrumentProvider())
     ).compile(bound)
 
-    first, second = plan.measurement_postprocessors
+    first, second = plan.measurement_computes
     assert [first.id.qualified_name, second.id.qualified_name] == [
         "normalize",
         "summarize",
     ]
-    assert first.input_product_id.qualified_name == "source"
-    assert second.input_product_id.qualified_name == "middle"
+    assert first.inputs[0].product_id.qualified_name == "source"
+    assert second.inputs[0].product_id.qualified_name == "middle"
     [collect] = [
         effect.operation
         for effect in plan.coverage
         if isinstance(effect, RunCoverageEffect)
         and isinstance(effect.operation, CollectOperation)
     ]
-    assert collect.result_bindings[0].product_use_ids == (first.input_product_use_id,)
+    assert collect.result_bindings[0].product_use_ids == (
+        first.inputs[0].product_use_id,
+    )
+    preview = build_run_program_preview(plan)
+    assert preview.observation_compute_ids == ("normalize", "summarize")
+    normalize, summarize = preview.computes
+    assert normalize.placement == "observation"
+    assert normalize.implementation == "python:normalize"
+    assert not normalize.deterministic
+    assert normalize.inputs == ("input",)
+    assert normalize.demanded_by == ("compute:summarize",)
+    assert summarize.demanded_by == ("record:derived",)
 
 
 def test_domain_target_partitions_complete_point_space_by_capacity() -> None:

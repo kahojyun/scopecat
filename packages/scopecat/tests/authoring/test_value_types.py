@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.program.value_types import (
+    Array,
+    ArrayDimension,
     Bool,
     Entity,
     Float,
@@ -20,6 +23,31 @@ from scopecat.program.value_types import (
     coerce_literal,
     validate_literal,
 )
+
+
+def test_array_type_normalizes_dtype_rank_and_shape() -> None:
+    trace = Array(
+        dtype="float64",
+        dimensions=(ArrayDimension("sample", 3, kind="time", unit="ns"),),
+        unit="V",
+    )
+
+    value = coerce_literal(trace, [1, 2, 3])
+
+    assert isinstance(value, np.ndarray)
+    assert value.dtype == np.dtype("float64")
+    assert value.shape == (3,)
+    assert not value.flags.writeable
+    assert value.tolist() == [1.0, 2.0, 3.0]
+    with pytest.raises(ValueValidationError, match="must have size 3"):
+        coerce_literal(trace, [1.0, 2.0])
+    with pytest.raises(ValueValidationError, match="expected a 1D array"):
+        coerce_literal(trace, [[1.0, 2.0, 3.0]])
+    with pytest.raises(ValueValidationError, match="cannot be safely converted"):
+        coerce_literal(
+            Array(dtype="int64", dimensions=(ArrayDimension("sample", 2),)),
+            [1.5, 2.5],
+        )
 
 
 def test_scalar_types_coerce_literals_and_apply_constraints() -> None:

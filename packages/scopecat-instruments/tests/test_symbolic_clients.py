@@ -11,6 +11,7 @@ from scopecat.authoring import (
     ModuleContext,
     PerEntity,
     ProductRef,
+    RecordedProducts,
     RecordRef,
     coordinate,
     each,
@@ -35,7 +36,6 @@ from scopecat_instruments import (
     DCSourceGroupTarget,
     DCSourceTarget,
     NetworkSweepProducts,
-    NetworkSweepRecords,
     NetworkSweepTarget,
     RFOutputGroupTarget,
     RFOutputTarget,
@@ -368,9 +368,9 @@ def test_symbolic_products_record_directly_from_a_root_experiment() -> None:
         vna = network_sweep(context)
         vna.ensure(points=11)
         trace = vna.sweep()
-        records = assert_type(context.record(trace), NetworkSweepRecords)
-        assert_type(records.frequency, RecordRef[MeasurementArrayData])
-        assert_type(records.s_parameter, RecordRef[MeasurementArrayData])
+        records = assert_type(context.alias(trace), RecordedProducts)
+        assert isinstance(records.frequency, RecordRef)
+        assert isinstance(records.s_parameter, RecordRef)
 
     definition = authored.bind().definition
     assert [product.id for product in definition.body.products] == [
@@ -400,7 +400,7 @@ def test_record_namespace_prefixes_typed_variables_and_their_group() -> None:
     vna = network_sweep(context)
     vna.ensure(points=11)
 
-    context.record(vna.sweep(), namespace="calibration")
+    context.alias(vna.sweep(), namespace="calibration")
 
     definition = context.close_definition_internal(
         id="test.symbolic.record-namespace",
@@ -431,7 +431,7 @@ def test_typed_result_recording_semantics_survive_a_module_boundary() -> None:
 
     context = ExperimentContext()
     context.use(call)
-    context.record(frequency)
+    context.alias(frequency)
     definition = context.close_definition_internal(
         id="test.symbolic.record-module-member",
         kind="test",
@@ -455,7 +455,7 @@ def test_per_entity_symbolic_results_record_as_dataset_fragments() -> None:
 
     traces = analyzers.sweep()
     assert_type(traces, PerEntity[NetworkSweepProducts])
-    context.record(traces, namespace="calibration")
+    context.alias(traces, namespace="calibration")
 
     definition = context.close_definition_internal(
         id="test.symbolic.record-each",

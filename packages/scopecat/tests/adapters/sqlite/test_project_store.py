@@ -51,11 +51,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     } <= tables
     assert {"run_sequence", "deduplication_key"} <= event_columns
     assert {"renewed_at", "expires_at"} <= instrument_session_columns
-    assert {
-        "stage_sequence_id",
-        "stage_index",
-        "cancellation_requested_at",
-    } <= scheduler_run_columns
+    assert "cancellation_requested_at" in scheduler_run_columns
 
 
 @pytest.mark.parametrize("version", (0, 99))

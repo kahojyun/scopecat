@@ -33,7 +33,7 @@ def _fixed_if_lo_sweep(
         lo_frequency + signed_if,
         sc.ValueRef[sc.Quantity],
     )
-    experiment.record(
+    experiment.alias(
         rf_frequency,
         record_id="rf_frequency",
         role="coordinate",

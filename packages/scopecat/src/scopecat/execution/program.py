@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from scopecat.compiler.bound_facts import BoundMeasurementPostprocessor
+from scopecat.compiler.bound_facts import BoundMeasurementCompute
 from scopecat.execution.local.program import ApplyStateOperation, LocalOperation
+from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.resource_identity import (
     DomainTargetRequirement,
     ResourceRequirement,
@@ -83,7 +84,7 @@ class RunProgram:
         repr=False,
         compare=False,
     )
-    measurement_postprocessors: tuple[BoundMeasurementPostprocessor, ...] = field(
+    measurement_computes: tuple[BoundMeasurementCompute, ...] = field(
         default=(),
         repr=False,
         compare=False,
@@ -96,3 +97,20 @@ class RunProgram:
     @property
     def resource_order(self) -> tuple[str, ...]:
         return () if self.host is None else self.host.resource_order
+
+    @property
+    def runtime_value_ids(self) -> tuple[ValueId, ...]:
+        """Values whose execution results must cross the coverage boundary."""
+
+        return tuple(
+            dict.fromkeys(
+                (
+                    *self.measurements.runtime_value_ids,
+                    *(
+                        binding.value_id
+                        for compute in self.measurement_computes
+                        for binding in compute.value_inputs
+                    ),
+                )
+            )
+        )

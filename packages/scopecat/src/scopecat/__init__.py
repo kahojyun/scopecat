@@ -15,6 +15,13 @@ from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from scopecat.analysis.datasets import (
+        DerivedDataset,
+        DerivedDatasetField,
+        DerivedDatasetSchema,
+        derived_dataset,
+    )
+    from scopecat.analysis.facts import AnalysisFactSchema
     from scopecat.api._instruments import (
         InstrumentClientFactory,
         InstrumentRef,
@@ -25,22 +32,23 @@ if TYPE_CHECKING:
     from scopecat.api.analysis import (
         Analysis,
         AnalysisContext,
-        AnalysisFigure,
-        AnalysisFigureAxis,
-        AnalysisFigureSeries,
-        AnalysisTable,
-        AnalysisTableCell,
-        AnalysisTableColumn,
-        AnalysisTableRow,
+        AnalysisField,
         analysis_step,
+    )
+    from scopecat.api.published_analysis import (
+        PublishedAnalysis,
+        PublishedAnalysisArtifact,
     )
     from scopecat.authoring import (
         ANY_RESOURCE_ROLE,
         DEFAULT_RESOURCE_ROLE,
+        ArrayDimension,
+        ArrayType,
         Axis,
         BoolType,
         CapabilityResource,
         CoordinateRef,
+        DataRef,
         EachEntity,
         EntityType,
         Experiment,
@@ -62,11 +70,14 @@ if TYPE_CHECKING:
         ParameterSchema,
         PayloadType,
         PerEntity,
+        ProductBundle,
         ProductRef,
         ProductValueSpec,
         QuantityType,
+        RecordedProducts,
         RecordRef,
         ResourceRoleSelector,
+        Result,
         ScalarType,
         StringType,
         Symbolic,
@@ -76,6 +87,7 @@ if TYPE_CHECKING:
         ValueType,
         axis,
         capability_resource,
+        constant,
         coordinate,
         each,
         ensure_state_targets,
@@ -113,11 +125,23 @@ if TYPE_CHECKING:
 
 _EXPORTS: dict[str, tuple[str, str]] = {
     "ANY_RESOURCE_ROLE": ("scopecat.authoring", "ANY_RESOURCE_ROLE"),
+    "ArrayDimension": ("scopecat.authoring", "ArrayDimension"),
+    "ArrayType": ("scopecat.authoring", "ArrayType"),
     "Axis": ("scopecat.authoring", "Axis"),
     "BoolType": ("scopecat.authoring", "BoolType"),
     "CapabilityResource": ("scopecat.authoring", "CapabilityResource"),
     "CoordinateRef": ("scopecat.authoring", "CoordinateRef"),
+    "DataRef": ("scopecat.authoring", "DataRef"),
     "DEFAULT_RESOURCE_ROLE": ("scopecat.authoring", "DEFAULT_RESOURCE_ROLE"),
+    "DerivedDataset": ("scopecat.analysis.datasets", "DerivedDataset"),
+    "DerivedDatasetField": (
+        "scopecat.analysis.datasets",
+        "DerivedDatasetField",
+    ),
+    "DerivedDatasetSchema": (
+        "scopecat.analysis.datasets",
+        "DerivedDatasetSchema",
+    ),
     "EachEntity": ("scopecat.authoring", "EachEntity"),
     "EntityType": ("scopecat.authoring", "EntityType"),
     "Experiment": ("scopecat.authoring", "Experiment"),
@@ -140,9 +164,12 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "PayloadType": ("scopecat.authoring", "PayloadType"),
     "PerEntity": ("scopecat.authoring", "PerEntity"),
     "ProductRef": ("scopecat.authoring", "ProductRef"),
+    "ProductBundle": ("scopecat.authoring", "ProductBundle"),
     "ProductValueSpec": ("scopecat.authoring", "ProductValueSpec"),
     "QuantityType": ("scopecat.authoring", "QuantityType"),
     "RecordRef": ("scopecat.authoring", "RecordRef"),
+    "RecordedProducts": ("scopecat.authoring", "RecordedProducts"),
+    "Result": ("scopecat.authoring", "Result"),
     "ResourceRoleSelector": ("scopecat.authoring", "ResourceRoleSelector"),
     "ScalarType": ("scopecat.authoring", "ScalarType"),
     "StringType": ("scopecat.authoring", "StringType"),
@@ -153,6 +180,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ValueType": ("scopecat.authoring", "ValueType"),
     "coordinate": ("scopecat.authoring", "coordinate"),
     "capability_resource": ("scopecat.authoring", "capability_resource"),
+    "constant": ("scopecat.authoring", "constant"),
     "each": ("scopecat.authoring", "each"),
     "ensure_state_targets": ("scopecat.authoring", "ensure_state_targets"),
     "experiment": ("scopecat.authoring", "experiment"),
@@ -177,6 +205,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "EntityRef": ("scopecat.kernel.entity", "EntityRef"),
     "entity_ref": ("scopecat.kernel.entity", "entity_ref"),
     "delete_parameter_rows": ("scopecat.config.parameters", "delete_parameter_rows"),
+    "derived_dataset": ("scopecat.analysis.datasets", "derived_dataset"),
     "insert_parameter_rows": ("scopecat.config.parameters", "insert_parameter_rows"),
     "replace_scalar_parameter": (
         "scopecat.config.parameters",
@@ -188,14 +217,17 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "update_parameter_rows": ("scopecat.config.parameters", "update_parameter_rows"),
     "Analysis": ("scopecat.api.analysis", "Analysis"),
+    "AnalysisFactSchema": ("scopecat.analysis.facts", "AnalysisFactSchema"),
     "AnalysisContext": ("scopecat.api.analysis", "AnalysisContext"),
-    "AnalysisFigure": ("scopecat.api.analysis", "AnalysisFigure"),
-    "AnalysisFigureAxis": ("scopecat.api.analysis", "AnalysisFigureAxis"),
-    "AnalysisFigureSeries": ("scopecat.api.analysis", "AnalysisFigureSeries"),
-    "AnalysisTable": ("scopecat.api.analysis", "AnalysisTable"),
-    "AnalysisTableCell": ("scopecat.api.analysis", "AnalysisTableCell"),
-    "AnalysisTableColumn": ("scopecat.api.analysis", "AnalysisTableColumn"),
-    "AnalysisTableRow": ("scopecat.api.analysis", "AnalysisTableRow"),
+    "AnalysisField": ("scopecat.api.analysis", "AnalysisField"),
+    "PublishedAnalysis": (
+        "scopecat.api.published_analysis",
+        "PublishedAnalysis",
+    ),
+    "PublishedAnalysisArtifact": (
+        "scopecat.api.published_analysis",
+        "PublishedAnalysisArtifact",
+    ),
     "InstrumentClientFactory": (
         "scopecat.api._instruments",
         "InstrumentClientFactory",

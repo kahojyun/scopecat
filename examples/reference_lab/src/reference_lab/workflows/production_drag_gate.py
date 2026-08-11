@@ -7,6 +7,7 @@ from typing import Annotated
 import scopecat as sc
 from scopecat import Quantity, QuantityType
 from scopecat_quantum import authoring as quantum
+from scopecat_quantum.measurement_computes import BinaryIqProbabilityProducts
 from scopecat_quantum.standard_gates import X90, XM90
 
 from reference_lab.parameters import Q0_DRAG_BETA
@@ -51,15 +52,15 @@ def production_drag_program(
 
 
 @sc.experiment
-def production_drag_experiment(experiment: sc.ExperimentContext) -> None:
-    experiment.record(
-        experiment.use(
-            quantum_capture(
-                production_drag_program(
-                    qubit="q0",
-                    drag_beta=Q0_DRAG_BETA.ref,
-                ).with_shots(PRODUCTION_DRAG_GATE_SHOTS)
-            )
+def production_drag_experiment(
+    experiment: sc.ExperimentContext,
+) -> BinaryIqProbabilityProducts:
+    return experiment.use(
+        quantum_capture(
+            production_drag_program(
+                qubit="q0",
+                drag_beta=Q0_DRAG_BETA.ref,
+            ).with_shots(PRODUCTION_DRAG_GATE_SHOTS)
         )
     )
 

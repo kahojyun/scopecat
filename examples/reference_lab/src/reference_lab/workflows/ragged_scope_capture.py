@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
+from typing import Annotated, cast
 
 import scopecat as sc
 from scopecat.kernel.payloads import PayloadValue
@@ -41,6 +41,11 @@ from reference_lab.bench_interfaces import (
 )
 from reference_lab.payloads import SAMPLED_WAVEFORM_SCHEMA_ID
 
+type SampledWaveform = Annotated[
+    dict[str, object],
+    sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
+]
+
 RECORD_LENGTH = sc.coordinate("record_length", sc.IntType())
 SAMPLE_RATE = sc.Quantity(1.0, "GHz")
 
@@ -48,11 +53,11 @@ SAMPLE_RATE = sc.Quantity(1.0, "GHz")
 @dataclass(frozen=True, slots=True)
 class RaggedScopeDataset:
     record_length: sc.CoordinateRef[int]
-    time: sc.RecordRef[MeasurementArrayData]
-    voltage: sc.RecordRef[MeasurementArrayData]
+    time: sc.ProductRef[MeasurementArrayData]
+    voltage: sc.ProductRef[MeasurementArrayData]
 
 
-def _repeating_probe_waveform() -> dict[str, object]:
+def _repeating_probe_waveform() -> SampledWaveform:
     return {"samples": [0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5]}
 
 
@@ -110,7 +115,6 @@ def ragged_scope_capture(
     waveform = experiment.compute(
         "repeating_probe_waveform",
         fn=_repeating_probe_waveform,
-        output_type=sc.ScalarType(sc.PayloadType(SAMPLED_WAVEFORM_SCHEMA_ID)),
     )
     monitor.invoke(OSCILLOSCOPE_ARM)
     source.invoke(
@@ -136,12 +140,12 @@ def ragged_scope_capture(
     return RaggedScopeDataset(
         record_length=RECORD_LENGTH,
         time=cast(
-            "sc.RecordRef[MeasurementArrayData]",
-            experiment.record(time),
+            "sc.ProductRef[MeasurementArrayData]",
+            time,
         ),
         voltage=cast(
-            "sc.RecordRef[MeasurementArrayData]",
-            experiment.record(voltage),
+            "sc.ProductRef[MeasurementArrayData]",
+            voltage,
         ),
     )
 

@@ -26,17 +26,16 @@ with sc.open_project(EXAMPLE_ROOT).connect(operator="gallery") as lab:
     data = run.measurements()
     request = run.request
     status = run.manifest.status
-
-time_s = cast(
-    "NDArray[np.float64]",
-    data[AWG_OUTPUT_MONITOR.output.time].require_values()[0],
-)
-voltage_v = cast(
-    "NDArray[np.float64]",
-    data[AWG_OUTPUT_MONITOR.output.voltage].require_values()[0],
-)
-time_values = cast("list[float]", time_s.tolist())
-voltage_values = cast("list[float]", voltage_v.tolist())
+    time_s = cast(
+        "NDArray[np.float64]",
+        data[AWG_OUTPUT_MONITOR.output.time].require_values()[0],
+    )
+    voltage_v = cast(
+        "NDArray[np.float64]",
+        data[AWG_OUTPUT_MONITOR.output.voltage].require_values()[0],
+    )
+    time_values = cast("list[float]", time_s.tolist())
+    voltage_values = cast("list[float]", voltage_v.tolist())
 
 awg_output_monitor_summary = {
     "name": request.display_name,

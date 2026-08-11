@@ -1,3 +1,5 @@
+# pyright: reportUnknownMemberType=false, reportUnknownParameterType=false
+# pyright: reportUnknownVariableType=false
 """Run facade handles for notebook workflows."""
 
 from __future__ import annotations
@@ -5,24 +7,42 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, overload
 
+import pyarrow as pa
 from pydantic import JsonValue
 
+from scopecat.analysis.datasets import DerivedDataset, DerivedDatasetSchema
 from scopecat.analysis.service import (
     AnalysisInput,
     AnalysisOutput,
     SavedAnalysis,
 )
-from scopecat.api.analysis import Analysis, AnalysisContext, AnalysisStep
-from scopecat.api.data import Data
-from scopecat.daemon.views import MeasurementPage
+from scopecat.api.analysis import (
+    AnalysisContext,
+    AnalysisStep,
+)
+from scopecat.api.published_analysis import PublishedAnalysis
+from scopecat.daemon.views import (
+    MeasurementArrowColumn,
+    MeasurementArrowQuery,
+    RunAnalysisListView,
+    RunAnalysisView,
+)
+from scopecat.kernel.ids import artifact_slug
 from scopecat.measurements.datasets import (
     MAX_MEASUREMENT_PAGE_SIZE,
     MEASUREMENT_DATASET_KIND,
     RAW_MEASUREMENTS_DATASET_ID,
 )
-from scopecat.measurements.results import Dataset, MeasurementDataset
+from scopecat.measurements.results import (
+    Dataset,
+    ExperimentResultView,
+    MeasurementDatasetSchema,
+    ProjectionSchema,
+    StoredExperimentResultView,
+)
+from scopecat.records.analysis import AnalysisExecution
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -33,6 +53,7 @@ from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
+    RunDatasetBytesResult,
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
@@ -55,13 +76,20 @@ class RunOperations(Protocol):
         selector: str,
     ) -> RunMeasurementDatasetResult: ...
 
-    def load_measurement_page(
+    def load_dataset_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunDatasetBytesResult: ...
+
+    def load_measurement_arrow_page(
         self,
         run_id: str,
         *,
-        limit: int,
-        offset: int,
-    ) -> MeasurementPage: ...
+        query: MeasurementArrowQuery,
+    ) -> tuple[pa.Table, int | None, int]: ...
 
     def save_analysis(
         self,
@@ -71,9 +99,14 @@ class RunOperations(Protocol):
         analysis_key: str,
         step_id: str | None,
         inputs: Sequence[AnalysisInput],
+        executions: Sequence[AnalysisExecution],
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis: ...
+
+    def analyses(self, run_id: str) -> RunAnalysisListView: ...
+
+    def analysis(self, run_id: str, selector: str) -> RunAnalysisView: ...
 
     def attach(
         self,
@@ -158,78 +191,174 @@ class RunHandle:
     def datasets(self) -> tuple[str, ...]:
         return tuple(dataset.id for dataset in self.manifest.datasets)
 
-    def measurements(
-        self,
-        *,
-        selector: str = "raw-measurements",
-    ) -> Dataset:
-        """Load one labeled measurement dataset for notebook analysis."""
+    def measurements(self) -> Dataset:
+        """Open this run's measurement dataset for notebook analysis."""
 
-        loaded = self.session.run_operations.load_measurement_dataset(
-            self.id,
-            selector=selector,
+        entry = require_dataset(
+            manifest=self.manifest,
+            selector=RAW_MEASUREMENTS_DATASET_ID,
+            expected_kind=MEASUREMENT_DATASET_KIND,
         )
-        return Dataset(raw=loaded.dataset, entry=loaded.dataset_entry)
+        if entry.data_schema is None:
+            raise ValueError("measurement dataset is missing its semantic schema")
+        schema = MeasurementDatasetSchema.model_validate(entry.data_schema)
+        return Dataset._from_source(  # pyright: ignore[reportPrivateUsage]
+            schema=schema,
+            entry=entry,
+            load_raw=lambda: (
+                self.session.run_operations.load_measurement_dataset(
+                    self.id,
+                    selector=entry.id,
+                ).dataset
+            ),
+            load_projected_batches=self._measurement_projection_batches,
+        )
 
-    def measurement_batches(self, *, batch_size: int = 100) -> Iterator[Dataset]:
-        """Iterate over raw measurements without loading the complete dataset.
+    def _measurements_for_analysis(self) -> Dataset:
+        """Open a source-backed dataset for one active analysis context."""
 
-        Every yielded dataset keeps durable ``point_index`` values while its
-        ``point`` dimension describes only the records in that batch. Its schema
-        remains the complete planned dataset schema.
-        """
+        return self.measurements()
+
+    def _load_analysis_dataset(self, selector: str) -> DerivedDataset:
+        """Load one published analysis dataset for the typed read facade."""
+
+        loaded = self.session.run_operations.load_dataset_bytes(
+            self.id,
+            selector,
+            expected_kind="analysis_dataset",
+        )
+        if loaded.dataset.data_schema is None:
+            raise ValueError("analysis dataset is missing its semantic schema")
+        return DerivedDataset.from_arrow_ipc(
+            loaded.content,
+            schema=DerivedDatasetSchema.model_validate(loaded.dataset.data_schema),
+        )
+
+    @overload
+    def result(
+        self,
+        /,
+    ) -> StoredExperimentResultView: ...
+
+    @overload
+    def result[ResultT](
+        self,
+        output: ResultT,
+        /,
+    ) -> ExperimentResultView[ResultT]: ...
+
+    def result[ResultT](
+        self,
+        output: ResultT | None = None,
+        /,
+    ) -> StoredExperimentResultView | ExperimentResultView[ResultT]:
+        """Load the experiment return value as a historical or typed result."""
+
+        dataset = self.measurements()
+        if output is None:
+            return dataset.result
+        return dataset.bind(output)
+
+    def _measurement_projection_batches(
+        self,
+        projection: ProjectionSchema,
+        batch_size: int,
+    ) -> pa.RecordBatchReader:
+        """Read one already-bound projection through the Arrow page transport."""
 
         if not 1 <= batch_size <= MAX_MEASUREMENT_PAGE_SIZE:
             raise ValueError(
                 "measurement batch_size must be between 1 and "
                 f"{MAX_MEASUREMENT_PAGE_SIZE}"
             )
-        return self._measurement_batches(batch_size=batch_size)
-
-    def _measurement_batches(self, *, batch_size: int) -> Iterator[Dataset]:
-        entry = require_dataset(
-            manifest=self.manifest,
-            selector=RAW_MEASUREMENTS_DATASET_ID,
-            expected_kind=MEASUREMENT_DATASET_KIND,
+        query = MeasurementArrowQuery(
+            columns=tuple(
+                MeasurementArrowColumn(
+                    name=field.name,
+                    variable_id=field.variable_id,
+                )
+                for field in projection.fields
+            ),
+            units={
+                field.name: field.unit
+                for field in projection.fields
+                if field.unit is not None
+            },
+            diagnostics=projection.diagnostics,
+            include_identity=projection.include_identity,
+            layout=projection.layout,
+            limit=batch_size,
         )
-        offset = 0
-        while True:
-            page = self.session.run_operations.load_measurement_page(
+        first, next_offset, snapshot_size = (
+            self.session.run_operations.load_measurement_arrow_page(
                 self.id,
-                limit=batch_size,
-                offset=offset,
+                query=query,
             )
-            schema = page.dataset_schema
-            if schema is None:
-                raise ValueError("measurement dataset page has no registered schema")
-            yield Dataset(
-                raw=MeasurementDataset(
-                    dataset_schema=schema,
-                    records=list(page.items),
-                    metadata={
-                        **entry.metadata,
-                        "scopecat_batch_offset": offset,
-                    },
-                ),
-                entry=entry,
-            )
-            if page.next_offset is None:
-                return
-            if page.next_offset <= offset:
-                raise ValueError("measurement page next_offset must advance")
-            offset = page.next_offset
+        )
 
-    def data(self) -> Data:
-        return Data(run=self)
+        def batches() -> Iterator[pa.RecordBatch]:
+            yield from first.to_batches(max_chunksize=batch_size)
+            offset = next_offset
+            previous_offset = query.offset
+            while offset is not None:
+                if offset <= previous_offset:
+                    raise ValueError("measurement Arrow page next_offset must advance")
+                table, following_offset, page_snapshot_size = (
+                    self.session.run_operations.load_measurement_arrow_page(
+                        self.id,
+                        query=query.model_copy(
+                            update={
+                                "offset": offset,
+                                "snapshot_size": snapshot_size,
+                            }
+                        ),
+                    )
+                )
+                if page_snapshot_size != snapshot_size:
+                    raise ValueError("measurement Arrow snapshot changed between pages")
+                if table.schema != first.schema:
+                    raise ValueError("measurement pages produced different projections")
+                yield from table.to_batches(max_chunksize=batch_size)
+                previous_offset = offset
+                offset = following_offset
+
+        return pa.RecordBatchReader.from_batches(first.schema, batches())
 
     def analysis(
         self,
         title: str,
         *,
         key: str | None = None,
-        step_id: str | None = None,
-    ) -> Analysis:
-        return Analysis(run=self, title=title, key=key, step_id=step_id)
+    ) -> AnalysisContext:
+        """Start an exploratory analysis through the regular analysis context."""
+
+        return AnalysisContext(run=self, default_title=title, default_key=key)
+
+    def published_analyses(self) -> tuple[PublishedAnalysis, ...]:
+        """Load every durable analysis publication in manifest order."""
+
+        return tuple(
+            PublishedAnalysis(run=self, view=view)
+            for view in self.session.run_operations.analyses(self.id).items
+        )
+
+    def published_analysis(self, selector: str) -> PublishedAnalysis:
+        """Load an exact analysis record ID or the latest matching logical key."""
+
+        analyses = self.published_analyses()
+        exact = next(
+            (analysis for analysis in analyses if analysis.id == selector),
+            None,
+        )
+        if exact is not None:
+            return exact
+        selected_key = artifact_slug(selector, fallback="analysis")
+        matches = tuple(
+            analysis for analysis in analyses if analysis.key == selected_key
+        )
+        if not matches:
+            raise KeyError(f"run has no published analysis: {selector}")
+        return matches[-1]
 
     def save_analysis(
         self,
@@ -238,6 +367,7 @@ class RunHandle:
         analysis_key: str,
         step_id: str | None,
         inputs: Sequence[AnalysisInput],
+        executions: Sequence[AnalysisExecution],
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis:
@@ -249,11 +379,19 @@ class RunHandle:
             analysis_key=analysis_key,
             step_id=step_id,
             inputs=inputs,
+            executions=executions,
             outputs=outputs,
             parameter_proposals=parameter_proposals,
         )
 
-    def analyze(self, step: AnalysisStep, *, key: str | None = None) -> Analysis:
+    def analyze(
+        self,
+        step: AnalysisStep,
+        *,
+        key: str | None = None,
+    ) -> PublishedAnalysis:
+        """Run and durably publish one declared analysis step."""
+
         analysis = step.run(
             AnalysisContext(
                 run=self,
@@ -267,7 +405,7 @@ class RunHandle:
                 key=analysis.key or key or step.id,
                 step_id=analysis.step_id or step.id,
             )
-        return analysis
+        return analysis.save()
 
     def attach(
         self,

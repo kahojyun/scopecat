@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight,
   CircleDot,
@@ -21,7 +21,7 @@ import {
   resolveAttention,
 } from "../../api";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
-import type { MeasurementPreview, ProjectHealth, ProjectRun, ProjectRunPage } from "../../types";
+import type { ProjectHealth, ProjectRun, ProjectRunPage } from "../../types";
 import { useConfirmationDialog, type ConfirmationRequest } from "../../ui/ConfirmationDialog";
 import { classes, eyebrow, secondaryButton } from "../../ui/styles";
 import { RunDetail } from "./RunDetail";
@@ -100,12 +100,10 @@ export function RunsWorkspace({
     queryFn: ({ signal }) => getRunEvents(selectedRunId!, signal),
     enabled: selectedRunId !== undefined,
   });
-  const measurementsQuery = useInfiniteQuery({
+  const measurementsQuery = useQuery({
     queryKey: ["measurements", selectedRunId],
-    queryFn: ({ signal, pageParam }) => getMeasurementPreview(selectedRunId!, pageParam, signal),
+    queryFn: ({ signal }) => getMeasurementPreview(selectedRunId!, signal),
     enabled: selectedRunId !== undefined,
-    initialPageParam: 0,
-    getNextPageParam: (page) => page.nextOffset,
   });
   const analysesQuery = useQuery({
     queryKey: ["analyses", selectedRunId],
@@ -140,10 +138,7 @@ export function RunsWorkspace({
       : indexedRuns;
   }, [olderRunPages, runDetailQuery.data, runsQuery.data]);
   const nextRunCursor = olderRunPages.length > 0 ? olderRunPages.at(-1)?.nextCursor : runHeadCursor;
-  const measurements = useMemo(
-    () => mergeMeasurementPages(measurementsQuery.data?.pages ?? []),
-    [measurementsQuery.data?.pages],
-  );
+  const measurements = measurementsQuery.data;
   const slicePlan = useMemo(
     () => measurementSlicePlan(measurements?.schema),
     [measurements?.schema],
@@ -288,11 +283,11 @@ export function RunsWorkspace({
 
           <label className="flex min-h-10 items-center gap-[9px] rounded-[9px] border border-line bg-bg px-[11px] text-text-dim transition-[border-color,box-shadow] duration-150 focus-within:border-[rgb(128_163_207_/_55%)] focus-within:shadow-[0_0_0_3px_rgb(128_163_207_/_7%)]">
             <Search size={16} aria-hidden="true" />
-            <span className="sr-only">Search by run, sequence, experiment, or resource</span>
+            <span className="sr-only">Search by run, experiment, or resource</span>
             <input
               className="w-full min-w-0 border-0 bg-transparent p-0 text-[0.8rem] text-text outline-none placeholder:text-[#5e6a77]"
               type="search"
-              placeholder="Search runs or sequences"
+              placeholder="Search runs"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -349,24 +344,14 @@ export function RunsWorkspace({
                 detail="Try another status or search term."
               />
             )}
-            {groupRunsBySequence(filteredRuns).map((entry) =>
-              entry.kind === "run" ? (
-                <RunListItem
-                  key={entry.run.runId}
-                  run={entry.run}
-                  selected={entry.run.runId === selectedRunId}
-                  onSelect={() => onSelectRun(entry.run.runId)}
-                />
-              ) : (
-                <RunSequenceGroup
-                  key={`sequence:${entry.sequenceId}`}
-                  sequenceId={entry.sequenceId}
-                  runs={entry.runs}
-                  selectedRunId={selectedRunId}
-                  onSelectRun={onSelectRun}
-                />
-              ),
-            )}
+            {filteredRuns.map((run) => (
+              <RunListItem
+                key={run.runId}
+                run={run}
+                selected={run.runId === selectedRunId}
+                onSelect={() => onSelectRun(run.runId)}
+              />
+            ))}
             {olderRunsMutation.isError && (
               <p className="mx-2 mt-1 mb-0 text-[0.67rem] leading-[1.45] text-red" role="status">
                 {errorMessage(olderRunsMutation.error)}
@@ -416,8 +401,6 @@ export function RunsWorkspace({
               measurements={measurements}
               measurementsError={measurementsQuery.error}
               measurementsPending={measurementsQuery.isPending}
-              measurementsHasMore={measurementsQuery.hasNextPage}
-              measurementsLoadingMore={measurementsQuery.isFetchingNextPage}
               measurementSlice={measurementSliceQuery.data}
               measurementSliceError={measurementSliceQuery.error}
               measurementSlicePending={measurementSliceQuery.isFetching}
@@ -442,15 +425,11 @@ export function RunsWorkspace({
                   },
                 });
               }}
-              onLoadMoreMeasurements={() => {
-                void measurementsQuery.fetchNextPage();
-              }}
               analyses={analysesQuery.data}
               analysesError={analysesQuery.error}
               analysesPending={analysesQuery.isPending}
               attentionError={attentionMutation.error}
               attentionPending={attentionMutation.isPending}
-              onSelectRun={onSelectRun}
               onResolveAttention={() => {
                 const confirmation = attentionConfirmation();
                 requestConfirmation({
@@ -510,48 +489,6 @@ function StatusItem({
   );
 }
 
-function RunSequenceGroup({
-  sequenceId,
-  runs,
-  selectedRunId,
-  onSelectRun,
-}: {
-  sequenceId: string;
-  runs: ProjectRun[];
-  selectedRunId?: string;
-  onSelectRun: (runId: string) => void;
-}) {
-  return (
-    <section
-      className="rounded-md border border-[rgb(128_163_207_/_13%)] bg-[rgb(128_163_207_/_3%)] p-1.5"
-      aria-label={`Sequence ${sequenceId}`}
-      data-testid="run-sequence-group"
-    >
-      <header className="flex min-w-0 items-center justify-between gap-2 px-2 pt-1 pb-1.5 text-[0.6rem] text-text-dim">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="font-extrabold tracking-[0.08em] uppercase">Sequence</span>
-          <code className="overflow-hidden text-ellipsis whitespace-nowrap" title={sequenceId}>
-            {shorten(sequenceId, 20)}
-          </code>
-        </span>
-        <span className="flex-none">
-          {runs.length} {runs.length === 1 ? "stage" : "stages"} shown
-        </span>
-      </header>
-      <div className="grid gap-1">
-        {runs.map((run) => (
-          <RunListItem
-            key={run.runId}
-            run={run}
-            selected={run.runId === selectedRunId}
-            onSelect={() => onSelectRun(run.runId)}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function RunListItem({
   run,
   selected,
@@ -608,14 +545,6 @@ function RunListItem({
           >
             {run.stateLabel}
           </span>
-          {run.stage && (
-            <span
-              className="rounded-[5px] border border-[rgb(128_163_207_/_17%)] bg-accent-soft px-1.5 py-[3px] text-[0.6rem] leading-none font-bold text-accent"
-              data-testid="run-stage"
-            >
-              Stage {run.stage.index + 1}
-            </span>
-          )}
         </span>
       </span>
       <ChevronRight
@@ -697,45 +626,6 @@ function mergeRunPages(pages: ProjectRunPage[]): ProjectRun[] {
   });
 }
 
-type RunListEntry =
-  | { kind: "run"; run: ProjectRun }
-  | { kind: "sequence"; sequenceId: string; runs: ProjectRun[] };
-
-function groupRunsBySequence(runs: ProjectRun[]): RunListEntry[] {
-  const entries: RunListEntry[] = [];
-  const sequences = new Map<string, Extract<RunListEntry, { kind: "sequence" }>>();
-  for (const run of runs) {
-    const sequenceId = run.stage?.sequenceId;
-    if (sequenceId === undefined) {
-      entries.push({ kind: "run", run });
-      continue;
-    }
-    const existing = sequences.get(sequenceId);
-    if (existing) {
-      existing.runs.push(run);
-      continue;
-    }
-    const group: Extract<RunListEntry, { kind: "sequence" }> = {
-      kind: "sequence",
-      sequenceId,
-      runs: [run],
-    };
-    sequences.set(sequenceId, group);
-    entries.push(group);
-  }
-  return entries;
-}
-
-function mergeMeasurementPages(pages: MeasurementPreview[]): MeasurementPreview | undefined {
-  if (pages.length === 0) return undefined;
-  const items = pages.flatMap((page) => page.items);
-  return {
-    items,
-    schema: pages.find((page) => page.schema !== undefined)?.schema,
-    nextOffset: pages.at(-1)?.nextOffset,
-  };
-}
-
 function filterRuns(runs: ProjectRun[], filter: FilterKey, search: string): ProjectRun[] {
   const query = search.trim().toLocaleLowerCase();
   return runs.filter((run) => {
@@ -749,7 +639,6 @@ function filterRuns(runs: ProjectRun[], filter: FilterKey, search: string): Proj
     return [
       run.runId,
       run.experimentId,
-      run.stage?.sequenceId,
       ...run.resources.flatMap((resource) => [resource.id, resource.kind]),
     ]
       .filter((value) => value !== undefined)

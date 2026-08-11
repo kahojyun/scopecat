@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import inspect
+import mimetypes
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, fields, is_dataclass, replace
+from pathlib import Path, PurePosixPath
 from typing import (
     Concatenate,
+    Literal,
     NoReturn,
     Protocol,
     cast,
@@ -14,7 +17,26 @@ from typing import (
     overload,
 )
 
+from pydantic import BaseModel, JsonValue
+
+from scopecat.analysis.datasets import (
+    DERIVED_DATASET_CODEC,
+    DerivedDataset,
+    PandasIndexPolicy,
+    derived_dataset,
+)
+from scopecat.analysis.facts import (
+    ANALYSIS_FACT_SCHEMA_CODEC,
+    QUANTITY_FACT_SCHEMA_HASH,
+    QUANTITY_FACT_SCHEMA_ID,
+    SCALAR_FACT_SCHEMA_HASH,
+    SCALAR_FACT_SCHEMA_ID,
+    AnalysisFactSchema,
+)
 from scopecat.analysis.service import (
+    AnalysisArtifactOutput,
+    AnalysisDatasetOutput,
+    AnalysisFactOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -22,15 +44,12 @@ from scopecat.analysis.service import (
     AnalysisTableOutput,
     SavedAnalysis,
 )
-from scopecat.api.data import Data
-from scopecat.config.candidates import (
-    CandidateConfig,
-    CandidateSelection,
-)
+from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.config.changes import (
     parameter_change_proposal_from_updates,
 )
 from scopecat.config.parameter_updates import ParameterUpdate
+from scopecat.kernel.content_identity import sha256_content_hash, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
@@ -39,18 +58,32 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.measurements.results import Dataset
+from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.datasets import MEASUREMENT_DATASET_CODEC
+from scopecat.measurements.results import Dataset, ExperimentResultView
 from scopecat.records.analysis import (
-    AnalysisFigure,
-    AnalysisFigureAxis,
-    AnalysisFigureSeries,
-    AnalysisTable,
-    AnalysisTableCell,
-    AnalysisTableColumn,
-    AnalysisTableRow,
+    ANALYSIS_ARTIFACT_CODEC,
+    AnalysisDatasetDerivation,
+    AnalysisDatasetRecordOutput,
+    AnalysisDatasetViewSource,
+    AnalysisExecution,
+    AnalysisExecutionInput,
+    AnalysisExecutionOutput,
+    AnalysisExecutionOutputReference,
+    AnalysisFact,
+    AnalysisField,
+    AnalysisFigureProjection,
+    AnalysisFigureViewSpec,
+    AnalysisPublishedOutputReference,
+    AnalysisTableViewSpec,
+    is_analysis_rows,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
+from scopecat.sdk.compute import (
+    PYTHON_JSON_CODEC,
+    compute_capture_names_internal,
+)
 
 
 class _AnalysisRun(Protocol):
@@ -62,21 +95,7 @@ class _AnalysisRun(Protocol):
     @property
     def config(self) -> ConfigProfileSnapshot: ...
 
-    def data(self) -> Data: ...
-
-    def measurements(
-        self,
-        *,
-        selector: str = "raw-measurements",
-    ) -> Dataset: ...
-
-    def analysis(
-        self,
-        title: str,
-        *,
-        key: str | None = None,
-        step_id: str | None = None,
-    ) -> Analysis: ...
+    def _measurements_for_analysis(self) -> Dataset: ...
 
     def save_analysis(
         self,
@@ -85,93 +104,367 @@ class _AnalysisRun(Protocol):
         analysis_key: str,
         step_id: str | None,
         inputs: Sequence[AnalysisInput],
+        executions: Sequence[AnalysisExecution],
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis: ...
 
+    def published_analysis(self, selector: str) -> PublishedAnalysis: ...
+
 
 @dataclass(frozen=True)
 class Analysis:
-    """In-notebook analysis record for exploratory experiment work."""
+    """Declarative analysis content before it is saved to its source run."""
 
     run: _AnalysisRun
     title: str
     key: str | None = None
     step_id: str | None = None
     inputs: tuple[AnalysisInput, ...] = ()
+    executions: tuple[AnalysisExecution, ...] = ()
     outputs: tuple[AnalysisOutput, ...] = ()
     parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
+    _execution_outputs_by_value_hash: dict[
+        str,
+        tuple[AnalysisExecutionOutputReference, ...],
+    ] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
+
+    def dataset(
+        self,
+        id: str,
+        content: object,
+        *,
+        fields: Mapping[str, AnalysisField] | None = None,
+        index: PandasIndexPolicy = "auto",
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+        source: tuple[str, str] | None = None,
+    ) -> Analysis:
+        """Publish familiar dataframe or array data as one reusable run dataset.
+
+        Pass ``source=(execution_id, output_name)`` only when equal traced
+        results make automatic lineage ambiguous.
+        """
+
+        if not id.strip():
+            _raise_analysis_problem(
+                "analysis_dataset_id_invalid",
+                "analysis dataset id must be non-empty",
+                "id",
+            )
+        selected_id = artifact_slug(id, fallback="data")
+        dataset = derived_dataset(
+            content,
+            fields=fields,
+            index=index,
+        )
+        produced_by, derived_from = self._dataset_lineage(
+            content,
+            dataset=dataset,
+            fields=fields,
+            index=index,
+            source=source,
+        )
+        return self._append_output(
+            AnalysisDatasetOutput(
+                kind="dataset",
+                id=selected_id,
+                title=title or selected_id,
+                content=dataset,
+                metadata=metadata or {},
+                produced_by=produced_by,
+                derived_from=derived_from,
+            )
+        )
+
+    def fact[ValueT](
+        self,
+        id: str,
+        value: ValueT,
+        *,
+        schema: AnalysisFactSchema[ValueT] | None = None,
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+        source: tuple[str, str] | None = None,
+    ) -> Analysis:
+        """Publish one small typed conclusion without inventing a dataset.
+
+        Pass ``source=(execution_id, output_name)`` only when equal traced
+        results make automatic lineage ambiguous.
+        """
+
+        selected_id = _analysis_output_id(id)
+        if schema is not None:
+            selected_schema = schema.id
+            selected_schema_codec = schema.schema_codec
+            selected_schema_hash = schema.schema_hash
+            selected_value = schema.encode(value)
+        elif isinstance(value, Quantity):
+            selected_schema = QUANTITY_FACT_SCHEMA_ID
+            selected_schema_codec = ANALYSIS_FACT_SCHEMA_CODEC
+            selected_schema_hash = QUANTITY_FACT_SCHEMA_HASH
+            selected_value = _analysis_json(value)
+        elif value is None or isinstance(value, bool | int | float | str):
+            selected_schema = SCALAR_FACT_SCHEMA_ID
+            selected_schema_codec = ANALYSIS_FACT_SCHEMA_CODEC
+            selected_schema_hash = SCALAR_FACT_SCHEMA_HASH
+            selected_value = _analysis_json(value)
+        else:
+            raise TypeError("structured analysis facts require an AnalysisFactSchema")
+        return self._append_output(
+            AnalysisFactOutput(
+                kind="fact",
+                id=selected_id,
+                title=title or selected_id,
+                content=AnalysisFact(
+                    schema_id=selected_schema,
+                    schema_codec=selected_schema_codec,
+                    schema_hash=selected_schema_hash,
+                    codec=PYTHON_JSON_CODEC,
+                    value=selected_value,
+                ),
+                metadata=metadata or {},
+                produced_by=self._source_for(value, source=source),
+            )
+        )
+
+    def artifact(
+        self,
+        id: str,
+        *,
+        path: str | Path | None = None,
+        text: str | None = None,
+        content: bytes | None = None,
+        filename: str | None = None,
+        media_type: str | None = None,
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+        source: tuple[str, str] | None = None,
+    ) -> Analysis:
+        """Publish exact file or byte content as part of this analysis.
+
+        Pass ``source=(execution_id, output_name)`` only when equal traced
+        byte results make automatic lineage ambiguous.
+        """
+
+        selected_id = _analysis_output_id(id)
+        selected_sources = (path is not None, text is not None, content is not None)
+        if sum(selected_sources) != 1:
+            raise TypeError(
+                "analysis artifact requires exactly one path, text, or content"
+            )
+        source_path = None if path is None else Path(path)
+        if source_path is not None and not source_path.is_file():
+            raise FileNotFoundError(source_path)
+        selected_filename = filename or (
+            source_path.name
+            if source_path is not None
+            else f"{selected_id}.{'txt' if text is not None else 'bin'}"
+        )
+        if not _is_artifact_filename(selected_filename):
+            raise ValueError("analysis artifact filename must be a basename")
+        selected_content = (
+            source_path.read_bytes()
+            if source_path is not None
+            else (text.encode() if text is not None else content)
+        )
+        assert selected_content is not None
+        selected_media_type = media_type or mimetypes.guess_type(selected_filename)[0]
+        if selected_media_type is None:
+            selected_media_type = (
+                "text/plain" if text is not None else "application/octet-stream"
+            )
+        return self._append_output(
+            AnalysisArtifactOutput(
+                kind="artifact",
+                id=selected_id,
+                title=title or selected_id,
+                content=selected_content,
+                filename=selected_filename,
+                media_type=selected_media_type,
+                metadata=metadata or {},
+                produced_by=self._source_for(selected_content, source=source),
+            )
+        )
 
     def table(
         self,
-        content: AnalysisTable,
         *,
+        dataset: str,
+        id: str = "table",
+        columns: Sequence[str] | None = None,
         title: str = "table",
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
-        return replace(
-            self,
-            outputs=(
-                *self.outputs,
-                AnalysisTableOutput(
-                    kind="table",
-                    title=title,
-                    content=content,
-                    metadata=metadata or {},
+        """Publish a bounded table view of an authoritative analysis dataset."""
+
+        source = self._dataset(dataset)
+        available_columns = tuple(field.name for field in source.schema.fields)
+        selected_columns = available_columns if columns is None else tuple(columns)
+        unknown = set(selected_columns) - set(available_columns)
+        if unknown:
+            raise KeyError(
+                "derived dataset has no columns: " + ", ".join(sorted(unknown))
+            )
+        source_ref = AnalysisDatasetViewSource(
+            output_id=artifact_slug(dataset, fallback="data")
+        )
+        return self._append_output(
+            AnalysisTableOutput(
+                kind="table",
+                id=_analysis_output_id(id),
+                title=title,
+                content=AnalysisTableViewSpec(
+                    source=source_ref,
+                    columns=selected_columns,
                 ),
-            ),
+                metadata=metadata or {},
+            )
         )
 
     def figure(
         self,
-        content: AnalysisFigure,
         *,
+        dataset: str,
+        id: str = "figure",
+        kind: Literal["line", "scatter"],
+        x: str,
+        y: str,
+        series: str | None = None,
+        label: str | None = None,
         title: str = "figure",
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
-        return replace(
-            self,
-            outputs=(
-                *self.outputs,
-                AnalysisFigureOutput(
-                    kind="figure",
-                    title=title,
-                    content=content,
-                    metadata=metadata or {},
+        """Publish a bounded figure view of an authoritative analysis dataset."""
+
+        source = self._dataset(dataset)
+        selected_columns = {x, y}
+        if series is not None:
+            selected_columns.add(series)
+        unknown = selected_columns - {field.name for field in source.schema.fields}
+        if unknown:
+            raise KeyError(
+                "derived dataset has no columns: " + ", ".join(sorted(unknown))
+            )
+        source_ref = AnalysisDatasetViewSource(
+            output_id=artifact_slug(dataset, fallback="data")
+        )
+        return self._append_output(
+            AnalysisFigureOutput(
+                kind="figure",
+                id=_analysis_output_id(id),
+                title=title,
+                content=AnalysisFigureViewSpec(
+                    source=source_ref,
+                    projection=AnalysisFigureProjection(
+                        kind=kind,
+                        x=x,
+                        y=y,
+                        series=series,
+                        label=label,
+                    ),
                 ),
+                metadata=metadata or {},
+            )
+        )
+
+    def _dataset(self, id: str) -> DerivedDataset:
+        selected_id = artifact_slug(id, fallback="data")
+        for output in self.outputs:
+            if isinstance(output, AnalysisDatasetOutput) and output.id == selected_id:
+                return output.content
+        raise KeyError(f"analysis has no dataset output: {selected_id}")
+
+    def _append_output(self, output: AnalysisOutput) -> Analysis:
+        if any(existing.id == output.id for existing in self.outputs):
+            _raise_analysis_problem(
+                "analysis_output_id_duplicated",
+                f"analysis output id is duplicated: {output.id}",
+                "id",
+            )
+        return replace(self, outputs=(*self.outputs, output))
+
+    def _source_for(
+        self,
+        value: object,
+        *,
+        source: tuple[str, str] | None,
+    ) -> AnalysisExecutionOutputReference | None:
+        if source is not None:
+            return AnalysisExecutionOutputReference(
+                execution_id=source[0],
+                output_name=source[1],
+            )
+        try:
+            content_hash = _analysis_value_hash(value)
+        except TypeError:
+            return None
+        candidates = self._execution_outputs_by_value_hash.get(content_hash, ())
+        return candidates[0] if len(candidates) == 1 else None
+
+    def _dataset_lineage(
+        self,
+        value: object,
+        *,
+        dataset: DerivedDataset,
+        fields: Mapping[str, AnalysisField] | None,
+        index: PandasIndexPolicy,
+        source: tuple[str, str] | None,
+    ) -> tuple[
+        AnalysisExecutionOutputReference | None,
+        AnalysisDatasetDerivation | None,
+    ]:
+        exact = self._source_for(dataset, source=source)
+        if exact is not None and self._execution_output_matches(
+            exact,
+            value=dataset,
+        ):
+            return exact, None
+        traced_source = exact or self._source_for(value, source=source)
+        if traced_source is None:
+            return None, None
+        if not self._execution_output_matches(traced_source, value=value):
+            raise ValueError(
+                "analysis dataset source content does not match its execution output"
+            )
+        return None, AnalysisDatasetDerivation(
+            source=traced_source,
+            source_kind=_analysis_dataset_source_kind(value),
+            fields=dict(fields or {}),
+            index=index,
+        )
+
+    def _execution_output_matches(
+        self,
+        reference: AnalysisExecutionOutputReference,
+        *,
+        value: object,
+    ) -> bool:
+        execution_output = next(
+            (
+                output
+                for execution in self.executions
+                if execution.id == reference.execution_id
+                for output in execution.outputs
+                if output.name == reference.output_name
             ),
+            None,
+        )
+        if execution_output is None:
+            raise ValueError("analysis source must identify a traced execution output")
+        codec, content_hash = _analysis_value_identity(value)
+        return (
+            execution_output.codec == codec
+            and execution_output.content_hash == content_hash
         )
 
     @property
     def analysis_key(self) -> str:
         return _analysis_key(self.key, self.title)
-
-    def input(
-        self,
-        selector: str,
-        *,
-        role: str = "data",
-        title: str | None = None,
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis:
-        if not role.strip():
-            _raise_analysis_problem(
-                "analysis_input_role_invalid",
-                "analysis input role must be a non-empty string",
-                "role",
-            )
-        dataset = self.run.data().dataset(
-            selector,
-            expected_kind="measurement_dataset",
-        )
-        analysis_input = AnalysisInput(
-            target=dataset.id,
-            kind="measurement_dataset",
-            role=role,
-            title=title or dataset.id,
-            metadata=metadata,
-        )
-        return replace(self, inputs=(*self.inputs, analysis_input))
 
     def propose(
         self,
@@ -179,6 +472,7 @@ class Analysis:
         *updates: ParameterUpdate,
         reason: str = "",
         confidence: float | None = None,
+        evidence: Sequence[str] = (),
     ) -> Analysis:
         if not proposal_id.strip():
             _raise_analysis_problem(
@@ -198,6 +492,32 @@ class Analysis:
                 "analysis parameter proposal confidence must be between 0 and 1",
                 "confidence",
             )
+        evidence_output_ids = tuple(_analysis_output_id(item) for item in evidence)
+        if len(evidence_output_ids) != len(set(evidence_output_ids)):
+            _raise_analysis_problem(
+                "analysis_parameter_proposal_evidence_duplicated",
+                "analysis parameter proposal evidence ids must be unique",
+                "evidence",
+            )
+        outputs_by_id = {output.id: output for output in self.outputs}
+        for evidence_id in evidence_output_ids:
+            output = outputs_by_id.get(evidence_id)
+            if output is None:
+                _raise_analysis_problem(
+                    "analysis_parameter_proposal_evidence_unknown",
+                    f"analysis parameter proposal evidence is unknown: {evidence_id}",
+                    "evidence",
+                )
+            if not isinstance(
+                output,
+                AnalysisFactOutput | AnalysisDatasetOutput | AnalysisArtifactOutput,
+            ):
+                _raise_analysis_problem(
+                    "analysis_parameter_proposal_evidence_not_authoritative",
+                    "analysis parameter proposal evidence must identify a fact, "
+                    "dataset, or artifact output",
+                    "evidence",
+                )
         selected_id = artifact_slug(proposal_id, fallback="analysis")
         if any(proposal.id == selected_id for proposal in self.parameter_proposals):
             _raise_analysis_problem(
@@ -215,6 +535,7 @@ class Analysis:
                 updates=updates,
                 reason=reason,
                 confidence=confidence,
+                evidence_output_ids=evidence_output_ids,
             )
         except (TypeError, ValueError) as error:
             _raise_analysis_problem(
@@ -224,63 +545,472 @@ class Analysis:
             )
         output = AnalysisParameterProposalOutput(
             kind="parameter_change_proposal",
+            id=proposal.id,
             title=selected_id,
             content=proposal,
             metadata={},
         )
+        analysis = self._append_output(output)
         return replace(
-            self,
-            outputs=(*self.outputs, output),
+            analysis,
             parameter_proposals=(*self.parameter_proposals, proposal),
         )
 
-    def candidate_config(
-        self,
-        selection: CandidateSelection = None,
-    ) -> CandidateConfig:
-        proposal = _select_candidate_proposal(
-            self.parameter_proposals,
-            selection=selection,
-        )
-        return CandidateConfig(
-            parameter_proposal=proposal,
-        )
-
-    def save(self) -> SavedAnalysis:
-        return self.run.save_analysis(
+    def save(self) -> PublishedAnalysis:
+        saved = self.run.save_analysis(
             title=self.title,
             analysis_key=self.analysis_key,
             step_id=self.step_id,
             inputs=self.inputs,
+            executions=self.executions,
             outputs=self.outputs,
             parameter_proposals=self.parameter_proposals,
         )
+        return self.run.published_analysis(saved.record.id)
 
 
 @dataclass(frozen=True)
 class AnalysisContext:
     run: _AnalysisRun
+    default_title: str = "analysis"
     default_key: str | None = None
     step_id: str | None = None
+    _executions: list[AnalysisExecution] = field(
+        default_factory=list,
+        repr=False,
+        compare=False,
+    )
+    _execution_ids: dict[str, int] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
+    _accessed_inputs: dict[str, AnalysisInput] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
+    _execution_outputs_by_value_hash: dict[
+        str,
+        tuple[AnalysisExecutionOutputReference, ...],
+    ] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
+    _execution_targets_by_value_hash: dict[str, tuple[str, ...]] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
+    _execution_targets_by_object_id: dict[int, tuple[object, str]] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def config(self) -> ConfigProfileSnapshot:
         return self.run.config
 
-    def measurements(
+    def measurements(self) -> Dataset:
+        """Load this run's measurement dataset for this analysis step."""
+
+        dataset = self.run._measurements_for_analysis()  # pyright: ignore[reportPrivateUsage]
+        self._accessed_inputs.setdefault(
+            dataset.entry.id,
+            AnalysisInput(
+                target=dataset.entry.id,
+                kind="measurement_dataset",
+                content_hash=dataset.entry.content_hash,
+                codec=MEASUREMENT_DATASET_CODEC,
+                role="data",
+                title=dataset.entry.id,
+            ),
+        )
+        return dataset
+
+    def analysis_dataset(
         self,
-        selector: str = "raw-measurements",
-    ) -> Dataset:
-        """Load a labeled measurement dataset for this analysis step."""
+        analysis: str,
+        output: str,
+        *,
+        role: str = "data",
+        title: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> DerivedDataset:
+        """Load an earlier same-run analysis dataset and retain its exact revision."""
 
-        return self.run.measurements(selector=selector)
+        if not role.strip():
+            _raise_analysis_problem(
+                "analysis_input_role_invalid",
+                "analysis input role must be a non-empty string",
+                "role",
+            )
+        published = self.run.published_analysis(analysis)
+        selected = published.output(output)
+        if not isinstance(selected, AnalysisDatasetRecordOutput):
+            raise TypeError(
+                f"analysis output {published.id!r}:{output!r} is not a dataset"
+            )
+        dataset = published.dataset(output)
+        reference = selected.content
+        source = AnalysisPublishedOutputReference(
+            analysis_record_id=published.id,
+            output_id=selected.id,
+        )
+        self._accessed_inputs.setdefault(
+            reference.dataset_id,
+            AnalysisInput(
+                target=reference.dataset_id,
+                kind="analysis_dataset",
+                content_hash=reference.content_hash,
+                codec=reference.codec,
+                role=role,
+                title=title or selected.title,
+                metadata=metadata,
+                source=source,
+            ),
+        )
+        self._record_input_value(dataset, target=reference.dataset_id)
+        return dataset
 
-    def result(self, title: str = "analysis", *, key: str | None = None) -> Analysis:
-        return self.run.analysis(
-            title,
+    @overload
+    def trace[ResultT](
+        self,
+        id: str | None = None,
+        *,
+        fn: Callable[..., ResultT],
+        inputs: None = None,
+        **input_bindings: object,
+    ) -> ResultT: ...
+
+    @overload
+    def trace[ResultT](
+        self,
+        id: str | None = None,
+        *,
+        fn: Callable[..., ResultT],
+        inputs: Mapping[str, object],
+        **input_bindings: object,
+    ) -> ResultT: ...
+
+    def trace(
+        self,
+        id: str | None = None,
+        *,
+        fn: Callable[..., object],
+        inputs: Mapping[str, object] | None = None,
+        **input_bindings: object,
+    ) -> object:
+        """Run eager Python while retaining optional execution evidence.
+
+        The function receives its named inputs directly and returns one native
+        value. Scopecat records dataset/input identities, captured nonlocal
+        names, a diagnostic local-Python implementation identity, and encoded
+        output identity. It does not publish, cache, replay, batch, or remotely
+        deploy the call. A later fact, dataset, or artifact publication links
+        to the execution when its content matches exactly; first-party dataset
+        normalization instead records a derived relation.
+        """
+
+        duplicate_inputs = set(inputs or {}) & set(input_bindings)
+        if duplicate_inputs:
+            rendered = ", ".join(sorted(duplicate_inputs))
+            raise TypeError(f"analysis trace inputs were bound twice: {rendered}")
+        selected_inputs = {**(inputs or {}), **input_bindings}
+        if not selected_inputs:
+            raise TypeError("analysis trace requires at least one named input")
+        if not any(
+            isinstance(value, Dataset | ExperimentResultView)
+            or _analysis_dataset_value(value) is not None
+            for value in selected_inputs.values()
+        ):
+            raise TypeError("analysis trace requires at least one dataset input")
+        execution_id = self._allocate_execution_id(
+            id or getattr(fn, "__name__", "analysis-execution")
+        )
+        captures = compute_capture_names_internal(fn)
+        input_provenance = tuple(
+            _analysis_execution_input(
+                name,
+                value,
+                execution_target=self._execution_target_for(value),
+            )
+            for name, value in selected_inputs.items()
+        )
+        input_names = tuple(selected_inputs)
+        for provenance in input_provenance:
+            if provenance.kind != "measurement_dataset":
+                continue
+            self._accessed_inputs.setdefault(
+                provenance.target,
+                AnalysisInput(
+                    target=provenance.target,
+                    kind="measurement_dataset",
+                    content_hash=provenance.content_hash,
+                    codec=provenance.codec,
+                    role="data",
+                    title=provenance.target,
+                ),
+            )
+
+        result = fn(**selected_inputs)
+        traced_values, execution_outputs = _analysis_trace_outputs(
+            result,
+            execution_id=execution_id,
+        )
+        execution = AnalysisExecution(
+            id=execution_id,
+            implementation=f"python:{execution_id}",
+            deterministic=False,
+            inputs=input_names,
+            input_bindings=input_provenance,
+            outputs=execution_outputs,
+            captures=captures,
+            access="full",
+            metadata={},
+        )
+        self._executions.append(execution)
+        for (output_name, value), execution_output in zip(
+            traced_values,
+            execution.outputs,
+            strict=True,
+        ):
+            try:
+                value_codec, value_hash = _analysis_value_identity(value)
+            except TypeError:
+                continue
+            if (
+                value_codec != execution_output.codec
+                or value_hash != execution_output.content_hash
+            ):
+                continue
+            reference = AnalysisExecutionOutputReference(
+                execution_id=execution.id,
+                output_name=output_name,
+            )
+            self._record_execution_value(
+                content_hash=value_hash,
+                reference=reference,
+            )
+        return result
+
+    def _allocate_execution_id(self, requested: str) -> str:
+        base = artifact_slug(requested, fallback="analysis-execution")
+        count = self._execution_ids.get(base, 0) + 1
+        self._execution_ids[base] = count
+        return base if count == 1 else f"{base}-{count}"
+
+    def _execution_target_for(self, value: object) -> str | None:
+        retained_target = self._execution_targets_by_object_id.get(id(value))
+        if retained_target is not None and retained_target[0] is value:
+            return retained_target[1]
+        try:
+            content_hash = _analysis_value_hash(value)
+        except TypeError:
+            return None
+        targets = self._execution_targets_by_value_hash.get(content_hash, ())
+        return targets[0] if len(targets) == 1 else None
+
+    def _record_input_value(self, value: object, *, target: str) -> None:
+        self._execution_targets_by_object_id[id(value)] = (value, target)
+        content_hash = _analysis_value_hash(value)
+        targets = self._execution_targets_by_value_hash.get(content_hash, ())
+        if target not in targets:
+            self._execution_targets_by_value_hash[content_hash] = (*targets, target)
+
+    def _record_execution_value(
+        self,
+        *,
+        content_hash: str,
+        reference: AnalysisExecutionOutputReference,
+    ) -> None:
+        references = self._execution_outputs_by_value_hash.get(content_hash, ())
+        if reference not in references:
+            self._execution_outputs_by_value_hash[content_hash] = (
+                *references,
+                reference,
+            )
+        target = f"execution:{reference.execution_id}:{reference.output_name}"
+        targets = self._execution_targets_by_value_hash.get(content_hash, ())
+        if target not in targets:
+            self._execution_targets_by_value_hash[content_hash] = (*targets, target)
+
+    def result(self, title: str | None = None, *, key: str | None = None) -> Analysis:
+        """Start one publication with every input accessed through this context."""
+
+        return Analysis(
+            run=self.run,
+            title=self.default_title if title is None else title,
             key=key or self.default_key,
             step_id=self.step_id,
+            inputs=tuple(self._accessed_inputs.values()),
+            executions=tuple(self._executions),
+            _execution_outputs_by_value_hash=dict(
+                self._execution_outputs_by_value_hash
+            ),
         )
+
+
+def _analysis_trace_outputs(
+    result: object,
+    *,
+    execution_id: str,
+) -> tuple[
+    tuple[tuple[str, object], ...],
+    tuple[AnalysisExecutionOutput, ...],
+]:
+    artifact_output = _analysis_artifact_value(result)
+    dataset_output = _analysis_dataset_value(result)
+    if artifact_output is not None:
+        output_codec = ANALYSIS_ARTIFACT_CODEC
+        output_hash = sha256_content_hash(artifact_output)
+        output_kind: Literal["derived_dataset", "artifact", "value"] = "artifact"
+    elif dataset_output is not None:
+        output_codec = DERIVED_DATASET_CODEC
+        output_hash = sha256_content_hash(dataset_output.to_arrow_ipc())
+        output_kind = "derived_dataset"
+    else:
+        encoded = _analysis_json(result)
+        output_codec = PYTHON_JSON_CODEC
+        output_hash = f"sha256:{stable_content_hash(encoded)}"
+        output_kind = "value"
+    return ((execution_id, result),), (
+        AnalysisExecutionOutput(
+            name=execution_id,
+            kind=output_kind,
+            content_hash=output_hash,
+            codec=output_codec,
+        ),
+    )
+
+
+def _analysis_execution_input(
+    name: str,
+    value: object,
+    *,
+    execution_target: str | None,
+) -> AnalysisExecutionInput:
+    artifact = _analysis_artifact_value(value)
+    if artifact is not None:
+        content_hash = sha256_content_hash(artifact)
+        return AnalysisExecutionInput(
+            name=name,
+            kind="artifact",
+            target=execution_target or f"content:{content_hash}",
+            content_hash=content_hash,
+            codec=ANALYSIS_ARTIFACT_CODEC,
+        )
+    derived_value = _analysis_dataset_value(value)
+    if derived_value is not None:
+        content_hash = sha256_content_hash(derived_value.to_arrow_ipc())
+        return AnalysisExecutionInput(
+            name=name,
+            kind="derived_dataset",
+            target=execution_target or f"content:{content_hash}",
+            content_hash=content_hash,
+            codec=DERIVED_DATASET_CODEC,
+        )
+    dataset = (
+        cast("ExperimentResultView[object]", value).dataset
+        if isinstance(value, ExperimentResultView)
+        else value
+    )
+    if isinstance(dataset, Dataset):
+        return AnalysisExecutionInput(
+            name=name,
+            kind="measurement_dataset",
+            target=dataset.entry.id,
+            content_hash=dataset.entry.content_hash,
+            codec=MEASUREMENT_DATASET_CODEC,
+        )
+    encoded = _analysis_json(cast("object", value))
+    content_hash = f"sha256:{stable_content_hash(encoded)}"
+    return AnalysisExecutionInput(
+        name=name,
+        kind="value",
+        target=execution_target or f"inline:{name}:{content_hash}",
+        content_hash=content_hash,
+        codec=PYTHON_JSON_CODEC,
+        value=None if execution_target is not None else encoded,
+    )
+
+
+def _analysis_value_hash(value: object) -> str:
+    return _analysis_value_identity(value)[1]
+
+
+def _analysis_value_identity(value: object) -> tuple[str, str]:
+    artifact = _analysis_artifact_value(value)
+    if artifact is not None:
+        return ANALYSIS_ARTIFACT_CODEC, sha256_content_hash(artifact)
+    dataset = _analysis_dataset_value(value)
+    if dataset is not None:
+        return DERIVED_DATASET_CODEC, sha256_content_hash(dataset.to_arrow_ipc())
+    return PYTHON_JSON_CODEC, f"sha256:{stable_content_hash(_analysis_json(value))}"
+
+
+def _analysis_dataset_value(value: object) -> DerivedDataset | None:
+    if isinstance(value, DerivedDataset):
+        return value
+    owner = type(value).__module__.partition(".")[0]
+    if owner in {"pandas", "polars", "pyarrow", "xarray"}:
+        return derived_dataset(value)
+    if is_analysis_rows(value):
+        return derived_dataset(value)
+    return None
+
+
+def _analysis_artifact_value(value: object) -> bytes | None:
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, Path):
+        if not value.is_file():
+            raise FileNotFoundError(value)
+        return value.read_bytes()
+    return None
+
+
+def _analysis_dataset_source_kind(
+    value: object,
+) -> Literal["arrow", "pandas", "polars", "xarray"]:
+    owner = type(value).__module__.partition(".")[0]
+    if owner == "pyarrow":
+        return "arrow"
+    if owner in {"pandas", "polars", "xarray"}:
+        return cast("Literal['pandas', 'polars', 'xarray']", owner)
+    raise TypeError("analysis dataset derivations require native dataset content")
+
+
+def _analysis_json(value: object) -> JsonValue:
+    if value is None or isinstance(value, bool | int | float | str):
+        return value
+    if isinstance(value, Quantity):
+        return {"value": _analysis_json(value.value), "unit": value.unit}
+    if isinstance(value, BaseModel):
+        return cast("JsonValue", value.model_dump(mode="json"))
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            member.name: _analysis_json(cast("object", getattr(value, member.name)))
+            for member in fields(value)
+        }
+    if isinstance(value, Mapping):
+        mapping = cast("Mapping[object, object]", value)
+        if any(not isinstance(key, str) for key in mapping):
+            raise TypeError("analysis derived data mappings require string keys")
+        return {cast("str", key): _analysis_json(item) for key, item in mapping.items()}
+    if isinstance(value, Sequence):
+        return [_analysis_json(item) for item in value]
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist):
+        return _analysis_json(tolist())
+    item = getattr(value, "item", None)
+    if callable(item):
+        return _analysis_json(item())
+    raise TypeError(
+        f"analysis trace output {type(value).__qualname__} is not JSON encodable"
+    )
 
 
 class AnalysisStep(Protocol):
@@ -426,40 +1156,6 @@ def _analysis_definition[**P](
     )
 
 
-def _select_candidate_proposal(
-    proposals: Sequence[ParameterChangeProposal],
-    *,
-    selection: CandidateSelection,
-) -> ParameterChangeProposal:
-    if not proposals:
-        _raise_analysis_problem(
-            "candidate_config_no_parameter_proposals",
-            "candidate config requires at least one parameter proposal",
-            "parameter_proposals",
-        )
-    if selection is None:
-        if len(proposals) == 1:
-            return proposals[0]
-        _raise_analysis_problem(
-            "candidate_config_selection_required",
-            (
-                "candidate config selection is required when analysis has multiple "
-                "parameter proposals"
-            ),
-            "selection",
-        )
-    by_id = {proposal.id: proposal for proposal in proposals}
-    proposal_id = artifact_slug(selection, fallback="analysis")
-    try:
-        return by_id[proposal_id]
-    except KeyError:
-        _raise_analysis_problem(
-            "candidate_config_selection_not_found",
-            f"candidate config selection was not found: {proposal_id}",
-            "selection",
-        )
-
-
 def _analysis_key(key: str | None, title: str) -> str:
     selected = key if key is not None else title
     if not selected.strip():
@@ -469,6 +1165,23 @@ def _analysis_key(key: str | None, title: str) -> str:
             "key",
         )
     return artifact_slug(selected, fallback="analysis")
+
+
+def _analysis_output_id(value: str) -> str:
+    if not value.strip():
+        _raise_analysis_problem(
+            "analysis_output_id_invalid",
+            "analysis output id must be a non-empty string",
+            "id",
+        )
+    return artifact_slug(value, fallback="output")
+
+
+def _is_artifact_filename(filename: str) -> bool:
+    if not filename or "\\" in filename:
+        return False
+    path = PurePosixPath(filename)
+    return path.name == filename and not path.is_absolute() and ".." not in path.parts
 
 
 def _raise_analysis_problem(
@@ -492,17 +1205,12 @@ __all__ = [
     "Analysis",
     "AnalysisContext",
     "AnalysisDefinition",
-    "AnalysisFigure",
-    "AnalysisFigureAxis",
-    "AnalysisFigureSeries",
+    "AnalysisFactSchema",
+    "AnalysisField",
     "AnalysisInput",
     "AnalysisInvocation",
     "AnalysisOutput",
     "AnalysisStep",
-    "AnalysisTable",
-    "AnalysisTableCell",
-    "AnalysisTableColumn",
-    "AnalysisTableRow",
-    "SavedAnalysis",
+    "DerivedDataset",
     "analysis_step",
 ]

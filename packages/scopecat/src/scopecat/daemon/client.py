@@ -1,13 +1,16 @@
+# pyright: reportUnknownMemberType=false, reportUnknownParameterType=false
+# pyright: reportUnknownVariableType=false
 """Synchronous transport client for one project daemon."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from types import TracebackType
-from typing import Self
+from typing import Self, cast
 from urllib.parse import quote
 
 import httpx2
+import pyarrow as pa
 from pydantic import BaseModel, ValidationError
 
 from scopecat.control.models import (
@@ -23,7 +26,7 @@ from scopecat.daemon.views import (
     DaemonHealth,
     InstrumentListView,
     InstrumentView,
-    MeasurementPage,
+    MeasurementArrowQuery,
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     ParameterProposalListView,
@@ -31,6 +34,7 @@ from scopecat.daemon.views import (
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
+    RunDatasetBytesView,
     RunDetail,
     RunRequestView,
     RunSummaryPage,
@@ -110,6 +114,8 @@ from scopecat.sdk.instruments.execution import (
 )
 
 _API_PREFIX = "/api/v1"
+_NEXT_OFFSET_HEADER = "X-Scopecat-Next-Offset"
+_SNAPSHOT_SIZE_HEADER = "X-Scopecat-Snapshot-Size"
 # The daemon owns operation deadlines; a read timeout would make a completed
 # hardware command ambiguous to its caller.
 _DEFAULT_TIMEOUT = httpx2.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
@@ -427,24 +433,6 @@ class DaemonClient:
             params["state"] = state
         return self._get_model(f"{_API_PREFIX}/runs", RunSummaryPage, params=params)
 
-    def list_run_stages(
-        self,
-        *,
-        limit: int = 50,
-        before: int | None = None,
-        sequence_id: str | None = None,
-    ) -> RunSummaryPage:
-        params: dict[str, str | int] = {"limit": limit}
-        if before is not None:
-            params["before"] = before
-        if sequence_id is not None:
-            params["sequence_id"] = sequence_id
-        return self._get_model(
-            f"{_API_PREFIX}/run-stages",
-            RunSummaryPage,
-            params=params,
-        )
-
     def get_run(self, run_id: str) -> RunDetail:
         return self._get_model(f"{_API_PREFIX}/runs/{run_id}", RunDetail)
 
@@ -589,6 +577,24 @@ class DaemonClient:
             RunMeasurementDatasetResult,
         )
 
+    def dataset_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunDatasetBytesView:
+        selected_run = quote(run_id, safe="")
+        selected_dataset = quote(selector, safe="")
+        params: dict[str, str | int] | None = (
+            None if expected_kind is None else {"expected_kind": expected_kind}
+        )
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{selected_run}/datasets/{selected_dataset}/bytes",
+            RunDatasetBytesView,
+            params=params,
+        )
+
     def attach(
         self,
         run_id: str,
@@ -616,18 +622,27 @@ class DaemonClient:
         )
         return AttentionResolutionReceipt.model_validate_json(response.content)
 
-    def measurements(
+    def measurement_arrow(
         self,
         run_id: str,
-        *,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> MeasurementPage:
-        return self._get_model(
-            f"{_API_PREFIX}/runs/{run_id}/measurements",
-            MeasurementPage,
-            params={"limit": limit, "offset": offset},
+        query: MeasurementArrowQuery,
+    ) -> tuple[pa.Table, int | None, int]:
+        response = self._request(
+            "POST",
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/measurements/arrow",
+            json=query.model_dump(mode="json"),
         )
+        table = pa.ipc.open_stream(response.content).read_all()
+        encoded_next_offset = cast(
+            "str | None", response.headers.get(_NEXT_OFFSET_HEADER)
+        )
+        next_offset = None if encoded_next_offset is None else int(encoded_next_offset)
+        encoded_snapshot_size = cast(
+            "str | None", response.headers.get(_SNAPSHOT_SIZE_HEADER)
+        )
+        if encoded_snapshot_size is None:
+            raise ValueError("measurement Arrow response has no snapshot size")
+        return table, next_offset, int(encoded_snapshot_size)
 
     def measurement_trace_preview(
         self,

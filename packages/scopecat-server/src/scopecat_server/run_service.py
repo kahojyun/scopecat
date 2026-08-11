@@ -1,3 +1,5 @@
+# pyright: reportUnknownMemberType=false, reportUnknownParameterType=false
+# pyright: reportUnknownVariableType=false
 """Run records and read-side application service."""
 
 from __future__ import annotations
@@ -6,6 +8,7 @@ from base64 import b64decode, b64encode
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 
+import pyarrow as pa
 from scopecat.adapters.sqlite import (
     ControlPlaneNotFound,
     SQLiteControlPlane,
@@ -13,7 +16,11 @@ from scopecat.adapters.sqlite import (
     SQLiteMeasurementDatasetRepository,
     SQLiteRunRepository,
 )
+from scopecat.analysis.datasets import DerivedDataset
 from scopecat.analysis.service import (
+    AnalysisArtifactOutput,
+    AnalysisDatasetOutput,
+    AnalysisFactOutput,
     AnalysisFigureOutput,
     AnalysisInput,
     AnalysisOutput,
@@ -33,7 +40,8 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.daemon.views import (
-    MeasurementPage,
+    MeasurementArrowQuery,
+    MeasurementPreview,
     MeasurementSlice,
     MeasurementSliceQuery,
     MeasurementTracePreview,
@@ -47,6 +55,7 @@ from scopecat.daemon.views import (
     RunArtifactBytesView,
     RunConfigView,
     RunControlView,
+    RunDatasetBytesView,
     RunDetail,
     RunDomainExecutionView,
     RunPlanView,
@@ -56,6 +65,9 @@ from scopecat.daemon.views import (
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
+    AnalysisArtifactOutputPayload,
+    AnalysisDatasetOutputPayload,
+    AnalysisFactOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
@@ -73,7 +85,9 @@ from scopecat.kernel.errors import (
 from scopecat.measurements.datasets import (
     RAW_MEASUREMENTS_DATASET_ID,
     product_grid_slice_indices,
+    select_measurement_schema,
 )
+from scopecat.measurements.paging import project_measurement_page
 from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.measurements.traces import (
     MeasurementTraceProjection,
@@ -101,6 +115,7 @@ from scopecat.runs.service import (
     read_run_artifact_bytes,
     read_run_artifact_json,
     read_run_artifact_text,
+    read_run_dataset_bytes,
     read_run_measurement_dataset,
     read_run_record_json,
 )
@@ -111,9 +126,29 @@ from .errors import BackendConflict, BackendNotFound
 
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
+    if isinstance(item, AnalysisFactOutputPayload):
+        return AnalysisFactOutput(
+            kind="fact",
+            id=item.id,
+            title=item.title,
+            content=item.content,
+            produced_by=item.produced_by,
+            metadata=item.metadata,
+        )
+    if isinstance(item, AnalysisDatasetOutputPayload):
+        return AnalysisDatasetOutput(
+            kind="dataset",
+            id=item.id,
+            title=item.title,
+            content=DerivedDataset.from_payload(item.content),
+            produced_by=item.produced_by,
+            derived_from=item.derived_from,
+            metadata=item.metadata,
+        )
     if isinstance(item, AnalysisTableOutputPayload):
         return AnalysisTableOutput(
             kind="table",
+            id=item.id,
             title=item.title,
             content=item.content,
             metadata=item.metadata,
@@ -121,12 +156,25 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
     if isinstance(item, AnalysisFigureOutputPayload):
         return AnalysisFigureOutput(
             kind="figure",
+            id=item.id,
             title=item.title,
             content=item.content,
             metadata=item.metadata,
         )
+    if isinstance(item, AnalysisArtifactOutputPayload):
+        return AnalysisArtifactOutput(
+            kind="artifact",
+            id=item.id,
+            title=item.title,
+            content=item.content_bytes(),
+            filename=item.filename,
+            media_type=item.media_type,
+            produced_by=item.produced_by,
+            metadata=item.metadata,
+        )
     return AnalysisParameterProposalOutput(
         kind="parameter_change_proposal",
+        id=item.id,
         title=item.title,
         content=item.content,
         metadata=item.metadata,
@@ -189,36 +237,6 @@ class RunService:
                 limit=limit,
                 before=before,
                 state=state,
-            )
-            return RunSummaryPage(
-                items=tuple(
-                    RunSummary(
-                        control=_run_control_view(control),
-                        manifest=self._runs.read_manifest_in_transaction(
-                            connection,
-                            control.run_id,
-                        ),
-                    )
-                    for control in page.items
-                ),
-                next_cursor=page.next_cursor,
-            )
-
-    def list_run_stages(
-        self,
-        *,
-        limit: int,
-        before: int | None,
-        sequence_id: str | None,
-    ) -> RunSummaryPage:
-        """List staged runs without scanning unrelated run manifests."""
-
-        with self._control.read_transaction() as connection:
-            page = self._control.list_staged_runs_in_transaction(
-                connection,
-                limit=limit,
-                before=before,
-                sequence_id=sequence_id,
             )
             return RunSummaryPage(
                 items=tuple(
@@ -348,9 +366,12 @@ class RunService:
             AnalysisInput(
                 target=item.target,
                 kind=item.kind,
+                content_hash=item.content_hash,
+                codec=item.codec,
                 role=item.role,
                 title=item.title,
                 metadata=item.metadata,
+                source=item.source,
             )
             for item in command.inputs
         )
@@ -368,6 +389,7 @@ class RunService:
                 analysis_key=command.analysis_key,
                 step_id=command.step_id,
                 inputs=inputs,
+                executions=command.executions,
                 outputs=outputs,
                 parameter_proposals=proposals,
             )
@@ -403,6 +425,7 @@ class RunService:
             record=prepared.saved.record,
             analysis_key=prepared.saved.analysis_key,
             inputs=command.inputs,
+            parameter_proposals=prepared.saved.parameter_proposals,
         )
 
     def get_run_artifact_bytes(
@@ -482,6 +505,26 @@ class RunService:
                 services=self._services,
             )
 
+    def get_run_dataset_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunDatasetBytesView:
+        with self._config_errors():
+            result = read_run_dataset_bytes(
+                run_id=run_id,
+                selector=selector,
+                expected_kind=expected_kind,
+                services=self._services,
+            )
+            return RunDatasetBytesView(
+                run_id=run_id,
+                dataset=result.dataset,
+                content_base64=b64encode(result.content).decode("ascii"),
+            )
+
     def attach_run_content(
         self,
         run_id: str,
@@ -527,23 +570,75 @@ class RunService:
                 ),
             )
 
-    def measurements(
+    def measurement_arrow(
+        self,
+        run_id: str,
+        query: MeasurementArrowQuery,
+    ) -> tuple[pa.Table, int | None, int]:
+        """Read and project one finite page from Arrow-backed measurement chunks."""
+
+        variable_ids = tuple(column.variable_id for column in query.columns)
+        with self._config_errors():
+            manifest = self._runs.read_manifest(run_id)
+            items, next_offset, schema, snapshot_size = (
+                SQLiteMeasurementDatasetRepository(
+                    self._runs,
+                    run_id=run_id,
+                ).measurement_page(
+                    limit=query.limit,
+                    offset=query.offset,
+                    snapshot_size=query.snapshot_size,
+                    variable_ids=variable_ids,
+                )
+            )
+        if schema is None:
+            raise BackendConflict("measurement dataset has no registered schema")
+        entry = next(
+            (
+                candidate
+                for candidate in manifest.datasets
+                if candidate.id == RAW_MEASUREMENTS_DATASET_ID
+            ),
+            RunContentEntry(
+                role="dataset",
+                id=RAW_MEASUREMENTS_DATASET_ID,
+                kind="measurement_dataset",
+                schema=schema.model_dump(mode="json"),
+                content_hash="live-measurement-dataset",
+            ),
+        )
+        try:
+            table = project_measurement_page(
+                items,
+                schema=schema,
+                entry=entry,
+                columns={column.name: column.variable_id for column in query.columns},
+                units=query.units,
+                diagnostics=query.diagnostics,
+                include_identity=query.include_identity,
+                layout=query.layout,
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise BackendConflict(str(error)) from error
+        return table, next_offset, snapshot_size
+
+    def measurement_preview(
         self,
         run_id: str,
         *,
         limit: int,
-        offset: int,
-        include_schema: bool = True,
-    ) -> MeasurementPage:
+    ) -> MeasurementPreview:
+        """Return one bounded record preview for presentation in the operator UI."""
+
         with self._config_errors():
             manifest = self._runs.read_manifest(run_id)
-            items, next_offset, live_schema = SQLiteMeasurementDatasetRepository(
+            items, next_offset, live_schema, _ = SQLiteMeasurementDatasetRepository(
                 self._runs,
                 run_id=run_id,
             ).measurement_page(
                 limit=limit,
-                offset=offset,
-                include_schema=include_schema,
+                offset=0,
+                include_schema=True,
             )
         dataset = next(
             (
@@ -555,13 +650,13 @@ class RunService:
         )
         terminal_schema = (
             None
-            if not include_schema or dataset is None or dataset.data_schema is None
+            if dataset is None or dataset.data_schema is None
             else MeasurementDatasetSchema.model_validate(dataset.data_schema)
         )
-        return MeasurementPage(
+        return MeasurementPreview(
             items=items,
-            next_offset=next_offset,
             dataset_schema=terminal_schema or live_schema,
+            truncated=next_offset is not None,
         )
 
     def measurement_slice(
@@ -591,7 +686,7 @@ class RunService:
         response_schema = schema
         if query.variable_ids is not None:
             try:
-                response_schema = _select_measurement_schema(
+                response_schema = select_measurement_schema(
                     response_schema,
                     query.variable_ids,
                 )
@@ -789,34 +884,6 @@ def _domain_execution_views(
             }
         )
     return tuple(projected)
-
-
-def _select_measurement_schema(
-    schema: MeasurementDatasetSchema,
-    variable_ids: list[str],
-) -> MeasurementDatasetSchema:
-    selected = set(variable_ids)
-    available = {variable.id for variable in schema.variables}
-    unknown = selected - available
-    if unknown:
-        raise ValueError(f"unknown measurement variables: {', '.join(sorted(unknown))}")
-    return schema.model_copy(
-        update={
-            "variables": [
-                variable for variable in schema.variables if variable.id in selected
-            ],
-            "primary_coordinates": [
-                variable_id
-                for variable_id in schema.primary_coordinates
-                if variable_id in selected
-            ],
-            "primary_observables": [
-                variable_id
-                for variable_id in schema.primary_observables
-                if variable_id in selected
-            ],
-        }
-    )
 
 
 def _trace_preview_point_indices(

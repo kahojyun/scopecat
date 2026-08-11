@@ -27,6 +27,8 @@ from scopecat.measurements.records import (
     validate_record_axes,
 )
 from scopecat.program.expressions import (
+    ArrayExpr,
+    ComputeResultArrayExpr,
     ComputeResultScalarExpr,
     ScalarExpr,
 )
@@ -110,14 +112,14 @@ def _product_demand_problems(
     )
     owned_products.update(
         output.product_id
-        for postprocessor in program.measurement_postprocessors
-        for output in postprocessor.outputs
+        for compute in program.measurement_computes
+        for output in compute.outputs
     )
     return tuple(
         _problem(
             "product_acquire_missing",
             f"product {product_id.qualified_name!r} is selected but has no "
-            "acquisition, domain, or postprocessor owner",
+            "acquisition, domain, or compute owner",
             model_location("product_uses", product_id.qualified_name),
         )
         for product_id in sorted(
@@ -220,7 +222,12 @@ def _program_relation_consumers(
             continue
         for input_name, value_id in node.inputs:
             input_value = values[value_id]
-            if isinstance(input_value, ComputeResultScalarExpr):
+            if isinstance(
+                input_value,
+                ComputeResultScalarExpr | ComputeResultArrayExpr,
+            ):
+                continue
+            if isinstance(input_value, ArrayExpr):
                 continue
             if not isinstance(input_value, ScalarExpr):
                 raise AssertionError("compute inputs must be scalar")
@@ -307,7 +314,9 @@ def _value_record_consumers(
     values = BoundValueResolver(logical, program)
     for record_index, record in enumerate(program.value_record_uses):
         value = values[record.value_id]
-        if isinstance(value, ComputeResultScalarExpr):
+        if isinstance(value, ComputeResultScalarExpr | ComputeResultArrayExpr):
+            continue
+        if isinstance(value, ArrayExpr):
             continue
         if not isinstance(value, ScalarExpr):
             raise AssertionError("value records must resolve to scalars")

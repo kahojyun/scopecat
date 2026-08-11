@@ -1,11 +1,15 @@
+# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
+import pyarrow as pa
 import pytest
 from pydantic import ValidationError
 
+from scopecat.analysis.datasets import DerivedDataset
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.inventory import (
     InstrumentInventoryRekey,
@@ -25,6 +29,7 @@ from scopecat.control.models import (
     RunResourceRequirement,
 )
 from scopecat.daemon.wire import (
+    AnalysisDatasetOutputPayload,
     AnalysisFigureOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
@@ -51,19 +56,21 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionReceipt,
     RunSubmission,
 )
+from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
-    MAX_ANALYSIS_TABLE_COLUMNS,
-    MAX_ANALYSIS_TABLE_ROWS,
-    AnalysisFigure,
-    AnalysisFigureAxis,
-    AnalysisFigureSeries,
-    AnalysisTable,
-    AnalysisTableColumn,
-    AnalysisTableRow,
+    AnalysisDatasetViewSource,
+    AnalysisExecution,
+    AnalysisExecutionInput,
+    AnalysisExecutionOutput,
+    AnalysisExecutionOutputReference,
+    AnalysisField,
+    AnalysisFigureProjection,
+    AnalysisFigureViewSpec,
+    AnalysisTableViewSpec,
 )
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
@@ -247,28 +254,65 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         reason="fit converged",
         confidence=0.9,
     )
+    dataset = DerivedDataset.from_arrow(
+        pa.table({"bias": [1.0, 2.0], "signal": [3.0, 4.0]}),
+        fields={"bias": AnalysisField(role="coordinate")},
+    )
     command = AnalysisSaveCommand(
         title="fit",
         analysis_key="fit",
+        executions=(
+            AnalysisExecution(
+                id="fit",
+                implementation="python:lab.fit",
+                deterministic=True,
+                inputs=("dataset",),
+                input_bindings=(
+                    AnalysisExecutionInput(
+                        name="dataset",
+                        kind="measurement_dataset",
+                        target="measurement-dataset",
+                        content_hash="sha256:measurements",
+                        codec="scopecat.measurement-dataset.v8",
+                    ),
+                ),
+                outputs=(
+                    AnalysisExecutionOutput(
+                        name="fit",
+                        kind="derived_dataset",
+                        content_hash=sha256_content_hash(dataset.to_arrow_ipc()),
+                        codec="scopecat.derived-dataset.arrow-ipc.v2",
+                    ),
+                ),
+            ),
+        ),
         outputs=(
+            AnalysisDatasetOutputPayload(
+                kind="dataset",
+                id="fits",
+                title="fit data",
+                produced_by=AnalysisExecutionOutputReference(
+                    execution_id="fit",
+                    output_name="fit",
+                ),
+                content=dataset.to_payload(),
+            ),
             AnalysisFigureOutputPayload(
                 kind="figure",
+                id="fit-curve",
                 title="fit curve",
-                content=AnalysisFigure(
-                    kind="line",
-                    x_axis=AnalysisFigureAxis(label="Bias", unit="V"),
-                    y_axis=AnalysisFigureAxis(label="Signal", unit="ratio"),
-                    series=[
-                        AnalysisFigureSeries(
-                            id="fit",
-                            x=[1.0, 2.0],
-                            y=[3.0, 4.0],
-                        )
-                    ],
+                content=AnalysisFigureViewSpec(
+                    source=AnalysisDatasetViewSource(output_id="fits"),
+                    projection=AnalysisFigureProjection(
+                        kind="line",
+                        x="bias",
+                        y="signal",
+                    ),
                 ),
             ),
             AnalysisParameterProposalOutputPayload(
                 kind="parameter_change_proposal",
+                id=proposal.id,
                 title=proposal.id,
                 content=proposal,
             ),
@@ -286,6 +330,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
     )
 
     assert AnalysisSaveCommand.model_validate_json(command.model_dump_json()) == command
+    assert "preview" not in command.model_dump_json()
     assert (
         ConfigPublishCommand.model_validate_json(publish.model_dump_json()) == publish
     )
@@ -295,6 +340,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
             outputs=(
                 AnalysisParameterProposalOutputPayload(
                     kind="parameter_change_proposal",
+                    id=proposal.id,
                     title=proposal.id,
                     content=proposal.model_copy(
                         update={"analysis_record_id": "analysis-other"}
@@ -302,36 +348,44 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                 ),
             ),
         )
+    with pytest.raises(
+        ValidationError,
+        match="producer must identify an execution output",
+    ):
+        AnalysisSaveCommand(
+            **command.model_dump(exclude={"outputs"}),
+            outputs=(
+                command.outputs[0].model_copy(
+                    update={
+                        "produced_by": AnalysisExecutionOutputReference(
+                            execution_id="fit",
+                            output_name="missing",
+                        )
+                    }
+                ),
+            ),
+        )
 
 
-def test_analysis_save_command_bounds_embedded_output_group() -> None:
-    table = AnalysisTable(
-        columns=[
-            AnalysisTableColumn(id=f"column-{index}")
-            for index in range(MAX_ANALYSIS_TABLE_COLUMNS)
-        ],
-        rows=[
-            AnalysisTableRow(cells=[index] * MAX_ANALYSIS_TABLE_COLUMNS)
-            for index in range(MAX_ANALYSIS_TABLE_ROWS)
-        ],
-    )
+def test_analysis_save_command_bounds_output_count() -> None:
     output = AnalysisTableOutputPayload(
         kind="table",
+        id="large-table",
         title="large table",
-        content=table,
+        content=AnalysisTableViewSpec(
+            source=AnalysisDatasetViewSource(output_id="fits"),
+            columns=("value",),
+        ),
     )
 
-    with pytest.raises(ValidationError, match="total table cell count"):
-        AnalysisSaveCommand(
-            title="large tables",
-            analysis_key="large-tables",
-            outputs=(output,) * 5,
-        )
     with pytest.raises(ValidationError, match=f"at most {MAX_ANALYSIS_OUTPUTS} items"):
         AnalysisSaveCommand(
             title="too many outputs",
             analysis_key="too-many-outputs",
-            outputs=(output,) * (MAX_ANALYSIS_OUTPUTS + 1),
+            outputs=tuple(
+                output.model_copy(update={"id": f"output-{index}"})
+                for index in range(MAX_ANALYSIS_OUTPUTS + 1)
+            ),
         )
 
 
