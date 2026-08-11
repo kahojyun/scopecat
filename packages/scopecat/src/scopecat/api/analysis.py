@@ -792,11 +792,13 @@ class AnalysisContext:
             deterministic=deterministic,
             inputs=input_names,
             input_bindings=input_provenance,
-            output=AnalysisExecutionOutput(
-                name=execution_id,
-                kind=("derived_dataset" if dataset_output is not None else "value"),
-                content_hash=output_hash,
-                codec=output_codec,
+            outputs=(
+                AnalysisExecutionOutput(
+                    name=execution_id,
+                    kind=("derived_dataset" if dataset_output is not None else "value"),
+                    content_hash=output_hash,
+                    codec=output_codec,
+                ),
             ),
             captures=captures,
             access=("full" if contract is None else contract.data_access),
@@ -812,7 +814,7 @@ class AnalysisContext:
             assert value_hash is not None
             self._execution_ids_by_value_hash[value_hash] = execution.id
             self._execution_targets_by_value_hash[value_hash] = (
-                f"execution:{execution.id}:{execution.output.name}"
+                f"execution:{execution.id}:{execution.outputs[0].name}"
             )
         return result
 

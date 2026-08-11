@@ -496,12 +496,12 @@ class AnalysisExecution(_AnalysisContentModel):
     deterministic: bool
     inputs: Sequence[_NonEmptyText]
     input_bindings: Sequence[AnalysisExecutionInput]
-    output: AnalysisExecutionOutput
+    outputs: Sequence[AnalysisExecutionOutput]
     captures: Sequence[_NonEmptyText] = ()
     access: Literal["full", "batches"] = "full"
     metadata: JsonMetadata = Field(default_factory=dict)
 
-    @field_validator("inputs", "input_bindings", "captures")
+    @field_validator("inputs", "input_bindings", "outputs", "captures")
     @classmethod
     def freeze_edges[T](cls, value: Sequence[T]) -> Sequence[T]:
         return tuple(value)
@@ -510,6 +510,11 @@ class AnalysisExecution(_AnalysisContentModel):
     def validate_input_bindings(self) -> AnalysisExecution:
         if tuple(self.inputs) != tuple(binding.name for binding in self.input_bindings):
             raise ValueError("analysis execution inputs must match its input bindings")
+        output_names = tuple(output.name for output in self.outputs)
+        if not output_names:
+            raise ValueError("analysis execution must produce at least one output")
+        if len(output_names) != len(set(output_names)):
+            raise ValueError("analysis execution output names must be unique")
         return self
 
 
@@ -683,11 +688,14 @@ class AnalysisRecord(BaseModel):
                 kind = "value"
                 content_hash = f"sha256:{stable_content_hash(output.content.value)}"
                 codec = output.content.codec
-            if (
-                execution.output.kind != kind
-                or execution.output.content_hash != content_hash
-                or execution.output.codec != codec
-            ):
+            matches = tuple(
+                execution_output
+                for execution_output in execution.outputs
+                if execution_output.kind == kind
+                and execution_output.content_hash == content_hash
+                and execution_output.codec == codec
+            )
+            if len(matches) != 1:
                 raise ValueError(
                     "analysis output content must match its producing execution"
                 )

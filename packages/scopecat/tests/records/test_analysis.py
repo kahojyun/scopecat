@@ -139,11 +139,13 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
                         codec="scopecat.measurement-dataset.v8",
                     ),
                 ),
-                output=AnalysisExecutionOutput(
-                    name="fit",
-                    kind="value",
-                    content_hash=_FIT_VALUE_HASH,
-                    codec="scopecat.python-json.v1",
+                outputs=(
+                    AnalysisExecutionOutput(
+                        name="fit",
+                        kind="value",
+                        content_hash=_FIT_VALUE_HASH,
+                        codec="scopecat.python-json.v1",
+                    ),
                 ),
             )
         ],

@@ -194,15 +194,16 @@ def test_analysis_trace_records_its_analysis_dependency(tmp_path: Path) -> None:
     assert execution.implementation == "python:_dataset_size"
     assert not execution.deterministic
     assert execution.inputs == ("dataset",)
-    assert execution.output.name == "_dataset_size"
-    assert execution.output.kind == "value"
+    [execution_output] = execution.outputs
+    assert execution_output.name == "_dataset_size"
+    assert execution_output.kind == "value"
     assert execution.captures == ()
     [input_binding] = execution.input_bindings
     assert input_binding.name == "dataset"
     assert input_binding.target == "raw-measurements"
     assert input_binding.content_hash == handle.measurements().entry.content_hash
     assert input_binding.codec == "scopecat.measurement-dataset.v8"
-    assert execution.output.content_hash.startswith("sha256:")
+    assert execution_output.content_hash.startswith("sha256:")
     [table_output] = analysis.outputs
     assert table_output.kind == "table"
     stored = handle.record_json(
@@ -392,8 +393,9 @@ def test_analysis_trace_retains_native_dataframe_identity_until_publication(
     )
 
     [execution] = outcome.executions
-    assert execution.output.kind == "derived_dataset"
-    assert execution.output.codec == DERIVED_DATASET_CODEC
+    [execution_output] = execution.outputs
+    assert execution_output.kind == "derived_dataset"
+    assert execution_output.codec == DERIVED_DATASET_CODEC
     [output] = outcome.outputs
     assert isinstance(output, AnalysisDatasetRecordOutput)
     assert output.produced_by == "_native_signal_frame"
@@ -651,8 +653,9 @@ def test_analysis_trace_uses_its_registered_output_encoder(tmp_path: Path) -> No
     assert count == 3
     analysis = context.result().fact("count", count)
     [execution] = analysis.executions
-    assert execution.output.codec == "test.dataset-size.v1"
-    assert execution.output.content_hash == (
+    [execution_output] = execution.outputs
+    assert execution_output.codec == "test.dataset-size.v1"
+    assert execution_output.content_hash == (
         f"sha256:{stable_content_hash({'points': 3})}"
     )
     [fact] = analysis.outputs

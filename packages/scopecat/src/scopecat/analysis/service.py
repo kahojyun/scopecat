@@ -767,11 +767,14 @@ def _validate_analysis_execution_outputs(
             content_hash = f"sha256:{stable_content_hash(output.content.value)}"
             expected_kind = "value"
             expected_codec = output.content.codec
-        if (
-            execution.output.kind != expected_kind
-            or execution.output.content_hash != content_hash
-            or execution.output.codec != expected_codec
-        ):
+        matches = tuple(
+            execution_output
+            for execution_output in execution.outputs
+            if execution_output.kind == expected_kind
+            and execution_output.content_hash == content_hash
+            and execution_output.codec == expected_codec
+        )
+        if len(matches) != 1:
             _raise_analysis_problem(
                 "analysis_output_execution_mismatch",
                 "analysis output content does not match its producing execution",

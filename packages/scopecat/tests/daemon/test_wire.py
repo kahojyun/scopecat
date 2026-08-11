@@ -278,11 +278,13 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                         codec="scopecat.measurement-dataset.v8",
                     ),
                 ),
-                output=AnalysisExecutionOutput(
-                    name="fit",
-                    kind="derived_dataset",
-                    content_hash=sha256_content_hash(dataset.to_arrow_ipc()),
-                    codec="scopecat.derived-dataset.arrow-ipc.v1",
+                outputs=(
+                    AnalysisExecutionOutput(
+                        name="fit",
+                        kind="derived_dataset",
+                        content_hash=sha256_content_hash(dataset.to_arrow_ipc()),
+                        codec="scopecat.derived-dataset.arrow-ipc.v1",
+                    ),
                 ),
             ),
         ),
