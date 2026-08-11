@@ -23,7 +23,6 @@ from reference_lab.workflows.drag_beta_experiment import DRAG_BETA_EXPERIMENT
 _DRAG_BETA_FIT_MODEL_ID = "reference_lab.drag_beta.shared_n2_quadratic.v1"
 _DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
 _DRAG_BETA_PROPOSAL_ID = "q0-drag-beta"
-_COMPUTES = sc.ComputeRegistry()
 _BETA_FIELD = sc.AnalysisField(
     id="beta_ns",
     role="coordinate",
@@ -39,11 +38,6 @@ _PROBABILITY_FIELD = sc.AnalysisField(
     label="P(1)",
     unit="ratio",
 )
-_OBSERVATION_FIELDS = {
-    "beta_ns": _BETA_FIELD,
-    "amplification": _AMPLIFICATION_FIELD,
-    "probability_1": _PROBABILITY_FIELD,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,14 +80,6 @@ DRAG_BETA_FIT_SCHEMA = sc.AnalysisFactSchema(
     _DRAG_BETA_FIT_MODEL_ID,
     DragBetaFit,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class DragBetaAnalysisResult:
-    """Native observations plus the authoritative fitted conclusion."""
-
-    observations: pl.DataFrame
-    fit: DragBetaFit
 
 
 def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
@@ -151,24 +137,19 @@ def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
 def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit one DRAG run and author its table, figure, and proposal."""
 
-    measurements = context.measurements()
-    result = context.trace(
-        id="fit-drag-beta",
-        fn=_fit_drag_beta_dataset,
-        dataset=measurements,
-    )
+    observations = _observations_from_frame(_observation_frame(context.measurements()))
+    fit = fit_drag_beta(observations)
 
     return (
         context.result("DRAG beta calibration")
         .dataset(
             "observations",
-            result.observations,
-            fields=_OBSERVATION_FIELDS,
+            observations,
             title="DRAG beta observations",
         )
         .fact(
             "quadratic-fit",
-            result.fit,
+            fit,
             schema=DRAG_BETA_FIT_SCHEMA,
             title="DRAG beta quadratic fit",
         )
@@ -178,7 +159,7 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
             title="DRAG beta observations",
         )
         .table(
-            (result.fit,),
+            (fit,),
             id="quadratic-fit-table",
             title="DRAG beta quadratic fit",
         )
@@ -191,13 +172,20 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
             series="amplification",
             title="DRAG beta observations by amplification",
         )
+        .artifact(
+            "fit-report",
+            text=_drag_beta_report(observations, fit),
+            filename="drag-beta-fit.md",
+            media_type="text/markdown",
+            title="DRAG beta fit report",
+        )
         .propose(
             _DRAG_BETA_PROPOSAL_ID,
-            Q0_DRAG_BETA.update(result.fit.beta_hat),
+            Q0_DRAG_BETA.update(fit.beta_hat),
             reason=(
                 "Shared N² quadratic fit selected the q0 DRAG beta used by "
                 f"{POSITIVE_CANDIDATE_ID!r} and {NEGATIVE_CANDIDATE_ID!r}; "
-                f"RMSE={result.fit.rmse:.6g}."
+                f"RMSE={fit.rmse:.6g}."
             ),
             evidence=("quadratic-fit", "observations"),
         )
@@ -238,20 +226,17 @@ def _observations_from_frame(
     )
 
 
-@_COMPUTES.implementation(
-    "reference-lab.drag-beta-fit",
-    "2",
-    input_codecs={"dataset": "scopecat.measurement-dataset.v8"},
-    outputs={"observations": "observations", "fit": "fit"},
-    capabilities=("numpy", "polars"),
-    deterministic=True,
-)
-def _fit_drag_beta_dataset(
-    dataset: Dataset,
-) -> DragBetaAnalysisResult:
-    observations = _observation_frame(dataset)
-    fit = fit_drag_beta(_observations_from_frame(observations))
-    return DragBetaAnalysisResult(observations=observations, fit=fit)
+def _drag_beta_report(
+    observations: Sequence[DragBetaObservation],
+    fit: DragBetaFit,
+) -> str:
+    return (
+        "# DRAG beta quadratic fit\n\n"
+        f"Observations: {len(observations)}\n\n"
+        f"- Selected beta: {_beta_ns(fit.beta_hat):.9g} ns\n"
+        f"- RMSE: {fit.rmse:.9g}\n"
+        f"- Model: {fit.model_id}\n"
+    )
 
 
 def _beta_ns(value: Quantity) -> float:
@@ -262,7 +247,6 @@ def _beta_ns(value: Quantity) -> float:
 
 
 __all__ = [
-    "DragBetaAnalysisResult",
     "DragBetaFit",
     "DragBetaObservation",
     "drag_beta_analysis",

@@ -29,7 +29,7 @@ describe("AnalysisOutputView", () => {
       },
     };
 
-    render(<AnalysisOutputView output={output} />);
+    render(<AnalysisOutputView output={output} runId="run-1" />);
 
     const table = screen.getByRole("table", { name: "Fit parameters" });
     expect(within(table).getByRole("columnheader", { name: "Frequency (GHz)" })).toBeVisible();
@@ -54,7 +54,7 @@ describe("AnalysisOutputView", () => {
       },
     };
 
-    render(<AnalysisOutputView output={output} />);
+    render(<AnalysisOutputView output={output} runId="run-1" />);
 
     expect(screen.getByText("5000000001")).toHaveAttribute("title", "5000000001");
     expect(screen.getByText("5000000002")).toHaveAttribute("title", "5000000002");
@@ -73,7 +73,7 @@ describe("AnalysisOutputView", () => {
       },
     };
 
-    render(<AnalysisOutputView output={output} />);
+    render(<AnalysisOutputView output={output} runId="run-1" />);
 
     expect(screen.getByText("analysis-fit-fits")).toBeVisible();
     expect(screen.getByText("scopecat.derived-dataset.arrow-ipc.v2")).toBeVisible();
@@ -106,14 +106,15 @@ describe("AnalysisOutputView", () => {
       },
     };
 
-    const { rerender } = render(<AnalysisOutputView output={fact} />);
+    const { rerender } = render(<AnalysisOutputView output={fact} runId="run-1" />);
     expect(screen.getByText("scopecat.quantity.v1")).toBeVisible();
     expect(screen.getByText(/"unit": "GHz"/)).toBeVisible();
 
-    rerender(<AnalysisOutputView output={artifact} />);
+    rerender(<AnalysisOutputView output={artifact} runId="run-1" />);
     expect(screen.getByText("analysis-fit-fit-report")).toBeVisible();
     expect(screen.getByText("fit-report.md")).toBeVisible();
     expect(screen.getByText("text/markdown")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Download file" })).toBeVisible();
   });
 
   it("renders embedded multi-series figure data as an accessible ECharts figure", () => {
@@ -135,7 +136,7 @@ describe("AnalysisOutputView", () => {
       },
     };
 
-    render(<AnalysisOutputView output={output} />);
+    render(<AnalysisOutputView output={output} runId="run-1" />);
 
     expect(
       screen.getByRole("img", {

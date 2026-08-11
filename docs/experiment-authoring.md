@@ -450,6 +450,12 @@ these paths while preserving typed shape, availability, result identity, and
 configuration provenance. Internal generality that does not shorten a complete
 path is not by itself an authoring feature.
 
+The baseline analysis in those paths uses ordinary Python over a recorded
+snapshot and publishes its selected facts, datasets, views, artifacts, and
+proposals. `trace(...)`, portable implementation registration, and named
+execution outputs are progressive audit or bounded-execution features; a user
+must not need them merely to fit data, attach a report, or propose a parameter.
+
 ## Deliberate remaining boundaries
 
 Some distinctions should stay visible because removing them would hide real

@@ -26,7 +26,8 @@ kinds of output:
 - **Artifact** is an exact file or byte sequence, such as a report, native Xarray
   store, model checkpoint, image, or vendor format. It retains a filename, media
   type, content hash, and producer rather than depending on a user's directory
-  convention.
+  convention. Published artifacts can be reopened through Python or downloaded
+  from the run view.
 - **View** is a bounded table or figure projection for inspection. A view refers
   to its source fact or dataset by output ID and may retain a preview cache. The
   cache is presentation, not another authoritative scientific result.
@@ -127,12 +128,28 @@ in-memory pandas view; the durable dataset always retains its Arrow schema.
 
 ## Provenance and scope
 
-The record identifies exact input snapshots and every published output. A
-traced analysis execution may additionally retain implementation, named input
-bindings, codecs, access mode, and the content identities of its named results.
-Use `context.trace(...)` only when that execution evidence or bounded batch
-access is valuable; ordinary library code does not need a wrapper in order to
-publish results.
+The default analysis path is ordinary Python followed by an explicit durable
+publication:
+
+```python
+def resonator_fit_analysis(context: sc.AnalysisContext) -> sc.Analysis:
+    fits = fit_with_scipy(context.measurements())
+    return (
+        context.result("Resonator fit")
+        .dataset("fits", fits)
+        .fact("selected-fit", select_fit(fits), schema=FIT_SCHEMA)
+        .artifact(
+            "report",
+            text=render_report(fits),
+            filename="resonator-fit.md",
+        )
+    )
+```
+
+Accessing the measurements records their exact snapshot as an analysis input;
+publishing the results does not require an execution wrapper, registry, codec
+declaration, or provenance handle. Numerical work remains normal NumPy,
+pandas, Polars, Xarray, PyArrow, SciPy, or domain-library code.
 
 An analysis may consume a dataset already published by an earlier analysis on
 the same run:
@@ -148,6 +165,13 @@ codec. Consequently, publishing a new source revision is a provenance change
 for the consumer even when its Arrow bytes happen to be identical. The source
 must already exist on this run; this API does not schedule steps, read across
 runs, or create workflow-owned state.
+
+### Optional execution evidence
+
+A traced analysis execution may additionally retain implementation, named
+input bindings, codecs, access mode, and the content identities of its named
+results. Use `context.trace(...)` only when that execution evidence or bounded
+batch access is itself valuable; it is not part of the basic publication path.
 
 Executions and outputs are intentionally separate. Calling `trace(...)` returns
 the native Python value and appends execution evidence to the analysis record;

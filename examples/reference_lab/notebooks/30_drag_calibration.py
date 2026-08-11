@@ -23,6 +23,7 @@ baseline_run = prepared.run(
 # %%
 analysis = baseline_run.analyze(drag_beta_analysis())
 candidate = analysis.candidate_config()
+fit_report = baseline_run.published_analysis(analysis.id).artifact("fit-report")
 [proposal] = analysis.parameter_proposals
 
 # A candidate run records its analysis provenance without changing the default.
@@ -60,6 +61,8 @@ drag_beta_summary = {
     "analysis": analysis.id,
     "proposal_id": proposal.id,
     "output_kinds": [output.kind for output in analysis.outputs],
+    "execution_evidence": len(analysis.executions),
+    "fit_report": fit_report.entry.filename,
     "proposal_evidence": proposal.evidence_output_ids,
     "candidate_run_uses_analysis": (
         candidate_source is not None

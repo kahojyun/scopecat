@@ -219,7 +219,12 @@ export function RunDetail({
       <div className="mt-[18px] grid grid-cols-[minmax(0,1.55fr)_minmax(250px,0.85fr)] gap-3 max-[1100px]:grid-cols-[minmax(0,1.25fr)_minmax(230px,0.9fr)] max-[680px]:grid-cols-[minmax(0,1fr)]">
         <ProgressCard run={run} events={events} />
         <RunProposals key={run.runId} runId={run.runId} />
-        <AnalysisCard analyses={analyses} error={analysesError} pending={analysesPending} />
+        <AnalysisCard
+          analyses={analyses}
+          error={analysesError}
+          pending={analysesPending}
+          runId={run.runId}
+        />
         <ResourceCard run={run} />
         <TimelineCard events={events} error={eventsError} pending={eventsPending} />
         <DataCard
@@ -321,10 +326,12 @@ function AnalysisCard({
   analyses,
   error,
   pending,
+  runId,
 }: {
   analyses?: RunAnalysis[];
   error: Error | null;
   pending: boolean;
+  runId: string;
 }) {
   return (
     <article className={detailCard} data-testid="resource-card">
@@ -454,7 +461,7 @@ function AnalysisCard({
                         {titleCase(output.kind)}
                       </span>
                     </header>
-                    <AnalysisOutputView output={output} />
+                    <AnalysisOutputView output={output} runId={runId} />
                   </section>
                 ))}
               </div>

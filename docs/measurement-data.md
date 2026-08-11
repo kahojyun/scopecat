@@ -671,6 +671,19 @@ The default pandas view favors familiar NumPy-backed dtypes. Select the
 Arrow dtype identity must survive the in-memory pandas conversion. The durable
 dataset itself keeps the Arrow type either way.
 
+Ordinary analysis code calls its existing libraries directly. Reading through
+the context is enough to retain the measurement snapshot dependency:
+
+```python
+fits = fit_with_polars(context.measurements())
+review = (
+    context.result("Fit review")
+    .dataset("fits", fits)
+    .fact("maximum-score", float(fits["score"].max()))
+    .artifact("report", text=render_report(fits), filename="fit.md")
+)
+```
+
 Use `context.trace(...)` when an analysis execution needs retained runtime
 metadata, registered codecs, deterministic provenance, or bounded batch access:
 

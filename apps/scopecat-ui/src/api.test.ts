@@ -7,6 +7,7 @@ import {
   getOlderRuns,
   getRun,
   getRunAnalyses,
+  getRunArtifactDownload,
   getRunContent,
   getRunEvents,
   getRuns,
@@ -41,6 +42,39 @@ describe("project daemon reads", () => {
       projectName: "ramsey-lab",
       projectRoot: "/projects/ramsey-lab",
     });
+  });
+
+  it("loads exact analysis artifact bytes for browser download", async () => {
+    const fetchMock = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(
+        jsonResponse({
+          run_id: "run/1",
+          artifact: {
+            role: "artifact",
+            id: "analysis-fit-fit-report",
+            kind: "analysis_artifact",
+            filename: "fit-report.md",
+            media_type: "text/markdown",
+            content_hash: `sha256:${"b".repeat(64)}`,
+          },
+          content_base64: btoa("# Fit report\n"),
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const download = await getRunArtifactDownload(
+      "run/1",
+      "analysis-fit-fit-report",
+    );
+
+    expect(download.filename).toBe("fit-report.md");
+    expect(download.blob.type).toBe("text/markdown");
+    await expect(download.blob.text()).resolves.toBe("# Fit report\n");
+    expect(requestPath(fetchMock.mock.calls[0]![0])).toBe(
+      "/api/v1/runs/run%2F1/artifacts/analysis-fit-fit-report/bytes" +
+        "?expected_kind=analysis_artifact",
+    );
   });
 
   it("normalizes current manifest contents for the run browser", async () => {

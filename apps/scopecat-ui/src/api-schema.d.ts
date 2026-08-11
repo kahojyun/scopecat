@@ -447,6 +447,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/artifacts/{selector}/bytes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Artifact Bytes */
+        get: operations["get_run_artifact_bytes_api_v1_runs__run_id__artifacts__selector__bytes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/artifacts/{selector}/json": {
         parameters: {
             query?: never;
@@ -2990,6 +3007,14 @@ export interface components {
             /** Run Id */
             run_id: string;
         };
+        /** RunArtifactBytesView */
+        RunArtifactBytesView: {
+            artifact: components["schemas"]["RunContentEntry-Output"];
+            /** Content Base64 */
+            content_base64: string;
+            /** Run Id */
+            run_id: string;
+        };
         /** RunArtifactJsonResult */
         RunArtifactJsonResult: {
             artifact: components["schemas"]["RunContentEntry-Output"];
@@ -4378,6 +4403,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunAnalysisListView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_artifact_bytes_api_v1_runs__run_id__artifacts__selector__bytes_get: {
+        parameters: {
+            query?: {
+                expected_kind?: string | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+                selector: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunArtifactBytesView"];
                 };
             };
             /** @description Validation Error */

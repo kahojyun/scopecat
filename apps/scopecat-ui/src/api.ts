@@ -180,6 +180,34 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
   }));
 }
 
+export async function getRunArtifactDownload(
+  runId: string,
+  selector: string,
+  signal?: AbortSignal,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await apiData(
+    apiClient.GET("/api/v1/runs/{run_id}/artifacts/{selector}/bytes", {
+      params: {
+        path: { run_id: runId, selector },
+        query: { expected_kind: "analysis_artifact" },
+      },
+      signal,
+    }),
+  );
+  const binary = atob(response.content_base64);
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return {
+    blob: new Blob([buffer], {
+      type: response.artifact.media_type ?? "application/octet-stream",
+    }),
+    filename: response.artifact.filename ?? selector,
+  };
+}
+
 function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
   const producedBy =
     output.kind === "fact" || output.kind === "dataset" || output.kind === "artifact"

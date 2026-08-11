@@ -334,8 +334,11 @@ def test_drag_calibration_closes_the_reviewed_config_loop(
         "table",
         "table",
         "figure",
+        "artifact",
         "parameter_change_proposal",
     ]
+    assert summary["execution_evidence"] == 0
+    assert summary["fit_report"] == "drag-beta-fit.md"
     assert summary["proposal_evidence"] == ("quadratic-fit", "observations")
     assert summary["candidate_run_uses_analysis"]
     assert summary["accepted_as_default"]

@@ -12,7 +12,6 @@ from scopecat.kernel.errors import RunIndeterminate
 from scopecat.program.bindings import EnsureStateIntent
 from scopecat.records.analysis import (
     AnalysisDatasetRecordOutput,
-    AnalysisExecutionOutputReference,
     AnalysisFactRecordOutput,
     AnalysisPublishedOutputReference,
 )
@@ -68,6 +67,7 @@ class _FluxNotebookSummary(TypedDict):
     analysis_revision: int
     fit_review_id: str
     fit_review_accepted: bool
+    fit_report: str
     candidate_config_id: str
 
 
@@ -275,21 +275,13 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         "table",
         "table",
         "figure",
+        "artifact",
         "parameter_change_proposal",
     ]
-    assert [execution.id for execution in analysis.executions] == [
-        "fit-resonator-by-bias"
-    ]
-    assert [output.name for output in analysis.executions[0].outputs] == [
-        "fits",
-        "sweet_spot",
-    ]
+    assert analysis.executions == ()
     fit_output = analysis.output("fit-by-bias")
     assert isinstance(fit_output, AnalysisDatasetRecordOutput)
-    assert fit_output.produced_by == AnalysisExecutionOutputReference(
-        execution_id="fit-resonator-by-bias",
-        output_name="fits",
-    )
+    assert fit_output.produced_by is None
     assert fit_output.derived_from is None
     fit_dataset = analysis.dataset("fit-by-bias")
     assert [field.name for field in fit_dataset.schema.fields[:4]] == [
@@ -300,10 +292,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     ]
     selected_output = analysis.output("selected-sweet-spot")
     assert isinstance(selected_output, AnalysisFactRecordOutput)
-    assert selected_output.produced_by == AnalysisExecutionOutputReference(
-        execution_id="fit-resonator-by-bias",
-        output_name="sweet_spot",
-    )
+    assert selected_output.produced_by is None
     selected_fit = analysis.fact_as(
         "selected-sweet-spot",
         RESONATOR_TRACE_FIT_SCHEMA,
@@ -317,6 +306,10 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         "selected-sweet-spot",
         "fit-by-bias",
     )
+    report = run.published_analysis(analysis.id).artifact("fit-report")
+    assert report.entry.filename == "flux-spectroscopy-fit.md"
+    assert report.text().startswith("# Resonator flux spectroscopy fit\n")
+    assert f"Fitted bias points: {BIAS_POINTS}" in report.text()
     fitted_frequency = _readout_quantity(candidate, RESONANCE_FREQUENCY.id)
     fitted_linewidth = _readout_quantity(candidate, RESONATOR_LINEWIDTH.id)
     assert float(fitted_frequency.to("GHz").value) == pytest.approx(5.06, abs=0.001)
@@ -338,9 +331,7 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         output_id="fit-by-bias",
     )
     assert review_input.target == fit_output.content.dataset_id
-    [review_execution] = review.executions
-    [review_binding] = review_execution.input_bindings
-    assert review_binding.target == fit_output.content.dataset_id
+    assert review.executions == ()
 
 
 def test_direct_control_notebook_completes_through_the_project_daemon(
@@ -382,6 +373,7 @@ def test_flux_spectroscopy_notebook_completes_through_the_project_daemon(
         "analysis-reference_lab-flux_spectroscopy-fit-review"
     )
     assert summary["fit_review_accepted"]
+    assert summary["fit_report"] == "flux-spectroscopy-fit.md"
     assert summary["candidate_config_id"] == "candidate-readout-resonator-fit"
 
 

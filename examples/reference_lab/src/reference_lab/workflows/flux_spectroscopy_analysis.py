@@ -25,7 +25,6 @@ FLUX_SPECTROSCOPY_FIT_REVIEW_ID = "reference_lab.flux_spectroscopy.fit-review"
 FLUX_SPECTROSCOPY_PROPOSAL_ID = "readout-resonator-fit"
 _FIT_MODEL_ID = "reference_lab.complex_s21_notch.v1"
 _FREQUENCY_SCALE_HZ = 1.0e6
-_COMPUTES = sc.ComputeRegistry()
 
 _DC_BIAS_FIELD = sc.AnalysisField(
     id="dc_bias_v",
@@ -89,14 +88,6 @@ RESONATOR_TRACE_FIT_SCHEMA = sc.AnalysisFactSchema(
     _FIT_MODEL_ID,
     ResonatorTraceFit,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class FluxSpectroscopyAnalysisResult:
-    """Durable fit rows plus the selected authoritative conclusion."""
-
-    fits: tuple[ResonatorTraceFit, ...]
-    sweet_spot: ResonatorTraceFit
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,48 +295,25 @@ def fit_flux_spectroscopy(
     )
 
 
-@_COMPUTES.implementation(
-    "reference-lab.flux-spectroscopy-fit",
-    "1",
-    input_codecs={"dataset": "scopecat.measurement-dataset.v8"},
-    outputs={"fits": "fits", "sweet_spot": "sweet_spot"},
-    capabilities=("numpy", "scipy"),
-    deterministic=True,
-)
-def _fit_flux_spectroscopy_dataset(
-    dataset: Dataset,
-) -> FluxSpectroscopyAnalysisResult:
-    fits = fit_flux_spectroscopy(dataset)
-    sweet_spot = max(
-        fits,
-        key=lambda fit: _quantity_value(fit.resonance_frequency, "Hz"),
-    )
-    return FluxSpectroscopyAnalysisResult(
-        fits=fits,
-        sweet_spot=sweet_spot,
-    )
-
-
 @sc.analysis_step(id=FLUX_SPECTROSCOPY_ANALYSIS_ID)
 def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit the resonator curve and propose reviewed readout parameters."""
 
-    measurements = context.measurements()
-    result = context.trace(
-        id="fit-resonator-by-bias",
-        fn=_fit_flux_spectroscopy_dataset,
-        dataset=measurements,
+    fits = fit_flux_spectroscopy(context.measurements())
+    sweet_spot = max(
+        fits,
+        key=lambda fit: _quantity_value(fit.resonance_frequency, "Hz"),
     )
     return (
         context.result("Resonator flux spectroscopy")
         .dataset(
             "fit-by-bias",
-            result.fits,
+            fits,
             title="Resonator fit by DC bias",
         )
         .fact(
             "selected-sweet-spot",
-            result.sweet_spot,
+            sweet_spot,
             schema=RESONATOR_TRACE_FIT_SCHEMA,
             title="Selected readout sweet spot",
             metadata={"selection": "maximum fitted resonance frequency"},
@@ -356,7 +324,7 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
             title="Resonator fit by DC bias",
         )
         .table(
-            (result.sweet_spot,),
+            (sweet_spot,),
             id="selected-sweet-spot-table",
             title="Selected readout sweet spot",
             metadata={"selection": "maximum fitted resonance frequency"},
@@ -370,20 +338,27 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
             label="Notch fit",
             title="Resonator frequency versus flux bias",
         )
+        .artifact(
+            "fit-report",
+            text=_flux_spectroscopy_report(fits, sweet_spot),
+            filename="flux-spectroscopy-fit.md",
+            media_type="text/markdown",
+            title="Resonator flux spectroscopy fit report",
+        )
         .propose(
             FLUX_SPECTROSCOPY_PROPOSAL_ID,
             Q0_READOUT.update(
-                RESONANCE_FREQUENCY.value(result.sweet_spot.resonance_frequency),
-                RESONATOR_LINEWIDTH.value(result.sweet_spot.linewidth),
-                FLUX_SWEET_SPOT.value(result.sweet_spot.dc_bias),
+                RESONANCE_FREQUENCY.value(sweet_spot.resonance_frequency),
+                RESONATOR_LINEWIDTH.value(sweet_spot.linewidth),
+                FLUX_SWEET_SPOT.value(sweet_spot.dc_bias),
             ),
             reason=(
                 "Use the maximum-frequency flux sweet spot from the fitted S21 "
                 "notch: "
                 "f0="
-                f"{_quantity_value(result.sweet_spot.resonance_frequency, 'GHz'):.6f} "
+                f"{_quantity_value(sweet_spot.resonance_frequency, 'GHz'):.6f} "
                 "GHz, linewidth="
-                f"{_quantity_value(result.sweet_spot.linewidth, 'MHz'):.6f} "
+                f"{_quantity_value(sweet_spot.linewidth, 'MHz'):.6f} "
                 "MHz."
             ),
             evidence=("selected-sweet-spot", "fit-by-bias"),
@@ -391,13 +366,6 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     )
 
 
-@_COMPUTES.implementation(
-    "reference-lab.flux-spectroscopy-fit-review",
-    "1",
-    input_codecs={"fits": "scopecat.derived-dataset.arrow-ipc.v2"},
-    capabilities=("polars",),
-    deterministic=True,
-)
 def _review_flux_spectroscopy_fits(
     fits: sc.DerivedDataset,
 ) -> FluxSpectroscopyFitReview:
@@ -420,15 +388,28 @@ def flux_spectroscopy_fit_review(context: sc.AnalysisContext) -> sc.Analysis:
         FLUX_SPECTROSCOPY_ANALYSIS_ID,
         "fit-by-bias",
     )
-    review = context.trace(
-        id="review-fit-quality",
-        fn=_review_flux_spectroscopy_fits,
-        fits=fits,
-    )
+    review = _review_flux_spectroscopy_fits(fits)
     return context.result("Flux spectroscopy fit quality").fact(
         "quality-review",
         review,
         schema=FLUX_SPECTROSCOPY_FIT_REVIEW_SCHEMA,
+    )
+
+
+def _flux_spectroscopy_report(
+    fits: tuple[ResonatorTraceFit, ...],
+    sweet_spot: ResonatorTraceFit,
+) -> str:
+    worst_rmse = max(fit.complex_rmse for fit in fits)
+    return (
+        "# Resonator flux spectroscopy fit\n\n"
+        f"Fitted bias points: {len(fits)}\n\n"
+        "## Selected sweet spot\n\n"
+        f"- DC bias: {_quantity_value(sweet_spot.dc_bias, 'V'):.6g} V\n"
+        "- Resonance frequency: "
+        f"{_quantity_value(sweet_spot.resonance_frequency, 'GHz'):.9g} GHz\n"
+        f"- Linewidth: {_quantity_value(sweet_spot.linewidth, 'MHz'):.9g} MHz\n"
+        f"- Worst complex RMSE: {worst_rmse:.9g}\n"
     )
 
 

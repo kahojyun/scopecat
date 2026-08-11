@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { getRunArtifactDownload } from "../../api";
 import type { RunAnalysisOutput } from "../../types";
 import { EChart } from "../../ui/EChart";
 import {
@@ -7,7 +8,37 @@ import {
   type AnalysisFigureContent,
 } from "./chart-options";
 
-export function AnalysisOutputView({ output }: { output: RunAnalysisOutput }) {
+export function AnalysisOutputView({
+  output,
+  runId,
+}: {
+  output: RunAnalysisOutput;
+  runId: string;
+}) {
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string>();
+
+  async function downloadArtifact() {
+    if (output.kind !== "artifact") return;
+    setDownloading(true);
+    setDownloadError(undefined);
+    try {
+      const download = await getRunArtifactDownload(runId, output.content.artifact_id);
+      const url = URL.createObjectURL(download.blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = download.filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : "Download failed");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   let content;
   if (output.kind === "table") {
     content = <AnalysisTableView content={output.content.preview} title={output.title} />;
@@ -61,6 +92,22 @@ export function AnalysisOutputView({ output }: { output: RunAnalysisOutput }) {
         <dt className="font-bold text-text-dim">Media type</dt>
         <dd className="m-0 min-w-0 text-text-soft">
           <code>{output.content.media_type}</code>
+        </dd>
+        <dt className="font-bold text-text-dim">Content</dt>
+        <dd className="m-0 min-w-0 text-text-soft">
+          <button
+            className="cursor-pointer rounded border border-line bg-panel-soft px-2 py-1 text-[0.58rem] font-bold text-text-soft hover:border-line-strong disabled:cursor-wait disabled:opacity-60"
+            disabled={downloading}
+            onClick={downloadArtifact}
+            type="button"
+          >
+            {downloading ? "Downloading…" : "Download file"}
+          </button>
+          {downloadError ? (
+            <span className="ml-2 text-red" role="alert">
+              {downloadError}
+            </span>
+          ) : null}
         </dd>
       </dl>
     );
