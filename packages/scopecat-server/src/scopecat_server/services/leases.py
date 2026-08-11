@@ -7,7 +7,7 @@ from threading import Event, Thread
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .instrument_service import InstrumentService
+    from ..instruments.service import InstrumentService
 
 logger = logging.getLogger(__name__)
 

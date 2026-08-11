@@ -30,7 +30,7 @@ from tests.testkit.instrument_drivers import (
 )
 from tests.testkit.payload_codecs import json_payload_codecs
 
-from scopecat_server.instrument_backend import (
+from scopecat_server.instruments.backend import (
     InstrumentBackendRejected,
     InstrumentBackendUnavailable,
     InstrumentHandleInvalid,

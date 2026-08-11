@@ -87,10 +87,10 @@ from scopecat.sdk.instruments.commands import (
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
 
-import scopecat_server.instrument_service as instrument_service_module
+import scopecat_server.instruments.runtime as instrument_service_module
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict
-from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
+from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint
 
 _SET_FREQUENCY = InterfaceRef("test.set_frequency/v1").property("frequency")
 _PLAY_PROGRAM = InterfaceRef("test.play_program/v1").operation("play")

@@ -55,13 +55,13 @@ from scopecat.sdk.instruments.commands import InvokeCommand
 from tests.testkit.instrument_drivers import load_config
 
 from scopecat_server.errors import BackendConflict
-from scopecat_server.instrument_backend import (
+from scopecat_server.instruments.backend import (
     InstrumentBackendError,
     InstrumentBackendRejected,
     InstrumentBackendUnavailable,
     InstrumentHandleInvalid,
 )
-from scopecat_server.instrument_worker import (
+from scopecat_server.instruments.worker import (
     SubprocessInstrumentBackendEndpoint,
 )
 from scopecat_server.runtime import LocalDaemonRuntime

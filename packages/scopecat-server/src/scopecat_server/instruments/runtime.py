@@ -8,7 +8,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from threading import Lock, RLock, Timer
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from pydantic import JsonValue
 from scopecat.control.models import (
@@ -119,28 +119,30 @@ from scopecat_server.storage.sqlite import (
     SQLiteRunRepository,
 )
 
-from .config_service import ConfigService
-from .errors import BackendConflict, BackendNotFound
-from .instrument_actor import (
+from ..errors import BackendConflict, BackendNotFound
+from .actors import (
     InstrumentActorConflict,
     InstrumentActorRegistry,
     InstrumentBindingKey,
     InstrumentOwnerKey,
     OwnedInstrument,
 )
-from .instrument_backend import (
+from .backend import (
     InstrumentBackendEndpoint,
     InstrumentBackendRejected,
     InstrumentBackendUnavailable,
 )
-from .instrument_command_executor import (
+from .commands import (
     InstrumentCommandExecutionError,
     execute_instrument_apply,
     execute_instrument_collect,
     execute_instrument_invoke,
     observe_instrument,
 )
-from .payload_service import CommandPayloadService
+
+if TYPE_CHECKING:
+    from ..services.config import ConfigService
+    from ..services.payloads import CommandPayloadService
 
 type _BackendHardwareRequest = (
     BackendApplyRequest | BackendInvokeRequest | BackendCollectRequest
@@ -268,7 +270,7 @@ class _RunContext:
     finalization: _RunFinalization | None = None
 
 
-class InstrumentService:
+class InstrumentRuntime:
     """Coordinate durable claims with process-long instrument connections."""
 
     def __init__(
@@ -3827,4 +3829,4 @@ def _problem_instrument_ids(
     return tuple(sorted(selected))
 
 
-__all__ = ["InstrumentService"]
+__all__ = ["InstrumentRuntime"]

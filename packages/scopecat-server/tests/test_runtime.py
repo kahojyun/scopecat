@@ -122,10 +122,10 @@ from scopecat.sdk.domain.runtime import (
 )
 from tests.testkit.runtime import list_test_runs
 
-import scopecat_server.lease_supervisor as lease_supervisor_services
 import scopecat_server.services as daemon_services
+import scopecat_server.services.leases as lease_supervisor_services
 from scopecat_server import BackendConflict, LocalDaemonRuntime
-from scopecat_server.instrument_actor import InstrumentActorRetirement
+from scopecat_server.instruments.actors import InstrumentActorRetirement
 from scopecat_server.storage.sqlite import (
     ControlPlaneConflict,
     SQLiteConfigRegistryStore,

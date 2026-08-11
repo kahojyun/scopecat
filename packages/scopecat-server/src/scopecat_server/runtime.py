@@ -30,9 +30,10 @@ from scopecat_server.storage.sqlite import (
     SQLiteRunRepository,
 )
 
-from .instrument_actor import InstrumentActorRegistry
-from .instrument_backend import InstrumentBackendEndpoint
-from .instrument_worker import SubprocessInstrumentBackendEndpoint
+from .http.transport import create_app
+from .instruments.actors import InstrumentActorRegistry
+from .instruments.backend import InstrumentBackendEndpoint
+from .instruments.worker import SubprocessInstrumentBackendEndpoint
 from .services import (
     AdmissionService,
     CommandPayloadService,
@@ -43,7 +44,6 @@ from .services import (
     OwnershipLeaseSupervisor,
     RunService,
 )
-from .transport import create_app
 
 _DEFAULT_INSTRUMENT_SHUTDOWN_GRACE = timedelta(seconds=5)
 _DEFAULT_INSTRUMENT_SESSION_LEASE_TTL = timedelta(seconds=90)

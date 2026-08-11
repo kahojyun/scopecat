@@ -58,8 +58,8 @@ from scopecat_server.storage.sqlite import (
     SQLiteRunRepository,
 )
 
-from .errors import BackendConflict, BackendNotFound
-from .instrument_actor import (
+from ..errors import BackendConflict, BackendNotFound
+from ..instruments.actors import (
     InstrumentActorConflict,
     InstrumentActorRegistry,
     InstrumentActorShutdown,

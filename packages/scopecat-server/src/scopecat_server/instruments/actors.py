@@ -21,7 +21,7 @@ from scopecat.sdk.instruments.commands import (
 )
 from scopecat.sdk.instruments.contracts import InstrumentDescription
 
-from .instrument_backend import (
+from .backend import (
     ConnectedInstrument,
     InstrumentBackendEndpoint,
     InstrumentHandle,

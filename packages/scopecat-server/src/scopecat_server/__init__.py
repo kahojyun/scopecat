@@ -3,8 +3,8 @@
 from scopecat.daemon.views import DaemonHealth
 
 from .errors import BackendConflict, BackendNotFound
+from .http.transport import create_app
 from .runtime import LocalDaemonRuntime
-from .transport import create_app
 
 __all__ = [
     "BackendConflict",

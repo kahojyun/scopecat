@@ -59,7 +59,7 @@ from scopecat_server.storage.sqlite import (
     SQLiteRunRepository,
 )
 
-from .errors import BackendConflict, BackendNotFound
+from ..errors import BackendConflict, BackendNotFound
 
 
 class AdmissionService:

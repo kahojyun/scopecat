@@ -49,7 +49,7 @@ from scopecat_server import (
     DaemonHealth,
     create_app,
 )
-from scopecat_server.application import DaemonApplication
+from scopecat_server.services.application import DaemonApplication
 from scopecat_server.storage.sqlite.connection import SQLiteBusyError
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)

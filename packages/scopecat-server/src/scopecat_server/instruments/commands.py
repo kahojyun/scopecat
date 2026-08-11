@@ -25,8 +25,8 @@ from scopecat.sdk.instruments.contracts import (
     validate_state_snapshot,
 )
 
-from .errors import BackendConflict
-from .instrument_actor import OwnedInstrument
+from ..errors import BackendConflict
+from .actors import OwnedInstrument
 
 type InstrumentCommandFailureReason = Literal[
     "instrument_apply_unknown",

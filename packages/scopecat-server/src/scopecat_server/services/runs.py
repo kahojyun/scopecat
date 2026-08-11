@@ -123,7 +123,7 @@ from scopecat_server.storage.sqlite import (
     SQLiteRunRepository,
 )
 
-from .errors import BackendConflict, BackendNotFound
+from ..errors import BackendConflict, BackendNotFound
 
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:

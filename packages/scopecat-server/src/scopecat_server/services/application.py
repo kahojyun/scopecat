@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from scopecat.daemon.views import DaemonHealth
 from scopecat.daemon.wire import (
@@ -15,13 +15,15 @@ from scopecat.daemon.wire import (
 
 from scopecat_server.storage.sqlite import SQLiteProjectStore
 
-from .admission_service import AdmissionService
-from .config_service import ConfigService
-from .executor_service import ExecutorService
-from .instrument_service import InstrumentService
-from .lease_supervisor import OwnershipLeaseSupervisor
-from .payload_service import CommandPayloadService
-from .run_service import RunService
+from .admission import AdmissionService
+from .config import ConfigService
+from .executor import ExecutorService
+from .leases import OwnershipLeaseSupervisor
+from .payloads import CommandPayloadService
+from .runs import RunService
+
+if TYPE_CHECKING:
+    from scopecat_server.instruments.service import InstrumentService
 
 
 class DaemonApplication:

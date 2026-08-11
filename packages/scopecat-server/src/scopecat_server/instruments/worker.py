@@ -43,7 +43,7 @@ from scopecat.sdk.instruments.contracts import InstrumentDescription
 from scopecat.sdk.instruments.provider import InstrumentProviderDescription
 from scopecat.sdk.payloads import PayloadCodecCatalog
 
-from .instrument_backend import (
+from .backend import (
     ConnectedInstrument,
     InstrumentBackendError,
     InstrumentBackendRejected,
@@ -52,7 +52,7 @@ from .instrument_backend import (
     InstrumentHandleInvalid,
     LocalInstrumentBackendEndpoint,
 )
-from .instrument_worker_wire import (
+from .worker_wire import (
     DEFAULT_WIRE_LIMITS,
     CollectFrames,
     InvokeFrames,

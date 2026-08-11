@@ -43,7 +43,7 @@ from tests.testkit.instrument_drivers import (
     number_state,
 )
 
-from scopecat_server.instrument_actor import (
+from scopecat_server.instruments.actors import (
     InstrumentActorConflict,
     InstrumentActorRegistry,
     InstrumentActorShutdown,
@@ -51,7 +51,7 @@ from scopecat_server.instrument_actor import (
     InstrumentOwnerKey,
     OwnedInstrument,
 )
-from scopecat_server.instrument_backend import (
+from scopecat_server.instruments.backend import (
     ConnectedInstrument,
     InstrumentBackendEndpoint,
     InstrumentHandle,

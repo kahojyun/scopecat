@@ -7,6 +7,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from pydantic import JsonValue, RootModel
 from scopecat.control.models import (
@@ -50,8 +51,10 @@ from scopecat_server.storage.sqlite import (
 )
 from scopecat_server.storage.sqlite.execution import ExecutionJournalConflict
 
-from .errors import BackendConflict, BackendNotFound
-from .instrument_service import InstrumentService
+from ..errors import BackendConflict, BackendNotFound
+
+if TYPE_CHECKING:
+    from ..instruments.service import InstrumentService
 
 
 class _JsonDocument(RootModel[dict[str, JsonValue]]):

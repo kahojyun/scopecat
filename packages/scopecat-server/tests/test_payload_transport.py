@@ -52,9 +52,9 @@ from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 
 from scopecat_server import LocalDaemonRuntime
-from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
-from scopecat_server.instrument_worker import SubprocessInstrumentBackendEndpoint
-from scopecat_server.payload_service import (
+from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint
+from scopecat_server.instruments.worker import SubprocessInstrumentBackendEndpoint
+from scopecat_server.services.payloads import (
     DEFAULT_MAX_PAYLOAD_OBJECT_BYTES,
     CommandPayloadService,
     CommandPayloadTooLarge,
