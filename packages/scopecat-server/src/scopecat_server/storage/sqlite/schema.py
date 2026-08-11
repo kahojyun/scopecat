@@ -1,8 +1,8 @@
 """Current SQLite project-store schema."""
 
-from scopecat.adapters.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
-from scopecat.adapters.sqlite.execution_schema import EXECUTION_TABLES_SQL
-from scopecat.adapters.sqlite.run_schema import RUN_TABLES_SQL
+from scopecat_server.storage.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
+from scopecat_server.storage.sqlite.execution_schema import EXECUTION_TABLES_SQL
+from scopecat_server.storage.sqlite.run_schema import RUN_TABLES_SQL
 
 PROJECT_SCHEMA_VERSION = 23
 

@@ -7,15 +7,6 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pyarrow as pa
 import pytest
-
-from scopecat.adapters.sqlite.measurement_arrow import (
-    MEASUREMENT_APPEND_ARROW_FORMAT,
-    MeasurementArrowCodecError,
-    decode_measurement_append,
-    decode_measurement_record_indices,
-    decode_measurement_record_slice,
-    encode_measurement_append,
-)
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
@@ -29,6 +20,15 @@ from scopecat.records.measurement import (
     MeasurementVariable,
 )
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
+
+from scopecat_server.storage.sqlite.measurement_arrow import (
+    MEASUREMENT_APPEND_ARROW_FORMAT,
+    MeasurementArrowCodecError,
+    decode_measurement_append,
+    decode_measurement_record_indices,
+    decode_measurement_record_slice,
+    encode_measurement_append,
+)
 
 
 def _append() -> MeasurementDatasetAppend:

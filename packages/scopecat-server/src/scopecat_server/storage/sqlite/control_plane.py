@@ -11,8 +11,6 @@ from typing import cast
 from uuid import uuid4
 
 from pydantic import JsonValue, TypeAdapter
-
-from scopecat.adapters.sqlite.connection import SQLiteDatabase
 from scopecat.control.models import (
     ControlRun,
     ControlRunState,
@@ -27,6 +25,8 @@ from scopecat.control.models import (
     RunAdmissionRecord,
     RunPage,
 )
+
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 
 _JSON_OBJECT = TypeAdapter(dict[str, JsonValue])
 _STRING_TUPLE = TypeAdapter(tuple[str, ...])

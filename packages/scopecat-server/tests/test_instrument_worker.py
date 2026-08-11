@@ -17,7 +17,6 @@ import httpx2
 import psutil
 import pytest
 from fastapi.testclient import TestClient
-from scopecat.adapters.sqlite import SQLiteControlPlane, SQLiteDatabase
 from scopecat.api.lab import LabClient
 from scopecat.authoring import (
     ExperimentContext,
@@ -66,6 +65,7 @@ from scopecat_server.instrument_worker import (
     SubprocessInstrumentBackendEndpoint,
 )
 from scopecat_server.runtime import LocalDaemonRuntime
+from scopecat_server.storage.sqlite import SQLiteControlPlane, SQLiteDatabase
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "instrument_worker_project"
 _BACKEND = "worker_fixture.backend:create_backend"

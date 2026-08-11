@@ -13,13 +13,6 @@ from typing import Literal, Never, cast
 import pyarrow as pa
 import pytest
 from fastapi.testclient import TestClient
-from scopecat.adapters.sqlite import (
-    ControlPlaneConflict,
-    SQLiteConfigRegistryStore,
-    SQLiteControlPlane,
-    SQLiteDatabase,
-    SQLiteRunRepository,
-)
 from scopecat.analysis.datasets import DerivedDataset
 from scopecat.application import LabApplication
 from scopecat.config.changes import parameter_change_proposal_from_updates
@@ -133,6 +126,13 @@ import scopecat_server.lease_supervisor as lease_supervisor_services
 import scopecat_server.services as daemon_services
 from scopecat_server import BackendConflict, LocalDaemonRuntime
 from scopecat_server.instrument_actor import InstrumentActorRetirement
+from scopecat_server.storage.sqlite import (
+    ControlPlaneConflict,
+    SQLiteConfigRegistryStore,
+    SQLiteControlPlane,
+    SQLiteDatabase,
+    SQLiteRunRepository,
+)
 
 _FIXTURE = (
     Path(__file__).parents[3]

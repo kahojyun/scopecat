@@ -6,16 +6,6 @@ from pathlib import Path
 from threading import Barrier
 
 import pytest
-
-from scopecat.adapters.sqlite import (
-    ControlPlaneConflict,
-    ControlPlaneNotFound,
-    ExecutorLeaseNotHeld,
-    InstrumentSessionNotActive,
-    SQLiteControlPlane,
-    SQLiteDatabase,
-    SQLiteProjectStore,
-)
 from scopecat.control.models import (
     ControlRun,
     DurableEvent,
@@ -28,6 +18,16 @@ from scopecat.control.models import (
     RunAdmissionRecord,
     RunPlanSummary,
     RunResourceRequirement,
+)
+
+from scopecat_server.storage.sqlite import (
+    ControlPlaneConflict,
+    ControlPlaneNotFound,
+    ExecutorLeaseNotHeld,
+    InstrumentSessionNotActive,
+    SQLiteControlPlane,
+    SQLiteDatabase,
+    SQLiteProjectStore,
 )
 
 NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)

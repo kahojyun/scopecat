@@ -7,7 +7,6 @@ from typing import cast
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from scopecat.adapters.sqlite.connection import SQLiteBusyError
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.control.models import (
     DurableEvent,
@@ -51,6 +50,7 @@ from scopecat_server import (
     create_app,
 )
 from scopecat_server.application import DaemonApplication
+from scopecat_server.storage.sqlite.connection import SQLiteBusyError
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 _HASH = f"sha256:{'a' * 64}"

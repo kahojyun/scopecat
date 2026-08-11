@@ -8,12 +8,6 @@ from threading import Barrier
 
 import pytest
 from pydantic import BaseModel
-
-from scopecat.adapters.sqlite import (
-    SQLiteDatabase,
-    SQLiteProjectStore,
-    SQLiteRunRepository,
-)
 from scopecat.kernel.errors import (
     CheckFailed,
     Conflict,
@@ -40,6 +34,12 @@ from scopecat.runs.repository import (
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.runtime import SQLiteTestRunRepository
+
+from scopecat_server.storage.sqlite import (
+    SQLiteDatabase,
+    SQLiteProjectStore,
+    SQLiteRunRepository,
+)
 
 
 class _Record(BaseModel):

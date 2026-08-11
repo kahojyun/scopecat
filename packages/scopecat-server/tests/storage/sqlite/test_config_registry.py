@@ -6,9 +6,6 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-
-from scopecat.adapters.sqlite import SQLiteDatabase, SQLiteProjectStore
-from scopecat.adapters.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.registry.service import (
     ConfigRegistryMutationResult,
@@ -32,6 +29,9 @@ from scopecat.records.run import ConfigRegistryRunConfigSource
 from tests.testkit.config_registry import load_config_registry_config
 from tests.testkit.paths import CORE_FIXTURE_DIR
 from tests.testkit.runtime import SQLiteTestRunRepository
+
+from scopecat_server.storage.sqlite import SQLiteDatabase, SQLiteProjectStore
+from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 
 
 def _publish_direct_revision(

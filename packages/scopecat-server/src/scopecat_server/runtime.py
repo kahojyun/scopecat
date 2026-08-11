@@ -12,13 +12,6 @@ from typing import Self
 
 from fastapi import FastAPI
 from filelock import FileLock, Timeout
-from scopecat.adapters.sqlite import (
-    SQLiteConfigRegistryStore,
-    SQLiteControlPlane,
-    SQLiteDatabase,
-    SQLiteProjectStore,
-    SQLiteRunRepository,
-)
 from scopecat.application.lab import BootstrapConfigFactory
 from scopecat.config.resolution import validate_config_profile
 from scopecat.daemon.wire import (
@@ -28,6 +21,14 @@ from scopecat.daemon.wire import (
 from scopecat.project import load_application_factory
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+
+from scopecat_server.storage.sqlite import (
+    SQLiteConfigRegistryStore,
+    SQLiteControlPlane,
+    SQLiteDatabase,
+    SQLiteProjectStore,
+    SQLiteRunRepository,
+)
 
 from .instrument_actor import InstrumentActorRegistry
 from .instrument_backend import InstrumentBackendEndpoint

@@ -14,7 +14,6 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi import Path as ApiPath
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from scopecat.adapters.sqlite.connection import SQLiteBusyError
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
@@ -117,6 +116,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from scopecat_server.storage.sqlite.connection import SQLiteBusyError
 
 from .application import DaemonApplication
 from .errors import BackendConflict, BackendNotFound

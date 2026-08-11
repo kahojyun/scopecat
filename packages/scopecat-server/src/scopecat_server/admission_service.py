@@ -4,12 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.adapters.sqlite import (
-    ControlPlaneConflict,
-    ControlPlaneNotFound,
-    SQLiteControlPlane,
-    SQLiteRunRepository,
-)
 from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_snapshot,
@@ -56,6 +50,13 @@ from scopecat.runs.admission import build_run_admission
 from scopecat.runs.refs import record_content_ref
 from scopecat.runs.repository import (
     TerminalRunCommit,
+)
+
+from scopecat_server.storage.sqlite import (
+    ControlPlaneConflict,
+    ControlPlaneNotFound,
+    SQLiteControlPlane,
+    SQLiteRunRepository,
 )
 
 from .errors import BackendConflict, BackendNotFound

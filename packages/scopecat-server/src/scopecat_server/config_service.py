@@ -8,11 +8,6 @@ from contextlib import contextmanager
 from dataclasses import replace
 from threading import Lock
 
-from scopecat.adapters.sqlite import (
-    SQLiteConfigRegistryStore,
-    SQLiteControlPlane,
-    SQLiteRunRepository,
-)
 from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.config.inventory import (
     InstrumentInventoryRekey,
@@ -56,6 +51,12 @@ from scopecat.kernel.errors import (
 )
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import config_content_hash
+
+from scopecat_server.storage.sqlite import (
+    SQLiteConfigRegistryStore,
+    SQLiteControlPlane,
+    SQLiteRunRepository,
+)
 
 from .errors import BackendConflict, BackendNotFound
 from .instrument_actor import (

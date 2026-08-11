@@ -9,16 +9,6 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from pydantic import JsonValue, RootModel
-from scopecat.adapters.sqlite import (
-    ControlPlaneConflict,
-    ControlPlaneNotFound,
-    ExecutorLeaseNotHeld,
-    SQLiteControlPlane,
-    SQLiteExecutionJournal,
-    SQLiteMeasurementDatasetRepository,
-    SQLiteRunRepository,
-)
-from scopecat.adapters.sqlite.execution import ExecutionJournalConflict
 from scopecat.control.models import (
     ControlRun,
     DurableEventInput,
@@ -48,6 +38,17 @@ from scopecat.runs.repository import (
     TerminalRunCommit,
 )
 from scopecat.runs.terminal import merge_terminal_manifest
+
+from scopecat_server.storage.sqlite import (
+    ControlPlaneConflict,
+    ControlPlaneNotFound,
+    ExecutorLeaseNotHeld,
+    SQLiteControlPlane,
+    SQLiteExecutionJournal,
+    SQLiteMeasurementDatasetRepository,
+    SQLiteRunRepository,
+)
+from scopecat_server.storage.sqlite.execution import ExecutionJournalConflict
 
 from .errors import BackendConflict, BackendNotFound
 from .instrument_service import InstrumentService

@@ -7,9 +7,9 @@ from contextlib import closing
 from pathlib import Path
 from typing import cast
 
-from scopecat.adapters.sqlite.connection import SQLiteDatabase
-from scopecat.adapters.sqlite.object_store import ImmutableObjectStore
-from scopecat.adapters.sqlite.schema import (
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.object_store import ImmutableObjectStore
+from scopecat_server.storage.sqlite.schema import (
     PROJECT_SCHEMA_SQL,
     PROJECT_SCHEMA_VERSION,
 )

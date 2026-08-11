@@ -12,7 +12,6 @@ from typing import cast
 
 import numpy as np
 import pyarrow as pa
-
 from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.measurements.arrow_values import (

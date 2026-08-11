@@ -3,11 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
-from scopecat.adapters.sqlite.measurement_arrow import (
+from scopecat_server.storage.sqlite.measurement_arrow import (
     decode_measurement_append,
     encode_measurement_append,
 )
+
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
 from scopecat.runs.access import (
     dataset_storage_ref,

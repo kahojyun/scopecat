@@ -4,12 +4,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterable, Iterable, Mapping
 
-from scopecat.adapters.sqlite.object_store import (
-    ImmutableObjectStore,
-    ObjectCorruptError,
-    ObjectNotFoundError,
-    ObjectStoreError,
-)
 from scopecat.daemon.wire import (
     PayloadObjectReceipt,
     RunHardwareBatchCommand,
@@ -23,6 +17,13 @@ from scopecat.records.artifact import (
 from scopecat.sdk.instruments.backend import BackendPayload
 from scopecat.sdk.instruments.commands import InvokeCommand
 from scopecat.sdk.instruments.execution import RunHardwareInvoke
+
+from scopecat_server.storage.sqlite.object_store import (
+    ImmutableObjectStore,
+    ObjectCorruptError,
+    ObjectNotFoundError,
+    ObjectStoreError,
+)
 
 DEFAULT_MAX_PAYLOAD_OBJECT_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_INLINE_PAYLOAD_BYTES = 1024 * 1024

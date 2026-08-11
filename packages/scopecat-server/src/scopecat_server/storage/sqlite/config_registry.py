@@ -9,8 +9,6 @@ from typing import Self, cast
 
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
-
-from scopecat.adapters.sqlite.connection import SQLiteDatabase
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
@@ -28,6 +26,8 @@ from scopecat.kernel.problems import (
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.runs.repository import RunRepository
+
+from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 
 CONFIG_REGISTRY_ROOT = "config-registry"
 CONFIG_REGISTRY_ACTIVATIONS_REF = f"{CONFIG_REGISTRY_ROOT}/activations"

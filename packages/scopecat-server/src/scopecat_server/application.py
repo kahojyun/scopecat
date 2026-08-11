@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from scopecat.adapters.sqlite import SQLiteProjectStore
 from scopecat.daemon.views import DaemonHealth
 from scopecat.daemon.wire import (
     AttentionResolutionReceipt,
@@ -13,6 +12,8 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunSubmission,
 )
+
+from scopecat_server.storage.sqlite import SQLiteProjectStore
 
 from .admission_service import AdmissionService
 from .config_service import ConfigService

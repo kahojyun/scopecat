@@ -9,13 +9,6 @@ from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 
 import pyarrow as pa
-from scopecat.adapters.sqlite import (
-    ControlPlaneNotFound,
-    SQLiteControlPlane,
-    SQLiteExecutionJournal,
-    SQLiteMeasurementDatasetRepository,
-    SQLiteRunRepository,
-)
 from scopecat.analysis.datasets import DerivedDataset
 from scopecat.analysis.service import (
     AnalysisArtifactOutput,
@@ -121,6 +114,14 @@ from scopecat.runs.service import (
 )
 from scopecat.sdk.domain.invocation import DomainInvocationIntent
 from scopecat.sdk.domain.runtime import DomainExecutionId, DomainExecutionReceipt
+
+from scopecat_server.storage.sqlite import (
+    ControlPlaneNotFound,
+    SQLiteControlPlane,
+    SQLiteExecutionJournal,
+    SQLiteMeasurementDatasetRepository,
+    SQLiteRunRepository,
+)
 
 from .errors import BackendConflict, BackendNotFound
 

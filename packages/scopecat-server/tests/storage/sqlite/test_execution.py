@@ -10,14 +10,6 @@ from pathlib import Path
 from threading import Barrier
 
 import pytest
-
-from scopecat.adapters.sqlite import (
-    SQLiteDatabase,
-    SQLiteMeasurementDatasetRepository,
-    SQLiteProjectStore,
-    SQLiteRunRepository,
-)
-from scopecat.adapters.sqlite.execution import ExecutionJournalConflict
 from scopecat.kernel.problems import (
     ProblemPhase,
     problem,
@@ -43,6 +35,14 @@ from scopecat.records.measurement_recording import (
     measurement_dataset_content_hash,
 )
 from tests.testkit.runtime import SQLiteTestExecutionJournal as SQLiteExecutionJournal
+
+from scopecat_server.storage.sqlite import (
+    SQLiteDatabase,
+    SQLiteMeasurementDatasetRepository,
+    SQLiteProjectStore,
+    SQLiteRunRepository,
+)
+from scopecat_server.storage.sqlite.execution import ExecutionJournalConflict
 
 
 def _runs(tmp_path: Path) -> SQLiteRunRepository:

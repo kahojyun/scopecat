@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scopecat.adapters.sqlite import (
+from scopecat_server.storage.sqlite import (
     SchemaVersionError,
     SQLiteDatabase,
     SQLiteProjectStore,

@@ -11,10 +11,10 @@ from typing import Annotated, cast
 import pandas as pd
 import pytest
 from pydantic import ValidationError
+from scopecat_server.storage.sqlite import SQLiteRunRepository
+from scopecat_server.storage.sqlite.run_repository import PreparedContentPublication
 
 import scopecat as sc
-from scopecat.adapters.sqlite import SQLiteRunRepository
-from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
 from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
 from scopecat.analysis.service import (
     AnalysisDatasetOutput,

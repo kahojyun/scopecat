@@ -11,14 +11,6 @@ from threading import Lock, RLock, Timer
 from typing import Literal, cast
 
 from pydantic import JsonValue
-from scopecat.adapters.sqlite import (
-    ControlPlaneConflict,
-    ControlPlaneNotFound,
-    ExecutorLeaseNotHeld,
-    InstrumentSessionNotActive,
-    SQLiteControlPlane,
-    SQLiteRunRepository,
-)
 from scopecat.control.models import (
     DurableEventInput,
     InstrumentSession,
@@ -117,6 +109,15 @@ from scopecat.sdk.instruments.execution import (
 from scopecat.sdk.instruments.projection import ProjectedInstrumentState
 from scopecat.sdk.payloads import PayloadCodecCatalog
 from scopecat.sdk.runtime_problems import contextualize_problems
+
+from scopecat_server.storage.sqlite import (
+    ControlPlaneConflict,
+    ControlPlaneNotFound,
+    ExecutorLeaseNotHeld,
+    InstrumentSessionNotActive,
+    SQLiteControlPlane,
+    SQLiteRunRepository,
+)
 
 from .config_service import ConfigService
 from .errors import BackendConflict, BackendNotFound

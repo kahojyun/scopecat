@@ -11,11 +11,11 @@ from typing import cast
 
 import pyarrow as pa
 from pydantic import JsonValue
-
-from scopecat.adapters.sqlite import (
+from scopecat_server.storage.sqlite import (
     SQLiteMeasurementDatasetRepository,
     SQLiteRunRepository,
 )
+
 from scopecat.analysis.service import (
     AnalysisInput,
     AnalysisOutput,

@@ -11,7 +11,6 @@ from typing import Literal, override
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
-from scopecat.adapters.sqlite.object_store import ImmutableObjectStore
 from scopecat.control.models import RunPlanSummary, RunResourceRequirement
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.wire import (
@@ -60,6 +59,7 @@ from scopecat_server.payload_service import (
     CommandPayloadService,
     CommandPayloadTooLarge,
 )
+from scopecat_server.storage.sqlite.object_store import ImmutableObjectStore
 
 _PAYLOAD_BYTES = b"\x00\xff\x80SCPI\x00program\n"
 _MEDIA_TYPE = "application/octet-stream"

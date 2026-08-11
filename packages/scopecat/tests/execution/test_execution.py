@@ -6,9 +6,9 @@ from typing import Annotated, Never, cast
 
 import pytest
 from pydantic import JsonValue
+from scopecat_server.storage.sqlite import SQLiteRunRepository
 
 import scopecat as sc
-from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
     record_product,

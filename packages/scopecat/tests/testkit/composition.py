@@ -9,8 +9,7 @@ from pathlib import Path
 from typing import cast
 
 from pydantic import BaseModel
-
-from scopecat.adapters.sqlite import (
+from scopecat_server.storage.sqlite import (
     SQLiteConfigRegistryStore,
     SQLiteControlPlane,
     SQLiteDatabase,
@@ -19,7 +18,8 @@ from scopecat.adapters.sqlite import (
     SQLiteProjectStore,
     SQLiteRunRepository,
 )
-from scopecat.adapters.sqlite.run_repository import _PreparedRef
+from scopecat_server.storage.sqlite.run_repository import _PreparedRef
+
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
 from scopecat.execution.services import ExecutionSession
 from scopecat.project_state import ProjectStateServices

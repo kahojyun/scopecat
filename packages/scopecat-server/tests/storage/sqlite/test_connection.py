@@ -8,7 +8,7 @@ from threading import Event
 
 import pytest
 
-from scopecat.adapters.sqlite.connection import (
+from scopecat_server.storage.sqlite.connection import (
     SQLiteDatabase,
     connect,
     immediate_transaction,
