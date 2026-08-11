@@ -7,6 +7,7 @@ from typing import Protocol
 import httpx2
 import pytest
 from pydantic import BaseModel
+from testkit.workflow_fixtures import load_config
 
 from scopecat.control.models import RunPlanSummary
 from scopecat.daemon.client import DaemonClient
@@ -60,7 +61,6 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareBatchReceipt,
     RunHardwareFinalizationReceipt,
 )
-from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 

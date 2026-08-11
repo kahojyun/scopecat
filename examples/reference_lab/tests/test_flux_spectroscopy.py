@@ -27,8 +27,8 @@ from scopecat.sdk.instruments import (
     DriverReadback,
 )
 from scopecat_instruments.virtual import VirtualNetworkAnalyzer
-from tests.testkit.in_process_lab import in_process_lab
-from tests.testkit.instrument_host import compose_test_instruments
+from testkit.in_process_lab import in_process_lab
+from testkit.instrument_host import compose_test_instruments
 
 from reference_lab.configuration import bootstrap_config
 from reference_lab.parameters import (

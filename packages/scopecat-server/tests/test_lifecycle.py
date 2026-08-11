@@ -23,7 +23,7 @@ from scopecat.project import (
     open_project,
 )
 from scopecat.records.parameter import ScalarParameterValue
-from tests.testkit.project_loading import isolated_project_imports
+from testkit.project_loading import isolated_project_imports
 from typer.testing import CliRunner
 
 from scopecat_server.cli import app

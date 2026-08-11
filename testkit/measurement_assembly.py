@@ -29,8 +29,8 @@ from scopecat.planning.point_materialization import (
     materialize_bound_points,
 )
 from scopecat.program.point_domain import point_axis_values
-from tests.testkit.authoring import load_config
-from tests.testkit.bound_program import (
+from testkit.authoring import load_config
+from testkit.bound_program import (
     bind_program_facts,
     instrument_acquisitions,
     observable_product,

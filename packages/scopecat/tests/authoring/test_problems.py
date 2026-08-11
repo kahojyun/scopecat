@@ -5,6 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from testkit.authoring import (
+    bind_invocation,
+    load_config,
+    simple_experiment,
+)
+from testkit.instrument_host import compose_test_instruments
+from testkit.runtime import check_experiment, sqlite_project_services
+from testkit.signal_instruments import TestSignalInstrumentProvider
 
 import scopecat as sc
 from scopecat.compiler.bind import bind_program
@@ -15,14 +23,6 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
-from tests.testkit.authoring import (
-    bind_invocation,
-    load_config,
-    simple_experiment,
-)
-from tests.testkit.instrument_host import compose_test_instruments
-from tests.testkit.runtime import check_experiment, sqlite_project_services
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
 
 def test_missing_experiment_input_and_unknown_subject_report_stable_problems(

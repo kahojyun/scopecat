@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import httpx2
 import pytest
 from pydantic import BaseModel
+from testkit.workflow_fixtures import load_config
 
 from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.registry.records import (
@@ -68,7 +69,6 @@ from scopecat.sdk.instruments.commands import (
     InvokeReceipt,
 )
 from scopecat.sdk.instruments.contracts import InstrumentDescription
-from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 _HASH = f"sha256:{'a' * 64}"

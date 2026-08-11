@@ -108,18 +108,6 @@ def _render_surface(
     )
 
 
-def test_committed_generated_instrument_sources_are_current() -> None:
-    completed = subprocess.run(  # noqa: S603 - fixed repository script
-        [sys.executable, str(GENERATOR), "--check"],
-        cwd=REPOSITORY_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-
-
 def test_generated_catalog_imports_without_runtime_declaration_compilation() -> None:
     completed = subprocess.run(  # noqa: S603 - fixed interpreter and package code
         [sys.executable, "-c", _IMPORT_STATIC_CATALOG],

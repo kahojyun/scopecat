@@ -4,6 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from testkit.authoring import load_config
+from testkit.bound_program import (
+    ComputeNodeFixture,
+    ProgramFixture,
+    bind_program_facts,
+    program_fixture,
+)
+from testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
+)
+
 from scopecat.compiler.point_domain import PointDomain
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import ComputeOperation
@@ -19,17 +31,6 @@ from scopecat.program.value_graph import (
     ComputeOutput,
     OperationId,
     operation_result_id,
-)
-from tests.testkit.authoring import load_config
-from tests.testkit.bound_program import (
-    ComputeNodeFixture,
-    ProgramFixture,
-    bind_program_facts,
-    program_fixture,
-)
-from tests.testkit.local_materialization import (
-    materialize_local_execution,
-    operations_of_type,
 )
 
 _FLOAT = Scalar(Float())

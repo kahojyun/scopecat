@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from scopecat.execution.program import RunCoveredOperation
-from tests.testkit.local_materialization import LocalEffectInspection
+from testkit.local_materialization import LocalEffectInspection
 
 
 def complete_coverage_operations(

@@ -5,6 +5,8 @@ from typing import Never
 
 import pytest
 from pydantic import ValidationError
+from testkit.signal_instruments import TestSignalInstrumentProvider
+from testkit.workflow_fixtures import load_config
 
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.quantity import Quantity
@@ -29,8 +31,6 @@ from scopecat.sdk.instruments import (
     interface,
     string_property,
 )
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import load_config
 
 
 def test_default_state_requires_unique_property_targets() -> None:

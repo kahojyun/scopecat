@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
+from testkit.paths import CORE_FIXTURE_DIR
 
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.kernel.resource_identity import (
@@ -18,7 +19,6 @@ from scopecat.records.config import (
     RoutingEndpoint,
     RoutingGraph,
 )
-from tests.testkit.paths import CORE_FIXTURE_DIR
 
 
 def load_config() -> ConfigProfileSnapshot:

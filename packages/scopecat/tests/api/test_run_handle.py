@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Annotated, Protocol, cast
 
 import pytest
+from testkit.authoring import DRIVE_FREQUENCY_POINT
+from testkit.in_process_lab import in_process_lab
+from testkit.instrument_host import compose_test_instruments
+from testkit.signal_instruments import TestSignalInstrumentProvider
+from testkit.workflow_fixtures import load_config, load_invocation
 
 import scopecat as sc
 import scopecat.authoring as authoring
@@ -24,11 +29,6 @@ from scopecat.records.config import config_content_hash
 from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 from scopecat.records.run import AnalysisCandidateRunConfigSource
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import DRIVE_FREQUENCY_POINT
-from tests.testkit.in_process_lab import in_process_lab
-from tests.testkit.instrument_host import compose_test_instruments
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 _SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
 _SET_FREQUENCY_VALUE = _SET_FREQUENCY.property("frequency")

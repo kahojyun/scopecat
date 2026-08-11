@@ -116,6 +116,7 @@ describe("config registry commands", () => {
     await activateConfigEntry(activationCommand);
     await undoConfig(undo);
 
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     await expectRequest(fetchMock, 0, "/api/v1/config-registry/active", activationCommand);
     await expectRequest(fetchMock, 1, "/api/v1/config-registry/undo", undo);
   });

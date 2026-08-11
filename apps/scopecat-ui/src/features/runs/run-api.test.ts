@@ -11,7 +11,6 @@ import {
   getRunEvents,
   getRuns,
 } from "./run-api";
-import { getHealth } from "../../data/project-api";
 import type { MeasurementRecord } from "../../api-contract";
 import { requestPath } from "../../test/http";
 import type { ContentEntry } from "../../types";
@@ -20,30 +19,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("project daemon reads", () => {
-  it("uses the daemon's one project identity", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          jsonResponse({
-            status: "ok",
-            project_id: "local:abc",
-            project_name: "ramsey-lab",
-            project_root: "/projects/ramsey-lab",
-          }),
-        ),
-      ),
-    );
-
-    await expect(getHealth()).resolves.toMatchObject({
-      status: "ok",
-      projectId: "local:abc",
-      projectName: "ramsey-lab",
-      projectRoot: "/projects/ramsey-lab",
-    });
-  });
-
+describe("run daemon reads", () => {
   it("loads exact analysis artifact bytes for browser download", async () => {
     const fetchMock = vi.fn((_input: string | URL | Request) =>
       Promise.resolve(

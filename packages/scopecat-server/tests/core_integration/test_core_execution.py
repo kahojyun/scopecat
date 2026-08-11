@@ -5,10 +5,8 @@ from pathlib import Path
 from typing import Annotated, Never, cast
 
 import pytest
-from pydantic import JsonValue
-from scopecat_server.storage.sqlite import SQLiteRunRepository
-
 import scopecat as sc
+from pydantic import JsonValue
 from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
     record_product,
@@ -86,8 +84,8 @@ from scopecat.sdk.instruments.provider import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
-from tests.testkit.authoring import bind_invocation
-from tests.testkit.bound_program import (
+from testkit.authoring import bind_invocation
+from testkit.bound_program import (
     ComputeNodeFixture,
     ProgramFixture,
     bind_program_facts,
@@ -97,27 +95,29 @@ from tests.testkit.bound_program import (
     observable_product,
     program_fixture,
 )
-from tests.testkit.execution import execute_bound_run
-from tests.testkit.expressions import state_property, verified_scalar_expr
-from tests.testkit.instrument_drivers import SignalInstrumentDriver
-from tests.testkit.local_materialization import (
+from testkit.execution import execute_bound_run
+from testkit.expressions import state_property, verified_scalar_expr
+from testkit.instrument_drivers import SignalInstrumentDriver
+from testkit.local_materialization import (
     LocalEffectInspection,
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.materialized_effects import config_with_physical_resources
-from tests.testkit.payload_codecs import json_payload_codecs
-from tests.testkit.records import (
+from testkit.materialized_effects import config_with_physical_resources
+from testkit.payload_codecs import json_payload_codecs
+from testkit.records import (
     assert_model_round_trip,
 )
-from tests.testkit.runtime import (
+from testkit.runtime import (
     sqlite_execution_session,
     sqlite_run_repository,
 )
-from tests.testkit.signal_instruments import (
+from testkit.signal_instruments import (
     TestSignalInstrument,
 )
-from tests.testkit.workflow_fixtures import load_config, load_experiment
+from testkit.workflow_fixtures import load_config, load_experiment
+
+from scopecat_server.storage.sqlite import SQLiteRunRepository
 
 
 def test_execution_builds_one_bound_session(
@@ -143,7 +143,7 @@ def test_execution_builds_one_bound_session(
         )
 
     monkeypatch.setattr(
-        "tests.testkit.execution.sqlite_execution_session",
+        "testkit.execution.sqlite_execution_session",
         counted_session,
     )
 

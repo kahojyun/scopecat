@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import assert_type
 
 import pytest
+from testkit.authoring import bind_invocation, load_config
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
@@ -32,7 +33,6 @@ from scopecat.program.products import (
     record_ref_from_product,
 )
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import bind_invocation, load_config
 
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SAMPLE = _SCALAR_SIGNAL.acquisition("sample")

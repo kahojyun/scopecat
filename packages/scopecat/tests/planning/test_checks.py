@@ -4,10 +4,20 @@ from pathlib import Path
 from typing import Literal, Never
 
 import pytest
+import testkit.planning as test_planning
+from testkit.authoring import simple_experiment
+from testkit.domain import domain_call
+from testkit.in_process_lab import (
+    InProcessLab,
+    InProcessPreparedExperiment,
+    in_process_lab,
+)
+from testkit.instrument_host import compose_test_instruments
+from testkit.signal_instruments import TestSignalInstrumentProvider
+from testkit.workflow_fixtures import load_config, load_invocation
 
 import scopecat as sc
 import scopecat.planning.system as planning_system
-import tests.testkit.planning as test_planning
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.kernel.errors import CheckFailed
@@ -30,16 +40,6 @@ from scopecat.sdk.domain.batch import (
     DomainCompileRequest,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
-from tests.testkit.authoring import simple_experiment
-from tests.testkit.domain import domain_call
-from tests.testkit.in_process_lab import (
-    InProcessLab,
-    InProcessPreparedExperiment,
-    in_process_lab,
-)
-from tests.testkit.instrument_host import compose_test_instruments
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 
 def _lab(

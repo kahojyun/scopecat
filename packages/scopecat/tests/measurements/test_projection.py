@@ -5,6 +5,11 @@ from datetime import UTC, datetime
 
 import numpy as np
 import pytest
+from testkit.measurement_assembly import (
+    assembled_measurement_values_for_all_uses,
+    measurement_assembly_scenario,
+    measurement_value_candidates,
+)
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.graph_identity import ValueId
@@ -45,11 +50,6 @@ from scopecat.planning.measurement_projection import (
     project_run_point_catalog,
 )
 from scopecat.records.measurement import MeasurementArray
-from tests.testkit.measurement_assembly import (
-    assembled_measurement_values_for_all_uses,
-    measurement_assembly_scenario,
-    measurement_value_candidates,
-)
 
 
 def test_projection_keeps_all_records_without_narrowing_the_value_catalog() -> None:

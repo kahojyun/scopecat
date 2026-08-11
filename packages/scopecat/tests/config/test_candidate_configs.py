@@ -5,6 +5,16 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from testkit.config_registry import activate_candidate_config
+from testkit.in_process_lab import InProcessLab, in_process_lab
+from testkit.instrument_host import compose_test_instruments
+from testkit.runtime import (
+    sqlite_config_registry_unit_of_work,
+    sqlite_project_services,
+    sqlite_run_repository,
+)
+from testkit.signal_instruments import TestSignalInstrumentProvider
+from testkit.workflow_fixtures import load_config, load_invocation
 
 import scopecat as sc
 from scopecat.config.candidates import (
@@ -21,16 +31,6 @@ from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeProposal
-from tests.testkit.config_registry import activate_candidate_config
-from tests.testkit.in_process_lab import InProcessLab, in_process_lab
-from tests.testkit.instrument_host import compose_test_instruments
-from tests.testkit.runtime import (
-    sqlite_config_registry_unit_of_work,
-    sqlite_project_services,
-    sqlite_run_repository,
-)
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 
 def test_candidate_config_resolves_proposal_and_runs_follow_up(

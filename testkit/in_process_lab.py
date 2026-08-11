@@ -29,9 +29,9 @@ from scopecat.records.config import (
 from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.selectors import RunSelector
 from scopecat.sdk.instruments import InstrumentBackend, InstrumentProviderContext
-from tests.testkit.instrument_host import provision_test_instrument_host
-from tests.testkit.planning import TestExperimentSystemBuilder
-from tests.testkit.runtime import (
+from testkit.instrument_host import provision_test_instrument_host
+from testkit.planning import TestExperimentSystemBuilder
+from testkit.runtime import (
     ServiceRunOperations,
     admit_test_run,
     check_experiment,
@@ -203,7 +203,7 @@ def in_process_lab(
     instrument_backend: InstrumentBackend | None = None,
     build_experiment_system: ExperimentSystemBuilder | None = None,
 ) -> InProcessLab:
-    from tests.testkit.runtime import sqlite_project_services
+    from testkit.runtime import sqlite_project_services
 
     return InProcessLab(
         project_root=Path(project_root),

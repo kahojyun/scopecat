@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
+from testkit.workflow_fixtures import load_config
 
 from scopecat.records.config import (
     InstrumentRegistry,
@@ -9,7 +10,6 @@ from scopecat.records.config import (
     instrument_bindings,
 )
 from scopecat.sdk.instruments import InstrumentBindingSpec
-from tests.testkit.workflow_fixtures import load_config
 
 
 def test_instrument_bindings_project_only_provider_inputs() -> None:

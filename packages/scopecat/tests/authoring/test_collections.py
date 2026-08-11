@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Annotated
 
 import pytest
+from testkit.authoring import bind_invocation, load_config
+from testkit.local_materialization import materialize_local_execution
 
 import scopecat.authoring as authoring
 from scopecat.authoring import axis
@@ -18,8 +20,6 @@ from scopecat.program.value_graph import OperationId
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
-from tests.testkit.authoring import bind_invocation, load_config
-from tests.testkit.local_materialization import materialize_local_execution
 
 
 def _bind_program(

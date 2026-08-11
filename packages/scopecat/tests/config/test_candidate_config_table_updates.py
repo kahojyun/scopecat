@@ -2,6 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from testkit.config_registry import (
+    activate_candidate_config,
+    load_config_registry_config,
+)
+from testkit.in_process_lab import in_process_lab
+from testkit.instrument_host import compose_test_instruments
+from testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
+from testkit.runtime import (
+    sqlite_config_registry_unit_of_work,
+    sqlite_project_services,
+)
+from testkit.signal_instruments import TestSignalInstrumentProvider
+from testkit.workflow_fixtures import load_invocation
+
 import scopecat as sc
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.registry import (
@@ -15,19 +29,6 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     TableParameterValue,
 )
-from tests.testkit.config_registry import (
-    activate_candidate_config,
-    load_config_registry_config,
-)
-from tests.testkit.in_process_lab import in_process_lab
-from tests.testkit.instrument_host import compose_test_instruments
-from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
-from tests.testkit.runtime import (
-    sqlite_config_registry_unit_of_work,
-    sqlite_project_services,
-)
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import load_invocation
 
 
 def test_candidate_config_activation_materializes_table_row_updates(

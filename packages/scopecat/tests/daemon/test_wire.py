@@ -8,6 +8,7 @@ from typing import Literal
 import pyarrow as pa
 import pytest
 from pydantic import ValidationError
+from testkit.workflow_fixtures import load_config
 
 from scopecat.analysis.datasets import DerivedDataset
 from scopecat.config.changes import parameter_change_proposal_from_updates
@@ -82,7 +83,6 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.execution import RunHardwareApply, RunHardwareBatch
-from tests.testkit.workflow_fixtures import load_config
 
 
 def _request() -> RunRequest:

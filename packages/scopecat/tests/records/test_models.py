@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 import pytest
 from pydantic import BaseModel, ValidationError
+from testkit.records import assert_model_round_trip
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
@@ -39,7 +40,6 @@ from scopecat.records.run_request import (
     RunRequestParameterLookupValue,
     RunRequestParameterValue,
 )
-from tests.testkit.records import assert_model_round_trip
 
 type _MetadataModelFactory = Callable[[object], BaseModel]
 

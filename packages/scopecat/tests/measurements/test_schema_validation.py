@@ -4,6 +4,7 @@ from typing import Literal
 
 import pytest
 from pydantic import ValidationError
+from testkit.measurement_models import signal_record
 
 from scopecat.kernel.problems import model_location
 from scopecat.measurements.results import validate_measurement_records_against_schema
@@ -19,7 +20,6 @@ from scopecat.records.measurement import (
     MeasurementScalar,
     MeasurementVariable,
 )
-from tests.testkit.measurement_models import signal_record
 
 
 def _empty_grid() -> MeasurementProductGridPointDomain:

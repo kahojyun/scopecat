@@ -11,10 +11,6 @@ from typing import cast
 
 import pyarrow as pa
 from pydantic import JsonValue
-from scopecat_server.storage.sqlite import (
-    SQLiteMeasurementDatasetRepository,
-    SQLiteRunRepository,
-)
 
 from scopecat.analysis.service import (
     AnalysisInput,
@@ -56,6 +52,10 @@ from scopecat.runs.service import (
     read_run_dataset_bytes,
     read_run_measurement_dataset,
     read_run_record_json,
+)
+from scopecat_server.storage.sqlite import (
+    SQLiteMeasurementDatasetRepository,
+    SQLiteRunRepository,
 )
 
 

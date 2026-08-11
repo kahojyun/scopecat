@@ -26,9 +26,9 @@ from scopecat.config.registry.service import (
 from scopecat.kernel.errors import Conflict, StorageError
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import ConfigRegistryRunConfigSource
-from tests.testkit.config_registry import load_config_registry_config
-from tests.testkit.paths import CORE_FIXTURE_DIR
-from tests.testkit.runtime import SQLiteTestRunRepository
+from testkit.config_registry import load_config_registry_config
+from testkit.paths import CORE_FIXTURE_DIR
+from testkit.runtime import SQLiteTestRunRepository
 
 from scopecat_server.storage.sqlite import SQLiteDatabase, SQLiteProjectStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore

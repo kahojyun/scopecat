@@ -22,9 +22,9 @@ from scopecat.records.config import (
     ResourceRoute,
     RoutingEndpoint,
 )
-from tests.testkit.authoring import load_config
-from tests.testkit.bound_program import ProgramFixture
-from tests.testkit.local_materialization import (
+from testkit.authoring import load_config
+from testkit.bound_program import ProgramFixture
+from testkit.local_materialization import (
     LocalEffectInspection,
     materialize_local_execution,
 )

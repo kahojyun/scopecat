@@ -97,8 +97,8 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareCollectBinding,
     RunHardwareInvoke,
 )
-from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
-from tests.testkit.payload_codecs import json_payload_codecs
+from testkit.instrument_drivers import SignalInstrumentDriver, load_config
+from testkit.payload_codecs import json_payload_codecs
 
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict

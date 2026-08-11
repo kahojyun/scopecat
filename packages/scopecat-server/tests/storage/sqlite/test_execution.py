@@ -34,7 +34,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
-from tests.testkit.runtime import SQLiteTestExecutionJournal as SQLiteExecutionJournal
+from testkit.runtime import SQLiteTestExecutionJournal as SQLiteExecutionJournal
 
 from scopecat_server.storage.sqlite import (
     SQLiteDatabase,

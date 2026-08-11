@@ -9,16 +9,6 @@ from pathlib import Path
 from typing import cast
 
 from pydantic import BaseModel
-from scopecat_server.storage.sqlite import (
-    SQLiteConfigRegistryStore,
-    SQLiteControlPlane,
-    SQLiteDatabase,
-    SQLiteExecutionJournal,
-    SQLiteMeasurementDatasetRepository,
-    SQLiteProjectStore,
-    SQLiteRunRepository,
-)
-from scopecat_server.storage.sqlite.run_repository import _PreparedRef
 
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
 from scopecat.execution.services import ExecutionSession
@@ -37,7 +27,17 @@ from scopecat.runs.admission import RunSkeleton, build_run_admission
 from scopecat.runs.refs import MANIFEST_REF
 from scopecat.runs.repository import RunRepository
 from scopecat.sdk.instruments.execution import RunInstrumentHost
-from tests.testkit.instrument_host import TestRunInstrumentHost
+from scopecat_server.storage.sqlite import (
+    SQLiteConfigRegistryStore,
+    SQLiteControlPlane,
+    SQLiteDatabase,
+    SQLiteExecutionJournal,
+    SQLiteMeasurementDatasetRepository,
+    SQLiteProjectStore,
+    SQLiteRunRepository,
+)
+from scopecat_server.storage.sqlite.run_repository import _PreparedRef
+from testkit.instrument_host import TestRunInstrumentHost
 
 
 class SQLiteTestRunRepository(SQLiteRunRepository):

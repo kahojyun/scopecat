@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from testkit.runtime import sqlite_run_repository
 
 from scopecat.execution.evidence import (
     build_terminal_contents,
@@ -27,7 +28,6 @@ from scopecat.runs.repository import (
     RunContentPublication,
     TerminalRunCommit,
 )
-from tests.testkit.runtime import sqlite_run_repository
 
 _CONFIG_HASH = "sha256:" + "0" * 64
 

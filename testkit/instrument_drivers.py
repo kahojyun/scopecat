@@ -27,7 +27,7 @@ from scopecat.sdk.instruments import (
     operation_argument,
     quantity_property,
 )
-from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
+from testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 
 
 class SignalInstrumentDriver:

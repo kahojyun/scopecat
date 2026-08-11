@@ -10,11 +10,8 @@ from typing import Annotated, cast
 
 import pandas as pd
 import pytest
-from pydantic import ValidationError
-from scopecat_server.storage.sqlite import SQLiteRunRepository
-from scopecat_server.storage.sqlite.run_repository import PreparedContentPublication
-
 import scopecat as sc
+from pydantic import ValidationError
 from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
 from scopecat.analysis.service import (
     AnalysisDatasetOutput,
@@ -44,18 +41,21 @@ from scopecat.records.analysis import (
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
-from tests.testkit.config_registry import activate_candidate_config
-from tests.testkit.in_process_lab import in_process_lab
-from tests.testkit.runtime import (
+from testkit.config_registry import activate_candidate_config
+from testkit.in_process_lab import in_process_lab
+from testkit.runtime import (
     sqlite_project_services,
 )
-from tests.testkit.signal_testkit import (
+from testkit.signal_testkit import (
     SUMMARY_STATS_STEP,
     BestSignalAnalysisStep,
     SummaryStatsAnalysisStep,
     execute_signal_run,
 )
-from tests.testkit.workflow_fixtures import load_config, load_invocation
+from testkit.workflow_fixtures import load_config, load_invocation
+
+from scopecat_server.storage.sqlite import SQLiteRunRepository
+from scopecat_server.storage.sqlite.run_repository import PreparedContentPublication
 
 
 def _dataset_size(dataset: Dataset) -> int:

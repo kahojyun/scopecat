@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+from testkit.bound_program import program_fixture
+from testkit.expressions import state_property
+from testkit.materialized_effects import (
+    config_with_physical_resources,
+    materialized_effects_contract,
+    materialized_state_properties,
+)
+from testkit.parameter_fixtures import (
+    parameters as _parameters,
+)
+
 from scopecat.compiler.bound_facts import LogicalResourceRequirement
 from scopecat.compiler.point_domain import PointDomain
 from scopecat.compiler.relations.verification import (
@@ -16,16 +27,6 @@ from scopecat.program.expressions import (
     point_col,
 )
 from scopecat.program.point_domain import point_axis_values
-from tests.testkit.bound_program import program_fixture
-from tests.testkit.expressions import state_property
-from tests.testkit.materialized_effects import (
-    config_with_physical_resources,
-    materialized_effects_contract,
-    materialized_state_properties,
-)
-from tests.testkit.parameter_fixtures import (
-    parameters as _parameters,
-)
 
 
 def _state_literal(value: object) -> object:

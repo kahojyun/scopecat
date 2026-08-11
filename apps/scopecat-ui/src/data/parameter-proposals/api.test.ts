@@ -95,6 +95,7 @@ describe("parameter proposal commands", () => {
       note: "Promote calibrated frequency",
     });
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     await expectRequest(fetchMock, "/api/v1/config-registry/default", {
       source: {
         kind: "candidate_config",

@@ -1,3 +1,5 @@
+from testkit.authoring import load_config
+
 from scopecat.config.parameter_resolution import (
     resolve_config_parameters,
     validate_parameter_snapshot,
@@ -21,7 +23,6 @@ from scopecat.records.parameter import (
     ScalarParameterValue,
     TableParameterValue,
 )
-from tests.testkit.authoring import load_config
 
 
 def test_resolve_config_parameters_reports_missing_unknown_and_invalid_values() -> None:

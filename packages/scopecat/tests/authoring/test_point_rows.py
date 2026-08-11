@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from testkit.authoring import bind_invocation, load_config
 
 import scopecat as sc
 from scopecat.compiler.frontend.resolution import compile_invocation
@@ -16,7 +17,6 @@ from scopecat.records.measurement import (
     MeasurementVariable,
 )
 from scopecat.records.run_request import PointCloudDomainRecord
-from tests.testkit.authoring import bind_invocation, load_config
 
 _INT = sc.ScalarType(sc.IntType())
 _FREQUENCY = sc.ScalarType(sc.QuantityType(unit="GHz"))

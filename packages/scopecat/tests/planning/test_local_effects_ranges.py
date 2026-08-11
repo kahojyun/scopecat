@@ -1,4 +1,20 @@
 import pytest
+from testkit.bound_program import (
+    ProgramFixture,
+    instrument_acquisition,
+    observable_product,
+    program_fixture,
+)
+from testkit.expressions import (
+    state_property,
+    verified_scalar_expr,
+)
+from testkit.materialized_effects import (
+    materialized_effects_contract,
+    materialized_state_properties,
+)
+from testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
+from testkit.workflow_fixtures import load_experiment
 
 from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
@@ -25,22 +41,6 @@ from scopecat.program.point_domain import (
     point_axis_values,
 )
 from scopecat.records.config import ConfigProfileSnapshot
-from tests.testkit.bound_program import (
-    ProgramFixture,
-    instrument_acquisition,
-    observable_product,
-    program_fixture,
-)
-from tests.testkit.expressions import (
-    state_property,
-    verified_scalar_expr,
-)
-from tests.testkit.materialized_effects import (
-    materialized_effects_contract,
-    materialized_state_properties,
-)
-from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
-from tests.testkit.workflow_fixtures import load_experiment
 
 
 def _materialized_effects_spec(spec: ProgramFixture, config: ConfigProfileSnapshot):

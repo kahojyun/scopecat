@@ -21,7 +21,7 @@ from scopecat.program.expressions import (
     ScalarExpr,
     as_scalar_expr,
 )
-from tests.testkit.bound_program import StateAssignmentFixture
+from testkit.bound_program import StateAssignmentFixture
 
 
 def verified_scalar_expr(

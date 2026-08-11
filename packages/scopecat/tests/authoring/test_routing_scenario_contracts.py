@@ -6,6 +6,17 @@ from typing import Annotated
 import pytest
 from scopecat_instruments import NetworkSweepGroupTarget, network_sweep
 from scopecat_instruments.members import NETWORK_SWEEP
+from testkit.authoring import bind_invocation, load_config
+from testkit.local_materialization import operations_of_type
+from testkit.materialized_effects import (
+    materialized_effects_contract,
+    materialized_state_properties,
+)
+from testkit.routing import (
+    RoutingEndpointSpec,
+    routing_endpoint,
+    routing_graph,
+)
 
 import scopecat.authoring as authoring
 from scopecat.authoring import axis
@@ -19,17 +30,6 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
 )
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import bind_invocation, load_config
-from tests.testkit.local_materialization import operations_of_type
-from tests.testkit.materialized_effects import (
-    materialized_effects_contract,
-    materialized_state_properties,
-)
-from tests.testkit.routing import (
-    RoutingEndpointSpec,
-    routing_endpoint,
-    routing_graph,
-)
 
 _DRIVE_FREQUENCY = InterfaceRef("test.drive_frequency/v1")
 _DRIVE_FREQUENCY_VALUE = _DRIVE_FREQUENCY.property("value")

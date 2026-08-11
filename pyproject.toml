@@ -39,6 +39,7 @@ include = [
   "examples/reference_lab/notebooks",
   "examples/reference_lab/tests",
   "scripts",
+  "testkit",
 ]
 exclude = [
   "**/__pycache__",
@@ -50,6 +51,7 @@ pythonVersion = "3.14"
 pythonPlatform = "All"
 typeCheckingMode = "recommended"
 extraPaths = [
+  ".",
   "packages/scopecat",
   "packages/scopecat/src",
   "packages/scopecat-server/src",
@@ -82,6 +84,14 @@ reportPrivateUsage = "none"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "packages/scopecat-server/tests"
+reportAny = "none"
+reportExplicitAny = "none"
+reportPrivateUsage = "none"
+reportUnknownMemberType = "none"
+reportUnknownVariableType = "none"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "testkit"
 reportAny = "none"
 reportExplicitAny = "none"
 reportPrivateUsage = "none"
@@ -137,7 +147,6 @@ forbidden_modules = [
   "scopecat.execution",
   "scopecat.planning",
   "scopecat.runs",
-  "scopecat_server.storage",
 ]
 allow_indirect_imports = true
 
@@ -158,22 +167,6 @@ name = "Compiler consumes the shared program model, not authoring"
 type = "forbidden"
 source_modules = ["scopecat.compiler"]
 forbidden_modules = ["scopecat.authoring"]
-allow_indirect_imports = true
-
-[[tool.importlinter.contracts]]
-name = "Application layers do not select concrete adapters"
-type = "forbidden"
-source_modules = [
-  "scopecat.analysis",
-  "scopecat.api",
-  "scopecat.application",
-  "scopecat.config",
-  "scopecat.execution",
-  "scopecat.measurements",
-  "scopecat.planning",
-  "scopecat.runs",
-]
-forbidden_modules = ["scopecat_server.storage"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
@@ -215,8 +208,22 @@ source_modules = [
   "scopecat_server",
 ]
 forbidden_modules = [
+  "scopecat.authoring._experiment_module",
   "scopecat.authoring._module_context",
+  "scopecat.authoring._module_invocation",
   "scopecat.authoring._module_results",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Server storage remains independent of orchestration"
+type = "forbidden"
+source_modules = ["scopecat_server.storage"]
+forbidden_modules = [
+  "scopecat_server.http",
+  "scopecat_server.instruments",
+  "scopecat_server.runtime",
+  "scopecat_server.services",
 ]
 allow_indirect_imports = true
 
@@ -238,6 +245,7 @@ addopts = [
 ]
 minversion = "9.0"
 pythonpath = [
+  ".",
   "packages/scopecat",
   "packages/scopecat-instruments/src",
 ]
@@ -267,6 +275,7 @@ src = [
   "examples/reference_lab/notebooks",
   "examples/reference_lab/tests",
   "scripts",
+  "testkit",
 ]
 
 [tool.ruff.lint]
@@ -277,8 +286,6 @@ ignore = [
   "A004",
   # Assertions express test expectations and trusted internal invariants.
   "S101",
-  # Public package facades derive their export lists from internal registries.
-  "PLE0605",
 ]
 select = [
   "A",
@@ -309,6 +316,7 @@ select = [
   "S",
   "SIM",
   "T10",
+  "TID251",
   "TC006",
   "TRY203",
   "TRY400",
@@ -317,17 +325,36 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"apps/scopecat-ui/scripts/export-openapi.py" = ["TID251"]
+"examples/reference_lab/tests/**/*.py" = ["TID251"]
+"packages/scopecat-server/**/*.py" = ["TID251"]
 "packages/scopecat/src/scopecat/program/point_domain.py" = [
   # PEP 695 has no explicit variance syntax; PointAxis[Never] needs covariance.
   "UP046",
 ]
+"packages/scopecat-instruments/src/scopecat_instruments/__init__.py" = [
+  "PLE0605"
+]
+"packages/scopecat-instruments/src/scopecat_instruments/drivers/__init__.py" = [
+  "PLE0605"
+]
+"packages/scopecat-instruments/src/scopecat_instruments/virtual/__init__.py" = [
+  "PLE0605"
+]
+"packages/scopecat/src/scopecat/__init__.py" = ["PLE0605"]
+"packages/scopecat/src/scopecat/application/__init__.py" = ["PLE0605"]
+"packages/scopecat/src/scopecat/config/registry/__init__.py" = ["PLE0605"]
+"packages/scopecat/src/scopecat/sdk/instruments/__init__.py" = ["PLE0605"]
 "**/tests/**/*.py" = [
   "ARG001",
-  "S101",
 ]
-"examples/reference_lab/notebooks/*.py" = [
-  "S101",
+"testkit/**/*.py" = [
+  "ARG001",
+  "TID251",
 ]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"scopecat_server".msg = "Only server-owned integration tests and the workspace testkit may depend on scopecat_server"
 
 [tool.ruff.lint.mccabe]
 max-complexity = 20

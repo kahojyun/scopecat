@@ -6,6 +6,24 @@ from typing import Annotated, Literal, Never, cast
 
 import numpy as np
 import pytest
+from testkit.authoring import load_config
+from testkit.bound_program import (
+    DomainExecutionFixture,
+    DomainResultFixture,
+    bind_program_facts,
+    instrument_acquisition,
+    observable_product,
+    overlay_parameter_cell,
+    program_fixture,
+)
+from testkit.expressions import state_property, verified_scalar_expr
+from testkit.parameter_fixtures import (
+    READOUT_FREQUENCY_LOOKUP,
+)
+from testkit.parameter_fixtures import (
+    parameters as parameter_fixture_data,
+)
+from testkit.signal_instruments import TestSignalInstrumentProvider
 
 import scopecat as sc
 from scopecat.compiler.bind import BoundPlan, bind_program
@@ -103,24 +121,6 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
-from tests.testkit.authoring import load_config
-from tests.testkit.bound_program import (
-    DomainExecutionFixture,
-    DomainResultFixture,
-    bind_program_facts,
-    instrument_acquisition,
-    observable_product,
-    overlay_parameter_cell,
-    program_fixture,
-)
-from tests.testkit.expressions import state_property, verified_scalar_expr
-from tests.testkit.parameter_fixtures import (
-    READOUT_FREQUENCY_LOOKUP,
-)
-from tests.testkit.parameter_fixtures import (
-    parameters as parameter_fixture_data,
-)
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
 
 class _EffectProbeRuntime:

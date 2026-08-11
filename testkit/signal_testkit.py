@@ -35,9 +35,9 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.runs.access import dataset_storage_ref
-from tests.testkit.execution import execute_invocation_run
-from tests.testkit.instrument_host import compose_test_instruments
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
+from testkit.execution import execute_invocation_run
+from testkit.instrument_host import compose_test_instruments
+from testkit.signal_instruments import TestSignalInstrumentProvider
 
 SUMMARY_STATS_STEP = "summary-stats"
 BEST_SIGNAL_ANALYSIS_STEP = "best-signal-analysis"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from testkit.runtime import FakeExecutionJournal
 
 from scopecat.execution.effects.compute import (
     ComputeEffectExecutor,
@@ -20,7 +21,6 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.program.value_graph import ComputeOutput, OperationId, operation_result_id
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
-from tests.testkit.runtime import FakeExecutionJournal
 
 
 def _operation() -> ComputeOperation:

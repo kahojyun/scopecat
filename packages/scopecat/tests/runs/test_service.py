@@ -5,8 +5,25 @@ from pathlib import Path
 from typing import override
 
 import pytest
+import testkit.planning as run_workflows
+from testkit.authoring import simple_experiment
+from testkit.execution import execute_invocation_run
+from testkit.instrument_host import (
+    TestRunInstrumentHost,
+    compose_test_instruments,
+    provision_test_instrument_host,
+)
+from testkit.runtime import (
+    admit_test_run,
+    check_experiment,
+    list_test_runs,
+    plan_experiment,
+    sqlite_execution_session,
+    sqlite_project_services,
+)
+from testkit.signal_instruments import TestSignalInstrumentProvider
+from testkit.workflow_fixtures import load_config, load_invocation
 
-import tests.testkit.planning as run_workflows
 from scopecat.authoring.experiments import ExperimentInvocation
 from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
@@ -27,23 +44,6 @@ from scopecat.runs.repository import TerminalRunCommit
 from scopecat.runs.service import load_run_request
 from scopecat.sdk.instruments.execution import RunHardwareFinalizationReceipt
 from scopecat.sdk.instruments.provider import InstrumentProviderContext
-from tests.testkit.authoring import simple_experiment
-from tests.testkit.execution import execute_invocation_run
-from tests.testkit.instrument_host import (
-    TestRunInstrumentHost,
-    compose_test_instruments,
-    provision_test_instrument_host,
-)
-from tests.testkit.runtime import (
-    admit_test_run,
-    check_experiment,
-    list_test_runs,
-    plan_experiment,
-    sqlite_execution_session,
-    sqlite_project_services,
-)
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 
 class _IndeterminateFinalizationHost(TestRunInstrumentHost):

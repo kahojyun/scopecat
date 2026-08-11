@@ -38,7 +38,7 @@ from scopecat.sdk.instruments.driver_adapter import (
     project_state,
 )
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecCatalog
-from tests.testkit.instrument_drivers import (
+from testkit.instrument_drivers import (
     SignalInstrumentDriver,
     number_state,
 )

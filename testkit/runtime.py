@@ -1,6 +1,6 @@
 """In-process runtime fixtures shared across workspace tests."""
 
-from tests.testkit.composition import (
+from testkit.composition import (
     SQLiteTestExecutionJournal,
     SQLiteTestRunRepository,
     admit_test_run,
@@ -10,16 +10,16 @@ from tests.testkit.composition import (
     sqlite_project_services,
     sqlite_run_repository,
 )
-from tests.testkit.execution_fakes import (
+from testkit.execution_fakes import (
     FakeExecutionJournal,
     FakeMeasurementDatasetRepository,
 )
-from tests.testkit.planning import (
+from testkit.planning import (
     check_experiment,
     plan_experiment,
     resolve_test_config,
 )
-from tests.testkit.service_run_operations import ServiceRunOperations
+from testkit.service_run_operations import ServiceRunOperations
 
 __all__ = [
     "FakeExecutionJournal",

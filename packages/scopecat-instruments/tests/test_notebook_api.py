@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# pyright: reportPrivateUsage=false
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from gc import collect as collect_garbage
@@ -796,3 +795,33 @@ def test_notebook_collect_rejects_a_result_from_another_acquisition() -> None:
         daemon.close()
 
     assert daemon.collect_intent is None
+
+
+def test_notebook_invoke_rejects_argument_from_another_operation() -> None:
+    description = InstrumentDescription(
+        instrument_id="source",
+        implementation_id="tests.source",
+        implementation_version="1",
+    )
+    daemon = _CollectingDaemon(
+        description,
+        InstrumentStateSnapshot(instrument_id="source"),
+    )
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("source",),
+        actor="test",
+    )
+    operation = InterfaceRef("test.play_program/v1").operation("play")
+    unrelated = (
+        InterfaceRef("test.play_program/v1").operation("preview").argument("program")
+    )
+
+    try:
+        with pytest.raises(
+            ValueError,
+            match="arguments must belong to the selected operation",
+        ):
+            handle._invoke(operation, {unrelated: False})
+    finally:
+        daemon.close()

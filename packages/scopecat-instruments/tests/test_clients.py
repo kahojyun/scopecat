@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# pyright: reportPrivateUsage=false
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import assert_type, cast

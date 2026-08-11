@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import pytest
+from testkit.expressions import evaluate_scalar
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
@@ -23,7 +24,6 @@ from scopecat.program.value_transforms import (
     internal_scope_value_ref,
     internal_transform_value_ref,
 )
-from tests.testkit.expressions import evaluate_scalar
 
 
 def _float_type() -> Scalar:

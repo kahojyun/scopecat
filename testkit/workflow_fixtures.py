@@ -16,14 +16,14 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.runs.access import (
     artifact_storage_ref,
 )
-from tests.testkit.authoring import (
+from testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
     bind_invocation,
     simple_experiment,
 )
-from tests.testkit.bound_program import ProgramFixture
-from tests.testkit.paths import CORE_FIXTURE_DIR as WORKFLOW_FIXTURE_DIR
-from tests.testkit.runtime import sqlite_run_repository
+from testkit.bound_program import ProgramFixture
+from testkit.paths import CORE_FIXTURE_DIR as WORKFLOW_FIXTURE_DIR
+from testkit.runtime import sqlite_run_repository
 
 
 def load_config() -> ConfigProfileSnapshot:

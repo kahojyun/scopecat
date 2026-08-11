@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import Annotated
 
 import pytest
+from testkit.authoring import bind_invocation, load_config
 
 import scopecat as sc
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
-from tests.testkit.authoring import bind_invocation, load_config
 
 _FREQUENCY_ATOM = sc.QuantityType(unit="GHz")
 _FREQUENCY_TYPE = sc.ScalarType(_FREQUENCY_ATOM)

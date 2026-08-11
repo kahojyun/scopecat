@@ -13,7 +13,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
+from testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 
 _SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
 _SET_FREQUENCY_VALUE = _SET_FREQUENCY.property("frequency")

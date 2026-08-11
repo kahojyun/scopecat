@@ -3,11 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from scopecat_server.storage.sqlite.measurement_arrow import (
-    decode_measurement_append,
-    encode_measurement_append,
-)
-
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
 from scopecat.runs.access import (
     dataset_storage_ref,
@@ -19,16 +14,21 @@ from scopecat.runs.service import (
     read_run_artifact_text,
     read_run_measurement_dataset,
 )
-from tests.testkit.runtime import (
+from testkit.runtime import (
     list_test_runs,
     sqlite_project_services,
     sqlite_run_repository,
 )
-from tests.testkit.signal_testkit import execute_signal_run
-from tests.testkit.workflow_fixtures import (
+from testkit.signal_testkit import execute_signal_run
+from testkit.workflow_fixtures import (
     attach_binary_artifact,
     load_config,
     load_invocation,
+)
+
+from scopecat_server.storage.sqlite.measurement_arrow import (
+    decode_measurement_append,
+    encode_measurement_append,
 )
 
 

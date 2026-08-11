@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from testkit.authoring import bind_invocation, load_config
+from testkit.domain import domain_call
+
 import scopecat as sc
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
@@ -23,8 +26,6 @@ from scopecat.sdk.domain import (
     DomainProductContractView,
     DomainProductUseRef,
 )
-from tests.testkit.authoring import bind_invocation, load_config
-from tests.testkit.domain import domain_call
 
 
 def test_domain_batch_request_exposes_complete_inputs_and_call_contract(

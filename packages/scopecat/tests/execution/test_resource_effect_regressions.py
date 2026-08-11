@@ -3,6 +3,22 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
+from testkit.authoring import load_config, parameters
+from testkit.bound_program import (
+    ProgramFixture,
+    StateAssignmentFixture,
+    bind_program_facts,
+    instrument_acquisition,
+    observable_product,
+    program_fixture,
+)
+from testkit.expressions import state_property, verified_scalar_expr
+from testkit.local_materialization import (
+    LocalEffectInspection,
+    materialize_local_execution,
+    operations_of_type,
+)
+from testkit.routing import routing_endpoint, routing_graph
 
 from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
@@ -31,22 +47,6 @@ from scopecat.program.logical import AcquireEffect
 from scopecat.records.config import (
     ConfigProfileSnapshot,
 )
-from tests.testkit.authoring import load_config, parameters
-from tests.testkit.bound_program import (
-    ProgramFixture,
-    StateAssignmentFixture,
-    bind_program_facts,
-    instrument_acquisition,
-    observable_product,
-    program_fixture,
-)
-from tests.testkit.expressions import state_property, verified_scalar_expr
-from tests.testkit.local_materialization import (
-    LocalEffectInspection,
-    materialize_local_execution,
-    operations_of_type,
-)
-from tests.testkit.routing import routing_endpoint, routing_graph
 
 
 def _port(value: str) -> LogicalResourcePortId:

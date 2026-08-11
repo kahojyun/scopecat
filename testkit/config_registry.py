@@ -27,13 +27,13 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import (
     ParameterChangeApprovalRecord,
 )
-from tests.testkit.runtime import sqlite_project_services
-from tests.testkit.signal_testkit import execute_signal_run
-from tests.testkit.workflow_fixtures import load_invocation
+from testkit.runtime import sqlite_project_services
+from testkit.signal_testkit import execute_signal_run
+from testkit.workflow_fixtures import load_invocation
 
 
 def load_config() -> ConfigProfileSnapshot:
-    from tests.testkit.workflow_fixtures import load_config as load_workflow_config
+    from testkit.workflow_fixtures import load_config as load_workflow_config
 
     return load_workflow_config()
 

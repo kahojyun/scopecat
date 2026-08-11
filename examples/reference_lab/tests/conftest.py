@@ -16,7 +16,7 @@ import uvicorn
 from scopecat.daemon.endpoint import DAEMON_URL_ENV
 from scopecat.project import load_project
 from scopecat_server import LocalDaemonRuntime
-from tests.testkit.project_loading import isolated_project_imports
+from testkit.project_loading import isolated_project_imports
 
 EXAMPLE_ROOT = Path(__file__).parents[1]
 if str(EXAMPLE_ROOT) not in sys.path:

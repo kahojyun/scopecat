@@ -6,6 +6,11 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from testkit.config_registry import (
+    review_parameter_change_proposal,
+    signal_run_with_parameter_change,
+)
+from testkit.runtime import sqlite_project_services, sqlite_run_repository
 
 from scopecat.config.changes import (
     load_parameter_change_approval,
@@ -15,11 +20,6 @@ from scopecat.config.changes import (
 from scopecat.kernel.errors import Conflict, DataIntegrityError
 from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.refs import record_content_ref
-from tests.testkit.config_registry import (
-    review_parameter_change_proposal,
-    signal_run_with_parameter_change,
-)
-from tests.testkit.runtime import sqlite_project_services, sqlite_run_repository
 
 
 def test_same_proposal_intent_retry_reuses_durable_entry_hash(

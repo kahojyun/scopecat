@@ -4,6 +4,10 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
+from testkit.measurement_assembly import (
+    measurement_assembly_scenario,
+    measurement_value_candidates,
+)
 
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.payloads import PayloadValue
@@ -16,10 +20,6 @@ from scopecat.measurements.results import (
 from scopecat.measurements.values import (
     MeasurementValueCatalog,
     seal_measurement_values,
-)
-from tests.testkit.measurement_assembly import (
-    measurement_assembly_scenario,
-    measurement_value_candidates,
 )
 
 

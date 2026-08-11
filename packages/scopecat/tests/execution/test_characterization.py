@@ -3,6 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, override
 
+from testkit.in_process_lab import in_process_lab
+from testkit.instrument_drivers import SignalInstrumentDriver
+from testkit.instrument_host import (
+    TestRunInstrumentHost,
+    compose_test_instruments,
+)
+from testkit.local_materialization import LocalEffectInspection
+from testkit.materialized_effects import config_with_physical_resources
+from testkit.payload_codecs import json_payload_codecs
+from testkit.run_operations import complete_coverage_operations
+from testkit.runtime import FakeExecutionJournal
+
 import scopecat as sc
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.local.program import (
@@ -58,17 +70,6 @@ from scopecat.sdk.instruments import (
     InterfaceRef,
 )
 from scopecat.sdk.instruments.commands import CollectCommand, CollectResultRequest
-from tests.testkit.in_process_lab import in_process_lab
-from tests.testkit.instrument_drivers import SignalInstrumentDriver
-from tests.testkit.instrument_host import (
-    TestRunInstrumentHost,
-    compose_test_instruments,
-)
-from tests.testkit.local_materialization import LocalEffectInspection
-from tests.testkit.materialized_effects import config_with_physical_resources
-from tests.testkit.payload_codecs import json_payload_codecs
-from tests.testkit.run_operations import complete_coverage_operations
-from tests.testkit.runtime import FakeExecutionJournal
 
 _PLAY_PROGRAM = InterfaceRef("test.play_program/v1")
 _PLAY_PROGRAM_PLAY = _PLAY_PROGRAM.operation("play")

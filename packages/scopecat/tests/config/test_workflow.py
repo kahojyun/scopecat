@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from testkit.workflow_fixtures import load_config
 
 from scopecat.config.resolution import validate_config_profile
 from scopecat.kernel.errors import CheckFailed
-from tests.testkit.workflow_fixtures import load_config
 
 
 def test_config_workflow_validates_complete_snapshot() -> None:

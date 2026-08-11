@@ -7,6 +7,19 @@ from threading import Barrier
 from typing import Literal
 
 import pytest
+from testkit.config_registry import (
+    activate_candidate_config,
+    load_config,
+    load_config_registry_config,
+    load_config_registry_entry,
+    review_parameter_change_proposal,
+    signal_run_with_parameter_change,
+)
+from testkit.runtime import (
+    sqlite_config_registry_unit_of_work,
+    sqlite_project_services,
+    sqlite_run_repository,
+)
 
 from scopecat.config.candidates import (
     CandidateConfig,
@@ -59,19 +72,6 @@ from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.runs.refs import record_content_ref
-from tests.testkit.config_registry import (
-    activate_candidate_config,
-    load_config,
-    load_config_registry_config,
-    load_config_registry_entry,
-    review_parameter_change_proposal,
-    signal_run_with_parameter_change,
-)
-from tests.testkit.runtime import (
-    sqlite_config_registry_unit_of_work,
-    sqlite_project_services,
-    sqlite_run_repository,
-)
 
 
 @dataclass(frozen=True)

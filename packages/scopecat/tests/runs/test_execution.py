@@ -3,6 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from testkit.execution import execute_invocation_run
+from testkit.instrument_host import compose_test_instruments
+from testkit.runtime import sqlite_project_services
+from testkit.signal_instruments import TestSignalInstrumentProvider
+from testkit.workflow_fixtures import (
+    config_with_instrument_id,
+    load_config,
+    load_invocation,
+)
 
 from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -12,15 +21,6 @@ from scopecat.sdk.instruments import (
     InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-)
-from tests.testkit.execution import execute_invocation_run
-from tests.testkit.instrument_host import compose_test_instruments
-from tests.testkit.runtime import sqlite_project_services
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import (
-    config_with_instrument_id,
-    load_config,
-    load_invocation,
 )
 
 

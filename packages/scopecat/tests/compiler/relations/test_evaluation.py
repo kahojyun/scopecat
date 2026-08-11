@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from testkit.expressions import evaluate_scalar
 
 from scopecat.compiler.relations.context import (
     EvalContext,
@@ -35,7 +36,6 @@ from scopecat.program.expressions import (
 )
 from scopecat.program.identities import InvocationKey
 from scopecat.program.table_values import ParameterTableSource
-from tests.testkit.expressions import evaluate_scalar
 
 _INT = Scalar(Int())
 _FREQUENCY = Scalar(Quantity(unit="GHz"))

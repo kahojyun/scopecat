@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from testkit.payload_codecs import json_payload_codecs
 
 from scopecat.execution.local.program import ComputeOperation, PayloadSlot
 from scopecat.execution.program import RunHostBinding
@@ -10,7 +11,6 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.planning.provider_binding import validate_run_host_binding
 from scopecat.program.value_graph import ComputeOutput, OperationId, operation_result_id
-from tests.testkit.payload_codecs import json_payload_codecs
 
 
 def _compute_operation(name: str, *, materializes_payload: bool) -> ComputeOperation:

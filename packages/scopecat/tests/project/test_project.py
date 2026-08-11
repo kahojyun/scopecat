@@ -7,6 +7,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from testkit.project_loading import isolated_project_imports
 
 from scopecat.api.lab import LabClient
 from scopecat.application.lab import LabApplication
@@ -26,7 +27,6 @@ from scopecat.project import (
     open_project,
 )
 from scopecat.records.config import ConfigProfileSnapshot
-from tests.testkit.project_loading import isolated_project_imports
 
 
 @pytest.fixture(autouse=True)

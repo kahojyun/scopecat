@@ -3,6 +3,17 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
+from testkit.authoring import load_config
+from testkit.bound_program import (
+    ProgramFixture,
+    bind_program_facts,
+    instrument_acquisition,
+    program_fixture,
+)
+from testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
+)
 
 from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
@@ -31,17 +42,6 @@ from scopecat.measurements.records import (
 from scopecat.program.logical import AcquireEffect
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.config import RoutingGraph
-from tests.testkit.authoring import load_config
-from tests.testkit.bound_program import (
-    ProgramFixture,
-    bind_program_facts,
-    instrument_acquisition,
-    program_fixture,
-)
-from tests.testkit.local_materialization import (
-    materialize_local_execution,
-    operations_of_type,
-)
 
 
 def _product(name: str = "signal") -> ProductDef:
