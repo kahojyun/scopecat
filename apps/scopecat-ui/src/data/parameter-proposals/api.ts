@@ -50,6 +50,7 @@ function normalizeProposalView(source: WireProposalView): ParameterProposal {
     baseConfigId: source.proposal.base_config_id,
     baseContentHash: source.proposal.base_config_content_hash,
     reason: source.proposal.reason,
+    evidenceOutputIds: source.proposal.evidence_output_ids ?? [],
     confidence: source.proposal.confidence ?? undefined,
     proposedAt: source.proposal.proposed_at,
     deltas: source.proposal.deltas.map(normalizeDelta),

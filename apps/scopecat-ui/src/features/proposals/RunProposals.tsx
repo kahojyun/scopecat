@@ -154,6 +154,19 @@ export function RunProposals({ runId }: { runId: string }) {
                     <p className="mt-[5px] mb-0 text-[0.66rem] leading-[1.45] text-text-soft">
                       {proposal.reason}
                     </p>
+                    {proposal.evidenceOutputIds.length > 0 && (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[0.56rem] text-text-dim">
+                        <span className="font-extrabold tracking-[0.05em] uppercase">Evidence</span>
+                        {proposal.evidenceOutputIds.map((outputId) => (
+                          <code
+                            className="rounded border border-line bg-bg px-1.5 py-0.5 text-text-soft"
+                            key={outputId}
+                          >
+                            {outputId}
+                          </code>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="grid content-start justify-items-end gap-[5px] text-[0.57rem] text-text-dim max-[680px]:grid-cols-[auto_minmax(0,1fr)] max-[680px]:justify-items-start">
                     {proposal.confidence !== undefined && (

@@ -222,6 +222,7 @@ def prepare_analysis(
             "analysis parameter proposals must match proposal outputs",
             "parameter_proposals",
         )
+    _validate_analysis_proposal_evidence(outputs, parameter_proposals)
     if any(
         proposal.analysis_record_id != base_record_id
         for proposal in parameter_proposals
@@ -832,6 +833,29 @@ def _validate_analysis_execution_outputs(
                 "analysis_output_execution_mismatch",
                 "analysis output content does not match its producing execution",
                 "outputs",
+            )
+
+
+def _validate_analysis_proposal_evidence(
+    outputs: Sequence[AnalysisOutput],
+    proposals: Sequence[ParameterChangeProposal],
+) -> None:
+    authoritative_output_ids = {
+        output.id
+        for output in outputs
+        if isinstance(
+            output,
+            AnalysisFactOutput | AnalysisDatasetOutput | AnalysisArtifactOutput,
+        )
+    }
+    for proposal in proposals:
+        unknown = set(proposal.evidence_output_ids) - authoritative_output_ids
+        if unknown:
+            _raise_analysis_problem(
+                "analysis_parameter_proposal_evidence_unknown",
+                "analysis parameter proposal evidence must identify fact, dataset, "
+                "or artifact outputs: " + ", ".join(sorted(unknown)),
+                "parameter_proposals",
             )
 
 

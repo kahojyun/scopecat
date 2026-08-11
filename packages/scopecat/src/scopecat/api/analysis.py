@@ -618,6 +618,7 @@ class Analysis:
         *updates: ParameterUpdate,
         reason: str = "",
         confidence: float | None = None,
+        evidence: Sequence[str] = (),
     ) -> Analysis:
         if not proposal_id.strip():
             _raise_analysis_problem(
@@ -637,6 +638,32 @@ class Analysis:
                 "analysis parameter proposal confidence must be between 0 and 1",
                 "confidence",
             )
+        evidence_output_ids = tuple(_analysis_output_id(item) for item in evidence)
+        if len(evidence_output_ids) != len(set(evidence_output_ids)):
+            _raise_analysis_problem(
+                "analysis_parameter_proposal_evidence_duplicated",
+                "analysis parameter proposal evidence ids must be unique",
+                "evidence",
+            )
+        outputs_by_id = {output.id: output for output in self.outputs}
+        for evidence_id in evidence_output_ids:
+            output = outputs_by_id.get(evidence_id)
+            if output is None:
+                _raise_analysis_problem(
+                    "analysis_parameter_proposal_evidence_unknown",
+                    f"analysis parameter proposal evidence is unknown: {evidence_id}",
+                    "evidence",
+                )
+            if not isinstance(
+                output,
+                AnalysisFactOutput | AnalysisDatasetOutput | AnalysisArtifactOutput,
+            ):
+                _raise_analysis_problem(
+                    "analysis_parameter_proposal_evidence_not_authoritative",
+                    "analysis parameter proposal evidence must identify a fact, "
+                    "dataset, or artifact output",
+                    "evidence",
+                )
         selected_id = artifact_slug(proposal_id, fallback="analysis")
         if any(proposal.id == selected_id for proposal in self.parameter_proposals):
             _raise_analysis_problem(
@@ -654,6 +681,7 @@ class Analysis:
                 updates=updates,
                 reason=reason,
                 confidence=confidence,
+                evidence_output_ids=evidence_output_ids,
             )
         except (TypeError, ValueError) as error:
             _raise_analysis_problem(

@@ -2718,6 +2718,11 @@ export interface components {
             confidence?: number | null;
             /** Deltas */
             deltas: components["schemas"]["ParameterValueDelta-Output"][];
+            /**
+             * Evidence Output Ids
+             * @default []
+             */
+            evidence_output_ids: string[];
             /** Id */
             id: string;
             /**

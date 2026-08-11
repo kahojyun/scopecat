@@ -17,6 +17,7 @@ export interface ParameterProposal {
   baseConfigId: string;
   baseContentHash: string;
   reason: string;
+  evidenceOutputIds: string[];
   confidence?: number;
   proposedAt?: string;
   deltas: ParameterProposalDelta[];

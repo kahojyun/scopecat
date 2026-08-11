@@ -24,6 +24,7 @@ from scopecat.analysis.service import (
 )
 from scopecat.config.registry import service as config_registry_service
 from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import Dataset
 from scopecat.records.analysis import (
     ANALYSIS_ARTIFACT_CODEC,
@@ -812,28 +813,34 @@ def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) 
 
     first = (
         handle.analysis("Fit", key="fit")
+        .fact("fit-quality", 0.8)
         .propose(
             "drive-frequency",
             update,
             reason="initial fit",
+            evidence=("fit-quality",),
         )
         .save()
     )
     second = (
         handle.analysis("Fit", key="fit")
+        .fact("fit-quality", 0.9)
         .propose(
             "drive-frequency",
             update,
             reason="reviewed fit",
+            evidence=("fit-quality",),
         )
         .save()
     )
     retried = (
         handle.analysis("Fit", key="fit")
+        .fact("fit-quality", 0.9)
         .propose(
             "drive-frequency",
             update,
             reason="reviewed fit",
+            evidence=("fit-quality",),
         )
         .save()
     )
@@ -843,6 +850,7 @@ def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) 
     [retried_proposal] = retried.parameter_proposals
     assert first_proposal.id == "drive-frequency"
     assert first_proposal.analysis_record_id == "analysis-fit"
+    assert first_proposal.evidence_output_ids == ("fit-quality",)
     assert second_proposal.id == "drive-frequency-r2"
     assert second_proposal.analysis_record_id == "analysis-fit-r2"
     assert retried_proposal == second_proposal
@@ -852,6 +860,43 @@ def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) 
         for item in handle.manifest.records
         if item.kind == "parameter_change_proposal"
     ] == ["drive-frequency", "drive-frequency-r2"]
+
+
+def test_analysis_proposal_rejects_unknown_or_view_evidence(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    update = sc.replace_scalar_parameter(
+        "drive_frequency",
+        sc.Quantity(5.4, "GHz"),
+    )
+
+    with pytest.raises(CheckFailed) as unknown:
+        handle.analysis("Fit").propose(
+            "drive-frequency",
+            update,
+            evidence=("missing",),
+        )
+    assert unknown.value.problems[0].code == (
+        "analysis_parameter_proposal_evidence_unknown"
+    )
+
+    analysis = handle.analysis("Fit").table(
+        sc.AnalysisTable.from_rows([{"score": 0.9}]),
+        id="fit-table",
+    )
+    with pytest.raises(CheckFailed) as view:
+        analysis.propose(
+            "drive-frequency",
+            update,
+            evidence=("fit-table",),
+        )
+    assert view.value.problems[0].code == (
+        "analysis_parameter_proposal_evidence_not_authoritative"
+    )
 
 
 def test_analysis_trace_records_named_inline_inputs(tmp_path: Path) -> None:

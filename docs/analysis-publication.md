@@ -30,7 +30,8 @@ kinds of output:
   to its source fact or dataset by output ID and may retain a preview cache. The
   cache is presentation, not another authoritative scientific result.
 - **Proposal** is a decision output that proposes parameter changes and retains
-  its existing validation and acceptance lineage.
+  its validation and acceptance lineage. It may cite authoritative fact,
+  dataset, or artifact outputs from the same analysis as structured evidence.
 
 The analysis record is the manifest for this publication. Large datasets and
 artifacts live as separate run content entries; the record stores typed
@@ -122,6 +123,14 @@ distinguishes exact production from normalization. Views identify their
 published source dataset; their projection is analysis authoring, not the
 traced numerical result itself.
 
+A parameter proposal may add `evidence=("selected-fit", "fit-quality")` to cite
+authoritative outputs already published by the same analysis builder. The
+proposal stores those analysis-local output IDs, so review can navigate to the
+exact durable facts, datasets, or artifacts behind the change. Table and figure
+views are deliberately not evidence targets because their previews are bounded
+presentation caches; cite their source dataset instead. This is a shallow
+publication relation, not a general-purpose analysis DAG.
+
 A registered implementation may expose several meaningful leaves from one
 native result instead of forcing the result into one JSON blob. The function
 still returns its ordinary dataclass, mapping, or sequence. `outputs` assigns a
@@ -192,9 +201,10 @@ experiment program and may run before or during acquisition. Analysis
 They may share implementation descriptors, codec contracts, and provenance
 machinery without sharing one authoring concept or placement model.
 
-Views refer to outputs, proposals refer to their producing analysis, and future
-relations should use stable output IDs rather than display titles or tuple
-positions. Titles and labels remain presentation metadata.
+Views refer to datasets, and proposals may refer to authoritative outputs inside
+their producing analysis. Future relations should likewise use stable output IDs
+rather than display titles or tuple positions. Titles and labels remain
+presentation metadata.
 
 Analysis currently belongs to one completed run. Live checkpoints, retries,
 cross-run state, schedules, and recurring calibration belong to a future

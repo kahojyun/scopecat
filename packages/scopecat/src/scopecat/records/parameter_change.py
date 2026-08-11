@@ -76,6 +76,7 @@ class ParameterChangeProposal(BaseModel):
     base_config_content_hash: ConfigContentHash
     reason: str
     confidence: float | None = Field(default=None, ge=0, le=1)
+    evidence_output_ids: tuple[str, ...] = ()
     deltas: tuple[ParameterValueDelta, ...] = Field(min_length=1)
     proposed_at: datetime = Field(default_factory=utc_now)
 
@@ -91,6 +92,15 @@ class ParameterChangeProposal(BaseModel):
         if not value.strip():
             msg = "parameter change proposal string fields must be non-empty"
             raise ValueError(msg)
+        return value
+
+    @field_validator("evidence_output_ids")
+    @classmethod
+    def validate_evidence_output_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not item.strip() for item in value):
+            raise ValueError("parameter change proposal evidence ids must be non-empty")
+        if len(value) != len(set(value)):
+            raise ValueError("parameter change proposal evidence ids must be unique")
         return value
 
     @model_validator(mode="after")
