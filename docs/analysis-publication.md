@@ -148,6 +148,13 @@ views are deliberately not evidence targets because their previews are bounded
 presentation caches; cite their source dataset instead. This is a shallow
 publication relation, not a general-purpose analysis DAG.
 
+An `AnalysisExecutionOutput` retains a named codec and content hash, not the
+intermediate value itself. It is audit evidence and a provenance target, not a
+cache, checkpoint, or replay promise. Only explicitly published facts, datasets,
+and artifacts are durable content. Reusable intermediate caching would also
+need code and environment identity and therefore belongs to a later execution
+design rather than being implied by `trace(...)` today.
+
 A registered implementation may expose several meaningful leaves from one
 native result instead of forcing the result into one JSON blob. The function
 still returns its ordinary dataclass, mapping, or sequence. `outputs` assigns a
