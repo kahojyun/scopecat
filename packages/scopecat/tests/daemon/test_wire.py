@@ -66,6 +66,7 @@ from scopecat.records.analysis import (
     AnalysisExecutionInput,
     AnalysisExecutionOutput,
     AnalysisExecutionOutputReference,
+    AnalysisField,
     AnalysisFigure,
     AnalysisFigureAxis,
     AnalysisFigureSeries,
@@ -259,7 +260,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
     )
     dataset = DerivedDataset.from_arrow(
         pa.table({"bias": [1.0, 2.0], "signal": [3.0, 4.0]}),
-        coordinates=("bias",),
+        fields={"bias": AnalysisField(role="coordinate")},
     )
     command = AnalysisSaveCommand(
         title="fit",
@@ -284,7 +285,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                         name="fit",
                         kind="derived_dataset",
                         content_hash=sha256_content_hash(dataset.to_arrow_ipc()),
-                        codec="scopecat.derived-dataset.arrow-ipc.v1",
+                        codec="scopecat.derived-dataset.arrow-ipc.v2",
                     ),
                 ),
             ),

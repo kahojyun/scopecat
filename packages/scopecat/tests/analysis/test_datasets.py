@@ -22,13 +22,19 @@ def test_derived_dataset_round_trips_exact_arrow_and_semantic_schema() -> None:
 
     dataset = sc.derived_dataset(
         source,
-        coordinates=("bias",),
-        units={"bias": "V", "score": "ratio"},
-        labels={"bias": "DC bias", "score": "Fit score"},
+        fields={
+            "bias": sc.AnalysisField(
+                role="coordinate",
+                unit="V",
+                label="DC bias",
+            ),
+            "score": sc.AnalysisField(unit="ratio", label="Fit score"),
+        },
     )
     restored = DerivedDataset.from_json_value(dataset.to_json_value())
 
-    assert dataset.schema.schema_id == "scopecat.derived-dataset.v2"
+    assert dataset.schema.schema_id == "scopecat.derived-dataset.v3"
+    assert dataset.schema.fields[0].source_name == "bias"
     assert dataset.schema.fields[0].role == "coordinate"
     assert dataset.schema.fields[0].unit == "V"
     assert dataset.table.schema.field("score").metadata[b"units"] == b"ratio"
@@ -41,17 +47,56 @@ def test_derived_dataset_round_trips_exact_arrow_and_semantic_schema() -> None:
     assert presentation.rows[1].cells == [0.0, 0.8]
 
 
+def test_derived_dataset_maps_native_names_to_stable_field_ids() -> None:
+    source = xr.Dataset(
+        data_vars={"raw_signal": (("raw_bias",), [0.2, 0.8])},
+        coords={"raw_bias": [0.0, 1.0]},
+    )
+
+    dataset = sc.derived_dataset(
+        source,
+        fields={
+            "raw_bias": sc.AnalysisField(
+                id="bias",
+                role="coordinate",
+                unit="V",
+                label="DC bias",
+            ),
+            "raw_signal": sc.AnalysisField(
+                id="signal",
+                unit="ratio",
+                label="Signal",
+            ),
+        },
+    )
+
+    assert dataset.table.column_names == ["bias", "signal"]
+    assert [field.source_name for field in dataset.schema.fields] == [
+        "raw_bias",
+        "raw_signal",
+    ]
+    assert (
+        dataset.table.schema.field("bias").metadata[b"scopecat.source_name"]
+        == b"raw_bias"
+    )
+    restored = dataset.to_xarray()
+    assert restored.sizes == {"bias": 2}
+    assert tuple(restored.coords) == ("bias",)
+    assert tuple(restored.data_vars) == ("signal",)
+    assert restored["bias"].attrs == {"units": "V", "long_name": "DC bias"}
+
+
 def test_derived_dataset_accepts_familiar_dataframe_and_xarray_results() -> None:
     pd = pytest.importorskip("pandas")
     pl = pytest.importorskip("polars")
 
     pandas_dataset = sc.derived_dataset(
         pd.DataFrame({"x": [1, 2], "y": [3.0, 4.0]}),
-        coordinates=("x",),
+        fields={"x": sc.AnalysisField(role="coordinate")},
     )
     polars_dataset = sc.derived_dataset(
         pl.DataFrame({"x": [1, 2], "y": [3.0, 4.0]}),
-        coordinates=("x",),
+        fields={"x": sc.AnalysisField(role="coordinate")},
     )
     xarray_dataset = sc.derived_dataset(
         xr.Dataset(
@@ -59,7 +104,7 @@ def test_derived_dataset_accepts_familiar_dataframe_and_xarray_results() -> None
             coords={"x": ("x", [1, 2], {"long_name": "Bias index"})},
             attrs={"model": "linear"},
         ),
-        units={"y": "ratio"},
+        fields={"y": sc.AnalysisField(unit="ratio")},
     )
 
     assert pandas_dataset.table.to_pylist() == [
@@ -153,8 +198,10 @@ def test_derived_dataset_inherits_and_overrides_pandas_semantics() -> None:
 
     dataset = sc.derived_dataset(
         frame,
-        units={"bias": "mV"},
-        labels={"score": "Fit score"},
+        fields={
+            "bias": sc.AnalysisField(unit="mV"),
+            "score": sc.AnalysisField(label="Fit score"),
+        },
     )
 
     assert dataset.schema.fields[0].role == "coordinate"
@@ -181,7 +228,7 @@ def test_derived_dataset_inherits_arrow_and_xarray_semantics() -> None:
     )
     arrow = sc.derived_dataset(
         pa.Table.from_arrays([[0.0, 1.0], [0.2, 0.8]], schema=arrow_schema),
-        labels={"score": "Fit score"},
+        fields={"score": sc.AnalysisField(label="Fit score")},
     )
     xarray = sc.derived_dataset(
         xr.Dataset(
@@ -258,7 +305,7 @@ def test_derived_dataset_presentation_selects_only_scalar_view_columns() -> None
                 "trace": [[1.0, 2.0], [3.0, 4.0]],
             }
         ),
-        coordinates=("bias",),
+        fields={"bias": sc.AnalysisField(role="coordinate")},
     )
 
     table = dataset.to_analysis_table(columns=("bias", "score"))
@@ -268,4 +315,4 @@ def test_derived_dataset_presentation_selects_only_scalar_view_columns() -> None
 
 
 def test_derived_dataset_codec_is_public_and_versioned() -> None:
-    assert DERIVED_DATASET_CODEC == "scopecat.derived-dataset.arrow-ipc.v1"
+    assert DERIVED_DATASET_CODEC == "scopecat.derived-dataset.arrow-ipc.v2"

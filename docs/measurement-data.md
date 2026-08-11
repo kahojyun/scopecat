@@ -611,17 +611,23 @@ review = (
     .dataset(
         "fits",
         fits,
-        coordinates=("bias",),
-        units={"bias": "V", "response": "ratio", "score": "ratio"},
+        fields={
+            "bias": sc.AnalysisField(role="coordinate", unit="V"),
+            "response": sc.AnalysisField(unit="ratio"),
+            "score": sc.AnalysisField(unit="ratio", label="Fit score"),
+        },
     )
     .table(dataset="fits", columns=("bias", "score"), title="Fit rows")
     .figure(dataset="fits", kind="line", x="bias", y="score")
 )
 ```
 
-`dataset(...)` accepts the native object and normalizes it once. Explicit
-`coordinates`, `units`, and `labels` override metadata inherited from a
-measurement projection, Arrow fields, or Xarray variables. A pandas default
+`dataset(...)` accepts the native object and normalizes it once. A sparse
+`fields` mapping overrides metadata inherited from a measurement projection,
+Arrow fields, or Xarray variables. Each `AnalysisField` can assign one stable
+`id`, coordinate/observable `role`, `unit`, and `label`; unlisted fields keep
+their native names and inherited semantics. The durable schema retains the
+source-to-stable name mapping. A pandas default
 `RangeIndex` is dropped; a named or otherwise meaningful index becomes
 coordinate columns unless `index="drop"` is requested. Tables and figures only
 extract their selected scalar columns, so unrelated array-valued columns remain
@@ -659,7 +665,11 @@ metadata, registered codecs, deterministic provenance, or bounded batch access:
 fits = context.trace(fn=fit_with_polars, measurements=measurements)
 review = (
     context.result("Fit review")
-    .dataset("fits", fits, coordinates=("bias",))
+    .dataset(
+        "fits",
+        fits,
+        fields={"bias": sc.AnalysisField(role="coordinate")},
+    )
     .fact("maximum-score", float(fits["score"].max()))
 )
 ```

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import fields, is_dataclass
 from typing import (
     Annotated,
     Literal,
@@ -67,15 +67,6 @@ type AnalysisTableCell = Annotated[
 ]
 
 
-@dataclass(frozen=True, slots=True)
-class AnalysisField:
-    """Presentation policy declared once beside a typed derived-data field."""
-
-    id: str | None = None
-    label: str | None = None
-    unit: str | None = None
-
-
 def _normalized_external_scalar(value: object) -> bool | int | float | str | None:
     if value is None or isinstance(value, bool | int | float | str):
         return value
@@ -105,6 +96,15 @@ class _AnalysisContentModel(BaseModel):
         strict=True,
         allow_inf_nan=False,
     )
+
+
+class AnalysisField(_AnalysisContentModel):
+    """Stable identity and semantics for one analysis data field."""
+
+    id: _NonEmptyText | None = None
+    role: Literal["coordinate", "observable"] | None = None
+    label: _NonEmptyText | None = None
+    unit: _NonEmptyText | None = None
 
 
 class AnalysisTableColumn(_AnalysisContentModel):

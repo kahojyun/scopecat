@@ -83,6 +83,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
+    AnalysisField,
     AnalysisFigure,
     AnalysisFigureAxis,
     AnalysisFigureSeries,
@@ -349,7 +350,7 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
                 title="fit data",
                 content=DerivedDataset.from_arrow(
                     pa.table({"bias": [1.0, 2.0], "signal": [3.0, 4.0]}),
-                    coordinates=("bias",),
+                    fields={"bias": AnalysisField(role="coordinate")},
                 ).to_payload(),
             ),
             AnalysisFigureOutputPayload(

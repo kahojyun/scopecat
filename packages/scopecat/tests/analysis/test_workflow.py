@@ -64,8 +64,10 @@ def _derived_signal_frame(dataset: Dataset) -> DerivedDataset:
     frame["score"] = frame["response"] * 2.0
     return sc.derived_dataset(
         frame[["frequency", "response", "score"]],
-        coordinates=("frequency",),
-        labels={"score": "Doubled response"},
+        fields={
+            "frequency": sc.AnalysisField(role="coordinate"),
+            "score": sc.AnalysisField(label="Doubled response"),
+        },
     )
 
 
@@ -572,7 +574,7 @@ def test_analysis_dataset_publishes_a_native_frame_once(tmp_path: Path) -> None:
         .dataset(
             "fits",
             frame[["frequency", "score"]],
-            labels={"score": "Fit score"},
+            fields={"score": sc.AnalysisField(label="Fit score")},
         )
         .save()
     )

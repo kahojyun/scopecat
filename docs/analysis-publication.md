@@ -77,9 +77,11 @@ particular, an adapter must not silently discard or reinterpret:
 - units and other scientific field metadata;
 - column identity when a library requires names to be rewritten.
 
-Column names in a native object remain the default durable IDs. Explicit
-publication mappings may rename them once at the boundary and are recorded as
-schema, rather than inferred differently by every downstream adapter.
+Column names in a native object remain the default durable IDs. A sparse
+`fields={source_name: AnalysisField(...)}` publication mapping may rename them
+once at the boundary and assign role, unit, and label together. The durable
+schema records both source names and stable IDs rather than letting every
+downstream adapter infer them differently.
 
 There are three intentional outcomes:
 

@@ -24,13 +24,13 @@ from pydantic import (
 
 from scopecat.kernel.units import is_supported_unit
 from scopecat.records._metadata import JsonMetadata, validate_json_metadata
-from scopecat.records.analysis import AnalysisTable, AnalysisTableColumn
+from scopecat.records.analysis import AnalysisField, AnalysisTable, AnalysisTableColumn
 
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
 
-DERIVED_DATASET_CODEC = "scopecat.derived-dataset.arrow-ipc.v1"
+DERIVED_DATASET_CODEC = "scopecat.derived-dataset.arrow-ipc.v2"
 DERIVED_DATASET_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
 
 type DerivedDatasetRole = Literal["coordinate", "observable"]
@@ -56,6 +56,7 @@ class DerivedDatasetField(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
+    source_name: str
     arrow_type: str
     nullable: bool
     role: DerivedDatasetRole = "observable"
@@ -63,7 +64,7 @@ class DerivedDatasetField(BaseModel):
     label: str | None = None
     attributes: JsonMetadata = Field(default_factory=dict)
 
-    @field_validator("name", "arrow_type")
+    @field_validator("name", "source_name", "arrow_type")
     @classmethod
     def validate_non_empty(cls, value: str) -> str:
         if not value:
@@ -87,7 +88,7 @@ class DerivedDatasetSchema(BaseModel):
     layout: Literal["table", "xarray_1d"] = "table"
     dimension: str | None = None
     attributes: JsonMetadata = Field(default_factory=dict)
-    schema_id: Literal["scopecat.derived-dataset.v2"] = "scopecat.derived-dataset.v2"
+    schema_id: Literal["scopecat.derived-dataset.v3"] = "scopecat.derived-dataset.v3"
 
     @field_validator("fields")
     @classmethod
@@ -132,18 +133,14 @@ class DerivedDataset:
         cls,
         table: pa.Table,
         *,
-        coordinates: Sequence[str] = (),
-        units: Mapping[str, str] | None = None,
-        labels: Mapping[str, str] | None = None,
+        fields: Mapping[str, AnalysisField] | None = None,
     ) -> DerivedDataset:
         """Normalize an Arrow table and bind its external field semantics."""
 
         selected = pa.Table.from_arrays(table.columns, schema=table.schema)
         return _bind_semantics(
             selected.combine_chunks(),
-            coordinates=coordinates,
-            units=units,
-            labels=labels,
+            fields=fields,
         )
 
     @classmethod
@@ -151,9 +148,7 @@ class DerivedDataset:
         cls,
         frame: pd.DataFrame,
         *,
-        coordinates: Sequence[str] = (),
-        units: Mapping[str, str] | None = None,
-        labels: Mapping[str, str] | None = None,
+        fields: Mapping[str, AnalysisField] | None = None,
         index: PandasIndexPolicy = "auto",
     ) -> DerivedDataset:
         """Normalize a frame, retaining meaningful index levels as coordinates."""
@@ -162,9 +157,7 @@ class DerivedDataset:
         inherited = _pandas_semantics(frame)
         return _bind_semantics(
             pa.Table.from_pandas(selected, preserve_index=False),
-            coordinates=coordinates,
-            units=units,
-            labels=labels,
+            fields=fields,
             inherited_coordinates=(*index_coordinates, *inherited.coordinates),
             inherited_units=inherited.units,
             inherited_labels=inherited.labels,
@@ -175,17 +168,13 @@ class DerivedDataset:
         cls,
         frame: pl.DataFrame,
         *,
-        coordinates: Sequence[str] = (),
-        units: Mapping[str, str] | None = None,
-        labels: Mapping[str, str] | None = None,
+        fields: Mapping[str, AnalysisField] | None = None,
     ) -> DerivedDataset:
         """Normalize one Polars frame through its native Arrow representation."""
 
         return cls.from_arrow(
             cast("pa.Table", frame.to_arrow()),
-            coordinates=coordinates,
-            units=units,
-            labels=labels,
+            fields=fields,
         )
 
     @classmethod
@@ -193,9 +182,7 @@ class DerivedDataset:
         cls,
         dataset: xr.Dataset,
         *,
-        coordinates: Sequence[str] = (),
-        units: Mapping[str, str] | None = None,
-        labels: Mapping[str, str] | None = None,
+        fields: Mapping[str, AnalysisField] | None = None,
     ) -> DerivedDataset:
         """Normalize an exactly reversible one-dimensional Xarray dataset."""
 
@@ -227,9 +214,10 @@ class DerivedDataset:
         table = pa.table({name: pa.array(dataset[name].values) for name in names})
         return _bind_semantics(
             table,
-            coordinates=coordinates or tuple(str(name) for name in dataset.coords),
-            units={**inherited_units, **(units or {})},
-            labels={**inherited_labels, **(labels or {})},
+            fields=fields,
+            inherited_coordinates=tuple(str(name) for name in dataset.coords),
+            inherited_units=inherited_units,
+            inherited_labels=inherited_labels,
             layout="xarray_1d",
             dimension=dimension,
             attributes=_xarray_attributes(dataset.attrs, owner="dataset"),
@@ -373,15 +361,13 @@ class DerivedDataset:
 def derived_dataset(
     data: object,
     *,
-    coordinates: Sequence[str] = (),
-    units: Mapping[str, str] | None = None,
-    labels: Mapping[str, str] | None = None,
+    fields: Mapping[str, AnalysisField] | None = None,
     index: PandasIndexPolicy = "auto",
 ) -> DerivedDataset:
     """Normalize an Arrow, pandas, Polars, or Xarray result for persistence."""
 
     if isinstance(data, DerivedDataset):
-        if coordinates or units or labels or index != "auto":
+        if fields or index != "auto":
             raise ValueError("an existing derived dataset already owns its schema")
         return data
     if isinstance(data, pa.Table):
@@ -389,18 +375,14 @@ def derived_dataset(
             raise ValueError("index policy only applies to pandas data")
         return DerivedDataset.from_arrow(
             data,
-            coordinates=coordinates,
-            units=units,
-            labels=labels,
+            fields=fields,
         )
     if isinstance(data, xr.Dataset):
         if index != "auto":
             raise ValueError("index policy only applies to pandas data")
         return DerivedDataset.from_xarray(
             data,
-            coordinates=coordinates,
-            units=units,
-            labels=labels,
+            fields=fields,
         )
     owner = type(data).__module__.partition(".")[0]
     if owner == "pandas":
@@ -409,9 +391,7 @@ def derived_dataset(
             raise TypeError("unsupported pandas derived dataset object")
         return DerivedDataset.from_pandas(
             cast("pd.DataFrame", data),
-            coordinates=coordinates,
-            units=units,
-            labels=labels,
+            fields=fields,
             index=index,
         )
     if owner == "polars":
@@ -422,9 +402,7 @@ def derived_dataset(
             raise TypeError("unsupported Polars derived dataset object")
         return DerivedDataset.from_polars(
             cast("pl.DataFrame", data),
-            coordinates=coordinates,
-            units=units,
-            labels=labels,
+            fields=fields,
         )
     raise TypeError("derived_dataset requires Arrow, pandas, Polars, or Xarray data")
 
@@ -432,9 +410,7 @@ def derived_dataset(
 def _bind_semantics(
     table: pa.Table,
     *,
-    coordinates: Sequence[str],
-    units: Mapping[str, str] | None,
-    labels: Mapping[str, str] | None,
+    fields: Mapping[str, AnalysisField] | None,
     inherited_coordinates: Sequence[str] = (),
     inherited_units: Mapping[str, str] | None = None,
     inherited_labels: Mapping[str, str] | None = None,
@@ -443,83 +419,116 @@ def _bind_semantics(
     attributes: Mapping[str, object] | None = None,
     field_attributes: Mapping[str, JsonMetadata] | None = None,
 ) -> DerivedDataset:
-    names = tuple(table.column_names)
-    if not names or len(names) != len(set(names)):
+    source_names = tuple(table.column_names)
+    if not source_names or len(source_names) != len(set(source_names)):
         raise ValueError("derived dataset columns must be non-empty and unique")
-    arrow_semantics = _arrow_semantics(table.schema)
-    coordinate_names = tuple(
-        dict.fromkeys(
-            (*inherited_coordinates, *arrow_semantics.coordinates, *coordinates)
+    configured_fields = dict(fields or {})
+    unknown_fields = set(configured_fields) - set(source_names)
+    if unknown_fields:
+        raise KeyError(
+            "derived dataset has no source columns: "
+            + ", ".join(sorted(unknown_fields))
         )
+    policies = {
+        source_name: configured_fields.get(source_name, AnalysisField())
+        for source_name in source_names
+    }
+    names = tuple(
+        policies[source_name].id or source_name for source_name in source_names
     )
+    if len(names) != len(set(names)):
+        raise ValueError("derived dataset field ids must be unique")
+    arrow_semantics = _arrow_semantics(table.schema)
+    coordinate_names = set(inherited_coordinates) | set(arrow_semantics.coordinates)
     selected_units = {
         **arrow_semantics.units,
         **(inherited_units or {}),
-        **(units or {}),
     }
     selected_labels = {
         **arrow_semantics.labels,
         **(inherited_labels or {}),
-        **(labels or {}),
     }
     configured = set(coordinate_names) | set(selected_units) | set(selected_labels)
-    unknown = configured - set(names)
+    unknown = configured - set(source_names)
     if unknown:
         raise KeyError("derived dataset has no columns: " + ", ".join(sorted(unknown)))
-    if len(coordinate_names) != len(set(coordinate_names)):
-        raise ValueError("derived dataset coordinates must be unique")
-    semantic_fields = tuple(
-        DerivedDatasetField(
-            name=field.name,
-            arrow_type=str(field.type),
-            nullable=field.nullable,
-            role="coordinate" if field.name in coordinate_names else "observable",
-            unit=selected_units.get(field.name),
-            label=selected_labels.get(field.name),
-            attributes={
-                **(field_attributes or {}).get(field.name, {}),
-                **(
-                    {}
-                    if selected_units.get(field.name) is None
-                    else {"units": cast("JsonValue", selected_units[field.name])}
+    semantic_fields: list[DerivedDatasetField] = []
+    for field, source_name, name in zip(
+        table.schema,
+        source_names,
+        names,
+        strict=True,
+    ):
+        policy = policies[source_name]
+        unit = policy.unit or selected_units.get(source_name)
+        label = policy.label or selected_labels.get(source_name)
+        semantic_fields.append(
+            DerivedDatasetField(
+                name=name,
+                source_name=source_name,
+                arrow_type=str(field.type),
+                nullable=field.nullable,
+                role=(
+                    policy.role
+                    or (
+                        "coordinate"
+                        if source_name in coordinate_names
+                        else "observable"
+                    )
                 ),
-                **(
-                    {}
-                    if selected_labels.get(field.name) is None
-                    else {"long_name": cast("JsonValue", selected_labels[field.name])}
-                ),
-            },
+                unit=unit,
+                label=label,
+                attributes={
+                    **(field_attributes or {}).get(source_name, {}),
+                    **({} if unit is None else {"units": cast("JsonValue", unit)}),
+                    **(
+                        {} if label is None else {"long_name": cast("JsonValue", label)}
+                    ),
+                },
+            )
         )
-        for field in table.schema
-    )
     arrow_fields = tuple(
-        field.with_metadata(
-            {
-                **(field.metadata or {}),
-                b"scopecat.role": semantic.role.encode(),
-                **({} if semantic.unit is None else {b"units": semantic.unit.encode()}),
-                **(
-                    {}
-                    if semantic.label is None
-                    else {b"long_name": semantic.label.encode()}
-                ),
-            }
-        )
+        field.with_name(semantic.name).with_metadata(_field_metadata(field, semantic))
         for field, semantic in zip(table.schema, semantic_fields, strict=True)
     )
     schema = pa.schema(
         arrow_fields,
-        metadata={b"scopecat.schema": b"scopecat.derived-dataset.v2"},
+        metadata={b"scopecat.schema": b"scopecat.derived-dataset.v3"},
     )
     return DerivedDataset(
         table=pa.Table.from_arrays(table.columns, schema=schema),
         schema=DerivedDatasetSchema(
-            fields=semantic_fields,
+            fields=tuple(semantic_fields),
             layout=layout,
-            dimension=dimension,
+            dimension=(
+                None
+                if dimension is None
+                else policies.get(dimension, AnalysisField()).id or dimension
+            ),
             attributes=validate_json_metadata(attributes or {}),
         ),
     )
+
+
+def _field_metadata(
+    field: pa.Field,
+    semantic: DerivedDatasetField,
+) -> dict[bytes, bytes]:
+    metadata = dict(field.metadata or {})
+    for name in (
+        b"scopecat.role",
+        b"scopecat.source_name",
+        b"units",
+        b"long_name",
+    ):
+        metadata.pop(name, None)
+    metadata[b"scopecat.role"] = semantic.role.encode()
+    metadata[b"scopecat.source_name"] = semantic.source_name.encode()
+    if semantic.unit is not None:
+        metadata[b"units"] = semantic.unit.encode()
+    if semantic.label is not None:
+        metadata[b"long_name"] = semantic.label.encode()
+    return metadata
 
 
 def _xarray_dimension(dataset: xr.Dataset) -> str:

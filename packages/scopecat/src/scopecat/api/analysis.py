@@ -156,9 +156,7 @@ class Analysis:
         id: str,
         content: object,
         *,
-        coordinates: Sequence[str] = (),
-        units: Mapping[str, str] | None = None,
-        labels: Mapping[str, str] | None = None,
+        fields: Mapping[str, AnalysisField] | None = None,
         index: PandasIndexPolicy = "auto",
         title: str | None = None,
         metadata: Mapping[str, object] | None = None,
@@ -179,9 +177,7 @@ class Analysis:
         selected_id = artifact_slug(id, fallback="data")
         dataset = derived_dataset(
             content,
-            coordinates=coordinates,
-            units=units,
-            labels=labels,
+            fields=fields,
             index=index,
         )
         return self._append_output(
