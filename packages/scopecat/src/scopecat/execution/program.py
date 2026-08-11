@@ -3,22 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from scopecat.compiler.bound_facts import BoundMeasurementCompute
-from scopecat.execution.local.program import ApplyStateOperation, LocalOperation
-from scopecat.kernel.graph_identity import ValueId
-from scopecat.kernel.resource_identity import (
-    DomainTargetRequirement,
-    ResourceRequirement,
-)
-from scopecat.measurements.points import RunPointCatalog
-from scopecat.measurements.projection import MeasurementProjection
-from scopecat.records.config import ConfigContentHash
-from scopecat.sdk.domain.execution import PreparedDomainExecution
-from scopecat.sdk.instruments.contracts import (
-    InstrumentDescription,
-)
 from scopecat.sdk.payloads import PayloadCodecRegistry
+
+if TYPE_CHECKING:
+    from scopecat.compiler.bound_facts import BoundMeasurementCompute
+    from scopecat.execution.local.program import ApplyStateOperation, LocalOperation
+    from scopecat.kernel.graph_identity import ValueId
+    from scopecat.kernel.resource_identity import (
+        DomainTargetRequirement,
+        ResourceRequirement,
+    )
+    from scopecat.measurements.points import RunPointCatalog
+    from scopecat.measurements.projection import MeasurementProjection
+    from scopecat.records.config import ConfigContentHash
+    from scopecat.sdk.domain.execution import PreparedDomainExecution
+    from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 
 @dataclass(frozen=True, slots=True)

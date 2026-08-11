@@ -30,7 +30,6 @@ from scopecat.runs.data import (
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
-from scopecat.runs.measurements import read_measurement_dataset
 from scopecat.runs.refs import (
     RUN_REQUEST_REF,
 )
@@ -211,6 +210,8 @@ def read_run_measurement_dataset(
     services: ProjectStateServices,
     selector: str = "raw-measurements",
 ) -> RunMeasurementDatasetResult:
+    from scopecat.runs.measurements import read_measurement_dataset
+
     storage = services.runs
     dataset_entry = require_dataset(
         manifest=storage.read_manifest(run_id),

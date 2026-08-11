@@ -9,7 +9,6 @@ from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-import pyarrow as pa
 from scopecat.config.changes import (
     list_parameter_change_proposals,
     load_parameter_change_approval,
@@ -69,11 +68,6 @@ from scopecat.measurements.datasets import (
     product_grid_slice_indices,
     select_measurement_schema,
 )
-from scopecat.measurements.paging import project_measurement_page
-from scopecat.measurements.traces import (
-    MeasurementTraceProjection,
-    project_measurement_trace_preview,
-)
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
@@ -101,8 +95,6 @@ from scopecat.runs.service import (
     read_run_measurement_dataset,
     read_run_record_json,
 )
-from scopecat.sdk.domain.invocation import DomainInvocationIntent
-from scopecat.sdk.domain.runtime import DomainExecutionId, DomainExecutionReceipt
 
 from scopecat_server.storage.sqlite import (
     ControlPlaneNotFound,
@@ -115,7 +107,9 @@ from scopecat_server.storage.sqlite import (
 from ..errors import BackendConflict, BackendNotFound
 
 if TYPE_CHECKING:
+    import pyarrow as pa
     from scopecat.analysis.service import AnalysisOutput
+    from scopecat.measurements.traces import MeasurementTraceProjection
 
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
@@ -582,6 +576,8 @@ class RunService:
     ) -> tuple[pa.Table, int | None, int]:
         """Read and project one finite page from Arrow-backed measurement chunks."""
 
+        from scopecat.measurements.paging import project_measurement_page
+
         variable_ids = tuple(column.variable_id for column in query.columns)
         with self._config_errors():
             manifest = self._runs.read_manifest(run_id)
@@ -817,6 +813,9 @@ class RunService:
 def _domain_execution_views(
     transitions: Sequence[ExecutionTransition],
 ) -> tuple[RunDomainExecutionView, ...]:
+    from scopecat.sdk.domain.invocation import DomainInvocationIntent
+    from scopecat.sdk.domain.runtime import DomainExecutionId, DomainExecutionReceipt
+
     projected: list[RunDomainExecutionView] = []
     positions: dict[str, int] = {}
     for transition in transitions:
@@ -923,6 +922,8 @@ def _project_trace_records(
     records: Sequence[MeasurementRecord],
     query: MeasurementTracePreviewQuery,
 ) -> MeasurementTraceProjection:
+    from scopecat.measurements.traces import project_measurement_trace_preview
+
     try:
         return project_measurement_trace_preview(
             MeasurementDataset(dataset_schema=schema, records=tuple(records)),

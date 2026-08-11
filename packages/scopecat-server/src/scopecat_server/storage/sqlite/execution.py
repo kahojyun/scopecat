@@ -28,12 +28,6 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat.sdk.journal import ExecutionJournalError
 
-from scopecat_server.storage.sqlite.measurement_arrow import (
-    MeasurementArrowCodecError,
-    decode_measurement_record_indices,
-    decode_measurement_record_slice,
-    encode_measurement_append,
-)
 from scopecat_server.storage.sqlite.object_store import ObjectStoreError, StoredObject
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
@@ -581,6 +575,10 @@ class SQLiteMeasurementDatasetRepository:
         though one intersecting blob remains the physical I/O unit.
         """
 
+        from scopecat_server.storage.sqlite.measurement_arrow import (
+            decode_measurement_record_slice,
+        )
+
         try:
             with closing(self._runs.sqlite.connect()) as connection:
                 total = _measurement_record_count(connection, self._run_id)
@@ -656,6 +654,10 @@ class SQLiteMeasurementDatasetRepository:
         variable_ids: Sequence[str] | None = None,
     ) -> tuple[MeasurementRecord, ...]:
         """Read selected point indices from intersecting Arrow record batches."""
+
+        from scopecat_server.storage.sqlite.measurement_arrow import (
+            decode_measurement_record_indices,
+        )
 
         selected = tuple(sorted(set(point_indices)))
         try:
@@ -823,6 +825,11 @@ def _store_measurement_append(
     *,
     dataset_schema: MeasurementDatasetSchema,
 ) -> StoredObject:
+    from scopecat_server.storage.sqlite.measurement_arrow import (
+        MeasurementArrowCodecError,
+        encode_measurement_append,
+    )
+
     try:
         return runs.objects.put(encode_measurement_append(append, dataset_schema))
     except (MeasurementArrowCodecError, ObjectStoreError) as error:

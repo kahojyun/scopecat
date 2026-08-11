@@ -9,7 +9,6 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path, PurePosixPath
 from typing import Annotated, cast, override
 
-import pyarrow as pa
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi import Path as ApiPath
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -516,6 +515,8 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         query: MeasurementArrowQuery,
     ) -> Response:
+        import pyarrow as pa
+
         table, next_offset, snapshot_size = application.runs.measurement_arrow(
             run_id, query
         )
