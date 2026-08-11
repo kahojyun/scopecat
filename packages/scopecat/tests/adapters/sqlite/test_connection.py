@@ -43,7 +43,7 @@ def test_immediate_transaction_commits_or_rolls_back(tmp_path: Path) -> None:
     assert [row["value"] for row in rows] == ["committed"]
 
 
-def test_database_serializes_in_process_writers(tmp_path: Path) -> None:
+def test_concurrent_writers_both_commit(tmp_path: Path) -> None:
     database = SQLiteDatabase(tmp_path / "project.sqlite3")
     with database.write_transaction() as connection:
         connection.execute("CREATE TABLE values_table (value TEXT NOT NULL)")
