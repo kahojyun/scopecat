@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Annotated, Protocol, SupportsFloat, cast
 
 import numpy as np
-import polars as pl
 import scopecat as sc
 from numpy.typing import ArrayLike, NDArray
 from scipy.optimize import least_squares  # pyright: ignore[reportUnknownVariableType]
@@ -53,17 +52,6 @@ _BASELINE_POWER_FIELD = sc.AnalysisField(label="Baseline power")
 _MINIMUM_POWER_FIELD = sc.AnalysisField(label="Minimum power")
 _COMPLEX_RMSE_FIELD = sc.AnalysisField(label="Complex RMSE", unit="ratio")
 _MODEL_ID_FIELD = sc.AnalysisField(label="Fit model")
-_FIT_DATASET_FIELDS = {
-    "dc_bias": _DC_BIAS_FIELD,
-    "temperature": _TEMPERATURE_FIELD,
-    "resonance_frequency": _RESONANCE_FREQUENCY_FIELD,
-    "linewidth": _LINEWIDTH_FIELD,
-    "quality_factor": _QUALITY_FACTOR_FIELD,
-    "baseline_power": _BASELINE_POWER_FIELD,
-    "minimum_power": _MINIMUM_POWER_FIELD,
-    "complex_rmse": _COMPLEX_RMSE_FIELD,
-    "model_id": _MODEL_ID_FIELD,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +94,7 @@ RESONATOR_TRACE_FIT_SCHEMA = sc.AnalysisFactSchema(
 class FluxSpectroscopyAnalysisResult:
     """Durable fit rows plus the selected authoritative conclusion."""
 
-    fits: pl.DataFrame
+    fits: tuple[ResonatorTraceFit, ...]
     sweet_spot: ResonatorTraceFit
 
 
@@ -305,7 +293,7 @@ def fit_flux_spectroscopy(
     "1",
     input_codecs={"dataset": "scopecat.measurement-dataset.v8"},
     outputs={"fits": "fits", "sweet_spot": "sweet_spot"},
-    capabilities=("numpy", "scipy", "polars"),
+    capabilities=("numpy", "scipy"),
     deterministic=True,
 )
 def _fit_flux_spectroscopy_dataset(
@@ -317,7 +305,7 @@ def _fit_flux_spectroscopy_dataset(
         key=lambda fit: _quantity_value(fit.resonance_frequency, "Hz"),
     )
     return FluxSpectroscopyAnalysisResult(
-        fits=_resonator_fits_to_frame(fits),
+        fits=fits,
         sweet_spot=sweet_spot,
     )
 
@@ -337,7 +325,6 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
         .dataset(
             "fit-by-bias",
             result.fits,
-            fields=_FIT_DATASET_FIELDS,
             title="Resonator fit by DC bias",
         )
         .fact(
@@ -385,26 +372,6 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
             ),
             evidence=("selected-sweet-spot", "fit-by-bias"),
         )
-    )
-
-
-def _resonator_fits_to_frame(
-    fits: tuple[ResonatorTraceFit, ...],
-) -> pl.DataFrame:
-    return pl.DataFrame(
-        {
-            "dc_bias": [_quantity_value(fit.dc_bias, "V") for fit in fits],
-            "temperature": [_quantity_value(fit.temperature, "mK") for fit in fits],
-            "resonance_frequency": [
-                _quantity_value(fit.resonance_frequency, "GHz") for fit in fits
-            ],
-            "linewidth": [_quantity_value(fit.linewidth, "MHz") for fit in fits],
-            "quality_factor": [fit.quality_factor for fit in fits],
-            "baseline_power": [fit.baseline_power for fit in fits],
-            "minimum_power": [fit.minimum_power for fit in fits],
-            "complex_rmse": [fit.complex_rmse for fit in fits],
-            "model_id": [fit.model_id for fit in fits],
-        }
     )
 
 

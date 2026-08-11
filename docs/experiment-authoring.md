@@ -344,9 +344,9 @@ nonlocal values, but preview exposes their names in `captures` and makes no
 replay promise. A registered compute implementation must express every
 nonlocal value as an input; hidden nonlocal captures are rejected.
 
-Completed-data analysis keeps its derived result model as the presentation
-schema. Annotate scalar dataclass fields once, then pass those objects directly
-to `table(...)` or `figure(...)`:
+Completed-data analysis keeps its derived result model as the durable dataset
+and presentation schema. Annotate scalar dataclass fields once, then publish
+those objects directly without constructing a dataframe:
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -363,9 +363,10 @@ class FitPoint:
 
 analysis = (
     context.result("Resonator fit")
-    .table(fits)
+    .dataset("fits", fits)
+    .table(dataset="fits")
     .figure(
-        fits,
+        dataset="fits",
         kind="line",
         x="bias_v",
         y="resonance_ghz",
@@ -373,11 +374,13 @@ analysis = (
 )
 ```
 
-The presentation layer converts quantities to the declared display units and
-persists the same canonical table and figure records as the explicit
-`AnalysisTable` and `AnalysisFigure` constructors. Those constructors remain
-available for dynamic schemas; ordinary typed fit code does not maintain a
-second column declaration or rebuild aligned x/y arrays.
+The shared row projector converts quantities to the declared units and persists
+the selected fields as an Arrow-backed dataset. Table and figure outputs retain
+that dataset relation and use bounded presentation previews. The explicit
+`AnalysisTable` and `AnalysisFigure` constructors remain available for dynamic
+or presentation-only schemas; ordinary typed fit code does not maintain a
+second column declaration, rebuild aligned x/y arrays, or manually map its rows
+into pandas or Polars.
 
 ## Inspect placement and liveness before running
 

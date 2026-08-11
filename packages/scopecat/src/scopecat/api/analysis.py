@@ -82,6 +82,7 @@ from scopecat.records.analysis import (
     AnalysisTableColumn,
     AnalysisTableRow,
     AnalysisTableView,
+    is_analysis_rows,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -835,6 +836,8 @@ class AnalysisContext:
                 dataset_inputs[name] = value
             elif isinstance(value, ExperimentResultView):
                 dataset_inputs[name] = cast("ExperimentResultView[object]", value)
+            elif (dataset_value := _analysis_dataset_value(value)) is not None:
+                dataset_inputs[name] = dataset_value
         if not dataset_inputs:
             raise TypeError("analysis trace requires at least one dataset input")
         contract = compute_implementation_contract_internal(fn)
@@ -1065,10 +1068,11 @@ def _analysis_execution_input(
             content_hash=content_hash,
             codec=ANALYSIS_ARTIFACT_CODEC,
         )
-    if isinstance(value, DerivedDataset):
+    derived_value = _analysis_dataset_value(value)
+    if derived_value is not None:
         if codec is not None and codec != DERIVED_DATASET_CODEC:
             raise ValueError("derived dataset trace inputs require the Arrow IPC codec")
-        content_hash = sha256_content_hash(value.to_arrow_ipc())
+        content_hash = sha256_content_hash(derived_value.to_arrow_ipc())
         return AnalysisExecutionInput(
             name=name,
             kind="derived_dataset",
@@ -1171,6 +1175,8 @@ def _analysis_dataset_value(value: object) -> DerivedDataset | None:
         return value
     owner = type(value).__module__.partition(".")[0]
     if owner in {"pandas", "polars", "pyarrow", "xarray"}:
+        return derived_dataset(value)
+    if is_analysis_rows(value):
         return derived_dataset(value)
     return None
 

@@ -281,14 +281,11 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     ]
     fit_output = analysis.output("fit-by-bias")
     assert isinstance(fit_output, AnalysisDatasetRecordOutput)
-    assert fit_output.produced_by is None
-    assert fit_output.derived_from is not None
-    assert fit_output.derived_from.source == AnalysisExecutionOutputReference(
+    assert fit_output.produced_by == AnalysisExecutionOutputReference(
         execution_id="fit-resonator-by-bias",
         output_name="fits",
     )
-    assert fit_output.derived_from.source_kind == "polars"
-    assert fit_output.derived_from.adapter == "scopecat.native-dataset.v2"
+    assert fit_output.derived_from is None
     fit_dataset = analysis.dataset("fit-by-bias")
     assert [field.name for field in fit_dataset.schema.fields[:4]] == [
         "dc_bias_v",

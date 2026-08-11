@@ -104,6 +104,21 @@ class _PresentedObservation:
     response: Annotated[float, sc.AnalysisField(label="Response")]
 
 
+def _annotated_fit_rows(*, dataset: Dataset) -> tuple[_PresentedObservation, ...]:
+    _ = dataset
+    return (
+        _PresentedObservation(sc.Quantity(0.1, "V"), 0.2),
+        _PresentedObservation(sc.Quantity(0.2, "V"), 0.8),
+    )
+
+
+def _maximum_annotated_response(
+    *,
+    rows: tuple[_PresentedObservation, ...],
+) -> float:
+    return max(row.response for row in rows)
+
+
 @dataclass(frozen=True, slots=True)
 class _StructuredFit:
     resonance: float
@@ -636,6 +651,53 @@ def test_analysis_dataset_records_first_party_normalization_from_trace(
     assert [field.source_name for field in restored.schema.fields] == [
         "frequency",
         "response",
+    ]
+
+
+def test_annotated_rows_are_traceable_datasets_without_a_dataframe(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    context = sc.AnalysisContext(run=handle)
+
+    rows = context.trace(
+        id="fit-rows",
+        fn=_annotated_fit_rows,
+        dataset=context.measurements(),
+    )
+    maximum = context.trace(
+        id="maximum-response",
+        fn=_maximum_annotated_response,
+        rows=rows,
+    )
+    published = (
+        context.result("Annotated fits", key="annotated-fits")
+        .dataset("fits", rows)
+        .fact("maximum-response", maximum)
+        .save()
+    )
+
+    fit_execution, maximum_execution = published.executions
+    [fit_execution_output] = fit_execution.outputs
+    assert fit_execution_output.kind == "derived_dataset"
+    [rows_input] = maximum_execution.input_bindings
+    assert rows_input.kind == "derived_dataset"
+    assert rows_input.target == "execution:fit-rows:fit-rows"
+    fits_output = published.output("fits")
+    assert isinstance(fits_output, AnalysisDatasetRecordOutput)
+    assert fits_output.produced_by == AnalysisExecutionOutputReference(
+        execution_id="fit-rows",
+        output_name="fit-rows",
+    )
+    assert fits_output.derived_from is None
+    assert published.dataset("fits").table.to_pylist() == [
+        {"bias_mv": 100.0, "response": 0.2},
+        {"bias_mv": 200.0, "response": 0.8},
     ]
 
 

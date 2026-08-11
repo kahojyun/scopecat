@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Annotated
+
 import numpy as np
 import pyarrow as pa
 import pytest
@@ -10,6 +13,30 @@ import xarray as xr
 
 import scopecat as sc
 from scopecat.analysis.datasets import DERIVED_DATASET_CODEC, DerivedDataset
+
+
+@dataclass(frozen=True, slots=True)
+class _FitRow:
+    bias: Annotated[
+        sc.Quantity,
+        sc.AnalysisField(
+            id="bias_mv",
+            role="coordinate",
+            label="Bias",
+            unit="mV",
+        ),
+    ]
+    score: Annotated[
+        float,
+        sc.AnalysisField(label="Fit score", unit="ratio"),
+    ]
+    converged: Annotated[bool, sc.AnalysisField(label="Converged")]
+    internal_iteration: int
+
+
+@dataclass(frozen=True, slots=True)
+class _OtherFitRow:
+    score: Annotated[float, sc.AnalysisField(label="Score")]
 
 
 def test_derived_dataset_round_trips_exact_arrow_and_semantic_schema() -> None:
@@ -136,6 +163,47 @@ def test_derived_dataset_accepts_familiar_dataframe_and_xarray_results() -> None
     )
     assert isinstance(pandas_dataset.to_pandas(), pd.DataFrame)
     assert isinstance(polars_dataset.to_polars(), pl.DataFrame)
+
+
+def test_derived_dataset_projects_annotated_rows_with_table_semantics() -> None:
+    rows = (
+        _FitRow(sc.Quantity(0.1, "V"), 0.2, True, 4),
+        _FitRow(sc.Quantity(0.2, "V"), 0.8, False, 5),
+    )
+
+    dataset = sc.derived_dataset(rows)
+
+    assert dataset.table.column_names == ["bias_mv", "score", "converged"]
+    assert dataset.table.to_pylist() == [
+        {"bias_mv": 100.0, "score": 0.2, "converged": True},
+        {"bias_mv": 200.0, "score": 0.8, "converged": False},
+    ]
+    assert [field.source_name for field in dataset.schema.fields] == [
+        "bias",
+        "score",
+        "converged",
+    ]
+    assert dataset.schema.fields[0].role == "coordinate"
+    assert dataset.schema.fields[0].unit == "mV"
+    assert dataset.schema.fields[0].label == "Bias"
+    assert dataset.to_analysis_table() == sc.AnalysisTable.from_objects(rows)
+
+
+def test_derived_dataset_annotated_rows_are_unbounded_and_own_their_fields() -> None:
+    rows = tuple(
+        _FitRow(sc.Quantity(index, "mV"), 0.5, True, index) for index in range(501)
+    )
+
+    dataset = sc.derived_dataset(rows)
+
+    assert len(dataset.table) == 501
+    with pytest.raises(ValueError, match="already declare their field semantics"):
+        sc.derived_dataset(
+            rows,
+            fields={"bias": sc.AnalysisField(unit="V")},
+        )
+    with pytest.raises(TypeError, match="share one dataclass type"):
+        sc.derived_dataset((rows[0], _OtherFitRow(0.5)))
 
 
 def test_derived_dataset_retains_only_meaningful_pandas_indexes() -> None:

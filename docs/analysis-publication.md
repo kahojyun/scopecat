@@ -111,7 +111,14 @@ The first-party adapter intentionally supports a small, explicit matrix:
 | pandas | A two-dimensional `DataFrame` with string column names | Values enter the same Arrow schema; categorical, timezone, and nullable numeric identities remain durable there; meaningful indexes become coordinate columns | The default `RangeIndex` is dropped; index/column collisions and non-string columns are rejected |
 | Polars | A `DataFrame` through its Arrow representation | Column order, Arrow-representable physical types, nulls, and explicit `AnalysisField` semantics | Polars-only metadata with no Arrow representation is not promised |
 | Xarray | Exactly one named dimension, with every coordinate and data variable using that dimension | Coordinate roles, physical dtypes, dimension identity, and finite JSON dataset/variable attributes round-trip | Multi-dimensional, scalar-mixed, or multi-index layouts must be projected deliberately or stored as artifacts |
+| Annotated rows | A non-empty homogeneous sequence of dataclass rows with `Annotated[..., AnalysisField(...)]` fields | The annotation supplies stable field ID, role, label, and target unit; `Quantity` values are converted once and the selected values enter Arrow without a dataframe adapter | Unannotated fields are private implementation details and are omitted; empty or mixed row types have no inferable durable schema |
 | NumPy | Arrays inside an explicitly named dataframe/Xarray field | The owning container supplies field identity and topology | A bare ndarray is not a dataset because it has no durable field names or coordinate meaning |
+
+Annotated rows use the same projector as `AnalysisTable.from_objects(...)`, but
+dataset publication is not constrained by the bounded table-preview row limit.
+Because the dataclass already owns its field semantics, a second `fields=`
+mapping is rejected. Authors can publish the rows directly and let a table or
+figure refer to that durable dataset by output ID.
 
 `DerivedDataset.to_pandas()` defaults to familiar pandas/NumPy dtypes. Use
 `dtype_backend="pyarrow"` when nullable integer and other exact Arrow dtype

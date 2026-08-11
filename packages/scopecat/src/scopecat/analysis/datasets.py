@@ -26,7 +26,12 @@ from pydantic import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units, is_supported_unit
 from scopecat.records._metadata import JsonMetadata, validate_json_metadata
-from scopecat.records.analysis import AnalysisField, AnalysisTable, AnalysisTableColumn
+from scopecat.records.analysis import (
+    AnalysisField,
+    AnalysisTable,
+    AnalysisTableColumn,
+    project_analysis_rows,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -232,6 +237,22 @@ class DerivedDataset:
         )
 
     @classmethod
+    def from_objects(cls, rows: Sequence[object]) -> DerivedDataset:
+        """Normalize homogeneous annotated dataclass rows without a dataframe."""
+
+        projection = project_analysis_rows(rows)
+        table = pa.table(
+            {
+                name: [row[name] for row in projection.rows]
+                for name, _ in projection.fields
+            }
+        )
+        return _bind_semantics(
+            table,
+            fields=dict(projection.fields),
+        )
+
+    @classmethod
     def from_payload(cls, payload: DerivedDatasetPayload) -> DerivedDataset:
         """Restore an uploaded derived dataset exactly."""
 
@@ -382,7 +403,7 @@ def derived_dataset(
     fields: Mapping[str, AnalysisField] | None = None,
     index: PandasIndexPolicy = "auto",
 ) -> DerivedDataset:
-    """Normalize an Arrow, pandas, Polars, or Xarray result for persistence."""
+    """Normalize native tabular data or annotated dataclass rows."""
 
     if isinstance(data, DerivedDataset):
         if fields or index != "auto":
@@ -422,7 +443,21 @@ def derived_dataset(
             cast("pl.DataFrame", data),
             fields=fields,
         )
-    raise TypeError("derived_dataset requires Arrow, pandas, Polars, or Xarray data")
+    if isinstance(data, Sequence) and not isinstance(
+        data,
+        str | bytes | bytearray,
+    ):
+        if fields:
+            raise ValueError(
+                "annotated analysis rows already declare their field semantics"
+            )
+        if index != "auto":
+            raise ValueError("index policy only applies to pandas data")
+        return DerivedDataset.from_objects(data)
+    raise TypeError(
+        "derived_dataset requires Arrow, pandas, Polars, Xarray, or annotated "
+        "dataclass rows"
+    )
 
 
 def _bind_semantics(

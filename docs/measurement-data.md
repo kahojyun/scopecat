@@ -622,11 +622,15 @@ review = (
 )
 ```
 
-`dataset(...)` accepts the native object and normalizes it once. A sparse
-`fields` mapping overrides metadata inherited from a measurement projection,
-Arrow fields, or Xarray variables. Each `AnalysisField` can assign one stable
-`id`, coordinate/observable `role`, `unit`, and `label`; unlisted fields keep
-their native names and inherited semantics. A specified unit is a target unit:
+`dataset(...)` accepts the native object and normalizes it once. It also accepts
+a non-empty homogeneous sequence of annotated dataclass rows, so fit code does
+not need to construct a dataframe merely for persistence. For native objects, a
+sparse `fields` mapping overrides metadata inherited from a measurement
+projection, Arrow fields, or Xarray variables. Each `AnalysisField` can assign
+one stable `id`, coordinate/observable `role`, `unit`, and `label`; unlisted
+fields keep their native names and inherited semantics. Annotated rows instead
+own that mapping in the dataclass and reject a second `fields=` declaration.
+Unannotated dataclass fields are omitted. A specified unit is a target unit:
 known compatible source units are converted numerically, while a unit on a
 source without unit metadata is an explicit author declaration. Incompatible
 units and units on non-numeric fields are rejected. The durable schema retains
@@ -692,6 +696,12 @@ first-party adapter contract instead. A table or figure remains a projection,
 and points to a published dataset when that scientific relation should be
 durable. Ordinary NumPy, pandas, Polars, or Xarray code can skip `trace(...)`
 entirely.
+
+A traced function may return annotated rows directly. They are identified as a
+first-party derived dataset output rather than an opaque JSON list, so
+publishing the same rows with `.dataset("fits", fits)` records an exact
+`produced_by` relation. The same rows can still be passed to
+`AnalysisTable.from_objects(...)` for a standalone bounded preview.
 
 When one registered function naturally returns a fit object with several
 publishable results, declare stable leaf names with
