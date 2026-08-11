@@ -399,7 +399,10 @@ def expected_dataset_schema(
 ) -> MeasurementDatasetSchema | None:
     """Build the complete planned dataset schema from points and record plans."""
 
-    if not records:
+    point_coordinate_ids = frozenset(column.id for column in point_coordinate_columns)
+    if not records and not any(
+        field.variable_id in point_coordinate_ids for field in result_fields
+    ):
         return None
     dimensions = [
         MeasurementDimension(id="point", kind="point", size=point_count),

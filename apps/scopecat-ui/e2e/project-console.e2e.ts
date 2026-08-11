@@ -83,9 +83,8 @@ def wait_for_release(path: Path) -> None:
 
 
 @sc.experiment(id="ui_e2e_live_scan")
-def live_scan(experiment: sc.ExperimentContext) -> None:
-    value = experiment.scan("value", tuple(range(15)))
-    experiment.record(value, record_id="observed_value")
+def live_scan(experiment: sc.ExperimentContext) -> sc.CoordinateRef[int]:
+    return experiment.scan("value", tuple(range(15)))
 
 
 project = sc.open_project(PROJECT_ROOT)
@@ -181,7 +180,7 @@ with sc.open_project(project_root).connect() as lab:
         )
     )
     saved = analysis.save()
-    analysis.candidate_config()
+    saved.candidate_config()
 
 print(
     "E2E_CANDIDATE="
@@ -189,7 +188,7 @@ print(
         {
             "run_id": baseline.id,
             "proposal_id": analysis.parameter_proposals[0].id,
-            "analysis_id": saved.record.id,
+            "analysis_id": saved.id,
         }
     )
 )

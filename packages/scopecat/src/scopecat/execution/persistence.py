@@ -41,15 +41,15 @@ def validate_run_measurements(
                     "point_index",
                 )
             )
-        if not measurement.observables:
+        if not measurement.coordinates and not measurement.observables:
             problems.append(
                 _problem(
-                    "execution_plan_measurement_observables_missing",
+                    "execution_plan_measurement_values_missing",
                     (
                         "execution plan measurement records require at least one "
-                        "observable"
+                        "coordinate or observable"
                     ),
-                    "observables",
+                    "values",
                 )
             )
     return problems

@@ -249,6 +249,49 @@ def test_in_process_lab_records_compute_value_without_instruments(
     assert run.manifest.datasets == (dataset.entry,)
 
 
+def test_in_process_lab_records_returned_scan_without_instruments(
+    tmp_path: Path,
+) -> None:
+    @sc.experiment(id="test.session.coordinate-only", kind="coordinate-only")
+    def coordinate_only(
+        experiment: sc.ExperimentContext,
+    ) -> sc.CoordinateRef[int]:
+        return experiment.scan("value", (1, 2, 3))
+
+    config = load_config()
+    lab = in_process_lab(
+        tmp_path,
+        config=config,
+        system=ExperimentSystem(
+            instrument_catalog=InstrumentContractCatalog(
+                config_content_hash=config_content_hash(config)
+            )
+        ),
+    )
+
+    run = lab.prepare(coordinate_only).run()
+    dataset = run.measurements()
+    records = dataset.records
+    stored_result = run.result()
+    typed_result = run.result(coordinate_only().output)
+
+    assert run.manifest.status == "completed"
+    assert dataset.schema.primary_coordinates == ("value",)
+    assert dataset.schema.primary_observables == ()
+    assert tuple(record.coordinates["value"] for record in records) == (
+        MeasurementScalar.create(dtype="int64", value=1),
+        MeasurementScalar.create(dtype="int64", value=2),
+        MeasurementScalar.create(dtype="int64", value=3),
+    )
+    assert stored_result.paths == (("result",),)
+    assert tuple(point.value("result") for point in stored_result) == (1, 2, 3)
+    assert tuple(point.value(typed_result.output) for point in typed_result) == (
+        1,
+        2,
+        3,
+    )
+
+
 def test_structured_host_compute_is_one_public_compute(tmp_path: Path) -> None:
     @sc.experiment(id="test.session.structured-compute")
     def structured(experiment: sc.ExperimentContext) -> _StructuredComputeResult:

@@ -283,7 +283,7 @@ def _execute_run(
             None if seal_receipt is None else seal_receipt.dataset_content_hash
         ),
         dataset_schema=dataset_schema,
-        expected_record_count=(point_count if projection.records else None),
+        expected_record_count=(point_count if projection.has_dataset else None),
         instrument_state=instrument_state,
     )
     models: list[RunModelWrite] = []

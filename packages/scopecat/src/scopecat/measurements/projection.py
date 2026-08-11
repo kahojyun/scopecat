@@ -109,10 +109,19 @@ class MeasurementProjection:
         return self.catalog.point_contract.coordinate_ids
 
     @property
+    def has_dataset(self) -> bool:
+        """Whether selected records or returned point coordinates require data."""
+
+        coordinate_ids = frozenset(self.coordinate_ids)
+        return bool(self.records) or any(
+            field.variable_id in coordinate_ids for field in self._result_fields
+        )
+
+    @property
     def schema(self) -> MeasurementDatasetSchema | None:
         """Return the complete planned dataset schema for this projection."""
 
-        if not self.records:
+        if not self.has_dataset:
             return None
         return expected_dataset_schema(
             experiment_id=self.catalog.point_contract.experiment_id,
@@ -244,7 +253,7 @@ def project_measurement_records(
             *value_candidates,
         )
     }
-    if not record_plans:
+    if not projection.has_dataset:
         records: tuple[MeasurementRecord, ...] = ()
     else:
         records = tuple(
