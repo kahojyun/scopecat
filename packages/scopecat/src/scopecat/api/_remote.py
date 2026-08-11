@@ -43,6 +43,7 @@ from scopecat.daemon.wire import (
     RunAttachmentCommand,
 )
 from scopecat.records._metadata import validate_json_metadata
+from scopecat.records.analysis import AnalysisExecution
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -123,6 +124,7 @@ class RemoteRunOperations:
         analysis_key: str,
         step_id: str | None,
         inputs: Sequence[AnalysisInput],
+        executions: Sequence[AnalysisExecution],
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis:
@@ -141,6 +143,7 @@ class RemoteRunOperations:
                 analysis_key=analysis_key,
                 step_id=step_id,
                 inputs=tuple(_analysis_input_payload(item) for item in inputs),
+                executions=tuple(executions),
                 outputs=payloads,
             ),
         )
@@ -155,6 +158,7 @@ class RemoteRunOperations:
             record=receipt.record,
             analysis_key=receipt.analysis_key,
             inputs=tuple(inputs),
+            executions=tuple(executions),
             outputs=saved_outputs,
             parameter_proposals=receipt.parameter_proposals,
         )
@@ -277,6 +281,7 @@ def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
             id=value.id,
             title=value.title,
             content=value.content,
+            produced_by=value.produced_by,
             metadata=metadata,
         )
     if isinstance(value, AnalysisDatasetOutput):
@@ -285,7 +290,7 @@ def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
             id=value.id,
             title=value.title,
             content=value.content.to_payload(),
-            execution=value.execution,
+            produced_by=value.produced_by,
             metadata=metadata,
         )
     if isinstance(value, AnalysisTableOutput):

@@ -113,27 +113,29 @@ resolve as `registry:window.peak@2`, and expose that stable identity in preview.
 The contract is the deployable unit a future worker must resolve; unregistered
 closures retain diagnostic `python:` identities.
 
-The same availability rule extends to completed datasets. Inside an analysis
-step, `context.compute(fn=fit, dataset=dataset)` runs only after the complete dataset is
-durable and automatically records that dataset plus the registered or local
-implementation identity as an analysis dependency. Its JSON-safe output is a
-durable analysis data output with input and output content hashes, codec,
-implementation, access mode, and determinism. Thus point-local and dataset-level
-calculations share the `compute` concept; their inputs determine placement.
-Dataset compute does not run inside acquisition or silently mutate the source
-measurement dataset.
+Completed-run analysis deliberately has a different authoring boundary. Inside
+an analysis step, `context.trace(fn=fit, dataset=dataset)` eagerly runs ordinary
+Python over the durable snapshot and optionally retains execution evidence. It
+returns the native value; the author separately chooses whether to publish it
+as a fact, dataset, table, figure, or artifact. If the published content exactly
+matches the traced result's content and codec, a fact or dataset is linked to
+that execution automatically. Views remain explicit projections of a published
+dataset or native result.
 
-Every dataset compute input is named and content-identified independently;
-JSON-safe inline values are retained beside dataset targets. A registered
-custom output codec must provide its actual encoder, so the recorded codec and
-durable value always describe the same representation.
+Every traced input is named and content-identified independently; JSON-safe
+inline values are retained beside dataset targets. A registered custom output
+codec must provide its actual encoder, so the recorded codec and content hash
+describe the encoded representation. Analysis executions have no experiment
+placement: they are not nodes in acquisition and do not mutate the source
+measurement dataset.
 
 Implementations that cannot load the complete dataset declare
 `data_access="batches"` and a bounded `batch_size` in their registry contract.
 The function then receives an iterator of `Dataset` batches through the same
-named `context.compute(fn=..., batches=dataset)` call. Full-dataset Python remains the short
-path; bounded access is an implementation property rather than a second
-analysis API.
+named `context.trace(fn=..., batches=dataset)` call. Full-dataset Python remains
+the short path; bounded access is an implementation property rather than a
+second analysis API. A future streaming workflow may reuse bounded execution,
+but must own checkpoint and finalization state explicitly.
 
 Logical resource ports describe the interfaces and entities required by a
 reusable definition. The accepted configuration maps those requirements onto a

@@ -212,6 +212,7 @@ describe("ConfigWorkspace", () => {
         title: "Frequency fit",
         key: "fit",
         inputs: [],
+        executions: [],
         outputs: [],
       },
     ]);

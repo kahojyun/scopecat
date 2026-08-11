@@ -54,6 +54,7 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionReceipt,
     RunSubmission,
 )
+from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
@@ -61,6 +62,9 @@ from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
     MAX_ANALYSIS_TABLE_COLUMNS,
     MAX_ANALYSIS_TABLE_ROWS,
+    AnalysisExecution,
+    AnalysisExecutionInput,
+    AnalysisExecutionOutput,
     AnalysisFigure,
     AnalysisFigureAxis,
     AnalysisFigureSeries,
@@ -252,18 +256,43 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         reason="fit converged",
         confidence=0.9,
     )
+    dataset = DerivedDataset.from_arrow(
+        pa.table({"bias": [1.0, 2.0], "signal": [3.0, 4.0]}),
+        coordinates=("bias",),
+    )
     command = AnalysisSaveCommand(
         title="fit",
         analysis_key="fit",
+        executions=(
+            AnalysisExecution(
+                id="fit",
+                implementation="registry:lab.fit@1",
+                deterministic=True,
+                inputs=("dataset",),
+                input_bindings=(
+                    AnalysisExecutionInput(
+                        name="dataset",
+                        kind="measurement_dataset",
+                        target="measurement-dataset",
+                        content_hash="sha256:measurements",
+                        codec="scopecat.measurement-dataset.v8",
+                    ),
+                ),
+                output=AnalysisExecutionOutput(
+                    name="fit",
+                    kind="derived_dataset",
+                    content_hash=sha256_content_hash(dataset.to_arrow_ipc()),
+                    codec="scopecat.derived-dataset.arrow-ipc.v1",
+                ),
+            ),
+        ),
         outputs=(
             AnalysisDatasetOutputPayload(
                 kind="dataset",
                 id="fits",
                 title="fit data",
-                content=DerivedDataset.from_arrow(
-                    pa.table({"bias": [1.0, 2.0], "signal": [3.0, 4.0]}),
-                    coordinates=("bias",),
-                ).to_payload(),
+                produced_by="fit",
+                content=dataset.to_payload(),
             ),
             AnalysisFigureOutputPayload(
                 kind="figure",

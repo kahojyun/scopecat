@@ -279,13 +279,42 @@ describe("project daemon reads", () => {
                       metadata: { selector: "raw-measurements" },
                     },
                   ],
+                  executions: [
+                    {
+                      id: "fit",
+                      implementation: "registry:lab.fit@1",
+                      deterministic: true,
+                      inputs: ["dataset"],
+                      input_bindings: [
+                        {
+                          name: "dataset",
+                          kind: "measurement_dataset",
+                          target: "measurement-dataset",
+                          content_hash: "sha256:measurements",
+                          codec: "scopecat.measurement-dataset.v8",
+                        },
+                      ],
+                      output: {
+                        name: "fit",
+                        kind: "value",
+                        content_hash: "sha256:fitted-frequency",
+                        codec: "scopecat.python-json.v1",
+                      },
+                      captures: [],
+                      access: "full",
+                      metadata: {},
+                    },
+                  ],
                   outputs: [
                     {
-                      kind: "table",
-                      title: "Fit parameters",
+                      kind: "fact",
+                      id: "fitted-frequency",
+                      title: "Fitted frequency",
+                      produced_by: "fit",
                       content: {
-                        columns: [{ id: "converged", label: "Converged" }],
-                        rows: [{ cells: [true] }],
+                        schema_id: "scopecat.scalar.v1",
+                        codec: "scopecat.python-json.v1",
+                        value: 5.1,
                       },
                     },
                   ],
@@ -349,14 +378,26 @@ describe("project daemon reads", () => {
           metadata: { selector: "raw-measurements" },
         },
       ],
+      executions: [
+        {
+          id: "fit",
+          implementation: "registry:lab.fit@1",
+          output: {
+            kind: "value",
+            content_hash: "sha256:fitted-frequency",
+          },
+        },
+      ],
       outputs: [
         {
-          kind: "table",
-          title: "Fit parameters",
+          kind: "fact",
+          title: "Fitted frequency",
           content: {
-            columns: [{ id: "converged", label: "Converged" }],
-            rows: [{ cells: [true] }],
+            schema_id: "scopecat.scalar.v1",
+            codec: "scopecat.python-json.v1",
+            value: 5.1,
           },
+          producedBy: "fit",
           metadata: {},
         },
       ],

@@ -829,11 +829,46 @@ export interface components {
             /** Source Run Id */
             source_run_id: string;
         };
+        /** AnalysisDatasetRecordOutput */
+        AnalysisDatasetRecordOutput: {
+            content: components["schemas"]["AnalysisDatasetReference"];
+            id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "dataset";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            produced_by?: components["schemas"]["_NonEmptyText"] | null;
+            title: components["schemas"]["_NonEmptyText"];
+        };
         /**
-         * AnalysisComputeExecution
-         * @description Content-addressed provenance for one successful dataset compute.
+         * AnalysisDatasetReference
+         * @description Reference to one separately stored, content-addressed derived dataset.
          */
-        "AnalysisComputeExecution-Output": {
+        AnalysisDatasetReference: {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            dataset_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisDatasetViewSource
+         * @description Stable analysis-local dataset referenced by a presentation view.
+         */
+        AnalysisDatasetViewSource: {
+            /**
+             * Kind
+             * @default dataset
+             * @constant
+             */
+            kind: "dataset";
+            output_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisExecution
+         * @description Optional execution evidence retained by an analysis publication.
+         */
+        "AnalysisExecution-Output": {
             /**
              * Access
              * @default full
@@ -850,24 +885,17 @@ export interface components {
             id: components["schemas"]["_NonEmptyText"];
             implementation: components["schemas"]["_NonEmptyText"];
             /** Input Bindings */
-            input_bindings: components["schemas"]["AnalysisComputeInput-Output"][];
+            input_bindings: components["schemas"]["AnalysisExecutionInput-Output"][];
             /** Inputs */
             inputs: components["schemas"]["_NonEmptyText"][];
-            output_content_hash: components["schemas"]["_NonEmptyText"];
-            /** Outputs */
-            outputs: components["schemas"]["_NonEmptyText"][];
-            /**
-             * Placement
-             * @default dataset
-             * @constant
-             */
-            placement: "dataset";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            output: components["schemas"]["AnalysisExecutionOutput"];
         };
         /**
-         * AnalysisComputeInput
-         * @description One named, content-identified input consumed by dataset compute.
+         * AnalysisExecutionInput
+         * @description One named, content-identified input consumed by an analysis execution.
          */
-        "AnalysisComputeInput-Output": {
+        "AnalysisExecutionInput-Output": {
             codec: components["schemas"]["_NonEmptyText"];
             content_hash: components["schemas"]["_NonEmptyText"];
             /**
@@ -879,40 +907,19 @@ export interface components {
             target: components["schemas"]["_NonEmptyText"];
             value?: components["schemas"]["pydantic__types__JsonValue"] | null;
         };
-        /** AnalysisDatasetRecordOutput */
-        AnalysisDatasetRecordOutput: {
-            content: components["schemas"]["AnalysisDatasetReference"];
-            id: components["schemas"]["_NonEmptyText"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "dataset";
-            metadata?: components["schemas"]["JsonMetadata-Output"];
-            title: components["schemas"]["_NonEmptyText"];
-        };
         /**
-         * AnalysisDatasetReference
-         * @description Reference to one separately stored, content-addressed derived dataset.
+         * AnalysisExecutionOutput
+         * @description The content identity produced by one successful analysis execution.
          */
-        AnalysisDatasetReference: {
+        AnalysisExecutionOutput: {
             codec: components["schemas"]["_NonEmptyText"];
             content_hash: components["schemas"]["_NonEmptyText"];
-            dataset_id: components["schemas"]["_NonEmptyText"];
-            execution?: components["schemas"]["AnalysisComputeExecution-Output"] | null;
-        };
-        /**
-         * AnalysisDatasetViewSource
-         * @description Stable analysis-local dataset referenced by a presentation view.
-         */
-        AnalysisDatasetViewSource: {
             /**
              * Kind
-             * @default dataset
-             * @constant
+             * @enum {string}
              */
-            kind: "dataset";
-            output_id: components["schemas"]["_NonEmptyText"];
+            kind: "derived_dataset" | "value";
+            name: components["schemas"]["_NonEmptyText"];
         };
         /**
          * AnalysisFact
@@ -920,7 +927,6 @@ export interface components {
          */
         "AnalysisFact-Output": {
             codec: components["schemas"]["_NonEmptyText"];
-            execution?: components["schemas"]["AnalysisComputeExecution-Output"] | null;
             schema_id: components["schemas"]["_NonEmptyText"];
             value: components["schemas"]["pydantic__types__JsonValue"];
         };
@@ -934,6 +940,7 @@ export interface components {
              */
             kind: "fact";
             metadata?: components["schemas"]["JsonMetadata-Output"];
+            produced_by?: components["schemas"]["_NonEmptyText"] | null;
             title: components["schemas"]["_NonEmptyText"];
         };
         /**
@@ -1029,6 +1036,8 @@ export interface components {
         };
         /** AnalysisRecord */
         AnalysisRecord: {
+            /** Executions */
+            executions?: components["schemas"]["AnalysisExecution-Output"][];
             /** Inputs */
             inputs?: components["schemas"]["AnalysisRecordInput"][];
             key?: components["schemas"]["_NonEmptyText"] | null;

@@ -33,7 +33,7 @@ from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
-    AnalysisComputeExecution,
+    AnalysisExecution,
     AnalysisFact,
     AnalysisFigureView,
     AnalysisTableView,
@@ -197,6 +197,7 @@ class AnalysisFactOutputPayload(_WireModel):
     id: NonEmptyText
     title: NonEmptyText
     content: AnalysisFact
+    produced_by: NonEmptyText | None = None
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -205,7 +206,7 @@ class AnalysisDatasetOutputPayload(_WireModel):
     id: NonEmptyText
     title: NonEmptyText
     content: DerivedDatasetPayload
-    execution: AnalysisComputeExecution | None = None
+    produced_by: NonEmptyText | None = None
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -269,6 +270,7 @@ class AnalysisSaveCommand(_WireModel):
     analysis_key: NonEmptyText
     step_id: NonEmptyText | None = None
     inputs: tuple[AnalysisInputPayload, ...] = ()
+    executions: tuple[AnalysisExecution, ...] = ()
     outputs: tuple[AnalysisOutputPayload, ...] = Field(
         default=(),
         max_length=MAX_ANALYSIS_OUTPUTS,
@@ -300,6 +302,22 @@ class AnalysisSaveCommand(_WireModel):
         output_ids = tuple(output.id for output in self.outputs)
         if len(output_ids) != len(set(output_ids)):
             raise ValueError("analysis output ids must be unique")
+        execution_ids = tuple(execution.id for execution in self.executions)
+        if len(execution_ids) != len(set(execution_ids)):
+            raise ValueError("analysis execution ids must be unique")
+        materialized_outputs = tuple(
+            output
+            for output in self.outputs
+            if isinstance(
+                output,
+                AnalysisFactOutputPayload | AnalysisDatasetOutputPayload,
+            )
+        )
+        if any(
+            output.produced_by is not None and output.produced_by not in execution_ids
+            for output in materialized_outputs
+        ):
+            raise ValueError("analysis output producer must identify an execution")
         dataset_ids = {
             output.id
             for output in self.outputs

@@ -33,7 +33,7 @@ from scopecat.measurements.datasets import (
 )
 from scopecat.measurements.paging import project_measurement_page
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.analysis import AnalysisRecord
+from scopecat.records.analysis import AnalysisExecution, AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -161,6 +161,7 @@ class ServiceRunOperations:
         analysis_key: str,
         step_id: str | None,
         inputs: Sequence[AnalysisInput],
+        executions: Sequence[AnalysisExecution],
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis:
@@ -171,6 +172,7 @@ class ServiceRunOperations:
             analysis_key=analysis_key,
             step_id=step_id,
             inputs=inputs,
+            executions=executions,
             outputs=outputs,
             parameter_proposals=parameter_proposals,
         )

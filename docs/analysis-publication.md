@@ -91,9 +91,27 @@ round-trip contract and tests against the native library.
 ## Provenance and scope
 
 The record identifies exact input snapshots and every published output. A
-managed compute may add implementation, binding, codec, access, and content-hash
-provenance, but ordinary library code does not need to become a managed compute
-in order to publish results.
+traced analysis execution may additionally retain implementation, named input
+bindings, codecs, access mode, and the content identity of its result. Use
+`context.trace(...)` only when that execution evidence or bounded batch access
+is valuable; ordinary library code does not need a wrapper in order to publish
+results.
+
+Executions and outputs are intentionally separate. Calling `trace(...)` returns
+the native Python value and appends execution evidence to the analysis record;
+it does not decide that the value is a durable user-facing output. Facts,
+datasets, tables, figures, artifacts, and proposals remain explicit publication
+choices. When an explicitly published value has exactly the traced result's
+content and codec identity, a fact or dataset records its producing execution
+automatically, so authors do not pass provenance handles through their
+numerical code. Views instead identify their published source dataset; their
+projection is analysis authoring, not the traced numerical result itself.
+
+Experiment `compute(...)` is a different lifecycle: it is a node in the formal
+experiment program and may run before or during acquisition. Analysis
+`trace(...)` is an optional record of ordinary eager code over a run snapshot.
+They may share implementation descriptors, codec contracts, and provenance
+machinery without sharing one authoring concept or placement model.
 
 Views refer to outputs, proposals refer to their producing analysis, and future
 relations should use stable output IDs rather than display titles or tuple
@@ -102,4 +120,7 @@ positions. Titles and labels remain presentation metadata.
 Analysis currently belongs to one completed run. Live checkpoints, retries,
 cross-run state, schedules, and recurring calibration belong to a future
 workflow model. They should not be encoded as hidden state in an analysis or as
-special run-sequence behavior before that workflow owner exists.
+special run-sequence behavior before that workflow owner exists. Future
+streaming analysis may reuse the same execution and publication primitives, but
+its cursors, windows, checkpoint state, and finalization policy belong to that
+workflow rather than to the analysis record.

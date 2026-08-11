@@ -410,12 +410,14 @@ the returned record, downstream compute, payload, or experiment effect that
 keeps the compute live. Observation computes absent from this list were removed
 because no durable output or downstream compute needs them.
 
-Saved dataset computes use the same `id`, `placement`, `implementation`,
-`deterministic`, `inputs`, and `outputs` vocabulary in their
-`AnalysisComputeExecution`. Their placement is `dataset`; content hashes and
-full-versus-batch access remain execution facts specific to completed-data
-analysis. A `python:` implementation is local and makes no replay promise, while
-a `registry:` implementation identifies an explicit portable contract.
+Traced completed-run analysis uses `AnalysisExecution` for optional execution
+evidence: implementation, determinism, named content-identified inputs, one
+encoded result identity, and full-versus-batch access. It deliberately has no
+`placement`, because it is eager code over a run snapshot rather than a node in
+the experiment program. A `python:` implementation is local and makes no replay
+promise, while a `registry:` implementation identifies an explicit portable
+contract. Experiment computes and analysis traces share this lower-level
+implementation vocabulary without presenting one lifecycle to authors.
 
 `bindings` gives runtime inputs, scan coordinates, and parameter dependencies
 one common inspection shape without giving them one lifecycle. Its `owner`

@@ -132,6 +132,7 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
             id=item.id,
             title=item.title,
             content=item.content,
+            produced_by=item.produced_by,
             metadata=item.metadata,
         )
     if isinstance(item, AnalysisDatasetOutputPayload):
@@ -140,7 +141,7 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
             id=item.id,
             title=item.title,
             content=DerivedDataset.from_payload(item.content),
-            execution=item.execution,
+            produced_by=item.produced_by,
             metadata=item.metadata,
         )
     if isinstance(item, AnalysisTableOutputPayload):
@@ -415,6 +416,7 @@ class RunService:
                 analysis_key=command.analysis_key,
                 step_id=command.step_id,
                 inputs=inputs,
+                executions=command.executions,
                 outputs=outputs,
                 parameter_proposals=proposals,
             )

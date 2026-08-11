@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, cast
 
+import pandas as pd
 import pytest
 from pydantic import ValidationError
 
@@ -23,6 +24,7 @@ from scopecat.analysis.service import (
     AnalysisTableOutput,
 )
 from scopecat.config.registry import service as config_registry_service
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.measurements.results import Dataset
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
@@ -59,6 +61,13 @@ def _derived_signal_frame(dataset: Dataset) -> DerivedDataset:
         coordinates=("frequency",),
         labels={"score": "Doubled response"},
     )
+
+
+def _native_signal_frame(dataset: Dataset) -> pd.DataFrame:
+    return dataset.project(
+        {"frequency": "drive_frequency", "response": "signal"},
+        identity=False,
+    ).to_pandas()
 
 
 def _derived_score_max(dataset: DerivedDataset) -> float:
@@ -102,13 +111,13 @@ def _encoded_dataset_size(*, dataset: Dataset) -> int:
     return len(dataset)
 
 
-class _DatasetComputeStep:
-    id = "dataset-compute"
+class _DatasetTraceStep:
+    id = "dataset-trace"
 
     def run(self, context: sc.AnalysisContext) -> sc.Analysis:
         measurements = context.measurements()
-        count = context.compute(fn=_dataset_size, dataset=measurements)
-        return context.result("Dataset compute").table(
+        count = context.trace(fn=_dataset_size, dataset=measurements)
+        return context.result("Dataset trace").table(
             sc.AnalysisTable.from_rows([{"points": count}])
         )
 
@@ -160,65 +169,49 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     assert next_run.config_source == active_source
 
 
-def test_dataset_compute_records_its_analysis_dependency(tmp_path: Path) -> None:
+def test_analysis_trace_records_its_analysis_dependency(tmp_path: Path) -> None:
     run = execute_signal_run(
         config=load_config(),
         experiment=load_invocation(),
         project_root=tmp_path,
     )
     handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
-    analysis = handle.analyze(_DatasetComputeStep())
+    analysis = handle.analyze(_DatasetTraceStep())
 
     [dependency] = analysis.inputs
     assert dependency.target == "raw-measurements"
     assert dependency.content_hash == handle.measurements().entry.content_hash
     assert dependency.codec == "scopecat.measurement-dataset.v8"
-    assert dependency.role == "compute-input"
-    assert dependency.metadata == {
-        "compute": {
-            "id": "_dataset_size",
-            "implementation": "python:_dataset_size",
-            "placement": "dataset",
-            "deterministic": False,
-            "inputs": ["dataset"],
-            "outputs": ["_dataset_size"],
-            "captures": [],
-            "access": "full",
-        },
-        "binding": "dataset",
-    }
-    [data_output, table_output] = analysis.outputs
-    assert isinstance(data_output, AnalysisFactOutput)
-    assert data_output.content.value == 3
-    execution = data_output.content.execution
-    assert execution is not None
+    assert dependency.role == "data"
+    assert dependency.metadata is None
+    [execution] = analysis.executions
     assert execution.id == "_dataset_size"
-    assert execution.placement == "dataset"
     assert execution.implementation == "python:_dataset_size"
     assert not execution.deterministic
     assert execution.inputs == ("dataset",)
-    assert execution.outputs == ("_dataset_size",)
+    assert execution.output.name == "_dataset_size"
+    assert execution.output.kind == "value"
     assert execution.captures == ()
     [input_binding] = execution.input_bindings
     assert input_binding.name == "dataset"
     assert input_binding.target == "raw-measurements"
     assert input_binding.content_hash == handle.measurements().entry.content_hash
     assert input_binding.codec == "scopecat.measurement-dataset.v8"
-    assert execution.output_content_hash.startswith("sha256:")
+    assert execution.output.content_hash.startswith("sha256:")
+    [table_output] = analysis.outputs
     assert table_output.kind == "table"
     stored = handle.record_json(
-        "analysis-dataset-compute",
+        "analysis-dataset-trace",
         expected_kind="analysis",
     )
-    stored_outputs = stored.content["outputs"]
-    assert isinstance(stored_outputs, list)
-    [stored_output, _stored_table] = stored_outputs
-    assert isinstance(stored_output, dict)
-    assert stored_output["kind"] == "fact"
-    assert stored_output["id"] == "_dataset_size"
+    stored_executions = stored.content["executions"]
+    assert isinstance(stored_executions, list)
+    stored_execution = stored_executions[0]
+    assert isinstance(stored_execution, dict)
+    assert stored_execution["id"] == "_dataset_size"
 
 
-def test_registered_dataset_compute_can_reduce_bounded_batches(tmp_path: Path) -> None:
+def test_registered_analysis_trace_can_reduce_bounded_batches(tmp_path: Path) -> None:
     run = execute_signal_run(
         config=load_config(),
         experiment=load_invocation(),
@@ -227,22 +220,20 @@ def test_registered_dataset_compute_can_reduce_bounded_batches(tmp_path: Path) -
     handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
     context = sc.AnalysisContext(run=handle)
 
-    count = context.compute(
+    count = context.trace(
         fn=_batch_dataset_size,
         batches=context.measurements(),
     )
-    analysis = context.result("Batch compute")
+    analysis = context.result("Batch trace")
 
     assert count == 3
-    [output] = analysis.outputs
-    assert isinstance(output, AnalysisFactOutput)
-    execution = output.content.execution
-    assert execution is not None
+    assert analysis.outputs == ()
+    [execution] = analysis.executions
     assert execution.access == "batches"
     assert execution.implementation == ("registry:test.dataset-size-batches@1")
 
 
-def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
+def test_native_dataframe_trace_returns_one_reusable_derived_dataset(
     tmp_path: Path,
 ) -> None:
     run = execute_signal_run(
@@ -253,20 +244,22 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
     context = sc.AnalysisContext(run=handle)
 
-    derived = context.compute(
+    derived = context.trace(
         fn=_derived_signal_frame,
         dataset=context.measurements(),
     )
-    maximum = context.compute(fn=_derived_score_max, dataset=derived)
+    maximum = context.trace(fn=_derived_score_max, dataset=derived)
     outcome = (
         context.result("Native derived data", key="native-derived-data")
+        .dataset("derived-signal", derived)
+        .fact("maximum-score", maximum)
         .table(
-            dataset="_derived_signal_frame",
+            dataset="derived-signal",
             columns=("frequency", "score"),
             title="Derived rows",
         )
         .figure(
-            dataset="_derived_signal_frame",
+            dataset="derived-signal",
             kind="line",
             x="frequency",
             y="score",
@@ -280,27 +273,29 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     assert maximum == 2.0
     data_output, maximum_output, table_output, figure_output = outcome.outputs
     assert isinstance(data_output, AnalysisDatasetOutput)
-    assert data_output.execution is not None
-    assert data_output.execution.output_content_hash.startswith("sha256:")
-    dataset_id = "analysis-native-derived-data-_derived_signal_frame"
+    assert data_output.produced_by == "_derived_signal_frame"
+    dataset_id = "analysis-native-derived-data-derived-signal"
     restored = handle.derived_dataset(dataset_id)
     assert restored.table.equals(derived.table, check_metadata=True)
     assert isinstance(maximum_output, AnalysisFactOutput)
     assert maximum_output.content.value == 2.0
-    execution = maximum_output.content.execution
-    assert execution is not None
+    assert maximum_output.produced_by == "_derived_score_max"
+    first_execution, execution = outcome.executions
+    assert first_execution.id == "_derived_signal_frame"
     [derived_input] = execution.input_bindings
     assert derived_input.kind == "derived_dataset"
-    assert derived_input.target == "_derived_signal_frame"
+    assert derived_input.target == (
+        "execution:_derived_signal_frame:_derived_signal_frame"
+    )
     assert derived_input.codec == DERIVED_DATASET_CODEC
     assert derived_input.value is None
     assert isinstance(table_output, AnalysisTableOutput)
     assert table_output.content.source is not None
-    assert table_output.content.source.output_id == "_derived_signal_frame"
+    assert table_output.content.source.output_id == "derived-signal"
     assert table_output.content.columns == ("frequency", "score")
     assert isinstance(figure_output, AnalysisFigureOutput)
     assert figure_output.content.source is not None
-    assert figure_output.content.source.output_id == "_derived_signal_frame"
+    assert figure_output.content.source.output_id == "derived-signal"
     assert figure_output.content.projection is not None
     assert figure_output.content.projection.x == "frequency"
     assert figure_output.content.projection.y == "score"
@@ -316,7 +311,8 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     content = persisted["content"]
     assert isinstance(content, dict)
     assert content["codec"] == DERIVED_DATASET_CODEC
-    assert persisted["id"] == "_derived_signal_frame"
+    assert persisted["id"] == "derived-signal"
+    assert persisted["produced_by"] == "_derived_signal_frame"
     assert content["dataset_id"] == dataset_id
     assert "value" not in content
     assert "arrow_ipc_base64" not in str(stored.content)
@@ -324,17 +320,21 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     table_view = cast("dict[str, object]", stored_table["content"])
     assert table_view["source"] == {
         "kind": "dataset",
-        "output_id": "_derived_signal_frame",
+        "output_id": "derived-signal",
     }
     assert table_view["columns"] == ["frequency", "score"]
     assert "preview" in table_view
     published = handle.published_analysis("native-derived-data")
     assert published.id == "analysis-native-derived-data"
-    assert published.dataset("_derived_signal_frame").table.equals(
+    assert published.dataset("derived-signal").table.equals(
         derived.table,
         check_metadata=True,
     )
-    assert published.fact("_derived_score_max").value == 2.0
+    assert published.fact("maximum-score").value == 2.0
+    assert [execution.id for execution in published.executions] == [
+        "_derived_signal_frame",
+        "_derived_score_max",
+    ]
     assert published.table("table").source is not None
     assert published.figure("figure").projection is not None
     manifest_entry = next(
@@ -342,6 +342,46 @@ def test_native_dataframe_compute_returns_one_reusable_derived_dataset(
     )
     assert manifest_entry.kind == "analysis_dataset"
     assert manifest_entry.content_hash == content["content_hash"]
+
+
+def test_analysis_trace_retains_native_dataframe_identity_until_publication(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    context = sc.AnalysisContext(run=handle)
+
+    frame = context.trace(
+        fn=_native_signal_frame,
+        dataset=context.measurements(),
+    )
+    outcome = (
+        context.result("Native frame", key="native-frame")
+        .dataset(
+            "fits",
+            frame,
+        )
+        .save()
+    )
+
+    [execution] = outcome.executions
+    assert execution.output.kind == "derived_dataset"
+    assert execution.output.codec == DERIVED_DATASET_CODEC
+    [output] = outcome.outputs
+    assert isinstance(output, AnalysisDatasetOutput)
+    assert output.produced_by == "_native_signal_frame"
+    assert (
+        handle.published_analysis("native-frame")
+        .dataset("fits")
+        .table.equals(
+            sc.derived_dataset(frame).table,
+            check_metadata=True,
+        )
+    )
 
 
 def test_analysis_dataset_publishes_a_native_frame_once(tmp_path: Path) -> None:
@@ -544,7 +584,7 @@ def test_analysis_revision_owns_its_parameter_proposal_identity(tmp_path: Path) 
     ] == ["drive-frequency", "drive-frequency-r2"]
 
 
-def test_dataset_compute_records_named_inline_inputs(tmp_path: Path) -> None:
+def test_analysis_trace_records_named_inline_inputs(tmp_path: Path) -> None:
     run = execute_signal_run(
         config=load_config(),
         experiment=load_invocation(),
@@ -553,17 +593,16 @@ def test_dataset_compute_records_named_inline_inputs(tmp_path: Path) -> None:
     handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
     context = sc.AnalysisContext(run=handle)
 
-    count = context.compute(
+    count = context.trace(
         fn=_scaled_dataset_size,
         dataset=context.measurements(),
         scale=2,
     )
 
     assert count == 6
-    [output] = context.result().outputs
-    assert isinstance(output, AnalysisFactOutput)
-    execution = output.content.execution
-    assert execution is not None
+    analysis = context.result()
+    assert analysis.outputs == ()
+    [execution] = analysis.executions
     assert execution.inputs == ("dataset", "scale")
     dataset_input, scale_input = execution.input_bindings
     assert dataset_input.kind == "measurement_dataset"
@@ -572,7 +611,7 @@ def test_dataset_compute_records_named_inline_inputs(tmp_path: Path) -> None:
     assert scale_input.value == 2
 
 
-def test_dataset_compute_uses_its_registered_output_encoder(tmp_path: Path) -> None:
+def test_analysis_trace_uses_its_registered_output_encoder(tmp_path: Path) -> None:
     run = execute_signal_run(
         config=load_config(),
         experiment=load_invocation(),
@@ -581,16 +620,21 @@ def test_dataset_compute_uses_its_registered_output_encoder(tmp_path: Path) -> N
     handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
     context = sc.AnalysisContext(run=handle)
 
-    count = context.compute(
+    count = context.trace(
         fn=_encoded_dataset_size,
         dataset=context.measurements(),
     )
 
     assert count == 3
-    [output] = context.result().outputs
-    assert isinstance(output, AnalysisFactOutput)
-    assert output.content.codec == "test.dataset-size.v1"
-    assert output.content.value == {"points": 3}
+    analysis = context.result().fact("count", count)
+    [execution] = analysis.executions
+    assert execution.output.codec == "test.dataset-size.v1"
+    assert execution.output.content_hash == (
+        f"sha256:{stable_content_hash({'points': 3})}"
+    )
+    [fact] = analysis.outputs
+    assert isinstance(fact, AnalysisFactOutput)
+    assert fact.produced_by is None
 
 
 def test_analysis_save_rolls_back_refs_after_manifest_failure(

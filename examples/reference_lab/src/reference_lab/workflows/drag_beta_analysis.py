@@ -117,7 +117,7 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit one DRAG run and author its table, figure, and proposal."""
 
     measurements = context.measurements()
-    observations, fit = context.compute(
+    observations, fit = context.trace(
         fn=_fit_drag_beta_dataset,
         dataset=measurements,
     )

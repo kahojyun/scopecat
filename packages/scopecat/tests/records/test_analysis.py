@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.analysis import (
     MAX_ANALYSIS_FIGURE_POINTS,
@@ -19,6 +20,11 @@ from scopecat.records.analysis import (
     MAX_ANALYSIS_TOTAL_FIGURE_POINTS,
     MAX_ANALYSIS_TOTAL_TABLE_CELLS,
     AnalysisDatasetViewSource,
+    AnalysisExecution,
+    AnalysisExecutionInput,
+    AnalysisExecutionOutput,
+    AnalysisFact,
+    AnalysisFactRecordOutput,
     AnalysisField,
     AnalysisFigure,
     AnalysisFigureAxis,
@@ -37,6 +43,7 @@ from scopecat.records.analysis import (
 )
 
 _PUBLICATION_HASH = f"sha256:{'0' * 64}"
+_FIT_VALUE_HASH = f"sha256:{stable_content_hash(5.1)}"
 
 
 @dataclass(frozen=True)
@@ -117,7 +124,41 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
         title="Fit review",
         revision=1,
         publication_hash=_PUBLICATION_HASH,
+        executions=[
+            AnalysisExecution(
+                id="fit",
+                implementation="registry:lab.fit@1",
+                deterministic=True,
+                inputs=("dataset",),
+                input_bindings=(
+                    AnalysisExecutionInput(
+                        name="dataset",
+                        kind="measurement_dataset",
+                        target="measurement-dataset",
+                        content_hash="sha256:measurements",
+                        codec="scopecat.measurement-dataset.v8",
+                    ),
+                ),
+                output=AnalysisExecutionOutput(
+                    name="fit",
+                    kind="value",
+                    content_hash=_FIT_VALUE_HASH,
+                    codec="scopecat.python-json.v1",
+                ),
+            )
+        ],
         outputs=[
+            AnalysisFactRecordOutput(
+                kind="fact",
+                id="fitted-frequency",
+                title="Fitted frequency",
+                produced_by="fit",
+                content=AnalysisFact(
+                    schema_id="scopecat.scalar.v1",
+                    codec="scopecat.python-json.v1",
+                    value=5.1,
+                ),
+            ),
             AnalysisTableRecordOutput(
                 kind="table",
                 id="fit-parameters",
@@ -169,12 +210,16 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
 
     restored = AnalysisRecord.model_validate_json(record.model_dump_json())
 
-    assert isinstance(restored.outputs[0], AnalysisTableRecordOutput)
-    assert restored.outputs[0].content.preview.rows[0].cells == [5.1, True]
-    assert isinstance(restored.outputs[1], AnalysisFigureRecordOutput)
-    assert restored.outputs[1].content.preview.series[0].y == [5.0, 5.1, 5.0]
-    assert isinstance(restored.outputs[2], AnalysisParameterProposalRecordOutput)
-    assert restored.outputs[2].content.proposal_id == "readout-fit"
+    assert isinstance(restored.outputs[0], AnalysisFactRecordOutput)
+    assert restored.outputs[0].produced_by == "fit"
+    assert restored.outputs[0].content.value == 5.1
+    assert restored.executions[0].input_bindings[0].target == "measurement-dataset"
+    assert isinstance(restored.outputs[1], AnalysisTableRecordOutput)
+    assert restored.outputs[1].content.preview.rows[0].cells == [5.1, True]
+    assert isinstance(restored.outputs[2], AnalysisFigureRecordOutput)
+    assert restored.outputs[2].content.preview.series[0].y == [5.0, 5.1, 5.0]
+    assert isinstance(restored.outputs[3], AnalysisParameterProposalRecordOutput)
+    assert restored.outputs[3].content.proposal_id == "readout-fit"
 
 
 def test_analysis_embedded_outputs_have_gui_safe_size_limits() -> None:
@@ -357,6 +402,29 @@ def test_analysis_record_rejects_view_without_its_dataset_output() -> None:
                         source=AnalysisDatasetViewSource(output_id="missing"),
                         columns=("value",),
                         preview=AnalysisTable.from_rows([{"value": 1}]),
+                    ),
+                )
+            ],
+        )
+
+
+def test_analysis_record_rejects_unknown_output_producer() -> None:
+    with pytest.raises(ValidationError, match="producer must identify an execution"):
+        AnalysisRecord(
+            run_id="run-analysis",
+            title="Dangling producer",
+            revision=1,
+            publication_hash=_PUBLICATION_HASH,
+            outputs=[
+                AnalysisFactRecordOutput(
+                    kind="fact",
+                    id="fact",
+                    title="Fact",
+                    produced_by="missing",
+                    content=AnalysisFact(
+                        schema_id="scopecat.scalar.v1",
+                        codec="scopecat.python-json.v1",
+                        value=1,
                     ),
                 )
             ],

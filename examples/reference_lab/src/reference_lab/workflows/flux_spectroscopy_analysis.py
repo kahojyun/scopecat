@@ -255,7 +255,7 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit the resonator curve and propose reviewed readout parameters."""
 
     measurements = context.measurements()
-    fits = context.compute(
+    fits = context.trace(
         fn=fit_flux_spectroscopy,
         dataset=measurements,
     )

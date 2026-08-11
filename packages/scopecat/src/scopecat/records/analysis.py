@@ -25,7 +25,7 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.kernel.content_identity import canonical_json
+from scopecat.kernel.content_identity import canonical_json, stable_content_hash
 from scopecat.kernel.quantity import Quantity
 from scopecat.records._metadata import JsonMetadata
 
@@ -468,8 +468,8 @@ class AnalysisParameterProposalReference(_AnalysisContentModel):
     record_ref: _NonEmptyText
 
 
-class AnalysisComputeInput(_AnalysisContentModel):
-    """One named, content-identified input consumed by dataset compute."""
+class AnalysisExecutionInput(_AnalysisContentModel):
+    """One named, content-identified input consumed by an analysis execution."""
 
     name: _NonEmptyText
     kind: Literal["measurement_dataset", "derived_dataset", "value"]
@@ -479,29 +479,37 @@ class AnalysisComputeInput(_AnalysisContentModel):
     value: JsonValue | None = None
 
 
-class AnalysisComputeExecution(_AnalysisContentModel):
-    """Content-addressed provenance for one successful dataset compute."""
+class AnalysisExecutionOutput(_AnalysisContentModel):
+    """The content identity produced by one successful analysis execution."""
+
+    name: _NonEmptyText
+    kind: Literal["derived_dataset", "value"]
+    content_hash: _NonEmptyText
+    codec: _NonEmptyText
+
+
+class AnalysisExecution(_AnalysisContentModel):
+    """Optional execution evidence retained by an analysis publication."""
 
     id: _NonEmptyText
     implementation: _NonEmptyText
-    placement: Literal["dataset"] = "dataset"
     deterministic: bool
     inputs: Sequence[_NonEmptyText]
-    outputs: Sequence[_NonEmptyText]
-    input_bindings: Sequence[AnalysisComputeInput]
+    input_bindings: Sequence[AnalysisExecutionInput]
+    output: AnalysisExecutionOutput
     captures: Sequence[_NonEmptyText] = ()
     access: Literal["full", "batches"] = "full"
-    output_content_hash: _NonEmptyText
+    metadata: JsonMetadata = Field(default_factory=dict)
 
-    @field_validator("inputs", "outputs", "input_bindings", "captures")
+    @field_validator("inputs", "input_bindings", "captures")
     @classmethod
     def freeze_edges[T](cls, value: Sequence[T]) -> Sequence[T]:
         return tuple(value)
 
     @model_validator(mode="after")
-    def validate_input_bindings(self) -> AnalysisComputeExecution:
+    def validate_input_bindings(self) -> AnalysisExecution:
         if tuple(self.inputs) != tuple(binding.name for binding in self.input_bindings):
-            raise ValueError("analysis compute inputs must match its input bindings")
+            raise ValueError("analysis execution inputs must match its input bindings")
         return self
 
 
@@ -511,7 +519,6 @@ class AnalysisFact(_AnalysisContentModel):
     schema_id: _NonEmptyText
     codec: _NonEmptyText
     value: JsonValue
-    execution: AnalysisComputeExecution | None = None
 
     @model_validator(mode="after")
     def validate_budget(self) -> AnalysisFact:
@@ -529,7 +536,6 @@ class AnalysisDatasetReference(_AnalysisContentModel):
     dataset_id: _NonEmptyText
     content_hash: _NonEmptyText
     codec: _NonEmptyText
-    execution: AnalysisComputeExecution | None = None
 
 
 class AnalysisArtifactReference(_AnalysisContentModel):
@@ -579,11 +585,13 @@ class AnalysisParameterProposalRecordOutput(_AnalysisRecordOutput):
 class AnalysisFactRecordOutput(_AnalysisRecordOutput):
     kind: Literal["fact"]
     content: AnalysisFact
+    produced_by: _NonEmptyText | None = None
 
 
 class AnalysisDatasetRecordOutput(_AnalysisRecordOutput):
     kind: Literal["dataset"]
     content: AnalysisDatasetReference
+    produced_by: _NonEmptyText | None = None
 
 
 class AnalysisArtifactRecordOutput(_AnalysisRecordOutput):
@@ -636,6 +644,7 @@ class AnalysisRecord(BaseModel):
     publication_hash: _NonEmptyText
     step_id: _NonEmptyText | None = None
     inputs: list[AnalysisRecordInput] = Field(default_factory=list)
+    executions: list[AnalysisExecution] = Field(default_factory=list)
     outputs: list[AnalysisRecordOutput] = Field(max_length=MAX_ANALYSIS_OUTPUTS)
 
     @model_validator(mode="after")
@@ -643,6 +652,45 @@ class AnalysisRecord(BaseModel):
         output_ids = tuple(output.id for output in self.outputs)
         if len(output_ids) != len(set(output_ids)):
             raise ValueError("analysis output ids must be unique")
+        execution_ids = tuple(execution.id for execution in self.executions)
+        if len(execution_ids) != len(set(execution_ids)):
+            raise ValueError("analysis execution ids must be unique")
+        executions_by_id = {execution.id: execution for execution in self.executions}
+        materialized_outputs = tuple(
+            output
+            for output in self.outputs
+            if isinstance(
+                output,
+                AnalysisDatasetRecordOutput | AnalysisFactRecordOutput,
+            )
+        )
+        unknown_producers = {
+            output.produced_by
+            for output in materialized_outputs
+            if output.produced_by is not None
+        } - set(executions_by_id)
+        if unknown_producers:
+            raise ValueError("analysis output producer must identify an execution")
+        for output in materialized_outputs:
+            if output.produced_by is None:
+                continue
+            execution = executions_by_id[output.produced_by]
+            if isinstance(output, AnalysisDatasetRecordOutput):
+                kind = "derived_dataset"
+                content_hash = output.content.content_hash
+                codec = output.content.codec
+            else:
+                kind = "value"
+                content_hash = f"sha256:{stable_content_hash(output.content.value)}"
+                codec = output.content.codec
+            if (
+                execution.output.kind != kind
+                or execution.output.content_hash != content_hash
+                or execution.output.codec != codec
+            ):
+                raise ValueError(
+                    "analysis output content must match its producing execution"
+                )
         dataset_ids = {
             output.id
             for output in self.outputs

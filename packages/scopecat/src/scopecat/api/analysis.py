@@ -57,10 +57,12 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.datasets import MEASUREMENT_DATASET_CODEC
 from scopecat.measurements.results import Dataset, ExperimentResultView
+from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
-    AnalysisComputeExecution,
-    AnalysisComputeInput,
     AnalysisDatasetViewSource,
+    AnalysisExecution,
+    AnalysisExecutionInput,
+    AnalysisExecutionOutput,
     AnalysisFact,
     AnalysisField,
     AnalysisFigure,
@@ -119,6 +121,7 @@ class _AnalysisRun(Protocol):
         analysis_key: str,
         step_id: str | None,
         inputs: Sequence[AnalysisInput],
+        executions: Sequence[AnalysisExecution],
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis: ...
@@ -133,8 +136,14 @@ class Analysis:
     key: str | None = None
     step_id: str | None = None
     inputs: tuple[AnalysisInput, ...] = ()
+    executions: tuple[AnalysisExecution, ...] = ()
     outputs: tuple[AnalysisOutput, ...] = ()
     parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
+    _execution_ids_by_value_hash: dict[str, str] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
 
     def dataset(
         self,
@@ -170,8 +179,8 @@ class Analysis:
                 id=selected_id,
                 title=title or selected_id,
                 content=dataset,
-                execution=None,
                 metadata=metadata or {},
+                produced_by=self._producer_for(dataset),
             )
         )
 
@@ -206,6 +215,7 @@ class Analysis:
                     value=_analysis_json(value),
                 ),
                 metadata=metadata or {},
+                produced_by=self._producer_for(value),
             )
         )
 
@@ -466,6 +476,13 @@ class Analysis:
             )
         return replace(self, outputs=(*self.outputs, output))
 
+    def _producer_for(self, value: object) -> str | None:
+        try:
+            content_hash = _analysis_value_hash(value)
+        except TypeError:
+            return None
+        return self._execution_ids_by_value_hash.get(content_hash)
+
     @property
     def analysis_key(self) -> str:
         return _analysis_key(self.key, self.title)
@@ -567,6 +584,7 @@ class Analysis:
             analysis_key=self.analysis_key,
             step_id=self.step_id,
             inputs=self.inputs,
+            executions=self.executions,
             outputs=self.outputs,
             parameter_proposals=self.parameter_proposals,
         )
@@ -576,6 +594,7 @@ class Analysis:
             analysis_key=saved.analysis_key,
             step_id=self.step_id,
             inputs=saved.inputs,
+            executions=saved.executions,
             outputs=saved.outputs,
             parameter_proposals=saved.parameter_proposals,
         )
@@ -590,6 +609,7 @@ class AnalysisOutcome:
     analysis_key: str
     step_id: str | None = None
     inputs: tuple[AnalysisInput, ...] = ()
+    executions: tuple[AnalysisExecution, ...] = ()
     outputs: tuple[AnalysisOutput, ...] = ()
     parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
 
@@ -611,17 +631,12 @@ class AnalysisContext:
     run: _AnalysisRun
     default_key: str | None = None
     step_id: str | None = None
-    _compute_inputs: list[AnalysisInput] = field(
+    _executions: list[AnalysisExecution] = field(
         default_factory=list,
         repr=False,
         compare=False,
     )
-    _compute_outputs: list[AnalysisOutput] = field(
-        default_factory=list,
-        repr=False,
-        compare=False,
-    )
-    _compute_ids: dict[str, int] = field(
+    _execution_ids: dict[str, int] = field(
         default_factory=dict,
         repr=False,
         compare=False,
@@ -631,12 +646,12 @@ class AnalysisContext:
         repr=False,
         compare=False,
     )
-    _compute_input_targets: set[str] = field(
-        default_factory=set,
+    _execution_ids_by_value_hash: dict[str, str] = field(
+        default_factory=dict,
         repr=False,
         compare=False,
     )
-    _derived_output_ids_by_hash: dict[str, str] = field(
+    _execution_targets_by_value_hash: dict[str, str] = field(
         default_factory=dict,
         repr=False,
         compare=False,
@@ -667,7 +682,7 @@ class AnalysisContext:
         return dataset
 
     @overload
-    def compute[ResultT](
+    def trace[ResultT](
         self,
         id: str | None = None,
         *,
@@ -677,7 +692,7 @@ class AnalysisContext:
     ) -> ResultT: ...
 
     @overload
-    def compute[ResultT](
+    def trace[ResultT](
         self,
         id: str | None = None,
         *,
@@ -686,7 +701,7 @@ class AnalysisContext:
         **input_bindings: object,
     ) -> ResultT: ...
 
-    def compute(
+    def trace(
         self,
         id: str | None = None,
         *,
@@ -694,15 +709,15 @@ class AnalysisContext:
         inputs: Mapping[str, object] | None = None,
         **input_bindings: object,
     ) -> object:
-        """Run one dataset-available compute and retain its durable dependency."""
+        """Run ordinary analysis code while retaining optional execution evidence."""
 
         duplicate_inputs = set(inputs or {}) & set(input_bindings)
         if duplicate_inputs:
             rendered = ", ".join(sorted(duplicate_inputs))
-            raise TypeError(f"analysis compute inputs were bound twice: {rendered}")
+            raise TypeError(f"analysis trace inputs were bound twice: {rendered}")
         selected_inputs = {**(inputs or {}), **input_bindings}
         if not selected_inputs:
-            raise TypeError("analysis compute requires at least one named input")
+            raise TypeError("analysis trace requires at least one named input")
         dataset_inputs: dict[
             str,
             Dataset | DerivedDataset | ExperimentResultView[object],
@@ -713,13 +728,13 @@ class AnalysisContext:
             elif isinstance(value, ExperimentResultView):
                 dataset_inputs[name] = cast("ExperimentResultView[object]", value)
         if not dataset_inputs:
-            raise TypeError("analysis compute requires at least one dataset input")
+            raise TypeError("analysis trace requires at least one dataset input")
         contract = compute_implementation_contract_internal(fn)
-        compute_id = self._allocate_compute_id(
-            id or getattr(fn, "__name__", "dataset-compute")
+        execution_id = self._allocate_execution_id(
+            id or getattr(fn, "__name__", "analysis-execution")
         )
         implementation = (
-            contract.reference if contract is not None else f"python:{compute_id}"
+            contract.reference if contract is not None else f"python:{execution_id}"
         )
         deterministic = False if contract is None else contract.deterministic
         captures = compute_capture_names_internal(fn)
@@ -729,90 +744,44 @@ class AnalysisContext:
             and set(contract.input_codecs) != set(selected_inputs)
         ):
             raise ValueError(
-                "registered analysis compute input codecs must exactly match "
+                "registered analysis trace input codecs must exactly match "
                 "its named inputs"
             )
-        for name, value in selected_inputs.items():
-            if not isinstance(value, DerivedDataset):
-                continue
-            content_hash = sha256_content_hash(value.to_arrow_ipc())
-            if content_hash in self._derived_output_ids_by_hash:
-                continue
-            input_output_id = self._allocate_dataset_output_id(
-                f"{compute_id}-{name}-input"
-            )
-            self._compute_outputs.append(
-                AnalysisDatasetOutput(
-                    kind="dataset",
-                    id=input_output_id,
-                    title=input_output_id,
-                    content=value,
-                    execution=None,
-                    metadata={},
-                )
-            )
-            self._derived_output_ids_by_hash[content_hash] = input_output_id
         input_provenance = tuple(
-            _analysis_compute_input(
+            _analysis_execution_input(
                 name,
                 value,
                 codec=(None if contract is None else contract.input_codecs.get(name)),
-                derived_output_id=(
-                    self._derived_output_ids_by_hash.get(
-                        sha256_content_hash(value.to_arrow_ipc())
-                    )
-                    if isinstance(value, DerivedDataset)
-                    else None
-                ),
+                execution_target=self._execution_target_for(value),
             )
             for name, value in selected_inputs.items()
         )
         input_names = tuple(selected_inputs)
-        output_names = (compute_id,)
-        compute_metadata: dict[str, object] = {
-            "id": compute_id,
-            "implementation": implementation,
-            "placement": "dataset",
-            "deterministic": deterministic,
-            "inputs": list(input_names),
-            "outputs": list(output_names),
-            "captures": list(captures),
-            "access": "full" if contract is None else contract.data_access,
-        }
-        if contract is not None:
-            compute_metadata.update(
-                runtime=contract.runtime,
-                capabilities=list(contract.capabilities),
-            )
         for provenance in input_provenance:
             if provenance.kind != "measurement_dataset":
                 continue
-            self._compute_inputs.append(
+            self._accessed_inputs.setdefault(
+                provenance.target,
                 AnalysisInput(
                     target=provenance.target,
                     kind="measurement_dataset",
                     content_hash=provenance.content_hash,
                     codec=provenance.codec,
-                    role="compute-input",
-                    title=f"{compute_id}:{provenance.name}",
-                    metadata={
-                        "compute": compute_metadata,
-                        "binding": provenance.name,
-                    },
-                )
+                    role="data",
+                    title=provenance.target,
+                ),
             )
-            self._compute_input_targets.add(provenance.target)
 
         call_inputs = dict(selected_inputs)
         if contract is not None and contract.data_access == "batches":
             if len(dataset_inputs) != 1:
                 raise ValueError(
-                    "batched analysis compute requires exactly one dataset input"
+                    "batched analysis trace requires exactly one dataset input"
                 )
             dataset_name, data = next(iter(dataset_inputs.items()))
             if isinstance(data, DerivedDataset):
                 raise ValueError(
-                    "batched analysis compute requires a measurement dataset input"
+                    "batched analysis trace requires a measurement dataset input"
                 )
             batches = self.run.measurement_batches(batch_size=contract.batch_size)
             call_inputs[dataset_name] = (
@@ -823,32 +792,22 @@ class AnalysisContext:
         result = fn(**call_inputs)
         encoder = compute_output_encoder_internal(fn)
         output = result if encoder is None else encoder(result)
-        if isinstance(output, DerivedDataset):
+        dataset_output = _analysis_dataset_value(output)
+        if dataset_output is not None:
             if contract is not None and contract.output_codec != PYTHON_JSON_CODEC:
                 raise ValueError(
-                    "derived dataset compute outputs own their Arrow IPC codec"
+                    "derived dataset trace outputs own their Arrow IPC codec"
                 )
             encoded: JsonValue | None = None
             output_codec = DERIVED_DATASET_CODEC
-            output_hash = sha256_content_hash(output.to_arrow_ipc())
+            output_hash = sha256_content_hash(dataset_output.to_arrow_ipc())
         else:
             encoded = _analysis_json(output)
             output_codec = (
                 PYTHON_JSON_CODEC if contract is None else contract.output_codec
             )
             output_hash = f"sha256:{stable_content_hash(encoded)}"
-        execution = AnalysisComputeExecution(
-            id=compute_id,
-            implementation=implementation,
-            deterministic=deterministic,
-            inputs=input_names,
-            outputs=output_names,
-            input_bindings=input_provenance,
-            captures=captures,
-            access=("full" if contract is None else contract.data_access),
-            output_content_hash=output_hash,
-        )
-        output_metadata = (
+        execution_metadata = validate_json_metadata(
             {}
             if contract is None
             else {
@@ -857,88 +816,77 @@ class AnalysisContext:
                 "resources": dict(contract.resources),
             }
         )
-        if isinstance(output, DerivedDataset):
-            dataset_output_id = self._allocate_dataset_output_id(compute_id)
-            self._compute_outputs.append(
-                AnalysisDatasetOutput(
-                    kind="dataset",
-                    id=dataset_output_id,
-                    title=compute_id,
-                    content=output,
-                    execution=execution,
-                    metadata=output_metadata,
-                )
-            )
-            self._derived_output_ids_by_hash[output_hash] = dataset_output_id
-        else:
-            self._compute_outputs.append(
-                AnalysisFactOutput(
-                    kind="fact",
-                    id=compute_id,
-                    title=compute_id,
-                    content=AnalysisFact(
-                        schema_id=output_codec,
-                        codec=output_codec,
-                        value=encoded,
-                        execution=execution,
-                    ),
-                    metadata=output_metadata,
-                )
+        execution = AnalysisExecution(
+            id=execution_id,
+            implementation=implementation,
+            deterministic=deterministic,
+            inputs=input_names,
+            input_bindings=input_provenance,
+            output=AnalysisExecutionOutput(
+                name=execution_id,
+                kind=("derived_dataset" if dataset_output is not None else "value"),
+                content_hash=output_hash,
+                codec=output_codec,
+            ),
+            captures=captures,
+            access=("full" if contract is None else contract.data_access),
+            metadata=execution_metadata,
+        )
+        self._executions.append(execution)
+        try:
+            value_codec, value_hash = _analysis_value_identity(result)
+        except TypeError:
+            value_codec = None
+            value_hash = None
+        if value_codec == output_codec and value_hash == output_hash:
+            assert value_hash is not None
+            self._execution_ids_by_value_hash[value_hash] = execution.id
+            self._execution_targets_by_value_hash[value_hash] = (
+                f"execution:{execution.id}:{execution.output.name}"
             )
         return result
 
-    def _allocate_compute_id(self, requested: str) -> str:
-        base = artifact_slug(requested, fallback="dataset-compute")
-        count = self._compute_ids.get(base, 0) + 1
-        self._compute_ids[base] = count
+    def _allocate_execution_id(self, requested: str) -> str:
+        base = artifact_slug(requested, fallback="analysis-execution")
+        count = self._execution_ids.get(base, 0) + 1
+        self._execution_ids[base] = count
         return base if count == 1 else f"{base}-{count}"
 
-    def _allocate_dataset_output_id(self, requested: str) -> str:
-        base = artifact_slug(requested, fallback="data")
-        used = {output.id for output in self._compute_outputs}
-        if base not in used:
-            return base
-        suffix = 2
-        while f"{base}-{suffix}" in used:
-            suffix += 1
-        return f"{base}-{suffix}"
+    def _execution_target_for(self, value: object) -> str | None:
+        try:
+            content_hash = _analysis_value_hash(value)
+        except TypeError:
+            return None
+        return self._execution_targets_by_value_hash.get(content_hash)
 
     def result(self, title: str = "analysis", *, key: str | None = None) -> Analysis:
-        accessed_inputs = tuple(
-            input
-            for target, input in self._accessed_inputs.items()
-            if target not in self._compute_input_targets
-        )
         return replace(
             self.run.analysis(
                 title,
                 key=key or self.default_key,
                 step_id=self.step_id,
             ),
-            inputs=(*accessed_inputs, *self._compute_inputs),
-            outputs=tuple(self._compute_outputs),
+            inputs=tuple(self._accessed_inputs.values()),
+            executions=tuple(self._executions),
+            _execution_ids_by_value_hash=dict(self._execution_ids_by_value_hash),
         )
 
 
-def _analysis_compute_input(
+def _analysis_execution_input(
     name: str,
     value: object,
     *,
     codec: str | None,
-    derived_output_id: str | None,
-) -> AnalysisComputeInput:
+    execution_target: str | None,
+) -> AnalysisExecutionInput:
     if isinstance(value, DerivedDataset):
         if codec is not None and codec != DERIVED_DATASET_CODEC:
-            raise ValueError(
-                "derived dataset compute inputs require the Arrow IPC codec"
-            )
-        if derived_output_id is None:
-            raise ValueError("derived dataset compute input is not an analysis output")
+            raise ValueError("derived dataset trace inputs require the Arrow IPC codec")
         content_hash = sha256_content_hash(value.to_arrow_ipc())
-        return AnalysisComputeInput(
+        return AnalysisExecutionInput(
             name=name,
             kind="derived_dataset",
-            target=derived_output_id,
+            target=execution_target or f"content:{content_hash}",
             content_hash=content_hash,
             codec=DERIVED_DATASET_CODEC,
         )
@@ -948,7 +896,7 @@ def _analysis_compute_input(
         else value
     )
     if isinstance(dataset, Dataset):
-        return AnalysisComputeInput(
+        return AnalysisExecutionInput(
             name=name,
             kind="measurement_dataset",
             target=dataset.entry.id,
@@ -956,17 +904,37 @@ def _analysis_compute_input(
             codec=codec or MEASUREMENT_DATASET_CODEC,
         )
     if codec is not None and codec != PYTHON_JSON_CODEC:
-        raise ValueError("inline analysis compute inputs require the Python JSON codec")
+        raise ValueError("inline analysis trace inputs require the Python JSON codec")
     encoded = _analysis_json(cast("object", value))
     content_hash = f"sha256:{stable_content_hash(encoded)}"
-    return AnalysisComputeInput(
+    return AnalysisExecutionInput(
         name=name,
         kind="value",
-        target=f"inline:{name}:{content_hash}",
+        target=execution_target or f"inline:{name}:{content_hash}",
         content_hash=content_hash,
         codec=PYTHON_JSON_CODEC,
-        value=encoded,
+        value=None if execution_target is not None else encoded,
     )
+
+
+def _analysis_value_hash(value: object) -> str:
+    return _analysis_value_identity(value)[1]
+
+
+def _analysis_value_identity(value: object) -> tuple[str, str]:
+    dataset = _analysis_dataset_value(value)
+    if dataset is not None:
+        return DERIVED_DATASET_CODEC, sha256_content_hash(dataset.to_arrow_ipc())
+    return PYTHON_JSON_CODEC, f"sha256:{stable_content_hash(_analysis_json(value))}"
+
+
+def _analysis_dataset_value(value: object) -> DerivedDataset | None:
+    if isinstance(value, DerivedDataset):
+        return value
+    owner = type(value).__module__.partition(".")[0]
+    if owner in {"pandas", "polars", "pyarrow", "xarray"}:
+        return derived_dataset(value)
+    return None
 
 
 def _analysis_json(value: object) -> JsonValue:
@@ -997,7 +965,7 @@ def _analysis_json(value: object) -> JsonValue:
     if callable(item):
         return _analysis_json(item())
     raise TypeError(
-        f"analysis compute output {type(value).__qualname__} is not JSON encodable"
+        f"analysis trace output {type(value).__qualname__} is not JSON encodable"
     )
 
 

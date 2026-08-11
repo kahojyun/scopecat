@@ -35,9 +35,9 @@ from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
     AnalysisArtifactRecordOutput,
     AnalysisArtifactReference,
-    AnalysisComputeExecution,
     AnalysisDatasetRecordOutput,
     AnalysisDatasetReference,
+    AnalysisExecution,
     AnalysisFact,
     AnalysisFactRecordOutput,
     AnalysisFigureRecordOutput,
@@ -110,6 +110,7 @@ class AnalysisFactOutput:
     title: str
     content: AnalysisFact
     metadata: Mapping[str, object]
+    produced_by: str | None = None
 
 
 @dataclass(frozen=True)
@@ -118,8 +119,8 @@ class AnalysisDatasetOutput:
     id: str
     title: str
     content: DerivedDataset
-    execution: AnalysisComputeExecution | None
     metadata: Mapping[str, object]
+    produced_by: str | None = None
 
 
 @dataclass(frozen=True)
@@ -148,6 +149,7 @@ class SavedAnalysis:
     record: RunContentEntry
     analysis_key: str
     inputs: tuple[AnalysisInput, ...] = ()
+    executions: tuple[AnalysisExecution, ...] = ()
     outputs: tuple[AnalysisOutput, ...] = ()
     parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
 
@@ -166,6 +168,7 @@ def save_analysis(
     analysis_key: str,
     step_id: str | None,
     inputs: Sequence[AnalysisInput],
+    executions: Sequence[AnalysisExecution],
     outputs: Sequence[AnalysisOutput],
     parameter_proposals: Sequence[ParameterChangeProposal],
 ) -> SavedAnalysis:
@@ -178,6 +181,7 @@ def save_analysis(
         analysis_key=analysis_key,
         step_id=step_id,
         inputs=inputs,
+        executions=executions,
         outputs=outputs,
         parameter_proposals=parameter_proposals,
     )
@@ -193,6 +197,7 @@ def prepare_analysis(
     analysis_key: str,
     step_id: str | None,
     inputs: Sequence[AnalysisInput],
+    executions: Sequence[AnalysisExecution],
     outputs: Sequence[AnalysisOutput],
     parameter_proposals: Sequence[ParameterChangeProposal],
 ) -> PreparedAnalysis:
@@ -200,6 +205,7 @@ def prepare_analysis(
 
     base_record_id = f"analysis-{analysis_key}"
     _validate_analysis_output_ids(outputs)
+    _validate_analysis_execution_outputs(executions, outputs)
     output_proposals = tuple(
         output.content
         for output in outputs
@@ -225,6 +231,7 @@ def prepare_analysis(
         analysis_key=analysis_key,
         step_id=step_id,
         inputs=inputs,
+        executions=executions,
         outputs=outputs,
     )
     existing = _latest_analysis(
@@ -249,6 +256,7 @@ def prepare_analysis(
                 record=existing.entry,
                 analysis_key=analysis_key,
                 inputs=tuple(inputs),
+                executions=tuple(existing.record.executions),
                 outputs=saved_outputs,
                 parameter_proposals=saved_proposals,
             ),
@@ -287,6 +295,7 @@ def prepare_analysis(
         publication_hash=publication_hash,
         step_id=step_id,
         inputs=_analysis_record_inputs(inputs),
+        executions=list(executions),
         outputs=_analysis_record_outputs(
             saved_outputs,
             dataset_references=prepared_datasets.references,
@@ -309,6 +318,7 @@ def prepare_analysis(
         record=record,
         analysis_key=analysis_key,
         inputs=tuple(inputs),
+        executions=tuple(executions),
         outputs=saved_outputs,
         parameter_proposals=saved_proposals,
     )
@@ -418,6 +428,7 @@ def _analysis_publication_hash(
     analysis_key: str,
     step_id: str | None,
     inputs: Sequence[AnalysisInput],
+    executions: Sequence[AnalysisExecution],
     outputs: Sequence[AnalysisOutput],
 ) -> str:
     identity = {
@@ -436,6 +447,7 @@ def _analysis_publication_hash(
             }
             for item in inputs
         ],
+        "executions": list(executions),
         "outputs": [_analysis_output_identity(output) for output in outputs],
     }
     return f"sha256:{stable_content_hash(content_fingerprint(identity))}"
@@ -449,10 +461,10 @@ def _analysis_output_identity(output: AnalysisOutput) -> dict[str, object]:
         "metadata": validate_json_metadata(output.metadata),
     }
     if isinstance(output, AnalysisDatasetOutput):
+        shared["produced_by"] = output.produced_by
         shared["content"] = {
             "content_hash": sha256_content_hash(output.content.to_arrow_ipc()),
             "schema": output.content.schema.model_dump(mode="json"),
-            "execution": output.execution,
         }
     elif isinstance(output, AnalysisArtifactOutput):
         shared["content"] = {
@@ -470,6 +482,9 @@ def _analysis_output_identity(output: AnalysisOutput) -> dict[str, object]:
             "confidence": proposal.confidence,
             "deltas": proposal.deltas,
         }
+    elif isinstance(output, AnalysisFactOutput):
+        shared["produced_by"] = output.produced_by
+        shared["content"] = output.content
     else:
         shared["content"] = output.content
     return shared
@@ -513,6 +528,7 @@ def _analysis_record_outputs(
                     id=output.id,
                     title=output.title,
                     content=output.content,
+                    produced_by=output.produced_by,
                     metadata=metadata,
                 )
             )
@@ -523,6 +539,7 @@ def _analysis_record_outputs(
                     id=output.id,
                     title=output.title,
                     content=dataset_references[output.id],
+                    produced_by=output.produced_by,
                     metadata=metadata,
                 )
             )
@@ -608,15 +625,6 @@ def _prepare_analysis_datasets(
         dataset_id = f"{analysis_record_id}-{output.id}"
         content = output.content.to_arrow_ipc()
         content_hash = sha256_content_hash(content)
-        if (
-            output.execution is not None
-            and output.execution.output_content_hash != content_hash
-        ):
-            _raise_analysis_problem(
-                "analysis_dataset_execution_hash_mismatch",
-                "analysis dataset content does not match its compute execution",
-                "outputs",
-            )
         metadata = validate_json_metadata(output.metadata)
         entries.append(
             RunContentEntry(
@@ -645,7 +653,6 @@ def _prepare_analysis_datasets(
             dataset_id=dataset_id,
             content_hash=content_hash,
             codec=DERIVED_DATASET_CODEC,
-            execution=output.execution,
         )
     return _PreparedAnalysisDatasets(
         entries=tuple(entries),
@@ -727,6 +734,49 @@ def _validate_analysis_output_ids(outputs: Sequence[AnalysisOutput]) -> None:
             "analysis output ids must be unique",
             "outputs",
         )
+
+
+def _validate_analysis_execution_outputs(
+    executions: Sequence[AnalysisExecution],
+    outputs: Sequence[AnalysisOutput],
+) -> None:
+    execution_by_id = {execution.id: execution for execution in executions}
+    if len(execution_by_id) != len(executions):
+        _raise_analysis_problem(
+            "analysis_execution_id_duplicated",
+            "analysis execution ids must be unique",
+            "executions",
+        )
+    for output in outputs:
+        if not isinstance(output, AnalysisDatasetOutput | AnalysisFactOutput):
+            continue
+        if output.produced_by is None:
+            continue
+        execution = execution_by_id.get(output.produced_by)
+        if execution is None:
+            _raise_analysis_problem(
+                "analysis_output_producer_unknown",
+                "analysis output producer must identify an execution",
+                "outputs",
+            )
+        if isinstance(output, AnalysisDatasetOutput):
+            content_hash = sha256_content_hash(output.content.to_arrow_ipc())
+            expected_kind = "derived_dataset"
+            expected_codec = DERIVED_DATASET_CODEC
+        else:
+            content_hash = f"sha256:{stable_content_hash(output.content.value)}"
+            expected_kind = "value"
+            expected_codec = output.content.codec
+        if (
+            execution.output.kind != expected_kind
+            or execution.output.content_hash != content_hash
+            or execution.output.codec != expected_codec
+        ):
+            _raise_analysis_problem(
+                "analysis_output_execution_mismatch",
+                "analysis output content does not match its producing execution",
+                "outputs",
+            )
 
 
 def _raise_analysis_problem(

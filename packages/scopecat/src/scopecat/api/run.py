@@ -51,6 +51,7 @@ from scopecat.measurements.results import (
 from scopecat.program.products import ProductRef
 from scopecat.program.record_refs import RecordRef
 from scopecat.program.value_refs import ValueRef
+from scopecat.records.analysis import AnalysisExecution
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -115,6 +116,7 @@ class RunOperations(Protocol):
         analysis_key: str,
         step_id: str | None,
         inputs: Sequence[AnalysisInput],
+        executions: Sequence[AnalysisExecution],
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis: ...
@@ -475,6 +477,7 @@ class RunHandle:
         analysis_key: str,
         step_id: str | None,
         inputs: Sequence[AnalysisInput],
+        executions: Sequence[AnalysisExecution],
         outputs: Sequence[AnalysisOutput],
         parameter_proposals: Sequence[ParameterChangeProposal],
     ) -> SavedAnalysis:
@@ -486,6 +489,7 @@ class RunHandle:
             analysis_key=analysis_key,
             step_id=step_id,
             inputs=inputs,
+            executions=executions,
             outputs=outputs,
             parameter_proposals=parameter_proposals,
         )

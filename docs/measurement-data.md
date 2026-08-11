@@ -540,9 +540,9 @@ imaginary modes; real values use their direct value. Unavailable points are
 skipped until the requested number of usable series is reached or the selection
 is exhausted.
 
-## Save analysis results as typed views
+## Save analysis results as typed publications
 
-Dataset compute outputs become durable derived data before presentation. A
+Analysis results become durable only when they are explicitly published. A
 typed dataclass can declare column presentation once, and both tables and
 figures project that same aligned data:
 
@@ -643,11 +643,25 @@ pandas_frame = fits.to_pandas()
 polars_frame = fits.to_polars()
 ```
 
-Use `context.compute(...)` when the computation needs Scopecat-managed runtime
-metadata, registered codecs, deterministic provenance, or bounded batch access.
-A `DerivedDataset` returned from that advanced path is published through the
-same dataset mechanism; small scalar compute results remain inline analysis
-facts.
+Use `context.trace(...)` when an analysis execution needs retained runtime
+metadata, registered codecs, deterministic provenance, or bounded batch access:
+
+```python
+fits = context.trace(fn=fit_with_polars, measurements=measurements)
+review = (
+    context.result("Fit review")
+    .dataset("fits", fits, coordinates=("bias",))
+    .fact("maximum-score", float(fits["score"].max()))
+)
+```
+
+`trace(...)` still returns the native value and does not publish it by itself.
+The explicit `dataset(...)` or `fact(...)` call decides the durable interface;
+when its content and codec exactly match the traced result, Scopecat links the
+output to the execution automatically. A table or figure remains a projection,
+and points to a published dataset when that scientific relation should be
+durable. Ordinary NumPy, pandas, Polars, or Xarray code can skip `trace(...)`
+entirely.
 
 An analysis step returns that declarative `Analysis` value. Running the step
 publishes it and returns one durable outcome; there is no additional save call:
@@ -686,25 +700,22 @@ content under the same key is idempotent. Changed content appends an automatic
 parameter proposals, so earlier publications remain readable without the user
 supplying version numbers.
 
-Dataset compute accepts named inputs like experiment compute. Each dataset input
-records its durable target, content hash, and codec; JSON-safe inline inputs are
-embedded with their own content hash. Merely reading `context.measurements()`
-also makes that dataset an analysis input, so ordinary Python inspection does
-not require a matching manual `.input(...)` call. Registered custom output
-codecs require an encoder and persist the encoder's JSON value rather than
-labeling the generic Python encoding with a different codec name.
+Analysis trace accepts named inputs. Each dataset input records its durable
+target, content hash, and codec; JSON-safe inline inputs are embedded with their
+own content hash. Merely reading `context.measurements()` also makes that dataset
+an analysis input, so ordinary Python inspection does not require a matching
+manual `.input(...)` call. Registered custom output codecs require an encoder;
+the execution records the encoder's content identity rather than pretending the
+generic Python encoding used that codec.
 
 The analysis-level input reference itself retains the measurement dataset's
-content hash and codec, whether or not managed compute is used. For completed
-runs that immutable dataset hash is the snapshot boundary. Compute execution
-adds named binding and implementation provenance; it is not a separate, stronger
-class of input identity.
+content hash and codec, whether or not a trace is used. For completed runs that
+immutable dataset hash is the snapshot boundary. Compute execution is an
+experiment-program concept; an analysis trace only adds optional named binding
+and implementation evidence to the same snapshot identity.
 
 `AnalysisTable.from_rows(...)` remains available for dynamic schemas. The
 durable models enforce finite, GUI-safe scalar, derived-data, and point budgets.
-The run view renders tables and SVG figures while retaining the content-addressed
-compute execution and declared analysis inputs as provenance; proposal outputs
+The run view renders tables and SVG figures while retaining declared analysis
+inputs and optional content-addressed executions as provenance; proposal outputs
 remain typed references to their separately persisted proposal records.
-Dataset compute provenance uses the same compute inspection fields as experiment
-preview (`id`, `placement`, `implementation`, `deterministic`, `inputs`, and
-`outputs`) and adds dataset content hashes plus full or batched access.

@@ -71,6 +71,7 @@ export type InstrumentView = GetResponse<"/api/v1/instruments/{instrument_id}">;
 export type AnalysisFigureView = components["schemas"]["AnalysisFigureView"];
 export type AnalysisArtifactReference = components["schemas"]["AnalysisArtifactReference"];
 export type AnalysisDatasetReference = components["schemas"]["AnalysisDatasetReference"];
+export type AnalysisExecution = components["schemas"]["AnalysisExecution-Output"];
 export type AnalysisFact = components["schemas"]["AnalysisFact-Output"];
 export type AnalysisRecordInput = components["schemas"]["AnalysisRecordInput"];
 export type AnalysisRecordOutput = components["schemas"]["AnalysisRecordOutput"];

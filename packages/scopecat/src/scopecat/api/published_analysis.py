@@ -10,6 +10,7 @@ from scopecat.daemon.views import RunAnalysisView
 from scopecat.records.analysis import (
     AnalysisArtifactRecordOutput,
     AnalysisDatasetRecordOutput,
+    AnalysisExecution,
     AnalysisFact,
     AnalysisFactRecordOutput,
     AnalysisFigureRecordOutput,
@@ -130,6 +131,10 @@ class PublishedAnalysis:
     @property
     def inputs(self) -> tuple[AnalysisRecordInput, ...]:
         return tuple(self.view.analysis.inputs)
+
+    @property
+    def executions(self) -> tuple[AnalysisExecution, ...]:
+        return tuple(self.view.analysis.executions)
 
     def output(self, id: str) -> AnalysisRecordOutput:
         try:

@@ -175,14 +175,20 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
     key: analysis.key ?? undefined,
     stepId: analysis.step_id ?? undefined,
     inputs: analysis.inputs ?? [],
+    executions: analysis.executions ?? [],
     outputs: analysis.outputs.map(runAnalysisOutput),
   }));
 }
 
 function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
+  const producedBy =
+    output.kind === "fact" || output.kind === "dataset"
+      ? (output.produced_by ?? undefined)
+      : undefined;
   const shared = {
     id: output.id,
     title: output.title,
+    producedBy,
     metadata: output.metadata ?? {},
   };
   if (output.kind === "table") {
