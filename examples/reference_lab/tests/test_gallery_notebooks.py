@@ -328,6 +328,15 @@ def test_drag_calibration_closes_the_reviewed_config_loop(
 
     assert summary["status"] == "completed"
     assert summary["point_count"] == 15
+    assert summary["output_kinds"] == [
+        "dataset",
+        "fact",
+        "table",
+        "table",
+        "figure",
+        "parameter_change_proposal",
+    ]
+    assert summary["proposal_evidence"] == ("quadratic-fit", "observations")
     assert summary["candidate_run_uses_analysis"]
     assert summary["accepted_as_default"]
     assert summary["default_restored"]

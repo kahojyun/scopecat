@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Annotated, SupportsFloat, cast
 
 import numpy as np
+import polars as pl
 import scopecat as sc
 from scopecat import Quantity
 from scopecat.measurements.results import Dataset
@@ -23,6 +24,26 @@ _DRAG_BETA_FIT_MODEL_ID = "reference_lab.drag_beta.shared_n2_quadratic.v1"
 _DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
 _DRAG_BETA_PROPOSAL_ID = "q0-drag-beta"
 _COMPUTES = sc.ComputeRegistry()
+_BETA_FIELD = sc.AnalysisField(
+    id="beta_ns",
+    role="coordinate",
+    label="DRAG beta",
+    unit="ns",
+)
+_AMPLIFICATION_FIELD = sc.AnalysisField(
+    role="coordinate",
+    label="Amplification",
+)
+_PROBABILITY_FIELD = sc.AnalysisField(
+    id="probability_1",
+    label="P(1)",
+    unit="ratio",
+)
+_OBSERVATION_FIELDS = {
+    "beta_ns": _BETA_FIELD,
+    "amplification": _AMPLIFICATION_FIELD,
+    "probability_1": _PROBABILITY_FIELD,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,12 +52,12 @@ class DragBetaObservation:
 
     beta: Annotated[
         Quantity,
-        sc.AnalysisField(id="beta_ns", label="DRAG beta", unit="ns"),
+        _BETA_FIELD,
     ]
-    amplification: Annotated[int, sc.AnalysisField(label="Amplification")]
+    amplification: Annotated[int, _AMPLIFICATION_FIELD]
     p1: Annotated[
         float,
-        sc.AnalysisField(id="probability_1", label="P(1)", unit="ratio"),
+        _PROBABILITY_FIELD,
     ]
 
 
@@ -59,6 +80,14 @@ class DragBetaFit:
     model_id: Annotated[str, sc.AnalysisField(label="Fit model")] = (
         _DRAG_BETA_FIT_MODEL_ID
     )
+
+
+@dataclass(frozen=True, slots=True)
+class DragBetaAnalysisResult:
+    """Native observations plus the authoritative fitted conclusion."""
+
+    observations: pl.DataFrame
+    fit: DragBetaFit
 
 
 def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
@@ -117,25 +146,38 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit one DRAG run and author its table, figure, and proposal."""
 
     measurements = context.measurements()
-    observations, fit = context.trace(
+    result = context.trace(
+        id="fit-drag-beta",
         fn=_fit_drag_beta_dataset,
         dataset=measurements,
     )
 
     return (
         context.result("DRAG beta calibration")
+        .dataset(
+            "observations",
+            result.observations,
+            fields=_OBSERVATION_FIELDS,
+            title="DRAG beta observations",
+        )
+        .fact(
+            "quadratic-fit",
+            result.fit,
+            schema_id=_DRAG_BETA_FIT_MODEL_ID,
+            title="DRAG beta quadratic fit",
+        )
         .table(
-            observations,
-            id="observations",
+            dataset="observations",
+            id="observations-table",
             title="DRAG beta observations",
         )
         .table(
-            (fit,),
-            id="quadratic-fit",
+            (result.fit,),
+            id="quadratic-fit-table",
             title="DRAG beta quadratic fit",
         )
         .figure(
-            observations,
+            dataset="observations",
             id="observations-by-amplification",
             kind="scatter",
             x="beta_ns",
@@ -145,19 +187,18 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
         )
         .propose(
             _DRAG_BETA_PROPOSAL_ID,
-            Q0_DRAG_BETA.update(fit.beta_hat),
+            Q0_DRAG_BETA.update(result.fit.beta_hat),
             reason=(
                 "Shared N² quadratic fit selected the q0 DRAG beta used by "
                 f"{POSITIVE_CANDIDATE_ID!r} and {NEGATIVE_CANDIDATE_ID!r}; "
-                f"RMSE={fit.rmse:.6g}."
+                f"RMSE={result.fit.rmse:.6g}."
             ),
+            evidence=("quadratic-fit", "observations"),
         )
     )
 
 
-def _observations_from_dataset(
-    dataset: Dataset,
-) -> tuple[DragBetaObservation, ...]:
+def _observation_frame(dataset: Dataset) -> pl.DataFrame:
     schema = DRAG_BETA_EXPERIMENT.output
     frame = (
         dataset.bind(schema)
@@ -172,6 +213,12 @@ def _observations_from_dataset(
         )
         .to_polars()
     )
+    return frame
+
+
+def _observations_from_frame(
+    frame: pl.DataFrame,
+) -> tuple[DragBetaObservation, ...]:
     return tuple(
         DragBetaObservation(
             beta=Quantity(beta_ns, "ns"),
@@ -180,23 +227,25 @@ def _observations_from_dataset(
         )
         for beta_ns, amplification, probability_1 in cast(
             "list[tuple[float, int, float]]",
-            frame.rows(),
+            frame.select(("beta_ns", "amplification", "probability_1")).rows(),
         )
     )
 
 
 @_COMPUTES.implementation(
     "reference-lab.drag-beta-fit",
-    "1",
+    "2",
     input_codecs={"dataset": "scopecat.measurement-dataset.v8"},
+    outputs={"observations": "observations", "fit": "fit"},
     capabilities=("numpy", "polars"),
     deterministic=True,
 )
 def _fit_drag_beta_dataset(
     dataset: Dataset,
-) -> tuple[tuple[DragBetaObservation, ...], DragBetaFit]:
-    observations = _observations_from_dataset(dataset)
-    return observations, fit_drag_beta(observations)
+) -> DragBetaAnalysisResult:
+    observations = _observation_frame(dataset)
+    fit = fit_drag_beta(_observations_from_frame(observations))
+    return DragBetaAnalysisResult(observations=observations, fit=fit)
 
 
 def _beta_ns(value: Quantity) -> float:
@@ -207,6 +256,7 @@ def _beta_ns(value: Quantity) -> float:
 
 
 __all__ = [
+    "DragBetaAnalysisResult",
     "DragBetaFit",
     "DragBetaObservation",
     "drag_beta_analysis",

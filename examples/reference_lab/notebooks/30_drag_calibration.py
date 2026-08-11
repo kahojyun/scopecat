@@ -59,6 +59,8 @@ drag_beta_summary = {
     "point_count": preview.point_count,
     "analysis": analysis.id,
     "proposal_id": proposal.id,
+    "output_kinds": [output.kind for output in analysis.outputs],
+    "proposal_evidence": proposal.evidence_output_ids,
     "candidate_run_uses_analysis": (
         candidate_source is not None
         and candidate_source.kind == "analysis_candidate"

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Annotated, Protocol, SupportsFloat, cast
 
 import numpy as np
+import polars as pl
 import scopecat as sc
 from numpy.typing import ArrayLike, NDArray
 from scipy.optimize import least_squares  # pyright: ignore[reportUnknownVariableType]
@@ -24,6 +25,45 @@ FLUX_SPECTROSCOPY_ANALYSIS_ID = "reference_lab.flux_spectroscopy.analysis"
 FLUX_SPECTROSCOPY_PROPOSAL_ID = "readout-resonator-fit"
 _FIT_MODEL_ID = "reference_lab.complex_s21_notch.v1"
 _FREQUENCY_SCALE_HZ = 1.0e6
+_COMPUTES = sc.ComputeRegistry()
+
+_DC_BIAS_FIELD = sc.AnalysisField(
+    id="dc_bias_v",
+    role="coordinate",
+    label="DC bias",
+    unit="V",
+)
+_TEMPERATURE_FIELD = sc.AnalysisField(
+    id="temperature_mK",
+    label="Temperature",
+    unit="mK",
+)
+_RESONANCE_FREQUENCY_FIELD = sc.AnalysisField(
+    id="resonance_frequency_ghz",
+    label="Resonance frequency",
+    unit="GHz",
+)
+_LINEWIDTH_FIELD = sc.AnalysisField(
+    id="linewidth_mhz",
+    label="Linewidth",
+    unit="MHz",
+)
+_QUALITY_FACTOR_FIELD = sc.AnalysisField(label="Quality factor")
+_BASELINE_POWER_FIELD = sc.AnalysisField(label="Baseline power")
+_MINIMUM_POWER_FIELD = sc.AnalysisField(label="Minimum power")
+_COMPLEX_RMSE_FIELD = sc.AnalysisField(label="Complex RMSE", unit="ratio")
+_MODEL_ID_FIELD = sc.AnalysisField(label="Fit model")
+_FIT_DATASET_FIELDS = {
+    "dc_bias": _DC_BIAS_FIELD,
+    "temperature": _TEMPERATURE_FIELD,
+    "resonance_frequency": _RESONANCE_FREQUENCY_FIELD,
+    "linewidth": _LINEWIDTH_FIELD,
+    "quality_factor": _QUALITY_FACTOR_FIELD,
+    "baseline_power": _BASELINE_POWER_FIELD,
+    "minimum_power": _MINIMUM_POWER_FIELD,
+    "complex_rmse": _COMPLEX_RMSE_FIELD,
+    "model_id": _MODEL_ID_FIELD,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,32 +72,36 @@ class ResonatorTraceFit:
 
     dc_bias: Annotated[
         sc.Quantity,
-        sc.AnalysisField(id="dc_bias_v", label="DC bias", unit="V"),
+        _DC_BIAS_FIELD,
     ]
     temperature: Annotated[
         sc.Quantity,
-        sc.AnalysisField(id="temperature_mK", label="Temperature", unit="mK"),
+        _TEMPERATURE_FIELD,
     ]
     resonance_frequency: Annotated[
         sc.Quantity,
-        sc.AnalysisField(
-            id="resonance_frequency_ghz",
-            label="Resonance frequency",
-            unit="GHz",
-        ),
+        _RESONANCE_FREQUENCY_FIELD,
     ]
     linewidth: Annotated[
         sc.Quantity,
-        sc.AnalysisField(id="linewidth_mhz", label="Linewidth", unit="MHz"),
+        _LINEWIDTH_FIELD,
     ]
-    quality_factor: Annotated[float, sc.AnalysisField(label="Quality factor")]
-    baseline_power: Annotated[float, sc.AnalysisField(label="Baseline power")]
-    minimum_power: Annotated[float, sc.AnalysisField(label="Minimum power")]
+    quality_factor: Annotated[float, _QUALITY_FACTOR_FIELD]
+    baseline_power: Annotated[float, _BASELINE_POWER_FIELD]
+    minimum_power: Annotated[float, _MINIMUM_POWER_FIELD]
     complex_rmse: Annotated[
         float,
-        sc.AnalysisField(label="Complex RMSE", unit="ratio"),
+        _COMPLEX_RMSE_FIELD,
     ]
-    model_id: Annotated[str, sc.AnalysisField(label="Fit model")] = _FIT_MODEL_ID
+    model_id: Annotated[str, _MODEL_ID_FIELD] = _FIT_MODEL_ID
+
+
+@dataclass(frozen=True, slots=True)
+class FluxSpectroscopyAnalysisResult:
+    """Durable fit rows plus the selected authoritative conclusion."""
+
+    fits: pl.DataFrame
+    sweet_spot: ResonatorTraceFit
 
 
 class _LeastSquaresResult(Protocol):
@@ -250,34 +294,66 @@ def fit_flux_spectroscopy(
     )
 
 
+@_COMPUTES.implementation(
+    "reference-lab.flux-spectroscopy-fit",
+    "1",
+    input_codecs={"dataset": "scopecat.measurement-dataset.v8"},
+    outputs={"fits": "fits", "sweet_spot": "sweet_spot"},
+    capabilities=("numpy", "scipy", "polars"),
+    deterministic=True,
+)
+def _fit_flux_spectroscopy_dataset(
+    dataset: Dataset,
+) -> FluxSpectroscopyAnalysisResult:
+    fits = fit_flux_spectroscopy(dataset)
+    sweet_spot = max(
+        fits,
+        key=lambda fit: _quantity_value(fit.resonance_frequency, "Hz"),
+    )
+    return FluxSpectroscopyAnalysisResult(
+        fits=_resonator_fits_to_frame(fits),
+        sweet_spot=sweet_spot,
+    )
+
+
 @sc.analysis_step(id=FLUX_SPECTROSCOPY_ANALYSIS_ID)
 def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit the resonator curve and propose reviewed readout parameters."""
 
     measurements = context.measurements()
-    fits = context.trace(
-        fn=fit_flux_spectroscopy,
+    result = context.trace(
+        id="fit-resonator-by-bias",
+        fn=_fit_flux_spectroscopy_dataset,
         dataset=measurements,
-    )
-    sweet_spot = max(
-        fits,
-        key=lambda fit: _quantity_value(fit.resonance_frequency, "Hz"),
     )
     return (
         context.result("Resonator flux spectroscopy")
+        .dataset(
+            "fit-by-bias",
+            result.fits,
+            fields=_FIT_DATASET_FIELDS,
+            title="Resonator fit by DC bias",
+        )
+        .fact(
+            "selected-sweet-spot",
+            result.sweet_spot,
+            schema_id=_FIT_MODEL_ID,
+            title="Selected readout sweet spot",
+            metadata={"selection": "maximum fitted resonance frequency"},
+        )
         .table(
-            fits,
-            id="fit-by-bias",
+            dataset="fit-by-bias",
+            id="fit-by-bias-table",
             title="Resonator fit by DC bias",
         )
         .table(
-            (sweet_spot,),
-            id="selected-sweet-spot",
+            (result.sweet_spot,),
+            id="selected-sweet-spot-table",
             title="Selected readout sweet spot",
             metadata={"selection": "maximum fitted resonance frequency"},
         )
         .figure(
-            fits,
+            dataset="fit-by-bias",
             id="resonance-versus-bias",
             kind="line",
             x="dc_bias_v",
@@ -288,18 +364,41 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
         .propose(
             FLUX_SPECTROSCOPY_PROPOSAL_ID,
             Q0_READOUT.update(
-                RESONANCE_FREQUENCY.value(sweet_spot.resonance_frequency),
-                RESONATOR_LINEWIDTH.value(sweet_spot.linewidth),
-                FLUX_SWEET_SPOT.value(sweet_spot.dc_bias),
+                RESONANCE_FREQUENCY.value(result.sweet_spot.resonance_frequency),
+                RESONATOR_LINEWIDTH.value(result.sweet_spot.linewidth),
+                FLUX_SWEET_SPOT.value(result.sweet_spot.dc_bias),
             ),
             reason=(
                 "Use the maximum-frequency flux sweet spot from the fitted S21 "
                 "notch: "
-                f"f0={_quantity_value(sweet_spot.resonance_frequency, 'GHz'):.6f} "
-                f"GHz, linewidth={_quantity_value(sweet_spot.linewidth, 'MHz'):.6f} "
+                "f0="
+                f"{_quantity_value(result.sweet_spot.resonance_frequency, 'GHz'):.6f} "
+                "GHz, linewidth="
+                f"{_quantity_value(result.sweet_spot.linewidth, 'MHz'):.6f} "
                 "MHz."
             ),
+            evidence=("selected-sweet-spot", "fit-by-bias"),
         )
+    )
+
+
+def _resonator_fits_to_frame(
+    fits: tuple[ResonatorTraceFit, ...],
+) -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "dc_bias": [_quantity_value(fit.dc_bias, "V") for fit in fits],
+            "temperature": [_quantity_value(fit.temperature, "mK") for fit in fits],
+            "resonance_frequency": [
+                _quantity_value(fit.resonance_frequency, "GHz") for fit in fits
+            ],
+            "linewidth": [_quantity_value(fit.linewidth, "MHz") for fit in fits],
+            "quality_factor": [fit.quality_factor for fit in fits],
+            "baseline_power": [fit.baseline_power for fit in fits],
+            "minimum_power": [fit.minimum_power for fit in fits],
+            "complex_rmse": [fit.complex_rmse for fit in fits],
+            "model_id": [fit.model_id for fit in fits],
+        }
     )
 
 

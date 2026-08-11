@@ -10,6 +10,11 @@ import pytest
 import scopecat as sc
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.program.bindings import EnsureStateIntent
+from scopecat.records.analysis import (
+    AnalysisDatasetRecordOutput,
+    AnalysisExecutionOutputReference,
+    AnalysisFactRecordOutput,
+)
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -259,14 +264,51 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     candidate = lab.resolve_config(config=analysis.candidate_config())
     assert analysis.id == "analysis-reference_lab-flux_spectroscopy-analysis"
     assert [output.kind for output in analysis.outputs] == [
+        "dataset",
+        "fact",
         "table",
         "table",
         "figure",
         "parameter_change_proposal",
     ]
     assert [execution.id for execution in analysis.executions] == [
-        "fit_flux_spectroscopy"
+        "fit-resonator-by-bias"
     ]
+    assert [output.name for output in analysis.executions[0].outputs] == [
+        "fits",
+        "sweet_spot",
+    ]
+    fit_output = analysis.output("fit-by-bias")
+    assert isinstance(fit_output, AnalysisDatasetRecordOutput)
+    assert fit_output.produced_by is None
+    assert fit_output.derived_from is not None
+    assert fit_output.derived_from.source == AnalysisExecutionOutputReference(
+        execution_id="fit-resonator-by-bias",
+        output_name="fits",
+    )
+    assert fit_output.derived_from.source_kind == "polars"
+    assert fit_output.derived_from.adapter == "scopecat.native-dataset.v2"
+    fit_dataset = analysis.dataset("fit-by-bias")
+    assert [field.name for field in fit_dataset.schema.fields[:4]] == [
+        "dc_bias_v",
+        "temperature_mK",
+        "resonance_frequency_ghz",
+        "linewidth_mhz",
+    ]
+    selected_output = analysis.output("selected-sweet-spot")
+    assert isinstance(selected_output, AnalysisFactRecordOutput)
+    assert selected_output.produced_by == AnalysisExecutionOutputReference(
+        execution_id="fit-resonator-by-bias",
+        output_name="sweet_spot",
+    )
+    fit_table = analysis.table("fit-by-bias-table")
+    assert fit_table.source is not None
+    assert fit_table.source.output_id == "fit-by-bias"
+    [proposal] = analysis.parameter_proposals
+    assert proposal.evidence_output_ids == (
+        "selected-sweet-spot",
+        "fit-by-bias",
+    )
     fitted_frequency = _readout_quantity(candidate, RESONANCE_FREQUENCY.id)
     fitted_linewidth = _readout_quantity(candidate, RESONATOR_LINEWIDTH.id)
     assert float(fitted_frequency.to("GHz").value) == pytest.approx(5.06, abs=0.001)
