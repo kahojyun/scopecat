@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -234,12 +235,41 @@ def _create_test_app(
     backend: FakeApplication,
     *,
     static_dir: Path | None = None,
+    request_shutdown: Callable[[str], bool] | None = None,
 ) -> FastAPI:
     # Each test supplies only the service methods reachable through its route.
     return create_app(
         cast("DaemonApplication", cast("object", backend)),
         static_dir=static_dir,
+        request_shutdown=request_shutdown,
     )
+
+
+def test_shutdown_route_requires_the_private_daemon_token() -> None:
+    requested_tokens: list[str] = []
+
+    def request_shutdown(token: str) -> bool:
+        requested_tokens.append(token)
+        return token == "valid-token"  # noqa: S105 - fixture credential
+
+    client = TestClient(
+        _create_test_app(FakeApplication(), request_shutdown=request_shutdown)
+    )
+
+    missing = client.post("/api/v1/shutdown")
+    rejected = client.post(
+        "/api/v1/shutdown",
+        headers={"X-Scopecat-Shutdown-Token": "invalid-token"},
+    )
+    accepted = client.post(
+        "/api/v1/shutdown",
+        headers={"X-Scopecat-Shutdown-Token": "valid-token"},
+    )
+
+    assert missing.status_code == 422
+    assert rejected.status_code == 403
+    assert accepted.status_code == 202
+    assert requested_tokens == ["invalid-token", "valid-token"]
 
 
 def test_run_submission_and_backend_error_mapping() -> None:

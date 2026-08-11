@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -20,6 +21,8 @@ import psutil
 import uvicorn
 from pydantic import ValidationError
 from scopecat.daemon.endpoint import (
+    DAEMON_SHUTDOWN_PATH,
+    DAEMON_SHUTDOWN_TOKEN_HEADER,
     DaemonEndpointError,
     DaemonEndpointRecord,
     daemon_record_path,
@@ -35,6 +38,10 @@ type DaemonState = Literal["running", "stopped", "stale", "degraded"]
 
 _HEALTH_PATH = "/api/v1/health"
 _PROCESS_TIME_TOLERANCE_SECONDS = 0.01
+_DETACHED_PROCESS = cast("int", getattr(subprocess, "DETACHED_PROCESS", 0x00000008))
+_CREATE_NEW_PROCESS_GROUP = cast(
+    "int", getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+)
 
 
 class DaemonLifecycleError(RuntimeError):
@@ -149,17 +156,30 @@ def serve_project(
             instrument_backend_spec=project.instrument_backend_spec,
             lease_ttl=lease_ttl,
         )
+        shutdown_token = secrets.token_urlsafe(32)
         record = DaemonEndpointRecord(
             project_root=project.root,
             pid=os.getpid(),
             process_create_time=psutil.Process().create_time(),
             base_url=_base_url(host, actual_port),
+            shutdown_token=shutdown_token,
             started_at=datetime.now(UTC),
         )
         write_daemon_endpoint_record(record)
+        server: uvicorn.Server
+
+        def request_shutdown(token: str) -> bool:
+            if not secrets.compare_digest(token, shutdown_token):
+                return False
+            server.should_exit = True
+            return True
+
         server = uvicorn.Server(
             uvicorn.Config(
-                runtime.app(static_dir=static_dir),
+                runtime.app(
+                    static_dir=static_dir,
+                    request_shutdown=request_shutdown,
+                ),
                 host=host,
                 port=actual_port,
                 access_log=False,
@@ -230,7 +250,8 @@ def start_project(
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
-            start_new_session=True,
+            start_new_session=sys.platform != "win32",
+            creationflags=_windows_daemon_creation_flags(sys.platform),
         )
 
     deadline = time.monotonic() + timeout
@@ -280,7 +301,7 @@ def stop_project(project: Project, *, timeout: float = 10.0) -> DaemonStatus:
             record=status.record,
             detail="recorded process exited before it could be stopped",
         )
-    process.terminate()
+    _request_graceful_shutdown(status.record)
     try:
         process.wait(timeout=timeout)
     except psutil.TimeoutExpired:
@@ -371,12 +392,35 @@ def _read_health(base_url: str, *, timeout: float) -> DaemonHealth:
         return DaemonHealth.model_validate(response.json())
 
 
+def _request_graceful_shutdown(record: DaemonEndpointRecord) -> None:
+    try:
+        with httpx2.Client(timeout=2, trust_env=False) as client:
+            response = client.post(
+                f"{record.base_url.rstrip('/')}{DAEMON_SHUTDOWN_PATH}",
+                headers={DAEMON_SHUTDOWN_TOKEN_HEADER: record.shutdown_token},
+            )
+            response.raise_for_status()
+    except httpx2.HTTPError:
+        process = _matching_process(record)
+        if process is not None:
+            process.terminate()
+
+
+def _windows_daemon_creation_flags(platform: str) -> int:
+    if platform != "win32":
+        return 0
+    return _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP
+
+
 def _bind_listener(host: str, port: int) -> socket.socket:
     bind_host = "127.0.0.1" if host == "localhost" else host
     family = socket.AF_INET6 if ":" in bind_host else socket.AF_INET
     listener = socket.socket(family, socket.SOCK_STREAM)
     try:
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if sys.platform == "win32":
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind((bind_host, port))
         listener.listen(socket.SOMAXCONN)
     except BaseException:

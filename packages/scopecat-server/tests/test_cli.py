@@ -160,6 +160,7 @@ def test_hidden_executor_lease_ttl_option_reaches_start_and_serve(
             pid=123,
             process_create_time=1,
             base_url="http://127.0.0.1:4321",
+            shutdown_token="test-shutdown-token" * 2,
             started_at=datetime.now(UTC),
         )
 

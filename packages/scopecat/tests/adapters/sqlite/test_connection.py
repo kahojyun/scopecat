@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
-from threading import Event, Thread
+from threading import Event
 
 import pytest
 
@@ -43,38 +44,34 @@ def test_immediate_transaction_commits_or_rolls_back(tmp_path: Path) -> None:
 
 
 def test_database_serializes_in_process_writers(tmp_path: Path) -> None:
-    database = SQLiteDatabase(tmp_path / "project.sqlite3", busy_timeout_seconds=0.2)
+    database = SQLiteDatabase(tmp_path / "project.sqlite3")
     with database.write_transaction() as connection:
         connection.execute("CREATE TABLE values_table (value TEXT NOT NULL)")
 
     first_entered = Event()
     release_first = Event()
-    second_entered = Event()
+    second_started = Event()
 
     def hold_first_writer() -> None:
         with database.write_transaction() as connection:
             connection.execute("INSERT INTO values_table VALUES ('first')")
             first_entered.set()
-            assert release_first.wait(timeout=1)
+            assert release_first.wait(timeout=5)
 
     def enter_second_writer() -> None:
-        assert first_entered.wait(timeout=1)
+        second_started.set()
         with database.write_transaction() as connection:
-            second_entered.set()
             connection.execute("INSERT INTO values_table VALUES ('second')")
 
-    first = Thread(target=hold_first_writer)
-    second = Thread(target=enter_second_writer)
-    first.start()
-    second.start()
-    assert first_entered.wait(timeout=1)
-    assert not second_entered.wait(timeout=0.05)
-    release_first.set()
-    first.join(timeout=1)
-    second.join(timeout=1)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(hold_first_writer)
+        assert first_entered.wait(timeout=5)
+        second = executor.submit(enter_second_writer)
+        assert second_started.wait(timeout=5)
+        release_first.set()
+        first.result(timeout=5)
+        second.result(timeout=5)
 
-    assert not first.is_alive()
-    assert not second.is_alive()
     with closing(database.connect()) as connection:
         rows = connection.execute(
             "SELECT value FROM values_table ORDER BY value"

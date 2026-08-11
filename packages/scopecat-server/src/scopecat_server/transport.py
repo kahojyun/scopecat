@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path, PurePosixPath
 from typing import Annotated, cast, override
 
@@ -18,6 +18,10 @@ from scopecat.adapters.sqlite.connection import SQLiteBusyError
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
+)
+from scopecat.daemon.endpoint import (
+    DAEMON_SHUTDOWN_PATH,
+    DAEMON_SHUTDOWN_TOKEN_HEADER,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -136,6 +140,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     static_dir: str | Path | None = None,
     *,
     max_command_body_bytes: int = DEFAULT_MAX_COMMAND_BODY_BYTES,
+    request_shutdown: Callable[[str], bool] | None = None,
 ) -> FastAPI:
     """Create transport routes around an already-composed daemon application."""
 
@@ -153,6 +158,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/health")
     def health() -> DaemonHealth:
         return application.health()
+
+    if request_shutdown is not None:
+
+        @app.post(DAEMON_SHUTDOWN_PATH, include_in_schema=False, status_code=202)
+        def shutdown_daemon(
+            token: Annotated[
+                str,
+                Header(alias=DAEMON_SHUTDOWN_TOKEN_HEADER, min_length=1),
+            ],
+        ) -> None:
+            if not request_shutdown(token):
+                raise HTTPException(status_code=403, detail="invalid shutdown token")
 
     @app.put(
         f"{_API_PREFIX}/instrument-sessions/{{session_id}}/"

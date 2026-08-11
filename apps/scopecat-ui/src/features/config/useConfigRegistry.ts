@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "../../api";
 import { getConfigRegistry, getConfigRegistryEntry } from "./config-api";
 import { filterConfigEntries } from "./config-utils";
 
 export function useConfigRegistry(daemonUnavailable: boolean) {
-  const [selectedId, setSelectedId] = useState<string>();
+  const [selection, setSelection] = useState<{ id?: string; userSelected: boolean }>({
+    userSelected: false,
+  });
   const [registrySearch, setRegistrySearch] = useState("");
   const registryQuery = useQuery({
     queryKey: ["config", "registry"],
@@ -16,16 +18,22 @@ export function useConfigRegistry(daemonUnavailable: boolean) {
       !(error instanceof ApiError && error.status === 404) && failureCount < 1,
   });
   const overview = registryQuery.data;
+  const selectedId = selection.id;
 
   useEffect(() => {
     if (!overview) return;
     const selectionExists = overview.entries.some((entry) => entry.id === selectedId);
-    if (selectionExists) return;
+    if (selection.userSelected && selectionExists) return;
     const preferred =
       overview.entries.find((entry) => entry.id === overview.activation?.entry_id) ??
       overview.entries[0];
-    setSelectedId(preferred?.id);
-  }, [overview, selectedId]);
+    if (preferred?.id === selectedId && !selection.userSelected) return;
+    setSelection({ id: preferred?.id, userSelected: false });
+  }, [overview, selectedId, selection.userSelected]);
+
+  const selectEntry = useCallback((entryId: string) => {
+    setSelection({ id: entryId, userSelected: true });
+  }, []);
 
   const filteredEntries = useMemo(
     () => filterConfigEntries(overview?.entries ?? [], registrySearch),
@@ -50,7 +58,7 @@ export function useConfigRegistry(daemonUnavailable: boolean) {
     registryQuery,
     overview,
     selectedId,
-    selectEntry: setSelectedId,
+    selectEntry,
     registrySearch,
     setRegistrySearch,
     filteredEntries,

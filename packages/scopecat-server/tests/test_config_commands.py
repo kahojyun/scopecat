@@ -152,6 +152,7 @@ def test_diff_uses_selected_project_record_instead_of_environment_override(
             pid=1,
             process_create_time=1,
             base_url="http://project-daemon.local",
+            shutdown_token="test-shutdown-token" * 2,
             started_at=datetime.now(UTC),
         )
     )

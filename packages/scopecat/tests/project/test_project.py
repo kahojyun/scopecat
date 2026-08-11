@@ -123,6 +123,7 @@ def test_project_connect_prioritizes_explicit_then_environment_then_record(
         pid=123,
         process_create_time=1,
         base_url="http://record.local:3000",
+        shutdown_token="test-shutdown-token" * 2,
         started_at=datetime.now(UTC),
     )
     path = daemon_record_path(tmp_path)

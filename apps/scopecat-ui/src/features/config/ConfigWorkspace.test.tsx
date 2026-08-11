@@ -168,6 +168,55 @@ describe("ConfigWorkspace", () => {
     expect(screen.getByText("Direct configuration profile")).toBeInTheDocument();
   });
 
+  it("follows a refreshed default until the operator selects a saved version", async () => {
+    const baseline = configEntry("baseline", "sha256:baseline");
+    const candidate = runtimeDerivedEntry("candidate_config");
+    const imported = configEntry("imported", "sha256:imported");
+    const initial = {
+      activation: activation(1, baseline.id, baseline.content_hash),
+      activation_history: [activation(1, baseline.id, baseline.content_hash)],
+      entries: [baseline],
+    };
+    const accepted = {
+      activation: activation(2, candidate.id, candidate.content_hash),
+      activation_history: [
+        activation(2, candidate.id, candidate.content_hash),
+        ...initial.activation_history,
+      ],
+      entries: [candidate, baseline],
+    };
+    const importedDefault = {
+      activation: activation(3, imported.id, imported.content_hash),
+      activation_history: [
+        activation(3, imported.id, imported.content_hash),
+        ...accepted.activation_history,
+      ],
+      entries: [imported, ...accepted.entries],
+    };
+    vi.mocked(getConfigRegistry)
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(accepted)
+      .mockResolvedValue(importedDefault);
+    vi.mocked(getConfigRegistryEntry).mockImplementation(async (entryId) => {
+      const entry = importedDefault.entries.find((item) => item.id === entryId)!;
+      return entryDetail(entry);
+    });
+
+    const { queryClient } = renderWorkspace();
+
+    expect(await screen.findByRole("heading", { name: baseline.id })).toBeInTheDocument();
+    await queryClient.invalidateQueries({ queryKey: ["config", "registry"] });
+    expect(await screen.findByText("Analysis candidate")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /baseline.*direct profile/i }));
+    expect(await screen.findByRole("heading", { name: baseline.id })).toBeInTheDocument();
+    await queryClient.invalidateQueries({ queryKey: ["config", "registry"] });
+    expect(screen.getByRole("heading", { name: baseline.id })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("active-config-entry")).toHaveTextContent(imported.id),
+    );
+  });
+
   it("joins candidate proposals, analyses, and approval", async () => {
     const entry = runtimeDerivedEntry("candidate_config");
     vi.mocked(getConfigRegistry).mockResolvedValue({
@@ -301,11 +350,14 @@ function renderWorkspace(onOpenRun?: (runId: string) => void) {
       mutations: { retry: false },
     },
   });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <ConfigWorkspace daemonUnavailable={false} onOpenRun={onOpenRun} />
-    </QueryClientProvider>,
-  );
+  return {
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <ConfigWorkspace daemonUnavailable={false} onOpenRun={onOpenRun} />
+      </QueryClientProvider>,
+    ),
+    queryClient,
+  };
 }
 
 function configEntry(id: string, contentHash: string): ConfigRegistryEntry {
