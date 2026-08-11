@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Eye, LoaderCircle, Pencil, X } from "lucide-react";
-import { ApiError } from "../../api";
+import { ApiError } from "../../api-client";
 import { classes, eyebrow, iconButton, primaryButton, secondaryButton } from "../../ui/styles";
 import { previewConfigDraft, setConfigDefault } from "./config-api";
 import { deriveConfigDraftUpdates } from "./config-draft";

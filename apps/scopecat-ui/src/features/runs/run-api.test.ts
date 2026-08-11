@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  getHealth,
   getMeasurementPreview,
   getMeasurementSlice,
   getMeasurementTracePreview,
@@ -11,10 +10,11 @@ import {
   getRunContent,
   getRunEvents,
   getRuns,
-} from "./api";
-import type { MeasurementRecord } from "./api-contract";
-import { requestPath } from "./test/http";
-import type { ContentEntry } from "./types";
+} from "./run-api";
+import { getHealth } from "../../data/project-api";
+import type { MeasurementRecord } from "../../api-contract";
+import { requestPath } from "../../test/http";
+import type { ContentEntry } from "../../types";
 
 afterEach(() => {
   vi.unstubAllGlobals();

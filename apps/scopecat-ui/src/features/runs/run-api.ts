@@ -9,14 +9,13 @@ import type {
   RunManifest,
   RunResourceView,
   RunSummaryPage,
-} from "./api-contract";
-import { ApiError, apiClient, apiData } from "./api-client";
+} from "../../api-contract";
+import { ApiError, apiClient, apiData } from "../../api-client";
 import type {
   ContentEntry,
   MeasurementPreview,
   MeasurementSlicePreview,
   ProjectEvent,
-  ProjectHealth,
   ProjectRun,
   ProjectRunPage,
   PresentationRunStatus,
@@ -24,29 +23,16 @@ import type {
   RunAnalysisOutput,
   RunContentPreview,
   RunResource,
-} from "./types";
+} from "../../types";
 
 type RunResourceRequirement =
   RunControlView["admission"]["plan"]["run_resource_requirements"][number];
-export { ApiError } from "./api-client";
-
 export async function resolveAttention(runId: string): Promise<void> {
   await apiData(
     apiClient.POST("/api/v1/runs/{run_id}/attention", {
       params: { path: { run_id: runId } },
     }),
   );
-}
-
-export async function getHealth(signal?: AbortSignal): Promise<ProjectHealth> {
-  const response = await apiData(apiClient.GET("/api/v1/health", { signal }));
-  return {
-    status: response.status,
-    projectId: response.project_id,
-    projectName: response.project_name,
-    projectRoot: response.project_root,
-    details: { ...response },
-  };
 }
 
 export async function getRuns(signal?: AbortSignal): Promise<ProjectRunPage> {
@@ -317,17 +303,6 @@ export async function getRunContent(
     format,
     content: response.content,
   };
-}
-
-export async function getEvents(signal?: AbortSignal): Promise<ProjectEvent[]> {
-  return normalizeEvents(
-    await apiData(
-      apiClient.GET("/api/v1/events", {
-        params: { query: { limit: 500, latest: true } },
-        signal,
-      }),
-    ),
-  );
 }
 
 export async function getRunEvents(runId: string, signal?: AbortSignal): Promise<ProjectEvent[]> {

@@ -1,4 +1,4 @@
-import { ApiError } from "../../api";
+import { ApiError } from "../../api-client";
 import { apiClient, apiData } from "../../api-client";
 import type {
   ActiveConfig,

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { getRunArtifactDownload } from "../../api";
+import { getRunArtifactDownload } from "./run-api";
 import type { RunAnalysisOutput } from "../../types";
 import { EChart } from "../../ui/EChart";
 import {

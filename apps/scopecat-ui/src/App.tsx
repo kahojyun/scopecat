@@ -9,7 +9,7 @@ import {
   Settings2,
   Unplug,
 } from "lucide-react";
-import { getEvents, getHealth } from "./api";
+import { getEvents, getHealth } from "./data/project-api";
 import { RunsWorkspace } from "./features/runs/RunsWorkspace";
 import { titleCase } from "./lib/presentation";
 import { classes, iconButton } from "./ui/styles";
