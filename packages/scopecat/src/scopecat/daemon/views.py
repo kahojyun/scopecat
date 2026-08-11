@@ -18,6 +18,7 @@ from scopecat.control.models import (
     ResourceOwnerKind,
     RunResourceRequirement,
 )
+from scopecat.daemon.health import DaemonHealth
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.datasets import (
@@ -53,15 +54,6 @@ class _ViewModel(BaseModel):
         extra="forbid",
         frozen=True,
     )
-
-
-class DaemonHealth(_ViewModel):
-    """Daemon readiness and the one project owned by this process."""
-
-    status: Literal["ok", "degraded"]
-    project_id: str
-    project_name: str
-    project_root: str
 
 
 class ConfigRegistryView(_ViewModel):

@@ -52,6 +52,7 @@ from .backend import (
     InstrumentHandleInvalid,
     LocalInstrumentBackendEndpoint,
 )
+from .worker_process import run_instrument_worker
 from .worker_wire import (
     DEFAULT_WIRE_LIMITS,
     CollectFrames,
@@ -278,7 +279,7 @@ class SubprocessInstrumentBackendEndpoint:
         context = get_context("spawn")
         parent, child = context.Pipe(duplex=True)
         process = context.Process(
-            target=_instrument_worker_main,
+            target=run_instrument_worker,
             args=(child, str(self._project_root), instrument_backend_spec),
             name=f"scopecat-instruments-{self._project_root.name}",
             daemon=True,

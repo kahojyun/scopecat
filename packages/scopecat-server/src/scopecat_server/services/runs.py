@@ -7,20 +7,9 @@ from __future__ import annotations
 from base64 import b64decode, b64encode
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
-from scopecat.analysis.datasets import DerivedDataset
-from scopecat.analysis.service import (
-    AnalysisArtifactOutput,
-    AnalysisDatasetOutput,
-    AnalysisFactOutput,
-    AnalysisFigureOutput,
-    AnalysisInput,
-    AnalysisOutput,
-    AnalysisParameterProposalOutput,
-    AnalysisTableOutput,
-    prepare_analysis,
-)
 from scopecat.config.changes import (
     list_parameter_change_proposals,
     load_parameter_change_approval,
@@ -81,7 +70,6 @@ from scopecat.measurements.datasets import (
     select_measurement_schema,
 )
 from scopecat.measurements.paging import project_measurement_page
-from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.measurements.traces import (
     MeasurementTraceProjection,
     project_measurement_trace_preview,
@@ -92,6 +80,7 @@ from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import (
     MeasurementDataset,
+    MeasurementDatasetSchema,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
 )
@@ -125,8 +114,21 @@ from scopecat_server.storage.sqlite import (
 
 from ..errors import BackendConflict, BackendNotFound
 
+if TYPE_CHECKING:
+    from scopecat.analysis.service import AnalysisOutput
+
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
+    from scopecat.analysis.datasets import DerivedDataset
+    from scopecat.analysis.service import (
+        AnalysisArtifactOutput,
+        AnalysisDatasetOutput,
+        AnalysisFactOutput,
+        AnalysisFigureOutput,
+        AnalysisParameterProposalOutput,
+        AnalysisTableOutput,
+    )
+
     if isinstance(item, AnalysisFactOutputPayload):
         return AnalysisFactOutput(
             kind="fact",
@@ -363,6 +365,8 @@ class RunService:
         run_id: str,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
+        from scopecat.analysis.service import AnalysisInput, prepare_analysis
+
         inputs = tuple(
             AnalysisInput(
                 target=item.target,

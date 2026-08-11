@@ -13,18 +13,16 @@ from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
-import xarray as xr
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    JsonValue,
-    field_validator,
-    model_validator,
-)
+from pydantic import JsonValue
 
+from scopecat.analysis.dataset_wire import (
+    DerivedDatasetField,
+    DerivedDatasetPayload,
+    DerivedDatasetRole,
+    DerivedDatasetSchema,
+)
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.units import compatible_units, is_supported_unit
+from scopecat.kernel.units import compatible_units
 from scopecat.records.analysis import (
     MAX_ANALYSIS_FIGURE_POINTS,
     MAX_ANALYSIS_TABLE_ROWS,
@@ -39,11 +37,11 @@ from scopecat.records.metadata import JsonMetadata, validate_json_metadata
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
+    import xarray as xr
 
 DERIVED_DATASET_CODEC = "scopecat.derived-dataset.arrow-ipc.v2"
 DERIVED_DATASET_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
 
-type DerivedDatasetRole = Literal["coordinate", "observable"]
 type PandasIndexPolicy = Literal["auto", "columns", "drop"]
 type PandasDTypeBackend = Literal["numpy", "pyarrow"]
 
@@ -60,80 +58,13 @@ class _PolarsModule(_FrameModule, Protocol):
     def from_arrow(self, data: pa.Table) -> object: ...
 
 
+class _XarrayModule(Protocol):
+    Dataset: type[object]
+
+
 class _PandasRangeIndex(Protocol):
     start: int
     step: int
-
-
-class DerivedDatasetField(BaseModel):
-    """One named Arrow column with the semantics needed outside its library."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    name: str
-    source_name: str
-    arrow_type: str
-    nullable: bool
-    role: DerivedDatasetRole = "observable"
-    unit: str | None = None
-    label: str | None = None
-    attributes: JsonMetadata = Field(default_factory=dict)
-
-    @field_validator("name", "source_name", "arrow_type")
-    @classmethod
-    def validate_non_empty(cls, value: str) -> str:
-        if not value:
-            raise ValueError("derived dataset field text must be non-empty")
-        return value
-
-    @field_validator("unit")
-    @classmethod
-    def validate_unit(cls, value: str | None) -> str | None:
-        if value is not None and not is_supported_unit(value):
-            raise ValueError(f"unsupported derived dataset unit: {value}")
-        return value
-
-
-class DerivedDatasetSchema(BaseModel):
-    """Versioned semantic schema paired with an exact Arrow IPC schema."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    fields: tuple[DerivedDatasetField, ...]
-    layout: Literal["table", "xarray_1d"] = "table"
-    dimension: str | None = None
-    attributes: JsonMetadata = Field(default_factory=dict)
-    schema_id: Literal["scopecat.derived-dataset.v3"] = "scopecat.derived-dataset.v3"
-
-    @field_validator("fields")
-    @classmethod
-    def validate_fields(
-        cls,
-        value: tuple[DerivedDatasetField, ...],
-    ) -> tuple[DerivedDatasetField, ...]:
-        if not value:
-            raise ValueError("derived datasets require at least one field")
-        names = tuple(field.name for field in value)
-        if len(names) != len(set(names)):
-            raise ValueError("derived dataset field names must be unique")
-        return value
-
-    @model_validator(mode="after")
-    def validate_layout(self) -> DerivedDatasetSchema:
-        if (self.layout == "xarray_1d") != (self.dimension is not None):
-            raise ValueError(
-                "xarray derived datasets require exactly one named dimension"
-            )
-        return self
-
-
-class DerivedDatasetPayload(BaseModel):
-    """Transport payload used while a derived dataset is being published."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    dataset_schema: DerivedDatasetSchema
-    arrow_ipc_base64: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -414,6 +345,8 @@ class DerivedDataset:
     def to_xarray(self) -> xr.Dataset:
         """Restore a native Xarray dataset when its topology was preserved."""
 
+        xarray = cast("_XarrayModule", _optional_module("xarray", extra="xarray"))
+
         if self.schema.layout != "xarray_1d" or self.schema.dimension is None:
             raise ValueError("only Xarray-authored derived datasets can restore Xarray")
         dimension = self.schema.dimension
@@ -429,10 +362,14 @@ class DerivedDataset:
                 coordinates[field.name] = variable
             else:
                 data_variables[field.name] = variable
-        return xr.Dataset(
-            data_vars=data_variables,
-            coords=coordinates,
-            attrs=dict(self.schema.attributes),
+        constructor = cast("Callable[..., object]", xarray.Dataset)
+        return cast(
+            "xr.Dataset",
+            constructor(
+                data_vars=data_variables,
+                coords=coordinates,
+                attrs=dict(self.schema.attributes),
+            ),
         )
 
 
@@ -455,14 +392,17 @@ def derived_dataset(
             data,
             fields=fields,
         )
-    if isinstance(data, xr.Dataset):
+    owner = type(data).__module__.partition(".")[0]
+    if owner == "xarray":
+        xarray = cast("_XarrayModule", _optional_module("xarray", extra="xarray"))
+        if not isinstance(data, xarray.Dataset):
+            raise TypeError("unsupported Xarray derived dataset object")
         if index != "auto":
             raise ValueError("index policy only applies to pandas data")
         return DerivedDataset.from_xarray(
-            data,
+            cast("xr.Dataset", data),
             fields=fields,
         )
-    owner = type(data).__module__.partition(".")[0]
     if owner == "pandas":
         pandas = cast("_FrameModule", _optional_module("pandas", extra="pandas"))
         if not isinstance(data, pandas.DataFrame):
@@ -835,6 +775,7 @@ __all__ = [
     "DERIVED_DATASET_MEDIA_TYPE",
     "DerivedDataset",
     "DerivedDatasetField",
+    "DerivedDatasetPayload",
     "DerivedDatasetRole",
     "DerivedDatasetSchema",
     "PandasDTypeBackend",

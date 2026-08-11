@@ -18,7 +18,6 @@ from typing import Literal, cast
 
 import httpx2
 import psutil
-import uvicorn
 from pydantic import ValidationError
 from scopecat.daemon.endpoint import (
     DAEMON_SHUTDOWN_PATH,
@@ -28,10 +27,9 @@ from scopecat.daemon.endpoint import (
     daemon_record_path,
     read_daemon_endpoint_record,
 )
-from scopecat.daemon.views import DaemonHealth
+from scopecat.daemon.health import DaemonHealth
 from scopecat.project import Project, open_project
 
-from .runtime import LocalDaemonRuntime
 from .scaffold import scaffold_paths, write_project_scaffold
 
 type DaemonState = Literal["running", "stopped", "stale", "degraded"]
@@ -132,6 +130,10 @@ def serve_project(
     lease_ttl: timedelta | None = None,
 ) -> None:
     """Serve one project in the foreground and publish its actual endpoint."""
+
+    import uvicorn
+
+    from .runtime import LocalDaemonRuntime
 
     status = inspect_daemon(project)
     if status.state in {"running", "degraded"}:

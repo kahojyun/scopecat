@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict
 
 from scopecat.kernel.json_types import JsonValue
-from scopecat.measurements.results import MeasurementDataset
 from scopecat.records.artifact import RunContentEntry
+from scopecat.records.measurement import MeasurementDataset
 
 
 class _RunDataResult(BaseModel):
