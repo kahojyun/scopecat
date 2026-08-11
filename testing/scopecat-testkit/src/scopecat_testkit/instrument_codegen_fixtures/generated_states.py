@@ -12,19 +12,19 @@ from scopecat.sdk.instruments.declarations import (
     state_projection_field,
 )
 
-from client_codegen_fixture_declarations import (
+from scopecat_testkit.instrument_codegen_fixtures.declarations import (
     CatalogProjectionState as CatalogProjectionState,
 )
-from client_codegen_fixture_declarations import (
+from scopecat_testkit.instrument_codegen_fixtures.declarations import (
     DriverMonitorState as DriverMonitorState,
 )
-from client_codegen_fixture_declarations import (
+from scopecat_testkit.instrument_codegen_fixtures.declarations import (
     DriverSourceState as DriverSourceState,
 )
-from client_codegen_fixture_declarations import (
+from scopecat_testkit.instrument_codegen_fixtures.declarations import (
     SharedFixtureState as SharedFixtureState,
 )
-from generated_member_catalog_fixture import (
+from scopecat_testkit.instrument_codegen_fixtures.generated_members import (
     CATALOG_PROJECTION_ENABLED,
     DRIVER_MONITOR_ENABLED,
     DRIVER_SOURCE_ENABLED,

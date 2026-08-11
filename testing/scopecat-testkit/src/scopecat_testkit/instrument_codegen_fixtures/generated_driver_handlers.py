@@ -28,8 +28,11 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.problems import ProblemPhase, model_location, problem
 
-from client_codegen_fixture_declarations import DriverMonitorState, DriverSourceState
-from generated_driver_state_catalog_fixture import (
+from scopecat_testkit.instrument_codegen_fixtures.declarations import (
+    DriverMonitorState,
+    DriverSourceState,
+)
+from scopecat_testkit.instrument_codegen_fixtures.generated_driver_states import (
     DriverMonitorDriverPatch,
     DriverSourceDriverPatch,
     decode_driver_monitor_patch,
@@ -38,7 +41,7 @@ from generated_driver_state_catalog_fixture import (
     encode_driver_source_state,
     encode_driver_state,
 )
-from generated_member_catalog_fixture import (
+from scopecat_testkit.instrument_codegen_fixtures.generated_members import (
     DRIVER_FIXED_ACQUISITION_ACQUIRE,
     DRIVER_FIXED_ACQUISITION_RESPONSE_RESULT,
     DRIVER_MONITOR_ACQUISITION,

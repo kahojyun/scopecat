@@ -15,13 +15,13 @@ from scopecat.sdk.instruments import (
     PropertyRef,
 )
 
-from client_codegen_fixture_declarations import (
+from scopecat_testkit.instrument_codegen_fixtures.declarations import (
     CatalogProjectionState,
     DriverMonitorState,
     DriverSourceState,
     SharedFixtureState,
 )
-from generated_member_catalog_fixture import (
+from scopecat_testkit.instrument_codegen_fixtures.generated_members import (
     CATALOG_PROJECTION_ENABLED,
     CATALOG_PROJECTION_STATUS,
     DRIVER_MONITOR_ENABLED,

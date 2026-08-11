@@ -66,18 +66,20 @@ DRIVER_HANDLERS_OUTPUT = (
 PACKAGE_EXPORTS_OUTPUT = (
     INSTRUMENTS_PACKAGE_ROOT / "src" / "scopecat_instruments" / "__init__.py"
 )
-FIXTURE_IMPORT_ROOT = INSTRUMENTS_PACKAGE_ROOT / "tests"
-FIXTURE_MEMBERS_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_member_catalog_fixture.py"
-FIXTURE_INTERFACES_OUTPUT = (
-    FIXTURE_IMPORT_ROOT / "generated_interface_catalog_fixture.py"
+FIXTURE_MODULE = "scopecat_testkit.instrument_codegen_fixtures"
+FIXTURE_PACKAGE_ROOT = (
+    REPOSITORY_ROOT
+    / "testing"
+    / "scopecat-testkit"
+    / "src"
+    / "scopecat_testkit"
+    / "instrument_codegen_fixtures"
 )
-FIXTURE_STATES_OUTPUT = FIXTURE_IMPORT_ROOT / "generated_state_catalog_fixture.py"
-FIXTURE_DRIVER_STATES_OUTPUT = (
-    FIXTURE_IMPORT_ROOT / "generated_driver_state_catalog_fixture.py"
-)
-FIXTURE_DRIVER_HANDLERS_OUTPUT = (
-    FIXTURE_IMPORT_ROOT / "generated_driver_handler_fixture.py"
-)
+FIXTURE_MEMBERS_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_members.py"
+FIXTURE_INTERFACES_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_interfaces.py"
+FIXTURE_STATES_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_states.py"
+FIXTURE_DRIVER_STATES_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_driver_states.py"
+FIXTURE_DRIVER_HANDLERS_OUTPUT = FIXTURE_PACKAGE_ROOT / "generated_driver_handlers.py"
 PRODUCTION_STATE_PROJECTION_MODULE = "scopecat_instruments.states"
 _TYPING_UNION_ORIGIN: object = typing.Union  # pyright: ignore[reportDeprecated]
 
@@ -301,7 +303,7 @@ def _fixture_catalog_target() -> CatalogTarget:
         interfaces_output=FIXTURE_INTERFACES_OUTPUT,
         states_output=FIXTURE_STATES_OUTPUT,
         driver_states_output=FIXTURE_DRIVER_STATES_OUTPUT,
-        members_module="generated_member_catalog_fixture",
+        members_module=f"{FIXTURE_MODULE}.generated_members",
         interface_types=(
             declarations.CatalogProjectionInterface,
             declarations.SharedStateFirstInterface,
@@ -334,18 +336,15 @@ def _fixture_driver_handler_target() -> DriverHandlerTarget:
     return DriverHandlerTarget(
         output=FIXTURE_DRIVER_HANDLERS_OUTPUT,
         surfaces=_fixture_driver_handler_surfaces(declarations),
-        members_module="generated_member_catalog_fixture",
-        driver_states_module="generated_driver_state_catalog_fixture",
+        members_module=f"{FIXTURE_MODULE}.generated_members",
+        driver_states_module=f"{FIXTURE_MODULE}.generated_driver_states",
     )
 
 
 def _fixture_declarations() -> _FixtureDeclarations:
-    import_root = str(FIXTURE_IMPORT_ROOT)
-    if import_root not in sys.path:
-        sys.path.insert(0, import_root)
     return cast(
         "_FixtureDeclarations",
-        cast("object", import_module("client_codegen_fixture_declarations")),
+        cast("object", import_module(f"{FIXTURE_MODULE}.declarations")),
     )
 
 
@@ -2211,9 +2210,7 @@ def _render_driver_import_block(imports: dict[str, set[str]]) -> str:
     local_modules = {
         module
         for module in imports
-        if module.startswith(
-            ("scopecat_instruments", "client_codegen_fixture", "generated_")
-        )
+        if module.startswith(("scopecat_instruments", "scopecat_testkit"))
     }
     third_party_modules = imports.keys() - standard_modules - local_modules
     sections = tuple(

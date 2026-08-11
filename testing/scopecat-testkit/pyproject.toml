@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Private shared test support for the Scopecat workspace."
 requires-python = ">=3.14"
 dependencies = [
+  "pydantic>=2,<3",
   "scopecat",
 ]
 

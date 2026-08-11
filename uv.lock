@@ -1051,11 +1051,23 @@ dependencies = [
     { name = "scopecat" },
 ]
 
+[package.dev-dependencies]
+test = [
+    { name = "pytest" },
+    { name = "scopecat-testkit" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=2" },
     { name = "pydantic", specifier = ">=2,<3" },
     { name = "scopecat", editable = "packages/scopecat" },
+]
+
+[package.metadata.requires-dev]
+test = [
+    { name = "pytest", specifier = ">=9" },
+    { name = "scopecat-testkit", editable = "testing/scopecat-testkit" },
 ]
 
 [[package]]
@@ -1117,6 +1129,7 @@ name = "scopecat-testkit"
 version = "0.1.0"
 source = { editable = "testing/scopecat-testkit" }
 dependencies = [
+    { name = "pydantic" },
     { name = "scopecat" },
 ]
 
@@ -1127,6 +1140,7 @@ server = [
 
 [package.metadata]
 requires-dist = [
+    { name = "pydantic", specifier = ">=2,<3" },
     { name = "scopecat", editable = "packages/scopecat" },
     { name = "scopecat-server", marker = "extra == 'server'", editable = "packages/scopecat-server" },
 ]
