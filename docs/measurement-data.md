@@ -676,8 +676,10 @@ review = (
 
 `trace(...)` still returns the native value and does not publish it by itself.
 The explicit `dataset(...)` or `fact(...)` call decides the durable interface;
-when its content and codec exactly match the traced result, Scopecat links the
-output to the execution automatically. A table or figure remains a projection,
+when its content and codec exactly match the traced result, Scopecat records an
+exact `produced_by` link automatically. If `fields` or a pandas index policy
+changes the normalized dataset identity, it records `derived_from` with that
+first-party adapter contract instead. A table or figure remains a projection,
 and points to a published dataset when that scientific relation should be
 durable. Ordinary NumPy, pandas, Polars, or Xarray code can skip `trace(...)`
 entirely.
@@ -688,7 +690,11 @@ publishable results, declare stable leaf names with
 implementation. `trace(...)` still returns that native object, while each
 declared leaf receives an independent trace identity. Publishing a matching
 leaf links it automatically; only equal-valued leaves need the explicit
-`producer=(execution_id, output_name)` disambiguation argument.
+`source=(execution_id, output_name)` disambiguation argument.
+
+A traced function may also return exact `bytes` or a file `Path`. Publishing
+that content with `artifact(...)` retains the execution link while keeping the
+filename and media type as publication choices.
 
 An analysis step returns that declarative `Analysis` value. Running the step
 publishes it and returns one durable outcome; there is no additional save call:

@@ -108,11 +108,15 @@ Executions and outputs are intentionally separate. Calling `trace(...)` returns
 the native Python value and appends execution evidence to the analysis record;
 it does not decide that the value is a durable user-facing output. Facts,
 datasets, tables, figures, artifacts, and proposals remain explicit publication
-choices. When an explicitly published value has exactly the traced result's
-content and codec identity, a fact or dataset records its producing execution
-automatically, so authors do not pass provenance handles through their
-numerical code. Views instead identify their published source dataset; their
-projection is analysis authoring, not the traced numerical result itself.
+choices. When an explicitly published fact, dataset, or artifact has exactly
+the traced result's content and codec identity, it records `produced_by`
+automatically. Applying the first-party dataset adapter with field mappings or
+a different pandas index policy instead records `derived_from`, including the
+source execution output and adapter arguments. Authors therefore do not pass
+provenance handles through their numerical code, while the record still
+distinguishes exact production from normalization. Views identify their
+published source dataset; their projection is analysis authoring, not the
+traced numerical result itself.
 
 A registered implementation may expose several meaningful leaves from one
 native result instead of forcing the result into one JSON blob. The function
@@ -156,11 +160,27 @@ adapter from the function's native return type. Root output encoders and named
 leaf outputs are mutually exclusive because one root codec cannot describe the
 independent identities of several leaves.
 
-Facts and datasets link to the one matching named result automatically. If two
-named results intentionally have identical content, content identity alone
-cannot choose one; pass `producer=("fit", "quality")` to `fact(...)` or
-`dataset(...)` to disambiguate. This escape hatch stays at the publication
-boundary rather than leaking provenance wrappers into numerical code.
+The result-path declaration intentionally does not prescribe publication kind
+or bulk-publish every leaf. First-party scalar and structured JSON values,
+native datasets, and bytes or file paths determine execution-result identity;
+the later `fact(...)`, `dataset(...)`, or `artifact(...)` call remains the
+explicit durable interface. A richer result-spec abstraction should be added
+only when a real non-inferable durable type needs it, rather than duplicating
+publication metadata in the compute registry now.
+
+Facts, datasets, and artifacts link to the one matching named result
+automatically. If two named results intentionally have identical content,
+content identity alone cannot choose one; pass `source=("fit", "quality")` at
+the publication boundary to disambiguate. For a dataset, the same source
+override works whether the final relation is exact `produced_by` or adapter-
+backed `derived_from`; Scopecat determines that from the identities instead of
+asking the user to choose a provenance relation.
+
+Returning `bytes` or a file `Path` from `trace(...)` records an artifact result
+by the exact byte identity. Publishing those bytes with `artifact(...)` links
+the durable run artifact to that execution while filename and media type remain
+publication metadata. Returning text remains a normal value; encoding text to
+file bytes is a conversion rather than an exact artifact result.
 
 Experiment `compute(...)` is a different lifecycle: it is a node in the formal
 experiment program and may run before or during acquisition. Analysis

@@ -33,6 +33,7 @@ from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.analysis import (
     MAX_ANALYSIS_OUTPUTS,
+    AnalysisDatasetDerivation,
     AnalysisExecution,
     AnalysisExecutionOutputReference,
     AnalysisFact,
@@ -208,6 +209,7 @@ class AnalysisDatasetOutputPayload(_WireModel):
     title: NonEmptyText
     content: DerivedDatasetPayload
     produced_by: AnalysisExecutionOutputReference | None = None
+    derived_from: AnalysisDatasetDerivation | None = None
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -234,6 +236,7 @@ class AnalysisArtifactOutputPayload(_WireModel):
     content_base64: str
     filename: NonEmptyText
     media_type: NonEmptyText
+    produced_by: AnalysisExecutionOutputReference | None = None
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
     @field_validator("content_base64")
@@ -311,13 +314,32 @@ class AnalysisSaveCommand(_WireModel):
             for output in self.outputs
             if isinstance(
                 output,
-                AnalysisFactOutputPayload | AnalysisDatasetOutputPayload,
+                AnalysisFactOutputPayload
+                | AnalysisDatasetOutputPayload
+                | AnalysisArtifactOutputPayload,
             )
         )
         if any(
-            output.produced_by is not None
-            and output.produced_by.execution_id not in execution_ids
+            isinstance(output, AnalysisDatasetOutputPayload)
+            and output.produced_by is not None
+            and output.derived_from is not None
             for output in materialized_outputs
+        ):
+            raise ValueError(
+                "analysis dataset output cannot be both produced and derived"
+            )
+        output_sources = tuple(
+            (
+                output.derived_from.source
+                if isinstance(output, AnalysisDatasetOutputPayload)
+                and output.derived_from is not None
+                else output.produced_by
+            )
+            for output in materialized_outputs
+        )
+        if any(
+            source is not None and source.execution_id not in execution_ids
+            for source in output_sources
         ):
             raise ValueError("analysis output producer must identify an execution")
         execution_outputs = {
@@ -326,13 +348,13 @@ class AnalysisSaveCommand(_WireModel):
             for output in execution.outputs
         }
         if any(
-            output.produced_by is not None
+            source is not None
             and (
-                output.produced_by.execution_id,
-                output.produced_by.output_name,
+                source.execution_id,
+                source.output_name,
             )
             not in execution_outputs
-            for output in materialized_outputs
+            for source in output_sources
         ):
             raise ValueError(
                 "analysis output producer must identify an execution output"

@@ -26,6 +26,9 @@ from scopecat.config.registry import service as config_registry_service
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.measurements.results import Dataset
 from scopecat.records.analysis import (
+    ANALYSIS_ARTIFACT_CODEC,
+    AnalysisArtifactRecordOutput,
+    AnalysisDatasetDerivation,
     AnalysisDatasetRecordOutput,
     AnalysisExecutionOutputReference,
     AnalysisFactRecordOutput,
@@ -76,6 +79,12 @@ def _native_signal_frame(dataset: Dataset) -> pd.DataFrame:
         {"frequency": "drive_frequency", "response": "signal"},
         identity=False,
     ).to_pandas()
+
+
+def _write_fit_report(*, dataset: Dataset, destination: str) -> Path:
+    path = Path(destination)
+    path.write_text(f"# Fit report\n\nPoints: {len(dataset)}\n")
+    return path
 
 
 def _derived_score_max(dataset: DerivedDataset) -> float:
@@ -372,7 +381,7 @@ def test_equal_structured_results_require_an_explicit_producer(
     explicit = context.result().fact(
         "explicit",
         scores.first,
-        producer=("scores", "first"),
+        source=("scores", "first"),
     )
 
     [automatic_output] = automatic.outputs
@@ -552,6 +561,65 @@ def test_analysis_trace_retains_native_dataframe_identity_until_publication(
     )
 
 
+def test_analysis_dataset_records_first_party_normalization_from_trace(
+    tmp_path: Path,
+) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    context = sc.AnalysisContext(run=handle)
+
+    frame = context.trace(
+        id="fit-frame",
+        fn=_native_signal_frame,
+        dataset=context.measurements(),
+    )
+    outcome = (
+        context.result("Mapped frame", key="mapped-frame")
+        .dataset(
+            "fits",
+            frame,
+            fields={
+                "frequency": sc.AnalysisField(
+                    id="drive_frequency",
+                    role="coordinate",
+                    label="Drive frequency",
+                ),
+                "response": sc.AnalysisField(id="signal", label="Signal"),
+            },
+        )
+        .save()
+    )
+
+    [output] = outcome.outputs
+    assert isinstance(output, AnalysisDatasetRecordOutput)
+    assert output.produced_by is None
+    assert output.derived_from == AnalysisDatasetDerivation(
+        source=AnalysisExecutionOutputReference(
+            execution_id="fit-frame",
+            output_name="fit-frame",
+        ),
+        source_kind="pandas",
+        fields={
+            "frequency": sc.AnalysisField(
+                id="drive_frequency",
+                role="coordinate",
+                label="Drive frequency",
+            ),
+            "response": sc.AnalysisField(id="signal", label="Signal"),
+        },
+    )
+    restored = outcome.dataset("fits")
+    assert restored.table.column_names == ["drive_frequency", "signal"]
+    assert [field.source_name for field in restored.schema.fields] == [
+        "frequency",
+        "response",
+    ]
+
+
 def test_analysis_dataset_publishes_a_native_frame_once(tmp_path: Path) -> None:
     run = execute_signal_run(
         config=load_config(),
@@ -593,6 +661,40 @@ def test_analysis_dataset_publishes_a_native_frame_once(tmp_path: Path) -> None:
     assert restored.schema.fields[0].role == "coordinate"
     assert restored.schema.fields[0].unit == "GHz"
     assert restored.schema.fields[1].label == "Fit score"
+
+
+def test_analysis_artifact_links_exact_traced_file_bytes(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    context = sc.AnalysisContext(run=handle)
+
+    report_path = context.trace(
+        id="write-report",
+        fn=_write_fit_report,
+        dataset=context.measurements(),
+        destination=str(tmp_path / "fit-report.md"),
+    )
+    outcome = (
+        context.result("Fit report", key="fit-report")
+        .artifact("report", path=report_path, media_type="text/markdown")
+        .save()
+    )
+
+    [execution] = outcome.executions
+    [execution_output] = execution.outputs
+    assert execution_output.kind == "artifact"
+    assert execution_output.codec == ANALYSIS_ARTIFACT_CODEC
+    [output] = outcome.outputs
+    assert isinstance(output, AnalysisArtifactRecordOutput)
+    assert output.produced_by == AnalysisExecutionOutputReference(
+        execution_id="write-report",
+        output_name="write-report",
+    )
+    assert outcome.artifact("report").text() == "# Fit report\n\nPoints: 3\n"
 
 
 def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> None:

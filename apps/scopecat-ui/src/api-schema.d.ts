@@ -798,6 +798,7 @@ export interface components {
              */
             kind: "artifact";
             metadata?: components["schemas"]["JsonMetadata-Output"];
+            produced_by?: components["schemas"]["AnalysisExecutionOutputReference"] | null;
             title: components["schemas"]["_NonEmptyText"];
         };
         /**
@@ -829,9 +830,38 @@ export interface components {
             /** Source Run Id */
             source_run_id: string;
         };
+        /**
+         * AnalysisDatasetDerivation
+         * @description First-party normalization from one traced native dataset result.
+         */
+        AnalysisDatasetDerivation: {
+            /**
+             * Adapter
+             * @default scopecat.native-dataset.v1
+             * @constant
+             */
+            adapter: "scopecat.native-dataset.v1";
+            /** Fields */
+            fields?: {
+                [key: string]: components["schemas"]["AnalysisField"];
+            };
+            /**
+             * Index
+             * @default auto
+             * @enum {string}
+             */
+            index: "auto" | "columns" | "drop";
+            source: components["schemas"]["AnalysisExecutionOutputReference"];
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "arrow" | "pandas" | "polars" | "xarray";
+        };
         /** AnalysisDatasetRecordOutput */
         AnalysisDatasetRecordOutput: {
             content: components["schemas"]["AnalysisDatasetReference"];
+            derived_from?: components["schemas"]["AnalysisDatasetDerivation"] | null;
             id: components["schemas"]["_NonEmptyText"];
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -839,7 +869,7 @@ export interface components {
              */
             kind: "dataset";
             metadata?: components["schemas"]["JsonMetadata-Output"];
-            produced_by?: components["schemas"]["_NonEmptyText"] | null;
+            produced_by?: components["schemas"]["AnalysisExecutionOutputReference"] | null;
             title: components["schemas"]["_NonEmptyText"];
         };
         /**
@@ -889,7 +919,8 @@ export interface components {
             /** Inputs */
             inputs: components["schemas"]["_NonEmptyText"][];
             metadata?: components["schemas"]["JsonMetadata-Output"];
-            output: components["schemas"]["AnalysisExecutionOutput"];
+            /** Outputs */
+            outputs: components["schemas"]["AnalysisExecutionOutput"][];
         };
         /**
          * AnalysisExecutionInput
@@ -902,7 +933,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "measurement_dataset" | "derived_dataset" | "value";
+            kind: "measurement_dataset" | "derived_dataset" | "artifact" | "value";
             name: components["schemas"]["_NonEmptyText"];
             target: components["schemas"]["_NonEmptyText"];
             value?: components["schemas"]["pydantic__types__JsonValue"] | null;
@@ -918,8 +949,16 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "derived_dataset" | "value";
+            kind: "derived_dataset" | "artifact" | "value";
             name: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisExecutionOutputReference
+         * @description Exact named result of one analysis execution.
+         */
+        AnalysisExecutionOutputReference: {
+            execution_id: components["schemas"]["_NonEmptyText"];
+            output_name: components["schemas"]["_NonEmptyText"];
         };
         /**
          * AnalysisFact
@@ -940,8 +979,19 @@ export interface components {
              */
             kind: "fact";
             metadata?: components["schemas"]["JsonMetadata-Output"];
-            produced_by?: components["schemas"]["_NonEmptyText"] | null;
+            produced_by?: components["schemas"]["AnalysisExecutionOutputReference"] | null;
             title: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * AnalysisField
+         * @description Stable identity and semantics for one analysis data field.
+         */
+        AnalysisField: {
+            id?: components["schemas"]["_NonEmptyText"] | null;
+            label?: components["schemas"]["_NonEmptyText"] | null;
+            /** Role */
+            role?: ("coordinate" | "observable") | null;
+            unit?: components["schemas"]["_NonEmptyText"] | null;
         };
         /**
          * AnalysisFigure
@@ -2275,6 +2325,8 @@ export interface components {
             items: components["schemas"]["MeasurementRecord-Output"][];
             /** Next Offset */
             next_offset?: number | null;
+            /** Snapshot Size */
+            snapshot_size: number;
         };
         /**
          * MeasurementPointCloudPointDomain
@@ -4456,6 +4508,7 @@ export interface operations {
                 include_schema?: boolean;
                 limit?: number;
                 offset?: number;
+                snapshot_size?: number | null;
             };
             header?: never;
             path: {

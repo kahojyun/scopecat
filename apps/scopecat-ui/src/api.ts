@@ -182,13 +182,15 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
 
 function runAnalysisOutput(output: AnalysisRecordOutput): RunAnalysisOutput {
   const producedBy =
-    output.kind === "fact" || output.kind === "dataset"
+    output.kind === "fact" || output.kind === "dataset" || output.kind === "artifact"
       ? (output.produced_by ?? undefined)
       : undefined;
+  const derivedFrom = output.kind === "dataset" ? (output.derived_from ?? undefined) : undefined;
   const shared = {
     id: output.id,
     title: output.title,
     producedBy,
+    derivedFrom,
     metadata: output.metadata ?? {},
   };
   if (output.kind === "table") {

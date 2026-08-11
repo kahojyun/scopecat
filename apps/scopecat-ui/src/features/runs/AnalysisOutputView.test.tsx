@@ -68,7 +68,7 @@ describe("AnalysisOutputView", () => {
       metadata: {},
       content: {
         dataset_id: "analysis-fit-fits",
-        codec: "scopecat.derived-dataset.arrow-ipc.v1",
+        codec: "scopecat.derived-dataset.arrow-ipc.v2",
         content_hash: `sha256:${"a".repeat(64)}`,
       },
     };
@@ -76,7 +76,7 @@ describe("AnalysisOutputView", () => {
     render(<AnalysisOutputView output={output} />);
 
     expect(screen.getByText("analysis-fit-fits")).toBeVisible();
-    expect(screen.getByText("scopecat.derived-dataset.arrow-ipc.v1")).toBeVisible();
+    expect(screen.getByText("scopecat.derived-dataset.arrow-ipc.v2")).toBeVisible();
   });
 
   it("renders typed facts and analysis-owned artifact references", () => {

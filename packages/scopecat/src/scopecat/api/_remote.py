@@ -297,6 +297,7 @@ def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
             title=value.title,
             content=value.content.to_payload(),
             produced_by=value.produced_by,
+            derived_from=value.derived_from,
             metadata=metadata,
         )
     if isinstance(value, AnalysisTableOutput):
@@ -323,6 +324,7 @@ def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
             content_base64=b64encode(value.content).decode("ascii"),
             filename=value.filename,
             media_type=value.media_type,
+            produced_by=value.produced_by,
             metadata=metadata,
         )
     assert isinstance(value, AnalysisParameterProposalOutput)

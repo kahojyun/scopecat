@@ -1,7 +1,9 @@
 import type {
   AnalysisArtifactReference,
+  AnalysisDatasetDerivation,
   AnalysisDatasetReference,
   AnalysisExecution,
+  AnalysisExecutionOutputReference,
   AnalysisFact,
   AnalysisFigureView,
   AnalysisParameterProposalReference,
@@ -106,7 +108,8 @@ export interface MeasurementSlicePreview {
 interface RunAnalysisOutputBase {
   id: string;
   title: string;
-  producedBy?: string;
+  producedBy?: AnalysisExecutionOutputReference;
+  derivedFrom?: AnalysisDatasetDerivation;
   metadata: Record<string, unknown>;
 }
 

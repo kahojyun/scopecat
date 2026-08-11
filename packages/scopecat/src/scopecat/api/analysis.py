@@ -56,6 +56,8 @@ from scopecat.measurements.datasets import MEASUREMENT_DATASET_CODEC
 from scopecat.measurements.results import Dataset, ExperimentResultView
 from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
+    ANALYSIS_ARTIFACT_CODEC,
+    AnalysisDatasetDerivation,
     AnalysisDatasetViewSource,
     AnalysisExecution,
     AnalysisExecutionInput,
@@ -78,6 +80,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.sdk.compute import (
     PYTHON_JSON_CODEC,
+    ComputeImplementationContract,
     compute_capture_names_internal,
     compute_implementation_contract_internal,
     compute_output_encoder_internal,
@@ -160,12 +163,12 @@ class Analysis:
         index: PandasIndexPolicy = "auto",
         title: str | None = None,
         metadata: Mapping[str, object] | None = None,
-        producer: tuple[str, str] | None = None,
+        source: tuple[str, str] | None = None,
     ) -> Analysis:
         """Publish familiar dataframe or array data as one reusable run dataset.
 
-        Pass ``producer=(execution_id, output_name)`` only when equal traced
-        results make automatic provenance ambiguous.
+        Pass ``source=(execution_id, output_name)`` only when equal traced
+        results make automatic lineage ambiguous.
         """
 
         if not id.strip():
@@ -180,6 +183,13 @@ class Analysis:
             fields=fields,
             index=index,
         )
+        produced_by, derived_from = self._dataset_lineage(
+            content,
+            dataset=dataset,
+            fields=fields,
+            index=index,
+            source=source,
+        )
         return self._append_output(
             AnalysisDatasetOutput(
                 kind="dataset",
@@ -187,7 +197,8 @@ class Analysis:
                 title=title or selected_id,
                 content=dataset,
                 metadata=metadata or {},
-                produced_by=self._producer_for(dataset, producer=producer),
+                produced_by=produced_by,
+                derived_from=derived_from,
             )
         )
 
@@ -199,12 +210,12 @@ class Analysis:
         schema_id: str | None = None,
         title: str | None = None,
         metadata: Mapping[str, object] | None = None,
-        producer: tuple[str, str] | None = None,
+        source: tuple[str, str] | None = None,
     ) -> Analysis:
         """Publish one small typed conclusion without inventing a dataset.
 
-        Pass ``producer=(execution_id, output_name)`` only when equal traced
-        results make automatic provenance ambiguous.
+        Pass ``source=(execution_id, output_name)`` only when equal traced
+        results make automatic lineage ambiguous.
         """
 
         selected_id = _analysis_output_id(id)
@@ -227,7 +238,7 @@ class Analysis:
                     value=_analysis_json(value),
                 ),
                 metadata=metadata or {},
-                produced_by=self._producer_for(value, producer=producer),
+                produced_by=self._source_for(value, source=source),
             )
         )
 
@@ -242,8 +253,13 @@ class Analysis:
         media_type: str | None = None,
         title: str | None = None,
         metadata: Mapping[str, object] | None = None,
+        source: tuple[str, str] | None = None,
     ) -> Analysis:
-        """Publish exact file or byte content as part of this analysis."""
+        """Publish exact file or byte content as part of this analysis.
+
+        Pass ``source=(execution_id, output_name)`` only when equal traced
+        byte results make automatic lineage ambiguous.
+        """
 
         selected_id = _analysis_output_id(id)
         selected_sources = (path is not None, text is not None, content is not None)
@@ -281,6 +297,7 @@ class Analysis:
                 filename=selected_filename,
                 media_type=selected_media_type,
                 metadata=metadata or {},
+                produced_by=self._source_for(selected_content, source=source),
             )
         )
 
@@ -488,16 +505,16 @@ class Analysis:
             )
         return replace(self, outputs=(*self.outputs, output))
 
-    def _producer_for(
+    def _source_for(
         self,
         value: object,
         *,
-        producer: tuple[str, str] | None,
+        source: tuple[str, str] | None,
     ) -> AnalysisExecutionOutputReference | None:
-        if producer is not None:
+        if source is not None:
             return AnalysisExecutionOutputReference(
-                execution_id=producer[0],
-                output_name=producer[1],
+                execution_id=source[0],
+                output_name=source[1],
             )
         try:
             content_hash = _analysis_value_hash(value)
@@ -505,6 +522,62 @@ class Analysis:
             return None
         candidates = self._execution_outputs_by_value_hash.get(content_hash, ())
         return candidates[0] if len(candidates) == 1 else None
+
+    def _dataset_lineage(
+        self,
+        value: object,
+        *,
+        dataset: DerivedDataset,
+        fields: Mapping[str, AnalysisField] | None,
+        index: PandasIndexPolicy,
+        source: tuple[str, str] | None,
+    ) -> tuple[
+        AnalysisExecutionOutputReference | None,
+        AnalysisDatasetDerivation | None,
+    ]:
+        exact = self._source_for(dataset, source=source)
+        if exact is not None and self._execution_output_matches(
+            exact,
+            value=dataset,
+        ):
+            return exact, None
+        traced_source = exact or self._source_for(value, source=source)
+        if traced_source is None:
+            return None, None
+        if not self._execution_output_matches(traced_source, value=value):
+            raise ValueError(
+                "analysis dataset source content does not match its execution output"
+            )
+        return None, AnalysisDatasetDerivation(
+            source=traced_source,
+            source_kind=_analysis_dataset_source_kind(value),
+            fields=dict(fields or {}),
+            index=index,
+        )
+
+    def _execution_output_matches(
+        self,
+        reference: AnalysisExecutionOutputReference,
+        *,
+        value: object,
+    ) -> bool:
+        execution_output = next(
+            (
+                output
+                for execution in self.executions
+                if execution.id == reference.execution_id
+                for output in execution.outputs
+                if output.name == reference.output_name
+            ),
+            None,
+        )
+        if execution_output is None:
+            raise ValueError("analysis source must identify a traced execution output")
+        codec, content_hash = _analysis_value_identity(value)
+        return (
+            execution_output.codec == codec
+            and execution_output.content_hash == content_hash
+        )
 
     @property
     def analysis_key(self) -> str:
@@ -785,42 +858,12 @@ class AnalysisContext:
             )
         result = fn(**call_inputs)
         encoder = compute_output_encoder_internal(fn)
-        if contract is not None and contract.outputs:
-            traced_values = tuple(
-                (name, _analysis_result_at_path(result, path))
-                for name, path in contract.outputs.items()
-            )
-            execution_outputs = tuple(
-                _analysis_native_execution_output(name=name, value=value)
-                for name, value in traced_values
-            )
-        else:
-            output = result if encoder is None else encoder(result)
-            dataset_output = _analysis_dataset_value(output)
-            if dataset_output is not None:
-                if contract is not None and contract.output_codec != PYTHON_JSON_CODEC:
-                    raise ValueError(
-                        "derived dataset trace outputs own their Arrow IPC codec"
-                    )
-                output_codec = DERIVED_DATASET_CODEC
-                output_hash = sha256_content_hash(dataset_output.to_arrow_ipc())
-                output_kind: Literal["derived_dataset", "value"] = "derived_dataset"
-            else:
-                encoded = _analysis_json(output)
-                output_codec = (
-                    PYTHON_JSON_CODEC if contract is None else contract.output_codec
-                )
-                output_hash = f"sha256:{stable_content_hash(encoded)}"
-                output_kind = "value"
-            traced_values = ((execution_id, result),)
-            execution_outputs = (
-                AnalysisExecutionOutput(
-                    name=execution_id,
-                    kind=output_kind,
-                    content_hash=output_hash,
-                    codec=output_codec,
-                ),
-            )
+        traced_values, execution_outputs = _analysis_trace_outputs(
+            result,
+            execution_id=execution_id,
+            contract=contract,
+            encoder=encoder,
+        )
         execution_metadata = validate_json_metadata(
             {}
             if contract is None
@@ -912,6 +955,55 @@ class AnalysisContext:
         )
 
 
+def _analysis_trace_outputs(
+    result: object,
+    *,
+    execution_id: str,
+    contract: ComputeImplementationContract | None,
+    encoder: Callable[[object], object] | None,
+) -> tuple[
+    tuple[tuple[str, object], ...],
+    tuple[AnalysisExecutionOutput, ...],
+]:
+    if contract is not None and contract.outputs:
+        traced_values = tuple(
+            (name, _analysis_result_at_path(result, path))
+            for name, path in contract.outputs.items()
+        )
+        return traced_values, tuple(
+            _analysis_native_execution_output(name=name, value=value)
+            for name, value in traced_values
+        )
+    output = result if encoder is None else encoder(result)
+    artifact_output = _analysis_artifact_value(output)
+    dataset_output = _analysis_dataset_value(output)
+    if artifact_output is not None:
+        if contract is not None and contract.output_codec != PYTHON_JSON_CODEC:
+            raise ValueError("artifact trace outputs own their bytes codec")
+        output_codec = ANALYSIS_ARTIFACT_CODEC
+        output_hash = sha256_content_hash(artifact_output)
+        output_kind: Literal["derived_dataset", "artifact", "value"] = "artifact"
+    elif dataset_output is not None:
+        if contract is not None and contract.output_codec != PYTHON_JSON_CODEC:
+            raise ValueError("derived dataset trace outputs own their Arrow IPC codec")
+        output_codec = DERIVED_DATASET_CODEC
+        output_hash = sha256_content_hash(dataset_output.to_arrow_ipc())
+        output_kind = "derived_dataset"
+    else:
+        encoded = _analysis_json(output)
+        output_codec = PYTHON_JSON_CODEC if contract is None else contract.output_codec
+        output_hash = f"sha256:{stable_content_hash(encoded)}"
+        output_kind = "value"
+    return ((execution_id, result),), (
+        AnalysisExecutionOutput(
+            name=execution_id,
+            kind=output_kind,
+            content_hash=output_hash,
+            codec=output_codec,
+        ),
+    )
+
+
 def _analysis_execution_input(
     name: str,
     value: object,
@@ -919,6 +1011,18 @@ def _analysis_execution_input(
     codec: str | None,
     execution_target: str | None,
 ) -> AnalysisExecutionInput:
+    artifact = _analysis_artifact_value(value)
+    if artifact is not None:
+        if codec is not None and codec != ANALYSIS_ARTIFACT_CODEC:
+            raise ValueError("artifact trace inputs require the artifact bytes codec")
+        content_hash = sha256_content_hash(artifact)
+        return AnalysisExecutionInput(
+            name=name,
+            kind="artifact",
+            target=execution_target or f"content:{content_hash}",
+            content_hash=content_hash,
+            codec=ANALYSIS_ARTIFACT_CODEC,
+        )
     if isinstance(value, DerivedDataset):
         if codec is not None and codec != DERIVED_DATASET_CODEC:
             raise ValueError("derived dataset trace inputs require the Arrow IPC codec")
@@ -962,6 +1066,9 @@ def _analysis_value_hash(value: object) -> str:
 
 
 def _analysis_value_identity(value: object) -> tuple[str, str]:
+    artifact = _analysis_artifact_value(value)
+    if artifact is not None:
+        return ANALYSIS_ARTIFACT_CODEC, sha256_content_hash(artifact)
     dataset = _analysis_dataset_value(value)
     if dataset is not None:
         return DERIVED_DATASET_CODEC, sha256_content_hash(dataset.to_arrow_ipc())
@@ -974,10 +1081,14 @@ def _analysis_native_execution_output(
     value: object,
 ) -> AnalysisExecutionOutput:
     codec, content_hash = _analysis_value_identity(value)
+    artifact = _analysis_artifact_value(value)
+    dataset = _analysis_dataset_value(value)
     return AnalysisExecutionOutput(
         name=name,
         kind=(
-            "derived_dataset" if _analysis_dataset_value(value) is not None else "value"
+            "artifact"
+            if artifact is not None
+            else ("derived_dataset" if dataset is not None else "value")
         ),
         content_hash=content_hash,
         codec=codec,
@@ -1020,6 +1131,27 @@ def _analysis_dataset_value(value: object) -> DerivedDataset | None:
     if owner in {"pandas", "polars", "pyarrow", "xarray"}:
         return derived_dataset(value)
     return None
+
+
+def _analysis_artifact_value(value: object) -> bytes | None:
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, Path):
+        if not value.is_file():
+            raise FileNotFoundError(value)
+        return value.read_bytes()
+    return None
+
+
+def _analysis_dataset_source_kind(
+    value: object,
+) -> Literal["arrow", "pandas", "polars", "xarray"]:
+    owner = type(value).__module__.partition(".")[0]
+    if owner == "pyarrow":
+        return "arrow"
+    if owner in {"pandas", "polars", "xarray"}:
+        return cast("Literal['pandas', 'polars', 'xarray']", owner)
+    raise TypeError("analysis dataset derivations require native dataset content")
 
 
 def _analysis_json(value: object) -> JsonValue:

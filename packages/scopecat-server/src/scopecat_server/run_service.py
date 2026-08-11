@@ -142,6 +142,7 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
             title=item.title,
             content=DerivedDataset.from_payload(item.content),
             produced_by=item.produced_by,
+            derived_from=item.derived_from,
             metadata=item.metadata,
         )
     if isinstance(item, AnalysisTableOutputPayload):
@@ -168,6 +169,7 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
             content=item.content_bytes(),
             filename=item.filename,
             media_type=item.media_type,
+            produced_by=item.produced_by,
             metadata=item.metadata,
         )
     return AnalysisParameterProposalOutput(

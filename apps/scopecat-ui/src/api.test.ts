@@ -294,12 +294,14 @@ describe("project daemon reads", () => {
                           codec: "scopecat.measurement-dataset.v8",
                         },
                       ],
-                      output: {
-                        name: "fit",
-                        kind: "value",
-                        content_hash: "sha256:fitted-frequency",
-                        codec: "scopecat.python-json.v1",
-                      },
+                      outputs: [
+                        {
+                          name: "fit",
+                          kind: "value",
+                          content_hash: "sha256:fitted-frequency",
+                          codec: "scopecat.python-json.v1",
+                        },
+                      ],
                       captures: [],
                       access: "full",
                       metadata: {},
@@ -310,7 +312,10 @@ describe("project daemon reads", () => {
                       kind: "fact",
                       id: "fitted-frequency",
                       title: "Fitted frequency",
-                      produced_by: "fit",
+                      produced_by: {
+                        execution_id: "fit",
+                        output_name: "fit",
+                      },
                       content: {
                         schema_id: "scopecat.scalar.v1",
                         codec: "scopecat.python-json.v1",
@@ -382,10 +387,13 @@ describe("project daemon reads", () => {
         {
           id: "fit",
           implementation: "registry:lab.fit@1",
-          output: {
-            kind: "value",
-            content_hash: "sha256:fitted-frequency",
-          },
+          outputs: [
+            {
+              name: "fit",
+              kind: "value",
+              content_hash: "sha256:fitted-frequency",
+            },
+          ],
         },
       ],
       outputs: [
@@ -397,7 +405,10 @@ describe("project daemon reads", () => {
             codec: "scopecat.python-json.v1",
             value: 5.1,
           },
-          producedBy: "fit",
+          producedBy: {
+            execution_id: "fit",
+            output_name: "fit",
+          },
           metadata: {},
         },
       ],

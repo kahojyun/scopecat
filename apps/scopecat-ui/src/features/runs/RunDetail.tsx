@@ -406,7 +406,8 @@ function AnalysisCard({
                           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                             <strong>{execution.id}</strong>
                             <span className="text-text-dim">
-                              {titleCase(execution.access)} · {titleCase(execution.output.kind)}
+                              {titleCase(execution.access)} · {execution.outputs.length} result
+                              {execution.outputs.length === 1 ? "" : "s"}
                             </span>
                           </div>
                           <code
@@ -430,7 +431,12 @@ function AnalysisCard({
                         <strong className="text-[0.65rem]">{output.title}</strong>
                         {output.producedBy ? (
                           <small className="text-[0.55rem] text-text-dim">
-                            Produced by {output.producedBy}
+                            Produced by {formatExecutionOutput(output.producedBy)}
+                          </small>
+                        ) : output.derivedFrom ? (
+                          <small className="text-[0.55rem] text-text-dim">
+                            Derived from {formatExecutionOutput(output.derivedFrom.source)} via{" "}
+                            {output.derivedFrom.adapter}
                           </small>
                         ) : null}
                       </span>
@@ -1065,6 +1071,10 @@ function humanizeEvent(kind: string): string {
 
 function contentKey(entry: ContentEntry): string {
   return `${entry.role}:${entry.id}`;
+}
+
+function formatExecutionOutput(source: { execution_id: string; output_name: string }): string {
+  return `${source.execution_id}:${source.output_name}`;
 }
 
 function formatPreviewContent(value: unknown): string {

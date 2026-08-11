@@ -40,6 +40,7 @@ MAX_ANALYSIS_OUTPUTS = 32
 MAX_ANALYSIS_DATA_BYTES = 1_000_000
 MAX_ANALYSIS_TOTAL_TABLE_CELLS = 64_000
 MAX_ANALYSIS_TOTAL_FIGURE_POINTS = 16_384
+ANALYSIS_ARTIFACT_CODEC = "scopecat.artifact-bytes.v1"
 
 
 def _reject_unsafe_table_integer(value: object) -> object:
@@ -472,7 +473,7 @@ class AnalysisExecutionInput(_AnalysisContentModel):
     """One named, content-identified input consumed by an analysis execution."""
 
     name: _NonEmptyText
-    kind: Literal["measurement_dataset", "derived_dataset", "value"]
+    kind: Literal["measurement_dataset", "derived_dataset", "artifact", "value"]
     target: _NonEmptyText
     content_hash: _NonEmptyText
     codec: _NonEmptyText
@@ -483,7 +484,7 @@ class AnalysisExecutionOutput(_AnalysisContentModel):
     """The content identity produced by one successful analysis execution."""
 
     name: _NonEmptyText
-    kind: Literal["derived_dataset", "value"]
+    kind: Literal["derived_dataset", "artifact", "value"]
     content_hash: _NonEmptyText
     codec: _NonEmptyText
 
@@ -493,6 +494,16 @@ class AnalysisExecutionOutputReference(_AnalysisContentModel):
 
     execution_id: _NonEmptyText
     output_name: _NonEmptyText
+
+
+class AnalysisDatasetDerivation(_AnalysisContentModel):
+    """First-party normalization from one traced native dataset result."""
+
+    source: AnalysisExecutionOutputReference
+    source_kind: Literal["arrow", "pandas", "polars", "xarray"]
+    fields: dict[str, AnalysisField] = Field(default_factory=dict)
+    index: Literal["auto", "columns", "drop"] = "auto"
+    adapter: Literal["scopecat.native-dataset.v1"] = "scopecat.native-dataset.v1"
 
 
 class AnalysisExecution(_AnalysisContentModel):
@@ -604,11 +615,13 @@ class AnalysisDatasetRecordOutput(_AnalysisRecordOutput):
     kind: Literal["dataset"]
     content: AnalysisDatasetReference
     produced_by: AnalysisExecutionOutputReference | None = None
+    derived_from: AnalysisDatasetDerivation | None = None
 
 
 class AnalysisArtifactRecordOutput(_AnalysisRecordOutput):
     kind: Literal["artifact"]
     content: AnalysisArtifactReference
+    produced_by: AnalysisExecutionOutputReference | None = None
 
 
 type AnalysisRecordOutput = Annotated[
@@ -673,35 +686,72 @@ class AnalysisRecord(BaseModel):
             for output in self.outputs
             if isinstance(
                 output,
-                AnalysisDatasetRecordOutput | AnalysisFactRecordOutput,
+                AnalysisDatasetRecordOutput
+                | AnalysisFactRecordOutput
+                | AnalysisArtifactRecordOutput,
             )
         )
-        unknown_producers = {
-            output.produced_by.execution_id
+        if any(
+            isinstance(output, AnalysisDatasetRecordOutput)
+            and output.produced_by is not None
+            and output.derived_from is not None
             for output in materialized_outputs
-            if output.produced_by is not None
+        ):
+            raise ValueError(
+                "analysis dataset output cannot be both produced and derived"
+            )
+        output_sources = tuple(
+            (
+                output.derived_from.source
+                if isinstance(output, AnalysisDatasetRecordOutput)
+                and output.derived_from is not None
+                else output.produced_by
+            )
+            for output in materialized_outputs
+        )
+        unknown_producers = {
+            source.execution_id for source in output_sources if source is not None
         } - set(executions_by_id)
         if unknown_producers:
             raise ValueError("analysis output producer must identify an execution")
-        for output in materialized_outputs:
-            if output.produced_by is None:
+        for output, source in zip(
+            materialized_outputs,
+            output_sources,
+            strict=True,
+        ):
+            if source is None:
                 continue
-            producer = output.produced_by
-            execution = executions_by_id[producer.execution_id]
+            execution = executions_by_id[source.execution_id]
             try:
                 execution_output = next(
                     item
                     for item in execution.outputs
-                    if item.name == producer.output_name
+                    if item.name == source.output_name
                 )
             except StopIteration:
                 raise ValueError(
                     "analysis output producer must identify an execution output"
                 ) from None
+            if (
+                isinstance(output, AnalysisDatasetRecordOutput)
+                and output.derived_from is not None
+            ):
+                if (
+                    execution_output.kind != "derived_dataset"
+                    or execution_output.codec != output.content.codec
+                ):
+                    raise ValueError(
+                        "analysis dataset derivation source must be a dataset result"
+                    )
+                continue
             if isinstance(output, AnalysisDatasetRecordOutput):
                 kind = "derived_dataset"
                 content_hash = output.content.content_hash
                 codec = output.content.codec
+            elif isinstance(output, AnalysisArtifactRecordOutput):
+                kind = "artifact"
+                content_hash = output.content.content_hash
+                codec = ANALYSIS_ARTIFACT_CODEC
             else:
                 kind = "value"
                 content_hash = f"sha256:{stable_content_hash(output.content.value)}"

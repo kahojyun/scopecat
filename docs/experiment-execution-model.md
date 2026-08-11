@@ -118,9 +118,11 @@ an analysis step, `context.trace(fn=fit, dataset=dataset)` eagerly runs ordinary
 Python over the durable snapshot and optionally retains execution evidence. It
 returns the native value; the author separately chooses whether to publish it
 as a fact, dataset, table, figure, or artifact. If the published content exactly
-matches the traced result's content and codec, a fact or dataset is linked to
-that execution automatically. Views remain explicit projections of a published
-dataset or native result.
+matches the traced result's content and codec, a fact, dataset, or artifact is
+linked to that execution automatically. A first-party native-dataset
+normalization with field mapping instead records a typed derivation from that
+result. Views remain explicit projections of a published dataset or native
+result.
 
 Every traced input is named and content-identified independently; JSON-safe
 inline values are retained beside dataset targets. A registered custom output

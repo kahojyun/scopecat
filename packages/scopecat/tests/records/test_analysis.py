@@ -19,6 +19,9 @@ from scopecat.records.analysis import (
     MAX_ANALYSIS_TABLE_SAFE_INTEGER,
     MAX_ANALYSIS_TOTAL_FIGURE_POINTS,
     MAX_ANALYSIS_TOTAL_TABLE_CELLS,
+    AnalysisDatasetDerivation,
+    AnalysisDatasetRecordOutput,
+    AnalysisDatasetReference,
     AnalysisDatasetViewSource,
     AnalysisExecution,
     AnalysisExecutionInput,
@@ -229,6 +232,65 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
     assert restored.outputs[2].content.preview.series[0].y == [5.0, 5.1, 5.0]
     assert isinstance(restored.outputs[3], AnalysisParameterProposalRecordOutput)
     assert restored.outputs[3].content.proposal_id == "readout-fit"
+
+
+def test_analysis_dataset_derivation_round_trips_its_adapter_contract() -> None:
+    record = AnalysisRecord(
+        run_id="run-analysis",
+        title="Mapped dataset",
+        revision=1,
+        publication_hash=_PUBLICATION_HASH,
+        executions=[
+            AnalysisExecution(
+                id="fit",
+                implementation="registry:lab.fit@1",
+                deterministic=True,
+                inputs=(),
+                input_bindings=(),
+                outputs=(
+                    AnalysisExecutionOutput(
+                        name="frame",
+                        kind="derived_dataset",
+                        content_hash="sha256:source-frame",
+                        codec="scopecat.derived-dataset.arrow-ipc.v2",
+                    ),
+                ),
+            )
+        ],
+        outputs=[
+            AnalysisDatasetRecordOutput(
+                kind="dataset",
+                id="fits",
+                title="Fits",
+                content=AnalysisDatasetReference(
+                    dataset_id="analysis-fit-fits",
+                    content_hash="sha256:mapped-frame",
+                    codec="scopecat.derived-dataset.arrow-ipc.v2",
+                ),
+                derived_from=AnalysisDatasetDerivation(
+                    source=AnalysisExecutionOutputReference(
+                        execution_id="fit",
+                        output_name="frame",
+                    ),
+                    source_kind="pandas",
+                    fields={
+                        "raw_frequency": AnalysisField(
+                            id="frequency",
+                            role="coordinate",
+                            unit="GHz",
+                        )
+                    },
+                    index="drop",
+                ),
+            )
+        ],
+    )
+
+    restored = AnalysisRecord.model_validate_json(record.model_dump_json())
+
+    assert isinstance(restored.outputs[0], AnalysisDatasetRecordOutput)
+    assert isinstance(record.outputs[0], AnalysisDatasetRecordOutput)
+    assert restored.outputs[0].derived_from == record.outputs[0].derived_from
 
 
 def test_analysis_embedded_outputs_have_gui_safe_size_limits() -> None:

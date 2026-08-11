@@ -33,8 +33,10 @@ from scopecat.kernel.problems import (
 from scopecat.project_state import ProjectStateServices
 from scopecat.records._metadata import validate_json_metadata
 from scopecat.records.analysis import (
+    ANALYSIS_ARTIFACT_CODEC,
     AnalysisArtifactRecordOutput,
     AnalysisArtifactReference,
+    AnalysisDatasetDerivation,
     AnalysisDatasetRecordOutput,
     AnalysisDatasetReference,
     AnalysisExecution,
@@ -122,6 +124,7 @@ class AnalysisDatasetOutput:
     content: DerivedDataset
     metadata: Mapping[str, object]
     produced_by: AnalysisExecutionOutputReference | None = None
+    derived_from: AnalysisDatasetDerivation | None = None
 
 
 @dataclass(frozen=True)
@@ -133,6 +136,7 @@ class AnalysisArtifactOutput:
     filename: str
     media_type: str
     metadata: Mapping[str, object]
+    produced_by: AnalysisExecutionOutputReference | None = None
 
 
 type AnalysisOutput = (
@@ -463,11 +467,13 @@ def _analysis_output_identity(output: AnalysisOutput) -> dict[str, object]:
     }
     if isinstance(output, AnalysisDatasetOutput):
         shared["produced_by"] = output.produced_by
+        shared["derived_from"] = output.derived_from
         shared["content"] = {
             "content_hash": sha256_content_hash(output.content.to_arrow_ipc()),
             "schema": output.content.schema.model_dump(mode="json"),
         }
     elif isinstance(output, AnalysisArtifactOutput):
+        shared["produced_by"] = output.produced_by
         shared["content"] = {
             "content_hash": sha256_content_hash(output.content),
             "filename": output.filename,
@@ -541,6 +547,7 @@ def _analysis_record_outputs(
                     title=output.title,
                     content=dataset_references[output.id],
                     produced_by=output.produced_by,
+                    derived_from=output.derived_from,
                     metadata=metadata,
                 )
             )
@@ -551,6 +558,7 @@ def _analysis_record_outputs(
                     id=output.id,
                     title=output.title,
                     content=artifact_references[output.id],
+                    produced_by=output.produced_by,
                     metadata=metadata,
                 )
             )
@@ -749,12 +757,30 @@ def _validate_analysis_execution_outputs(
             "executions",
         )
     for output in outputs:
-        if not isinstance(output, AnalysisDatasetOutput | AnalysisFactOutput):
+        if not isinstance(
+            output,
+            AnalysisDatasetOutput | AnalysisFactOutput | AnalysisArtifactOutput,
+        ):
             continue
-        if output.produced_by is None:
+        if (
+            isinstance(output, AnalysisDatasetOutput)
+            and output.produced_by is not None
+            and output.derived_from is not None
+        ):
+            _raise_analysis_problem(
+                "analysis_output_source_invalid",
+                "analysis dataset output cannot be both produced and derived",
+                "outputs",
+            )
+        source = (
+            output.derived_from.source
+            if isinstance(output, AnalysisDatasetOutput)
+            and output.derived_from is not None
+            else output.produced_by
+        )
+        if source is None:
             continue
-        producer = output.produced_by
-        execution = execution_by_id.get(producer.execution_id)
+        execution = execution_by_id.get(source.execution_id)
         if execution is None:
             _raise_analysis_problem(
                 "analysis_output_producer_unknown",
@@ -765,12 +791,16 @@ def _validate_analysis_execution_outputs(
             content_hash = sha256_content_hash(output.content.to_arrow_ipc())
             expected_kind = "derived_dataset"
             expected_codec = DERIVED_DATASET_CODEC
+        elif isinstance(output, AnalysisArtifactOutput):
+            content_hash = sha256_content_hash(output.content)
+            expected_kind = "artifact"
+            expected_codec = ANALYSIS_ARTIFACT_CODEC
         else:
             content_hash = f"sha256:{stable_content_hash(output.content.value)}"
             expected_kind = "value"
             expected_codec = output.content.codec
         execution_output = next(
-            (item for item in execution.outputs if item.name == producer.output_name),
+            (item for item in execution.outputs if item.name == source.output_name),
             None,
         )
         if execution_output is None:
@@ -779,6 +809,20 @@ def _validate_analysis_execution_outputs(
                 "analysis output producer must identify an execution output",
                 "outputs",
             )
+        if (
+            isinstance(output, AnalysisDatasetOutput)
+            and output.derived_from is not None
+        ):
+            if (
+                execution_output.kind != "derived_dataset"
+                or execution_output.codec != DERIVED_DATASET_CODEC
+            ):
+                _raise_analysis_problem(
+                    "analysis_output_execution_mismatch",
+                    "analysis dataset derivation source must be a dataset result",
+                    "outputs",
+                )
+            continue
         if (
             execution_output.kind != expected_kind
             or execution_output.content_hash != content_hash
