@@ -4,8 +4,8 @@ from dataclasses import replace
 from typing import cast
 
 import pytest
-from testkit.authoring import load_config
-from testkit.bound_program import (
+from scopecat_testkit.authoring import load_config
+from scopecat_testkit.bound_program import (
     DomainExecutionFixture,
     ProgramFixture,
     instrument_acquisition,
@@ -13,8 +13,8 @@ from testkit.bound_program import (
     program_fixture,
     verified_logical_program_for,
 )
-from testkit.expressions import state_property, verified_scalar_expr
-from testkit.local_materialization import (
+from scopecat_testkit.expressions import state_property, verified_scalar_expr
+from scopecat_testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )

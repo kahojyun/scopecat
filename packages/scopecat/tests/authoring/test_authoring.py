@@ -5,20 +5,20 @@ from __future__ import annotations
 from typing import Annotated
 
 import pytest
-from testkit.authoring import (
+from scopecat_testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
     bind_invocation,
     load_config,
     simple_experiment,
 )
-from testkit.expressions import evaluate_scalar
-from testkit.materialized_effects import (
+from scopecat_testkit.expressions import evaluate_scalar
+from scopecat_testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,
     materialized_state_properties,
     measurement_projection_contract,
 )
-from testkit.routing import routing_endpoint, routing_graph
+from scopecat_testkit.routing import routing_endpoint, routing_graph
 
 import scopecat as sc
 import scopecat.authoring as authoring

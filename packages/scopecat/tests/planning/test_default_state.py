@@ -5,8 +5,8 @@ from typing import Never
 
 import pytest
 from pydantic import ValidationError
-from testkit.signal_instruments import TestSignalInstrumentProvider
-from testkit.workflow_fixtures import load_config
+from scopecat_testkit.signal_instruments import TestSignalInstrumentProvider
+from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.quantity import Quantity

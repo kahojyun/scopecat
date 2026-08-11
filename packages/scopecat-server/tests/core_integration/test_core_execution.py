@@ -84,8 +84,8 @@ from scopecat.sdk.instruments.provider import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
-from testkit.authoring import bind_invocation
-from testkit.bound_program import (
+from scopecat_testkit.authoring import bind_invocation
+from scopecat_testkit.bound_program import (
     ComputeNodeFixture,
     ProgramFixture,
     bind_program_facts,
@@ -95,27 +95,27 @@ from testkit.bound_program import (
     observable_product,
     program_fixture,
 )
-from testkit.execution import execute_bound_run
-from testkit.expressions import state_property, verified_scalar_expr
-from testkit.instrument_drivers import SignalInstrumentDriver
-from testkit.local_materialization import (
+from scopecat_testkit.expressions import state_property, verified_scalar_expr
+from scopecat_testkit.instrument_drivers import SignalInstrumentDriver
+from scopecat_testkit.local_materialization import (
     LocalEffectInspection,
     materialize_local_execution,
     operations_of_type,
 )
-from testkit.materialized_effects import config_with_physical_resources
-from testkit.payload_codecs import json_payload_codecs
-from testkit.records import (
+from scopecat_testkit.materialized_effects import config_with_physical_resources
+from scopecat_testkit.payload_codecs import json_payload_codecs
+from scopecat_testkit.records import (
     assert_model_round_trip,
 )
-from testkit.runtime import (
+from scopecat_testkit.server.execution import execute_bound_run
+from scopecat_testkit.server.runtime import (
     sqlite_execution_session,
     sqlite_run_repository,
 )
-from testkit.signal_instruments import (
+from scopecat_testkit.signal_instruments import (
     TestSignalInstrument,
 )
-from testkit.workflow_fixtures import load_config, load_experiment
+from scopecat_testkit.workflow_fixtures import load_config, load_experiment
 
 from scopecat_server.storage.sqlite import SQLiteRunRepository
 
@@ -143,7 +143,7 @@ def test_execution_builds_one_bound_session(
         )
 
     monkeypatch.setattr(
-        "testkit.execution.sqlite_execution_session",
+        "scopecat_testkit.server.execution.sqlite_execution_session",
         counted_session,
     )
 

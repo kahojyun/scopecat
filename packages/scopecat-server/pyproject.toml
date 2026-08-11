@@ -21,6 +21,7 @@ scopecat = "scopecat_server.cli:main"
 [dependency-groups]
 test = [
   "pytest>=9",
+  "scopecat-testkit[server]",
 ]
 
 [build-system]
@@ -40,3 +41,4 @@ src = ["src", "tests"]
 
 [tool.uv.sources]
 scopecat = { workspace = true }
+scopecat-testkit = { workspace = true }

@@ -7,8 +7,8 @@ from typing import Literal, cast
 import numpy as np
 import pytest
 from pydantic import ValidationError
-from testkit.measurement_models import signal_point_schema, signal_record
-from testkit.records import assert_model_round_trip
+from scopecat_testkit.measurement_models import signal_point_schema, signal_record
+from scopecat_testkit.records import assert_model_round_trip
 
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,

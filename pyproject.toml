@@ -10,6 +10,7 @@ dependencies = [
   "scopecat-instruments",
   "scopecat-quantum",
   "scopecat-server",
+  "scopecat-testkit[server]",
 ]
 
 [dependency-groups]
@@ -39,7 +40,7 @@ include = [
   "examples/reference_lab/notebooks",
   "examples/reference_lab/tests",
   "scripts",
-  "testkit",
+  "testing/scopecat-testkit/src",
 ]
 exclude = [
   "**/__pycache__",
@@ -51,7 +52,6 @@ pythonVersion = "3.14"
 pythonPlatform = "All"
 typeCheckingMode = "recommended"
 extraPaths = [
-  ".",
   "packages/scopecat",
   "packages/scopecat/src",
   "packages/scopecat-server/src",
@@ -61,6 +61,7 @@ extraPaths = [
   "packages/scopecat-quantum/src",
   "examples/reference_lab",
   "examples/reference_lab/src",
+  "testing/scopecat-testkit/src",
 ]
 reportMissingImports = "error"
 reportMissingTypeStubs = "none"
@@ -91,7 +92,7 @@ reportUnknownMemberType = "none"
 reportUnknownVariableType = "none"
 
 [[tool.basedpyright.executionEnvironments]]
-root = "testkit"
+root = "testing/scopecat-testkit/src"
 reportAny = "none"
 reportExplicitAny = "none"
 reportPrivateUsage = "none"
@@ -118,6 +119,7 @@ root_packages = [
   "scopecat_instruments",
   "scopecat_quantum",
   "scopecat_server",
+  "scopecat_testkit",
 ]
 exclude_type_checking_imports = true
 
@@ -237,6 +239,39 @@ ancestors = [
 # Check concrete top-level module dependencies without aggregating deeper siblings.
 depth = 0
 
+[[tool.importlinter.contracts]]
+name = "Core test support remains server independent"
+type = "forbidden"
+source_modules = [
+  "scopecat_testkit.authoring",
+  "scopecat_testkit.bound_program",
+  "scopecat_testkit.config_registry",
+  "scopecat_testkit.domain",
+  "scopecat_testkit.execution_fakes",
+  "scopecat_testkit.expressions",
+  "scopecat_testkit.instrument_drivers",
+  "scopecat_testkit.instrument_host",
+  "scopecat_testkit.local_materialization",
+  "scopecat_testkit.materialized_effects",
+  "scopecat_testkit.measurement_assembly",
+  "scopecat_testkit.measurement_models",
+  "scopecat_testkit.parameter_fixtures",
+  "scopecat_testkit.paths",
+  "scopecat_testkit.payload_codecs",
+  "scopecat_testkit.planning",
+  "scopecat_testkit.project_loading",
+  "scopecat_testkit.records",
+  "scopecat_testkit.routing",
+  "scopecat_testkit.run_operations",
+  "scopecat_testkit.signal_instruments",
+  "scopecat_testkit.workflow_fixtures",
+]
+forbidden_modules = [
+  "scopecat_server",
+  "scopecat_testkit.server",
+]
+allow_indirect_imports = true
+
 [tool.pytest]
 addopts = [
   "-n",
@@ -245,7 +280,6 @@ addopts = [
 ]
 minversion = "9.0"
 pythonpath = [
-  ".",
   "packages/scopecat",
   "packages/scopecat-instruments/src",
 ]
@@ -275,7 +309,7 @@ src = [
   "examples/reference_lab/notebooks",
   "examples/reference_lab/tests",
   "scripts",
-  "testkit",
+  "testing/scopecat-testkit/src",
 ]
 
 [tool.ruff.lint]
@@ -348,13 +382,16 @@ select = [
 "**/tests/**/*.py" = [
   "ARG001",
 ]
-"testkit/**/*.py" = [
+"testing/scopecat-testkit/src/scopecat_testkit/**/*.py" = [
   "ARG001",
+]
+"testing/scopecat-testkit/src/scopecat_testkit/server/**/*.py" = [
   "TID251",
 ]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"scopecat_server".msg = "Only server-owned integration tests and the workspace testkit may depend on scopecat_server"
+"scopecat_server".msg = "Only server-owned integration code may depend on scopecat_server"
+"scopecat_testkit.server".msg = "Core tests must use server-independent test support"
 
 [tool.ruff.lint.mccabe]
 max-complexity = 20
@@ -370,9 +407,11 @@ scopecat = { workspace = true }
 scopecat-instruments = { workspace = true }
 scopecat-quantum = { workspace = true }
 scopecat-server = { workspace = true }
+scopecat-testkit = { workspace = true }
 
 [tool.uv.workspace]
 members = [
   "packages/*",
   "examples/reference_lab",
+  "testing/*",
 ]

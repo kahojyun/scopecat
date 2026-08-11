@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
-from testkit.authoring import load_config
-from testkit.bound_program import (
+from scopecat_testkit.authoring import load_config
+from scopecat_testkit.bound_program import (
     ProgramFixture,
     bind_program_facts,
     instrument_acquisition,
     program_fixture,
 )
-from testkit.local_materialization import (
+from scopecat_testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )

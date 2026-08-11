@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import assert_type
 
 import pytest
-from testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.authoring import bind_invocation, load_config
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module

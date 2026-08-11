@@ -8,7 +8,7 @@ from typing import Annotated, assert_type
 import numpy as np
 import pytest
 from numpy.typing import NDArray
-from testkit.domain import domain_call
+from scopecat_testkit.domain import domain_call
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module

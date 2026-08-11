@@ -18,6 +18,7 @@ members = [
     "scopecat-instruments",
     "scopecat-quantum",
     "scopecat-server",
+    "scopecat-testkit",
     "scopecat-workspace",
 ]
 
@@ -904,6 +905,13 @@ dependencies = [
     { name = "scopecat-quantum" },
 ]
 
+[package.dev-dependencies]
+test = [
+    { name = "pytest" },
+    { name = "scopecat-server" },
+    { name = "scopecat-testkit", extra = ["server"] },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=2" },
@@ -911,6 +919,13 @@ requires-dist = [
     { name = "scopecat", extras = ["polars"], editable = "packages/scopecat" },
     { name = "scopecat-instruments", editable = "packages/scopecat-instruments" },
     { name = "scopecat-quantum", editable = "packages/scopecat-quantum" },
+]
+
+[package.metadata.requires-dev]
+test = [
+    { name = "pytest", specifier = ">=9" },
+    { name = "scopecat-server", editable = "packages/scopecat-server" },
+    { name = "scopecat-testkit", extras = ["server"], editable = "testing/scopecat-testkit" },
 ]
 
 [[package]]
@@ -1002,6 +1017,12 @@ polars = [
     { name = "polars" },
 ]
 
+[package.dev-dependencies]
+test = [
+    { name = "pytest" },
+    { name = "scopecat-testkit" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "httpx2", specifier = ">=2,<3" },
@@ -1013,6 +1034,12 @@ requires-dist = [
     { name = "xarray", specifier = ">=2024.1" },
 ]
 provides-extras = ["pandas", "polars"]
+
+[package.metadata.requires-dev]
+test = [
+    { name = "pytest", specifier = ">=9" },
+    { name = "scopecat-testkit", editable = "testing/scopecat-testkit" },
+]
 
 [[package]]
 name = "scopecat-instruments"
@@ -1064,6 +1091,7 @@ dependencies = [
 [package.dev-dependencies]
 test = [
     { name = "pytest" },
+    { name = "scopecat-testkit", extra = ["server"] },
 ]
 
 [package.metadata]
@@ -1079,7 +1107,30 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-test = [{ name = "pytest", specifier = ">=9" }]
+test = [
+    { name = "pytest", specifier = ">=9" },
+    { name = "scopecat-testkit", extras = ["server"], editable = "testing/scopecat-testkit" },
+]
+
+[[package]]
+name = "scopecat-testkit"
+version = "0.1.0"
+source = { editable = "testing/scopecat-testkit" }
+dependencies = [
+    { name = "scopecat" },
+]
+
+[package.optional-dependencies]
+server = [
+    { name = "scopecat-server" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "scopecat", editable = "packages/scopecat" },
+    { name = "scopecat-server", marker = "extra == 'server'", editable = "packages/scopecat-server" },
+]
+provides-extras = ["server"]
 
 [[package]]
 name = "scopecat-workspace"
@@ -1091,6 +1142,7 @@ dependencies = [
     { name = "scopecat-instruments" },
     { name = "scopecat-quantum" },
     { name = "scopecat-server" },
+    { name = "scopecat-testkit", extra = ["server"] },
 ]
 
 [package.dev-dependencies]
@@ -1113,6 +1165,7 @@ requires-dist = [
     { name = "scopecat-instruments", editable = "packages/scopecat-instruments" },
     { name = "scopecat-quantum", editable = "packages/scopecat-quantum" },
     { name = "scopecat-server", editable = "packages/scopecat-server" },
+    { name = "scopecat-testkit", extras = ["server"], editable = "testing/scopecat-testkit" },
 ]
 
 [package.metadata.requires-dev]

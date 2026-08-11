@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-from testkit.local_materialization import (
+from scopecat_testkit.local_materialization import (
     LocalEffectInspection,
     effects_at_point,
 )

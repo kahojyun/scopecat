@@ -82,8 +82,8 @@ from scopecat.sdk.instruments.commands import (
     InstrumentStateCommand,
     InteractiveCollectIntent,
 )
-from testkit.instrument_drivers import SignalInstrumentDriver, load_config
-from testkit.payload_codecs import json_payload_codecs
+from scopecat_testkit.instrument_drivers import SignalInstrumentDriver, load_config
+from scopecat_testkit.payload_codecs import json_payload_codecs
 
 import scopecat_server.instruments.runtime as instrument_service_module
 from scopecat_server import LocalDaemonRuntime

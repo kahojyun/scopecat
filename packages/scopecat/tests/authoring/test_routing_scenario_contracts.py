@@ -6,13 +6,13 @@ from typing import Annotated
 import pytest
 from scopecat_instruments import NetworkSweepGroupTarget, network_sweep
 from scopecat_instruments.members import NETWORK_SWEEP
-from testkit.authoring import bind_invocation, load_config
-from testkit.local_materialization import operations_of_type
-from testkit.materialized_effects import (
+from scopecat_testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.local_materialization import operations_of_type
+from scopecat_testkit.materialized_effects import (
     materialized_effects_contract,
     materialized_state_properties,
 )
-from testkit.routing import (
+from scopecat_testkit.routing import (
     RoutingEndpointSpec,
     routing_endpoint,
     routing_graph,

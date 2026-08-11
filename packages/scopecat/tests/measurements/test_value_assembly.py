@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
-from testkit.measurement_assembly import (
+from scopecat_testkit.measurement_assembly import (
     measurement_assembly_scenario,
     measurement_value_candidates,
 )

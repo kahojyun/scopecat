@@ -4,7 +4,7 @@ from typing import Literal
 
 import pytest
 from pydantic import ValidationError
-from testkit.measurement_models import signal_record
+from scopecat_testkit.measurement_models import signal_record
 
 from scopecat.kernel.problems import model_location
 from scopecat.measurements.results import validate_measurement_records_against_schema

@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Annotated
 
 import pytest
-from testkit.authoring import bind_invocation, load_config
-from testkit.domain import domain_call
-from testkit.materialized_effects import materialized_effects_contract
+from scopecat_testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.domain import domain_call
+from scopecat_testkit.materialized_effects import materialized_effects_contract
 
 import scopecat as sc
 from scopecat.compiler.value_resolution import resolve_bound_value

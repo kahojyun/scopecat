@@ -32,8 +32,8 @@ from scopecat.runs.repository import (
     RunModelWrite,
     TerminalRunCommit,
 )
-from testkit.authoring import load_config
-from testkit.runtime import SQLiteTestRunRepository
+from scopecat_testkit.authoring import load_config
+from scopecat_testkit.server.runtime import SQLiteTestRunRepository
 
 from scopecat_server.storage.sqlite import (
     SQLiteDatabase,

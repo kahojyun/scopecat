@@ -52,7 +52,7 @@ from scopecat.sdk.instruments.backend import (
     BackendPropertyWrite,
 )
 from scopecat.sdk.instruments.commands import InvokeCommand
-from testkit.instrument_drivers import load_config
+from scopecat_testkit.instrument_drivers import load_config
 
 from scopecat_server.errors import BackendConflict
 from scopecat_server.instruments.backend import (

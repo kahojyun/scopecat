@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from testkit.workflow_fixtures import load_config
+from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat.config.resolution import validate_config_profile
 from scopecat.kernel.errors import CheckFailed

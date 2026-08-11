@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import httpx2
 import pytest
 from pydantic import BaseModel
-from testkit.workflow_fixtures import load_config
+from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.registry.records import (

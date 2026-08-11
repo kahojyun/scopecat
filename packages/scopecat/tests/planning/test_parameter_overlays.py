@@ -1,19 +1,19 @@
 from dataclasses import replace
 from typing import Never, cast
 
-from testkit.bound_program import (
+from scopecat_testkit.bound_program import (
     DomainExecutionFixture,
     bind_program_facts,
     overlay_parameter_cell,
     program_fixture,
 )
-from testkit.expressions import state_property
-from testkit.local_materialization import materialize_local_execution
-from testkit.materialized_effects import (
+from scopecat_testkit.expressions import state_property
+from scopecat_testkit.local_materialization import materialize_local_execution
+from scopecat_testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_state_properties,
 )
-from testkit.parameter_fixtures import (
+from scopecat_testkit.parameter_fixtures import (
     PARAMETER_TYPES,
     READOUT_FREQUENCY_LOOKUP,
     parameters,

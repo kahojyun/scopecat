@@ -1,4 +1,4 @@
-from testkit.authoring import load_config
+from scopecat_testkit.authoring import load_config
 
 from scopecat.config.parameter_resolution import (
     resolve_config_parameters,

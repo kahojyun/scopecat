@@ -1,19 +1,19 @@
 import pytest
-from testkit.bound_program import (
+from scopecat_testkit.bound_program import (
     instrument_acquisition,
     instrument_acquisitions,
     observable_product,
     program_fixture,
 )
-from testkit.expressions import (
+from scopecat_testkit.expressions import (
     state_property as set_state_property,
 )
-from testkit.expressions import (
+from scopecat_testkit.expressions import (
     verified_scalar_expr,
 )
-from testkit.local_materialization import operations_of_type
-from testkit.materialized_effects import materialized_effects_contract
-from testkit.parameter_fixtures import parameters
+from scopecat_testkit.local_materialization import operations_of_type
+from scopecat_testkit.materialized_effects import materialized_effects_contract
+from scopecat_testkit.parameter_fixtures import parameters
 
 from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,

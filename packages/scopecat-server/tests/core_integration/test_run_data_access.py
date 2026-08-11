@@ -14,14 +14,14 @@ from scopecat.runs.service import (
     read_run_artifact_text,
     read_run_measurement_dataset,
 )
-from testkit.runtime import (
+from scopecat_testkit.server.runtime import (
     list_test_runs,
     sqlite_project_services,
     sqlite_run_repository,
 )
-from testkit.signal_testkit import execute_signal_run
-from testkit.workflow_fixtures import (
-    attach_binary_artifact,
+from scopecat_testkit.server.signal_testkit import execute_signal_run
+from scopecat_testkit.server.workflow_fixtures import attach_binary_artifact
+from scopecat_testkit.workflow_fixtures import (
     load_config,
     load_invocation,
 )

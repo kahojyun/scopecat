@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from testkit.expressions import evaluate_scalar
+from scopecat_testkit.expressions import evaluate_scalar
 
 import scopecat as sc
 from scopecat.compiler.relations.context import EvalContext

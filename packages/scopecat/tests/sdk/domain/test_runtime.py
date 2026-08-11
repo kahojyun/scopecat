@@ -6,7 +6,7 @@ from typing import Literal, cast
 
 import pytest
 from pydantic import ValidationError
-from testkit.runtime import FakeExecutionJournal
+from scopecat_testkit.execution_fakes import FakeExecutionJournal
 
 from scopecat.kernel.errors import (
     DomainExecutionFailed,

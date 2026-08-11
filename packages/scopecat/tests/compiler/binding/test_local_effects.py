@@ -5,20 +5,20 @@ from enum import IntEnum, StrEnum
 from typing import Annotated
 
 import pytest
-from testkit.authoring import bind_invocation, load_config
-from testkit.bound_program import (
+from scopecat_testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.bound_program import (
     ComputeNodeFixture,
     bind_program_facts,
     compute_result,
     instrument_invocation,
     program_fixture,
 )
-from testkit.expressions import state_property, verified_scalar_expr
-from testkit.local_materialization import (
+from scopecat_testkit.expressions import state_property, verified_scalar_expr
+from scopecat_testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from testkit.materialized_effects import config_with_physical_resources
+from scopecat_testkit.materialized_effects import config_with_physical_resources
 
 import scopecat as sc
 from scopecat.compiler.bound_facts import (

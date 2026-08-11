@@ -6,8 +6,8 @@ from typing import Annotated, Literal, Never, cast
 
 import numpy as np
 import pytest
-from testkit.authoring import load_config
-from testkit.bound_program import (
+from scopecat_testkit.authoring import load_config
+from scopecat_testkit.bound_program import (
     DomainExecutionFixture,
     DomainResultFixture,
     bind_program_facts,
@@ -16,14 +16,14 @@ from testkit.bound_program import (
     overlay_parameter_cell,
     program_fixture,
 )
-from testkit.expressions import state_property, verified_scalar_expr
-from testkit.parameter_fixtures import (
+from scopecat_testkit.expressions import state_property, verified_scalar_expr
+from scopecat_testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,
 )
-from testkit.parameter_fixtures import (
+from scopecat_testkit.parameter_fixtures import (
     parameters as parameter_fixture_data,
 )
-from testkit.signal_instruments import TestSignalInstrumentProvider
+from scopecat_testkit.signal_instruments import TestSignalInstrumentProvider
 
 import scopecat as sc
 from scopecat.compiler.bind import BoundPlan, bind_program

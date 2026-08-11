@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-from testkit.paths import CORE_FIXTURE_DIR
+from scopecat_testkit.paths import CORE_FIXTURE_DIR
 
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.kernel.resource_identity import (

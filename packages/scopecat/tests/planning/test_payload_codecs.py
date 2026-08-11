@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from testkit.payload_codecs import json_payload_codecs
+from scopecat_testkit.payload_codecs import json_payload_codecs
 
 from scopecat.execution.local.program import ComputeOperation, PayloadSlot
 from scopecat.execution.program import RunHostBinding

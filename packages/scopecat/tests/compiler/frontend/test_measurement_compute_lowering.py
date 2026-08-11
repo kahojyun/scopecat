@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.authoring import bind_invocation, load_config
 
 import scopecat as sc
 from scopecat.kernel.errors import CheckFailed

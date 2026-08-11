@@ -49,7 +49,7 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareInvoke,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
-from testkit.instrument_drivers import SignalInstrumentDriver, load_config
+from scopecat_testkit.instrument_drivers import SignalInstrumentDriver, load_config
 
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint

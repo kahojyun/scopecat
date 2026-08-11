@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
+from scopecat_testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.profile_validation import validate_config_profile

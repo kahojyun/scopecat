@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from numpy.typing import NDArray
-from testkit.runtime import FakeExecutionJournal
+from scopecat_testkit.execution_fakes import FakeExecutionJournal
 
 from scopecat.execution.effects.compute import (
     ComputeEffectExecutor,

@@ -2,19 +2,16 @@ from __future__ import annotations
 
 from decimal import Decimal
 from fractions import Fraction
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
-from testkit.execution import execute_bound_run
-from testkit.instrument_drivers import (
+from scopecat_testkit.instrument_drivers import (
     SignalInstrumentDriver,
     load_config,
     number_state,
     quantity_state,
 )
-from testkit.signal_instruments import TestSignalInstrumentProvider
-from testkit.workflow_fixtures import load_experiment
+from scopecat_testkit.signal_instruments import TestSignalInstrumentProvider
 
 from scopecat.kernel.problems import ModelLocation, Problem
 from scopecat.kernel.quantity import Quantity
@@ -2501,26 +2498,6 @@ def test_collect_receipt_enforces_the_concrete_requested_shape(
     assert [problem.code for problem in validate(2)] == [
         "instrument_driver_readback_shape_mismatch"
     ]
-
-
-def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
-    instrument = SignalInstrumentDriver()
-
-    manifest = execute_bound_run(
-        config=load_config(),
-        experiment=load_experiment(),
-        instruments=[instrument],
-        project_root=tmp_path,
-    )
-
-    assert manifest.status == "completed"
-    assert len(instrument.collect_requests) == 3
-    assert [result.result_id for result in instrument.collect_requests[0].results] == [
-        "signal"
-    ]
-    assert instrument.applied[0].entries[0].target.interface_id == (
-        "test.set_frequency/v1"
-    )
 
 
 def _state_command(

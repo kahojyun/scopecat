@@ -3,10 +3,12 @@ from __future__ import annotations
 from typing import cast, override
 
 import pytest
-from testkit.measurement_assembly import assembled_measurement_values_for_all_uses
-from testkit.runtime import (
+from scopecat_testkit.execution_fakes import (
     FakeExecutionJournal,
     FakeMeasurementDatasetRepository,
+)
+from scopecat_testkit.measurement_assembly import (
+    assembled_measurement_values_for_all_uses,
 )
 
 from scopecat.execution.measurement_recording import (

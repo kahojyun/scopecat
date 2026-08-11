@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from testkit.bound_program import (
+from scopecat_testkit.bound_program import (
     ComputeNodeFixture,
     DomainExecutionFixture,
     program_fixture,
 )
-from testkit.expressions import (
+from scopecat_testkit.expressions import (
     state_property,
     verified_scalar_expr,
 )
-from testkit.parameter_fixtures import (
+from scopecat_testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,
     parameters,
 )

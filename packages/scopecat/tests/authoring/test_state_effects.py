@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from testkit.authoring import bind_invocation
-from testkit.local_materialization import materialize_local_execution
-from testkit.materialized_effects import config_with_physical_resources
+from scopecat_testkit.authoring import bind_invocation
+from scopecat_testkit.local_materialization import materialize_local_execution
+from scopecat_testkit.materialized_effects import config_with_physical_resources
 
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource

@@ -120,7 +120,7 @@ from scopecat.sdk.domain.runtime import (
     DomainExecutionReceipt,
     plan_domain_execution,
 )
-from testkit.runtime import list_test_runs
+from scopecat_testkit.server.runtime import list_test_runs
 
 import scopecat_server.services as daemon_services
 import scopecat_server.services.leases as lease_supervisor_services

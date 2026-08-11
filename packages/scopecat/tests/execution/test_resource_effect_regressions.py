@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from testkit.authoring import load_config, parameters
-from testkit.bound_program import (
+from scopecat_testkit.authoring import load_config, parameters
+from scopecat_testkit.bound_program import (
     ProgramFixture,
     StateAssignmentFixture,
     bind_program_facts,
@@ -12,13 +12,13 @@ from testkit.bound_program import (
     observable_product,
     program_fixture,
 )
-from testkit.expressions import state_property, verified_scalar_expr
-from testkit.local_materialization import (
+from scopecat_testkit.expressions import state_property, verified_scalar_expr
+from scopecat_testkit.local_materialization import (
     LocalEffectInspection,
     materialize_local_execution,
     operations_of_type,
 )
-from testkit.routing import routing_endpoint, routing_graph
+from scopecat_testkit.routing import routing_endpoint, routing_graph
 
 from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from testkit.workflow_fixtures import load_config
+from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat.config.drafts import ConfigDraft
 from scopecat.kernel.problems import ModelLocation

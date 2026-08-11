@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-from testkit.workflow_fixtures import load_config
+from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat.records.config import (
     InstrumentRegistry,

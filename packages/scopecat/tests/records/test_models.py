@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import pytest
 from pydantic import BaseModel, ValidationError
-from testkit.records import assert_model_round_trip
+from scopecat_testkit.records import assert_model_round_trip
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity

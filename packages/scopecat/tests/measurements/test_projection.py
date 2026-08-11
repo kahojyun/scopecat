@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 import pytest
-from testkit.measurement_assembly import (
+from scopecat_testkit.measurement_assembly import (
     assembled_measurement_values_for_all_uses,
     measurement_assembly_scenario,
     measurement_value_candidates,

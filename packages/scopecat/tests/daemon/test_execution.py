@@ -7,7 +7,7 @@ from typing import Protocol
 import httpx2
 import pytest
 from pydantic import BaseModel
-from testkit.workflow_fixtures import load_config
+from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat.control.models import RunPlanSummary
 from scopecat.daemon.client import DaemonClient

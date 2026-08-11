@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Annotated
 
 import pytest
-from testkit.authoring import bind_invocation, load_config
-from testkit.local_materialization import materialize_local_execution
+from scopecat_testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.local_materialization import materialize_local_execution
 
 import scopecat.authoring as authoring
 from scopecat.authoring import axis

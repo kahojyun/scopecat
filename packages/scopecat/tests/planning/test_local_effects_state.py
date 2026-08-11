@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from testkit.bound_program import program_fixture
-from testkit.expressions import state_property
-from testkit.materialized_effects import (
+from scopecat_testkit.bound_program import program_fixture
+from scopecat_testkit.expressions import state_property
+from scopecat_testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,
     materialized_state_properties,
 )
-from testkit.parameter_fixtures import (
+from scopecat_testkit.parameter_fixtures import (
     parameters as _parameters,
 )
 

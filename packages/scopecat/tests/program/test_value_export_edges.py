@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import pytest
-from testkit.expressions import evaluate_scalar
+from scopecat_testkit.expressions import evaluate_scalar
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module

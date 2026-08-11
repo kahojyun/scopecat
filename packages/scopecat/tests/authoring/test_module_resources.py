@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from testkit.authoring import bind_invocation, load_config
-from testkit.domain import domain_call
-from testkit.materialized_effects import config_with_physical_resources
+from scopecat_testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.domain import domain_call
+from scopecat_testkit.materialized_effects import config_with_physical_resources
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module

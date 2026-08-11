@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Annotated, cast
 
 import pytest
-from testkit.authoring import bind_invocation, load_config
-from testkit.expressions import evaluate_scalar
+from scopecat_testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.expressions import evaluate_scalar
 
 import scopecat as sc
 from scopecat.authoring.experiments import ExperimentInvocation

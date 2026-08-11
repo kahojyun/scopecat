@@ -1,4 +1,4 @@
-from testkit.bound_program import (
+from scopecat_testkit.bound_program import (
     ComputeNodeFixture,
     compute_result,
     instrument_acquisition,
@@ -7,20 +7,20 @@ from testkit.bound_program import (
     overlay_parameter_cell,
     program_fixture,
 )
-from testkit.expressions import (
+from scopecat_testkit.expressions import (
     state_property as set_state_property,
 )
-from testkit.local_materialization import operations_of_type
-from testkit.materialized_effects import (
+from scopecat_testkit.local_materialization import operations_of_type
+from scopecat_testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,
     materialized_state_properties,
     measurement_projection_contract,
 )
-from testkit.parameter_fixtures import (
+from scopecat_testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,
 )
-from testkit.parameter_fixtures import (
+from scopecat_testkit.parameter_fixtures import (
     parameters as _parameters,
 )
 

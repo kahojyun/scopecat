@@ -41,18 +41,18 @@ from scopecat.records.analysis import (
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
-from testkit.config_registry import activate_candidate_config
-from testkit.in_process_lab import in_process_lab
-from testkit.runtime import (
+from scopecat_testkit.config_registry import activate_candidate_config
+from scopecat_testkit.server.in_process_lab import in_process_lab
+from scopecat_testkit.server.runtime import (
     sqlite_project_services,
 )
-from testkit.signal_testkit import (
+from scopecat_testkit.server.signal_testkit import (
     SUMMARY_STATS_STEP,
     BestSignalAnalysisStep,
     SummaryStatsAnalysisStep,
     execute_signal_run,
 )
-from testkit.workflow_fixtures import load_config, load_invocation
+from scopecat_testkit.workflow_fixtures import load_config, load_invocation
 
 from scopecat_server.storage.sqlite import SQLiteRunRepository
 from scopecat_server.storage.sqlite.run_repository import PreparedContentPublication

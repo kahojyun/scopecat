@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Annotated
 
 import pytest
-from testkit.authoring import bind_invocation, load_config
-from testkit.domain import domain_call
+from scopecat_testkit.authoring import bind_invocation, load_config
+from scopecat_testkit.domain import domain_call
 
 import scopecat as sc
 from scopecat.measurements.results import MeasurementScalar, MeasurementValue

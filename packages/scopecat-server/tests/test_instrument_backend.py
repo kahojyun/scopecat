@@ -23,12 +23,12 @@ from scopecat.sdk.instruments.backend import (
     BackendPropertyWrite,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
-from testkit.instrument_drivers import (
+from scopecat_testkit.instrument_drivers import (
     SignalInstrumentDriver,
     load_config,
     number_state,
 )
-from testkit.payload_codecs import json_payload_codecs
+from scopecat_testkit.payload_codecs import json_payload_codecs
 
 from scopecat_server.instruments.backend import (
     InstrumentBackendRejected,

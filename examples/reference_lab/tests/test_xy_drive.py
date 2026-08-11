@@ -6,7 +6,7 @@ from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import ApplyStateOperation, InvokeOperation
 from scopecat.execution.program import RunCoverageEffect
 from scopecat.planning.compilation import compile_run_program
-from testkit.instrument_host import compose_test_instruments
+from scopecat_testkit.instrument_host import compose_test_instruments
 
 from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT,

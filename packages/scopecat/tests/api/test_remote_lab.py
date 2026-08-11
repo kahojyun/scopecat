@@ -15,10 +15,10 @@ import httpx2
 import pyarrow as pa
 import pytest
 from pydantic import BaseModel
-from testkit.measurement_models import signal_point_schema, signal_record
-from testkit.runtime import plan_experiment, sqlite_project_services
-from testkit.signal_instruments import TestSignalInstrumentProvider
-from testkit.workflow_fixtures import (
+from scopecat_testkit.measurement_models import signal_point_schema, signal_record
+from scopecat_testkit.planning import plan_configured_experiment
+from scopecat_testkit.signal_instruments import TestSignalInstrumentProvider
+from scopecat_testkit.workflow_fixtures import (
     load_config,
     load_invocation,
 )
@@ -277,7 +277,7 @@ def test_execute_submits_complete_plan_and_heartbeats(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    planned_without_source = _planned(tmp_path)
+    planned_without_source = _planned()
     planned = replace(
         planned_without_source,
         config_source=ConfigRegistryRunConfigSource(
@@ -375,7 +375,7 @@ def test_execute_submits_complete_plan_and_heartbeats(
 def test_execute_honors_initial_lease_cancellation_before_remote_effects(
     tmp_path: Path,
 ) -> None:
-    planned = _planned(tmp_path)
+    planned = _planned()
     requests: list[str] = []
     admissions: list[RunAdmission] = []
 
@@ -425,7 +425,7 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    planned = _planned(tmp_path)
+    planned = _planned()
     heartbeat_attempted = Event()
     admissions: list[RunAdmission] = []
 
@@ -932,12 +932,11 @@ def test_preview_invocation_uses_active_config_without_admission() -> None:
     ]
 
 
-def _planned(tmp_path: Path) -> PlannedRun:
+def _planned() -> PlannedRun:
     config = load_config()
-    return plan_experiment(
+    return plan_configured_experiment(
         load_invocation(),
         config=config,
-        services=sqlite_project_services(tmp_path),
         system=ExperimentSystem(
             instrument_catalog=_instrument_catalog(config),
         ),

@@ -1,20 +1,20 @@
 import pytest
-from testkit.bound_program import (
+from scopecat_testkit.bound_program import (
     ProgramFixture,
     instrument_acquisition,
     observable_product,
     program_fixture,
 )
-from testkit.expressions import (
+from scopecat_testkit.expressions import (
     state_property,
     verified_scalar_expr,
 )
-from testkit.materialized_effects import (
+from scopecat_testkit.materialized_effects import (
     materialized_effects_contract,
     materialized_state_properties,
 )
-from testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
-from testkit.workflow_fixtures import load_experiment
+from scopecat_testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
+from scopecat_testkit.workflow_fixtures import load_experiment
 
 from scopecat.compiler.bound_facts import (
     LogicalResourceRequirement,
