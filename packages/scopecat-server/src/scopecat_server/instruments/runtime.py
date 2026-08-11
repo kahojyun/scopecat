@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
-from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from threading import Lock, RLock, Timer
 from typing import TYPE_CHECKING, Literal, cast
@@ -16,13 +14,7 @@ from scopecat.control.models import (
     InstrumentSession,
     ResourceClaim,
 )
-from scopecat.daemon.views import (
-    InstrumentConnectionSummary,
-    InstrumentListView,
-    InstrumentView,
-    TcpipSocketInstrumentConnectionSummary,
-    VirtualInstrumentConnectionSummary,
-)
+from scopecat.daemon.views import InstrumentListView, InstrumentView
 from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentDriverProbeCommand,
@@ -40,35 +32,25 @@ from scopecat.kernel.content_identity import (
     model_wire_content_hash,
     stable_content_hash,
 )
-from scopecat.kernel.problems import (
-    ModelLocation,
-    Problem,
-    ProblemPhase,
-    RuntimeLocation,
-    problem,
-)
+from scopecat.kernel.problems import Problem
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.provider_validation import (
     instrument_contract_fingerprint,
 )
-from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
-    InstrumentConnection,
     InstrumentSpec,
-    VirtualInstrumentConnection,
     config_content_hash,
     instrument_bindings,
 )
-from scopecat.records.instrument import InstrumentPropertyState, InstrumentStateSnapshot
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import InstrumentAcquisitionEvidence
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
     BackendInvokeRequest,
-    BackendPayload,
     lower_backend_apply_request,
     lower_backend_collect_request,
     lower_backend_invoke_request,
@@ -79,7 +61,6 @@ from scopecat.sdk.instruments.commands import (
     CollectCommand,
     CollectReceipt,
     InstrumentConfiguredDefaultsApplyReceipt,
-    InstrumentStateAssignment,
     InstrumentStateCommand,
     InteractiveCollectIntent,
     InvokeCommand,
@@ -95,7 +76,6 @@ from scopecat.sdk.instruments.contracts import (
     validate_collect_command,
     validate_collect_plan,
     validate_invoke_command,
-    validate_reconciled_state_assignments,
     validate_state_command,
 )
 from scopecat.sdk.instruments.execution import (
@@ -120,8 +100,42 @@ from scopecat_server.storage.sqlite import (
 )
 
 from ..errors import BackendConflict, BackendNotFound
+from ._runtime_state import (
+    ApplyReplay,
+    CollectFailureReplay,
+    CollectReceiptReplay,
+    CollectRejectionReplay,
+    ConfiguredDefaultsReplay,
+    InstrumentOperationLedger,
+    InvokeReplay,
+    OwnershipRuntime,
+    RunContext,
+    RunFinalized,
+    RunFinalizing,
+    RunProvision,
+    SessionContext,
+)
+from ._runtime_support import (
+    DefaultStateReconciliationRejected,
+    DefaultStateReconciliationUnknown,
+    HardwareActionIndeterminate,
+    HardwareActionRejected,
+    abort_instruments,
+    configured_state_assignments,
+    fault_ownership,
+    hardware_problem,
+    instrument_connection_summary,
+    lower_hardware_action,
+    payload_codec_issues,
+    payload_codec_problems,
+    pending_configured_state_command,
+    provision_problem,
+    release_instruments,
+    restorable_state_assignments,
+    scope_provider_problems,
+    shutdown_endpoint,
+)
 from .actors import (
-    InstrumentActorConflict,
     InstrumentActorRegistry,
     InstrumentBindingKey,
     InstrumentOwnerKey,
@@ -143,131 +157,6 @@ from .commands import (
 if TYPE_CHECKING:
     from ..services.config import ConfigService
     from ..services.payloads import CommandPayloadService
-
-type _BackendHardwareRequest = (
-    BackendApplyRequest | BackendInvokeRequest | BackendCollectRequest
-)
-
-_INTERACTIVE_REPLAY_LIMIT = 256
-
-
-@dataclass(slots=True)
-class _InstrumentOperationLedger:
-    _operations: OrderedDict[str, _InstrumentOperationReplay] = field(
-        default_factory=OrderedDict
-    )
-
-    def replay(self, command_id: str) -> _InstrumentOperationReplay | None:
-        return self._operations.get(command_id)
-
-    def remember(
-        self,
-        command_id: str,
-        replay: _InstrumentOperationReplay,
-    ) -> None:
-        self._operations[command_id] = replay
-        self._operations.move_to_end(command_id)
-        if len(self._operations) > _INTERACTIVE_REPLAY_LIMIT:
-            self._operations.popitem(last=False)
-
-
-@dataclass(frozen=True, slots=True)
-class _ApplyReplay:
-    command: InstrumentStateCommand
-    receipt: ApplyReceipt
-
-
-@dataclass(frozen=True, slots=True)
-class _InvokeReplay:
-    command: InvokeCommand
-    receipt: InvokeReceipt
-
-
-@dataclass(frozen=True, slots=True)
-class _CollectReceiptReplay:
-    intent: InteractiveCollectIntent
-    command: CollectCommand
-    receipt: CollectReceipt
-
-
-@dataclass(frozen=True, slots=True)
-class _CollectRejectionReplay:
-    intent: InteractiveCollectIntent
-    receipt: CollectReceipt
-
-
-@dataclass(frozen=True, slots=True)
-class _CollectFailureReplay:
-    intent: InteractiveCollectIntent
-    command: CollectCommand
-    message: str
-
-
-@dataclass(frozen=True, slots=True)
-class _ConfiguredDefaultsReplay:
-    command: InstrumentConfiguredDefaultsApplyCommand
-    receipt: InstrumentConfiguredDefaultsApplyReceipt
-
-
-type _InstrumentOperationReplay = (
-    _ApplyReplay
-    | _InvokeReplay
-    | _CollectReceiptReplay
-    | _CollectRejectionReplay
-    | _CollectFailureReplay
-    | _ConfiguredDefaultsReplay
-)
-
-
-@dataclass(slots=True)
-class _OwnershipRuntime:
-    instruments: dict[str, OwnedInstrument]
-    bindings: dict[str, InstrumentBindingSpec]
-    specs: dict[str, InstrumentSpec]
-    payload_catalog: PayloadCodecCatalog
-    ledgers: dict[str, _InstrumentOperationLedger]
-    opening_state: tuple[InstrumentStateSnapshot, ...] = ()
-    lock: RLock = field(default_factory=RLock)
-
-
-@dataclass(slots=True)
-class _SessionContext:
-    runtime: _OwnershipRuntime
-    lease_lock: RLock = field(default_factory=RLock)
-
-
-@dataclass(frozen=True, slots=True)
-class _RunFinalizing:
-    pass
-
-
-@dataclass(frozen=True, slots=True)
-class _RunFinalized:
-    command: RunHardwareFinishCommand
-    receipt: RunHardwareFinalizationReceipt
-
-
-type _RunFinalization = _RunFinalizing | _RunFinalized
-
-
-@dataclass(frozen=True, slots=True)
-class _RunProvision:
-    command: RunInstrumentProvisionCommand
-    receipt: RunInstrumentProvisionReceipt
-    batches: dict[
-        str,
-        tuple[RunHardwareBatchCommand, RunHardwareBatchReceipt],
-    ] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class _RunContext:
-    """Serialize one run and retain volatile receipts only until ``release_run``."""
-
-    lock: RLock = field(default_factory=RLock)
-    provision: _RunProvision | None = None
-    runtime: _OwnershipRuntime | None = None
-    finalization: _RunFinalization | None = None
 
 
 class InstrumentRuntime:
@@ -295,8 +184,8 @@ class InstrumentRuntime:
         self._actors = actors
         self._shutdown_grace_seconds = shutdown_grace_seconds
         self._session_lease_ttl = session_lease_ttl
-        self._sessions: dict[str, _SessionContext] = {}
-        self._run_contexts: dict[str, _RunContext] = {}
+        self._sessions: dict[str, SessionContext] = {}
+        self._run_contexts: dict[str, RunContext] = {}
         self._sessions_lock = RLock()
         self._open_lock = RLock()
         self._run_lock = RLock()
@@ -317,7 +206,7 @@ class InstrumentRuntime:
             description.instrument_id: description
             for description in catalog.instruments
         }
-        global_problems, instrument_problems = _scope_provider_problems(
+        global_problems, instrument_problems = scope_provider_problems(
             active.config.instrument_registry.instruments,
             catalog.problems,
         )
@@ -461,7 +350,7 @@ class InstrumentRuntime:
         self,
         run_id: str,
         command: RunInstrumentProvisionCommand,
-        context: _RunContext,
+        context: RunContext,
     ) -> RunInstrumentProvisionReceipt:
         self._fence_run(run_id, command.lease_id)
         self._require_provisionable_run(context)
@@ -494,7 +383,7 @@ class InstrumentRuntime:
             self._store_run_provision(
                 run_id,
                 context,
-                _RunProvision(
+                RunProvision(
                     command=command,
                     receipt=receipt,
                 ),
@@ -509,7 +398,7 @@ class InstrumentRuntime:
                 command,
                 context=context,
                 problems=(
-                    _provision_problem(
+                    provision_problem(
                         "instrument_provider_unavailable",
                         "project does not configure an instrument backend",
                         run_id=run_id,
@@ -525,7 +414,7 @@ class InstrumentRuntime:
                 command,
                 context=context,
                 problems=(
-                    _provision_problem(
+                    provision_problem(
                         "instrument_provider_unavailable",
                         "project instrument backend has no provider identity",
                         run_id=run_id,
@@ -533,7 +422,7 @@ class InstrumentRuntime:
                     ),
                 ),
             )
-        global_problems, instrument_problems = _scope_provider_problems(
+        global_problems, instrument_problems = scope_provider_problems(
             config.instrument_registry.instruments,
             catalog.problems,
         )
@@ -548,7 +437,7 @@ class InstrumentRuntime:
             current_exclusivity_keys
         ).issubset(instrument_claims):
             setup_problems.append(
-                _provision_problem(
+                provision_problem(
                     "instrument_exclusivity_changed_after_admission",
                     "instrument exclusivity differs from the admitted resource claims",
                     run_id=run_id,
@@ -571,7 +460,7 @@ class InstrumentRuntime:
             if instrument_id not in advertised
         )
         setup_problems.extend(
-            _provision_problem(
+            provision_problem(
                 "instrument_claim_not_described",
                 f"instrument provider does not describe admitted claim {instrument_id}",
                 run_id=run_id,
@@ -582,7 +471,7 @@ class InstrumentRuntime:
         )
         if provider_id != control_run.admission.plan.host_provider_id:
             setup_problems.append(
-                _provision_problem(
+                provision_problem(
                     "instrument_provider_changed_after_admission",
                     "instrument provider differs from the admitted contract",
                     run_id=run_id,
@@ -596,7 +485,7 @@ class InstrumentRuntime:
                 != control_run.admission.plan.host_contract_fingerprint
             ):
                 setup_problems.append(
-                    _provision_problem(
+                    provision_problem(
                         "instrument_contract_changed_after_admission",
                         "instrument descriptions differ from the admitted contract",
                         run_id=run_id,
@@ -640,7 +529,7 @@ class InstrumentRuntime:
                 command,
                 context=context,
                 problems=(
-                    _provision_problem(
+                    provision_problem(
                         "instrument_connection_failed",
                         "instrument connection could not be established",
                         run_id=run_id,
@@ -654,7 +543,7 @@ class InstrumentRuntime:
                 command,
                 context=context,
                 problems=(
-                    _provision_problem(
+                    provision_problem(
                         "instrument_observation_failed",
                         "instrument state could not be observed",
                         run_id=run_id,
@@ -687,7 +576,7 @@ class InstrumentRuntime:
                 status="ready",
             )
         except BackendConflict:
-            _fault_ownership(runtime, abort=True)
+            fault_ownership(runtime, abort=True)
             self._mark_run_unknown(
                 run_id,
                 token=command.lease_id,
@@ -703,7 +592,7 @@ class InstrumentRuntime:
             observed_state=observed_state,
             baseline_state=baseline_state,
         )
-        provision = _RunProvision(
+        provision = RunProvision(
             command=command,
             receipt=receipt,
         )
@@ -716,11 +605,11 @@ class InstrumentRuntime:
         return receipt
 
     @staticmethod
-    def _require_provisionable_run(context: _RunContext) -> None:
+    def _require_provisionable_run(context: RunContext) -> None:
         finalization = context.finalization
         if finalization is None:
             return
-        if isinstance(finalization, _RunFinalized):
+        if isinstance(finalization, RunFinalized):
             raise BackendConflict("run hardware is already finalized")
         raise BackendConflict("run instrument host is finalizing")
 
@@ -729,7 +618,7 @@ class InstrumentRuntime:
         run_id: str,
         command: RunInstrumentProvisionCommand,
         *,
-        context: _RunContext,
+        context: RunContext,
         problems: tuple[Problem, ...],
     ) -> RunInstrumentProvisionReceipt:
         receipt = RunInstrumentProvisionReceipt(
@@ -741,7 +630,7 @@ class InstrumentRuntime:
         self._store_run_provision(
             run_id,
             context,
-            _RunProvision(
+            RunProvision(
                 command=command,
                 receipt=receipt,
             ),
@@ -758,7 +647,7 @@ class InstrumentRuntime:
         instrument_ids: tuple[str, ...],
         expected: Mapping[str, InstrumentDescription],
         payload_catalog: PayloadCodecCatalog,
-    ) -> tuple[_OwnershipRuntime, tuple[InstrumentStateSnapshot, ...]]:
+    ) -> tuple[OwnershipRuntime, tuple[InstrumentStateSnapshot, ...]]:
         for attempt in range(2):
             runtime = self._acquire_ownership(
                 endpoint=endpoint,
@@ -779,7 +668,7 @@ class InstrumentRuntime:
                     instrument.reused_connection
                     for instrument in runtime.instruments.values()
                 )
-                _fault_ownership(runtime, abort=False)
+                fault_ownership(runtime, abort=False)
                 if retry_stale_connection:
                     continue
                 raise
@@ -801,7 +690,7 @@ class InstrumentRuntime:
         instrument_ids: tuple[str, ...],
         expected: Mapping[str, InstrumentDescription],
         payload_catalog: PayloadCodecCatalog,
-    ) -> _OwnershipRuntime:
+    ) -> OwnershipRuntime:
         instruments: dict[str, OwnedInstrument] = {}
         try:
             for instrument_id in instrument_ids:
@@ -825,17 +714,17 @@ class InstrumentRuntime:
                     ),
                 )
         except InstrumentBackendRejected:
-            _release_instruments(instruments.values())
+            release_instruments(instruments.values())
             raise
         except InstrumentBackendUnavailable:
-            _release_instruments(instruments.values())
+            release_instruments(instruments.values())
             raise
         except Exception as error:
-            _release_instruments(instruments.values())
+            release_instruments(instruments.values())
             raise InstrumentBackendUnavailable(
                 "instrument connection could not be established"
             ) from error
-        return _OwnershipRuntime(
+        return OwnershipRuntime(
             instruments=instruments,
             bindings={
                 instrument_id: bindings[instrument_id].model_copy(deep=True)
@@ -847,7 +736,7 @@ class InstrumentRuntime:
             },
             payload_catalog=payload_catalog,
             ledgers={
-                instrument_id: _InstrumentOperationLedger()
+                instrument_id: InstrumentOperationLedger()
                 for instrument_id in instruments
             },
         )
@@ -857,10 +746,10 @@ class InstrumentRuntime:
         *,
         run_id: str,
         command: RunInstrumentProvisionCommand,
-        context: _RunContext,
+        context: RunContext,
         config: ConfigProfileSnapshot,
         instrument_ids: tuple[str, ...],
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         observed_state: tuple[InstrumentStateSnapshot, ...],
     ) -> tuple[InstrumentStateSnapshot, ...] | RunInstrumentProvisionReceipt:
         try:
@@ -873,10 +762,10 @@ class InstrumentRuntime:
                 observed_state=observed_state,
                 operation_id=command.operation_id,
             )
-        except _DefaultStateReconciliationRejected as error:
+        except DefaultStateReconciliationRejected as error:
             # A rejection is conclusive. Earlier confirmed changes stay
             # observable, and the next owner refreshes them before acting.
-            if _release_instruments(runtime.instruments.values()):
+            if release_instruments(runtime.instruments.values()):
                 raise BackendConflict(
                     "instrument default-state reconciliation rejection "
                     "could not be released"
@@ -887,8 +776,8 @@ class InstrumentRuntime:
                 context=context,
                 problems=error.problems,
             )
-        except _DefaultStateReconciliationUnknown as error:
-            _fault_ownership(runtime, abort=True)
+        except DefaultStateReconciliationUnknown as error:
+            fault_ownership(runtime, abort=True)
             self._mark_run_unknown(
                 run_id,
                 token=command.lease_id,
@@ -904,7 +793,7 @@ class InstrumentRuntime:
         *,
         instrument_ids: tuple[str, ...],
         specs: Mapping[str, InstrumentSpec],
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         observed_state: tuple[InstrumentStateSnapshot, ...],
         operation_id: str,
     ) -> tuple[InstrumentStateSnapshot, ...]:
@@ -916,12 +805,12 @@ class InstrumentRuntime:
             spec = specs[instrument_id]
             if spec.run_start != "apply_default_state":
                 continue
-            assignments = _configured_state_assignments(
+            assignments = configured_state_assignments(
                 instrument_id=spec.id,
                 configured_state=spec.default_state,
                 instrument=runtime.instruments[instrument_id],
             )
-            command = _pending_configured_state_command(
+            command = pending_configured_state_command(
                 instrument_id=instrument_id,
                 assignments=assignments,
                 instrument=runtime.instruments[instrument_id],
@@ -945,11 +834,11 @@ class InstrumentRuntime:
                     assignments=command.assignments,
                 )
             except InstrumentCommandExecutionError as error:
-                raise _DefaultStateReconciliationUnknown from error
+                raise DefaultStateReconciliationUnknown from error
             if receipt.status == "unknown":
-                raise _DefaultStateReconciliationUnknown
+                raise DefaultStateReconciliationUnknown
             if receipt.status != "applied":
-                raise _DefaultStateReconciliationRejected(
+                raise DefaultStateReconciliationRejected(
                     problems=receipt.problems,
                 )
             assert receipt.state is not None
@@ -1004,7 +893,7 @@ class InstrumentRuntime:
                 for action in canonical_request.batch.actions
             )
             backend_requests = tuple(
-                _lower_hardware_action(
+                lower_hardware_action(
                     action,
                     materialized_payloads=payloads,
                 )
@@ -1076,7 +965,7 @@ class InstrumentRuntime:
                         if context.runtime is not runtime:
                             raise
                         problems.append(
-                            _hardware_problem(
+                            hardware_problem(
                                 "hardware_action_failed",
                                 str(error),
                                 run_id=run_id,
@@ -1086,7 +975,7 @@ class InstrumentRuntime:
                             )
                         )
                         break
-                    except _HardwareActionRejected as rejection:
+                    except HardwareActionRejected as rejection:
                         problems.extend(
                             contextualize_problems(
                                 rejection.problems,
@@ -1097,7 +986,7 @@ class InstrumentRuntime:
                             )
                         )
                         break
-                    except _HardwareActionIndeterminate as indeterminate:
+                    except HardwareActionIndeterminate as indeterminate:
                         problems.extend(
                             contextualize_problems(
                                 indeterminate.problems,
@@ -1140,7 +1029,7 @@ class InstrumentRuntime:
     def _record_hardware_batch_finished(
         self,
         run_id: str,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         request: RunHardwareBatchCommand,
         receipt: RunHardwareBatchReceipt,
         *,
@@ -1175,7 +1064,7 @@ class InstrumentRuntime:
     def _preflight_hardware_batch(
         self,
         run_id: str,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         request: RunHardwareBatchCommand,
     ) -> tuple[Problem, ...]:
         """Validate the complete batch before the first hardware side effect."""
@@ -1194,7 +1083,7 @@ class InstrumentRuntime:
                 or action.instrument_id not in assumed_states
             ):
                 problems.append(
-                    _hardware_problem(
+                    hardware_problem(
                         "hardware_instrument_not_live",
                         (
                             "instrument is not live for run "
@@ -1256,7 +1145,7 @@ class InstrumentRuntime:
                     description=runtime.instruments[action.instrument_id].description,
                 )
                 action_problems.extend(
-                    _payload_codec_problems(
+                    payload_codec_problems(
                         command.payloads,
                         runtime.payload_catalog,
                         run_id=run_id,
@@ -1315,7 +1204,7 @@ class InstrumentRuntime:
         self,
         run_id: str,
         token: str,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         action: RunHardwareApply,
         driver_request: BackendApplyRequest,
     ) -> dict[str, JsonValue]:
@@ -1353,7 +1242,7 @@ class InstrumentRuntime:
             baseline=current,
         )
         if validation_problems:
-            raise _HardwareActionRejected(validation_problems)
+            raise HardwareActionRejected(validation_problems)
         try:
             receipt = execute_instrument_apply(
                 instrument,
@@ -1369,12 +1258,12 @@ class InstrumentRuntime:
             )
             raise BackendConflict(str(error)) from error
         if receipt.status == "unknown":
-            raise _HardwareActionIndeterminate(
+            raise HardwareActionIndeterminate(
                 receipt.problems,
                 reason="run_instrument_apply_receipt_unknown",
             )
         if receipt.status != "applied":
-            raise _HardwareActionRejected(receipt.problems)
+            raise HardwareActionRejected(receipt.problems)
         return {
             "effect_id": action.effect_id,
             "status": receipt.status,
@@ -1385,7 +1274,7 @@ class InstrumentRuntime:
         self,
         run_id: str,
         token: str,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         action: RunHardwareInvoke,
         backend_request: BackendInvokeRequest,
     ) -> dict[str, JsonValue]:
@@ -1401,12 +1290,12 @@ class InstrumentRuntime:
             )
             raise BackendConflict(str(error)) from error
         if receipt.status == "unknown":
-            raise _HardwareActionIndeterminate(
+            raise HardwareActionIndeterminate(
                 receipt.problems,
                 reason="run_instrument_invoke_receipt_unknown",
             )
         if receipt.status != "invoked":
-            raise _HardwareActionRejected(receipt.problems)
+            raise HardwareActionRejected(receipt.problems)
         return {
             "effect_id": action.effect_id,
             "status": receipt.status,
@@ -1417,7 +1306,7 @@ class InstrumentRuntime:
         self,
         run_id: str,
         token: str,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         action: RunHardwareCollect,
         driver_request: BackendCollectRequest,
     ) -> tuple[tuple[RunHardwareValue, ...], dict[str, JsonValue]]:
@@ -1434,7 +1323,7 @@ class InstrumentRuntime:
             description=instrument.description,
         )
         if validation_problems:
-            raise _HardwareActionRejected(validation_problems)
+            raise HardwareActionRejected(validation_problems)
         started_at = datetime.now(UTC)
         try:
             receipt = execute_instrument_collect(
@@ -1444,7 +1333,7 @@ class InstrumentRuntime:
             )
         except InstrumentCommandExecutionError as error:
             if error.reason == "instrument_collect_receipt_invalid":
-                raise _HardwareActionRejected(error.problems) from error
+                raise HardwareActionRejected(error.problems) from error
             self._lose_run_runtime(
                 run_id,
                 runtime,
@@ -1454,12 +1343,12 @@ class InstrumentRuntime:
             raise BackendConflict(str(error)) from error
         completed_at = datetime.now(UTC)
         if receipt.status == "unknown":
-            raise _HardwareActionIndeterminate(
+            raise HardwareActionIndeterminate(
                 receipt.problems,
                 reason="run_instrument_collect_receipt_unknown",
             )
         if receipt.status == "not_collected":
-            raise _HardwareActionRejected(receipt.problems)
+            raise HardwareActionRejected(receipt.problems)
         assert receipt.readback is not None
         bindings = {
             binding.request_id: binding.value_ids for binding in action.bindings
@@ -1508,7 +1397,7 @@ class InstrumentRuntime:
         with context.lock:
             finalization = context.finalization
             if finalization is not None:
-                if isinstance(finalization, _RunFinalizing):
+                if isinstance(finalization, RunFinalizing):
                     raise BackendConflict("run instrument host is finalizing")
                 if finalization.command != command:
                     raise BackendConflict(
@@ -1530,7 +1419,7 @@ class InstrumentRuntime:
                     operation_id=command.operation_id,
                 )
             else:
-                context.finalization = _RunFinalizing()
+                context.finalization = RunFinalizing()
                 provision = context.provision
                 if provision is None or provision.receipt.status != "ready":
                     raise BackendConflict("run instruments are not provisioned")
@@ -1550,7 +1439,7 @@ class InstrumentRuntime:
 
             context.provision = None
             context.runtime = None
-            context.finalization = _RunFinalized(
+            context.finalization = RunFinalized(
                 command=command,
                 receipt=receipt,
             )
@@ -1561,7 +1450,7 @@ class InstrumentRuntime:
         run_id: str,
         *,
         token: str,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         baseline_state: Sequence[InstrumentStateSnapshot],
         failed: bool,
         operation_id: str,
@@ -1611,7 +1500,7 @@ class InstrumentRuntime:
                     with suppress(Exception):
                         instrument.fault()
                     problems.append(
-                        _hardware_problem(
+                        hardware_problem(
                             "instrument_terminal_read_failed",
                             str(error),
                             run_id=run_id,
@@ -1619,7 +1508,7 @@ class InstrumentRuntime:
                             instrument_id=instrument_id,
                         )
                     )
-            if _release_instruments(
+            if release_instruments(
                 instrument
                 for instrument_id, instrument in runtime.instruments.items()
                 if instrument_id not in faulted
@@ -1639,7 +1528,7 @@ class InstrumentRuntime:
         run_id: str,
         *,
         token: str,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         baseline_state: Sequence[InstrumentStateSnapshot],
         operation_id: str,
     ) -> list[Problem]:
@@ -1653,12 +1542,12 @@ class InstrumentRuntime:
             restore_operation_id = f"{operation_id}.restore_baseline.{instrument_id}"
             try:
                 observed_state = observe_instrument(instrument)
-                assignments = _restorable_state_assignments(
+                assignments = restorable_state_assignments(
                     instrument_id=instrument_id,
                     baseline_state=baseline_by_instrument[instrument_id],
                     instrument=instrument,
                 )
-                command = _pending_configured_state_command(
+                command = pending_configured_state_command(
                     instrument_id=instrument_id,
                     assignments=assignments,
                     instrument=instrument,
@@ -1673,7 +1562,7 @@ class InstrumentRuntime:
                     lower_backend_apply_request(command),
                     assignments=command.assignments,
                 )
-            except _DefaultStateReconciliationRejected as rejection:
+            except DefaultStateReconciliationRejected as rejection:
                 return list(
                     contextualize_problems(
                         rejection.problems,
@@ -1718,7 +1607,7 @@ class InstrumentRuntime:
         run_id: str,
         *,
         token: str,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         operation_id: str,
         problems: list[Problem],
     ) -> None:
@@ -1728,12 +1617,12 @@ class InstrumentRuntime:
                 continue
             try:
                 observed_state = observe_instrument(instrument)
-                assignments = _configured_state_assignments(
+                assignments = configured_state_assignments(
                     instrument_id=spec.id,
                     configured_state=spec.safe_state,
                     instrument=instrument,
                 )
-                command = _pending_configured_state_command(
+                command = pending_configured_state_command(
                     instrument_id=instrument_id,
                     assignments=assignments,
                     instrument=instrument,
@@ -1776,22 +1665,22 @@ class InstrumentRuntime:
             if receipt.status != "applied":
                 problems.extend(receipt.problems)
 
-    def _create_run_context(self, run_id: str) -> _RunContext:
+    def _create_run_context(self, run_id: str) -> RunContext:
         with self._run_lock:
-            return self._run_contexts.setdefault(run_id, _RunContext())
+            return self._run_contexts.setdefault(run_id, RunContext())
 
     def _store_run_provision(
         self,
         run_id: str,
-        context: _RunContext,
-        provision: _RunProvision,
+        context: RunContext,
+        provision: RunProvision,
         *,
-        runtime: _OwnershipRuntime | None = None,
+        runtime: OwnershipRuntime | None = None,
     ) -> None:
         with self._lifecycle_lock:
             if self._stopping:
                 if runtime is not None:
-                    _fault_ownership(runtime, abort=True)
+                    fault_ownership(runtime, abort=True)
                 self._mark_run_unknown(
                     run_id,
                     token=provision.command.lease_id,
@@ -1801,7 +1690,7 @@ class InstrumentRuntime:
             with self._run_lock:
                 if self._run_contexts.get(run_id) is not context:
                     if runtime is not None:
-                        _fault_ownership(runtime, abort=True)
+                        fault_ownership(runtime, abort=True)
                     raise BackendConflict("run instrument context is no longer active")
                 context.provision = provision
                 context.runtime = runtime
@@ -1810,8 +1699,8 @@ class InstrumentRuntime:
         self,
         run_id: str,
         *,
-        expected: _OwnershipRuntime | None = None,
-    ) -> _OwnershipRuntime | None:
+        expected: OwnershipRuntime | None = None,
+    ) -> OwnershipRuntime | None:
         with self._run_lock:
             context = self._run_contexts.get(run_id)
             if context is None:
@@ -1954,9 +1843,9 @@ class InstrumentRuntime:
                 if self._stopping:
                     raise BackendConflict("instrument service is shutting down")
                 with self._sessions_lock:
-                    self._sessions[session.session_id] = _SessionContext(runtime)
+                    self._sessions[session.session_id] = SessionContext(runtime)
         except BackendConflict:
-            _fault_ownership(runtime, abort=False)
+            fault_ownership(runtime, abort=False)
             self._abort_open_session(session)
             raise
         return self._wire_session(session, runtime)
@@ -2065,7 +1954,7 @@ class InstrumentRuntime:
     def _synchronize_session_instrument(
         self,
         session: InstrumentSession,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         instrument: OwnedInstrument,
     ) -> InstrumentStateSnapshot:
         try:
@@ -2095,7 +1984,7 @@ class InstrumentRuntime:
             ledger = runtime.ledgers[instrument_id]
             replay = ledger.replay(command_id)
             if replay is not None:
-                if not isinstance(replay, _ApplyReplay):
+                if not isinstance(replay, ApplyReplay):
                     raise BackendConflict(
                         "interactive command id was already used for another "
                         "command kind"
@@ -2125,7 +2014,7 @@ class InstrumentRuntime:
                 )
                 ledger.remember(
                     command_id,
-                    _ApplyReplay(
+                    ApplyReplay(
                         command=command,
                         receipt=receipt,
                     ),
@@ -2173,7 +2062,7 @@ class InstrumentRuntime:
             ledger = runtime.ledgers[instrument_id]
             replay = ledger.replay(command.operation_id)
             if replay is not None:
-                if not isinstance(replay, _ConfiguredDefaultsReplay):
+                if not isinstance(replay, ConfiguredDefaultsReplay):
                     raise BackendConflict(
                         "interactive command id was already used for another "
                         "command kind"
@@ -2194,7 +2083,7 @@ class InstrumentRuntime:
                     command=command,
                     instrument_id=instrument_id,
                     problems=(
-                        _provision_problem(
+                        provision_problem(
                             "instrument_configured_defaults_missing",
                             "instrument has no configured default state",
                             operation_id=command.operation_id,
@@ -2203,12 +2092,12 @@ class InstrumentRuntime:
                     ),
                 )
             try:
-                assignments = _configured_state_assignments(
+                assignments = configured_state_assignments(
                     instrument_id=spec.id,
                     configured_state=spec.default_state,
                     instrument=instrument,
                 )
-            except _DefaultStateReconciliationRejected as error:
+            except DefaultStateReconciliationRejected as error:
                 return self._reject_configured_defaults(
                     session=session,
                     runtime=runtime,
@@ -2225,14 +2114,14 @@ class InstrumentRuntime:
                 raise
             instrument.adopt_state(observed)
             try:
-                state_command = _pending_configured_state_command(
+                state_command = pending_configured_state_command(
                     instrument_id=instrument_id,
                     assignments=assignments,
                     instrument=instrument,
                     observed_state=observed,
                     operation_id=command.operation_id,
                 )
-            except _DefaultStateReconciliationRejected as error:
+            except DefaultStateReconciliationRejected as error:
                 return self._reject_configured_defaults(
                     session=session,
                     runtime=runtime,
@@ -2335,8 +2224,8 @@ class InstrumentRuntime:
         self,
         *,
         session: InstrumentSession,
-        runtime: _OwnershipRuntime,
-        ledger: _InstrumentOperationLedger,
+        runtime: OwnershipRuntime,
+        ledger: InstrumentOperationLedger,
         command: InstrumentConfiguredDefaultsApplyCommand,
         instrument_id: str,
         problems: tuple[Problem, ...],
@@ -2366,14 +2255,14 @@ class InstrumentRuntime:
         self,
         *,
         session: InstrumentSession,
-        runtime: _OwnershipRuntime,
-        ledger: _InstrumentOperationLedger,
+        runtime: OwnershipRuntime,
+        ledger: InstrumentOperationLedger,
         command: InstrumentConfiguredDefaultsApplyCommand,
         receipt: InstrumentConfiguredDefaultsApplyReceipt,
     ) -> InstrumentConfiguredDefaultsApplyReceipt:
         ledger.remember(
             command.operation_id,
-            _ConfiguredDefaultsReplay(
+            ConfiguredDefaultsReplay(
                 command=command,
                 receipt=receipt,
             ),
@@ -2458,9 +2347,9 @@ class InstrumentRuntime:
                 if not isinstance(
                     replay,
                     (
-                        _CollectReceiptReplay,
-                        _CollectRejectionReplay,
-                        _CollectFailureReplay,
+                        CollectReceiptReplay,
+                        CollectRejectionReplay,
+                        CollectFailureReplay,
                     ),
                 ):
                     raise BackendConflict(
@@ -2471,7 +2360,7 @@ class InstrumentRuntime:
                     raise BackendConflict(
                         "interactive command id has different collect content"
                     )
-                if isinstance(replay, _CollectFailureReplay):
+                if isinstance(replay, CollectFailureReplay):
                     raise BackendConflict(replay.message)
                 return replay.receipt
 
@@ -2493,7 +2382,7 @@ class InstrumentRuntime:
                 )
                 ledger.remember(
                     intent.command_id,
-                    _CollectRejectionReplay(
+                    CollectRejectionReplay(
                         intent=intent,
                         receipt=receipt,
                     ),
@@ -2527,7 +2416,7 @@ class InstrumentRuntime:
 
     def _execute_interactive_apply(
         self,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         instrument: OwnedInstrument,
         *,
         command: InstrumentStateCommand,
@@ -2550,7 +2439,7 @@ class InstrumentRuntime:
             raise BackendConflict(str(error)) from error
         ledger.remember(
             command_id,
-            _ApplyReplay(command=command, receipt=receipt),
+            ApplyReplay(command=command, receipt=receipt),
         )
         try:
             on_finished(receipt.status)
@@ -2565,7 +2454,7 @@ class InstrumentRuntime:
 
     def _invoke_live(
         self,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         instrument: OwnedInstrument,
         *,
         command: InvokeCommand,
@@ -2577,7 +2466,7 @@ class InstrumentRuntime:
         command_id = command.command_id
         ledger = runtime.ledgers[instrument.instrument_id]
         replay = ledger.replay(command_id)
-        if replay is not None and not isinstance(replay, _InvokeReplay):
+        if replay is not None and not isinstance(replay, InvokeReplay):
             raise BackendConflict(
                 f"{conflict_scope} command id was already used for another command kind"
             )
@@ -2585,7 +2474,7 @@ class InstrumentRuntime:
             command=command,
             description=instrument.description,
         )
-        codec_issues = _payload_codec_issues(
+        codec_issues = payload_codec_issues(
             command.payloads,
             runtime.payload_catalog,
         )
@@ -2619,7 +2508,7 @@ class InstrumentRuntime:
             raise BackendConflict(str(error)) from error
         ledger.remember(
             command_id,
-            _InvokeReplay(
+            InvokeReplay(
                 command=canonical_command,
                 receipt=receipt,
             ),
@@ -2637,7 +2526,7 @@ class InstrumentRuntime:
 
     def _execute_interactive_collect(
         self,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         instrument: OwnedInstrument,
         *,
         intent: InteractiveCollectIntent,
@@ -2670,7 +2559,7 @@ class InstrumentRuntime:
                 ) from audit_error
             ledger.remember(
                 command_id,
-                _CollectFailureReplay(
+                CollectFailureReplay(
                     intent=intent,
                     command=command,
                     message=message,
@@ -2679,7 +2568,7 @@ class InstrumentRuntime:
             raise BackendConflict(message) from error
         ledger.remember(
             command_id,
-            _CollectReceiptReplay(
+            CollectReceiptReplay(
                 intent=intent,
                 command=command,
                 receipt=receipt,
@@ -2740,7 +2629,7 @@ class InstrumentRuntime:
             with self._sessions_lock:
                 if self._sessions.get(session_id) is not context:
                     return
-            _fault_ownership(runtime, abort=True)
+            fault_ownership(runtime, abort=True)
             with self._sessions_lock:
                 if self._sessions.get(session_id) is context:
                     self._sessions.pop(session_id)
@@ -2787,7 +2676,7 @@ class InstrumentRuntime:
                 if current.state != "active" or current.expires_at > checked_at:
                     return
                 if current.active_operation_id is not None:
-                    _fault_ownership(runtime, abort=True)
+                    fault_ownership(runtime, abort=True)
                     self._pop_runtime(current.session_id)
                     self._mark_unknown(
                         current,
@@ -2795,8 +2684,8 @@ class InstrumentRuntime:
                     )
                     return
 
-                if _release_instruments(runtime.instruments.values()):
-                    _fault_ownership(runtime, abort=False)
+                if release_instruments(runtime.instruments.values()):
+                    fault_ownership(runtime, abort=False)
                     self._pop_runtime(current.session_id)
                     self._mark_unknown(
                         current,
@@ -2830,7 +2719,7 @@ class InstrumentRuntime:
             self._fence_run(run_id, token)
             if context.finalization is not None:
                 return
-            context.finalization = _RunFinalizing()
+            context.finalization = RunFinalizing()
             runtime = context.runtime
             if runtime is not None:
                 self._finalize_run_instruments(
@@ -2858,7 +2747,7 @@ class InstrumentRuntime:
             if self._run_contexts.get(run_id) is context:
                 self._run_contexts.pop(run_id)
 
-    def _run_context_state(self, run_id: str) -> _RunContext | None:
+    def _run_context_state(self, run_id: str) -> RunContext | None:
         with self._run_lock:
             return self._run_contexts.get(run_id)
 
@@ -2900,7 +2789,7 @@ class InstrumentRuntime:
                 context.runtime = None
             if runtime is not None:
                 with runtime.lock:
-                    _fault_ownership(runtime, abort=True)
+                    fault_ownership(runtime, abort=True)
 
     def reconcile_startup(self) -> None:
         with self._attention_lock:
@@ -2936,7 +2825,7 @@ class InstrumentRuntime:
             if endpoint is None
             else Timer(
                 self._shutdown_grace_seconds,
-                _shutdown_endpoint,
+                shutdown_endpoint,
                 args=(endpoint,),
             )
         )
@@ -2953,13 +2842,13 @@ class InstrumentRuntime:
             if deadline is not None:
                 deadline.cancel()
             if endpoint is not None:
-                _shutdown_endpoint(endpoint)
+                shutdown_endpoint(endpoint)
 
     def _drain_shutdown(
         self,
         *,
-        sessions: tuple[tuple[str, _SessionContext], ...],
-        run_contexts: tuple[tuple[str, _RunContext], ...],
+        sessions: tuple[tuple[str, SessionContext], ...],
+        run_contexts: tuple[tuple[str, RunContext], ...],
     ) -> None:
         for session_id, context in sessions:
             runtime = context.runtime
@@ -2971,9 +2860,9 @@ class InstrumentRuntime:
                 if session.state != "active":
                     continue
                 if session.active_operation_id is None:
-                    failed = _release_instruments(runtime.instruments.values())
+                    failed = release_instruments(runtime.instruments.values())
                 else:
-                    failed = _fault_ownership(runtime, abort=True)
+                    failed = fault_ownership(runtime, abort=True)
                 if failed or session.active_operation_id is not None:
                     self._mark_unknown(
                         session,
@@ -2990,7 +2879,7 @@ class InstrumentRuntime:
                 runtime = context.runtime
                 if runtime is not None:
                     with runtime.lock:
-                        _fault_ownership(runtime, abort=True)
+                        fault_ownership(runtime, abort=True)
                 if provision is not None:
                     self._mark_run_unknown(
                         run_id,
@@ -3025,9 +2914,7 @@ class InstrumentRuntime:
                 session = self._control.validate_instrument_session(session_id)
             except ControlPlaneConflict as error:
                 raise BackendConflict(str(error)) from error
-            failed = (
-                _abort_instruments(runtime.instruments.values()) if abort else False
-            )
+            failed = abort_instruments(runtime.instruments.values()) if abort else False
             if failed:
                 self._lose_runtime(
                     session,
@@ -3036,7 +2923,7 @@ class InstrumentRuntime:
                     abort=False,
                 )
                 raise BackendConflict("instrument abort was not confirmed")
-            if _release_instruments(runtime.instruments.values()):
+            if release_instruments(runtime.instruments.values()):
                 self._pop_runtime(session.session_id)
                 self._mark_unknown(
                     session,
@@ -3066,7 +2953,7 @@ class InstrumentRuntime:
         self,
         session_id: str,
         instrument_id: str,
-    ) -> tuple[InstrumentSession, _OwnershipRuntime, OwnedInstrument]:
+    ) -> tuple[InstrumentSession, OwnershipRuntime, OwnedInstrument]:
         try:
             session = self._control.validate_instrument_session(session_id)
             runtime = self._live_runtime(session_id)
@@ -3082,17 +2969,17 @@ class InstrumentRuntime:
             ) from error
         return session, runtime, instrument
 
-    def _live_runtime(self, session_id: str) -> _OwnershipRuntime:
+    def _live_runtime(self, session_id: str) -> OwnershipRuntime:
         return self._live_session_context(session_id).runtime
 
-    def _live_session_context(self, session_id: str) -> _SessionContext:
+    def _live_session_context(self, session_id: str) -> SessionContext:
         with self._sessions_lock:
             context = self._sessions.get(session_id)
         if context is None:
             raise BackendConflict("instrument session has no owned daemon instruments")
         return context
 
-    def _pop_runtime(self, session_id: str) -> _OwnershipRuntime | None:
+    def _pop_runtime(self, session_id: str) -> OwnershipRuntime | None:
         with self._sessions_lock:
             context = self._sessions.pop(session_id, None)
         return None if context is None else context.runtime
@@ -3100,23 +2987,23 @@ class InstrumentRuntime:
     def _lose_runtime(
         self,
         session: InstrumentSession,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         *,
         reason: str,
         abort: bool = True,
     ) -> None:
-        _fault_ownership(runtime, abort=abort)
+        fault_ownership(runtime, abort=abort)
         self._pop_runtime(session.session_id)
         self._mark_unknown(session, reason=reason)
 
     def _end_failed_observation(
         self,
         session: InstrumentSession,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
     ) -> None:
         """Release a read-only failure without claiming hardware was modified."""
 
-        _fault_ownership(runtime, abort=False)
+        fault_ownership(runtime, abort=False)
         self._pop_runtime(session.session_id)
         try:
             self._control.close_instrument_session(
@@ -3135,13 +3022,13 @@ class InstrumentRuntime:
     def _lose_run_runtime(
         self,
         run_id: str,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
         *,
         token: str,
         reason: str,
         abort: bool = True,
     ) -> None:
-        _fault_ownership(runtime, abort=abort)
+        fault_ownership(runtime, abort=abort)
         self._pop_run_runtime(run_id, expected=runtime)
         self._mark_run_unknown(
             run_id,
@@ -3270,7 +3157,7 @@ class InstrumentRuntime:
         config: ConfigProfileSnapshot,
         instrument_ids: tuple[str, ...],
     ) -> dict[str, InstrumentDescription]:
-        global_problems, instrument_problems = _scope_provider_problems(
+        global_problems, instrument_problems = scope_provider_problems(
             config.instrument_registry.instruments,
             catalog.problems,
         )
@@ -3384,7 +3271,7 @@ class InstrumentRuntime:
     def _wire_session(
         self,
         session: InstrumentSession,
-        runtime: _OwnershipRuntime,
+        runtime: OwnershipRuntime,
     ) -> InstrumentSessionOpenReceipt:
         configured = {spec.id for spec in runtime.specs.values() if spec.default_state}
         return InstrumentSessionOpenReceipt(
@@ -3449,7 +3336,7 @@ class InstrumentRuntime:
         return InstrumentView(
             instrument_id=spec.id,
             driver_id=spec.driver_id,
-            connection=_instrument_connection_summary(spec.connection),
+            connection=instrument_connection_summary(spec.connection),
             description=description,
             availability=availability,
             owner_kind=None if claim is None else claim.owner_kind,
@@ -3457,376 +3344,6 @@ class InstrumentRuntime:
             owner_actor=owner_actor,
             problems=problems,
         )
-
-
-def _instrument_connection_summary(
-    connection: InstrumentConnection,
-) -> InstrumentConnectionSummary:
-    if isinstance(connection, VirtualInstrumentConnection):
-        return VirtualInstrumentConnectionSummary()
-    return TcpipSocketInstrumentConnectionSummary(
-        host=connection.host,
-        port=connection.port,
-    )
-
-
-class _DefaultStateReconciliationRejected(RuntimeError):
-    def __init__(
-        self,
-        *,
-        problems: tuple[Problem, ...],
-    ) -> None:
-        self.problems = problems
-        super().__init__("instrument default-state reconciliation was rejected")
-
-
-class _DefaultStateReconciliationUnknown(RuntimeError):
-    pass
-
-
-class _HardwareActionRejected(RuntimeError):
-    def __init__(self, problems: Sequence[Problem]) -> None:
-        self.problems = tuple(problems)
-        super().__init__("; ".join(item.message for item in self.problems))
-
-
-class _HardwareActionIndeterminate(RuntimeError):
-    def __init__(self, problems: Sequence[Problem], *, reason: str) -> None:
-        self.problems = tuple(problems)
-        self.reason = reason
-        super().__init__("; ".join(item.message for item in self.problems))
-
-
-def _provision_problem(
-    code: str,
-    message: str,
-    *,
-    run_id: str | None = None,
-    operation_id: str | None = None,
-    instrument_id: str | None = None,
-    details: Mapping[str, object] | None = None,
-) -> Problem:
-    location = (
-        RuntimeLocation(
-            run_id=run_id,
-            operation_id=operation_id,
-            instrument_id=instrument_id,
-        )
-        if run_id is not None or operation_id is not None
-        else ModelLocation(
-            root="instrument_provider",
-            path=(() if instrument_id is None else ("instruments", instrument_id)),
-        )
-    )
-    return problem(
-        code,
-        message,
-        phase=ProblemPhase.PROVIDER_PREFLIGHT,
-        location=location,
-        details=details,
-    )
-
-
-def _lower_hardware_action(
-    action: RunHardwareApply | RunHardwareInvoke | RunHardwareCollect,
-    *,
-    materialized_payloads: Mapping[str, BackendPayload],
-) -> _BackendHardwareRequest:
-    if isinstance(action, RunHardwareApply):
-        return lower_backend_apply_request(
-            InstrumentStateCommand(
-                command_id=action.effect_id,
-                instrument_id=action.instrument_id,
-                assignments=list(action.assignments),
-            )
-        )
-    if isinstance(action, RunHardwareInvoke):
-        return lower_backend_invoke_request(
-            InvokeCommand(
-                command_id=action.effect_id,
-                instrument_id=action.instrument_id,
-                resource_id=action.resource_id,
-                interface_id=action.interface_id,
-                component_path=list(action.component_path),
-                operation_id=action.operation_id,
-                arguments=list(action.arguments),
-                payloads=action.payloads,
-                entity_ids=list(action.entity_ids),
-                channel_bindings=list(action.channel_bindings),
-            ),
-            materialized_payloads=materialized_payloads,
-        )
-    return lower_backend_collect_request(
-        CollectCommand(
-            command_id=action.effect_id,
-            instrument_id=action.instrument_id,
-            point_index=action.point_index,
-            point_count=action.point_count,
-            requests=list(action.requests),
-        )
-    )
-
-
-def _hardware_problem(
-    code: str,
-    message: str,
-    *,
-    run_id: str,
-    operation_id: str,
-    instrument_id: str | None = None,
-    point_index: int | None = None,
-) -> Problem:
-    return problem(
-        code,
-        message,
-        phase=ProblemPhase.EXECUTION,
-        location=RuntimeLocation(
-            run_id=run_id,
-            operation_id=operation_id,
-            instrument_id=instrument_id,
-            point_index=point_index,
-        ),
-    )
-
-
-def _payload_codec_issues(
-    payloads: Mapping[str, CommandPayload],
-    catalog: PayloadCodecCatalog,
-) -> tuple[tuple[str, str], ...]:
-    issues: list[tuple[str, str]] = []
-    for payload_id, payload in payloads.items():
-        try:
-            catalog.validate_descriptor(payload)
-        except LookupError as error:
-            issues.append(
-                (
-                    "instrument_payload_codec_unavailable",
-                    f"payload {payload_id!r}: {error}",
-                )
-            )
-        except ValueError as error:
-            issues.append(
-                (
-                    "instrument_payload_codec_mismatch",
-                    f"payload {payload_id!r}: {error}",
-                )
-            )
-    return tuple(issues)
-
-
-def _payload_codec_problems(
-    payloads: Mapping[str, CommandPayload],
-    catalog: PayloadCodecCatalog,
-    *,
-    run_id: str,
-    operation_id: str,
-    instrument_id: str,
-    point_index: int | None,
-) -> tuple[Problem, ...]:
-    return tuple(
-        _hardware_problem(
-            code,
-            message,
-            run_id=run_id,
-            operation_id=operation_id,
-            instrument_id=instrument_id,
-            point_index=point_index,
-        )
-        for code, message in _payload_codec_issues(payloads, catalog)
-    )
-
-
-def _configured_state_assignments(
-    *,
-    instrument_id: str,
-    configured_state: Sequence[InstrumentPropertyState],
-    instrument: OwnedInstrument,
-) -> tuple[InstrumentStateAssignment, ...]:
-    assignments = tuple(
-        InstrumentStateAssignment(
-            resource_id=instrument_id,
-            interface_id=item.interface_id,
-            component_path=list(item.component_path),
-            property_id=item.property_id,
-            value=item.value,
-        )
-        for item in configured_state
-    )
-    problems = validate_reconciled_state_assignments(
-        instrument_id=instrument_id,
-        assignments=assignments,
-        description=instrument.description,
-    )
-    if problems:
-        raise _DefaultStateReconciliationRejected(
-            problems=tuple(problems),
-        )
-    return assignments
-
-
-def _restorable_state_assignments(
-    *,
-    instrument_id: str,
-    baseline_state: InstrumentStateSnapshot,
-    instrument: OwnedInstrument,
-) -> tuple[InstrumentStateAssignment, ...]:
-    assignments: list[InstrumentStateAssignment] = []
-    for item in baseline_state.properties:
-        assignment = InstrumentStateAssignment(
-            resource_id=instrument_id,
-            interface_id=item.interface_id,
-            component_path=list(item.component_path),
-            property_id=item.property_id,
-            value=item.value,
-        )
-        problems = validate_reconciled_state_assignments(
-            instrument_id=instrument_id,
-            assignments=(assignment,),
-            description=instrument.description,
-        )
-        if not problems:
-            assignments.append(assignment)
-            continue
-        if len(problems) == 1 and problems[0].code == (
-            "instrument_driver_read_only_property"
-        ):
-            continue
-        raise _DefaultStateReconciliationRejected(problems=tuple(problems))
-    return tuple(assignments)
-
-
-def _pending_configured_state_command(
-    *,
-    instrument_id: str,
-    assignments: Sequence[InstrumentStateAssignment],
-    instrument: OwnedInstrument,
-    observed_state: InstrumentStateSnapshot,
-    operation_id: str,
-) -> InstrumentStateCommand | None:
-    pending = [
-        assignment
-        for assignment in assignments
-        if not state_assignment_satisfied(observed_state, assignment)
-    ]
-    if not pending:
-        return None
-    problems = validate_reconciled_state_assignments(
-        instrument_id=instrument_id,
-        assignments=pending,
-        description=instrument.description,
-        baseline=observed_state,
-    )
-    if problems:
-        raise _DefaultStateReconciliationRejected(
-            problems=tuple(problems),
-        )
-    return InstrumentStateCommand(
-        command_id=operation_id,
-        instrument_id=instrument_id,
-        assignments=pending,
-    )
-
-
-def _shutdown_endpoint(endpoint: InstrumentBackendEndpoint) -> None:
-    with suppress(Exception):
-        endpoint.shutdown()
-
-
-def _release_instruments(instruments: Iterable[OwnedInstrument]) -> bool:
-    failed = False
-    for instrument in reversed(tuple(instruments)):
-        try:
-            instrument.release()
-        except Exception:
-            failed = True
-    return failed
-
-
-def _abort_instruments(instruments: Iterable[OwnedInstrument]) -> bool:
-    failed = False
-    for instrument in reversed(tuple(instruments)):
-        try:
-            instrument.abort()
-        except Exception:
-            failed = True
-    return failed
-
-
-def _fault_ownership(
-    runtime: _OwnershipRuntime,
-    *,
-    abort: bool,
-) -> bool:
-    failed = _abort_instruments(runtime.instruments.values()) if abort else False
-    for instrument in reversed(tuple(runtime.instruments.values())):
-        try:
-            instrument.fault()
-        except InstrumentActorConflict:
-            continue
-        except Exception:
-            failed = True
-    return failed
-
-
-def _scope_provider_problems(
-    specs: list[InstrumentSpec],
-    problems: tuple[Problem, ...],
-) -> tuple[tuple[Problem, ...], dict[str, tuple[Problem, ...]]]:
-    instrument_ids = {spec.id for spec in specs}
-    scoped: dict[str, list[Problem]] = {}
-    global_problems: list[Problem] = []
-    for item in problems:
-        owners = _problem_instrument_ids(
-            item,
-            specs=specs,
-            instrument_ids=instrument_ids,
-        )
-        if not owners:
-            global_problems.append(item)
-            continue
-        for instrument_id in owners:
-            scoped.setdefault(instrument_id, []).append(item)
-    return (
-        tuple(global_problems),
-        {instrument_id: tuple(items) for instrument_id, items in scoped.items()},
-    )
-
-
-def _problem_instrument_ids(
-    problem: Problem,
-    *,
-    specs: list[InstrumentSpec],
-    instrument_ids: set[str],
-) -> tuple[str, ...]:
-    selected: set[str] = set()
-    detail_id = problem.details.get("instrument_id")
-    if isinstance(detail_id, str) and detail_id in instrument_ids:
-        selected.add(detail_id)
-    for location in (
-        *((problem.location,) if problem.location is not None else ()),
-        *problem.related_locations,
-    ):
-        if (
-            isinstance(location, RuntimeLocation)
-            and location.instrument_id in instrument_ids
-        ):
-            assert location.instrument_id is not None
-            selected.add(location.instrument_id)
-        elif isinstance(location, ModelLocation):
-            selected.update(
-                item
-                for item in location.path
-                if isinstance(item, str) and item in instrument_ids
-            )
-            for index, item in enumerate(location.path[:-1]):
-                candidate = location.path[index + 1]
-                if (
-                    item == "instruments"
-                    and isinstance(candidate, int)
-                    and candidate < len(specs)
-                ):
-                    selected.add(specs[candidate].id)
-    return tuple(sorted(selected))
 
 
 __all__ = ["InstrumentRuntime"]

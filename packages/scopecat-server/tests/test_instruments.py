@@ -5,7 +5,7 @@ from collections.abc import Callable, Sequence
 from datetime import timedelta
 from pathlib import Path
 from threading import Event, Thread
-from typing import Never, override
+from typing import Never, cast, override
 
 import httpx2
 import pytest
@@ -90,6 +90,11 @@ from tests.testkit.payload_codecs import json_payload_codecs
 import scopecat_server.instruments.runtime as instrument_service_module
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict
+from scopecat_server.instruments._runtime_state import (
+    INTERACTIVE_REPLAY_LIMIT,
+    ApplyReplay,
+    InstrumentOperationLedger,
+)
 from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint
 
 _SET_FREQUENCY = InterfaceRef("test.set_frequency/v1").property("frequency")
@@ -104,8 +109,8 @@ _SESSION_LEASE_TTL = timedelta(seconds=90)
 
 
 def test_interactive_replay_ledger_keeps_only_the_recent_window() -> None:
-    ledger = instrument_service_module._InstrumentOperationLedger()
-    replay = instrument_service_module._ApplyReplay(
+    ledger = InstrumentOperationLedger()
+    replay = ApplyReplay(
         command=InstrumentStateCommand(
             command_id="replay-window",
             instrument_id="source-0",
@@ -122,7 +127,7 @@ def test_interactive_replay_ledger_keeps_only_the_recent_window() -> None:
         receipt=ApplyReceipt(),
     )
 
-    for index in range(instrument_service_module._INTERACTIVE_REPLAY_LIMIT + 1):
+    for index in range(INTERACTIVE_REPLAY_LIMIT + 1):
         ledger.remember(f"command-{index}", replay)
 
     assert ledger.replay("command-0") is None
@@ -1774,8 +1779,9 @@ def test_shutdown_owns_a_session_already_selected_for_lease_expiry(
         drain_started = Event()
         continue_release = Event()
         release_calls = 0
-        original_release: Callable[..., bool] = (
-            instrument_service_module._release_instruments
+        original_release = cast(
+            "Callable[..., bool]",
+            vars(instrument_service_module)["release_instruments"],
         )
         original_drain: Callable[..., None] = instruments._drain_shutdown
 
@@ -1792,7 +1798,7 @@ def test_shutdown_owns_a_session_already_selected_for_lease_expiry(
 
         monkeypatch.setattr(
             instrument_service_module,
-            "_release_instruments",
+            "release_instruments",
             delayed_release,
         )
         monkeypatch.setattr(instruments, "_drain_shutdown", observed_drain)
