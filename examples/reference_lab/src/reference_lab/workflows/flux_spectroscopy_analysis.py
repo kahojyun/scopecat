@@ -96,6 +96,12 @@ class ResonatorTraceFit:
     model_id: Annotated[str, _MODEL_ID_FIELD] = _FIT_MODEL_ID
 
 
+RESONATOR_TRACE_FIT_SCHEMA = sc.AnalysisFactSchema(
+    _FIT_MODEL_ID,
+    ResonatorTraceFit,
+)
+
+
 @dataclass(frozen=True, slots=True)
 class FluxSpectroscopyAnalysisResult:
     """Durable fit rows plus the selected authoritative conclusion."""
@@ -337,7 +343,7 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
         .fact(
             "selected-sweet-spot",
             result.sweet_spot,
-            schema_id=_FIT_MODEL_ID,
+            schema=RESONATOR_TRACE_FIT_SCHEMA,
             title="Selected readout sweet spot",
             metadata={"selection": "maximum fitted resonance frequency"},
         )

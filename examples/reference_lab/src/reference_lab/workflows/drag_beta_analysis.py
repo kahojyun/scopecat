@@ -82,6 +82,12 @@ class DragBetaFit:
     )
 
 
+DRAG_BETA_FIT_SCHEMA = sc.AnalysisFactSchema(
+    _DRAG_BETA_FIT_MODEL_ID,
+    DragBetaFit,
+)
+
+
 @dataclass(frozen=True, slots=True)
 class DragBetaAnalysisResult:
     """Native observations plus the authoritative fitted conclusion."""
@@ -163,7 +169,7 @@ def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
         .fact(
             "quadratic-fit",
             result.fit,
-            schema_id=_DRAG_BETA_FIT_MODEL_ID,
+            schema=DRAG_BETA_FIT_SCHEMA,
             title="DRAG beta quadratic fit",
         )
         .table(

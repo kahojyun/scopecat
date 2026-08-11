@@ -966,6 +966,7 @@ export interface components {
          */
         "AnalysisFact-Output": {
             codec: components["schemas"]["_NonEmptyText"];
+            schema_hash: components["schemas"]["Sha256ContentHash"];
             schema_id: components["schemas"]["_NonEmptyText"];
             value: components["schemas"]["pydantic__types__JsonValue"];
         };

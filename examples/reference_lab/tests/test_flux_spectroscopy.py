@@ -46,6 +46,7 @@ from reference_lab.workflows.flux_spectroscopy import (
     flux_spectroscopy,
 )
 from reference_lab.workflows.flux_spectroscopy_analysis import (
+    RESONATOR_TRACE_FIT_SCHEMA,
     fit_flux_spectroscopy,
     fit_resonator_trace,
     flux_spectroscopy_analysis,
@@ -301,6 +302,11 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         execution_id="fit-resonator-by-bias",
         output_name="sweet_spot",
     )
+    selected_fit = analysis.fact_as(
+        "selected-sweet-spot",
+        RESONATOR_TRACE_FIT_SCHEMA,
+    )
+    assert selected_fit.model_id == "reference_lab.complex_s21_notch.v1"
     fit_table = analysis.table("fit-by-bias-table")
     assert fit_table.source is not None
     assert fit_table.source.output_id == "fit-by-bias"

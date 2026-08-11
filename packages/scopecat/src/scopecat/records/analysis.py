@@ -28,6 +28,7 @@ from pydantic import (
 from scopecat.kernel.content_identity import canonical_json, stable_content_hash
 from scopecat.kernel.quantity import Quantity
 from scopecat.records._metadata import JsonMetadata
+from scopecat.records.artifact import Sha256ContentHash
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
@@ -540,6 +541,7 @@ class AnalysisFact(_AnalysisContentModel):
     """Small typed conclusion retained directly in an analysis record."""
 
     schema_id: _NonEmptyText
+    schema_hash: Sha256ContentHash
     codec: _NonEmptyText
     value: JsonValue
 

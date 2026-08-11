@@ -17,8 +17,9 @@ Every output has a stable, analysis-local `id`. An analysis publishes five
 kinds of output:
 
 - **Fact** is a small typed conclusion, such as a fitted resonance, quality
-  metric, classification, or structured fit summary. A fact retains an explicit
-  schema or first-party scalar meaning; it is not an unlabelled JSON dump.
+  metric, classification, or structured fit summary. Scalars and quantities
+  use first-party schemas. A structured fact requires an `AnalysisFactSchema`
+  that validates its canonical JSON shape; it is not an unlabelled JSON dump.
 - **Dataset** is reusable structured scientific data. Its durable schema retains
   column identities, physical types, nulls, units, coordinates, and the native
   metadata that can be represented without ambiguity.
@@ -229,6 +230,46 @@ Views refer to datasets, and proposals may refer to authoritative outputs inside
 their producing analysis. Future relations should likewise use stable output IDs
 rather than display titles or tuple positions. Titles and labels remain
 presentation metadata.
+
+## Structured fact contract
+
+A structured fact has a versioned domain `schema_id`, a fingerprint of the
+validated JSON schema, and canonical JSON content. The schema ID says what the
+conclusion means; the fingerprint detects accidental reuse of that ID for a
+different shape. The durable record deliberately does not contain a Python
+module or import path.
+
+Define the local type and its schema descriptor together, then reuse the
+descriptor for publication and typed reading:
+
+```python
+@dataclass(frozen=True, slots=True)
+class ResonatorFit:
+    resonance: sc.Quantity
+    quality: float
+
+
+RESONATOR_FIT_SCHEMA = sc.AnalysisFactSchema(
+    "lab.resonator-fit.v1",
+    ResonatorFit,
+)
+
+analysis = context.result("Fit review").fact(
+    "selected-fit",
+    fit,
+    schema=RESONATOR_FIT_SCHEMA,
+)
+
+published = run.published_analysis("fit-review")
+fit = published.fact_as("selected-fit", RESONATOR_FIT_SCHEMA)
+```
+
+`fact_as(...)` checks both the schema ID and fingerprint before reconstructing
+the caller's dataclass or Pydantic model. Changing the durable shape requires a
+new versioned schema ID. Scopecat does not maintain a global Python type
+registry or import application types while reopening a run; code that only
+needs generic inspection can continue to use `fact(...)` and read its JSON
+value directly.
 
 Analysis currently belongs to one completed run. Live checkpoints, retries,
 cross-run state, schedules, and recurring calibration belong to a future

@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
+from scopecat.analysis.facts import SCALAR_FACT_SCHEMA_HASH
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.analysis import (
@@ -164,6 +165,7 @@ def test_analysis_record_outputs_round_trip_as_discriminated_display_contracts()
                 ),
                 content=AnalysisFact(
                     schema_id="scopecat.scalar.v1",
+                    schema_hash=SCALAR_FACT_SCHEMA_HASH,
                     codec="scopecat.python-json.v1",
                     value=5.1,
                 ),
@@ -497,6 +499,7 @@ def test_analysis_record_rejects_unknown_output_producer() -> None:
                     ),
                     content=AnalysisFact(
                         schema_id="scopecat.scalar.v1",
+                        schema_hash=SCALAR_FACT_SCHEMA_HASH,
                         codec="scopecat.python-json.v1",
                         value=1,
                     ),
@@ -543,6 +546,7 @@ def test_analysis_record_rejects_unknown_execution_output_producer() -> None:
                     ),
                     content=AnalysisFact(
                         schema_id="scopecat.scalar.v1",
+                        schema_hash=SCALAR_FACT_SCHEMA_HASH,
                         codec="scopecat.python-json.v1",
                         value=1,
                     ),

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Protocol, cast
 
 from scopecat.analysis.datasets import DerivedDataset
+from scopecat.analysis.facts import AnalysisFactSchema
 from scopecat.config.candidates import (
     CandidateConfig,
     CandidateSelection,
@@ -36,6 +37,7 @@ from scopecat.runs.data import (
     RunArtifactTextResult,
     RunRecordJsonResult,
 )
+from scopecat.sdk.compute import PYTHON_JSON_CODEC
 
 
 class _PublishedAnalysisRun(Protocol):
@@ -178,6 +180,29 @@ class PublishedAnalysis:
 
     def fact(self, id: str) -> AnalysisFact:
         return self._output(id, AnalysisFactRecordOutput).content
+
+    def fact_as[ValueT](
+        self,
+        id: str,
+        schema: AnalysisFactSchema[ValueT],
+    ) -> ValueT:
+        """Validate and reconstruct one structured fact with a local type."""
+
+        fact = self.fact(id)
+        if fact.schema_id != schema.id:
+            raise TypeError(
+                f"analysis fact {id!r} uses schema {fact.schema_id!r}, "
+                f"not {schema.id!r}"
+            )
+        if fact.schema_hash != schema.schema_hash:
+            raise TypeError(
+                f"analysis fact {id!r} schema fingerprint does not match {schema.id!r}"
+            )
+        if fact.codec != PYTHON_JSON_CODEC:
+            raise TypeError(
+                f"analysis fact {id!r} uses unsupported codec {fact.codec!r}"
+            )
+        return schema.decode(fact.value)
 
     def dataset(self, id: str) -> DerivedDataset:
         output = self._output(id, AnalysisDatasetRecordOutput)

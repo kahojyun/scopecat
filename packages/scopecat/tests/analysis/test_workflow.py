@@ -117,6 +117,24 @@ class _DuplicateScores:
     second: float
 
 
+@dataclass(frozen=True, slots=True)
+class _FitConclusion:
+    resonance: sc.Quantity
+    quality: float
+
+
+@dataclass(frozen=True, slots=True)
+class _IncompatibleFitConclusion:
+    resonance: sc.Quantity
+    converged: bool
+
+
+_FIT_CONCLUSION_SCHEMA = sc.AnalysisFactSchema(
+    "tests.fit-conclusion.v1",
+    _FitConclusion,
+)
+
+
 @_COMPUTES.implementation(
     "test.structured-fit",
     "1",
@@ -751,6 +769,44 @@ def test_analysis_publishes_typed_facts_and_owned_artifacts(tmp_path: Path) -> N
     assert handle.published_analyses()[-1].id == "analysis-publication"
     with pytest.raises(TypeError, match="is fact"):
         published.dataset("resonance")
+
+
+def test_analysis_validates_and_reconstructs_structured_facts(tmp_path: Path) -> None:
+    run = execute_signal_run(
+        config=load_config(),
+        experiment=load_invocation(),
+        project_root=tmp_path,
+    )
+    handle = in_process_lab(tmp_path, config=load_config()).get_run(run.run_id)
+    fit = _FitConclusion(
+        resonance=sc.Quantity(5.1, "GHz"),
+        quality=0.98,
+    )
+
+    published = (
+        handle.analysis("Structured fact", key="structured-fact")
+        .fact("fit", fit, schema=_FIT_CONCLUSION_SCHEMA)
+        .save()
+    )
+
+    stored = published.fact("fit")
+    assert stored.schema_id == "tests.fit-conclusion.v1"
+    assert stored.schema_hash == _FIT_CONCLUSION_SCHEMA.schema_hash
+    assert stored.value == {
+        "resonance": {"value": 5.1, "unit": "GHz"},
+        "quality": 0.98,
+    }
+    assert published.fact_as("fit", _FIT_CONCLUSION_SCHEMA) == fit
+
+    incompatible_schema = sc.AnalysisFactSchema(
+        "tests.fit-conclusion.v1",
+        _IncompatibleFitConclusion,
+    )
+    with pytest.raises(TypeError, match="fingerprint does not match"):
+        published.fact_as("fit", incompatible_schema)
+
+    with pytest.raises(TypeError, match="require an AnalysisFactSchema"):
+        handle.analysis("Invalid").fact("fit", fit)
 
 
 def test_analysis_key_appends_only_changed_publication_revisions(

@@ -25,6 +25,13 @@ from scopecat.analysis.datasets import (
     PandasIndexPolicy,
     derived_dataset,
 )
+from scopecat.analysis.facts import (
+    QUANTITY_FACT_SCHEMA_HASH,
+    QUANTITY_FACT_SCHEMA_ID,
+    SCALAR_FACT_SCHEMA_HASH,
+    SCALAR_FACT_SCHEMA_ID,
+    AnalysisFactSchema,
+)
 from scopecat.analysis.service import (
     AnalysisArtifactOutput,
     AnalysisDatasetOutput,
@@ -202,12 +209,12 @@ class Analysis:
             )
         )
 
-    def fact(
+    def fact[ValueT](
         self,
         id: str,
-        value: object,
+        value: ValueT,
         *,
-        schema_id: str | None = None,
+        schema: AnalysisFactSchema[ValueT] | None = None,
         title: str | None = None,
         metadata: Mapping[str, object] | None = None,
         source: tuple[str, str] | None = None,
@@ -219,14 +226,20 @@ class Analysis:
         """
 
         selected_id = _analysis_output_id(id)
-        if isinstance(value, Quantity):
-            selected_schema = schema_id or "scopecat.quantity.v1"
+        if schema is not None:
+            selected_schema = schema.id
+            selected_schema_hash = schema.schema_hash
+            selected_value = schema.encode(value)
+        elif isinstance(value, Quantity):
+            selected_schema = QUANTITY_FACT_SCHEMA_ID
+            selected_schema_hash = QUANTITY_FACT_SCHEMA_HASH
+            selected_value = _analysis_json(value)
         elif value is None or isinstance(value, bool | int | float | str):
-            selected_schema = schema_id or "scopecat.scalar.v1"
-        elif schema_id is None or not schema_id.strip():
-            raise TypeError("structured analysis facts require a schema_id")
+            selected_schema = SCALAR_FACT_SCHEMA_ID
+            selected_schema_hash = SCALAR_FACT_SCHEMA_HASH
+            selected_value = _analysis_json(value)
         else:
-            selected_schema = schema_id
+            raise TypeError("structured analysis facts require an AnalysisFactSchema")
         return self._append_output(
             AnalysisFactOutput(
                 kind="fact",
@@ -234,8 +247,9 @@ class Analysis:
                 title=title or selected_id,
                 content=AnalysisFact(
                     schema_id=selected_schema,
+                    schema_hash=selected_schema_hash,
                     codec=PYTHON_JSON_CODEC,
-                    value=_analysis_json(value),
+                    value=selected_value,
                 ),
                 metadata=metadata or {},
                 produced_by=self._source_for(value, source=source),
@@ -1406,6 +1420,7 @@ __all__ = [
     "Analysis",
     "AnalysisContext",
     "AnalysisDefinition",
+    "AnalysisFactSchema",
     "AnalysisField",
     "AnalysisFigure",
     "AnalysisFigureAxis",

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         DerivedDatasetSchema,
         derived_dataset,
     )
+    from scopecat.analysis.facts import AnalysisFactSchema
     from scopecat.api._instruments import (
         InstrumentClientFactory,
         InstrumentRef,
@@ -232,6 +233,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "update_parameter_rows": ("scopecat.config.parameters", "update_parameter_rows"),
     "Analysis": ("scopecat.api.analysis", "Analysis"),
+    "AnalysisFactSchema": ("scopecat.analysis.facts", "AnalysisFactSchema"),
     "AnalysisContext": ("scopecat.api.analysis", "AnalysisContext"),
     "AnalysisFigure": ("scopecat.api.analysis", "AnalysisFigure"),
     "AnalysisField": ("scopecat.api.analysis", "AnalysisField"),

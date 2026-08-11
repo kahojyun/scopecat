@@ -318,6 +318,7 @@ describe("project daemon reads", () => {
                       },
                       content: {
                         schema_id: "scopecat.scalar.v1",
+                        schema_hash: `sha256:${"c".repeat(64)}`,
                         codec: "scopecat.python-json.v1",
                         value: 5.1,
                       },
@@ -402,6 +403,7 @@ describe("project daemon reads", () => {
           title: "Fitted frequency",
           content: {
             schema_id: "scopecat.scalar.v1",
+            schema_hash: `sha256:${"c".repeat(64)}`,
             codec: "scopecat.python-json.v1",
             value: 5.1,
           },

@@ -735,6 +735,13 @@ report = published.artifact("fit-report").text()
 table_preview = published.table("fit-table").preview
 ```
 
+`fact(...)` returns the durable descriptor and generic JSON value. For a
+structured conclusion, define an `AnalysisFactSchema` beside its local
+dataclass or Pydantic model, pass it to publication, and use
+`published.fact_as(output_id, schema)` to validate the stored schema fingerprint
+and reconstruct that local type. The record never depends on a Python import
+path.
+
 The selector may be an exact analysis record ID or a logical analysis key. A
 logical key selects its latest immutable publication; output access rejects a
 kind mismatch instead of returning untyped record JSON. Saving identical
